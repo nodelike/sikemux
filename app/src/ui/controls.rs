@@ -315,18 +315,6 @@ impl Button {
         self
     }
 
-    /// Something drawn before the label in place of an icon, such as a status dot.
-    pub fn lead(mut self, lead: impl IntoElement) -> Self {
-        self.lead = Some(lead.into_any_element());
-        self
-    }
-
-    /// Something drawn after the label, such as a count.
-    pub fn trail(mut self, trail: impl IntoElement) -> Self {
-        self.trail = Some(trail.into_any_element());
-        self
-    }
-
     pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
@@ -568,23 +556,6 @@ impl Segmented {
     /// Counts what waits on the person under the choice at `index`, in the warning colour.
     pub fn waiting(mut self, index: usize, count: usize) -> Self {
         self.waiting = (count > 0).then_some((index, count));
-        self
-    }
-
-    pub fn tooltips(mut self, tooltips: impl IntoIterator<Item = SharedString>) -> Self {
-        self.tooltips = tooltips.into_iter().collect();
-        self
-    }
-
-    /// Draws each choice's icon without its label, which moves into its tooltip, for narrow
-    /// places.
-    pub fn icons_only(mut self, icons_only: bool) -> Self {
-        self.icons_only = icons_only;
-        self
-    }
-
-    pub fn suggested(mut self, index: usize, why: impl Into<SharedString>) -> Self {
-        self.suggested = Some((index, why.into()));
         self
     }
 

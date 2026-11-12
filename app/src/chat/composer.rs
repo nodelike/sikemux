@@ -808,7 +808,7 @@ fn shape(width: f32, aside: Option<AsideRoom>) -> (Room, bool) {
     (Room::of(width - taken), labelled)
 }
 
-/// The widest the composer draws, which the goals' column takes too.
+/// The widest the composer draws.
 pub const WIDTH: f32 = 820.;
 
 /// YOLO or SAFE: whether the agent acts without asking. YOLO's letters run through the

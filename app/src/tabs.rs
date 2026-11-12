@@ -49,30 +49,9 @@ pub fn top_height(bench: &Workbench) -> f32 {
         }
 }
 
-/// Switches the window between the workbench and the goals, lit while the goals show.
-fn goals_toggle(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
-    let goals = bench.showing_goals();
-    let label = match goals {
-        true => "Back to the workbench",
-        false => "Goals",
-    };
-    let tip = match crate::keymap::hint(actions::ToggleGoals::ID, cx) {
-        Some(keys) => format!("{label} — {keys}"),
-        None => label.to_owned(),
-    };
-    IconButton::new("goals-view", Icon::Steps, tip)
-        .width(30.)
-        .pressed(goals)
-        .on_click(|_, window, cx| crate::keymap::dispatch(actions::ToggleGoals::ID, window, cx))
-}
-
-/// The strip in front while it holds a tab: a place with none shows no row at all, and nor
-/// does the goals view.
+/// The strip in front while it holds a tab: a place with none shows no row at all.
 fn strip_with_tabs(bench: &Workbench) -> Option<Strip> {
-    (!bench.showing_goals())
-        .then(|| bench.strip())
-        .flatten()
-        .filter(|strip| !bench.tabs(strip).is_empty())
+    bench.strip().filter(|strip| !bench.tabs(strip).is_empty())
 }
 
 /// The bar, holding the window buttons, where the window is and the chips, then the
@@ -131,7 +110,6 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                         .flex()
                         .gap(SPACE_0)
                         .children(crate::agents::limits::chip(bench, cx))
-                        .child(goals_toggle(bench, cx))
                         .child(
                             IconButton::new(
                                 "focus",
@@ -871,6 +849,11 @@ impl Workbench {
                 }
             }
         }
+        if kinds.contains(&PaneKind::Board) {
+            if let (Some(strip), Some(tab)) = (self.strip(), self.tab().map(|tab| tab.id.clone())) {
+                return self.close_tabs(&strip, &[tab]);
+            }
+        }
         for kind in kinds {
             crate::pane_kind::make(kind, self, window, cx);
         }
@@ -1018,11 +1001,6 @@ impl Workbench {
             self.target()
                 .call_typed::<call::DuplicateTab>(TabParams::new(strip.at(), tab));
         }
-    }
-
-    /// The id of the agent the tab in front shows.
-    pub fn front_tab_agent(&self) -> Option<&str> {
-        shows(self.tab()?, PaneKind::Agent).map(String::as_str)
     }
 }
 

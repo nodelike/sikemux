@@ -46,10 +46,6 @@ pub struct GitTab {
     /// The repository changed while the Git pane was out of sight, so it reads it and its
     /// review again once it shows rather than on every change.
     pub(crate) behind: bool,
-    /// The commit to show once the pane exists.
-    pub(crate) wanted_commit: Option<String>,
-    /// The slice a change pinned on a line of that commit goes to.
-    pub(crate) wanted_pin: Option<review::DiffPin>,
 }
 
 impl GitTab {
@@ -715,12 +711,6 @@ impl Workbench {
         if let Some(drafts) = self.feeds.in_front().git_draft.as_ref() {
             pane.update(cx, |pane, cx| pane.drafts(drafts, cx));
         }
-        if let Some(pin) = self.git.wanted_pin.take() {
-            pane.update(cx, |pane, _| pane.review.pin_on(pin));
-        }
-        if let Some(sha) = self.git.wanted_commit.take() {
-            pane.update(cx, |pane, cx| pane.show_commit(&sha, cx));
-        }
         self.git.pane = Some(pane);
     }
 
@@ -733,38 +723,6 @@ impl Workbench {
                 PaneKind::Git,
                 project.path.to_string_lossy(),
             ));
-        }
-    }
-
-    /// Opens the project's Git on the change from `base` to `sha` touching `files`, whose lines
-    /// take a change for the slice `pinning` names.
-    pub(crate) fn open_change_pinned(
-        &mut self,
-        base: String,
-        sha: &str,
-        files: Vec<String>,
-        pinning: crate::goals::Pinning,
-        cx: &mut Context<Self>,
-    ) {
-        let pin = review::DiffPin {
-            pinning,
-            base,
-            head: sha.to_owned(),
-            files,
-            bench: cx.entity().downgrade(),
-        };
-        match self.git.pane.clone() {
-            Some(pane) => pane.update(cx, |pane, _| pane.review.pin_on(pin)),
-            None => self.git.wanted_pin = Some(pin),
-        }
-        self.open_commit(sha, cx);
-    }
-
-    pub fn open_commit(&mut self, sha: &str, cx: &mut Context<Self>) {
-        self.open_git(cx);
-        match self.git.pane.clone() {
-            Some(pane) => pane.update(cx, |pane, cx| pane.show_commit(sha, cx)),
-            None => self.git.wanted_commit = Some(sha.to_owned()),
         }
     }
 }

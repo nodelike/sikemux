@@ -185,7 +185,6 @@ fn evidence_opens(
     .on_click(cx.listener(move |bench, _, window, cx| match still {
         true => bench.show_picture(path.clone(), window, cx),
         false => {
-            bench.show_workbench(cx);
             bench.open_file(&path, cx);
         }
     }))

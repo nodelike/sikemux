@@ -48,18 +48,14 @@ pub fn applies(id: &str, applies: Applies) -> bool {
         .any(|(command, held)| *command == id && held.contains(&applies))
 }
 
-/// Runs `run` once the goals' place has given way to the workbench.
+/// Runs `run` on the workbench.
 fn opening<A: gpui::Action>(
     cx: &Context<Workbench>,
     run: fn(&mut Workbench, &mut Window, &mut Context<Workbench>),
 ) -> impl Fn(&A, &mut Window, &mut App) + use<A> {
     let this = cx.weak_entity();
     move |_: &A, window: &mut Window, cx: &mut App| {
-        this.update(cx, |bench, cx| {
-            bench.show_workbench(cx);
-            run(bench, window, cx)
-        })
-        .ok();
+        this.update(cx, |bench, cx| run(bench, window, cx)).ok();
     }
 }
 
@@ -115,11 +111,8 @@ commands! {
     };
     FocusFiles = "window.files" opens |bench, _, cx| bench.focus_files(cx);
     FocusAgents = "window.agents" opens Workbench::focus_agents;
-    FocusBoard = "window.board" opens |bench, _, cx| bench.focus_board(cx);
     FocusHosts = "window.hosts" opens |bench, _, _| bench.open_hosts(None);
     FocusPlaybook = "window.playbook" opens |bench, _, _| bench.open_playbook();
-    /// Switches the window between the workbench and the goals.
-    ToggleGoals = "window.goals" acts |bench, _, cx| bench.toggle_goals_view(cx);
     NextPlace = "session.next" acts |bench, window, cx| bench.step_place(1, window, cx);
     PreviousPlace = "session.previous" acts |bench, window, cx| bench.step_place(-1, window, cx);
     OpenCommands = "palette.commands" (OverModals) acts |bench, window, cx| {

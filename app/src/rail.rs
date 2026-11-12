@@ -88,7 +88,6 @@ impl Rails {
             copy_notes: HashMap::new(),
             keeping: None,
             all_projects: false,
-            goal_focus: None,
             all_harnesses: false,
             folded_teams: HashSet::new(),
             folded_groups: Vec::new(),
@@ -120,13 +119,6 @@ impl Rails {
     }
 }
 
-pub struct GoalFocus {
-    pub(crate) project: String,
-    pub(crate) card: u64,
-    pub(crate) title: String,
-    pub(crate) agents: Vec<String>,
-}
-
 /// The two rails' state: which stay open and how wide, the page the tab rail shows and what it
 /// lists, and what their drawing remembers between frames.
 pub struct Rails {
@@ -149,8 +141,6 @@ pub struct Rails {
     /// The rails' state waiting to be kept in the core's preferences, once a drag settles.
     pub(crate) keeping: Option<gpui_kit::Task<()>>,
     pub(crate) all_projects: bool,
-    /// The goal the agent rail is narrowed to, by Focus on the goals' panel.
-    pub(crate) goal_focus: Option<GoalFocus>,
     /// The rail lists the recent chats of every agent, not one's.
     pub(crate) all_harnesses: bool,
     /// The leads whose teams the agent rail folds away.
@@ -199,10 +189,6 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                 .px(SPACE_2H)
                 .pb(SPACE_4)
                 .overflow_y_scroll()
-                .children(
-                    crate::goals::places(bench, cx)
-                        .map(|places| div().pb(SPACE_2H).flex().flex_col().children(places)),
-                )
                 .child(
                     Group::new("Projects", empty)
                         .first()
@@ -268,10 +254,9 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                             None,
                             [
                                 IconButton::new("add-terminal", Icon::Plus, "New terminal")
-                                    .on_click(cx.listener(|bench, _, _, cx| {
-                                        bench.show_workbench(cx);
-                                        bench.new_loose_terminal(cx)
-                                    })),
+                                    .on_click(
+                                        cx.listener(|bench, _, _, cx| bench.new_loose_terminal(cx)),
+                                    ),
                             ],
                             cx,
                         ))
@@ -296,8 +281,7 @@ fn details_item(bench: WeakEntity<Workbench>, host: String) -> PopupMenuItem {
         .icon(Icon::Gauge)
         .on_click(move |_, _, cx| {
             let host = host.clone();
-            let _ = bench.update(cx, |bench, cx| {
-                bench.show_workbench(cx);
+            let _ = bench.update(cx, |bench, _| {
                 bench.open_hosts(Some(host));
             });
         })
@@ -560,10 +544,8 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                         PopupMenuItem::new("New SSH terminal")
                             .icon(Icon::Terminal)
                             .on_click(move |_, _, cx| {
-                                let _ = bench.update(cx, |bench, cx| {
-                                    bench.show_workbench(cx);
-                                    bench.open_ssh_terminal(&alias, cx)
-                                });
+                                let _ = bench
+                                    .update(cx, |bench, cx| bench.open_ssh_terminal(&alias, cx));
                             }),
                     );
                     let popup = match set_up_item(bench_entity.clone(), true) {
@@ -671,10 +653,8 @@ pub(crate) fn account_host_menu(
                         .on_click({
                             let bench = bench.clone();
                             move |_, _, cx| {
-                                let _ = bench.update(cx, |bench, cx| {
-                                    bench.show_workbench(cx);
-                                    bench.open_ssh_terminal(&alias, cx)
-                                });
+                                let _ = bench
+                                    .update(cx, |bench, cx| bench.open_ssh_terminal(&alias, cx));
                             }
                         }),
                 );
@@ -776,10 +756,7 @@ fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 .when(shown.problem.is_some(), |row| {
                     row.status(Some(ui::dot(Tone::Failed, cx)))
                 })
-                .on_click(cx.listener(move |bench, _, _, cx| {
-                    bench.show_workbench(cx);
-                    bench.open_mod(&id, &name)
-                }));
+                .on_click(cx.listener(move |bench, _, _, _| bench.open_mod(&id, &name)));
             let (bench, shown, project) = (cx.weak_entity(), shown.clone(), project.clone());
             with_menu(
                 SharedString::from(format!("mod-{}-menu", shown.id)),
@@ -844,8 +821,7 @@ fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> 
                 session.rail_name.clone().unwrap_or_default(),
             )
             .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
-            .on_click(cx.listener(move |bench, _, _, cx| {
-                bench.show_workbench(cx);
+            .on_click(cx.listener(move |bench, _, _, _| {
                 bench.open_here(OpenTab::new(
                     At::terminals(),
                     PaneKind::Terminal,
@@ -1060,12 +1036,8 @@ fn project_tree(
 }
 
 /// The surface the project tree lights: the tab rail's page while it is open, unless the
-/// tab in front is a surface the tab rail has no page for, such as Git; none on the goals,
-/// where Home, Overnight or Environments is lit instead.
+/// tab in front is a surface the tab rail has no page for, such as Git.
 fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
-    if bench.showing_goals() {
-        return None;
-    }
     let front = bench
         .tab()
         .and_then(|tab| tabs::first_view(&tab.pane))
@@ -1586,7 +1558,6 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
                 if bench.settings.read(cx).is_open() {
                     crate::settings::close(bench, window, cx);
                 }
-                bench.show_workbench(cx);
                 keymap::count(actions::FocusHosts::ID.name(), cx);
                 bench.open_hosts(None);
             }),
@@ -1858,7 +1829,6 @@ impl Workbench {
     /// Takes the rails as the person last left them, from the core's preferences.
     pub(crate) fn follow_rails(&mut self, preferences: &Preferences) {
         self.rails.follow(preferences);
-        self.window_view = preferences.window_view;
         self.recent_commands = preferences
             .recent_command_keys
             .iter()
@@ -1905,7 +1875,6 @@ impl Workbench {
             PreferenceChange::TabRailScope(scope),
             PreferenceChange::TabRailAllAgents(self.rails.all_harnesses),
             PreferenceChange::FoldedRailGroups(self.rails.folded_groups.clone()),
-            PreferenceChange::WindowView(self.window_view),
             PreferenceChange::RecentCommandKeys(recent),
         ];
         let kept = self.preferences.as_ref();

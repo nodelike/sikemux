@@ -49,7 +49,7 @@ pub fn of(kind: PaneKind) -> Kind {
         PaneKind::Files => kind_of(Icon::Editor, "Files", WhenSaved, false),
         PaneKind::Git => kind_of(Icon::Git, "Git", Always, true),
         PaneKind::Search => kind_of(Icon::Search, "Search", Always, true),
-        PaneKind::Board => kind_of(Icon::Board, "Agent board", Never, true),
+        PaneKind::Board => kind_of(Icon::Window, "Closed", Never, true),
         PaneKind::Desk => kind_of(Icon::PanelRight, "Desk", Never, false),
         PaneKind::ProjectSettings => kind_of(Icon::Book, "Playbook", Never, true),
         PaneKind::InstallSikemux => kind_of(Icon::Server, "Sikemux", Never, true),
@@ -67,7 +67,7 @@ pub struct Surface {
     pub command: CommandId,
 }
 
-pub const SURFACES: [Surface; 6] = [
+pub const SURFACES: [Surface; 5] = [
     Surface {
         kind: PaneKind::Files,
         label: "Files",
@@ -92,11 +92,6 @@ pub const SURFACES: [Surface; 6] = [
         kind: PaneKind::Search,
         label: "Search",
         command: actions::FocusSearch::ID,
-    },
-    Surface {
-        kind: PaneKind::Board,
-        label: "Agent board",
-        command: actions::FocusBoard::ID,
     },
 ];
 
@@ -141,8 +136,8 @@ pub fn make(
     match kind {
         PaneKind::Git => bench.git_pane(window, cx),
         PaneKind::Search => bench.search_pane(cx),
-        PaneKind::Board => bench.board_pane(cx),
         PaneKind::Agent
+        | PaneKind::Board
         | PaneKind::Terminal
         | PaneKind::Files
         | PaneKind::Desk
@@ -183,7 +178,7 @@ pub fn draw(
             Some(pane) => ui::pane(cx).child(pane.clone()).into_any_element(),
             None => ui::pane(cx).into_any_element(),
         },
-        PaneKind::Board => crate::board::pane(bench, window, cx),
+        PaneKind::Board => ui::pane(cx).into_any_element(),
         PaneKind::Mod => match bench.mod_panes.get(id) {
             Some(pane) => ui::pane(cx).child(pane.clone()).into_any_element(),
             None => ui::pane(cx).into_any_element(),

@@ -112,8 +112,7 @@ impl Workbench {
 
     /// The rows the agent rail lists: this project's, or every project's.
     pub fn listed_agents(&self) -> Vec<AgentRow> {
-        let focus = self.rails.goal_focus.as_ref();
-        let mut rows: Vec<AgentRow> = if self.rails.all_projects || focus.is_some() {
+        let mut rows: Vec<AgentRow> = if self.rails.all_projects {
             self.folded()
                 .iter()
                 .flat_map(|folded| self.agents_of_folded(folded))
@@ -123,9 +122,6 @@ impl Workbench {
                 .map(|folded| self.agents_of_folded(&folded))
                 .unwrap_or_default()
         };
-        if let Some(focus) = focus {
-            rows.retain(|row| focus.agents.contains(&row.id));
-        }
         let filter = self.filter_text();
         rows.retain(|row| row.title.to_lowercase().contains(filter));
         rows

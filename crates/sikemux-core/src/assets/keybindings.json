@@ -456,28 +456,12 @@
         "other": "Ctrl+Alt+Digit5"
     },
     {
-        "id": "window.board",
-        "label": "Focus agent board",
-        "detail": "Jump to the cards the project's agents work from",
-        "category": "Navigation",
-        "mac": null,
-        "other": null
-    },
-    {
         "id": "window.playbook",
         "label": "Playbook",
         "detail": "Open the project's Playbook: its rules, places, landing and what runs with nobody asking",
         "category": "Navigation",
         "mac": "Meta+Alt+Digit6",
         "other": "Ctrl+Alt+Digit6"
-    },
-    {
-        "id": "window.goals",
-        "label": "Switch to goals",
-        "detail": "Switch the window between the workbench and the goals, and back",
-        "category": "Navigation",
-        "mac": "Meta+Alt+Digit7",
-        "other": "Ctrl+Alt+Digit7"
     },
     {
         "id": "window.hosts",

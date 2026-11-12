@@ -18,7 +18,6 @@ use super::pane::{status_mark, GitPane, Side};
 use super::{row, Colours, Compared, Diff, Notes, RowLook};
 use crate::core::Target;
 use crate::editor::OpenAt;
-use crate::icons::Icon;
 use crate::theme::{
     Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_XS,
 };
@@ -77,23 +76,11 @@ struct Wanted {
     sections: Vec<(Option<Side>, Compared)>,
 }
 
-/// The slice whose change runs from `base` to commit `head`, touching `files`, which the review
-/// shows whole in place of that commit, and which a change pinned on one of its lines goes to.
-#[derive(Clone)]
-pub struct DiffPin {
-    pub pinning: crate::goals::Pinning,
-    pub base: String,
-    pub head: String,
-    pub files: Vec<String>,
-    pub bench: gpui_kit::WeakEntity<crate::workbench::Workbench>,
-}
-
 #[derive(Default)]
 pub struct Review {
     repo: String,
     /// The commit whose files are shown, else the working changes.
     commit: Option<String>,
-    pin: Option<DiffPin>,
     cards: Vec<Card>,
     folded: HashSet<String>,
     items: Vec<Item>,
@@ -139,14 +126,10 @@ impl Review {
         self.show(repo, None, wanted);
     }
 
-    /// Lists what commit `rev` changed in `paths`, every file folded at first; for the head of a
-    /// slice's change, the whole change instead.
+    /// Lists what commit `rev` changed in `paths`, every file folded at first.
     pub fn show_commit(&mut self, repo: &str, rev: &str, paths: &[String]) {
         let fresh = self.commit.as_deref() != Some(rev);
-        let (base, paths) = match self.pin.as_ref().filter(|pin| pin.head == rev) {
-            Some(pin) => (pin.base.clone(), pin.files.clone()),
-            None => (format!("{rev}~1"), paths.to_vec()),
-        };
+        let base = format!("{rev}~1");
         let wanted = paths
             .iter()
             .map(|path| Wanted {
@@ -173,25 +156,12 @@ impl Review {
         self.commit.as_deref()
     }
 
-    /// Lines of the commit `pin` names take a change for its slice.
-    pub fn pin_on(&mut self, pin: DiffPin) {
-        self.pin = Some(pin);
-    }
-
-    /// What a change on a line shown now goes to.
-    fn pinning(&self) -> Option<&DiffPin> {
-        self.pin
-            .as_ref()
-            .filter(|pin| self.commit.as_deref() == Some(&pin.head))
-    }
-
     fn show(&mut self, repo: &str, commit: Option<String>, wanted: Vec<Wanted>) {
         if self.repo != repo || self.commit != commit {
             *self = Review {
                 repo: repo.to_owned(),
                 commit,
                 list: self.list.take(),
-                pin: self.pin.take(),
                 ..Review::default()
             };
         }
@@ -595,15 +565,6 @@ fn draw(
                 ..RowLook::new(&t, advance, section.scrolled)
             };
             let file = Path::new(&review.repo).join(&review.cards[card].path);
-            let pin = (review.pinning())
-                .filter(|_| diff.rows[index].0 != sikemux_core::git::diff::ROW_HIDDEN)
-                .map(|pin| {
-                    (
-                        pin.clone(),
-                        review.cards[card].path.clone(),
-                        diff.target(index) + 1,
-                    )
-                });
             let width = diff.width(advance);
             let (expanding, wheeling) = (view.clone(), view.clone());
             body(
@@ -626,65 +587,24 @@ fn draw(
                             }
                         });
                     })
-                    .child(pinnable(
-                        row(
-                            diff,
-                            &section.colours,
-                            index,
-                            &look,
-                            SharedString::from(format!("review-{card}-{at}-{index}")),
-                            Some(&file),
-                            move |_, cx| {
-                                expanding.update(cx, |pane, cx| {
-                                    pane.review.expand(card, at);
-                                    cx.notify();
-                                })
-                            },
-                        ),
-                        pin,
-                        SharedString::from(format!("review-pin-{card}-{at}-{index}")),
+                    .child(row(
+                        diff,
+                        &section.colours,
+                        index,
+                        &look,
+                        SharedString::from(format!("review-{card}-{at}-{index}")),
+                        Some(&file),
+                        move |_, cx| {
+                            expanding.update(cx, |pane, cx| {
+                                pane.review.expand(card, at);
+                                cx.notify();
+                            })
+                        },
                     )),
             )
             .into_any_element()
         }
     }
-}
-
-/// A diff row, with a pin at its start under the pointer when a change on its line goes to a
-/// slice: `pin` names the slice, the file and the line in the new text.
-fn pinnable(
-    line: impl IntoElement,
-    pin: Option<(DiffPin, String, u32)>,
-    id: SharedString,
-) -> AnyElement {
-    let Some((pin, file, number)) = pin else {
-        return line.into_any_element();
-    };
-    div()
-        .relative()
-        .group(id.clone())
-        .child(line)
-        .child(
-            div()
-                .absolute()
-                .left(px(1.))
-                .top_0()
-                .invisible()
-                .group_hover(id.clone(), |button| button.visible())
-                .child(
-                    ui::IconButton::new(id, Icon::Pin, "Pin a change on this line")
-                        .small()
-                        .on_click(move |_, _, cx| {
-                            let (pinning, file) = (pin.pinning.clone(), file.clone());
-                            let title = format!("What should change at {file}:{number}?");
-                            let spot = sikemux_view::slice::Spot::Line { file, line: number };
-                            let _ = pin.bench.update(cx, |bench, cx| {
-                                crate::goals::ask_change(bench, pinning, Some(spot), title, cx)
-                            });
-                        }),
-                ),
-        )
-        .into_any_element()
 }
 
 /// Takes the pane rather than reading `view`, since the pinned header draws inside the

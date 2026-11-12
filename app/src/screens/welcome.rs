@@ -930,7 +930,6 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
                 crate::settings::set(bench, PreferenceChange::LastAgentType(kind));
             }
             leave(bench, cx);
-            bench.show_workbench(cx);
             bench.activate_project(&project);
             if let Some(agent) = opened {
                 bench.open_here(OpenTab::new(At::project(&project), PaneKind::Agent, agent));

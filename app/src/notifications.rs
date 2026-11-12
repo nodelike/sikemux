@@ -36,7 +36,6 @@ const TEST: (&str, &str) = (
 #[derive(Serialize, Deserialize)]
 pub enum Opens {
     Agent(String),
-    Goal(NoticeGoal),
 }
 
 /// Posts a notification; clicking it brings Sikemux forward on what it is about.
@@ -78,7 +77,6 @@ fn follow_clicks(cx: &mut Context<Workbench>) {
                 cx.activate(true);
                 match opens.and_then(|opens| serde_json::from_str(&opens).ok()) {
                     Some(Opens::Agent(agent)) => bench.open_agent(&agent, cx),
-                    Some(Opens::Goal(goal)) => bench.open_goal(&goal, cx),
                     None => {}
                 }
             });
@@ -245,8 +243,7 @@ fn tone() -> Vec<u8> {
 }
 
 /// Posts what the core said about an agent or a goal, while the person is away from Sikemux and
-/// asked to hear. How a goal moved also shows as a toast over the workbench, where the goals
-/// are out of sight; over the goals the person sees it for themselves.
+/// asked to hear. How a goal moved also shows as a toast while Sikemux is in front.
 pub fn notice(
     bench: &Workbench,
     title: String,
@@ -259,7 +256,7 @@ pub fn notice(
         return;
     }
     if cx.active_window().is_some() {
-        if goal.is_some() && !bench.showing_goals() {
+        if goal.is_some() {
             bench.notify(crate::toast::info(format!("{title}: {body}")), cx);
         }
         return;
@@ -267,11 +264,7 @@ pub fn notice(
     if let Some(window) = cx.windows().first().copied() {
         let _ = window.update(cx, |_, window, _| window.request_attention());
     }
-    let opens = match goal {
-        Some(goal) => Opens::Goal(goal),
-        None => Opens::Agent(agent),
-    };
-    post(title, body, Some(opens), cx);
+    post(title, body, Some(Opens::Agent(agent)), cx);
 }
 
 pub fn test(cx: &mut Context<Workbench>) {

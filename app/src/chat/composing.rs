@@ -25,10 +25,6 @@ use crate::core::ChatAsk;
 use crate::ui::list_picker::{Choose, Close, Next, Previous};
 use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
 
-/// The composer at the bottom of the goals' Home, which starts work rather than writing to a
-/// chat; every other composer goes by the agent whose chat it writes to.
-pub const START: &str = sikemux_view::chat::START_COMPOSER;
-
 /// Puts `text` at the end of the draft after a blank line, keeping what it holds, chips
 /// and all, with the caret after it.
 fn append(draft: &Entity<TextareaState>, text: &str, window: &mut Window, cx: &mut App) {
@@ -46,19 +42,13 @@ fn append(draft: &Entity<TextareaState>, text: &str, window: &mut Window, cx: &m
 }
 
 impl Workbench {
-    /// The composer `owner` names: Home's, else the chat's of that agent.
+    /// The composer of the chat of agent `owner`.
     pub fn composing(&self, owner: &str) -> Option<&Composing> {
-        match owner {
-            START => self.chats.start.as_ref(),
-            agent => self.chats.open.get(agent)?.composer.as_ref(),
-        }
+        self.chats.open.get(owner)?.composer.as_ref()
     }
 
     pub fn composing_mut(&mut self, owner: &str) -> Option<&mut Composing> {
-        match owner {
-            START => self.chats.start.as_mut(),
-            agent => self.chats.open.get_mut(agent)?.composer.as_mut(),
-        }
+        self.chats.open.get_mut(owner)?.composer.as_mut()
     }
 
     /// Empties `owner`'s composer once what it held has gone, and keeps it so.
@@ -77,9 +67,8 @@ impl Workbench {
 
     /// Every composer made, with what names it.
     pub fn composers(&self) -> impl Iterator<Item = (&str, &Composing)> {
-        let chats = (self.chats.open.iter())
-            .filter_map(|(agent, chat)| Some((agent.as_str(), chat.composer.as_ref()?)));
-        chats.chain(self.chats.start.as_ref().map(|start| (START, start)))
+        (self.chats.open.iter())
+            .filter_map(|(agent, chat)| Some((agent.as_str(), chat.composer.as_ref()?)))
     }
 }
 
@@ -278,18 +267,10 @@ pub struct ComposerView {
     pub owner: String,
     /// The chat's agent as the stage last drew it.
     pub agent: Option<AgentRow>,
-    /// Draws it again as what it starts with changes, for Home's, which the goals and the
-    /// workbench hold.
-    pub _follows: Vec<Subscription>,
 }
 
 impl gpui::Render for ComposerView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.owner == START {
-            return (self.bench)
-                .update(cx, crate::goals::start_composer)
-                .unwrap_or_else(|_| div().into_any_element());
-        }
         let Some(agent) = self.agent.clone() else {
             return div().into_any_element();
         };
@@ -978,33 +959,11 @@ impl Chat {
 }
 
 impl Workbench {
-    /// Makes the composer of the chat in front, unless the goals cover it, and of the goals' Home
-    /// while they show, which needs the window.
+    /// Makes the composer of the chat in front, which needs the window.
     pub(crate) fn compose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.showing_goals() {
-            if self.chats.start.is_none() {
-                let mut composing = self.new_composing(START, window, cx);
-                composing.draft.update(cx, |draft, cx| {
-                    draft.set_placeholder("What should get done?", window, cx)
-                });
-                if let Some(drafts) = self.feeds.this.drafts.as_ref() {
-                    composing.start_from(drafts, START, window, cx);
-                }
-                self.chats.start = Some(composing);
-                self.watch_drafts();
-            }
-            if let Some(start) = self.chats.start.as_mut() {
-                start.take_arrived(window, cx);
-            }
-        }
         let Some(agent) = self.agent().map(|agent| agent.id) else {
             return;
         };
-        let covered = self.showing_goals()
-            && !(self.goals.pane.as_ref()).is_some_and(|goals| goals.read(cx).wants_chat(&agent));
-        if covered {
-            return;
-        }
         if !(self.chats.open.get(&agent)).is_some_and(|chat| chat.composer.is_none()) {
             return;
         }
@@ -1029,8 +988,8 @@ impl Workbench {
         }
     }
 
-    /// A composer for `owner`, an agent's chat or the goals' Home, sending what it holds on
-    /// Return and keeping it as the person types.
+    /// A composer for the chat of agent `owner`, sending what it holds on Return and keeping it
+    /// as the person types.
     pub(crate) fn new_composing(
         &mut self,
         owner: &str,
@@ -1039,13 +998,7 @@ impl Workbench {
     ) -> Composing {
         let draft = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(
-                    match owner {
-                        START => 1,
-                        _ => 2,
-                    },
-                    12,
-                )
+                .auto_grow(2, 12)
                 .submit_on_enter(true)
         });
         let secret = cx.new(|cx| {
@@ -1068,7 +1021,7 @@ impl Workbench {
                     InputEvent::Change => {
                         let empty = draft.read(cx).value().is_empty();
                         if was_empty.replace(empty) != empty {
-                            if !empty && owner != START {
+                            if !empty {
                                 bench.began_writing(&owner);
                             }
                             cx.notify();
@@ -1078,9 +1031,6 @@ impl Workbench {
                         }
                         bench.offer(&owner, cx);
                         bench.typed_draft(&owner, cx);
-                        if owner == START {
-                            bench.start_typed(cx);
-                        }
                     }
                     _ => {}
                 },
@@ -1115,19 +1065,10 @@ impl Workbench {
             cx.new(|cx| crate::voice::MicButton::new(voice, owner, toggle, cx))
         };
         let bench = cx.weak_entity();
-        let bench_entity = cx.entity();
-        let goals = self.goals.pane.clone().filter(|_| owner == START);
-        let view = cx.new(|cx| crate::chat::ComposerView {
+        let view = cx.new(|_| crate::chat::ComposerView {
             bench,
             owner: owner.to_owned(),
             agent: None,
-            _follows: match goals {
-                Some(goals) => vec![
-                    cx.observe(&goals, |_, _, cx| cx.notify()),
-                    cx.observe(&bench_entity, |_, _, cx| cx.notify()),
-                ],
-                None => Vec::new(),
-            },
         });
         Composing {
             draft,
@@ -1324,9 +1265,6 @@ impl Workbench {
             .update(cx, |voice, cx| voice.send_after_words(agent, primary, cx));
         if waits {
             return;
-        }
-        if agent == START {
-            return self.start_from_home(window, cx);
         }
         let preparing = self
             .chats

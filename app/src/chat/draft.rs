@@ -142,7 +142,7 @@ impl Saving {
 }
 
 /// Takes the drafts the core keeps into every composer, of chats on this host or `elsewhere`,
-/// that has not moved on; Home's is this host's.
+/// that has not moved on.
 pub fn take(
     chats: &mut super::Chats,
     drafts: &Drafts,
@@ -152,10 +152,7 @@ pub fn take(
     let open = (chats.open.iter_mut())
         .filter(|(_, chat)| is_elsewhere(chat) == elsewhere)
         .filter_map(|(agent, chat)| Some((agent.as_str(), chat.composer.as_mut()?)));
-    let start = (chats.start.as_mut())
-        .filter(|_| !elsewhere)
-        .map(|start| (super::START, start));
-    for (owner, composing) in open.chain(start) {
+    for (owner, composing) in open {
         if composing.saving.on_its_way() {
             continue;
         }

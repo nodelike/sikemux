@@ -4,8 +4,6 @@
   "pages": [
     "supported",
     "chats",
-    "board",
-    "goals",
     "memory",
     "playbook",
     "permissions",

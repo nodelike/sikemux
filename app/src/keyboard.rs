@@ -16,7 +16,6 @@ pub enum TakesKeys {
     Terminal,
     Git,
     File(PathBuf),
-    Board,
 }
 
 impl TakesKeys {
@@ -25,7 +24,6 @@ impl TakesKeys {
             Self::Terminal => PaneKind::Terminal,
             Self::Git => PaneKind::Git,
             Self::File(_) => PaneKind::Files,
-            Self::Board => PaneKind::Board,
         }
     }
 }
@@ -138,7 +136,7 @@ impl Workbench {
         let held = window.focused(cx);
         let kept = self.settings.read(cx).is_open()
             || self.overlays.take_keys()
-            || self.front_asks(cx).is_some()
+            || self.front_asks().is_some()
             || self.waits_for_keys();
         if kept {
             // What holds them may be a field not drawn yet, which takes them once it is.
@@ -147,17 +145,8 @@ impl Workbench {
             }
             return;
         }
-        match self.goals_in_front() {
-            Some(goals) => {
-                if let Some(keys) = goals.read(cx).keys_go_to(&self.chats, cx) {
-                    keys.focus(window, cx);
-                }
-            }
-            None => {
-                if let Some(view) = self.focused_view() {
-                    self.focus_view(&view, window, cx);
-                }
-            }
+        if let Some(view) = self.focused_view() {
+            self.focus_view(&view, window, cx);
         }
         if window.focused(cx) == held {
             self.keys.focus.focus(window, cx);

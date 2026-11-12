@@ -111,12 +111,6 @@ pub struct DraggedProject {
 }
 
 #[derive(Clone)]
-pub struct DraggedCard {
-    pub id: u64,
-    pub label: SharedString,
-}
-
-#[derive(Clone)]
 pub struct DraggedPath {
     pub path: PathBuf,
 }

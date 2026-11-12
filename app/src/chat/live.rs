@@ -233,22 +233,19 @@ struct Group {
 
 /// The sheet tucked under the composer's top edge, holding all that sits on the composer, a
 /// hairline between each part: what the agent asks of the person, the messages waiting their
-/// turn, the chat's goal, what is running for it, and its triggers. Each group folds on its
-/// own; once all are folded they share one line under the goal.
+/// turn, what is running for it, and its triggers. Each group folds on its own; once all are
+/// folded they share one line.
 pub fn dock(
     agent: &AgentRow,
     chat: &Chat,
     asks: Vec<AnyElement>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    let goal = (chat.state.as_ref())
-        .and_then(|head| head.goal.as_ref())
-        .map(|goal| super::goal_line::in_dock(goal, cx));
     let queued = queued(&agent.id, chat, cx);
     let running = running(agent, chat, cx);
     let triggers = triggers(&agent.id, chat, cx);
     let groups: Vec<Group> = [queued, running, triggers].into_iter().flatten().collect();
-    if asks.is_empty() && goal.is_none() && groups.is_empty() {
+    if asks.is_empty() && groups.is_empty() {
         return None;
     }
     let t = Tokens::get(cx).clone();
@@ -256,7 +253,6 @@ pub fn dock(
     let all_folded = !groups.is_empty() && groups.iter().all(folded);
     let mut parts: Vec<AnyElement> = asks;
     if all_folded {
-        parts.extend(goal);
         let keys: Vec<&'static str> = groups.iter().map(|group| group.key).collect();
         let mut words: Vec<AnyElement> = Vec::new();
         let mut action = None;
@@ -292,7 +288,6 @@ pub fn dock(
         if let Some(group) = groups.next_if(|group| group.key == QUEUED) {
             parts.push(draw_group(&agent.id, group, chat, &t, cx));
         }
-        parts.extend(goal);
         parts.extend(groups.map(|group| draw_group(&agent.id, group, chat, &t, cx)));
     }
     let ruled = parts.into_iter().enumerate().map(|(at, part)| {

@@ -36,7 +36,7 @@ impl Choice {
     }
 }
 
-fn choices() -> [Choice; 10] {
+fn choices() -> [Choice; 9] {
     [
         Choice::of(
             PaneKind::Terminal,
@@ -80,12 +80,6 @@ fn choices() -> [Choice; 10] {
             PaneKind::Search,
             actions::FocusSearch::ID,
             "Search across the project",
-            true,
-        ),
-        Choice::of(
-            PaneKind::Board,
-            actions::FocusBoard::ID,
-            "What the project's agents are doing",
             true,
         ),
         Choice::of(

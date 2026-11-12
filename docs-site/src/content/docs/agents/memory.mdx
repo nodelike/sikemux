@@ -13,7 +13,7 @@ Sikemux keeps what you would otherwise repeat in every chat, so you say it once 
 
 Rules and knowledge kept for a folder above the project apply to every project under it, for a product that spans several repositories.
 
-Agents keep rules and knowledge with the `memory_add`, `memory_update` and `memory_list` tools, and a goal's decisions with `board_decide`, when you tell them to remember something or when they find it out. Each one says which agent learned it, in which chat and when, so you can check where it came from. A correction keeps what it said before. A goal's decisions and its own rules show on its card on the board; a goal keeps 64 of each, and past that drops its oldest retired ones first. A goal is a card at the top of the board, and once it has decisions or rules of its own it can't be moved under another card.
+Agents keep rules and knowledge with the `memory_add`, `memory_update` and `memory_list` tools, and a goal's decisions with `board_decide`, when you tell them to remember something or when they find it out. Each one says which agent learned it, in which chat and when, so you can check where it came from. A correction keeps what it said before. A goal's decisions and its own rules are kept on its card; a goal keeps 64 of each, and past that drops its oldest retired ones first. A goal is a card with no card above it, and once it has decisions or rules of its own it can't be moved under another card.
 
 ## What an agent is handed
 

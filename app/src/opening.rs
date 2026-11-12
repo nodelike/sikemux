@@ -567,7 +567,6 @@ impl Workbench {
     /// As [`Self::open_agent`], for an agent named by a record of the core `from`, which opens
     /// its chat again when it has closed.
     pub fn open_agent_from(&mut self, id: &str, from: Target, cx: &mut Context<Self>) {
-        self.show_workbench(cx);
         self.bring_agent_from(id, from, cx).detach();
     }
 

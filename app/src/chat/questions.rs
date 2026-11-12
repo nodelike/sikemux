@@ -1104,19 +1104,15 @@ impl Workbench {
 
     /// The chat in front while its question asks and nothing else holds the keys, as when the
     /// person clicked away from every field, so the question takes its keys from anywhere.
-    pub fn asking_freely(&self, window: &Window, cx: &App) -> Option<String> {
+    pub fn asking_freely(&self, window: &Window) -> Option<String> {
         if !self.keys.focus.is_focused(window) {
             return None;
         }
-        self.front_asks(cx)
+        self.front_asks()
     }
 
-    /// The chat in front, while it shows a question its keys answer; none behind the goals, which
-    /// show it only as their chat.
-    pub fn front_asks(&self, cx: &App) -> Option<String> {
-        if self.showing_goals() && self.chat_in_goals(cx).is_none() {
-            return None;
-        }
+    /// The chat in front, while it shows a question its keys answer.
+    pub fn front_asks(&self) -> Option<String> {
         let agent = self.agent()?;
         let chat = self.chats.open.get(&agent.id)?;
         let open: Vec<&Question> = self

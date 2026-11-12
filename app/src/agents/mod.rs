@@ -81,26 +81,12 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .absolute()
             .size_full(),
         )
-        .map(|rail| match crate::goals::goals_page(bench, cx) {
-            Some(goals) => rail.child(goals),
-            None => rail
-                .child(crate::track::rail(
-                    bench,
-                    |page, cx| page_panel(bench, page, cx),
-                    cx,
-                ))
-                .child(pages(bench, cx)),
-        })
-        .into_any_element()
-}
-
-/// Says the rail lists only one goal's agents, and takes that away.
-fn goal_focus_row(title: &str, cx: &mut Context<Workbench>) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    Row::new("goal-focus-row", title.to_owned())
-        .mark(22., ui::icon(Icon::Steps, 14.).text_color(t.text_secondary))
-        .status(Some(ui::icon(Icon::Close, 11.).text_color(t.text_tertiary)))
-        .on_click(cx.listener(|bench, _, _, cx| bench.clear_goal_focus(cx)))
+        .child(crate::track::rail(
+            bench,
+            |page, cx| page_panel(bench, page, cx),
+            cx,
+        ))
+        .child(pages(bench, cx))
         .into_any_element()
 }
 
@@ -145,10 +131,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     };
     let snoozed = away_rows(&snoozed, cx);
     let settled = away_rows(&settled, cx);
-    let (copy, mut rows) = team_rows(bench, &agents, cx);
-    if let Some(focus) = &bench.rails.goal_focus {
-        rows.insert(0, goal_focus_row(&focus.title, cx));
-    }
+    let (copy, rows) = team_rows(bench, &agents, cx);
     let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
     let pinned: Vec<_> = pins
         .iter()

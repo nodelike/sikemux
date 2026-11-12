@@ -23,13 +23,12 @@ use gpui_kit::{
     WeakEntity, Window,
 };
 use sikemux_view::device::DeviceView;
-use sikemux_view::prefs::{Preferences, WindowView};
+use sikemux_view::prefs::Preferences;
 use sikemux_view::workspace::{LauncherInfo, ProjectInfo};
 use sikemux_wire::protocol::RemoteStatus;
 use tokio::sync::mpsc;
 
 use crate::battery::Battery;
-use crate::chat::START;
 use crate::core::{Ask, Link, Target};
 use crate::files::FileTree;
 use crate::hosts::Place;
@@ -148,10 +147,6 @@ pub struct Workbench {
     pub editors: Entity<crate::editor::Editors>,
     /// The Search pane of the project whose Search tab was last in front.
     pub search: Option<Entity<SearchPane>>,
-    pub board: crate::board::BoardTab,
-    pub goals: crate::goals::GoalsTab,
-    /// What the window shows, as the person last left it.
-    pub window_view: WindowView,
     /// The mod panes of the strip in front, by view.
     pub mod_panes: HashMap<String, Entity<crate::mod_pane::ModPane>>,
     /// Settings, while they take the stage's place.
@@ -363,9 +358,6 @@ impl Workbench {
             terminals: terminal::Terminals::default(),
             editors: cx.new(|_| crate::editor::Editors::default()),
             search: None,
-            board: Default::default(),
-            goals: Default::default(),
-            window_view: WindowView::default(),
             mod_panes: HashMap::new(),
             settings: cx.new(|_| crate::settings::Settings::default()),
             window: window.window_handle(),
@@ -425,11 +417,7 @@ impl Workbench {
         if let Some(id) = crate::terminal::focused(self) {
             return crate::terminal::take_dropped(self, id, paths);
         }
-        let into = match self.showing_goals() {
-            true => Some(self.chat_in_goals(cx).unwrap_or_else(|| START.to_owned())),
-            false => self.chats.focused.clone().map(|(agent, _)| agent),
-        };
-        if let Some(into) = into {
+        if let Some(into) = self.chats.focused.clone().map(|(agent, _)| agent) {
             self.attach(&into, paths.to_vec(), window, cx);
         }
     }
@@ -843,7 +831,7 @@ impl Render for Workbench {
         if asked.is_some() {
             crate::drive::trace(format_args!("question drawn"));
         }
-        let asking = self.asking_freely(window, cx);
+        let asking = self.asking_freely(window);
         let context = match asking {
             Some(_) => format!("{SHELL} QuestionDock"),
             None => SHELL.to_owned(),
@@ -859,10 +847,6 @@ impl Render for Workbench {
             let (ease, shortest) = (motion::RAIL_DRAWER, motion::RAIL_DRAWER_SHORTEST);
             motion::follow_share(id, tucked, ease, shortest, window, cx)
         });
-        let goals = self.showing_goals();
-        if goals {
-            self.goals_view(cx);
-        }
         let t = Tokens::get(cx);
         window.set_ground(Some(crate::see_through::ground(t.surface_sunken, cx)));
         let parts = &self.parts;
@@ -910,7 +894,7 @@ impl Render for Workbench {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .pt(if goals { SPACE_2H } else { SPACE_1 })
+                    .pt(SPACE_1)
                     .px(SPACE_2H)
                     .pb(SPACE_2H)
                     .on_drag_move(cx.listener(

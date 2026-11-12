@@ -147,11 +147,6 @@ impl Row {
         self
     }
 
-    pub fn height(mut self, height: f32) -> Self {
-        self.height = Some(height);
-        self
-    }
-
     pub fn subtitle(mut self, subtitle: impl IntoElement) -> Self {
         self.subtitle = Some(subtitle.into_any_element());
         self
@@ -405,12 +400,6 @@ impl Group {
     /// How many rows it has in all, when it holds only some of them; folded, it says that.
     pub fn total(mut self, total: Option<usize>) -> Self {
         self.total = total;
-        self
-    }
-
-    /// Its heading says how many rows it holds while open too.
-    pub fn counted(mut self) -> Self {
-        self.counted = true;
         self
     }
 }

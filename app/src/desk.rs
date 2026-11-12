@@ -184,15 +184,6 @@ impl Desks {
 /// How many site icons the desks keep decoded.
 const MAX_FAVICONS: usize = 64;
 
-/// What a desk's chip on the goals' panel brings to the front.
-#[derive(Clone)]
-pub enum DeskShown {
-    Page(String),
-    File(String),
-    Terminal { session: u64, title: String },
-    Simulator,
-}
-
 /// How long the desks are left to settle before the core hears what they hold.
 const DESKS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
@@ -639,31 +630,6 @@ impl Surface for DeskPage {
 }
 
 impl Workbench {
-    /// Opens what a chip on the goals' panel names, on `agent`'s desk beside it.
-    pub fn show_on_agent_desk(&mut self, agent: &str, shown: DeskShown, cx: &mut Context<Self>) {
-        self.open_agent(agent, cx);
-        if !self.desk_open_anywhere(agent) {
-            self.reveal_desk(agent);
-        }
-        match shown {
-            DeskShown::Page(tab) => {
-                self.desks.update(cx, |desks, cx| {
-                    desks.front.remove(agent);
-                    desks.show_kind(agent, DeskKind::Pages, cx);
-                });
-                self.with_engine(cx, |engine| engine.switch_tab(agent, &tab));
-            }
-            DeskShown::File(path) => self.desks.update(cx, |desks, cx| {
-                desks.put(agent, DeskItem::File(PathBuf::from(path)), true, cx)
-            }),
-            DeskShown::Terminal { session, title } => self.desks.update(cx, |desks, cx| {
-                desks.put(agent, DeskItem::Terminal { session, title }, true, cx)
-            }),
-            DeskShown::Simulator => self.show_simulator(agent, cx),
-        }
-        self.parts.redraw_stage(cx);
-    }
-
     /// The desks changed, so the core hears what they hold once they settle.
     pub(crate) fn desks_moved(&mut self, cx: &mut Context<Self>) {
         if self.desk_news.telling.is_some() {

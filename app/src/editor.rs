@@ -21,7 +21,6 @@ use sikemux_view::layout::{Pane, PaneKind};
 
 use crate::core::{Ask, CallError, Target};
 use crate::diagram;
-use crate::goals::Pinning;
 use crate::hosts::Place;
 use crate::keyboard::TakesKeys;
 use crate::text_size::Surface;
@@ -129,11 +128,6 @@ impl Editors {
     pub fn reveal(&mut self, at: OpenAt) {
         self.reveal = Some(at);
     }
-
-    /// The viewer of the recording at `path` offers to pin a change on the moment it plays.
-    pub(crate) fn pin_on(&mut self, path: PathBuf, pinning: Pinning) {
-        self.pinning.insert(path, pinning);
-    }
 }
 
 /// Changes the open file `key`, when it is open, and draws the editors again.
@@ -170,8 +164,6 @@ pub struct Editors {
     /// Languages whose server the core is installing.
     lsp_installing: HashSet<String>,
     copies: copies::Copies,
-    /// Recordings open as a slice's evidence, by path.
-    pinning: HashMap<PathBuf, Pinning>,
 }
 
 struct Document {

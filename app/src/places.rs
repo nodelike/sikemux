@@ -1,12 +1,9 @@
 //! Shortcuts that move between places and the surfaces of the one in front: closing
 //! a project or host, going back to the last one, jumping between projects and hosts,
-//! bringing forward a project's files, agents, terminals or board, and switching the window to
-//! the goals and back.
+//! and bringing forward a project's files, agents or terminals.
 
 use crate::workbench::actions;
 use gpui_kit::{App, Context, Window};
-use sikemux_view::layout::At;
-use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_view::workspace::ProjectInfo;
 
@@ -168,46 +165,9 @@ impl Workbench {
         }
     }
 
-    pub fn focus_board(&self, cx: &mut App) {
-        if let Some(project) = self.project() {
-            self.open_board(project, cx);
-        }
-    }
-
-    fn open_board(&self, project: &ProjectInfo, cx: &mut App) {
-        self.take_keys_when_shown(crate::keyboard::TakesKeys::Board, cx);
-        self.open_in_front(OpenTab::new(
-            At::project(&project.id),
-            PaneKind::Board,
-            project.path.to_string_lossy(),
-        ));
-    }
-
-    /// Opens card `card` beside the board of the project at `folder`, with the workbench in
-    /// place of the goals.
-    pub fn open_board_card(&mut self, folder: &str, card: u64, cx: &mut Context<Self>) {
-        let Some(project) = (self.projects().iter())
-            .find(|project| project.path.to_string_lossy() == folder)
-            .cloned()
-        else {
-            return;
-        };
-        self.show_workbench(cx);
-        self.activate_project(&project.id);
-        self.board.card = Some((folder.to_owned(), card));
-        self.open_board(&project, cx);
-    }
-
     /// Closes the view in front: a desk's page, the focused view of a split tab, else the tab.
     /// It asks first when that would stop an agent mid-turn or lose a file's unsaved changes.
-    /// The goals show no tab to close, so there a chat only goes back, and nothing else happens.
     pub fn close_front(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.showing_goals() {
-            if let Some(goals) = self.goals.pane.clone() {
-                goals.update(cx, |goals, cx| goals.leave_chat(window, cx));
-            }
-            return;
-        }
         if self.close_shown_page(window, cx) {
             return self.parts.redraw_stage(cx);
         }

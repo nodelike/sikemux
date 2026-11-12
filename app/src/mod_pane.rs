@@ -422,8 +422,8 @@ fn outcome(answer: Result<Value, String>) -> String {
 fn said(write: &str) -> String {
     match write {
         "agents.send" => "message agents".into(),
-        "board.add" => "add cards to the agent board".into(),
-        "board.update" => "change cards on the agent board".into(),
+        "board.add" => "add work for agents to pick up".into(),
+        "board.update" => "change the work agents pick up".into(),
         other => other.to_owned(),
     }
 }

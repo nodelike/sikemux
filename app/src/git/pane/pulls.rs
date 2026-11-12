@@ -35,8 +35,8 @@ pub(super) struct Pulls {
 /// The slice a pull request's work is, as the core keeps it.
 #[derive(Clone)]
 struct Behind {
-    project: String,
-    card: u64,
+    /// The agent at work on it, whose chat choosing the pull request opens.
+    owner: Option<String>,
     state: SliceState,
     gate: Option<&'static str>,
     lead: Option<Evidence>,
@@ -44,7 +44,7 @@ struct Behind {
     failed: usize,
 }
 
-fn behind(project: &str, board: &ProjectBoard) -> HashMap<String, Behind> {
+fn behind(board: &ProjectBoard) -> HashMap<String, Behind> {
     let mut found = HashMap::new();
     for card in &board.cards {
         let Some(slice) = &card.slice else { continue };
@@ -65,8 +65,7 @@ fn behind(project: &str, board: &ProjectBoard) -> HashMap<String, Behind> {
         found.insert(
             url.clone(),
             Behind {
-                project: project.to_owned(),
-                card: card.id,
+                owner: card.owner.clone(),
                 state: slice.state,
                 gate,
                 lead,
@@ -93,10 +92,7 @@ impl GitPane {
         });
         cx.spawn(async move |pane, cx| {
             let list: Option<PullList> = listed.await.ok().and_then(|answer| answer.read().ok());
-            let slices = board
-                .await
-                .map(|board| behind(&board.project, &board))
-                .unwrap_or_default();
+            let slices = board.await.map(|board| behind(&board)).unwrap_or_default();
             pane.update(cx, |pane, cx| {
                 pane.pulls.listed = list.map(|list| list.pulls).unwrap_or_default();
                 pane.pulls.read = true;
@@ -118,15 +114,17 @@ impl GitPane {
         cx.notify();
     }
 
-    /// Opens the chosen pull request's slice, or offers to start one when it has none.
+    /// Opens the chat of the agent at work on the chosen pull request, or offers to start one
+    /// on it when none is.
     pub(super) fn open_pull(&mut self, cx: &mut Context<Self>) {
         let Some(listed) = self.pulls.listed.get(self.pulls.chosen) else {
             return;
         };
-        if let Some(slice) = self.pulls.slices.get(&listed.pull.url).cloned() {
-            let _ = self.bench.update(cx, |bench, cx| {
-                bench.open_slice(&slice.project, slice.card, cx)
-            });
+        let owner = (self.pulls.slices.get(&listed.pull.url)).and_then(|slice| slice.owner.clone());
+        if let Some(owner) = owner {
+            let _ = self
+                .bench
+                .update(cx, |bench, cx| bench.bring_agent(&owner, cx).detach());
             return;
         }
         let number = listed.pull.number;
@@ -264,8 +262,10 @@ fn pull_row(
     };
     match slice {
         Some(slice) => {
-            let at = slice.gate.map_or("Slice", |gate| gate);
-            meta.push(said(format!("{at} · #{}", slice.card), t.text_secondary));
+            meta.push(said(
+                slice.gate.unwrap_or("Slice").to_owned(),
+                t.text_secondary,
+            ));
             if slice.passed > 0 {
                 meta.push(said(format!("✓{}", slice.passed), t.live));
             }

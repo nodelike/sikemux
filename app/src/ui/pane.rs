@@ -95,12 +95,6 @@ impl PaneHeader {
         self
     }
 
-    /// A link back to where the pane was opened from, before all else.
-    pub fn back(mut self, back: impl IntoElement) -> Self {
-        self.back = Some(back.into_any_element());
-        self
-    }
-
     pub fn mark(mut self, mark: impl IntoElement) -> Self {
         self.mark = Some(mark.into_any_element());
         self

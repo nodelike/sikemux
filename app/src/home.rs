@@ -41,9 +41,6 @@ pub fn stage(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) ->
     if bench.settings.read(cx).is_open() {
         return crate::settings::view(bench, window, cx);
     }
-    if let Some(goals) = bench.goals_in_front() {
-        return goals.clone().into_any_element();
-    }
     if bench
         .strip()
         .is_some_and(|strip| bench.tabs(&strip).is_empty())
@@ -86,22 +83,6 @@ pub fn agent_view(
         .as_ref()
         .filter(|_| project.is_some())
         .map(|agent| pane_header(bench, agent, tab, view, cx));
-    let shown = agent_shown(bench, agent.as_ref(), cx);
-    under_header(header, shown, cx)
-}
-
-/// The agent in front as the goals show it: what its tab shows, under its header with a link
-/// back in place of the view switch and the desk, which belong to the workbench.
-pub fn agent_view_in_goals(
-    bench: &Workbench,
-    agent: &str,
-    back: AnyElement,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    let agent = bench.agent().filter(|front| front.id == agent);
-    let header = agent
-        .as_ref()
-        .map(|agent| agent_header(bench, agent, cx).back(back));
     let shown = agent_shown(bench, agent.as_ref(), cx);
     under_header(header, shown, cx)
 }

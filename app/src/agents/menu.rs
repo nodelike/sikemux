@@ -100,8 +100,7 @@ impl AgentMenu {
                 .is_some_and(|kind| kind.can_skip_asking(bench.in_terminal(&agent.id))),
             can_share: catalog.is_some_and(|kind| kind.chat.is_some()),
             link,
-            in_front: !bench.showing_goals()
-                && bench.agent().is_some_and(|front| front.id == agent.id),
+            in_front: bench.agent().is_some_and(|front| front.id == agent.id),
             faces_on: bench.shown().is_some_and(|view| view.face_style.on),
             snoozed: row.as_ref().is_some_and(|row| row.snoozed_until.is_some()),
             settled: row.as_ref().is_some_and(|row| row.settled_at.is_some()),

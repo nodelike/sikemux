@@ -275,8 +275,6 @@ pub struct GitPane {
     writer: Option<(String, String)>,
     /// The commits the history's search finds, which the graph lays out.
     commits: Vec<GitCommit>,
-    /// The commit asked to be shown, until the history is read.
-    wanted_commit: Option<String>,
     /// Each page's filter, by `Page`.
     filters: [Filter; 4],
     draft: Entity<TextareaState>,
@@ -387,7 +385,6 @@ impl GitPane {
             writers: Vec::new(),
             writer: None,
             commits: Vec::new(),
-            wanted_commit: None,
             filters: Default::default(),
             branch_rows: ListState::new(0, ListAlignment::Top, px(400.)),
             draft,
@@ -430,7 +427,6 @@ impl GitPane {
         self.read_owners(cx);
         self.read_commit_owners(cx);
         self.list(cx);
-        self.choose_wanted(cx);
     }
 
     /// Reads again the diffs a git change in the folder `project` moved: those of `paths`,
@@ -631,38 +627,6 @@ impl GitPane {
         self.commit = index;
         window.focus(&self.focus, cx);
         self.follow(cx);
-        cx.notify();
-    }
-
-    /// Turns to the history with commit `sha` chosen, as soon as the history is read.
-    pub fn show_commit(&mut self, sha: &str, cx: &mut Context<Self>) {
-        self.show_page(Page::History, cx);
-        self.wanted_commit = Some(sha.to_owned());
-        if self.overview.is_some() {
-            self.choose_wanted(cx);
-        }
-    }
-
-    /// Chooses the commit asked for, or says it is older than the history lists.
-    fn choose_wanted(&mut self, cx: &mut Context<Self>) {
-        let Some(sha) = self.wanted_commit.take() else {
-            return;
-        };
-        match self.hashes.iter().position(|hash| *hash == sha) {
-            Some(at) => {
-                self.commit = at;
-                self.commit_rows.scroll_to_reveal_item(at);
-                self.follow(cx);
-            }
-            None => {
-                let short: String = sha.chars().take(9).collect();
-                let note = toast::info(format!("{short} is older than the commits listed here"));
-                let bench = self.bench.clone();
-                cx.defer(move |cx| {
-                    let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
-                });
-            }
-        }
         cx.notify();
     }
 

@@ -270,20 +270,6 @@ impl Tokens {
             },
         ]
     }
-
-    /// A hairline of light along a raised card's top edge, inside it, as a card catches light.
-    pub fn shadow_lit(&self) -> Vec<BoxShadow> {
-        vec![BoxShadow {
-            color: Hsla {
-                l: 1.,
-                ..black(if self.dark { 0.035 } else { 0.7 })
-            },
-            offset: gpui_kit::point(px(0.), px(1.)),
-            blur_radius: px(0.),
-            spread_radius: px(0.),
-            inset: true,
-        }]
-    }
 }
 
 fn black(alpha: f32) -> Hsla {

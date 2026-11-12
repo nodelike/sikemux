@@ -76,12 +76,10 @@ mod mermaid;
 mod moving;
 pub(crate) use attach::{named, named_agents, pill, site_icon, Mention, SNIP_NAME};
 pub use mention::Tray;
-pub use moving::yolo_mode;
 mod meta;
 pub mod model_picker;
 pub(crate) mod page;
 mod questions;
-pub(crate) use questions::radio;
 mod rows;
 mod schema;
 pub(crate) mod status;
@@ -91,11 +89,8 @@ pub(crate) use installing::installs_moved;
 
 mod worktree;
 
-pub use attach::{drop_hint, lasting, takes_drops};
-pub use composing::{
-    dictate, drafting, mounted, step_prompts, with_stash, ComposeStage, ComposerView, Composing,
-    Sent, START,
-};
+pub use attach::lasting;
+pub use composing::{dictate, ComposeStage, ComposerView, Composing, Sent};
 pub(crate) use mention::{AGENT, FILE, TRACKED};
 pub(crate) use meta::clock;
 pub use questions::{question_keys, Answering, Question};
@@ -381,7 +376,6 @@ pub struct Choose(pub usize);
 /// question's come last, so they win over the composer's while it asks.
 pub fn install(cx: &mut App) {
     gpui_transcript::init(cx);
-    crate::goals::bind_keys(cx);
     crate::ui::find_bar::install(cx);
     let find = if cfg!(target_os = "macos") {
         "cmd-f"
@@ -516,8 +510,6 @@ impl Render for Footer {
 pub struct Chats {
     /// The chats of the agents with a tab open, by agent id.
     pub open: HashMap<String, Chat>,
-    /// The goals' Home composer, made the first time they show.
-    pub start: Option<Composing>,
     /// The chat in front and whether its session was ready when its draft last took the keys.
     pub(crate) focused: Option<(String, bool)>,
     /// Text handed to agents whose composer is not made yet, put in once it is.
@@ -1879,9 +1871,6 @@ impl Workbench {
 
     /// Where `agent`'s chat asks: the core of the host the agent runs on.
     pub fn chat_target(&self, agent: &str) -> Target {
-        if agent == START {
-            return Target::here(&self.asks);
-        }
         self.chats.open.get(agent).map_or_else(
             || Target::new(&self.asks, self.place()),
             |chat| chat.target.clone(),

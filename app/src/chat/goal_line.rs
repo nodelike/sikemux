@@ -1,21 +1,15 @@
-//! A chat and its goal: a toast with Undo right after its agent tracks one, and the goal at
-//! the head of the dock over the composer. The core decides all of it; this only draws it.
+//! A chat and its goal: a toast with Undo right after its agent tracks one, and how far along
+//! the goal is, as its milestone rows in the transcript draw it.
 
 use std::rc::Rc;
 
-use gpui_kit::{
-    div, px, AnyElement, App, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
-};
+use gpui_kit::{px, AnyElement, App, WeakEntity, Window};
 use sikemux_core::server::board::chat_goal::ChatGoalParams;
 use sikemux_core::server::call;
 use sikemux_view::chat::ChatGoal;
 use sikemux_view::slice::SliceState;
-use sikemux_wire::protocol::NoticeGoal;
 
 use super::composer::Act;
-use crate::theme::{self, Tokens, SPACE_2, SPACE_2H, TEXT_XS_H};
-use crate::ui;
 use crate::workbench::Workbench;
 
 /// A step of the goal's progress, as wide as the design has it.
@@ -67,45 +61,4 @@ pub(super) fn steps(steps: &[SliceState], cx: &App) -> Option<AnyElement> {
     let width = (count * STEP_WIDTH + (count - 1.).max(0.) * STEP_GAP).min(STRIP_MOST);
     (!steps.is_empty())
         .then(|| crate::ui::slice_state::state_strip(steps.iter().copied(), px(width), cx))
-}
-
-/// The goal heading the dock over the composer: its state, name, steps and how far along,
-/// and a chevron; the row opens it.
-pub(super) fn in_dock(goal: &ChatGoal, cx: &mut Context<Workbench>) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let opens = NoticeGoal {
-        project: goal.project.clone(),
-        card: goal.card,
-    };
-    div()
-        .id(SharedString::from(format!("dock-goal-{}", goal.card)))
-        .h(px(34.))
-        .pl(SPACE_2H)
-        .pr(SPACE_2)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(theme::RADIUS_2)
-        .cursor_pointer()
-        .hover(move |style| style.bg(t.surface_hover))
-        .on_click(cx.listener(move |bench, _, _, cx| bench.open_goal(&opens, cx)))
-        .child(crate::ui::slice_state::state_mark(goal.state, cx))
-        .child(
-            ui::text(goal.name.clone(), TEXT_XS_H, FontWeight::MEDIUM)
-                .min_w_0()
-                .truncate()
-                .text_color(t.text_primary),
-        )
-        .children(steps(&goal.steps, cx))
-        .children(progress(&goal.steps, goal.of_gates).map(|words| ui::meta(words, cx).flex_none()))
-        .child(div().flex_1())
-        .child(
-            div()
-                .w(px(18.))
-                .flex_none()
-                .flex()
-                .justify_center()
-                .child(ui::icon(crate::icons::Icon::Chevron, 10.).text_color(t.text_tertiary)),
-        )
-        .into_any_element()
 }
