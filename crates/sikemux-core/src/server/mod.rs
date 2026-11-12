@@ -68,6 +68,7 @@ mod notch;
 mod notify;
 pub mod open_files;
 mod part;
+pub(crate) mod person_calls;
 pub mod plugins;
 pub mod ports;
 pub mod preferences;
@@ -424,6 +425,8 @@ pub(crate) struct Core {
     pub(crate) lifecycle: lifecycle::Lifecycle,
     /// Agents' actions that leave this machine, held for the person.
     pub(crate) ship: ship::Ships,
+    /// The decisions put to the person.
+    pub(crate) person_calls: person_calls::PersonCalls,
     pub(crate) build_outputs: worktree::build_output::BuildOutputs,
     /// Builds agents start, taking turns.
     pub(crate) builds: builds::Builds,
@@ -580,6 +583,7 @@ impl Core {
             settling: settling::Settling::default(),
             lifecycle: lifecycle::Lifecycle::default(),
             ship: ship::Ships::default(),
+            person_calls: person_calls::PersonCalls::default(),
             build_outputs: Default::default(),
             builds: builds::Builds::default(),
             session_watch: session_watch::SessionWatch::default(),

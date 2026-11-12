@@ -222,6 +222,7 @@ impl Core {
             attentions,
             recent,
             inbox,
+            calls: super::person_calls::shown(self),
             layout,
             account: self.account.shown().map(Box::new),
             face_style: Box::new(self.faces.style()),

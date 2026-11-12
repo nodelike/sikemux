@@ -144,12 +144,15 @@ enum PhoneCall {
     enum AgentMessageRows {}
     enum AgentSessions {}
     enum AllowShip {}
+    enum AnswerCall {}
     enum AnswerPairing {}
     enum AnswerQuestion {}
     enum AnswerQuestions {}
     enum AttachStash {}
     enum Board {}
     enum Boards {}
+    enum CallNotMine {}
+    enum CallSeen {}
     enum CancelResume {}
     enum ChangeDevice {}
     enum ChatAccounts {}
@@ -210,6 +213,12 @@ extension PhoneCall.AllowShip: PhoneCallable {
     typealias Answer = WireNull
 }
 
+extension PhoneCall.AnswerCall: PhoneCallable {
+    static let method = "answerCall"
+    typealias Params = AnswerCallParams
+    typealias Answer = WireNull
+}
+
 extension PhoneCall.AnswerPairing: PhoneCallable {
     static let method = "answerPairing"
     typealias Params = PairingAnswer
@@ -244,6 +253,18 @@ extension PhoneCall.Boards: PhoneCallable {
     static let method = "boards"
     typealias Params = NoParams
     typealias Answer = [ProjectBoard]
+}
+
+extension PhoneCall.CallNotMine: PhoneCallable {
+    static let method = "callNotMine"
+    typealias Params = CallParams
+    typealias Answer = WireNull
+}
+
+extension PhoneCall.CallSeen: PhoneCallable {
+    static let method = "callSeen"
+    typealias Params = CallParams
+    typealias Answer = WireNull
 }
 
 extension PhoneCall.CancelResume: PhoneCallable {
@@ -540,6 +561,9 @@ struct DeviceView: Codable, Hashable, Sendable {
     var recent: [RecentInfo]
     /// What waits on the person, ranked.
     var inbox: Inbox
+    /// The calls of every project still open, then those answered lately with what came of
+    /// them, newest first. Clients show only the projects they scope to.
+    var calls: [PersonCall]?
     /// Which project is in front, and each project's tabs.
     var layout: WireLayout
     /// Who this host is signed in to Sikemux as; none while nobody is.
@@ -1944,6 +1968,205 @@ struct AgentRollup: Codable, Hashable, Sendable {
     var label: String
     var subagents: Int
     var tasks: Int
+}
+
+/// A decision put to the person.
+struct PersonCall: Codable, Hashable, Sendable {
+    var id: String
+    var project: String
+    var kind: CallKind
+    /// Who asks.
+    var asker: CallAsker
+    /// Other agents waiting on the same thing, which this one answer covers.
+    var joined: [CallAsker]?
+    /// What the person asked for, in their words: the card's heading.
+    var askedFor: String?
+    /// The decision, in one line.
+    var question: String
+    var context: String?
+    var options: [CallOption]
+    /// The option the asker would take, by its id.
+    var pick: String?
+    /// The strongest point against the pick.
+    var against: String?
+    var evidence: [CallEvidence]?
+    /// Exactly what runs on a yes, shown only once the card is opened.
+    var action: String?
+    /// A weighty call comes as a short brief.
+    var brief: CallBrief?
+    /// The production place it changes, by name.
+    var place: String?
+    /// Not mine hands it back: never on a production call.
+    var canHandBack: Bool
+    /// More than one option may be picked.
+    var multi: Bool?
+    /// The answer is a secret, typed into a hidden field and never shown again.
+    var secret: Bool?
+    var raisedAt: Int
+    var state: CallState
+    var answer: CallAnswer?
+    var outcome: CallOutcome?
+}
+
+/// What makes a decision the person's own.
+enum CallKind: String, Codable, Hashable, Sendable {
+    /// A change to a production place. It passes only by its button, on a client that drew it,
+    /// and is never handed back.
+    case production
+    /// Spending money.
+    case money
+    /// Taste or product direction.
+    case taste
+    /// Access only the person has, such as a sign-in or a password.
+    case access
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// An agent that waits on a call.
+struct CallAsker: Codable, Hashable, Sendable {
+    var agentId: String
+    /// Its name, such as Wren.
+    var name: String
+    var cli: String
+}
+
+/// One of the answers the person picks among.
+struct CallOption: Codable, Hashable, Sendable {
+    var id: String
+    var label: String
+    var detail: String?
+    /// A screenshot or mockup of it, in the core's own folder. A taste call has one per option.
+    var picture: String?
+}
+
+/// Something worth looking at before answering, such as checks that passed or the page as it
+/// will look.
+struct CallEvidence: Codable, Hashable, Sendable {
+    var what: String
+    var picture: String?
+}
+
+/// What a weighty call, such as a cutover or a public release, says before its options.
+struct CallBrief: Codable, Hashable, Sendable {
+    var tried: String
+    /// What the evidence shows.
+    var shows: String
+    /// What can't be undone once it goes.
+    var cannotUndo: String
+}
+
+enum CallState: String, Codable, Hashable, Sendable {
+    case `open`
+    case answered
+    /// Nobody answers it any more: the asker went on another way or closed.
+    case closed
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+struct CallAnswer: Codable, Hashable, Sendable {
+    /// The option picked, by its id.
+    var option: String?
+    /// The options picked on a call that takes several.
+    var options: [String]?
+    /// What the person added to the option they picked.
+    var note: String?
+    /// The person's answer in their own words, with no option picked.
+    var words: String?
+    var by: CallClient
+    var at: Int
+    /// How long the call waited on the person.
+    var waitedMs: Int
+}
+
+/// Where the person answered from.
+enum CallClient: Codable, Hashable, Sendable {
+    /// Sikemux's window or notch on the host.
+    case app
+    /// A paired phone or another host's app.
+    case device(Device)
+    /// Typed in the asker's chat.
+    case chat
+    /// One added after this build, by its `kind`.
+    case unknown(String)
+
+    struct Device: Codable, Hashable, Sendable {
+        var id: String
+    }
+
+    private enum TagKey: String, CodingKey {
+        case tag = "kind"
+    }
+
+    init(from decoder: any Decoder) throws {
+        let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .tag)
+        switch tag {
+        case "app":
+            self = .app
+        case "device":
+            self = .device(try Device(from: decoder))
+        case "chat":
+            self = .chat
+        default:
+            self = .unknown(tag)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        let tag: String
+        switch self {
+        case .app:
+            tag = "app"
+        case .device(let value):
+            try value.encode(to: encoder)
+            tag = "device"
+        case .chat:
+            tag = "chat"
+        case .unknown(let value):
+            tag = value
+        }
+        var container = encoder.container(keyedBy: TagKey.self)
+        try container.encode(tag, forKey: .tag)
+    }
+}
+
+/// What came of a call, such as "Shipped · healthy".
+struct CallOutcome: Codable, Hashable, Sendable {
+    var result: CallResult
+    /// What the place's health check said after it shipped.
+    var healthy: Bool?
+    /// The place can take it back.
+    var rollBack: Bool?
+    var at: Int
+}
+
+enum CallResult: String, Codable, Hashable, Sendable {
+    /// The asker was told the answer.
+    case heard
+    case shipped
+    /// The person said no, so it did not ship.
+    case notShipped
+    /// It went, and failed.
+    case failed
+    /// Handed back to the asker's lead, or to the asker, to decide.
+    case handedBack
+    /// Closed with no answer from the person.
+    case withdrawn
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// The tabs every desktop client draws, kept by the core.
@@ -6471,6 +6694,16 @@ struct HoldParams: Codable, Hashable, Sendable {
     var hold: String
 }
 
+/// What answers a call: an option, with a note, or the person's own words.
+struct AnswerCallParams: Codable, Hashable, Sendable {
+    var id: String
+    var option: String?
+    /// The options picked on a call that takes several.
+    var options: [String]?
+    var note: String?
+    var words: String?
+}
+
 struct PairingAnswer: Codable, Hashable, Sendable {
     var id: String
     var allow: Bool
@@ -6514,6 +6747,10 @@ struct AttachedStash: Codable, Hashable, Sendable {
 /// The project a board call is about, by its absolute path.
 struct BoardParams: Codable, Hashable, Sendable {
     var project: String
+}
+
+struct CallParams: Codable, Hashable, Sendable {
+    var id: String
 }
 
 struct ChatAccountsParams: Codable, Hashable, Sendable {

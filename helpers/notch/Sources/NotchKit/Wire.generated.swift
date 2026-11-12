@@ -158,6 +158,27 @@ enum CoreCall {
         let method = "letShipGo"
         let params: HoldParams
     }
+
+    struct AnswerCall: CoreAsk {
+        static let op = "call"
+        typealias Answer = CoreResponse.Called<Nothing?>
+        let method = "answerCall"
+        let params: AnswerCallParams
+    }
+
+    struct CallSeen: CoreAsk {
+        static let op = "call"
+        typealias Answer = CoreResponse.Called<Nothing?>
+        let method = "callSeen"
+        let params: CallParams
+    }
+
+    struct CallNotMine: CoreAsk {
+        static let op = "call"
+        typealias Answer = CoreResponse.Called<Nothing?>
+        let method = "callNotMine"
+        let params: CallParams
+    }
 }
 
 enum Event: Decodable {
@@ -312,6 +333,9 @@ struct DeviceView: Codable, Hashable {
     let attentions: [Attention]
     /// What waits on the person, ranked.
     let inbox: Inbox
+    /// The calls of every project still open, then those answered lately with what came of
+    /// them, newest first. Clients show only the projects they scope to.
+    let calls: [PersonCall]?
     let faceStyle: FaceStyle
     /// How busy this host is, while a client that shows it is attached.
     let load: HostLoad?
@@ -603,6 +627,153 @@ struct AgentRollup: Codable, Hashable {
     let tasks: Int
 }
 
+/// A decision put to the person.
+struct PersonCall: Codable, Hashable {
+    let id: String
+    let project: String
+    let kind: CallKind
+    /// Who asks.
+    let asker: CallAsker
+    /// Other agents waiting on the same thing, which this one answer covers.
+    let joined: [CallAsker]?
+    /// What the person asked for, in their words: the card's heading.
+    let askedFor: String?
+    /// The decision, in one line.
+    let question: String
+    let context: String?
+    let options: [CallOption]
+    /// The option the asker would take, by its id.
+    let pick: String?
+    /// The strongest point against the pick.
+    let against: String?
+    let evidence: [CallEvidence]?
+    /// Exactly what runs on a yes, shown only once the card is opened.
+    let action: String?
+    /// A weighty call comes as a short brief.
+    let brief: CallBrief?
+    /// The production place it changes, by name.
+    let place: String?
+    /// Not mine hands it back: never on a production call.
+    let canHandBack: Bool
+    /// More than one option may be picked.
+    let multi: Bool?
+    /// The answer is a secret, typed into a hidden field and never shown again.
+    let secret: Bool?
+    let raisedAt: Int
+    let state: CallState
+    let answer: CallAnswer?
+    let outcome: CallOutcome?
+}
+
+/// What makes a decision the person's own.
+enum CallKind: String, Codable, Hashable {
+    /// A change to a production place. It passes only by its button, on a client that drew it,
+    /// and is never handed back.
+    case production
+    /// Spending money.
+    case money
+    /// Taste or product direction.
+    case taste
+    /// Access only the person has, such as a sign-in or a password.
+    case access
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// An agent that waits on a call.
+struct CallAsker: Codable, Hashable {
+    let agentId: String
+    /// Its name, such as Wren.
+    let name: String
+    let cli: String
+}
+
+/// One of the answers the person picks among.
+struct CallOption: Codable, Hashable {
+    let id: String
+    let label: String
+    let detail: String?
+    /// A screenshot or mockup of it, in the core's own folder. A taste call has one per option.
+    let picture: String?
+}
+
+/// Something worth looking at before answering, such as checks that passed or the page as it
+/// will look.
+struct CallEvidence: Codable, Hashable {
+    let what: String
+    let picture: String?
+}
+
+/// What a weighty call, such as a cutover or a public release, says before its options.
+struct CallBrief: Codable, Hashable {
+    let tried: String
+    /// What the evidence shows.
+    let shows: String
+    /// What can't be undone once it goes.
+    let cannotUndo: String
+}
+
+enum CallState: String, Codable, Hashable {
+    case open
+    case answered
+    /// Nobody answers it any more: the asker went on another way or closed.
+    case closed
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+struct CallAnswer: Codable, Hashable {
+    /// The option picked, by its id.
+    let option: String?
+    /// The options picked on a call that takes several.
+    let options: [String]?
+    /// What the person added to the option they picked.
+    let note: String?
+    /// The person's answer in their own words, with no option picked.
+    let words: String?
+    let at: Int
+    /// How long the call waited on the person.
+    let waitedMs: Int
+}
+
+/// What came of a call, such as "Shipped · healthy".
+struct CallOutcome: Codable, Hashable {
+    let result: CallResult
+    /// What the place's health check said after it shipped.
+    let healthy: Bool?
+    /// The place can take it back.
+    let rollBack: Bool?
+    let at: Int
+}
+
+enum CallResult: String, Codable, Hashable {
+    /// The asker was told the answer.
+    case heard
+    case shipped
+    /// The person said no, so it did not ship.
+    case notShipped
+    /// It went, and failed.
+    case failed
+    /// Handed back to the asker's lead, or to the asker, to decide.
+    case handedBack
+    /// Closed with no answer from the person.
+    case withdrawn
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
 /// How agents' faces look, as the person picked.
 struct FaceStyle: Codable, Hashable {
     /// Faces move with what their agents are doing.
@@ -673,4 +844,18 @@ struct AnswerParams: Codable, Hashable {
 
 struct HoldParams: Codable, Hashable {
     let hold: String
+}
+
+/// What answers a call: an option, with a note, or the person's own words.
+struct AnswerCallParams: Codable, Hashable {
+    let id: String
+    var option: String?
+    /// The options picked on a call that takes several.
+    var options: [String]?
+    var note: String?
+    var words: String?
+}
+
+struct CallParams: Codable, Hashable {
+    let id: String
 }

@@ -20,6 +20,10 @@ pub struct DeviceView {
     pub recent: Vec<RecentInfo>,
     /// What waits on the person, ranked.
     pub inbox: crate::inbox::Inbox,
+    /// The calls of every project still open, then those answered lately with what came of
+    /// them, newest first. Clients show only the projects they scope to.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub calls: Vec<crate::calls::PersonCall>,
     /// Which project is in front, and each project's tabs.
     pub layout: Box<Layout>,
     /// Who this host is signed in to Sikemux as; none while nobody is.

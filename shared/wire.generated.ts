@@ -71,6 +71,11 @@ export interface DeviceView {
     recent: RecentInfo[];
     /** What waits on the person, ranked. */
     inbox: Inbox;
+    /**
+     * The calls of every project still open, then those answered lately with what came of
+     * them, newest first. Clients show only the projects they scope to.
+     */
+    calls?: PersonCall[];
     /** Which project is in front, and each project's tabs. */
     layout: Layout;
     /** Who this host is signed in to Sikemux as; none while nobody is. */
@@ -1212,6 +1217,127 @@ export interface AgentRollup {
     subagents: number;
     tasks: number;
 }
+
+/** A decision put to the person. */
+export interface PersonCall {
+    id: string;
+    project: string;
+    kind: CallKind;
+    /** Who asks. */
+    asker: CallAsker;
+    /** Other agents waiting on the same thing, which this one answer covers. */
+    joined?: CallAsker[];
+    /** What the person asked for, in their words: the card's heading. */
+    askedFor?: string;
+    /** The decision, in one line. */
+    question: string;
+    context?: string;
+    options: CallOption[];
+    /** The option the asker would take, by its id. */
+    pick?: string;
+    /** The strongest point against the pick. */
+    against?: string;
+    evidence?: CallEvidence[];
+    /** Exactly what runs on a yes, shown only once the card is opened. */
+    action?: string;
+    /** A weighty call comes as a short brief. */
+    brief?: CallBrief;
+    /** The production place it changes, by name. */
+    place?: string;
+    /** Not mine hands it back: never on a production call. */
+    canHandBack: boolean;
+    /** More than one option may be picked. */
+    multi?: boolean;
+    /** The answer is a secret, typed into a hidden field and never shown again. */
+    secret?: boolean;
+    raisedAt: number;
+    state: CallState;
+    answer?: CallAnswer;
+    outcome?: CallOutcome;
+}
+
+/** What makes a decision the person's own. */
+export type CallKind = "production" | "money" | "taste" | "access";
+
+/** An agent that waits on a call. */
+export interface CallAsker {
+    agentId: string;
+    /** Its name, such as Wren. */
+    name: string;
+    cli: string;
+}
+
+/** One of the answers the person picks among. */
+export interface CallOption {
+    id: string;
+    label: string;
+    detail?: string;
+    /** A screenshot or mockup of it, in the core's own folder. A taste call has one per option. */
+    picture?: string;
+}
+
+/**
+ * Something worth looking at before answering, such as checks that passed or the page as it
+ * will look.
+ */
+export interface CallEvidence {
+    what: string;
+    picture?: string;
+}
+
+/** What a weighty call, such as a cutover or a public release, says before its options. */
+export interface CallBrief {
+    tried: string;
+    /** What the evidence shows. */
+    shows: string;
+    /** What can't be undone once it goes. */
+    cannotUndo: string;
+}
+
+export type CallState = "open" | "answered" | "closed";
+
+export interface CallAnswer {
+    /** The option picked, by its id. */
+    option?: string;
+    /** The options picked on a call that takes several. */
+    options?: string[];
+    /** What the person added to the option they picked. */
+    note?: string;
+    /** The person's answer in their own words, with no option picked. */
+    words?: string;
+    by: CallClient;
+    at: number;
+    /** How long the call waited on the person. */
+    waitedMs: number;
+}
+
+/** Where the person answered from. */
+export type CallClient =
+    /** Sikemux's window or notch on the host. */
+    | {
+          kind: "app";
+      }
+    /** A paired phone or another host's app. */
+    | {
+          kind: "device";
+          id: string;
+      }
+    /** Typed in the asker's chat. */
+    | {
+          kind: "chat";
+      };
+
+/** What came of a call, such as "Shipped · healthy". */
+export interface CallOutcome {
+    result: CallResult;
+    /** What the place's health check said after it shipped. */
+    healthy?: boolean;
+    /** The place can take it back. */
+    rollBack?: boolean;
+    at: number;
+}
+
+export type CallResult = "heard" | "shipped" | "notShipped" | "failed" | "handedBack" | "withdrawn";
 
 /** The tabs every desktop client draws, kept by the core. */
 export interface Layout {
@@ -4129,6 +4255,16 @@ export interface HoldParams {
     hold: string;
 }
 
+/** What answers a call: an option, with a note, or the person's own words. */
+export interface AnswerCallParams {
+    id: string;
+    option?: string;
+    /** The options picked on a call that takes several. */
+    options?: string[];
+    note?: string;
+    words?: string;
+}
+
 export interface PairingAnswer {
     id: string;
     allow: boolean;
@@ -4174,6 +4310,10 @@ export interface AttachedStash {
 /** The project a board call is about, by its absolute path. */
 export interface BoardParams {
     project: string;
+}
+
+export interface CallParams {
+    id: string;
 }
 
 export interface ChatAccountsParams {
@@ -4458,12 +4598,15 @@ export interface CoreCalls {
     agentMessageRows: { params: AgentMessagesParams; answer: AgentMessageRows };
     agentSessions: { params: SessionSearchParams; answer: SessionMatch[] };
     allowShip: { params: HoldParams; answer: null };
+    answerCall: { params: AnswerCallParams; answer: null };
     answerPairing: { params: PairingAnswer; answer: RemotePairing };
     answerQuestion: { params: AnswerParams; answer: null };
     answerQuestions: { params: AnswersParams; answer: null };
     attachStash: { params: AttachStashParams; answer: AttachedStash };
     board: { params: BoardParams; answer: ProjectBoard };
     boards: { params: NoParams; answer: ProjectBoard[] };
+    callNotMine: { params: CallParams; answer: null };
+    callSeen: { params: CallParams; answer: null };
     cancelResume: { params: ChatAccountsParams; answer: null };
     changeDevice: { params: DeviceChange; answer: RemotePairing };
     chatAccounts: { params: ChatAccountsParams; answer: ChatAccounts };

@@ -27,10 +27,11 @@ use super::board::{self, auto::Landing, DeployRan};
 use super::connection::blocking;
 use super::plugins::Provided;
 use super::repo_events::RepoEvent;
-use super::{messages, plugins, Core, CoreResult};
+use super::{messages, person_calls, plugins, questions, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
 use crate::ship::{Looks, Ship, Target, ToolShip};
+use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallState, PersonCall};
 
 /// More than an agent waits on at once; past this its oldest hold goes.
 const MAX_HOLDS_PER_AGENT: usize = 16;
@@ -87,7 +88,8 @@ pub(crate) struct Answered {
 
 /// An agent's action waiting on the person.
 struct Hold {
-    id: u64,
+    /// What clients name it by, which can't be guessed from another hold's.
+    token: String,
     agent_id: String,
     project: String,
     ship: Ship,
@@ -147,7 +149,7 @@ impl Ships {
         (self.state.locked().holds.iter())
             .map(|hold| Waiting {
                 hold: ShipHold {
-                    id: hold.id.to_string(),
+                    id: hold.token.clone(),
                     kind: hold.ship.kind,
                     what: hold.ship.what.clone(),
                     environment: hold.environment.clone(),
@@ -319,10 +321,8 @@ fn check_call(
                 state.holds.remove(oldest);
             }
         }
-        state.next += 1;
-        let id = state.next;
         state.holds.push(Hold {
-            id,
+            token: uuid::Uuid::new_v4().simple().to_string(),
             agent_id: agent_id.to_owned(),
             project,
             cwd: cwd.to_owned(),
@@ -336,6 +336,7 @@ fn check_call(
         });
     }
     core.changed(What::Agents);
+    tell_calls(core);
     Err(said)
 }
 
@@ -830,16 +831,16 @@ pub(crate) async fn allow_held(
     project: &str,
     environment: &str,
 ) -> bool {
-    let ids: Vec<u64> = (core.ship.state.locked().holds.iter())
+    let ids: Vec<String> = (core.ship.state.locked().holds.iter())
         .filter(|hold| {
             hold.agent_id == agent
                 && hold.project == project
                 && hold.environment.as_deref() == Some(environment)
         })
-        .map(|hold| hold.id)
+        .map(|hold| hold.token.clone())
         .collect();
     for id in &ids {
-        if let Ok(hold) = take(core, &id.to_string()) {
+        if let Ok(hold) = take(core, id) {
             allow_hold(core, hold).await;
         }
     }
@@ -871,7 +872,7 @@ pub(crate) async fn let_go(core: &Arc<Core>, params: HoldParams) -> CoreResult<(
     let (project, always) = {
         let state = core.ship.state.locked();
         let hold = (state.holds.iter())
-            .find(|hold| hold.id.to_string() == params.hold)
+            .find(|hold| hold.token == params.hold)
             .ok_or("that action no longer waits on you")?;
         let always = (hold.let_go.clone()).ok_or("this action can't be always allowed")?;
         (hold.project.clone(), always)
@@ -882,15 +883,15 @@ pub(crate) async fn let_go(core: &Arc<Core>, params: HoldParams) -> CoreResult<(
         Some(folder) => Path::new(held).starts_with(folder),
         None => held == project,
     };
-    let held: Vec<(u64, String, Ship)> = (core.ship.state.locked().holds.iter())
+    let held: Vec<(String, String, Ship)> = (core.ship.state.locked().holds.iter())
         .filter(|hold| covered(&hold.project))
-        .map(|hold| (hold.id, hold.project.clone(), hold.ship.clone()))
+        .map(|hold| (hold.token.clone(), hold.project.clone(), hold.ship.clone()))
         .collect();
     for (id, project, ship) in held {
         if board::judge_ship(core, &project, &ship).goes != Goes::Freely {
             continue;
         }
-        if let Ok(mut hold) = take(core, &id.to_string()) {
+        if let Ok(mut hold) = take(core, &id) {
             core.ship.remember(&hold, true);
             if let Some(call) = hold.call.take() {
                 hold.deploy = check(core, &hold.agent_id, hold.ship.clone(), &hold.cwd)
@@ -926,12 +927,91 @@ fn take(core: &Core, id: &str) -> CoreResult<Hold> {
     let hold = {
         let mut state = core.ship.state.locked();
         let at = (state.holds.iter())
-            .position(|hold| hold.id.to_string() == id)
+            .position(|hold| hold.token == id)
             .ok_or("that action no longer waits on you")?;
         state.holds.remove(at)
     };
     core.changed(What::Agents);
+    tell_calls(core);
     Ok(hold)
+}
+
+/// Puts each held action to the person as a production call, and closes the calls of those no
+/// longer held.
+fn tell_calls(core: &Core) {
+    let wanted = (core.ship.state.locked().holds.iter())
+        .map(|hold| (hold.token.clone(), held_call(core, hold)))
+        .collect();
+    person_calls::sync_holds(core, wanted);
+}
+
+fn held_call(core: &Core, hold: &Hold) -> PersonCall {
+    let name = core.names.name_or_id(&hold.agent_id);
+    let question = match (hold.ship.kind, hold.ship.writes_to(), &hold.environment) {
+        (_, Some(place), _) => format!("Let @{name} write to {place} as you?"),
+        (ShipKind::Push, ..) => format!("Let @{name} push its commits?"),
+        (ShipKind::Merge, ..) => format!("Let @{name} merge its pull request?"),
+        (ShipKind::Deploy, _, Some(environment)) => format!("Let @{name} deploy to {environment}?"),
+        (ShipKind::Deploy, ..) => format!("Let @{name} deploy?"),
+        (ShipKind::Publish, ..) => format!("Let @{name} publish a release?"),
+        (ShipKind::ProductionWrite, ..) => {
+            format!("Let @{name} change the production database?")
+        }
+    };
+    let option = |id: &str, label: String, detail: Option<String>| CallOption {
+        id: id.to_owned(),
+        label,
+        detail,
+        picture: None,
+    };
+    let always = (hold.let_go.as_ref()).map(|always| {
+        option(
+            person_calls::HOLD_ALWAYS,
+            "Always allow it here".to_owned(),
+            Some(always.covers.clone()),
+        )
+    });
+    let options = [
+        Some(option(
+            person_calls::HOLD_ALLOW,
+            "Allow it once".to_owned(),
+            None,
+        )),
+        Some(option(
+            person_calls::HOLD_REFUSE,
+            "Not now".to_owned(),
+            None,
+        )),
+        always,
+    ];
+    PersonCall {
+        id: hold.token.clone(),
+        project: hold.project.clone(),
+        kind: CallKind::Production,
+        asker: CallAsker {
+            agent_id: hold.agent_id.clone(),
+            cli: questions::cli_of(core, &hold.agent_id),
+            name,
+        },
+        joined: Vec::new(),
+        asked_for: None,
+        question,
+        context: hold.why.clone(),
+        options: options.into_iter().flatten().collect(),
+        pick: None,
+        against: None,
+        evidence: Vec::new(),
+        action: Some(hold.ship.what.clone()),
+        brief: None,
+        place: hold.environment.clone(),
+        can_hand_back: false,
+        multi: false,
+        secret: false,
+        raised_at: hold.at,
+        state: CallState::Open,
+        answer: None,
+        outcome: None,
+    }
 }
 
 #[cfg(test)]

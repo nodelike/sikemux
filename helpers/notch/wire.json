@@ -1,6 +1,6 @@
 {
   "fields": {
-    "DeviceView": "workspace attentions inbox faceStyle load",
+    "DeviceView": "workspace attentions inbox calls faceStyle load",
     "HostLoad": "overloaded loadAverage cores builds",
     "AgentBuild": "agentId command",
     "Workspace": "projects launchers",
@@ -23,6 +23,13 @@
     "PendingDevice": "id name platform expiresAt",
     "AgentQuestion": "id text choices viaNote",
     "QuestionChoice": "label",
+    "PersonCall": "id project kind asker joined askedFor question context options pick against evidence action brief place canHandBack multi secret raisedAt state answer outcome",
+    "CallAsker": "agentId name cli",
+    "CallOption": "id label detail picture",
+    "CallEvidence": "what picture",
+    "CallBrief": "tried shows cannotUndo",
+    "CallAnswer": "option options note words at waitedMs",
+    "CallOutcome": "result healthy rollBack at",
     "CatalogAgent": "type label",
     "Preferences": "notch",
     "Response.ChatBegun": "agentId",
@@ -39,7 +46,7 @@
     "AnswerPairing",
     "StartChat"
   ],
-  "calls": ["preferences", "agentCatalog", "questions", "answerQuestion", "allowShip", "refuseShip", "letShipGo"],
+  "calls": ["preferences", "agentCatalog", "questions", "answerQuestion", "allowShip", "refuseShip", "letShipGo", "answerCall", "callSeen", "callNotMine"],
   "events": ["Changed", "Remote", "DeviceView"],
   "declared": ["NotchSettings"]
 }

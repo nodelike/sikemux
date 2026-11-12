@@ -14,8 +14,8 @@ use super::connection::{blocking, ClientConn};
 use super::workspace;
 use super::{
     agent_accounts, agent_sign_in, attachments, board, edits, goal_summary, goals, inbox, lsp,
-    memory, messages, model_providers, names, plugins, questions, remote, saved, saved_sessions,
-    share, ship, skill_library, who_wrote, Core, CoreError, CoreResult,
+    memory, messages, model_providers, names, person_calls, plugins, questions, remote, saved,
+    saved_sessions, share, ship, skill_library, who_wrote, Core, CoreError, CoreResult,
 };
 use sikemux_view::catalog::CatalogAgent;
 use sikemux_view::chat::ToolDetail;
@@ -436,11 +436,16 @@ calls! { core, client, method, params;
     "trustHeldRemote" TrustHeldRemote (NoParams) -> RemoteStatus: NoDevice => remote::trust_held(&core).await?,
     "forgetHeldRemote" ForgetHeldRemote (NoParams) -> RemoteStatus: NoDevice => remote::discard_held(&core)?,
     "questions" Questions (NoParams) -> Vec<AgentQuestion>: Watch, any_program => questions::views(&core),
-    "answerQuestion" AnswerQuestion (questions::AnswerParams) -> (): Full, counted => questions::answer(&core, params).await?,
-    "answerQuestions" AnswerQuestions (questions::AnswersParams) -> (): Full, counted => questions::answer_all(&core, params).await?,
-    "allowShip" AllowShip (ship::HoldParams) -> (): Full => ship::allow(&core, params).await?,
-    "refuseShip" RefuseShip (ship::HoldParams) -> (): Full => ship::refuse(&core, params).await?,
-    "letShipGo" LetShipGo (ship::HoldParams) -> (): Full => ship::let_go(&core, params).await?,
+    "answerQuestion" AnswerQuestion (questions::AnswerParams) -> (): Full, counted => {
+        person_calls::answer_questions(&core, &client.peer, questions::AnswersParams { answers: vec![params] }).await?
+    },
+    "answerQuestions" AnswerQuestions (questions::AnswersParams) -> (): Full, counted => person_calls::answer_questions(&core, &client.peer, params).await?,
+    "allowShip" AllowShip (ship::HoldParams) -> (): Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALLOW).await?,
+    "refuseShip" RefuseShip (ship::HoldParams) -> (): Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_REFUSE).await?,
+    "letShipGo" LetShipGo (ship::HoldParams) -> (): Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALWAYS).await?,
+    "answerCall" AnswerCall (sikemux_view::calls::AnswerCallParams) -> (): Full, counted => person_calls::answer(&core, &client.peer, params).await?,
+    "callSeen" CallSeen (sikemux_view::calls::CallParams) -> (): Watch => person_calls::seen(&core, &client.peer, params)?,
+    "callNotMine" CallNotMine (sikemux_view::calls::CallParams) -> (): Full, counted => person_calls::not_mine(&core, &client.peer, params).await?,
     "checkWebWrite" CheckWebWrite (ship::WebWriteParams) -> Option<String>: Owner => ship::check_web_write(&core, params).await?,
     "agentMessages": Watch, any_program => answer(messages::agent_messages(&core, parse(params)?).await?),
     "agentMessageRows" AgentMessageRows (messages::AgentMessagesParams) -> messages::AgentMessageRows: Watch, any_program => {
