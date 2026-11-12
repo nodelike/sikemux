@@ -71,12 +71,13 @@ impl Store {
         change(kept);
     }
 
-    /// Changes what `project` keeps by `change`, and writes it out when it changed.
+    /// Changes what `project` keeps by `change`, and writes it out when it changed, which
+    /// the last of what it answers says.
     pub(crate) fn change<R>(
         &self,
         project: &str,
         change: impl FnOnce(&mut Kept) -> Result<R, String>,
-    ) -> Result<(R, Kept), String> {
+    ) -> Result<(R, Kept, bool), String> {
         let mut all = self.kept.locked();
         let kept = all.entry(project.to_owned()).or_insert_with(|| Kept {
             project: project.to_owned(),
@@ -86,10 +87,11 @@ impl Store {
         let answer = change(kept)?;
         let after = kept.clone();
         drop(all);
-        if after != before {
+        let changed = after != before;
+        if changed {
             write(self.folder.as_deref(), &after);
         }
-        Ok((answer, after))
+        Ok((answer, after, changed))
     }
 }
 

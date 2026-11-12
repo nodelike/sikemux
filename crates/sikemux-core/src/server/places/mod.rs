@@ -24,6 +24,7 @@ pub(crate) use judge::{Goes, Judged};
 pub(crate) use place::{Passes, Place, GITHUB_RELEASES};
 
 use super::access::Peer;
+use super::changed::{Topic, What};
 use super::connection::blocking;
 use super::{board, Core, CoreResult};
 use crate::ship::Ship;
@@ -41,14 +42,18 @@ pub(crate) struct Unplaced {
     pub fact: Recognise,
 }
 
-/// Changes what `project` keeps of its places, and has its slices' ladders read the result.
+/// Changes what `project` keeps of its places, has its slices' ladders read the result, and
+/// open Playbooks read it again.
 pub(crate) fn change<R>(
     core: &Core,
     project: &str,
     change: impl FnOnce(&mut store::Kept) -> Result<R, String>,
 ) -> Result<R, String> {
-    let (answer, kept) = core.places.change(project, change)?;
+    let (answer, kept, changed) = core.places.change(project, change)?;
     board::mirror_places(core, project, kept.places, kept.confirmed);
+    if changed {
+        core.changed(What::Read(Topic::Playbook));
+    }
     Ok(answer)
 }
 
@@ -137,6 +142,7 @@ pub(crate) fn saw(core: &Core, project: &str, ship: &Ship, agent_id: &str) {
                 None => kept.more_seen += 1,
             }
         });
+        core.changed(What::Read(Topic::Playbook));
         return;
     }
     let fact = judge::fact_of_seen(ship);

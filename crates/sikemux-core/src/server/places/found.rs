@@ -90,7 +90,8 @@ fn vercel(root: &Path, found: &mut Vec<Place>) {
 }
 
 /// GitHub's releases, when a workflow publishes one, and each deployment environment a
-/// workflow names that reads as production.
+/// workflow names that reads as production. Where a workflow tells its tags apart, its stable
+/// releases are where any other release lands too.
 fn workflows(root: &Path, found: &mut Vec<Place>) {
     let Ok(entries) = std::fs::read_dir(root.join(".github/workflows")) else {
         return;
@@ -98,6 +99,7 @@ fn workflows(root: &Path, found: &mut Vec<Place>) {
     let mut files: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
     files.sort();
     let mut releases: Option<(String, Vec<Recognise>)> = None;
+    let mut stable: Option<usize> = None;
     for path in files {
         let Ok(mut text) = std::fs::read_to_string(&path) else {
             continue;
@@ -114,7 +116,7 @@ fn workflows(root: &Path, found: &mut Vec<Place>) {
             words: format!("gh workflow run {file}"),
         };
         let read = crate::ship::read_workflow(&text);
-        tag_places(&text, &shown, found);
+        stable = tag_places(&text, &shown, found).or(stable);
         if read.publishes {
             let (_, facts) = releases.get_or_insert_with(|| (shown.clone(), Vec::new()));
             facts.push(words.clone());
@@ -147,7 +149,10 @@ fn workflows(root: &Path, found: &mut Vec<Place>) {
                 registry: GITHUB_RELEASES.to_owned(),
             },
         );
-        found.push(new_place("Releases on GitHub", true, facts, Some(file)));
+        match stable.and_then(|at| found.get_mut(at)) {
+            Some(stable) => stable.recognise.extend(facts),
+            None => found.push(new_place("Releases on GitHub", true, facts, Some(file))),
+        }
     }
 }
 
@@ -181,15 +186,16 @@ fn tag_patterns(text: &str) -> Vec<String> {
 
 /// The places a workflow that runs on pushed tags makes of them. Where its jobs tell some
 /// tags apart by a word in their name, as `contains(github.ref_name, '-nightly.')` does, those
-/// tags are a place of their own, done again and again, and the rest another.
-fn tag_places(text: &str, file: &str, found: &mut Vec<Place>) {
+/// tags are a place of their own, done again and again, and the rest another. It answers where
+/// in `found` the place of the tags not told apart is.
+fn tag_places(text: &str, file: &str, found: &mut Vec<Place>) -> Option<usize> {
     let patterns = tag_patterns(text);
     if patterns.is_empty() {
-        return;
+        return None;
     }
     let read = crate::ship::read_workflow(text);
     if !read.publishes && !read.deploys {
-        return;
+        return None;
     }
     let apart = text
         .split("contains(github.ref_name,")
@@ -210,7 +216,7 @@ fn tag_places(text: &str, file: &str, found: &mut Vec<Place>) {
             facts,
             Some(file.to_owned()),
         ));
-        return;
+        return Some(found.len() - 1);
     };
     let marked = format!("*{word}*");
     let title = word.trim_matches(|c: char| !c.is_ascii_alphanumeric());
@@ -237,4 +243,5 @@ fn tag_places(text: &str, file: &str, found: &mut Vec<Place>) {
         .map(|pattern| tags(pattern, Some(marked.clone())))
         .collect();
     found.push(new_place(&rest_name, true, rest, Some(file.to_owned())));
+    Some(found.len() - 1)
 }

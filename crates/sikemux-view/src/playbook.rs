@@ -16,6 +16,9 @@ pub struct Playbook {
     pub notes: Vec<Entry>,
     pub landing: Landing,
     pub automation: Vec<RunsAlone>,
+    /// Where agents' actions land outside this machine, and which of them wait for the person.
+    #[serde(default)]
+    pub places: crate::places::Places,
 }
 
 /// A rule or knowledge Sikemux keeps, as the Playbook lists it.

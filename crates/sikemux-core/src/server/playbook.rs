@@ -66,5 +66,6 @@ fn playbook(core: &Core, project: &str, peer: &Peer) -> Playbook {
             means: Some(super::landing::means_now(core, project)),
         },
         automation,
+        places: super::places::of(core, project),
     }
 }
