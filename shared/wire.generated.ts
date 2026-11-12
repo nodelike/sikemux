@@ -49,6 +49,10 @@ export interface NotificationCard {
     /** Milliseconds since the Unix epoch. */
     at: number;
     expiresAt: number;
+    /** The call it puts to the person, answered with `answerCall`. */
+    callId?: string;
+    /** The answers a call of taste offers as buttons, the asker's pick first. */
+    options?: NotificationOption[];
 }
 
 export type NotificationKind = "permission" | "input" | "finished" | "problem" | "pairing" | "clear";
@@ -61,6 +65,12 @@ export type NotificationChannel = "needs-you" | "finished" | "problems";
  * has any: Reject and Allow.
  */
 export type NotificationCategory = "permission" | "needs-you" | "finished" | "problem";
+
+/** One answer a card offers, by the call option it picks. */
+export interface NotificationOption {
+    id: string;
+    label: string;
+}
 
 export interface DeviceView {
     workspace: Workspace;
