@@ -39,7 +39,7 @@ permissions:
 # results; of the pushes that arrive meanwhile only the newest runs next, and the older waiting
 # ones are cancelled. A new push to a pull request stops its running one.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Cargo.toml builds dependencies at full speed so `make dev` feels fast. CI only
