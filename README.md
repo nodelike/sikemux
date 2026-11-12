@@ -18,8 +18,13 @@ Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, lo
 ## Install
 
 ```bash
-curl -fsSL https://sikemux.com/install | sh                 # desktop app
-curl -fsSL https://sikemux.com/install | sh -s -- --host    # just the core, for a headless server
+curl -fsSL https://sikemux.com/install | sh
+```
+
+On a headless server, install just the core:
+
+```bash
+curl -fsSL https://sikemux.com/install | sh -s -- --host
 ```
 
 macOS 11+ on Apple Silicon, or Linux on x86_64 and arm64. The `.dmg`, `.deb`, `.rpm`, Arch package and AppImage are also on [Releases](https://github.com/nodelike/sikemux/releases/latest).
