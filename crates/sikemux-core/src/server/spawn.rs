@@ -27,6 +27,7 @@ use super::hosts::spawn::{self as elsewhere, Hired};
 use super::launching;
 use super::messages;
 use super::names::{Adopted, AgentName, Unhired, Worker};
+use super::overlap;
 use super::saved::{self, Saved};
 use super::workspace::{new_agent, LauncherId};
 use super::workspace::{Lead, Paid};
@@ -611,6 +612,10 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             room_made(started.made_room.as_deref()),
         ),
     });
+    let answer = match (&saved, &request.agent_id) {
+        (None, Some(lead)) => with_overlap(core, lead, &prompt, answer).await,
+        _ => answer,
+    };
     let core = core.clone();
     tokio::spawn(async move { hand_task(&core, started, prompt).await });
     Ok(woken_by_answers(answer, reports))
@@ -695,6 +700,16 @@ async fn reopen_own_lead(
         "sent": sent,
         "note": format!("{} leads you, so Sikemux reopened \"{title}\" as that agent itself, not as your worker, and your prompt went to it as a message, as agent_send sends one. It does not report back to you: a reply comes as a message only if it sends one.", messages::called(&name, &agent_id)),
     }))
+}
+
+/// Adds to the answer the other agents already changing files the brief names.
+async fn with_overlap(core: &Arc<Core>, lead: &str, prompt: &str, mut answer: Value) -> Value {
+    let (owner, lead, prompt) = (core.clone(), lead.to_owned(), prompt.to_owned());
+    if let Ok(Some(overlap)) = blocking(move || Ok(overlap::of_brief(&owner, &lead, &prompt))).await
+    {
+        answer["overlap"] = overlap;
+    }
+    answer
 }
 
 /// A lead that started a teammate reporting back hears from it without asking.

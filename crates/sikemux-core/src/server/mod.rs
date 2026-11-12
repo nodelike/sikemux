@@ -72,6 +72,7 @@ pub mod new_project;
 mod notch;
 mod notify;
 pub mod open_files;
+mod overlap;
 mod part;
 pub(crate) mod person_calls;
 pub mod pictures;
