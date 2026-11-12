@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use sikemux_client::client::ClientError;
+use sikemux_core::build::older_version;
 use sikemux_core::client::{await_deferred_upgrade, await_upgrade, frozen_request, probe};
 use sikemux_core::frozen::{FrozenReply, FrozenRequest};
 use sikemux_wire::protocol::BuildIdentity;
@@ -45,7 +46,7 @@ pub enum StartError {
 
 /// Makes sure a core this app can talk to answers at the launch's socket:
 /// starts one, through the login item when it is installed, or moves the one
-/// running to `build`. A core with chats that cannot be carried over yet is
+/// running to `build`, unless it runs a newer release. A core with chats that cannot be carried over yet is
 /// left on its build until they can, unless `force`.
 pub async fn start(
     identifier: &str,
@@ -62,6 +63,13 @@ pub async fn start(
     let binary = launch.binary.clone();
     match found {
         Ok(hello) if hello.build.same_build(build) && runs(hello.pid, &binary) => Ok(()),
+        Ok(hello) if older_version(&build.version, &hello.build.version) => {
+            eprintln!(
+                "Sikemux {} uses the newer core already running ({} {}) as it is",
+                build.version, hello.build.version, hello.build.commit
+            );
+            Ok(())
+        }
         Ok(hello) => {
             let old = (!hello.build.same_build(build)).then_some(hello.build);
             match upgrade(&launch.socket, binary, hello.pid, old, force, false).await {

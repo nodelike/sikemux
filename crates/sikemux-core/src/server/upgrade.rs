@@ -184,6 +184,7 @@ enum Replacement {
 
 async fn upgrade(core: &Arc<Core>, binary: PathBuf, force: bool, writer: &mut FrameWriter) {
     if let Err(error) = begin(core, &binary, Replacement::Update).await {
+        eprintln!("sikemux core: not handing over: {error}");
         reply(writer, &refused(error)).await;
         return;
     }
@@ -312,7 +313,7 @@ async fn drop_writer(writer: &mut FrameWriter) {
 }
 
 /// Refuses a binary that is not an executable file, that does not read this
-/// core's hand-over, or, for an update, that is the build already running.
+/// core's hand-over, or, for an update, that is an older build or the one already running.
 fn check_binary(
     binary: &Path,
     own: &sikemux_wire::protocol::BuildIdentity,
@@ -331,6 +332,16 @@ fn check_binary(
         return Err(format!(
             "{} does not read hand-over format {RESUME_FORMAT}, which this core writes",
             binary.display(),
+        ));
+    }
+    if replacement == Replacement::Update && crate::build::older(&info.build(), own) {
+        return Err(format!(
+            "{} is Sikemux {} {}, older than the {} {} this core runs; a newer Sikemux is already running",
+            binary.display(),
+            info.version,
+            info.commit,
+            own.version,
+            own.commit,
         ));
     }
     let same_file = std::env::current_exe().is_ok_and(|own_binary| own_binary == binary);

@@ -25,7 +25,9 @@ use sikemux_core::cli::protocol::{
     CLI_PROTOCOL_VERSION,
 };
 use sikemux_core::client::{await_deferred_upgrade, await_upgrade, frozen_request, probe};
-use sikemux_core::frozen::{FrozenReply, FrozenRequest};
+use sikemux_core::frozen::{
+    FrozenReply, FrozenRequest, UpgradeInfo, READS_FORMATS, UPGRADE_INFO_ARG,
+};
 use sikemux_grid::{decode_frame, Screen};
 use sikemux_view::chat::{PermissionKind, StopReason};
 use sikemux_wire::protocol::{
@@ -636,6 +638,44 @@ async fn an_upgrade_is_refused_for_a_binary_that_cannot_take_over() {
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+}
+
+/// Two installed builds once moved one core back and forth between them every few seconds,
+/// each app pulling it to its own build, the older one included.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upgrade_to_an_older_release_is_refused() {
+    let core = CoreProcess::start("newer");
+    let older = UpgradeInfo {
+        version: "0.0.1".into(),
+        commit: "older".into(),
+        built_at: 0,
+        source: "older".into(),
+        resume_format: READS_FORMATS[0],
+        reads_formats: READS_FORMATS.to_vec(),
+    };
+    let info = serde_json::to_string(&older).expect("json");
+    let binary = core.binary(
+        "older",
+        "older",
+        &format!("[ \"$2\" = '{UPGRADE_INFO_ARG}' ] && {{ printf '%s' '{info}'; exit 0; }}"),
+    );
+    let reply = core
+        .frozen(FrozenRequest::Upgrade {
+            binary,
+            force: false,
+        })
+        .await;
+    let FrozenReply::Refused { message } = reply else {
+        panic!("{reply:?}\n{}", core.log());
+    };
+    assert!(
+        message.contains("a newer Sikemux is already running"),
+        "{message}"
+    );
+    assert!(core.log().contains("not handing over"), "{}", core.log());
+    let hello = probe(&core.socket, WAIT).expect("still serving");
+    assert_eq!(hello.pid, core.pid());
+    assert_eq!(hello.build.commit, "newer");
 }
 
 #[tokio::test(flavor = "multi_thread")]
