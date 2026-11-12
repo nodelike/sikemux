@@ -30,6 +30,15 @@ use crate::workbench::Workbench;
 
 pub type Act = Rc<dyn Fn(&mut Window, &mut App)>;
 
+/// The permission modes an agent can switch between, the one in force, and what picking one does;
+/// `held` while a change is still on its way or the agent waits on a permission.
+pub struct Modes {
+    pub current: PermissionMode,
+    pub offered: Vec<PermissionMode>,
+    pub held: bool,
+    pub pick: Rc<dyn Fn(PermissionMode, &mut Window, &mut App)>,
+}
+
 /// The line under the composer: why the last message did not go, with what to do about it, or
 /// what it waits for.
 pub enum Notice {
@@ -88,7 +97,7 @@ pub struct Composer {
     ready: bool,
     running: bool,
     steers: bool,
-    yolo: Option<(PermissionMode, bool, Act)>,
+    modes: Option<Modes>,
     pickers: Option<(Option<ConfigPicker>, Option<ConfigPicker>, Pick)>,
     /// The model menu, which before the chat starts also moves it to another agent or paying
     /// provider; the strip picks the account.
@@ -144,7 +153,7 @@ impl Composer {
             ready: false,
             running: false,
             steers: true,
-            yolo: None,
+            modes: None,
             pickers: None,
             model_menu: None,
             model_open: None,
@@ -206,8 +215,8 @@ impl Composer {
 
     /// The switch between the agent's permission modes, for an agent that can switch;
     /// `held` while a change of it is still on its way or the agent waits on a permission.
-    pub fn yolo(mut self, mode: PermissionMode, held: bool, toggle: Act) -> Self {
-        self.yolo = Some((mode, held, toggle));
+    pub fn modes(mut self, modes: Modes) -> Self {
+        self.modes = Some(modes);
         self
     }
 
@@ -331,7 +340,7 @@ impl RenderOnce for Composer {
         );
         let settable = self.ready && !self.running;
         let yolo_on =
-            (self.yolo.as_ref()).is_some_and(|(mode, _, _)| *mode == PermissionMode::Bypass);
+            (self.modes.as_ref()).is_some_and(|modes| modes.current == PermissionMode::Bypass);
         let width = window
             .use_keyed_state(
                 ElementId::NamedInteger("composer-width".into(), self.draft.entity_id().as_u64()),
@@ -361,15 +370,9 @@ impl RenderOnce for Composer {
                 self.stash
                     .map(|(fresh, open, toggle)| stash_button(fresh, open, toggle, room, cx)),
             );
-        if let Some((mode, held, toggle)) = self.yolo {
-            bar = bar.child(yolo(
-                mode,
-                settable && !held,
-                &self.agent_label,
-                toggle,
-                room,
-                cx,
-            ));
+        if let Some(modes) = self.modes {
+            let settable = settable && !modes.held;
+            bar = bar.child(mode_chip(modes, settable, &self.agent_label, room, cx));
         }
         let waiting = self
             .model_menu
@@ -877,36 +880,21 @@ fn shape(width: f32, aside: Option<AsideRoom>) -> (Room, bool) {
 }
 
 /// SAFE, AUTO or YOLO: whether the agent asks before it acts, has its own reviewer ask only
-/// what is risky, or never asks. YOLO's letters run through the rainbow the app paints it with.
-fn yolo(
-    mode: PermissionMode,
-    settable: bool,
-    agent: &str,
-    toggle: Act,
-    room: Room,
-    cx: &App,
-) -> impl IntoElement {
+/// what is risky, or never asks, opening a menu of the modes it has. YOLO's letters run through
+/// the rainbow the app paints it with.
+fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let press = crate::keymap::hint(actions::ToggleYolo::ID, cx).unwrap_or("Click".into());
+    let mode = modes.current;
     let on = mode == PermissionMode::Bypass;
     let about = match mode {
-        PermissionMode::Bypass => {
-            format!("YOLO mode on — {agent} runs without approvals. {press} turns it off.")
+        PermissionMode::Bypass => format!("YOLO mode on — {agent} runs without approvals."),
+        PermissionMode::Auto => {
+            format!("Auto mode — {agent}'s reviewer approves safe actions and asks you the rest.")
         }
-        PermissionMode::Auto => format!(
-            "Auto mode — {agent}'s reviewer approves safe actions and asks you the rest. {press} goes YOLO."
-        ),
-        PermissionMode::WorkspaceWrite => {
-            format!("Safe mode — {agent} asks before it acts. {press} goes YOLO.")
-        }
+        PermissionMode::WorkspaceWrite => format!("Safe mode — {agent} asks before it acts."),
     };
-    let word = match mode {
-        PermissionMode::Bypass => "YOLO",
-        PermissionMode::Auto => "AUTO",
-        PermissionMode::WorkspaceWrite => "SAFE",
-    };
-    BaseButton::new("composer-yolo")
-        .accessibility_label(word)
+    let chip = BaseButton::new("composer-yolo")
+        .accessibility_label(mode_word(mode))
         .selected(on)
         .disabled(!settable)
         .h(px(31.))
@@ -915,9 +903,9 @@ fn yolo(
         .items_center()
         .gap(px(5.))
         .rounded_full()
-        .when(!settable, |toggle| toggle.opacity(0.42))
-        .when(settable, |toggle| {
-            toggle.hover(move |style| {
+        .when(!settable, |chip| chip.opacity(0.42))
+        .when(settable, |chip| {
+            chip.hover(move |style| {
                 style.bg(Hsla {
                     a: 0.07,
                     ..t.text_primary
@@ -925,16 +913,14 @@ fn yolo(
             })
         })
         .tooltip(ui::tooltip(about))
-        .on_click(move |_, window, cx| toggle(window, cx))
-        .child(match mode {
-            PermissionMode::Bypass => ui::icon(Icon::BoltFill, 12.).text_color(t.accent),
-            PermissionMode::Auto => ui::icon(Icon::ShieldBolt, 12.).text_color(t.accent),
-            PermissionMode::WorkspaceWrite => ui::icon(Icon::Lock, 12.).text_color(t.text_tertiary),
-        })
-        .when(room >= Room::Compact, |toggle| {
-            toggle.child(match on {
+        .child(ui::icon(mode_icon(mode), 12.).text_color(match mode {
+            PermissionMode::WorkspaceWrite => t.text_tertiary,
+            _ => t.accent,
+        }))
+        .when(room >= Room::Compact, |chip| {
+            chip.child(match on {
                 true => ui::yolo::wordmark(10.5, &t).into_any_element(),
-                false => ui::text(word, TEXT_3XS_H, FontWeight::SEMIBOLD)
+                false => ui::text(mode_word(mode), TEXT_3XS_H, FontWeight::SEMIBOLD)
                     .letter_spacing(0.08)
                     .text_color(match mode {
                         PermissionMode::Auto => t.text_secondary,
@@ -942,7 +928,61 @@ fn yolo(
                     })
                     .into_any_element(),
             })
-        })
+        });
+    if !settable {
+        return chip.into_any_element();
+    }
+    let Modes { offered, pick, .. } = modes;
+    ui::menu_button(
+        "composer-mode",
+        Anchor::BottomLeft,
+        chip,
+        move |mut popup, _, cx| {
+            let yolo_keys = crate::keymap::hint(actions::ToggleYolo::ID, cx);
+            for &choice in &offered {
+                let pick = pick.clone();
+                popup = popup.item(
+                    ui::MenuRow::new(mode_name(choice))
+                        .icon(mode_icon(choice))
+                        .when_some(
+                            yolo_keys
+                                .clone()
+                                .filter(|_| choice == PermissionMode::Bypass),
+                            |row, keys| row.hint(keys),
+                        )
+                        .chosen(choice == mode)
+                        .item(cx)
+                        .on_click(move |_, window, cx| pick(choice, window, cx)),
+                );
+            }
+            popup
+        },
+    )
+    .into_any_element()
+}
+
+fn mode_word(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Bypass => "YOLO",
+        PermissionMode::Auto => "AUTO",
+        PermissionMode::WorkspaceWrite => "SAFE",
+    }
+}
+
+fn mode_name(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Bypass => "YOLO — never asks",
+        PermissionMode::Auto => "Auto — asks only what's risky",
+        PermissionMode::WorkspaceWrite => "Safe — asks before it acts",
+    }
+}
+
+fn mode_icon(mode: PermissionMode) -> Icon {
+    match mode {
+        PermissionMode::Bypass => Icon::BoltFill,
+        PermissionMode::Auto => Icon::ShieldBolt,
+        PermissionMode::WorkspaceWrite => Icon::Lock,
+    }
 }
 
 /// What a choice is called, as its picker's trigger shows it.

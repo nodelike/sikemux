@@ -667,14 +667,21 @@ pub(super) fn composer(
         let mode = head.map_or(PermissionMode::WorkspaceWrite, |head| head.permission_mode);
         let held = head.is_some_and(|head| head.changing_mode || !head.permissions.is_empty());
         let agent = agent.id.clone();
-        composer = composer.yolo(
-            mode,
+        let offered = [
+            Some(PermissionMode::WorkspaceWrite),
+            kind.is_some_and(|kind| kind.auto)
+                .then_some(PermissionMode::Auto),
+            Some(PermissionMode::Bypass),
+        ];
+        composer = composer.modes(super::composer::Modes {
+            current: mode,
+            offered: offered.into_iter().flatten().collect(),
             held,
-            Rc::new(move |_, cx| {
-                crate::keymap::count(crate::workbench::actions::ToggleYolo::ID.name(), cx);
-                this.update(cx, |bench, _| bench.toggle_yolo(&agent)).ok();
+            pick: Rc::new(move |chosen, _, cx| {
+                this.update(cx, |bench, _| bench.switch_mode(&agent, chosen))
+                    .ok();
             }),
-        );
+        });
     }
     Some((composer, offering || tray_open))
 }
