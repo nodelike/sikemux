@@ -780,5 +780,7 @@
   "1 sentence with no source left out": "1 frase sin ninguna fuente omitida",
   "{count} sentences with no source left out": "{count} frases sin ninguna fuente omitida",
   "Show": "Mostrar",
-  "Hide": "Ocultar"
+  "Hide": "Ocultar",
+  "Shows all of it": "Muestra todo",
+  "Shows two lines": "Muestra dos líneas"
 }

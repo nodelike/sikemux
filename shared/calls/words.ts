@@ -253,6 +253,9 @@ export const LANDED = "Landed";
 export const answerBelow = (count: number, say: Say = english) =>
     count === 1 ? say("Answer it in the card below") : say("Answer them in the card below");
 export const OVERRULE = "Overrule";
+/** What a tap on a call's cut context does, for a screen reader. */
+export const SHOW_ALL = "Shows all of it";
+export const SHOW_LESS = "Shows two lines";
 /** Under an Overrule or Undo that has no host to send it to. */
 export const NOT_CONNECTED = "Not connected to the host.";
 export const UNDO = "Undo";

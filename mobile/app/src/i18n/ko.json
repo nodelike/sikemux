@@ -780,5 +780,7 @@
   "1 sentence with no source left out": "출처가 없는 문장 1개 제외됨",
   "{count} sentences with no source left out": "출처가 없는 문장 {count}개 제외됨",
   "Show": "보기",
-  "Hide": "숨기기"
+  "Hide": "숨기기",
+  "Shows all of it": "모두 표시합니다",
+  "Shows two lines": "두 줄로 표시합니다"
 }

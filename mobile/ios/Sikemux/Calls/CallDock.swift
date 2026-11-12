@@ -29,7 +29,7 @@ struct CallDock: View {
     private var pictured: Bool { call.secret != true && call.options.contains { $0.picture != nil } }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
+        ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 CallWho(
                     call: call, place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
@@ -46,6 +46,8 @@ struct CallDock: View {
                         .lineLimit(whole || contextOpen ? nil : 2)
                         .padding(.top, 2)
                         .onTapGesture { if !whole { contextOpen.toggle() } }
+                        .accessibilityAddTraits(whole ? [] : .isButton)
+                        .accessibilityHint(whole ? "" : contextOpen ? CallWords.showLess : CallWords.showAll)
                 }
                 ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
                     Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).padding(.top, 4)
@@ -78,6 +80,8 @@ struct CallDock: View {
             .padding(12)
         }
         .scrollBounceBehavior(.basedOnSize)
+        // The indicator shows the card holds more below, as a production call's button often is.
+        .scrollIndicatorsFlash(onAppear: true)
         .scrollDisabled(inPlace)
         .frame(maxHeight: inPlace ? nil : 520)
         .fixedSize(horizontal: false, vertical: true)

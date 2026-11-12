@@ -289,6 +289,9 @@ enum CallWords {
             ? String(localized: "Answer it in the card below") : String(localized: "Answer them in the card below")
     }
     static let overrule = String(localized: "Overrule")
+    /// What a tap on a call's cut context does, for VoiceOver.
+    static let showAll = String(localized: "Shows all of it")
+    static let showLess = String(localized: "Shows two lines")
     /// Under an Overrule or Undo that has no host to send it to.
     static let notConnected = String(localized: "Not connected to the host.")
     static let undo = String(localized: "Undo")

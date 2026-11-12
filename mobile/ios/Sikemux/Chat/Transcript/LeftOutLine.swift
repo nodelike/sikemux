@@ -25,7 +25,7 @@ struct LeftOutLine: View {
                     Button(shown ? String(localized: "Hide") : String(localized: "Show"), action: toggle)
                         .buttonStyle(.plain)
                         .foregroundStyle(palette.secondary)
-                        .accessibilityValue(shown ? "Shown" : "")
+                        .accessibilityValue(shown ? String(localized: "Shown") : "")
                 }
                 .foregroundStyle(palette.tertiary)
                 if context.leftOut[message.id]?.isEmpty == true {

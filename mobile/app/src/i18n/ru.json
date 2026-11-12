@@ -780,5 +780,7 @@
   "1 sentence with no source left out": "1 предложение без источника пропущено",
   "{count} sentences with no source left out": "пропущено предложений без источника: {count}",
   "Show": "Показать",
-  "Hide": "Скрыть"
+  "Hide": "Скрыть",
+  "Shows all of it": "Показывает всё",
+  "Shows two lines": "Показывает две строки"
 }

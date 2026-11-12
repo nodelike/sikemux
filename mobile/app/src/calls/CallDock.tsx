@@ -20,6 +20,8 @@ import {
   place,
   pushFailed,
   SECRET_FIELD,
+  SHOW_ALL,
+  SHOW_LESS,
   WHAT_RUNS,
 } from '@shared/calls/words';
 import { useT } from '@/i18n';
@@ -102,7 +104,7 @@ export const CallDock = memo(function CallDock({
 
   return (
     <View style={[styles.card, inPlace && styles.cardInPlace]}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} scrollEnabled={!inPlace} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} scrollEnabled={!inPlace} persistentScrollbar>
         <View style={styles.who}>
           <AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} turn="needsYou" />
           <Text style={styles.name}>@{call.asker.name}</Text>
@@ -115,7 +117,10 @@ export const CallDock = memo(function CallDock({
           <Text
             style={styles.context}
             numberOfLines={whole || contextOpen ? undefined : 2}
-            onPress={whole ? undefined : () => setContextOpen(!contextOpen)}>
+            onPress={whole ? undefined : () => setContextOpen(!contextOpen)}
+            accessibilityRole={whole ? undefined : 'button'}
+            accessibilityState={whole ? undefined : { expanded: contextOpen }}
+            accessibilityHint={whole ? undefined : t(contextOpen ? SHOW_LESS : SHOW_ALL)}>
             {context}
           </Text>
         ) : null}

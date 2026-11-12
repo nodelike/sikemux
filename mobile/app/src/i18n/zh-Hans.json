@@ -777,8 +777,10 @@
   "Answer it in the card below": "请在下方卡片中回答",
   "Answer them in the card below": "请在下方卡片中逐个回答",
   "{first} {second}": "{first}{second}",
-  "1 sentence with no source left out": "1 句话未标注来源",
-  "{count} sentences with no source left out": "{count} 句话未标注来源",
+  "1 sentence with no source left out": "已略去 1 句无来源的话",
+  "{count} sentences with no source left out": "已略去 {count} 句无来源的话",
   "Show": "显示",
-  "Hide": "隐藏"
+  "Hide": "隐藏",
+  "Shows all of it": "显示全部",
+  "Shows two lines": "显示两行"
 }

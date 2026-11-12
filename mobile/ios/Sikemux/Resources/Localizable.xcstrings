@@ -3750,7 +3750,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld Sätze ohne ausgelassene Quelle"
+            "value": "%lld Sätze ohne Quelle ausgelassen"
           }
         },
         "es": {
@@ -3792,7 +3792,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%lld 句话未标注来源"
+            "value": "已略去 %lld 句无来源的话"
           }
         }
       }
@@ -5362,7 +5362,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "1 Satz ohne ausgelassene Quelle"
+            "value": "1 Satz ohne Quelle ausgelassen"
           }
         },
         "es": {
@@ -5404,7 +5404,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "1 句话未标注来源"
+            "value": "已略去 1 句无来源的话"
           }
         }
       }
@@ -27037,6 +27037,162 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Mostrar o resto · mais %lldk caracteres"
+          }
+        }
+      }
+    },
+    "Shown": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angezeigt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiché"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表示中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표시됨"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Exibido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показано"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已显示"
+          }
+        }
+      }
+    },
+    "Shows all of it": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt alles"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche tout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべて表示します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모두 표시합니다"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra tudo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает всё"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示全部"
+          }
+        }
+      }
+    },
+    "Shows two lines": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt zwei Zeilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra dos líneas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche deux lignes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "2行で表示します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "두 줄로 표시합니다"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra duas linhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает две строки"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示两行"
           }
         }
       }

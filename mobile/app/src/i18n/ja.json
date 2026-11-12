@@ -780,5 +780,7 @@
   "1 sentence with no source left out": "出典のない文 1 件を除外",
   "{count} sentences with no source left out": "出典のない文 {count} 件を除外",
   "Show": "表示",
-  "Hide": "隠す"
+  "Hide": "隠す",
+  "Shows all of it": "すべて表示します",
+  "Shows two lines": "2行で表示します"
 }

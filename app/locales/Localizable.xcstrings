@@ -2300,13 +2300,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "1 句话未标注来源"
+            "value": "已略去 1 句无来源的话"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "1 Satz ohne ausgelassene Quelle"
+            "value": "1 Satz ohne Quelle ausgelassen"
           }
         },
         "fr": {
@@ -152218,13 +152218,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{count} 句话未标注来源"
+            "value": "已略去 {count} 句无来源的话"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{count} Sätze ohne ausgelassene Quelle"
+            "value": "{count} Sätze ohne Quelle ausgelassen"
           }
         },
         "fr": {
