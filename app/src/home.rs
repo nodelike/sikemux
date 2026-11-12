@@ -538,6 +538,16 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
                 .map(|name| SharedString::from(format!("@{name}"))),
         )
         .when_some(
+            agent.turn.as_ref().filter(|_| in_terminal),
+            |header, turn| {
+                header.fact(crate::turn_line::header(
+                    turn,
+                    &agent.provider,
+                    SharedString::from(format!("turn-head:{}", agent.id)),
+                ))
+            },
+        )
+        .when_some(
             in_terminal
                 .then(|| crate::worktrees::head::badges(bench, &agent.id, cx))
                 .flatten(),

@@ -978,8 +978,11 @@ impl Chat {
                 doing
             }
         });
-        self.activity_line
-            .update(cx, |activity, cx| activity.set(doing, cx));
+        let turn = self.state.as_ref().and_then(|head| head.turn.as_ref());
+        self.activity_line.update(cx, |activity, cx| {
+            activity.set_turn(turn, cx);
+            activity.set(doing, cx)
+        });
     }
 
     /// Whether the run holding the running call is open, so its line already says what runs.

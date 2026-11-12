@@ -86,6 +86,7 @@ mod thread_priority;
 pub mod toast;
 mod track;
 mod trust;
+mod turn_line;
 mod ui;
 mod updates;
 mod voice;

@@ -52,6 +52,8 @@ pub struct AgentRow {
     pub snoozed_until: Option<u64>,
     /// When it was settled out of the main list.
     pub settled_at: Option<u64>,
+    /// How its turn stands, as the core said; none before its first turn.
+    pub turn: Option<sikemux_view::turn::TurnState>,
 }
 
 impl AgentRow {
@@ -290,6 +292,7 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         place: place.clone(),
         snoozed_until: row.snoozed_until,
         settled_at: row.settled_at,
+        turn: row.turn.clone(),
     })
 }
 

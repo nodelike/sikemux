@@ -62,6 +62,7 @@ pub struct PaneHeader {
     title_view: Option<AnyElement>,
     on_title_double_click: Option<super::controls::OnClick>,
     name: Option<SharedString>,
+    fact: Option<AnyElement>,
     actions: SmallVec<[AnyElement; 2]>,
     controls: Option<AnyElement>,
     side: Option<AnyElement>,
@@ -76,6 +77,7 @@ impl PaneHeader {
             title_view: None,
             on_title_double_click: None,
             name: None,
+            fact: None,
             actions: SmallVec::new(),
             controls: None,
             side: None,
@@ -102,6 +104,12 @@ impl PaneHeader {
 
     pub fn name(mut self, name: Option<SharedString>) -> Self {
         self.name = name;
+        self
+    }
+
+    /// What stands after the name, such as how a terminal agent's turn stands.
+    pub fn fact(mut self, fact: impl IntoElement) -> Self {
+        self.fact = Some(fact.into_any_element());
         self
     }
 
@@ -171,6 +179,10 @@ impl RenderOnce for PaneHeader {
                     .min_w_0()
                     .truncate()
             }))
+            .children(
+                self.fact
+                    .map(|fact| div().min_w_0().ml(crate::theme::SPACE_1).child(fact)),
+            )
             .child(div().flex_1())
             .when_some(self.controls, |bar, controls| {
                 bar.child(div().flex_none().child(controls))

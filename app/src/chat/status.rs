@@ -15,6 +15,7 @@ use sikemux_core::server::call::{self, Call};
 use sikemux_view::chat::{
     ChatActivity, ChatConnection, FailureKind, ToolAction, ToolFamily, ToolIntent, ToolRow,
 };
+use sikemux_view::turn::{TurnPhase, TurnState};
 use sikemux_wire::protocol::AgentStatus;
 
 use super::Chat;
@@ -25,6 +26,7 @@ use crate::motion;
 use crate::theme::{
     Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_3XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
+use crate::turn_line;
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
@@ -33,6 +35,8 @@ use crate::workbench::Workbench;
 /// it as it was.
 pub struct Activity {
     provider: String,
+    /// How the chat's turn stands, as the core last said.
+    turn: Option<TurnState>,
     /// The chat's agent as the pane last drew it, whose face the line wears.
     agent: Option<AgentRow>,
     label: Option<Doing>,
@@ -86,6 +90,7 @@ impl Activity {
     pub fn new(provider: &str) -> Self {
         Self {
             provider: provider.to_owned(),
+            turn: None,
             agent: None,
             label: None,
             before: None,
@@ -106,6 +111,56 @@ impl Activity {
         }
     }
 
+    pub fn set_turn(&mut self, turn: Option<&TurnState>, cx: &mut Context<Self>) {
+        if self.turn.as_ref() != turn {
+            self.turn = turn.cloned();
+            cx.notify();
+        }
+    }
+
+    fn mark(&self, cx: &App) -> AnyElement {
+        match &self.agent {
+            Some(agent) => agent.mark(21., cx),
+            None => ui::mark(&self.provider, 21.).into_any_element(),
+        }
+    }
+
+    /// The line once the turn has ended, or while it works on a step it named: how it stands,
+    /// said by the core, with the next steps as buttons. A failed turn's line is `trouble`'s.
+    fn state_line(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let turn = self.turn.as_ref()?;
+        if turn.state == TurnPhase::Failed {
+            return None;
+        }
+        let said = turn_line::said(turn, turn_line::maker(&self.provider), ui::time::now_ms())?;
+        if turn_line::ticks(turn.state) {
+            ui::clock::second(window, cx);
+        }
+        let buttons = match turn.state {
+            TurnPhase::Done => (turn.done.iter())
+                .flat_map(|done| &done.next)
+                .filter_map(|next| {
+                    let label = turn_line::step_label(next.step)?;
+                    let variant = match next.primary {
+                        true => Variant::Primary,
+                        false => Variant::Outline,
+                    };
+                    Some(step_button(label, variant))
+                })
+                .collect(),
+            TurnPhase::NeedsYou => vec![step_button("Look", Variant::Primary)],
+            TurnPhase::Stopped => vec![step_button("Carry on", Variant::Outline)],
+            _ => Vec::new(),
+        };
+        let key = SharedString::from(format!("turn:{}", cx.entity_id()));
+        Some(
+            centred(turn_line::line(self.mark(cx), &said, key, buttons, cx).px(px(22.)))
+                .pt(SPACE_3)
+                .pb(px(END_SPACE))
+                .into_any_element(),
+        )
+    }
+
     pub fn set(&mut self, label: Option<Doing>, cx: &mut Context<Self>) {
         if label == self.label {
             return;
@@ -124,8 +179,11 @@ impl Activity {
 
 impl Render for Activity {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(label) = self.label.clone() else {
-            return div().h(px(END_SPACE)).into_any_element();
+        let named_step = (self.turn.as_ref()).is_some_and(|turn| turn.on.is_some());
+        let Some(label) = self.label.clone().filter(|_| !named_step) else {
+            return self
+                .state_line(window, cx)
+                .unwrap_or_else(|| div().h(px(END_SPACE)).into_any_element());
         };
         ui::clock::second(window, cx);
         let t = Tokens::get(cx).clone();
@@ -193,23 +251,32 @@ impl Render for Activity {
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
-                .child(match &self.agent {
-                    Some(agent) => agent.mark(21., cx),
-                    None => ui::mark(&self.provider, 21.),
-                })
+                .child(self.mark(cx))
                 .child(words)
                 .when(seconds > 0, |line| {
                     line.child(
                         div()
                             .flex_none()
-                            .child(ui::mono(crate::ui::time::elapsed(seconds), TEXT_3XS_H, cx))
-                            .text_color(t.text_disabled),
+                            .text_size(crate::theme::ui_text(TEXT_XS))
+                            .text_color(t.text_tertiary)
+                            .child(crate::ui::time::elapsed(seconds)),
                     )
                 }),
         )
         .pt(SPACE_3)
         .into_any_element()
     }
+}
+
+/// A next step on the line. Each one goes to the core's `takeStep` once that lands.
+fn step_button(label: &'static str, variant: Variant) -> AnyElement {
+    Button::new(
+        SharedString::from(format!("turn-step-{label}")),
+        label,
+        variant,
+    )
+    .sized(26., 10., TEXT_XS)
+    .into_any_element()
 }
 
 /// The room after the chat's last row, kept here rather than on the row so a row arriving
@@ -384,67 +451,61 @@ pub(super) fn trouble(
     let t = Tokens::get(cx).clone();
     let this = cx.weak_entity();
     let act = |label: &'static str, id: &'static str, run: fn(&mut Workbench, &str)| {
-        action(&this, &agent.id, label, id, run)
+        action(&this, &agent.id, label, id, run).into_any_element()
     };
-    let line = |icon: Icon, said: String| {
-        div()
+    let key = SharedString::from(format!("turn-failed:{}", agent.id));
+    let failed = |parts: Vec<String>, buttons: Vec<AnyElement>, cx: &mut Context<Workbench>| {
+        let said = turn_line::Said {
+            word: "Failed".into(),
+            phase: TurnPhase::Failed,
+            parts: parts.into_iter().map(SharedString::from).collect(),
+        };
+        turn_line::line(agent.mark(21., cx), &said, key.clone(), buttons, cx)
+            .flex_wrap()
             .px(px(22.))
             .py(SPACE_1H)
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(SPACE_2)
-            .child(ui::icon(icon, 14.).text_color(t.danger))
-            .child(
-                div()
-                    .min_w_0()
-                    .text_size(crate::theme::ui_text(TEXT_SM))
-                    .text_color(t.text_secondary)
-                    .child(said),
-            )
     };
     let dropped = matches!(
         head.connection,
         ChatConnection::Error | ChatConnection::Stopped
     );
     if dropped && !chat.is_empty(cx) {
-        let said = head
-            .ended
-            .as_ref()
-            .and_then(|ended| ended.message.clone())
-            .map_or_else(
-                || "This session dropped.".to_owned(),
-                |why| format!("This session dropped: {why}"),
-            );
-        let row = line(Icon::Plug, said)
-            .child(act("Reconnect", "chat-reconnect", |bench, agent| {
+        let why = (head.ended.as_ref()).and_then(|ended| ended.message.clone());
+        let mut parts = vec!["the session dropped".to_owned()];
+        parts.extend(why);
+        let buttons = vec![
+            act("Reconnect", "chat-reconnect", |bench, agent| {
                 bench.reconnect(agent)
-            }))
-            .child(act("Start new chat", "chat-start-over", |bench, agent| {
+            }),
+            act("Start new chat", "chat-start-over", |bench, agent| {
                 bench.start_over(agent)
-            }));
-        return Some(centred(row).into_any_element());
+            }),
+        ];
+        return Some(centred(failed(parts, buttons, cx)).into_any_element());
     }
     let error = head.error.clone()?;
     let failure = head.failure.as_ref();
     let network = failure.is_some_and(|failure| failure.kind == FailureKind::Network);
-    let said = if network {
-        let served_by = sikemux_core::agent_catalog::agent(&agent.provider)
-            .and_then(|agent| agent.maker)
-            .unwrap_or("the model provider");
-        format!("Lost connection to {served_by}. Sikemux sends it again when you're back online.",)
-    } else {
-        error
+    let maker = turn_line::maker(&agent.provider);
+    let parts = match head
+        .turn
+        .as_ref()
+        .filter(|turn| turn.state == TurnPhase::Failed)
+    {
+        Some(turn) => turn_line::said(turn, maker, now_ms())
+            .map(|said| said.parts.into_iter().map(String::from).collect())
+            .unwrap_or_else(|| vec![error.clone()]),
+        None if network => vec![format!("lost the connection to {maker}")],
+        None => vec![error.clone()],
     };
-    let mut row = line(Icon::Warning, said);
+    let mut buttons = Vec::new();
     if network {
-        row = row
-            .child(act("Retry now", "chat-retry", |bench, agent| {
-                bench.account_call::<call::RetryFailed>(agent)
-            }))
-            .child(act("Discard", "chat-discard", |bench, agent| {
-                bench.account_call::<call::DiscardFailed>(agent)
-            }));
+        buttons.push(act("Retry now", "chat-retry", |bench, agent| {
+            bench.account_call::<call::RetryFailed>(agent)
+        }));
+        buttons.push(act("Discard", "chat-discard", |bench, agent| {
+            bench.account_call::<call::DiscardFailed>(agent)
+        }));
     }
     let resumes = failure.and_then(|failure| {
         failure
@@ -452,31 +513,29 @@ pub(super) fn trouble(
             .filter(|_| failure.kind == FailureKind::Limit)
     });
     if resumes.is_some_and(|at| at > now_ms()) {
-        row = row.child(act("Don't resume", "chat-cancel-resume", |bench, agent| {
+        buttons.push(act("Don't resume", "chat-cancel-resume", |bench, agent| {
             bench.account_call::<call::CancelResume>(agent)
         }));
     }
     let kind = failure.map(|failure| failure.kind);
     if matches!(kind, Some(FailureKind::SignIn | FailureKind::Limit)) {
-        row = row.children(account_ways(
-            bench,
-            agent,
-            failure,
-            &head.capabilities,
-            &this,
-            cx,
-        ));
+        buttons.extend(
+            account_ways(bench, agent, failure, &head.capabilities, &this, cx)
+                .into_iter()
+                .map(IntoElement::into_any_element),
+        );
     }
     let details = failure
         .and_then(|failure| failure.details.clone())
         .filter(|_| network);
     let details = details.map(|details| {
-        div().px(px(44.)).pb(SPACE_1H).child(
+        div().pl(px(51.)).pr(px(22.)).pb(SPACE_1H).child(
             ui::mono(details, TEXT_3XS_H, cx)
                 .whitespace_normal()
                 .text_color(t.text_tertiary),
         )
     });
+    let row = failed(parts, buttons, cx);
     Some(centred(div().flex().flex_col().child(row).children(details)).into_any_element())
 }
 
