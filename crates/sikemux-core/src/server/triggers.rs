@@ -49,6 +49,8 @@ const LATE_GRACE_MS: u64 = 15 * 60 * 1000;
 const MAX_REQUEST_BYTES: usize = 24 * 1024;
 /// How many webhook requests are remembered, so one the server sends again is not taken twice.
 const SEEN_REQUESTS: usize = 512;
+/// How many requests a webhook trigger keeps while its chat is closed; past that the oldest go.
+const MAX_HELD_REQUESTS: usize = 10;
 const WEEKDAYS: [&str; 7] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -82,6 +84,17 @@ struct Trigger {
     /// The agent that set it up, in which chat turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     set: Option<Learned>,
+    /// Requests to its webhook that came while its chat was closed, oldest first, sent once the
+    /// chat is taken up again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    held: Vec<FiredRequest>,
+    /// How many requests came while its chat was closed past the most it keeps.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    dropped: u32,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 impl Trigger {
@@ -132,6 +145,9 @@ struct Firing {
 enum Late {
     HostOff(u64),
     ChatClosed(u64),
+    /// A webhook request that came while the chat was closed, and how many more came and were
+    /// dropped.
+    Held(u32),
 }
 
 impl Triggers {
@@ -406,8 +422,8 @@ pub(crate) fn resume(core: &Arc<Core>) {
     }
     let holders = core.workspaces.holders();
     let now = epoch_ms();
-    let (resumed, missed) = core.triggers.change(|state| {
-        let (mut resumed, mut missed) = (Vec::new(), Vec::new());
+    let (resumed, missed, held) = core.triggers.change(|state| {
+        let (mut resumed, mut missed, mut held) = (Vec::new(), Vec::new(), Vec::new());
         state.triggers.retain_mut(|trigger| {
             let chat = trigger.paused.as_ref().map(HeldChat::id);
             let Some(holder) = chat.and_then(|chat| holders.get(&chat)) else {
@@ -415,6 +431,19 @@ pub(crate) fn resume(core: &Arc<Core>) {
             };
             trigger.agent_id = holder.clone();
             trigger.paused = None;
+            let dropped = std::mem::take(&mut trigger.dropped);
+            let requests = std::mem::take(&mut trigger.held);
+            held.extend(
+                requests
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, request)| Firing {
+                        trigger: trigger.clone(),
+                        late: Some(Late::Held(if index == 0 { dropped } else { 0 })),
+                        last: false,
+                        request: Some(request),
+                    }),
+            );
             resumed.push(trigger.clone());
             if trigger.ci.is_some() {
                 trigger.next_at = Some(now);
@@ -435,13 +464,21 @@ pub(crate) fn resume(core: &Arc<Core>) {
             });
             false
         });
-        (resumed, missed)
+        (resumed, missed, held)
     });
     for trigger in &resumed {
         show(core, trigger);
     }
     for firing in missed {
         tokio::spawn(fire(core.clone(), firing));
+    }
+    if !held.is_empty() {
+        let core = core.clone();
+        tokio::spawn(async move {
+            for firing in held {
+                fire(core.clone(), firing).await;
+            }
+        });
     }
 }
 
@@ -504,6 +541,12 @@ async fn fire(core: Arc<Core>, firing: Firing) {
         Some(Late::ChatClosed(due)) => prompt.push_str(&format!(
             "\n\n(This was due {}, while this chat was closed.)",
             when(due)
+        )),
+        Some(Late::Held(0)) => prompt.push_str("\n\n(This request came while this chat was closed.)"),
+        Some(Late::Held(dropped)) => prompt.push_str(&format!(
+            "\n\n(This request came while this chat was closed. {dropped} earlier {} came too and {} dropped, as a closed chat keeps only the last {MAX_HELD_REQUESTS}.)",
+            if dropped == 1 { "one" } else { "ones" },
+            if dropped == 1 { "was" } else { "were" },
         )),
         None => {}
     }
@@ -696,6 +739,8 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             check,
             stopped: None,
             set: Some(learned(core, Some(&agent_id))),
+            held: Vec::new(),
+            dropped: 0,
         };
         state.triggers.push(trigger.clone());
         Ok(trigger)
@@ -996,7 +1041,8 @@ pub(crate) struct HookDelivery {
 
 /// Takes a webhook's request: fires its trigger with the request, once however often the server
 /// sends it. A request for a trigger that is gone is taken and dropped, and its webhook removed.
-/// One for a trigger paused with its chat is taken and dropped, as a timed one skips its times.
+/// One for a trigger paused with its chat waits for the chat to be taken up again, up to the most
+/// it keeps; one for a trigger the person paused is dropped.
 pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), String> {
     if !core.triggers.first_time(&delivery.delivery_id) {
         return Ok(());
@@ -1016,6 +1062,20 @@ pub(crate) fn delivered(core: &Arc<Core>, delivery: HookDelivery) -> Result<(), 
         );
         return Ok(());
     };
+    if trigger.paused.is_some() && trigger.stopped.is_none() {
+        let request = fired_request(delivery);
+        core.triggers.change(|state| {
+            let Some(kept) = (state.triggers.iter_mut()).find(|kept| kept.id == trigger.id) else {
+                return;
+            };
+            kept.held.push(request);
+            if kept.held.len() > MAX_HELD_REQUESTS {
+                kept.held.remove(0);
+                kept.dropped += 1;
+            }
+        });
+        return Ok(());
+    }
     if trigger.rests() {
         return Ok(());
     }

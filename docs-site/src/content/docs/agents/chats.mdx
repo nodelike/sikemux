@@ -70,7 +70,7 @@ Its triggers are listed above the composer, each with when it next fires. **×**
 
 An agent that pushed can end its turn on CI instead of watching it: its trigger fires once CI on that commit ends, with how it went. When the CI ends, you get one notification, but none on a phone that has that chat open.
 
-Closing the agent pauses its triggers, and a toast says how many with **Undo**, which opens the chat again. **Recent** keeps the chat while they wait, with a clock and their count on its row, and taking it up again, from **Recent** or by an agent resuming it, starts them again: a repeating trigger skips the times that passed while it was closed, and a one-time trigger that came due meanwhile fires once, saying when it was due. A webhook trigger keeps its address, but requests that arrive while the chat is closed are dropped. Paused triggers still count toward the 20 a chat holds. Rest the pointer on that row to see them; **×** beside one removes it for good.
+Closing the agent pauses its triggers, and a toast says how many with **Undo**, which opens the chat again. **Recent** keeps the chat while they wait, with a clock and their count on its row, and taking it up again, from **Recent** or by an agent resuming it, starts them again: a repeating trigger skips the times that passed while it was closed, and a one-time trigger that came due meanwhile fires once, saying when it was due. A webhook trigger keeps its address, and the requests that arrive while the chat is closed wait for it: taken up again, it gets each in turn, the last 10 at most, and is told how many older ones were dropped. Paused triggers still count toward the 20 a chat holds. Rest the pointer on that row to see them; **×** beside one removes it for good.
 
 For recurring work that shouldn't depend on one chat, such as triaging new issues every morning, ask the agent to give the trigger to the project rather than its chat. Each time it fires, it adds a card to the project's board as if you added it, so Auto starts an agent on it when Auto is on. While the card it added last is still open, a firing goes to that card instead of adding another, and the agent working it is told, so the same work never starts twice. These triggers, like every other, are listed on the [Playbook](/agents/playbook/#automation)'s Automation page, where you can pause or remove one; they stay after the agent that set them closes.
 
@@ -88,7 +88,7 @@ To ask something aside without derailing a chat, type `/side` in it, or `/side` 
 
 ## Subagents
 
-When an agent hands part of its work to subagents, each one shows in the chat as a card with its name, its task and how it stands: working, done, failed, lost or stopped, with its tool calls and tokens. Click a card to see what that subagent did. While any are still working, they are also listed above the composer.
+When an agent hands part of its work to subagents, each one shows in the chat as a card with its name, its task and how it stands: working, done, failed, lost or stopped, with its tool calls and tokens. Click a card to see what that subagent did. While any are still working, they are also listed above the composer, where **×** stops one of Claude Code's alone and the chat works on without it.
 
 ## Messages between agents
 
