@@ -230,6 +230,11 @@ pub(crate) fn prompt(
     let chat = core.chats.running(agent_id)?;
     context.extend(crate::server::questions::held_answers(core, agent_id));
     context.extend(crate::server::board::chat_goal::take_note(core, agent_id));
+    context.extend(
+        chat.feed
+            .turn()
+            .and_then(|turn| crate::server::turn_state::told(&turn)),
+    );
     // The agent reads it only once it has started, which takes seconds, so the person
     // sees it sent now.
     let shown = !chat.is_ready() && chat.history_in_place();

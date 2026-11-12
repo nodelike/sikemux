@@ -464,6 +464,7 @@ calls! { core, client, method, params;
     },
     "boardUpdate" BoardUpdate (board::BoardUpdateParams) -> board::ProjectBoard: Full, counted => board::person_update(&core, params).await?,
     "boardRemove" BoardRemove (board::BoardCardParams) -> board::ProjectBoard: Full => board::person_remove(&core, params).await?,
+    "takeStep" TakeStep (super::turn_state::TakeStepParams) -> (): Full, counted_by("step") => super::turn_state::take_step(&core, params).await?,
     "landedMeans" LandedMeans (super::landing::LandedMeansParams) -> sikemux_view::turn::LandedMeans: Watch => super::landing::landed_means(&core, params.project).await?,
     "setLandedMeans" SetLandedMeans (super::landing::SetLandedMeansParams) -> sikemux_view::turn::LandedMeans: Full, counted => super::landing::set_landed_means(&core, params).await?,
     "boardSettings" BoardSettings (board::BoardSettingsParams) -> board::ProjectBoard: Full => {

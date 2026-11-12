@@ -966,6 +966,11 @@ impl Feed {
         self.inner.locked().start.clone()
     }
 
+    /// How the chat's turn stands, as clients were last told.
+    pub(crate) fn turn(&self) -> Option<TurnState> {
+        self.stand.locked().turn.clone()
+    }
+
     /// The step of its plan the agent is on, and the first it has not finished, of a plan it
     /// said at `since` or later.
     pub(crate) fn plan_steps(&self, since: u64) -> (Option<String>, Option<String>) {

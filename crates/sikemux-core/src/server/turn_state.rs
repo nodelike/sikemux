@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use sikemux_view::chat::FailureKind;
 use sikemux_view::inbox::AgentShown;
 use sikemux_view::slice::Verdict;
@@ -15,11 +16,11 @@ use sikemux_view::turn::{
     TurnStep, TurnStopped, TurnWait, TurnWaitKind, WorkAt,
 };
 use sikemux_view::workspace::AgentWorktree;
-use sikemux_wire::protocol::AgentStatus;
+use sikemux_wire::protocol::{AgentStatus, ChatContext, FOR_AGENT_URI};
 
 use super::changed::What;
 use super::inbox::{self, Fault};
-use super::Core;
+use super::{Core, CoreError, CoreResult};
 use crate::git::Git;
 
 /// Where git said an agent's work was.
@@ -195,7 +196,10 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
     let set = core
         .triggers
         .wait_of(agent_id, rested_at, |on| core.waits.expected(on));
-    if set.as_ref().is_some_and(|wait| wait.kind == TurnWaitKind::Ci) {
+    if set
+        .as_ref()
+        .is_some_and(|wait| wait.kind == TurnWaitKind::Ci)
+    {
         return set;
     }
     if let Some((name, since)) = gathered.workers.get(agent_id) {
@@ -370,4 +374,87 @@ fn landed(
         Some(upstream) => holds(&upstream),
         None => holds(&format!("refs/heads/{branch}")),
     }
+}
+
+/// The agent's own turn line, in words for it, sent with the person's next message so it knows
+/// where its work stands as the person sees it. None while it works or waits on the person.
+pub(crate) fn told(turn: &TurnState) -> Option<ChatContext> {
+    let line = match turn.state {
+        TurnPhase::Done => {
+            let done = turn.done.as_ref()?;
+            let changes = match done.changes {
+                WorkAt::None => "no changes",
+                WorkAt::Uncommitted => "uncommitted",
+                WorkAt::Committed => "committed, not landed",
+                WorkAt::Landed => "landed",
+                WorkAt::Staged => "on staging",
+                WorkAt::Shipped => "shipped",
+                WorkAt::Unknown => return None,
+            };
+            let checks = match done.checks {
+                ChecksStand::Pass => "checks pass",
+                ChecksStand::Failed => "checks failed",
+                ChecksStand::NotChecked | ChecksStand::Unknown => "not checked",
+            };
+            format!("Done, {changes}, {checks}.")
+        }
+        TurnPhase::Stopped => match turn
+            .stopped
+            .as_ref()
+            .and_then(|stopped| stopped.left.as_ref())
+        {
+            Some(left) => {
+                format!("Stopped with this left open: {left}. Nothing is set to wake you.")
+            }
+            None => "Stopped before it finished. Nothing is set to wake you.".to_owned(),
+        },
+        TurnPhase::Failed => {
+            let said = turn
+                .failed
+                .as_ref()
+                .and_then(|failed| failed.said.as_deref());
+            format!("Failed: {}", said.unwrap_or("the turn did not finish"))
+        }
+        TurnPhase::Waiting => {
+            let wait = turn.wait.as_ref()?;
+            format!("Waiting on {}.", wait.what)
+        }
+        TurnPhase::Working | TurnPhase::NeedsYou | TurnPhase::Unknown => return None,
+    };
+    Some(ChatContext {
+        uri: format!("{FOR_AGENT_URI}turn"),
+        title: "Your last turn".to_owned(),
+        text: format!("How your last turn stands, as the person sees it: {line}"),
+    })
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TakeStepParams {
+    pub agent_id: String,
+    pub step: TurnStep,
+}
+
+/// The person takes the next step on an agent's work with one click: it goes to the agent as
+/// their message. Shipping to production goes that way too, so the gate at production holds
+/// it and asks the person on its call; this ships nothing itself.
+pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreResult<()> {
+    let text = match params.step {
+        TurnStep::Commit => "Commit your changes.",
+        TurnStep::Push => "Land your commits on the project's branch, as the project lands them.",
+        TurnStep::DeployStaging => "Deploy this to staging.",
+        TurnStep::ShipProduction => "Ship this to production.",
+        TurnStep::RollBack => "Roll back the last production deploy.",
+        TurnStep::CarryOn => "Carry on with what is left.",
+        TurnStep::TryIt | TurnStep::Unknown => {
+            return Err(CoreError::from(
+                "This step is not something Sikemux can take yet",
+            ));
+        }
+    };
+    super::chat::calls::prompt_chat(
+        core,
+        super::chat::calls::PromptChatParams::new(params.agent_id, text.to_owned()),
+    )
+    .await
 }
