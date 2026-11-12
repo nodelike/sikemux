@@ -10,6 +10,8 @@ on:
       - "mobile/**"
       - "crates/sikemux-mobile/**"
       - "crates/sikemux-core/**"
+      - "crates/sikemux-corekit/**"
+      - "crates/sikemux-git/**"
       - "crates/sikemux-client/**"
       - "crates/sikemux-wire/**"
       - "helpers/notch/Sources/NotchKit/**"

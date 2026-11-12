@@ -14,23 +14,20 @@ const check = process.argv.includes("--check");
 const WIRE = "crates/sikemux-wire/src";
 const VIEW = "crates/sikemux-view/src";
 const CORE = "crates/sikemux-core/src";
-const COREKIT = "crates/sikemux-corekit/src";
+/** The crates the core is split into, whose types its calls name as `crate::` paths. */
+const CORE_PARTS = ["crates/sikemux-corekit/src", "crates/sikemux-git/src"];
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const MARKDOWN = "crates/sikemux-markdown/src";
 const BASE = "crates/sikemux-base/src";
+const CRATES = [WIRE, VIEW, CORE, ...CORE_PARTS, PLUGIN_API, MARKDOWN, BASE];
 const SOURCES = (
   await Promise.all(
-    [WIRE, VIEW, CORE, COREKIT, PLUGIN_API, MARKDOWN, BASE].map((crate) =>
-      readdir(resolve(root, crate), { recursive: true }),
-    ),
+    CRATES.map((crate) => readdir(resolve(root, crate), { recursive: true })),
   )
 ).flatMap((files, index) =>
   files
     .filter((file) => file.endsWith(".rs"))
-    .map(
-      (file) =>
-        `${[WIRE, VIEW, CORE, COREKIT, PLUGIN_API, MARKDOWN, BASE][index]}/${file}`,
-    ),
+    .map((file) => `${CRATES[index]}/${file}`),
 );
 
 /** Fields the Rust keeps as JSON so phones read changes over the air, and the type that JSON has. */
