@@ -29,6 +29,9 @@ const LONGEST_SAID: usize = 1_500;
 /// One line of what is open past this is cut, so a long command a worker waits on leaves the
 /// person's words their room.
 const LONGEST_OPEN: usize = 300;
+/// What is open takes at most this much of the keep-list, so the person's words always keep
+/// the rest, however many workers are blocked.
+const OPEN_SHARE: usize = 3_000;
 /// A compaction Claude never answered stops holding the chat awake after this.
 const COMPACTING_MS: u64 = 10 * 60_000;
 /// Claude Code keeps the prompt cache an hour; idle this long, a compaction still reads it warm.
@@ -118,8 +121,17 @@ pub(crate) fn keep_list(core: &Core, chat: &Chat) -> String {
         .to_owned();
     let open = open_work(core, chat.agent_id());
     if !open.is_empty() {
-        text.push_str("\n\nStill open, as Sikemux has it now:\n");
-        text.push_str(&open.join("\n"));
+        text.push_str("\n\nStill open, as Sikemux has it now:");
+        let mut room = OPEN_SHARE;
+        for (shown, line) in open.iter().enumerate() {
+            let Some(left) = room.checked_sub(line.chars().count() + 1) else {
+                text.push_str(&format!("\n- and {} more", open.len() - shown));
+                break;
+            };
+            room = left;
+            text.push('\n');
+            text.push_str(line);
+        }
     }
     const SAID: &str = "\n\nThe person's messages, oldest first:";
     let budget = HOOK_CHARS.saturating_sub(text.chars().count() + SAID.len());
