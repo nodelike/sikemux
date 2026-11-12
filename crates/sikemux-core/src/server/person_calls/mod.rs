@@ -487,7 +487,6 @@ impl PersonCalls {
 
     fn changed(&self, core: &Core) {
         core.changed(What::View);
-        crate::server::hosts::route::turns_moved(core);
     }
 
     /// The calls of `project` the person answered from `from` to `to`: whether each answer was

@@ -27,6 +27,7 @@ use sikemux_wire::protocol::{
 use super::board::{self, RunHold, Summary, Waits};
 use super::connection::blocking;
 use super::display;
+use super::hosts::team::{Foreign, Role};
 use super::kept::Kept;
 use super::notify::provider_name;
 use super::roster;
@@ -238,28 +239,58 @@ fn rollup<'a>(agents: impl IntoIterator<Item = &'a AgentShown>) -> Option<AgentR
         })
 }
 
+/// A teammate on a linked host as the rows here show it.
+pub(crate) fn foreign_shown(core: &Core, foreign: &Foreign) -> AgentShown {
+    let project = (core.workspaces.project_names().remove(&foreign.project)).or_else(|| {
+        let folder = Path::new(&foreign.project).file_name()?;
+        Some(folder.to_string_lossy().into_owned())
+    });
+    shown_here(foreign, project, || provider_name(core, &foreign.cli))
+}
+
+/// A teammate's own host's row of it, in the project here its team works in, called
+/// `project`. What that row says only of its host is left behind: its terminal there, its
+/// place on a team there, and whether the person there put it out of their list. Until its
+/// host sends a row, what this host knows of it stands in, titled `untitled`.
+pub(crate) fn shown_here(
+    foreign: &Foreign,
+    project: Option<String>,
+    untitled: impl FnOnce() -> String,
+) -> AgentShown {
+    let mut shown = foreign.shown.clone().unwrap_or_else(|| {
+        let mut shown = agent_shown(
+            foreign.agent_id.clone(),
+            foreign.cli.clone(),
+            untitled(),
+            foreign.status,
+        );
+        shown.active_at = foreign.active_at;
+        shown
+    });
+    shown.name.get_or_insert_with(|| foreign.name.clone());
+    shown.project = Some(foreign.project.clone());
+    shown.project_name = project;
+    shown.session = None;
+    shown.team = None;
+    shown.snoozed_until = None;
+    shown.settled_at = None;
+    shown.auto_settled = false;
+    shown
+}
+
 /// The workers agents here started on linked hosts.
 fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
     core.hosts
         .team
         .all()
         .into_iter()
-        .filter(|foreign| foreign.role == super::hosts::team::Role::Worker)
+        .filter(|foreign| foreign.role == Role::Worker)
         .map(|foreign| RemoteAgent {
+            shown: foreign_shown(core, &foreign),
             host: super::hosts::name_of(core, &foreign.host),
             reachable: core.hosts.reachable(&foreign.host),
             host_id: foreign.host,
-            agent_id: foreign.agent_id,
-            name: foreign.name,
-            title: foreign.title,
-            cli: foreign.cli,
-            status: foreign.status,
-            group: foreign.status.group(),
-            label: display::status_label(foreign.status).to_owned(),
-            turn: foreign.turn,
             lead: foreign.parent,
-            project: foreign.project,
-            team: None,
         })
         .collect()
 }
@@ -706,16 +737,19 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             agent.at = core.seen.started_at(&agent.id).unwrap_or(agent.at);
         }
     }
-    agents.extend(core.hosts.team.all().into_iter().map(|foreign| Agent {
-        host: Some(super::hosts::name_of(core, &foreign.host)),
-        id: foreign.agent_id,
-        name: Some(foreign.name),
-        cli: Some(foreign.cli),
-        project: Some(foreign.project),
-        title: foreign.title,
-        session: None,
-        group: AgentGroup::Idle,
-        at: foreign.active_at.unwrap_or(0),
+    agents.extend(core.hosts.team.all().into_iter().map(|foreign| {
+        let shown = foreign_shown(core, &foreign);
+        Agent {
+            host: Some(super::hosts::name_of(core, &foreign.host)),
+            id: foreign.agent_id,
+            name: shown.name,
+            cli: Some(foreign.cli),
+            project: Some(foreign.project),
+            title: shown.titled.then_some(shown.title),
+            session: None,
+            group: AgentGroup::Idle,
+            at: shown.active_at.unwrap_or(0),
+        }
     }));
     agents
 }
@@ -1577,7 +1611,7 @@ fn with_remote_workers(listed: &mut [AgentShown], remote: &mut Vec<RemoteAgent>)
         });
         for &worker in &workers {
             placed[worker] = true;
-            remote[worker].team = Some(if worker == last {
+            remote[worker].shown.team = Some(if worker == last {
                 TeamLink::Last
             } else {
                 TeamLink::Member

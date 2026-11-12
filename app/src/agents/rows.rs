@@ -4,7 +4,7 @@ use gpui_kit::{AnyElement, App};
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::PinnedParams;
 use sikemux_view::device::{DeviceView, RecentInfo};
-use sikemux_view::inbox::{AgentShown, TeamLink};
+use sikemux_view::inbox::{AgentShown, RemoteAgent, TeamLink};
 use sikemux_view::layout::PaneKind;
 use sikemux_view::workspace::{AgentFace, PinnedChat, ProjectInfo};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
@@ -48,6 +48,8 @@ pub struct AgentRow {
     pub team: Option<TeamLink>,
     /// The host it runs on.
     pub place: Place,
+    /// That host answers now. One that does not leaves the row as it last said.
+    pub reachable: bool,
     /// It is out of the main list until then, in Unix milliseconds.
     pub snoozed_until: Option<u64>,
     /// When it was settled out of the main list.
@@ -303,12 +305,21 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         called_at: row.called_at,
         team: row.team,
         place: place.clone(),
+        reachable: true,
         snoozed_until: row.snoozed_until,
         settled_at: row.settled_at,
         turn: row.turn.clone(),
         chief: row.chief,
         tags: row.tags.clone(),
     })
+}
+
+/// A worker on a linked host as its lead's host lists it, for when the feed of the host it runs
+/// on does not list it here.
+pub fn worker(worker: &RemoteAgent) -> Option<AgentRow> {
+    let mut row = agent_row(&worker.shown, &Place::Account(worker.host_id.clone()))?;
+    row.reachable = worker.reachable;
+    Some(row)
 }
 
 impl AgentRow {

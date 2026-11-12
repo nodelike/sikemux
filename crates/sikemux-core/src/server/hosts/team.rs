@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use sikemux_view::turn::TurnState;
+use sikemux_view::inbox::AgentShown;
 use sikemux_wire::protocol::AgentStatus;
 
 use super::super::kept::Kept;
@@ -34,9 +34,6 @@ pub(crate) struct Foreign {
     /// The key of the host it runs on.
     pub host: String,
     pub name: String,
-    /// What its chat is called on its host, once it has a title of its own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
     pub cli: String,
     /// The project here its team works in.
     pub project: String,
@@ -44,9 +41,9 @@ pub(crate) struct Foreign {
     pub parent: Option<String>,
     pub role: Role,
     pub status: AgentStatus,
-    /// How its turn stands, as its host last said; none before its first turn.
+    /// Its row as its host last listed it among its own agents; none until it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn: Option<TurnState>,
+    pub shown: Option<AgentShown>,
     pub active_at: Option<u64>,
     /// The checkout of its lead's project here that its commits come back to.
     pub repo: Option<PathBuf>,

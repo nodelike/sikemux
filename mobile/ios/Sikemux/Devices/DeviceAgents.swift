@@ -330,9 +330,9 @@ struct WorkerRow: View {
 
     var body: some View {
         Row(
-            title: worker.title, name: worker.name, host: worker.host,
+            title: worker.titled == true ? worker.title : nil, name: worker.name, host: worker.host,
             detail: worker.reachable ? worker.label : "Out of reach",
-            place: worker.project,
+            place: worker.projectName ?? worker.project,
             dim: !worker.reachable,
             mark: { AgentMark(provider: worker.cli, size: 16).opacity(worker.reachable ? 1 : 0.5) },
             end: {

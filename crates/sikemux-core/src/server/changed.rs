@@ -76,6 +76,7 @@ impl Core {
     fn view_moved(&self) {
         self.device_view.stale.notify_one();
         self.hosts.copies.wake.now();
+        super::hosts::route::rows_moved(self);
         self.notify.inbox_moved();
     }
 

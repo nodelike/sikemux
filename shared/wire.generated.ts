@@ -1166,26 +1166,85 @@ export type RaisedFor = "irreversible" | "money" | "taste" | "access";
 /** An agent on a linked host that works with agents here. */
 export interface RemoteAgent {
     agentId: string;
-    name: string;
-    /** What its chat is called on its host, once it has a title of its own. */
-    title?: string;
+    /**
+     * It is its project's chief, @Chief: the one chat of the project every other agent there
+     * works under.
+     */
+    chief?: boolean;
+    /** What the core calls it, such as Otter. */
+    name?: string;
+    /** The CLI it runs, such as `claude`. */
+    cli: string;
+    /**
+     * What its row is titled: the chat's or terminal's own title, else what
+     * it is, such as "New Claude chat".
+     */
+    title: string;
+    /** `title` is its own, not only what it is. A client may show its name instead. */
+    titled?: boolean;
+    /** Its terminal; none for a chat. */
+    session?: number;
+    status: AgentStatus;
+    group: AgentGroup;
+    /** The word shown for its group, such as "Needs input". */
+    label: string;
+    /** How its turn stands; none before its first turn. */
+    turn?: TurnState;
+    unread: boolean;
+    subagents: number;
+    tasks: number;
+    /** Mid-turn or waiting on an answer, so stopping it now loses work. */
+    busy: boolean;
+    /** Its last turn ended in a failure. */
+    failed: boolean;
+    /** It still has subagents or shells running. */
+    background: boolean;
+    activeAt: number | null;
+    /** When the soonest trigger set on it sends it a prompt, in Unix milliseconds. */
+    nextTrigger?: number;
+    /** How many triggers it set on its own chat, which pause when it closes. */
+    triggers?: number;
+    /**
+     * When a build it started began to wait for its turn on the host, while it waits, in
+     * Unix milliseconds.
+     */
+    buildQueuedAt?: number;
+    /** When the agent was last named with `@` or messaged by another agent. */
+    calledAt?: number;
+    /**
+     * The face it wears, as the workspace's agent does; none while it shows
+     * its CLI's logo.
+     */
+    face: AgentFace | null;
+    /**
+     * Its place on its lead's team, which the agents listed after a lead
+     * belong to; none for an agent on its own.
+     */
+    team?: TeamLink;
+    /** The workspace project it is in, by id; none for one outside every project. */
+    project?: string;
+    /** What to call where it works: its project, else its folder. */
+    projectName?: string;
+    /** The attempt it is retrying a failed request on, 0 when it did not say. */
+    reconnecting?: number;
+    /**
+     * It is snoozed out of the main list until then, in Unix milliseconds. None once it
+     * wakes, at that time or earlier when it asks the person something.
+     */
+    snoozedUntil?: number;
+    /** When it was settled out of the main list; none while it is in it. */
+    settledAt?: number;
+    /** The core settled it by itself rather than the person, so a client offers Undo. */
+    autoSettled?: boolean;
+    /** The person's labels for it, lower case. */
+    tags?: string[];
     /** What this host calls the host it runs on. */
     host: string;
     hostId: string;
-    cli: string;
-    status: AgentStatus;
-    group: AgentGroup;
-    /** The word shown for its status, such as "Sleeping". */
-    label: string;
-    /** How its turn stands, as its host last said; none before its first turn. */
-    turn?: TurnState;
     /** The agent here that started it, for a worker. */
     lead: string | null;
-    project: string;
     /** Its host answers now. */
     reachable: boolean;
-    /** Its place on its lead's team, shown after the last of that team's agents here. */
-    team?: TeamLink;
 }
 
 /** How an agent's turn stands now, and the facts each state carries. */

@@ -6,6 +6,7 @@
 
 use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use sikemux_view::turn::{TurnPhase, TurnState};
+use sikemux_view::inbox::AgentShown;
 use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
@@ -22,12 +23,14 @@ use super::super::follow::{self, Happened};
 use super::super::messages::{self, Carried, MessageKind};
 use super::super::names::Worker;
 use super::super::roster::{self, Reach};
-use super::super::{questions, Core, CoreResult};
+use super::super::{inbox, questions, Core, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::team::{Foreign, Role};
 use super::{ask, call, call_id, goes_now, name_of, post, Failed, Sending};
 
 const ASK_WAIT: Duration = Duration::from_secs(30);
+/// How long changes to the agents here gather before the hosts their teammates run on hear.
+const ROWS_GATHER: Duration = Duration::from_millis(200);
 /// How often a host hears that an agent of a team did other work than
 /// messaging, which lets messages held between it and a teammate go.
 const WORKED_EVERY_MS: u64 = 30_000;
@@ -100,12 +103,9 @@ fn status_of(happened: Happened) -> AgentStatus {
 const ENDED: &str = "agent.ended";
 /// What it hears when the agent's chat went to sleep, to wake when it is written to.
 const ASLEEP: &str = "agent.asleep";
-/// What it hears when how the agent's turn stands moved. A host that does not know it only
-/// takes the status.
-const TURN: &str = "agent.turn";
-/// What it hears when the agent's title changed. A host that does not know it only takes the
-/// status.
-const TITLED: &str = "agent.titled";
+/// What it hears when the agent's row among the agents here changed. A host that does not
+/// know it only takes the status.
+const SHOWN: &str = "agent.shown";
 
 /// Something happened to an agent here: the hosts its teammates run on hear. An agent that
 /// stopped running stays their teammate until it is closed.
@@ -114,78 +114,70 @@ pub(crate) fn happened(core: &Core, agent_id: &str, happened: Happened) {
         Happened::Gone => ENDED,
         happened => happened.kind(),
     };
-    tell_watchers(core, agent_id, kind, status_of(happened), None, false);
+    tell_watchers(core, agent_id, kind, status_of(happened), false);
 }
 
 /// An agent here went to sleep.
 pub(crate) fn asleep(core: &Core, agent_id: &str) {
-    tell_watchers(core, agent_id, ASLEEP, AgentStatus::Asleep, None, false);
+    tell_watchers(core, agent_id, ASLEEP, AgentStatus::Asleep, false);
 }
 
-/// Something `agent_id`'s turn is worked out from changed here: the hosts its teammates run on
-/// hear how the turn stands now, when that differs from what they were last told.
-pub(crate) fn turn_moved(core: &Core, agent_id: &str) {
-    if core.hosts.team.is_empty() {
-        return;
-    }
-    let Some(core) = core.arc() else {
-        return;
-    };
-    let agent_id = agent_id.to_owned();
-    tokio::task::spawn_blocking(move || tell_turn(&core, &agent_id));
+/// Something the agents here show changed: the hosts their teammates run on hear each row
+/// that differs from what they were last told.
+pub(crate) fn rows_moved(core: &Core) {
+    core.hosts.rows.now();
 }
 
-/// [`turn_moved`] for every agent here with teammates on another host, after a change that
-/// names no agent.
-pub(crate) fn turns_moved(core: &Core) {
-    if core.hosts.team.is_empty() {
+/// Tells the changed rows once the changes have gathered.
+pub(super) fn tell_rows_soon(core: &Arc<Core>) {
+    if core.hosts.team.is_empty() || core.hosts.rows_due.swap(true, Ordering::AcqRel) {
         return;
     }
-    let Some(core) = core.arc() else {
-        return;
-    };
-    tokio::task::spawn_blocking(move || {
-        for agent_id in core.open_agents() {
-            tell_turn(&core, &agent_id);
-        }
+    let core = core.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(ROWS_GATHER).await;
+        core.hosts.rows_due.store(false, Ordering::Release);
+        let _ = blocking(move || {
+            tell_rows(&core);
+            Ok(())
+        })
+        .await;
     });
 }
 
-fn tell_turn(core: &Core, agent_id: &str) {
-    if watchers(core, agent_id).is_empty() {
-        return;
-    }
-    let mut told = core.hosts.turns_told.locked();
-    let turn = super::super::turn_state::now(core, agent_id);
-    if told.get(agent_id) == Some(&turn) {
-        return;
-    }
-    told.insert(agent_id.to_owned(), turn.clone());
-    if let Some(status) = turn.as_ref().map(status_of_turn) {
-        tell_watchers(core, agent_id, TURN, status, turn, false);
-    }
+/// Every agent here as this host lists it, by its id: the row a host its teammates run on
+/// shows it as.
+fn rows(core: &Core) -> HashMap<String, AgentShown> {
+    let (chats, sessions) = core.ranked_infos();
+    let listed = inbox::view(core, &chats, &sessions);
+    (listed.agents.into_iter())
+        .chain(listed.kept)
+        .map(|shown| (shown.agent_id.clone(), shown))
+        .collect()
 }
 
-/// The status a host that does not know turns takes from one.
-fn status_of_turn(turn: &TurnState) -> AgentStatus {
-    match turn.state {
-        TurnPhase::Working => AgentStatus::Working,
-        TurnPhase::NeedsYou => AgentStatus::Blocked,
-        TurnPhase::Done => AgentStatus::Done,
-        TurnPhase::Waiting | TurnPhase::Stopped | TurnPhase::Failed | TurnPhase::Unknown => {
-            AgentStatus::Idle
+fn tell_rows(core: &Core) {
+    let mut told = core.hosts.rows_told.locked();
+    let mut watched = HashSet::new();
+    for (agent_id, shown) in rows(core) {
+        for host in watchers(core, &agent_id) {
+            let key = (host, agent_id.clone());
+            if told.get(&key) != Some(&shown) {
+                told.insert(key.clone(), shown.clone());
+                tell(
+                    core,
+                    &key.0,
+                    &agent_id,
+                    SHOWN,
+                    shown.status,
+                    Some(&shown),
+                    false,
+                );
+            }
+            watched.insert(key);
         }
     }
-}
-
-/// An agent here got a new title: the hosts its teammates run on show it.
-pub(crate) fn titled(core: &Core, agent_id: &str) {
-    if core.hosts.team.is_empty() {
-        return;
-    }
-    let turn = super::super::turn_state::now(core, agent_id);
-    let status = turn.as_ref().map_or(AgentStatus::Working, status_of_turn);
-    tell_watchers(core, agent_id, TITLED, status, turn, false);
+    told.retain(|key, _| watched.contains(key));
 }
 
 /// The person closed these agents here: their teammates elsewhere let them go, and so does
@@ -197,53 +189,49 @@ pub(crate) fn closed(core: &Core, agent_ids: &[&String]) {
             agent_id,
             Happened::Gone.kind(),
             AgentStatus::Stopped,
-            None,
             true,
         );
-        core.hosts.turns_told.locked().remove(agent_id.as_str());
         local_gone(core, agent_id);
     }
 }
 
-fn tell_watchers(
+fn tell_watchers(core: &Core, agent_id: &str, kind: &str, status: AgentStatus, keep: bool) {
+    for host in watchers(core, agent_id) {
+        tell(core, &host, agent_id, kind, status, None, keep);
+    }
+}
+
+fn tell(
     core: &Core,
+    host: &str,
     agent_id: &str,
     kind: &str,
     status: AgentStatus,
-    turn: Option<TurnState>,
+    shown: Option<&AgentShown>,
     keep: bool,
 ) {
     let key = match kind {
-        TURN => "turn",
-        TITLED => "title",
+        SHOWN => "shown",
         _ => "happened",
     };
-    let hosts = watchers(core, agent_id);
-    if hosts.is_empty() {
-        return;
-    }
-    let title = core.workspaces.own_title(agent_id);
-    for host in hosts {
-        post(core, &host, {
-            let sending = Sending::new(
-                asks::Happened::METHOD,
-                params_of::<asks::Happened>(&HappenedParams {
-                    agent_id: agent_id.to_owned(),
-                    kind: kind.to_owned(),
-                    status,
-                    turn: turn.clone(),
-                    title: title.clone(),
-                }),
-            )
-            .keyed(format!("{key}:{agent_id}"))
-            .about(agent_id);
-            if keep {
-                sending.kept()
-            } else {
-                sending
-            }
-        });
-    }
+    post(core, host, {
+        let sending = Sending::new(
+            asks::Happened::METHOD,
+            params_of::<asks::Happened>(&HappenedParams {
+                agent_id: agent_id.to_owned(),
+                kind: kind.to_owned(),
+                status,
+                shown: shown.cloned(),
+            }),
+        )
+        .keyed(format!("{key}:{agent_id}"))
+        .about(agent_id);
+        if keep {
+            sending.kept()
+        } else {
+            sending
+        }
+    });
 }
 
 /// An agent here was closed: its checkout's record goes, and so does a lead on another host
@@ -282,9 +270,15 @@ pub(super) struct HappenedParams {
     kind: String,
     status: AgentStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    turn: Option<TurnState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
+    shown: Option<AgentShown>,
+}
+
+/// What the host a teammate runs on said of it: its status, and its row when it sent one.
+fn heard(foreign: &mut Foreign, status: AgentStatus, shown: Option<AgentShown>) {
+    foreign.status = status;
+    if shown.is_some() {
+        foreign.shown = shown;
+    }
 }
 
 pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> CoreResult<Value> {
@@ -298,24 +292,15 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
     };
     let happened = match params.kind.as_str() {
         ENDED => Some(Happened::Gone),
-        ASLEEP | TURN | TITLED => None,
+        ASLEEP | SHOWN => None,
         kind => Happened::of(kind),
     };
     let closed = params.kind == Happened::Gone.kind();
-    let turn = (params.kind == TURN).then_some(params.turn);
-    let titled = params.kind == TITLED;
     core.hosts.team.update(&foreign.agent_id, |foreign| {
-        if params.title.is_some() {
-            foreign.title = params.title;
+        if params.shown.is_none() {
+            foreign.active_at = Some(epoch_ms());
         }
-        if titled {
-            return;
-        }
-        foreign.status = params.status;
-        foreign.active_at = Some(epoch_ms());
-        if let Some(turn) = turn {
-            foreign.turn = turn;
-        }
+        heard(foreign, params.status, params.shown);
     });
     if let Some(happened) = happened {
         core.harness
@@ -349,9 +334,9 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
     tokio::spawn(async move {
         let listed = {
             let core = core.clone();
-            blocking(move || Ok(roster::listed(&core))).await
+            blocking(move || Ok((roster::listed(&core), rows(&core)))).await
         };
-        let Ok(listed) = listed else {
+        let Ok((listed, rows)) = listed else {
             return;
         };
         let mut watched: HashSet<String> = HashSet::new();
@@ -383,8 +368,7 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
                 Some(Standing {
                     agent_id: agent_id.clone(),
                     status,
-                    turn: super::super::turn_state::now(&core, agent_id),
-                    title: core.workspaces.own_title(agent_id),
+                    shown: rows.get(agent_id).cloned(),
                 })
             })
             .collect();
@@ -476,9 +460,7 @@ pub(super) struct Standing {
     agent_id: String,
     status: AgentStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    turn: Option<TurnState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    title: Option<String>,
+    shown: Option<AgentShown>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -489,19 +471,17 @@ pub(super) struct TeamParams {
 /// What `host` says its agents of shared teams are doing. Those it no longer
 /// lists have stopped running there.
 pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResult<Value> {
-    let present: HashMap<String, Standing> = (params.agents.into_iter())
-        .map(|standing| (standing.agent_id.clone(), standing))
+    let present: HashMap<String, (AgentStatus, Option<AgentShown>)> = params
+        .agents
+        .into_iter()
+        .map(|standing| (standing.agent_id, (standing.status, standing.shown)))
         .collect();
     for foreign in core.hosts.team.on(host) {
         match present.get(&foreign.agent_id) {
             None if foreign.pending.is_some() => {}
-            Some(standing) => {
+            Some((status, shown)) => {
                 core.hosts.team.update(&foreign.agent_id, |foreign| {
-                    foreign.status = standing.status;
-                    foreign.turn.clone_from(&standing.turn);
-                    if standing.title.is_some() {
-                        foreign.title.clone_from(&standing.title);
-                    }
+                    heard(foreign, *status, shown.clone());
                 });
             }
             None => {
@@ -905,8 +885,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
         parent: Some(params.lead),
         role: Role::Worker,
         status: AgentStatus::Starting,
-        title: None,
-        turn: None,
+        shown: None,
         active_at: Some(epoch_ms()),
         repo: lead.repo,
         landed: None,
@@ -1127,4 +1106,180 @@ pub(super) fn pass_on_here(core: &Core, host: &str, params: PassOnParams) -> Res
         &params.choices,
         params.raise,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{json, Value};
+    use sikemux_view::inbox::{AgentShown, RemoteAgent, TeamLink};
+    use sikemux_view::workspace::AgentFace;
+    use sikemux_wire::protocol::{AgentGroup, AgentStatus};
+
+    use super::{heard, Foreign, HappenedParams, Role, Standing, SHOWN};
+    use crate::server::inbox::shown_here;
+
+    /// What a row says only of the host that made it, so the host showing a teammate's row
+    /// says its own.
+    const HOST_OWN: [&str; 7] = [
+        "project",
+        "projectName",
+        "session",
+        "team",
+        "snoozedUntil",
+        "settledAt",
+        "autoSettled",
+    ];
+
+    /// A row with every field set to something a client would draw. A field added to
+    /// `AgentShown` has to be given here, and then has to cross hosts below.
+    fn local_row() -> AgentShown {
+        AgentShown {
+            agent_id: "agent-1".into(),
+            chief: true,
+            name: Some("Otter".into()),
+            cli: "claude".into(),
+            title: "Fix the login flake".into(),
+            titled: true,
+            session: Some(7),
+            status: AgentStatus::Working,
+            group: AgentGroup::Working,
+            label: "Working".into(),
+            turn: Some(
+                serde_json::from_value(json!({ "state": "working", "since": 5, "on": "Tests" }))
+                    .expect("a turn"),
+            ),
+            unread: true,
+            subagents: 2,
+            tasks: 3,
+            busy: true,
+            failed: true,
+            background: true,
+            active_at: Some(11),
+            next_trigger: Some(12),
+            triggers: 4,
+            build_queued_at: Some(13),
+            called_at: Some(14),
+            face: Some(AgentFace {
+                pack: "buddies".into(),
+                shape: "mochi".into(),
+                color: 1,
+                view_box: "0 0 24 24".into(),
+            }),
+            team: Some(TeamLink::Head),
+            project: Some("/there/widget".into()),
+            project_name: Some("widget there".into()),
+            reconnecting: Some(2),
+            snoozed_until: Some(15),
+            settled_at: Some(16),
+            auto_settled: true,
+            tags: vec!["urgent".into()],
+        }
+    }
+
+    fn worker() -> Foreign {
+        Foreign {
+            agent_id: "agent-1".into(),
+            host: "host-key".into(),
+            name: "Otter".into(),
+            cli: "claude".into(),
+            project: "widget".into(),
+            parent: Some("lead".into()),
+            role: Role::Worker,
+            status: AgentStatus::Starting,
+            shown: None,
+            active_at: None,
+            repo: None,
+            landed: None,
+            landed_head: None,
+            branch: None,
+            pending: None,
+        }
+    }
+
+    fn fields(value: &impl serde::Serialize) -> serde_json::Map<String, Value> {
+        match serde_json::to_value(value).expect("json") {
+            Value::Object(fields) => fields,
+            other => panic!("not an object: {other}"),
+        }
+    }
+
+    /// The row of `foreign` as this host's clients get it.
+    fn remote_row(foreign: &Foreign) -> serde_json::Map<String, Value> {
+        fields(&RemoteAgent {
+            shown: shown_here(foreign, Some("widget".into()), || "Claude".into()),
+            host: "studio".into(),
+            host_id: foreign.host.clone(),
+            lead: foreign.parent.clone(),
+            reachable: true,
+        })
+    }
+
+    fn assert_shows_all(local: &AgentShown, remote: &serde_json::Map<String, Value>) {
+        let local = fields(local);
+        for (field, value) in &local {
+            assert!(
+                !matches!(value, Value::Null | Value::Bool(false))
+                    && value.as_u64() != Some(0)
+                    && value.as_array().is_none_or(|list| !list.is_empty()),
+                "the test's row leaves `{field}` empty, so it does not show whether it crosses hosts"
+            );
+            if HOST_OWN.contains(&field.as_str()) {
+                continue;
+            }
+            assert_eq!(
+                remote.get(field),
+                Some(value),
+                "a local agent's row shows `{field}`, and the row of the same agent on a linked host does not"
+            );
+        }
+    }
+
+    #[test]
+    fn an_agent_on_a_linked_host_shows_every_field_a_local_one_does() {
+        let local = local_row();
+
+        let sent = serde_json::to_value(HappenedParams {
+            agent_id: local.agent_id.clone(),
+            kind: SHOWN.into(),
+            status: local.status,
+            shown: Some(local.clone()),
+        })
+        .expect("json");
+        let got: HappenedParams = serde_json::from_value(sent).expect("the report");
+        let mut foreign = worker();
+        heard(&mut foreign, got.status, got.shown);
+        assert_shows_all(&local, &remote_row(&foreign));
+
+        let sent = serde_json::to_value(Standing {
+            agent_id: local.agent_id.clone(),
+            status: local.status,
+            shown: Some(local.clone()),
+        })
+        .expect("json");
+        let got: Standing = serde_json::from_value(sent).expect("the standing");
+        let mut foreign = worker();
+        heard(&mut foreign, got.status, got.shown);
+        assert_shows_all(&local, &remote_row(&foreign));
+    }
+
+    #[test]
+    fn its_row_is_in_the_project_here_and_out_of_its_hosts_own_lists() {
+        let mut foreign = worker();
+        heard(&mut foreign, AgentStatus::Working, Some(local_row()));
+        let shown = shown_here(&foreign, Some("widget".into()), || "Claude".into());
+        assert_eq!(shown.project.as_deref(), Some("widget"));
+        assert_eq!(shown.project_name.as_deref(), Some("widget"));
+        assert_eq!(shown.session, None);
+        assert_eq!(shown.team, None);
+        assert_eq!((shown.snoozed_until, shown.settled_at), (None, None));
+        assert!(!shown.auto_settled);
+    }
+
+    #[test]
+    fn a_worker_its_host_has_not_shown_yet_stands_in_as_a_row() {
+        let shown = shown_here(&worker(), Some("widget".into()), || "Claude".into());
+        assert_eq!(shown.name.as_deref(), Some("Otter"));
+        assert_eq!(shown.title, "Claude");
+        assert_eq!(shown.status, AgentStatus::Starting);
+    }
 }

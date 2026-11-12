@@ -449,7 +449,6 @@ pub(crate) fn read_work(core: &Core, agent_id: &str) {
         let shows = (work.can_try).then(|| (work.project.clone(), work.changes, work.head.clone()));
         if core.inbox.keep_work(&agent_id, work) {
             core.changed(What::View);
-            super::hosts::route::turn_moved(&core, &agent_id);
         }
         let Some((project, changes, head)) = shows else {
             return;

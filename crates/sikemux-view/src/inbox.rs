@@ -483,30 +483,18 @@ pub struct AgentRollup {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAgent {
-    pub agent_id: String,
-    pub name: String,
-    /// What its chat is called on its host, once it has a title of its own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
+    /// Its row as the host it runs on lists it among its own agents, so it shows all an
+    /// agent here does. Its project is the one here its team works in, and its `team` its
+    /// place after the last of that team's agents here.
+    #[serde(flatten)]
+    pub shown: AgentShown,
     /// What this host calls the host it runs on.
     pub host: String,
     pub host_id: String,
-    pub cli: String,
-    pub status: AgentStatus,
-    pub group: AgentGroup,
-    /// The word shown for its status, such as "Sleeping".
-    pub label: String,
-    /// How its turn stands, as its host last said; none before its first turn.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn: Option<crate::turn::TurnState>,
     /// The agent here that started it, for a worker.
     pub lead: Option<String>,
-    pub project: String,
     /// Its host answers now.
     pub reachable: bool,
-    /// Its place on its lead's team, shown after the last of that team's agents here.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<TeamLink>,
 }
 
 /// What happened while the person was away.

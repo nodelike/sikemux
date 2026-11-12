@@ -3740,7 +3740,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
 fn tell_clients(core: &Core) {
     let dirty = std::mem::take(&mut core.boards.state.locked().dirty);
     if !dirty.is_empty() {
-        super::hosts::route::turns_moved(core);
+        super::hosts::route::rows_moved(core);
     }
     for project in dirty {
         core.changed(What::ReadIn(Topic::Boards, Some(&project), None));

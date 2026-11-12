@@ -143,8 +143,13 @@ pub(crate) struct Hosts {
     probes: Mutex<probe::Probes>,
     /// The linked hosts when the hosts were last listed, to see links come and go.
     listed_links: Mutex<Option<Vec<String>>>,
-    /// The turn each agent here last told the hosts its teammates run on, by its id.
-    pub(crate) turns_told: Mutex<HashMap<String, Option<sikemux_view::turn::TurnState>>>,
+    /// The row of each agent here as each host its teammates run on was last told it, by
+    /// that host's key and the agent's id.
+    pub(crate) rows_told: Mutex<HashMap<(String, String), sikemux_view::inbox::AgentShown>>,
+    /// Tells them the rows that changed.
+    pub(crate) rows: Wake,
+    /// Changed rows are gathering to be told.
+    rows_due: AtomicBool,
 }
 
 impl Hosts {
@@ -165,7 +170,9 @@ impl Hosts {
             setups: Mutex::default(),
             probes: Mutex::default(),
             listed_links: Mutex::default(),
-            turns_told: Mutex::default(),
+            rows_told: Mutex::default(),
+            rows: Wake::default(),
+            rows_due: AtomicBool::new(false),
         }
     }
 
@@ -1104,6 +1111,7 @@ impl crate::server::part::Part for Hosts {
             on_wake(core, |core| &core.hosts.wake, settle),
             on_wake(core, |core| &core.hosts.relink, account::relink),
             on_wake(core, |core| &core.hosts.copies.wake, copies::share),
+            on_wake(core, |core| &core.hosts.rows, route::tell_rows_soon),
         ]
     }
 }

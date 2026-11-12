@@ -807,10 +807,10 @@ fn team_rows(
         Vec::new()
     };
     let listed_elsewhere =
-        |worker: &RemoteAgent| (agents.iter()).find(|agent| agent.id == worker.agent_id);
+        |worker: &RemoteAgent| (agents.iter()).find(|agent| agent.id == worker.shown.agent_id);
     let under_lead = |agent: &AgentRow| {
         remote.iter().any(|worker| {
-            worker.agent_id == agent.id
+            worker.shown.agent_id == agent.id
                 && (agents.iter()).any(|lead| worker.lead.as_deref() == Some(lead.id.as_str()))
         })
     };
@@ -876,19 +876,21 @@ fn team_rows(
             let workers = remote_of(&team_members);
             let last = workers.len().saturating_sub(1);
             for (at, worker) in workers.into_iter().enumerate() {
-                let row = match listed_elsewhere(worker) {
-                    Some(row) => {
-                        let link = if at == last {
-                            TeamLink::Last
-                        } else {
-                            TeamLink::Member
-                        };
-                        shown.push((row.id.clone(), row.clone()));
-                        agent_row(bench, row, Some(link), None, glided, cx).into_any_element()
-                    }
-                    None => remote_row(worker, cx),
+                let link = if at == last {
+                    TeamLink::Last
+                } else {
+                    TeamLink::Member
                 };
-                drawn.push((worker.agent_id.clone(), row));
+                let Some(row) = (listed_elsewhere(worker).cloned())
+                    .or_else(|| crate::agents::rows::worker(worker))
+                else {
+                    continue;
+                };
+                drawn.push((
+                    row.id.clone(),
+                    agent_row(bench, &row, Some(link), None, glided, cx),
+                ));
+                shown.push((row.id.clone(), row));
             }
         }
     }
@@ -980,60 +982,8 @@ fn remote_workers<'a>(bench: &'a Workbench, agents: &[AgentRow]) -> Vec<&'a Remo
     (places.into_iter())
         .filter_map(|place| bench.view_at(place))
         .flat_map(|view| &view.inbox.remote_agents)
-        .filter(|worker| worker.team.is_some())
+        .filter(|worker| worker.shown.team.is_some())
         .collect()
-}
-
-/// A worker on a linked host, in its lead's team. It has no chat here to open.
-fn remote_row(worker: &RemoteAgent, cx: &mut Context<Workbench>) -> AnyElement {
-    let team = match worker.team {
-        Some(TeamLink::Last) => Some(TeamLink::Last),
-        _ => Some(TeamLink::Member),
-    };
-    let reachable = worker.reachable;
-    let host = &worker.host;
-    let handle = format!("@{}", worker.name);
-    let title = worker.title.clone().unwrap_or_else(|| handle.clone());
-    let status = reachable.then_some(worker.status);
-    let tip = if reachable {
-        format!("Runs on {host}")
-    } else {
-        format!("{host} is out of reach")
-    };
-    let dragged = crate::drag::DraggedChat {
-        agent: Some((
-            worker.agent_id.clone(),
-            format!("{} on {host}", worker.name),
-        )),
-        recent: None,
-        pinned: false,
-        label: worker.name.clone().into(),
-    };
-    let wrap = div().id(SharedString::from(format!("remote-{}", worker.agent_id)));
-    crate::drag::chat(wrap, dragged, cx.weak_entity())
-        .relative()
-        .pl(px(18.))
-        .tooltip(ui::tooltip(tip))
-        .child(
-            Row::new(
-                SharedString::from(format!("remote-row-{}", worker.agent_id)),
-                title,
-            )
-            .mark(22., ui::mark(&worker.cli, 20.))
-            .quiet()
-            .when_some(status, |row, status| {
-                row.status(
-                    ui::turn_mark(&worker.agent_id, worker.turn.as_ref())
-                        .or_else(|| ui::status_mark(&worker.agent_id, status, cx)),
-                )
-            })
-            .child(tag(host.clone().into(), cx))
-            .when(worker.title.is_some(), |row| {
-                row.child(ui::meta(handle, cx).pl(SPACE_2).pr(SPACE_1))
-            }),
-        )
-        .children(team_lines(team, false, cx))
-        .into_any_element()
 }
 
 impl Workbench {
@@ -1111,12 +1061,14 @@ fn agent_row(
     let worker = !agent.chief
         && (bench.project_on(&agent.place, &agent.project))
             .is_some_and(|project| project.chief.is_some());
-    let away = agent.snoozed_until.is_some() || agent.settled_at.is_some();
+    let away = agent.snoozed_until.is_some() || agent.settled_at.is_some() || !agent.reachable;
     let mark = match away {
         true => div().opacity(0.55).child(mark).into_any_element(),
         false => mark,
     };
-    let status = ui::turn_mark(&agent.id, agent.turn.as_ref());
+    let status = (agent.reachable)
+        .then(|| ui::turn_mark(&agent.id, agent.turn.as_ref()))
+        .flatten();
     let fades = status.is_none();
     let pin = (bench.chat_of(&agent.id))
         .filter(|_| !elsewhere)
@@ -1339,7 +1291,11 @@ fn host_tag(bench: &Workbench, agent: &AgentRow, cx: &App) -> Option<AnyElement>
     let Place::Account(key) = &agent.place else {
         return None;
     };
-    Some(tag(bench.host_name(key), cx))
+    let host = bench.host_name(key);
+    Some(match agent.reachable {
+        true => tag(host, cx),
+        false => tag(format!("{host} · out of reach").into(), cx),
+    })
 }
 
 fn tag(host: SharedString, cx: &App) -> AnyElement {

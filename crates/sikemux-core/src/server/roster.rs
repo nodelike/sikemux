@@ -156,17 +156,20 @@ pub(crate) fn listed(core: &Core) -> Vec<Listed> {
         });
     }
     agents.sort_by_key(|agent| agent.rank);
-    agents.extend(core.hosts.team.all().into_iter().map(|foreign| Listed {
-        name: Some(foreign.name),
-        project: foreign.project,
-        cli: foreign.cli,
-        title: foreign.title,
-        status: foreign.status,
-        parent: foreign.parent,
-        active_at: foreign.active_at,
-        rank: u32::MAX,
-        reach: Reach::Remote,
-        agent_id: foreign.agent_id,
+    agents.extend(core.hosts.team.all().into_iter().map(|foreign| {
+        let shown = super::inbox::foreign_shown(core, &foreign);
+        Listed {
+            name: shown.name,
+            project: foreign.project,
+            cli: foreign.cli,
+            title: shown.titled.then_some(shown.title),
+            status: foreign.status,
+            parent: foreign.parent,
+            active_at: shown.active_at,
+            rank: u32::MAX,
+            reach: Reach::Remote,
+            agent_id: foreign.agent_id,
+        }
     }));
     agents
 }

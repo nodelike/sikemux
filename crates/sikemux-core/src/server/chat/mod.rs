@@ -1160,7 +1160,7 @@ impl Chat {
         });
         self.publish_state();
         if let Some(core) = self.core.upgrade() {
-            crate::server::hosts::route::turn_moved(&core, self.agent_id());
+            crate::server::hosts::route::rows_moved(&core);
         }
     }
 

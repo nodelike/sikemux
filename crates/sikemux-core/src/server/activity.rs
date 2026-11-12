@@ -104,10 +104,7 @@ impl Core {
             }
         }
         if moves_turn {
-            super::hosts::route::turn_moved(self, agent_id);
-            if let Some(lead) = self.names.reports_to(agent_id) {
-                super::hosts::route::turn_moved(self, &lead);
-            }
+            super::hosts::route::rows_moved(self);
         }
     }
 

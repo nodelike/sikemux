@@ -198,6 +198,7 @@ fn note_elsewhere(core: &Core, id: &str) -> Option<String> {
     let mate = core.hosts.team.get(id)?;
     let host = crate::server::hosts::name_of(core, &mate.host);
     let to = format!("{} on {host}", mate.name);
+    let shown = crate::server::inbox::foreign_shown(core, &mate);
     let cli = crate::agent_catalog::agent(&mate.cli).map_or(mate.cli.as_str(), |entry| entry.label);
     Some(
         [
@@ -205,6 +206,7 @@ fn note_elsewhere(core: &Core, id: &str) -> Option<String> {
             format!("Agent id: {id}"),
             format!("CLI: {cli}"),
             format!("Status: {}", display::status_label(mate.status)),
+            format!("Working on: {}", shown.title),
             format!("To message it, call agent_send with to \"{to}\"."),
             format!("To read what it said, call agent_read with agent \"{to}\"."),
         ]
