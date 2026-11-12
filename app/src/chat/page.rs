@@ -421,7 +421,7 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
                             }
                         });
                     }
-                    PageEvent::Mod(_) => {}
+                    PageEvent::Mod(_) | PageEvent::App(_) => {}
                 });
                 if applied.is_err() {
                     break;

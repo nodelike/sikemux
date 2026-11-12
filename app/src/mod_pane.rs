@@ -175,7 +175,10 @@ impl ModPane {
                 let heard = this.update(cx, |pane, cx| match event {
                     PageEvent::Link(url) => cx.open_url(&url),
                     PageEvent::Mod(message) => pane.asked(message, cx),
-                    PageEvent::Height(_) | PageEvent::Wheel(_) | PageEvent::Pointer(_) => {}
+                    PageEvent::Height(_)
+                    | PageEvent::Wheel(_)
+                    | PageEvent::Pointer(_)
+                    | PageEvent::App(_) => {}
                 });
                 if heard.is_err() {
                     break;

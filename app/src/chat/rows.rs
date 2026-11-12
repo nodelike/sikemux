@@ -731,6 +731,7 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
                 ChatPart::Tool {
                     page: None,
                     gif: None,
+                    app: None,
                     ..
                 },
                 Some(Shown::Run(calls)),
@@ -739,6 +740,7 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
                 ChatPart::Tool {
                     page: None,
                     gif: None,
+                    app: None,
                     ..
                 },
                 _,
@@ -1301,6 +1303,11 @@ pub(super) fn part(
         ChatPart::Tool {
             page: Some(page), ..
         } => self::page::page(page, looks, window, cx),
+        ChatPart::Tool {
+            app: Some(app),
+            tool,
+            ..
+        } => self::app::app(app, &tool.title, looks, cx),
         ChatPart::Tool {
             id, gif: Some(gif), ..
         } => gestures::gif(id, gif, looks, cx),

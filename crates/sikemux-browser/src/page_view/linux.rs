@@ -35,7 +35,7 @@ impl PageView {
     ) -> Result<Self, String> {
         gtk_thread()?;
         let (fills, base) = match room {
-            Room::Grows => (false, None),
+            Room::Grows | Room::App => (false, None),
             Room::Panel => (true, None),
             Room::Fills(path) => (
                 true,

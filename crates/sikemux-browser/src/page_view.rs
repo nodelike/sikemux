@@ -24,6 +24,8 @@ pub(crate) const BOOTSTRAP: &str = r#"(()=>{const post=(message)=>window.webkit.
 pub enum Room<'a> {
     /// In a reply, at its full height on the app's ground, scrolled with what holds it.
     Grows,
+    /// As a reply's page, but an MCP app the person uses, so a click in it takes the keyboard.
+    App,
     /// Filling a file's pane on a page's usual white and scrolling itself. With the file's
     /// path on this disk, what it links to beside it, such as its styles and pictures, loads too.
     Fills(Option<&'a Path>),
@@ -40,6 +42,9 @@ pub(crate) fn loads_as(base: Option<&str>) -> &str {
 /// Whether the page may go to `url`: its own first load, or a link to a place within it.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn stays(url: &str, loaded: &str, first_load: bool) -> bool {
+    if url == "about:srcdoc" {
+        return true;
+    }
     let (page, place) = url.split_once('#').unwrap_or((url, ""));
     page == loaded && (first_load || !place.is_empty())
 }
@@ -54,6 +59,8 @@ pub enum PageEvent {
     Pointer(bool),
     /// What a mod's page asked of the bridge the app gave it.
     Mod(serde_json::Value),
+    /// A message an MCP app's page sent its host.
+    App(serde_json::Value),
 }
 
 impl PageEvent {
@@ -67,6 +74,7 @@ impl PageEvent {
             "wheel" => message["deltaY"].as_f64().map(PageEvent::Wheel),
             "pointer" => message["over"].as_bool().map(PageEvent::Pointer),
             "mod" => Some(PageEvent::Mod(message)),
+            "app" => Some(PageEvent::App(message.get("message")?.clone())),
             _ => None,
         }
     }

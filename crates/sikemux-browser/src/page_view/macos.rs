@@ -1,17 +1,18 @@
 use std::cell::Cell;
 
+use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
-use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventPhase, NSView};
+use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventPhase, NSImage, NSView};
 use objc2_foundation::{
-    NSNumber, NSObject, NSObjectNSKeyValueCoding, NSObjectProtocol, NSPoint, NSRect, NSSize,
-    NSString, NSURL,
+    NSError, NSNumber, NSObject, NSObjectNSKeyValueCoding, NSObjectProtocol, NSPoint, NSRect,
+    NSSize, NSString, NSURL,
 };
 use objc2_web_kit::{
     WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationType,
-    WKScriptMessage, WKScriptMessageHandler, WKUserContentController, WKUserScript,
-    WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+    WKScriptMessage, WKScriptMessageHandler, WKSnapshotConfiguration, WKUserContentController,
+    WKUserScript, WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
 };
 
 use super::{PageEvent, Room, BOOTSTRAP};
@@ -87,6 +88,8 @@ define_class!(
 pub struct WebIvars {
     /// Whether the page fills its room and scrolls itself.
     fills: bool,
+    /// Whether a click on the page takes the keyboard.
+    takes_keys: bool,
     /// Whether the scroll under way goes up or down.
     vertical: Cell<bool>,
 }
@@ -123,7 +126,7 @@ define_class!(
         /// with the composer, where keys the page has no use for would otherwise beep.
         #[unsafe(method(acceptsFirstResponder))]
         fn accepts_first_responder(&self) -> bool {
-            self.ivars().fills
+            self.ivars().takes_keys
         }
     }
 );
@@ -153,7 +156,7 @@ impl PageView {
         events: impl Fn(PageEvent) + 'static,
     ) -> Self {
         let (fills, clear, base) = match room {
-            Room::Grows => (false, true, None),
+            Room::Grows | Room::App => (false, true, None),
             Room::Panel => (true, true, None),
             Room::Fills(path) => (
                 true,
@@ -196,6 +199,7 @@ impl PageView {
             let view: Retained<PageWebView> = msg_send![
                 super(PageWebView::alloc(mtm).set_ivars(WebIvars {
                     fills,
+                    takes_keys: fills || matches!(room, Room::App),
                     vertical: Cell::new(false),
                 })),
                 initWithFrame: frame,
@@ -236,6 +240,47 @@ impl PageView {
         unsafe {
             self.view
                 .evaluateJavaScript_completionHandler(&NSString::from_str(script), None)
+        };
+    }
+}
+
+impl PageView {
+    /// A still of what the view shows now, as sharp as the screen draws it, as a JPEG made off
+    /// the main thread. The page must paint its own ground, as a JPEG keeps no see-through.
+    pub fn still(&self, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send>) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            done(None);
+            return;
+        };
+        // SAFETY: main thread, as `mtm` proves; the configuration is ours until handed over.
+        let configuration = unsafe { WKSnapshotConfiguration::new(mtm) };
+        // SAFETY: main thread, and `configuration` is not yet handed to WebKit.
+        unsafe {
+            configuration.setSnapshotWidth(Some(&NSNumber::numberWithDouble(
+                self.view.bounds().size.width,
+            )));
+            configuration.setAfterScreenUpdates(false);
+        }
+        let done = std::sync::Mutex::new(Some(done));
+        let block = RcBlock::new(move |image: *mut NSImage, _: *mut NSError| {
+            let Some(done) = done.lock().ok().and_then(|mut done| done.take()) else {
+                return;
+            };
+            // SAFETY: WebKit passes a live image or nil; `retain` takes our own reference.
+            let tiff = unsafe { Retained::retain(image) }
+                .and_then(|image| image.TIFFRepresentation())
+                .map(|tiff| tiff.to_vec());
+            match tiff {
+                Some(tiff) => {
+                    std::thread::spawn(move || done(crate::macos::jpeg_bytes(&tiff)));
+                }
+                None => done(None),
+            }
+        });
+        // SAFETY: main thread; WebKit copies the block and holds `configuration` for the call.
+        unsafe {
+            self.view
+                .takeSnapshotWithConfiguration_completionHandler(Some(&configuration), &block)
         };
     }
 }

@@ -57,6 +57,7 @@ use crate::worktrees::switch::Switch;
 use crate::{motion, syntax, theme, ui};
 
 mod announce;
+mod app;
 mod attach;
 mod cards;
 pub mod changes;

@@ -506,19 +506,21 @@ pub fn page_ground_rgb(t: &Tokens) -> [u8; 3] {
     [rgba.r, rgba.g, rgba.b].map(|channel| (channel * 255.).round() as u8)
 }
 
+/// A colour as CSS writes it.
+pub fn css(color: Hsla) -> String {
+    let rgba = color.to_rgb();
+    format!(
+        "rgba({},{},{},{})",
+        (rgba.r * 255.).round(),
+        (rgba.g * 255.).round(),
+        (rgba.b * 255.).round(),
+        rgba.a
+    )
+}
+
 /// The window's colours and fonts as the custom properties pages style against.
 /// `ground` is what the page draws behind itself; with none it lets what is under it show.
 pub fn page_rule(t: &Tokens, ground: Option<Hsla>) -> String {
-    let css = |color: Hsla| {
-        let rgba = color.to_rgb();
-        format!(
-            "rgba({},{},{},{})",
-            (rgba.r * 255.).round(),
-            (rgba.g * 255.).round(),
-            (rgba.b * 255.).round(),
-            rgba.a
-        )
-    };
     let ansi = |index: usize| {
         let [r, g, b] = t.terminal.ansi[index];
         format!("rgb({r},{g},{b})")

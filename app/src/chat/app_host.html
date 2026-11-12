@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+html, body { margin: 0; padding: 0; overflow: hidden; background: __GROUND__; }
+iframe { display: block; border: 0; width: 100%; height: __HEIGHT__px; background: transparent; }
+</style>
+</head>
+<body>
+<iframe id="app" sandbox="allow-scripts" title="MCP app"></iframe>
+<script>
+(() => {
+  const host = __HOST__;
+  const frame = document.getElementById("app");
+  const tell = (message) => window.webkit.messageHandlers.sikemux.postMessage(JSON.stringify(message));
+  const send = (message) => frame.contentWindow && frame.contentWindow.postMessage({ jsonrpc: "2.0", ...message }, "*");
+  const answer = (id, result) => send({ id, result });
+  const refuse = (id, code, message) => send({ id, error: { code, message } });
+  let told = false;
+  window.__sikemuxApp = {
+    reply: (id, ok, value) => (ok ? answer(id, value) : refuse(id, -32000, String(value))),
+  };
+  addEventListener("message", (event) => {
+    if (event.source !== frame.contentWindow) return;
+    const message = event.data;
+    if (!message || typeof message !== "object" || message.jsonrpc !== "2.0" || typeof message.method !== "string") return;
+    const { id, method, params } = message;
+    const asks = id !== undefined && id !== null;
+    switch (method) {
+      case "ui/initialize":
+        if (asks) answer(id, {
+          protocolVersion: "2026-01-26",
+          hostInfo: { name: "Sikemux", version: host.version },
+          hostCapabilities: { openLinks: {}, serverTools: {}, serverResources: {}, logging: {} },
+          hostContext: host.context,
+        });
+        return;
+      case "ui/notifications/initialized":
+        if (told) return;
+        told = true;
+        send({ method: "ui/notifications/tool-input", params: { arguments: host.input } });
+        send({ method: "ui/notifications/tool-result", params: host.result });
+        return;
+      case "ui/notifications/size-changed": {
+        const height = params && params.height;
+        if (typeof height === "number" && isFinite(height)) {
+          frame.style.height = Math.max(1, Math.min(host.maxHeight, Math.ceil(height))) + "px";
+        }
+        return;
+      }
+      case "ping":
+        if (asks) answer(id, {});
+        return;
+      case "ui/open-link": {
+        let url = null;
+        try { url = new URL(params.url); } catch {}
+        if (url && /^https?:$/.test(url.protocol)) {
+          tell({ kind: "link", url: url.href });
+          if (asks) answer(id, {});
+        } else if (asks) {
+          refuse(id, -32602, "Only web links open");
+        }
+        return;
+      }
+      case "ui/request-display-mode":
+        if (asks) answer(id, { mode: "inline" });
+        return;
+      case "tools/call":
+      case "resources/read":
+        if (asks) tell({ kind: "app", message: { id, method, params: params || {} } });
+        return;
+      case "notifications/message":
+        return;
+      default:
+        if (asks) refuse(id, -32601, "Sikemux does not offer " + method);
+    }
+  });
+  frame.srcdoc = host.html;
+})();
+</script>
+</body>
+</html>

@@ -19,6 +19,14 @@ impl View {
         self.page.show(html);
     }
 
+    /// A still of what the page shows now, as a JPEG; none where WebKit cannot make one.
+    pub(crate) fn still(&self, done: Box<dyn FnOnce(Option<Vec<u8>>) + Send>) {
+        #[cfg(target_os = "macos")]
+        self.page.still(done);
+        #[cfg(not(target_os = "macos"))]
+        done(None);
+    }
+
     /// Runs `script` in the page, with no answer waited for.
     pub(crate) fn run(&self, script: &str) {
         self.page.run_script(script);
@@ -58,7 +66,9 @@ pub(crate) fn open(
 ) -> Option<View> {
     let parent = gpui_native_view::window_x11(window)?;
     let ground = match room {
-        Room::Grows | Room::Panel => crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx)),
+        Room::Grows | Room::App | Room::Panel => {
+            crate::theme::page_ground_rgb(crate::theme::Tokens::get(cx))
+        }
         Room::Fills(_) => [255; 3],
     };
     let page =

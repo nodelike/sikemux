@@ -132,7 +132,7 @@ pub fn full_page_jpeg(
     unsafe { webview.createPDFWithConfiguration_completionHandler(Some(&configuration), &block) };
 }
 
-pub(super) fn jpeg_bytes(image: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn jpeg_bytes(image: &[u8]) -> Option<Vec<u8>> {
     let bitmap = NSBitmapImageRep::imageRepWithData(&NSData::with_bytes(image))?;
     let quality = NSNumber::numberWithDouble(0.82);
     let properties: Retained<NSDictionary<NSString, AnyObject>> =
