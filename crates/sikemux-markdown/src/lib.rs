@@ -3,6 +3,7 @@
 //! redraw only the block at its end.
 
 mod autolink;
+mod delimiters;
 mod doc;
 mod mend;
 pub mod paths;
@@ -233,9 +234,15 @@ fn read(text: &str, options: MarkdownOptions, skip: usize) -> (Vec<MdElement>, V
         links_open: 0,
         footnotes: Vec::new(),
     };
-    for (event, range) in Parser::new_ext(text, flags).into_offset_iter() {
+    let rewritten = options.math.then(|| delimiters::as_dollars(text)).flatten();
+    let (read, moved) = match &rewritten {
+        Some((dollars, moved)) => (dollars.as_str(), Some(moved)),
+        None => (text, None),
+    };
+    for (event, range) in Parser::new_ext(read, flags).into_offset_iter() {
         if builder.stack.is_empty() {
-            builder.opening.get_or_insert(range.start);
+            let start = moved.map_or(range.start, |moved| moved.original(range.start));
+            builder.opening.get_or_insert(start);
         }
         builder.event(event);
         if builder.stack.is_empty() {

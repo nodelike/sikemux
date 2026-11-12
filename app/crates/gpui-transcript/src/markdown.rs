@@ -101,6 +101,8 @@ impl Marks {
     pub const CODE: Marks = Marks(8);
     pub const LINK: Marks = Marks(16);
     pub const FAINT: Marks = Marks(32);
+    /// A script in a formula that Unicode has no small letters for.
+    pub const SMALL: Marks = Marks(64);
 
     pub fn has(self, other: Marks) -> bool {
         self.0 & other.0 != 0
@@ -330,10 +332,17 @@ impl Builder {
             Kind::Text => return self.push(&node.text, marks),
             Kind::InlineCode => return self.push(&node.text, with(Marks::CODE)),
             Kind::Math => {
-                return self.push(
-                    &crate::math_text::unicode(&node.text),
-                    with(Marks::EMPHASIS),
-                )
+                for (text, look) in crate::math_text::runs(&node.text) {
+                    let mut kept = marks;
+                    if look.italic {
+                        kept = Marks(kept.0 | Marks::EMPHASIS.0);
+                    }
+                    if look.small {
+                        kept = Marks(kept.0 | Marks::SMALL.0);
+                    }
+                    self.push(&text, kept);
+                }
+                return;
             }
             Kind::Break => return self.push("\n", marks),
             Kind::FootnoteRef(n) => return self.push(&superscript(*n), marks),

@@ -2006,6 +2006,9 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
     if marks.has(Marks::FAINT) {
         highlight.color = Some(style.ink_faint);
     }
+    if marks.has(Marks::SMALL) {
+        highlight.font_scale = Some(gpui::FontScale(0.72));
+    }
     if marks.has(Marks::LINK) {
         highlight.color = Some(style.link);
         highlight.underline = style.link_underline.map(|color| UnderlineStyle {
