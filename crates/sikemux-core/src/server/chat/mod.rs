@@ -133,6 +133,8 @@ pub(crate) enum ChatCommand {
         text: String,
         /// Files the person attached to an answer, taken as the composer's are.
         paths: Vec<String>,
+        /// It carries the person's own words, such as their answer to a question.
+        person: bool,
         reply: oneshot::Sender<Delivery>,
     },
     StopTask {

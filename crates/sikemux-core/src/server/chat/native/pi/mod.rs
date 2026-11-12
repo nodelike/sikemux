@@ -127,8 +127,15 @@ impl Driver {
                 session.accepted(disposition)
             }
             (Purpose::Prompt(turn), Err(error)) => self.prompt_refused(turn, error),
-            (Purpose::Steer { text, paths }, Ok(_)) => {
-                self.sink.prompted(&text, &paths);
+            (
+                Purpose::Steer {
+                    text,
+                    paths,
+                    person,
+                },
+                Ok(_),
+            ) => {
+                self.sink.prompted(&text, &paths, person);
                 self.session.locked().probe_if_settling()
             }
             (Purpose::Steer { text, .. }, Err(error)) => {
@@ -765,6 +772,7 @@ impl Backend for Pi {
             let purpose = Purpose::Steer {
                 text: prompt.text.clone(),
                 paths: prompt.paths.clone(),
+                person: !prompt.letter,
             };
             let mut session = driver.session.locked();
             session.touched();

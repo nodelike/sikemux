@@ -692,6 +692,34 @@ impl Replay {
         text.and_then(Value::as_str).map(str::to_owned)
     }
 
+    /// What the person said in the turn in progress, or the last one: the message they started
+    /// it with, what they sent into it, and their answers to its questions. Nothing another
+    /// agent, a trigger, the board or Sikemux sent counts, whatever it says.
+    pub(super) fn person_said(&self) -> Vec<String> {
+        let Some(start) = self.entries.iter().rposition(|entry| entry.starts_turn) else {
+            return Vec::new();
+        };
+        self.entries
+            .iter()
+            .skip(start)
+            .filter(|entry| entry.event.kind == ChatEventKind::Prompt)
+            .map(|entry| &entry.event.payload)
+            .filter(|payload| payload.get("person") == Some(&Value::Bool(true)))
+            .filter_map(|payload| payload.get("text").and_then(Value::as_str))
+            .flat_map(
+                |text| match text.trim_start().starts_with("<question-answer ") {
+                    true => (text.split("<question-answer ").skip(1))
+                        .filter_map(|block| {
+                            let (_, body) = block.split_once('>')?;
+                            Some(body.split("</question-answer>").next()?.trim().to_owned())
+                        })
+                        .collect(),
+                    false => vec![text.to_owned()],
+                },
+            )
+            .collect()
+    }
+
     pub(crate) fn is_trimmed(&self) -> bool {
         self.trimmed
     }

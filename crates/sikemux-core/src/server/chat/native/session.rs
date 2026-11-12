@@ -372,9 +372,9 @@ impl Sink {
         self.chat.withdraw_permission(tool_call_id);
     }
 
-    /// The person's message `text` went into the running turn.
-    pub fn prompted(&self, text: &str, paths: &[String]) {
-        self.chat.feed.prompted(None, text, paths, &[]);
+    /// `text` went into the running turn; `person` when the person sent it.
+    pub fn prompted(&self, text: &str, paths: &[String], person: bool) {
+        self.chat.feed.prompted(None, text, paths, &[], person);
     }
 
     /// Asks the person about a tool call. `request` is shaped as an ACP
@@ -872,6 +872,7 @@ impl<B: Backend> Running<'_, B> {
             &replay.text,
             &replay.paths,
             &replay.context,
+            replay.person,
         );
     }
 
@@ -1026,13 +1027,23 @@ impl<B: Backend> Running<'_, B> {
 
     async fn command(&mut self, command: ChatCommand) -> ControlFlow<Outcome> {
         match command {
-            ChatCommand::Letter { text, paths, reply } if !self.chat.prompted() => {
+            ChatCommand::Letter {
+                text,
+                paths,
+                person,
+                reply,
+            } if !self.chat.prompted() => {
                 let _ = reply.send(Delivery::NewTurn);
                 return self
-                    .prompt(None, text, paths, Vec::new(), false, true)
+                    .prompt(None, text, paths, Vec::new(), false, Some(person))
                     .await;
             }
-            ChatCommand::Letter { text, paths, reply } => self.letter(text, paths, reply),
+            ChatCommand::Letter {
+                text,
+                paths,
+                person,
+                reply,
+            } => self.letter(text, paths, person, reply),
             ChatCommand::Prompt {
                 message_id,
                 text,
@@ -1041,7 +1052,7 @@ impl<B: Backend> Running<'_, B> {
                 shown,
             } => {
                 return self
-                    .prompt(message_id, text, paths, context, shown, false)
+                    .prompt(message_id, text, paths, context, shown, None)
                     .await
             }
             ChatCommand::Edit {
@@ -1099,6 +1110,7 @@ impl<B: Backend> Running<'_, B> {
         &mut self,
         text: String,
         paths: Vec<String>,
+        person: bool,
         reply: tokio::sync::oneshot::Sender<Delivery>,
     ) {
         let prompt = Prompt {
@@ -1114,7 +1126,8 @@ impl<B: Backend> Running<'_, B> {
         tokio::spawn(async move {
             let delivery = match steering.await {
                 Ok(Steered::Injected) => {
-                    chat.feed.prompted(None, &prompt.text, &prompt.paths, &[]);
+                    chat.feed
+                        .prompted(None, &prompt.text, &prompt.paths, &[], person);
                     Delivery::Steered
                 }
                 Ok(Steered::PromptRequired) => Delivery::TurnEnded,
@@ -1124,8 +1137,9 @@ impl<B: Backend> Running<'_, B> {
         });
     }
 
-    /// Starts a turn with what was sent, or holds it for after the running turn. `by_letter`
-    /// when another agent's message starts it.
+    /// Starts a turn with what was sent, or holds it for after the running turn. `letter` when
+    /// a message starts it rather than the person's prompt, saying whether it carries the
+    /// person's own words.
     async fn prompt(
         &mut self,
         message_id: Option<String>,
@@ -1133,8 +1147,9 @@ impl<B: Backend> Running<'_, B> {
         paths: Vec<String>,
         context: Vec<ChatContext>,
         shown: bool,
-        by_letter: bool,
+        letter: Option<bool>,
     ) -> ControlFlow<Outcome> {
+        let by_letter = letter.is_some();
         let chat = &self.chat;
         if chat.start_prompted() {
             // Another agent's message can start a turn just as the
@@ -1163,6 +1178,7 @@ impl<B: Backend> Running<'_, B> {
             text,
             paths,
             context,
+            person: letter.unwrap_or(true),
         };
         // A sign-in made elsewhere since the agent started is only
         // read by a new agent process.
@@ -1226,6 +1242,7 @@ impl<B: Backend> Running<'_, B> {
             text,
             paths,
             context,
+            person: true,
         };
         self.show(&replay);
         self.chat.start_prompted();
@@ -1349,7 +1366,7 @@ impl<B: Backend> Running<'_, B> {
             let result = steering.await;
             if result == Ok(Steered::Injected) {
                 chat.feed
-                    .prompted(None, &prompt.text, &prompt.paths, &prompt.context);
+                    .prompted(None, &prompt.text, &prompt.paths, &prompt.context, true);
             }
             let _ = reply.send(result);
         });

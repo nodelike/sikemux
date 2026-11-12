@@ -235,7 +235,7 @@ pub(crate) fn prompt(
     let shown = !chat.is_ready() && chat.history_in_place();
     if shown {
         chat.feed
-            .prompted(Some(&message_id), &text, &paths, &context);
+            .prompted(Some(&message_id), &text, &paths, &context, true);
     }
     chat.send(ChatCommand::Prompt {
         message_id: Some(message_id),
@@ -291,16 +291,22 @@ pub(crate) async fn steer(
         .map_err(CoreError::from)
 }
 
+/// Hands the chat a message; `person` when it carries the person's own words, such as their
+/// answer to its question.
 pub(crate) async fn letter(
     core: &Core,
     agent_id: &str,
     text: String,
     paths: Vec<String>,
+    person: bool,
 ) -> CoreResult<Delivery> {
     let (reply, answer) = oneshot::channel();
-    core.chats
-        .running(agent_id)?
-        .send(ChatCommand::Letter { text, paths, reply })?;
+    core.chats.running(agent_id)?.send(ChatCommand::Letter {
+        text,
+        paths,
+        person,
+        reply,
+    })?;
     answer.await.map_err(|_| CoreError::from(STOPPED))
 }
 

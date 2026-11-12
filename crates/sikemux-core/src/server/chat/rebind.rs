@@ -34,6 +34,9 @@ pub(crate) struct Replay {
     pub text: String,
     pub paths: Vec<String>,
     pub context: Vec<ChatContext>,
+    /// The person sent it, rather than another agent or Sikemux.
+    #[serde(default)]
+    pub person: bool,
 }
 
 /// Starts the chat's agent again on the same session.

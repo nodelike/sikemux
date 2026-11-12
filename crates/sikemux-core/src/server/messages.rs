@@ -250,6 +250,14 @@ struct Queued {
     paths: Vec<String>,
 }
 
+/// Whether every one of `queued` came from the person, so what they say is the person's words.
+fn by_person<'a>(queued: impl IntoIterator<Item = &'a Queued>) -> bool {
+    let person = Sender::Person.id();
+    queued
+        .into_iter()
+        .all(|queued| (queued.origin.as_ref()).is_some_and(|origin| origin.from == person))
+}
+
 fn joined(queued: &[Queued]) -> String {
     queued
         .iter()
@@ -708,7 +716,7 @@ pub(crate) async fn hand_task(
         mailbox.put_back(agent_id, vec![queued]);
         return Ok(());
     }
-    match chat::letter(core, agent_id, task, Vec::new()).await {
+    match chat::letter(core, agent_id, task, Vec::new(), false).await {
         Ok(delivered @ (Delivery::Steered | Delivery::NewTurn)) => {
             let outcome = match delivered {
                 Delivery::Steered => MessageOutcome::Steered,
@@ -1679,12 +1687,18 @@ async fn handed(
                 paste(core, &target.agent_id, terminal, vec![queued.clone()]);
                 MessageOutcome::Typed
             }),
-            _ => hand(core, &target.agent_id, &queued.text, &queued.paths)
-                .await
-                .map(|delivered| match delivered {
-                    Delivery::Steered => MessageOutcome::Steered,
-                    _ => MessageOutcome::NewTurn,
-                }),
+            _ => hand(
+                core,
+                &target.agent_id,
+                &queued.text,
+                &queued.paths,
+                by_person([queued]),
+            )
+            .await
+            .map(|delivered| match delivered {
+                Delivery::Steered => MessageOutcome::Steered,
+                _ => MessageOutcome::NewTurn,
+            }),
         };
         match delivered {
             Ok(MessageOutcome::Steered) => {
@@ -1763,6 +1777,7 @@ async fn hand(
     agent_id: &str,
     text: &str,
     paths: &[String],
+    person: bool,
 ) -> Result<Delivery, &'static str> {
     let chat = core.chats.get(agent_id).ok_or("is not running")?;
     if !chat.is_ready() {
@@ -1772,7 +1787,7 @@ async fn hand(
     if !chat.turn_running() && !rested(core, agent_id) {
         return Err("has just finished a turn");
     }
-    match chat::letter(core, agent_id, text.to_owned(), paths.to_vec()).await {
+    match chat::letter(core, agent_id, text.to_owned(), paths.to_vec(), person).await {
         Ok(delivered @ (Delivery::Steered | Delivery::NewTurn)) => Ok(delivered),
         Ok(Delivery::TurnEnded) => Err("has just finished a turn"),
         Ok(Delivery::Refused) | Err(_) => Err("is working and cannot read messages mid-turn"),
@@ -2079,7 +2094,7 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
                         .iter()
                         .flat_map(|queued| queued.paths.clone())
                         .collect();
-                    match hand(&core, &agent_id, &joined(&texts), &paths).await {
+                    match hand(&core, &agent_id, &joined(&texts), &paths, by_person(&texts)).await {
                         Ok(_) => log(&core, &agent_id, &texts, MessageOutcome::Delivered),
                         Err(_) => mailbox.put_back(&agent_id, texts),
                     }

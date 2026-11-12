@@ -24,10 +24,11 @@ pub(crate) type Answered = Result<Value, Value>;
 pub(crate) enum Purpose {
     /// The prompt of this turn.
     Prompt(u64),
-    /// A message sent mid-turn, and what the person said in it.
+    /// A message sent mid-turn, what it said, and whether the person sent it.
     Steer {
         text: String,
         paths: Vec<String>,
+        person: bool,
     },
     StopTask(String),
     /// Stopping the turn with this id.

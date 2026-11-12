@@ -162,9 +162,13 @@ impl Driver {
     fn purpose_answered(&self, purpose: Purpose, result: Answered) {
         match purpose {
             Purpose::Prompt(turn) => self.answered(turn, result),
-            Purpose::Steer { text, paths } => {
+            Purpose::Steer {
+                text,
+                paths,
+                person,
+            } => {
                 if result.is_ok_and(|answer| answer["outcome"] == Steered::Injected.word()) {
-                    self.sink.prompted(&text, &paths);
+                    self.sink.prompted(&text, &paths, person);
                 }
             }
             Purpose::StopTask(_) => {
@@ -401,6 +405,7 @@ impl Acp {
         let purpose = Purpose::Steer {
             text: prompt.text.clone(),
             paths: prompt.paths.clone(),
+            person: !prompt.letter,
         };
         let blocks = prompt_blocks(
             prompt.text,

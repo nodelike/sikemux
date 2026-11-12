@@ -56,6 +56,35 @@ pub enum Lands {
     Person,
 }
 
+/// How agents start on the board's cards nobody holds.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Auto {
+    /// How many work at once.
+    pub slots: u32,
+    /// Whole dollars of spending past which it starts nothing new.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ceiling: Option<u32>,
+    /// The agent that works the cards.
+    pub builder: AutoAgent,
+    /// The agent that reviews each change before it lands; none for any agent on another CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewer: Option<AutoAgent>,
+}
+
+/// One of Auto's agents: the app's launcher it starts with, who pays and its model; none of
+/// each for the first that works.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoAgent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launcher: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
 /// Something that runs in the project with nobody asking.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -64,13 +93,8 @@ pub enum Lands {
     rename_all_fields = "camelCase"
 )]
 pub enum RunsAlone {
-    /// Agents start on the board's cards nobody holds, `slots` at once.
-    Auto {
-        slots: u32,
-        /// Whole dollars of spending past which it starts nothing new.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        ceiling: Option<u32>,
-    },
+    /// Agents start on the board's cards nobody holds.
+    Auto(Box<Auto>),
     /// A trigger an agent set up, in its own words.
     Trigger {
         id: u64,

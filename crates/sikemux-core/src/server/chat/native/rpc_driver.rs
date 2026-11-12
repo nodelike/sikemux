@@ -296,6 +296,7 @@ impl<S: RpcAgent> Driver<S> {
                 Some(Purpose::Steer {
                     text: prompt.text.clone(),
                     paths: prompt.paths.clone(),
+                    person: !prompt.letter,
                 }),
             )
             .map(Some)
@@ -365,7 +366,14 @@ impl<S: RpcAgent> Reads for Driver<S> {
                     let effects = self.session.locked().interrupted(&turn_id);
                     self.apply(effects);
                 }
-                (Purpose::Steer { text, paths }, Ok(_)) => self.sink.prompted(&text, &paths),
+                (
+                    Purpose::Steer {
+                        text,
+                        paths,
+                        person,
+                    },
+                    Ok(_),
+                ) => self.sink.prompted(&text, &paths, person),
                 (purpose, result) => S::purpose_answered(self, purpose, result),
             },
             None => {}

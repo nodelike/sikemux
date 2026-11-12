@@ -805,14 +805,19 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
     .await
 }
 
-/// Whether the person's own message started the agent's turn and holds most of the rule's
-/// longer words, so an agent cannot pass its own idea off as the person's.
+/// Whether what the person said in this turn, as the chat's record has it, holds most of the
+/// rule's longer words, so an agent cannot pass its own idea, or a message another agent or a
+/// trigger sent, off as the person's.
 fn said_by_person(core: &Core, agent: &str, rule: &str) -> Result<(), String> {
-    const NOT_THEIRS: &str = "person: true is for a rule the person said in the message that started this turn; keep it without person";
-    let prompt = (core.chats.get(agent))
-        .and_then(|chat| chat.feed.turn_prompt())
-        .filter(|prompt| !prompt.contains("<agent-message"))
-        .ok_or(NOT_THEIRS)?;
+    const NOT_THEIRS: &str =
+        "person: true is for a rule the person said to you in this turn; keep it without person";
+    let said = (core.chats.get(agent))
+        .map(|chat| chat.feed.person_said())
+        .unwrap_or_default();
+    if said.is_empty() {
+        return Err(NOT_THEIRS.into());
+    }
+    let prompt = said.join("\n");
     let words = |text: &str| -> HashSet<String> {
         (text.split(|c: char| !c.is_alphanumeric()))
             .filter(|word| word.chars().count() >= 4)

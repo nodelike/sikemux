@@ -487,16 +487,20 @@ impl Feed {
         self.heard.load(std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// What a person sent the agent, as every client and every later reader
-    /// of the chat sees it.
+    /// What was sent to the agent, as every client and every later reader of the chat sees it.
+    /// `person` when the person sent it, rather than another agent or Sikemux.
     pub(crate) fn prompted(
         self: &Arc<Self>,
         message_id: Option<&str>,
         text: &str,
         paths: &[String],
         context: &[ChatContext],
+        person: bool,
     ) {
         let mut payload = json!({ "text": text, "paths": paths });
+        if person {
+            payload["person"] = json!(true);
+        }
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);
         }
@@ -883,6 +887,14 @@ impl Feed {
         inner.replay.reload();
         self.account(&inner);
         inner.replay.turn_prompt()
+    }
+
+    /// What the person said in the turn in progress, or the last one.
+    pub(crate) fn person_said(&self) -> Vec<String> {
+        let mut inner = self.inner.locked();
+        inner.replay.reload();
+        self.account(&inner);
+        inner.replay.person_said()
     }
 
     pub(crate) fn last_answer(&self) -> Option<String> {
@@ -1280,7 +1292,7 @@ mod tests {
             Some(dir.path()),
         );
         feed.subscribe(&client);
-        feed.prompted(Some("first"), "first", &[], &[]);
+        feed.prompted(Some("first"), "first", &[], &[], true);
         feed.emit(
             ChatEventKind::SessionUpdate,
             text("agent_message_chunk", Some("long"), &"x".repeat(1_200_000)),
@@ -1293,7 +1305,7 @@ mod tests {
         while frames.try_recv().is_ok() {}
 
         feed.hold();
-        feed.prompted(Some("second"), "second", &[], &[]);
+        feed.prompted(Some("second"), "second", &[], &[], true);
         feed.let_out();
 
         let mut heard = Vec::new();
@@ -1426,7 +1438,7 @@ mod tests {
     }
 
     fn said_turn(feed: &Arc<Feed>, n: usize) {
-        feed.prompted(None, &format!("ask {n}"), &[], &[]);
+        feed.prompted(None, &format!("ask {n}"), &[], &[], true);
         feed.emit(ChatEventKind::TurnStarted, json!({}));
         for piece in ["work", "ing"] {
             feed.emit(
