@@ -3,6 +3,7 @@
 //! its calls were, how often the cache was rewritten cold and how often it compacted.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use rusqlite::{params, Connection};
@@ -125,6 +126,8 @@ impl ActivityLog {
             return;
         }
         let (log, chat, project) = (self.clone(), chat.to_owned(), project.to_owned());
+        let today = epoch_ms() as i64 / DAY_MS;
+        let rolls = self.rolled_day.swap(today, Ordering::AcqRel) < today;
         in_background(move || {
             log.with_database(|db| {
                 let saving = db.unchecked_transaction()?;
@@ -164,7 +167,9 @@ impl ActivityLog {
                         ],
                     )?;
                 }
-                roll_up(&saving)?;
+                if rolls {
+                    roll_up(&saving)?;
+                }
                 saving.commit()
             });
         });
@@ -175,12 +180,13 @@ impl ActivityLog {
 /// the calls and compactions it added up.
 pub(super) fn roll_up(db: &Connection) -> rusqlite::Result<()> {
     let today = epoch_ms() as i64 / DAY_MS * DAY_MS;
-    let oldest: Option<i64> = db.query_row(
-        "SELECT MIN(at_ms) FROM (SELECT at_ms FROM model_calls UNION ALL SELECT at_ms FROM compactions)",
-        [],
-        |row| row.get(0),
-    )?;
-    if oldest.is_none_or(|oldest| oldest >= today) {
+    let oldest = |table: &str| -> rusqlite::Result<Option<i64>> {
+        db.query_row(&format!("SELECT MIN(at_ms) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+    };
+    let before_today = |oldest: Option<i64>| oldest.is_some_and(|oldest| oldest < today);
+    if !before_today(oldest("model_calls")?) && !before_today(oldest("compactions")?) {
         return Ok(());
     }
     let mut days: BTreeMap<(i64, String), Day> = BTreeMap::new();

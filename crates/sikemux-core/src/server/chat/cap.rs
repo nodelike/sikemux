@@ -3,6 +3,7 @@
 //! when it sits idle long enough that the prompt cache is about to die. The chat the person
 //! sees is the core's record, so none of this changes it.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde_json::{json, Value};
@@ -14,7 +15,7 @@ use sikemux_view::turn::{TurnPhase, TurnState, TurnWait, TurnWaitKind};
 
 use super::{Chat, ChatCommand};
 use crate::server::messages::called_now;
-use crate::server::{person_calls, roster, turn_state, Core};
+use crate::server::{inbox, person_calls, roster, Core};
 
 /// Claude compacts about 33K tokens under the window it is given, so this compacts near 150K.
 pub(crate) const CLAUDE_WINDOW: &str = "183k";
@@ -25,6 +26,9 @@ pub(crate) const FACTS_HOOK: &str = "sikemux-facts";
 const HOOK_CHARS: usize = 10_000;
 /// One message of the person's past this is cut, so a pasted log leaves room for the rest.
 const LONGEST_SAID: usize = 1_500;
+/// One line of what is open past this is cut, so a long command a worker waits on leaves the
+/// person's words their room.
+const LONGEST_OPEN: usize = 300;
 /// A compaction Claude never answered stops holding the chat awake after this.
 const COMPACTING_MS: u64 = 10 * 60_000;
 /// Claude Code keeps the prompt cache an hour; idle this long, a compaction still reads it warm.
@@ -135,7 +139,12 @@ fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
     let Some(own) = listed.iter().find(|agent| agent.agent_id == agent_id) else {
         return Vec::new();
     };
-    let asks = turn_state::Asks::of(core);
+    let (chats, sessions) = core.ranked_infos();
+    let turns: HashMap<String, TurnState> = inbox::view(core, &chats, &sessions)
+        .agents
+        .into_iter()
+        .filter_map(|agent| Some((agent.agent_id, agent.turn?)))
+        .collect();
     let now = epoch_ms();
     let mut lines: Vec<String> = person_calls::shown(core)
         .into_iter()
@@ -149,10 +158,9 @@ fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
             )
         })
         .collect();
-    let turn =
-        |agent: &roster::Listed| turn_state::of(core, &asks, &agent.agent_id, agent.standing(core));
-    if let Some(wait) = turn(own).and_then(|turn| turn.wait) {
-        lines.push(format!("- You wait on {}", waited(&wait, now)));
+    let turn = |agent: &roster::Listed| turns.get(&agent.agent_id);
+    if let Some(wait) = turn(own).and_then(|turn| turn.wait.as_ref()) {
+        lines.push(format!("- You wait on {}", waited(wait, now)));
     }
     let leads = core.workspaces.agent_leads();
     let mut workers: Vec<String> = (listed.iter())
@@ -160,7 +168,7 @@ fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
         .map(|worker| {
             let title = worker.title.as_deref().unwrap_or("no title yet");
             let stands =
-                turn(worker).map_or_else(|| "not started".to_owned(), |turn| standing(&turn, now));
+                turn(worker).map_or_else(|| "not started".to_owned(), |turn| standing(turn, now));
             format!(
                 "- Your worker {}: {title}. {stands}",
                 called_now(core, &worker.agent_id)
@@ -169,6 +177,15 @@ fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
         .collect();
     workers.sort();
     lines.extend(workers);
+    for line in &mut lines {
+        if line.chars().count() > LONGEST_OPEN {
+            *line = line
+                .chars()
+                .take(LONGEST_OPEN)
+                .chain(" [cut]".chars())
+                .collect();
+        }
+    }
     lines
 }
 

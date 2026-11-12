@@ -173,6 +173,8 @@ pub(crate) struct ActivityLog {
     turns: Mutex<HashMap<String, OpenTurn>>,
     uses: Mutex<features::Uses>,
     feed: Option<Feed>,
+    /// The last UTC day whose chats' model calls were added up.
+    rolled_day: std::sync::atomic::AtomicI64,
 }
 
 impl ActivityLog {
@@ -185,6 +187,7 @@ impl ActivityLog {
             turns: Mutex::new(HashMap::new()),
             uses: Mutex::default(),
             feed: data_dir.map(Feed::new),
+            rolled_day: std::sync::atomic::AtomicI64::new(0),
         }
     }
 
