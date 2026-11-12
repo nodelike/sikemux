@@ -196,8 +196,15 @@ impl Pictures {
             .unwrap_or_default()
     }
 
-    /// The file a picture's id names, when it is one the core keeps.
+    /// The file a picture's id names, when it is a plain file name the core keeps.
     fn file_of(&self, id: &str) -> Option<PathBuf> {
+        let plain = !id.is_empty()
+            && !id.starts_with('.')
+            && !id.contains(['/', '\\'])
+            && Path::new(id).file_name() == Some(std::ffi::OsStr::new(id));
+        if !plain {
+            return None;
+        }
         let folder = self.folder.as_ref()?;
         let known = (self.state.locked().sets.iter())
             .flat_map(|set| &set.shots)
@@ -578,8 +585,8 @@ pub(crate) fn tidy(core: &Core, closed_agents: bool) {
                 .map(|set| set.agent.clone()),
         );
     }
-    let projects: HashSet<String> = (core.workspaces.view().projects.into_iter())
-        .map(|project| project.id)
+    let projects: HashSet<String> = (core.workspaces.project_paths().into_iter())
+        .map(|path| path.to_string_lossy().into_owned())
         .collect();
     core.pictures.tidy(&open, &projects);
 }
@@ -600,7 +607,12 @@ pub(crate) fn results(
                 name: core.names.name(worker),
                 title: core.workspaces.title(worker).unwrap_or_default(),
                 at: turn.since,
-                undo: done.changes == WorkAt::Landed,
+                undo: done.changes == WorkAt::Landed
+                    && core
+                        .inbox
+                        .ending(worker)
+                        .and_then(|ended| ended.work)
+                        .is_some_and(|work| !work.own.is_empty()),
                 pages: started
                     .map(|turn| core.pictures.pages_of(worker, turn))
                     .unwrap_or_default(),
@@ -610,4 +622,37 @@ pub(crate) fn results(
         .collect();
     rows.sort_by_key(|row| row.at);
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_kept_set_survives_a_tidy() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let (data, folder) = (dir.path().join("data"), dir.path().join("shop"));
+        std::fs::create_dir_all(&folder).expect("project folder");
+        let core = Core::new(
+            sikemux_wire::protocol::BuildIdentity::default(),
+            Some(&data),
+        )
+        .expect("core");
+        let added = super::super::workspace::add_project(
+            &core,
+            super::super::workspace::AddProjectParams::at(folder),
+        )
+        .await
+        .expect("project");
+        core.pictures.keep(Set {
+            project: added.path.to_string_lossy().into_owned(),
+            agent: "agent-a".to_owned(),
+            turn: 1,
+            page: "/".to_owned(),
+            at: 1,
+            shots: Vec::new(),
+        });
+        tidy(&core, true);
+        assert_eq!(core.pictures.turns_of("agent-a").len(), 1);
+    }
 }

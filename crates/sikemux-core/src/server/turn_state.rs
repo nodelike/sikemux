@@ -3,7 +3,7 @@
 //! What it reads of a turn is kept with the turn by `inbox::Turns`, through a restart; where git
 //! said the chat's work was is read off the view's path when a turn ends and on each commit.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -40,6 +40,17 @@ pub(crate) struct Work {
     pub project: String,
     /// The turn changed a page, and the agent's checkout can be served to look at it.
     pub can_try: bool,
+    /// Its landed commits that are its alone and not taken back out yet, each as its short id
+    /// and subject, newest first; read only while its work reads landed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own: Vec<String>,
+    /// How many of its landed commits name other agents too, so are not its alone to take out.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub shared: usize,
+}
+
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// How the agent's latest turn ended, as [`inbox::Turns`] keeps it.
@@ -474,17 +485,26 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
     } else if !changed {
         WorkAt::None
     } else {
-        let worktree = agent.and_then(|agent| agent.worktree);
+        let worktree = agent.as_ref().and_then(|agent| agent.worktree.as_ref());
         match head.as_deref() {
-            Some(head) if landed(core, &project, worktree.as_ref(), head) => WorkAt::Landed,
+            Some(head) if landed(core, &project, worktree, head) => WorkAt::Landed,
             _ => WorkAt::Committed,
         }
+    };
+    let (own, shared) = match changes {
+        WorkAt::Landed => {
+            let worktree = agent.as_ref().and_then(|agent| agent.worktree.as_ref());
+            own_landed(core, &project, worktree, agent_id)
+        }
+        _ => (Vec::new(), 0),
     };
     let can_try = pages && changes != WorkAt::None && super::pictures::servable(core, &cwd);
     Some(Work {
         changes,
         head,
         head_at,
+        own,
+        shared,
         project,
         can_try,
     })
@@ -635,11 +655,7 @@ pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreR
         TurnStep::CarryOn => "Carry on with what is left.".to_owned(),
         TurnStep::Undo => {
             let (reading, agent_id) = (core.clone(), params.agent_id.clone());
-            super::connection::blocking(move || Ok(undo_words(&reading, &agent_id)))
-                .await?
-                .ok_or(
-                    "Sikemux found no commits of this agent's on the project's branch to take out",
-                )?
+            super::connection::blocking(move || Ok(undo_words(&reading, &agent_id))).await??
         }
         TurnStep::TryIt => return try_it(core, &params.agent_id).await,
         TurnStep::Unknown => {
@@ -668,35 +684,67 @@ async fn try_it(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
     Ok(())
 }
 
-/// What tells a worker to take its landed work back out: the commits on the project's branch its
-/// footer names it in, made since its latest turn began. None when there are none.
-fn undo_words(core: &Core, agent_id: &str) -> Option<String> {
-    let started = core.inbox.ending(agent_id)?.started_at;
-    let project = core.names.get(agent_id)?.project;
-    let agent = core.workspaces.agent(agent_id);
-    let repo = (agent.and_then(|agent| agent.worktree))
-        .map_or_else(|| PathBuf::from(&project), |worktree| worktree.repo);
-    let branch = super::landing::project_branch(&repo)?;
-    let tip =
-        super::landing::remote_of(&repo, &branch).unwrap_or_else(|| format!("refs/heads/{branch}"));
-    let since = format!("--since=@{}", started / 1000);
-    let listed = Git::quick(&repo)
-        .text(&["log", &since, "--format=%H%x1f%s%x1f%B%x1e", &tip])
-        .ok()?;
-    let commits: Vec<String> = (listed.split('\x1e'))
-        .filter_map(|entry| {
-            let mut fields = entry.trim_start().splitn(3, '\x1f');
-            let (sha, subject, body) = (fields.next()?, fields.next()?, fields.next()?);
-            let ours = crate::trailers::agents(body)
-                .iter()
-                .any(|named| named.chat == agent_id);
-            ours.then(|| format!("{} {subject}", &sha[..sha.len().min(9)]))
-        })
-        .collect();
-    (!commits.is_empty()).then(|| {
-        format!(
-            "Take these commits of yours back out of {branch}, by reverting them there as the project lands changes:\n{}",
-            commits.join("\n")
-        )
-    })
+/// The commits of the project's branch that are `agent_id`'s alone and not taken back out: among
+/// its latest, those whose signed footer names it and no other agent, less any a revert there
+/// names, and its own reverts. Also how many name it with others. Each as its short id and subject.
+fn own_landed(
+    core: &Core,
+    project: &str,
+    worktree: Option<&AgentWorktree>,
+    agent_id: &str,
+) -> (Vec<String>, usize) {
+    let repo = worktree.map_or(Path::new(project), |worktree| worktree.repo.as_path());
+    let Some(branch) = super::landing::project_branch(repo) else {
+        return (Vec::new(), 0);
+    };
+    let tip = super::landing::remote_of(repo, &branch).unwrap_or(format!("refs/heads/{branch}"));
+    let log = |grep: &str, format: &str| {
+        Git::quick(repo)
+            .text(&["log", "-n", "200", "--fixed-strings", grep, format, &tip])
+            .unwrap_or_default()
+    };
+    let reverted: HashSet<String> = (log("--grep=This reverts commit ", "--format=%b%x1e")
+        .split("This reverts commit "))
+    .skip(1)
+    .filter_map(|rest| rest.get(..40).map(str::to_owned))
+    .collect();
+    let (mut own, mut shared) = (Vec::new(), 0);
+    let named = log(&format!("--grep={agent_id}"), "--format=%H%x1f%s%x1e");
+    for entry in named.split('\x1e') {
+        let Some((sha, subject)) = entry.trim().split_once('\x1f') else {
+            continue;
+        };
+        if subject.starts_with("Revert \"") || reverted.contains(sha) {
+            continue;
+        }
+        let agents = super::edits::footer::verified(core, repo, sha).unwrap_or_default();
+        if !agents.iter().any(|agent| agent.chat == agent_id) {
+            continue;
+        }
+        match agents.iter().all(|agent| agent.chat == agent_id) {
+            true => own.push(format!("{} {subject}", &sha[..sha.len().min(9)])),
+            false => shared += 1,
+        }
+    }
+    (own, shared)
+}
+
+/// What tells a worker to take its landed work back out: its own landed commits, by name. Why
+/// not, when it has none of its own.
+fn undo_words(core: &Core, agent_id: &str) -> Result<String, String> {
+    let work = (core.inbox.ending(agent_id))
+        .and_then(|ended| ended.work)
+        .ok_or("Sikemux has not read where this agent's work is yet")?;
+    if work.own.is_empty() {
+        return Err(match work.shared {
+            0 => "Sikemux found no commits of this agent's own on the project's branch to take out".to_owned(),
+            shared => format!(
+                "Its {shared} landed commits name other agents too, so none is this agent's alone to take out"
+            ),
+        });
+    }
+    Ok(format!(
+        "Take these commits of yours back out of the project's branch, by reverting them there as the project lands changes:\n{}",
+        work.own.join("\n")
+    ))
 }
