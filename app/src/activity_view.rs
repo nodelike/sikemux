@@ -130,7 +130,10 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
             if cost > 0. { money(cost) } else { "—".into() },
             vec![match cost > 0. {
                 true => (
-                    t!("{cost} on writes", cost = format!("${}", whole(totals.costs.cache_write))),
+                    t!(
+                        "{cost} on writes",
+                        cost = format!("${}", whole(totals.costs.cache_write))
+                    ),
                     quiet,
                 ),
                 false => (t!("not priced yet").into(), quiet),
