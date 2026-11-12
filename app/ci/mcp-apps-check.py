@@ -7,8 +7,8 @@ Claude chats: `tools N`, N calls to a tool with no app, and `apps N`, N calls wh
 MCP App, each app calling its server once as it opens. In each it scrolls from the end to the
 start and back, timing the gaps between frames as it opens and as it scrolls and sampling the memory of the app and of the
 WebKit content processes, and captures the window. Prints each run as a JSON line. Exits 1 when
-the apps chat shows no app, its first apps stall a frame past 50 ms as they appear where the plain
-chat's opening does not, its apps never reach their server, it runs more web content processes
+the apps chat shows no app, it stalls a frame past 50 ms while the person scrolls it just opened
+where the plain chat does not (views for apps are made only once the person rests, timed apart), its apps never reach their server, it runs more web content processes
 than the app's limit, or its frames or memory fall behind the plain chat's past the margins below.
 """
 
@@ -81,6 +81,17 @@ def frames(run):
     return next((json.loads(line.split(" ", 2)[2]) for line in run.drive("frames") if line.startswith("did: frames ")), {})
 
 
+def keep_busy(run, chat, flicks=14):
+    """Scrolls a little up and down, as a person reading the chat that just opened does, so the
+    app counts them as busy throughout."""
+    pane = desk.spot(run, f"pane-Agent-{chat}")
+    if not pane:
+        return
+    x, y = pane[0] + pane[2] / 2, pane[1] + pane[3] / 2
+    for flick in range(flicks):
+        run.drive(f"scroll {x:.0f} {y:.0f} 0 {120 if flick % 2 else -120} 6", "wait 0.25")
+
+
 def seed(run, claude, prompt, calls):
     env = {**run.env, "FAKE_PROJECT": str(run.root / "project"), "FAKE_PROVIDER": "claude", "FAKE_PAUSE_MS": "500"}
     seeded = subprocess.run([run.seed_exe, run.socket, claude, prompt], env=env, capture_output=True, text=True, timeout=60)
@@ -143,23 +154,29 @@ def main():
 
         run.drive("frames start")
         plain_chat = seed(run, str(claude), f"tools {options.calls}", options.calls)
-        run.drive("wait 4")
+        keep_busy(run, plain_chat)
         plain_open = frames(run)
+        run.drive("wait 2")
         run.capture("plain-start")
         plain = scroll_through(run, plain_chat, "plain")
 
         run.drive("frames start")
         apps_chat = seed(run, str(claude), f"apps {options.calls}", options.calls)
-        run.drive("wait 4")
+        keep_busy(run, apps_chat)
         apps_open = frames(run)
+        # Resting, the app makes its views for apps, which holds the window once; timed apart.
+        run.drive("frames start")
+        run.drive("wait 8")
+        warming = frames(run)
         run.capture("apps-start")
         drawn = [name for name in ((run.state() or {}).get("spots") or {}) if name.startswith("chat-app-")]
         apps = scroll_through(run, apps_chat, "apps")
         print(json.dumps(plain), flush=True)
         print(json.dumps(apps), flush=True)
-        print(json.dumps({"plainOpening": plain_open, "appsOpening": apps_open}), flush=True)
-        (out / "mcp-apps.json").write_text(json.dumps(
-            {"plain": plain, "apps": apps, "plainOpening": plain_open, "appsOpening": apps_open}, indent=2))
+        print(json.dumps({"plainOpening": plain_open, "appsOpening": apps_open, "warming": warming}), flush=True)
+        (out / "mcp-apps.json").write_text(json.dumps({
+            "plain": plain, "apps": apps, "plainOpening": plain_open, "appsOpening": apps_open,
+            "warming": warming}, indent=2))
 
         kept = list((run.root / "data/mcp-apps").glob("*.json"))
         reached = calls_log.read_text().splitlines() if calls_log.exists() else []
@@ -179,8 +196,8 @@ def main():
             if apps["over50"] > plain["over50"] + LONG_FRAMES:
                 failures.append(f"{apps['over50']} frames past 50 ms against {plain['over50']}")
             if apps_open.get("over50", 0) > plain_open.get("over50", 0):
-                failures.append(f"{apps_open.get('over50')} frames past 50 ms as the first apps appeared, "
-                                f"against {plain_open.get('over50')} as the plain chat opened")
+                failures.append(f"{apps_open.get('over50')} frames past 50 ms while the person read the chat "
+                                f"its first apps appeared in, against {plain_open.get('over50')} in the plain chat")
             if apps["totalMbMost"] > plain["totalMbMost"] + MEMORY_MB:
                 failures.append(f"{apps['totalMbMost']} MB against {plain['totalMbMost']} MB")
         print(f"apps kept {len(kept)}, cards drawn at the end {len(drawn)}, app calls that reached the server {len(reached)}", flush=True)

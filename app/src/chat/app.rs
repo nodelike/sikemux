@@ -50,6 +50,8 @@ const IDLE: Duration = Duration::from_secs(120);
 const QUIET: Duration = Duration::from_secs(1);
 /// How often a running app is looked at, to take a fresh still or hand its view back.
 const TICK: Duration = Duration::from_millis(500);
+/// How long the person must have rested before a view is made for apps.
+const REST: Duration = Duration::from_millis(1200);
 const HOST: &str = include_str!("app_host.html");
 const BLANK: &str = "<!doctype html><html><body></body></html>";
 
@@ -58,6 +60,12 @@ struct Apps {
     shown: HashMap<String, Shown>,
     views: Vec<Kept>,
     next_view: u64,
+    /// Views are being made, one each time the person rests.
+    warming: bool,
+    /// When a card last moved, as the chat scrolled.
+    moved: Option<Instant>,
+    /// The chats with an app in sight waiting for a view, told when one is made.
+    waiting: Vec<Wake>,
     /// The app grown over its whole chat, as MCP Apps' fullscreen display.
     expanded: Option<Expanded>,
 }
@@ -140,15 +148,11 @@ impl Apps {
         }
     }
 
-    /// A view for one more app: one no app borrows, room for a new one, or the view of the app
-    /// whose card has gone undrawn longest; with every view showing an app in sight there is none.
-    fn spare(&mut self) -> Option<Spare> {
+    /// A view for one more app: one no app borrows, or the view of the app whose card has gone
+    /// undrawn longest; with every view showing an app in sight, or none made yet, there is none.
+    fn spare(&mut self) -> Option<u64> {
         if let Some(kept) = self.views.iter().find(|kept| kept.app.is_none()) {
-            return Some(Spare::Kept(kept.id));
-        }
-        let starting = self.shown.values().filter(|shown| shown.starting).count();
-        if self.views.len() + starting < MAX_VIEWS {
-            return Some(Spare::New);
+            return Some(kept.id);
         }
         let out_of_sight = self
             .views
@@ -164,11 +168,6 @@ impl Apps {
         self.hand_back(&out_of_sight);
         self.spare()
     }
-}
-
-enum Spare {
-    Kept(u64),
-    New,
 }
 
 /// What the card's header names: the server and its tool, from Claude Code's `mcp__server__tool`.
@@ -445,7 +444,9 @@ fn seen(id: &str, sight: &Rc<Sight>, top: f32, wake: &Wake, window: &mut Window,
         sight.top.set(top);
         sight.moved.set(Some(Instant::now()));
         sight.settled.set(false);
+        apps(cx).moved = Some(Instant::now());
     }
+    warm(window, cx);
     let Some(shown) = apps(cx).shown.get(id) else {
         return;
     };
@@ -453,7 +454,6 @@ fn seen(id: &str, sight: &Rc<Sight>, top: f32, wake: &Wake, window: &mut Window,
         return;
     }
     if sight.settled.get() {
-        sight.settled.set(false);
         let (id, wake) = (id.to_owned(), wake.clone());
         window.defer(cx, move |window, cx| start(id, wake, window, cx));
         return;
@@ -486,10 +486,19 @@ fn start(id: String, wake: Wake, window: &mut Window, cx: &mut App) {
         return;
     };
     if apps(cx).spare().is_none() {
+        let apps = apps(cx);
+        if !apps
+            .waiting
+            .iter()
+            .any(|waiting| waiting.agent == wake.agent)
+        {
+            apps.waiting.push(wake);
+        }
         return;
     }
     let round = match apps(cx).shown.get_mut(&id) {
         Some(shown) => {
+            shown.sight.settled.set(false);
             shown.starting = true;
             shown.wake = Some(wake.clone());
             shown.round += 1;
@@ -505,11 +514,11 @@ fn start(id: String, wake: Wake, window: &mut Window, cx: &mut App) {
     window
         .spawn(cx, async move |cx| {
             let read = read.await;
-            let set_up = cx.update(|window, cx| {
+            let set_up = cx.update(|_, cx| {
                 if let Some(shown) = apps(cx).shown.get_mut(&id) {
                     shown.starting = false;
                 }
-                let lent = read.and_then(|app| lend(&id, &app, window, cx));
+                let lent = read.map(|app| lend(&id, &app, cx));
                 if let Some(shown) = apps(cx).shown.get_mut(&id) {
                     match lent {
                         Ok(Some(view)) => shown.view = Some(view),
@@ -530,46 +539,92 @@ fn start(id: String, wake: Wake, window: &mut Window, cx: &mut App) {
         .detach();
 }
 
-/// Lends the app a view with its page loaded: a kept one, or a new one while there is room.
-fn lend(id: &str, app: &McpApp, window: &mut Window, cx: &mut App) -> Result<Option<u64>, String> {
+/// Lends the app a kept view with its page loaded.
+fn lend(id: &str, app: &McpApp, cx: &mut App) -> Option<u64> {
     let height = apps(cx)
         .shown
         .get(id)
         .map_or(DEFAULT_HEIGHT, |shown| shown.height.get());
     let html = host_page(id, app, height, cx);
-    let Some(spare) = apps(cx).spare() else {
-        return Ok(None);
-    };
-    let kept = match spare {
-        Spare::Kept(kept) => kept,
-        Spare::New => {
-            let (events, heard) = tokio::sync::mpsc::unbounded_channel();
-            let view = page_view::open(BLANK, Room::App, events, window, cx)
-                .ok_or(t!("this window cannot show web pages"))?;
-            let apps = apps(cx);
-            apps.next_view += 1;
-            let kept = apps.next_view;
-            apps.views.push(Kept {
-                id: kept,
-                view,
-                app: None,
-                stirred: Rc::default(),
-                pointer_over: Rc::default(),
-                freed: None,
-            });
-            listen(kept, heard, window, cx);
-            kept
-        }
-    };
     let apps = apps(cx);
-    let Some(view) = apps.views.iter_mut().find(|view| view.id == kept) else {
-        return Ok(None);
-    };
+    let kept = apps.spare()?;
+    let view = apps.views.iter_mut().find(|view| view.id == kept)?;
     view.app = Some(id.to_owned());
     view.freed = None;
     view.stirred.set(Some(Instant::now()));
     view.view.show(&html);
-    Ok(Some(kept))
+    Some(kept)
+}
+
+/// Makes the window's views for apps while the person rests, one at a time. Making one holds the
+/// main thread, the first in a while for most of a second as WebKit starts its page process, so
+/// it waits until nothing has been typed, clicked or scrolled for a moment; an app waits for one
+/// with its card drawn.
+fn warm(window: &mut Window, cx: &mut App) {
+    let pool = apps(cx);
+    if pool.warming || pool.views.len() >= MAX_VIEWS {
+        return;
+    }
+    pool.warming = true;
+    window
+        .spawn(cx, async move |cx| loop {
+            cx.background_executor().timer(TICK).await;
+            let made = cx.update(|window, cx| {
+                let scrolled = apps(cx).moved.is_some_and(|moved| moved.elapsed() < REST);
+                if scrolled || input_rest() < REST {
+                    return Some(false);
+                }
+                let (events, heard) = tokio::sync::mpsc::unbounded_channel();
+                let view = page_view::open(BLANK, Room::App, events, window, cx)?;
+                let pool = apps(cx);
+                pool.next_view += 1;
+                let kept = pool.next_view;
+                pool.views.push(Kept {
+                    id: kept,
+                    view,
+                    app: None,
+                    stirred: Rc::default(),
+                    pointer_over: Rc::default(),
+                    freed: None,
+                });
+                listen(kept, heard, window, cx);
+                for wake in std::mem::take(&mut apps(cx).waiting) {
+                    wake.reader.update(cx, |_, cx| cx.notify());
+                }
+                Some(true)
+            });
+            let done = match made {
+                Ok(Some(_)) => apps_full(cx),
+                Ok(None) | Err(_) => true,
+            };
+            if done {
+                let _ = cx.update(|_, cx| apps(cx).warming = false);
+                return;
+            }
+        })
+        .detach();
+}
+
+fn apps_full(cx: &mut AsyncWindowContext) -> bool {
+    cx.update(|_, cx| apps(cx).views.len() >= MAX_VIEWS)
+        .unwrap_or(true)
+}
+
+/// How long since the person last typed, clicked or moved anything, anywhere.
+#[cfg(target_os = "macos")]
+fn input_rest() -> Duration {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGEventSourceSecondsSinceLastEventType(state: i32, kind: u32) -> f64;
+    }
+    // SAFETY: a plain query of the combined session's input; both arguments are its constants.
+    let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(0, u32::MAX) };
+    Duration::from_secs_f64(seconds.max(0.))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn input_rest() -> Duration {
+    Duration::MAX
 }
 
 /// The page that holds the app in a sandboxed frame of its own and speaks for it to the chat.
