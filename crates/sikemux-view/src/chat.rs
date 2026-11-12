@@ -442,6 +442,9 @@ pub enum FailureKind {
     Limit,
     Network,
     Other,
+    /// A kind a newer core sends.
+    #[serde(other)]
+    Unknown,
 }
 
 /// Why the last turn failed, when it was the account's or the network's doing.

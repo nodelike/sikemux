@@ -27,6 +27,7 @@ use sikemux_wire::protocol::{
 use super::board::{self, RunHold, Summary, Waits};
 use super::connection::blocking;
 use super::display;
+use super::kept::Kept;
 use super::notify::provider_name;
 use super::roster;
 use super::turn_state;
@@ -35,12 +36,16 @@ use sikemux_fold::AgentNeed;
 use sikemux_view::chat::{FailureKind, TeamNeedKind};
 use sikemux_view::host_stats::HostAlertKind;
 use sikemux_view::slice::{Gate, Proof};
-use sikemux_view::turn::{TurnPhase, WorkAt};
+use sikemux_view::turn::{TurnState, WorkAt};
 
 use super::board::environments::Step;
 
+/// How each agent's turn stands, by agent, as one view worked it out.
+type Turned = HashMap<String, TurnState>;
+
 /// Agents whose latest turn is kept; the longest-finished go first.
 const MAX_TURNS: usize = 512;
+const TURNS_FILE: &str = "turns.json";
 const MAX_TURN_RECORDINGS: usize = 8;
 const MAX_FILES: usize = 20;
 const MAX_ANSWER_CHARS: usize = 600;
@@ -52,7 +57,7 @@ const DONE_UNCOMMITTED: &str = "Done, uncommitted";
 const MAX_STATUS_FILES: usize = 256;
 
 /// How a turn failed, as far as the person is concerned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum Fault {
     /// Its account is signed out, or out of usage with nothing to send again once that resets.
     Account,
@@ -251,7 +256,8 @@ fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
 }
 
 /// What went wrong in a turn, and how, when the agent's driver knew.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Problem {
     said: String,
     fault: Option<Fault>,
@@ -259,7 +265,9 @@ struct Problem {
     kind: Option<FailureKind>,
 }
 
-#[derive(Default)]
+/// An agent's latest turn, kept through a restart so how it stands is still known.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 struct Turn {
     started_at: u64,
     /// Unset while it runs, and when the person stopped it.
@@ -267,17 +275,22 @@ struct Turn {
     problem: Option<Problem>,
     recordings: Vec<InboxRecording>,
     /// Worked out the first time it is asked for once the turn ended.
+    #[serde(skip)]
     handoff: Option<InboxHandoff>,
     /// The agent committed during it.
     committed: bool,
-    /// A deploy of its went to a place before production, and passed.
-    staged: bool,
-    /// Where git said its work was, read once the turn ended and again on each commit.
+    /// What it left open, from the agent's plan as it ended.
+    left: Option<String>,
+    /// The commit a deploy of the agent's to a place before production passed at, whichever
+    /// turn deployed it.
+    staged: Option<String>,
+    /// Where git said the chat's work was, read when a turn ends and on each commit, and kept
+    /// from one turn to the next.
     work: Option<turn_state::Work>,
 }
 
-#[derive(Default)]
 pub(crate) struct Turns {
+    kept: Kept,
     turns: Mutex<HashMap<String, Turn>>,
 }
 
@@ -296,42 +309,65 @@ fn turn<'a>(turns: &'a mut HashMap<String, Turn>, agent_id: &str) -> &'a mut Tur
 }
 
 impl Turns {
+    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        let kept = Kept::new(data_dir, TURNS_FILE);
+        let turns = Mutex::new(kept.load());
+        Self { kept, turns }
+    }
+
+    /// Changes the turns kept, saving them.
+    fn change<T>(&self, change: impl FnOnce(&mut HashMap<String, Turn>) -> T) -> T {
+        let mut turns = self.turns.locked();
+        let out = change(&mut turns);
+        self.kept.save_soon(&*turns);
+        out
+    }
+
     pub(crate) fn started(&self, agent_id: &str) {
-        *turn(&mut self.turns.locked(), agent_id) = Turn {
-            started_at: epoch_ms(),
-            ..Turn::default()
-        };
+        self.change(|turns| {
+            let earlier = turns.remove(agent_id).unwrap_or_default();
+            *turn(turns, agent_id) = Turn {
+                started_at: epoch_ms(),
+                staged: earlier.staged,
+                work: earlier.work,
+                ..Turn::default()
+            };
+        });
     }
 
     /// The turn ended by itself; `problem` says what went wrong, if anything.
-    pub(crate) fn ended(&self, agent_id: &str, problem: Option<&str>) {
-        let mut turns = self.turns.locked();
-        let turn = turn(&mut turns, agent_id);
-        turn.ended_at = Some(epoch_ms());
-        if let Some(said) = problem {
-            match &mut turn.problem {
-                Some(problem) => said.clone_into(&mut problem.said),
-                None => {
-                    turn.problem = Some(Problem {
-                        said: said.to_owned(),
-                        fault: None,
-                        kind: None,
-                    })
+    pub(crate) fn ended(&self, agent_id: &str, problem: Option<&str>, left: Option<String>) {
+        self.change(|turns| {
+            let turn = turn(turns, agent_id);
+            turn.ended_at = Some(epoch_ms());
+            turn.left = left;
+            if let Some(said) = problem {
+                match &mut turn.problem {
+                    Some(problem) => said.clone_into(&mut problem.said),
+                    None => {
+                        turn.problem = Some(Problem {
+                            said: said.to_owned(),
+                            fault: None,
+                            kind: None,
+                        })
+                    }
                 }
             }
-        }
+        });
     }
 
     /// The chat cannot send its failed turn's prompt again after all, so the turn waits on
     /// the person's account.
     pub(crate) fn not_retrying(&self, agent_id: &str) {
-        let mut turns = self.turns.locked();
-        let problem = turns
-            .get_mut(agent_id)
-            .and_then(|turn| turn.problem.as_mut());
-        if let Some(problem) = problem.filter(|problem| problem.fault == Some(Fault::Retrying)) {
-            problem.fault = Some(Fault::Account);
-        }
+        self.change(|turns| {
+            let problem = turns
+                .get_mut(agent_id)
+                .and_then(|turn| turn.problem.as_mut());
+            if let Some(problem) = problem.filter(|problem| problem.fault == Some(Fault::Retrying))
+            {
+                problem.fault = Some(Fault::Account);
+            }
+        });
     }
 
     /// The agent's driver saw its turn fail, and how.
@@ -342,10 +378,12 @@ impl Turns {
         fault: Fault,
         kind: Option<FailureKind>,
     ) {
-        turn(&mut self.turns.locked(), agent_id).problem = Some(Problem {
-            said: said.to_owned(),
-            fault: Some(fault),
-            kind,
+        self.change(|turns| {
+            turn(turns, agent_id).problem = Some(Problem {
+                said: said.to_owned(),
+                fault: Some(fault),
+                kind,
+            });
         });
     }
 
@@ -373,10 +411,12 @@ impl Turns {
 
     /// The agent committed, so what its last turn left is worked out again.
     pub(crate) fn committed(&self, agent_id: &str) {
-        if let Some(turn) = self.turns.locked().get_mut(agent_id) {
-            turn.handoff = None;
-            turn.committed = true;
-        }
+        self.change(|turns| {
+            if let Some(turn) = turns.get_mut(agent_id) {
+                turn.handoff = None;
+                turn.committed = true;
+            }
+        });
     }
 
     /// How the agent's latest turn ended, as its turn state reads it; none while it runs and
@@ -387,7 +427,8 @@ impl Turns {
         Some(turn_state::Ended {
             at: turn.ended_at,
             started_at: turn.started_at,
-            staged: turn.staged,
+            left: turn.left.clone(),
+            staged: turn.staged.clone(),
             problem: (turn.problem.as_ref()).map(|problem| turn_state::Problem {
                 said: problem.said.clone(),
                 fault: problem.fault,
@@ -397,11 +438,13 @@ impl Turns {
         })
     }
 
-    /// A deploy of the agent's went to a place before production, and passed.
-    pub(crate) fn staged(&self, agent_id: &str) {
-        if let Some(turn) = self.turns.locked().get_mut(agent_id) {
-            turn.staged = true;
-        }
+    /// A deploy of the agent's work at `head` went to a place before production, and passed.
+    pub(crate) fn staged(&self, agent_id: &str, head: String) {
+        self.change(|turns| {
+            if let Some(turn) = turns.get_mut(agent_id) {
+                turn.staged = Some(head);
+            }
+        });
     }
 
     /// The agents whose latest turn changed a page of `project` and whose work is at one of
@@ -429,13 +472,14 @@ impl Turns {
 
     /// Keeps where git said the agent's work is, answering whether that moved.
     pub(crate) fn keep_work(&self, agent_id: &str, work: turn_state::Work) -> bool {
-        let mut turns = self.turns.locked();
-        let Some(turn) = turns.get_mut(agent_id) else {
-            return false;
-        };
-        let moved = turn.work.as_ref() != Some(&work);
-        turn.work = Some(work);
-        moved
+        self.change(|turns| {
+            let Some(turn) = turns.get_mut(agent_id) else {
+                return false;
+            };
+            let moved = turn.work.as_ref() != Some(&work);
+            turn.work = Some(work);
+            moved
+        })
     }
 
     /// Whether the agent's latest turn ended by itself, with no problem.
@@ -445,9 +489,11 @@ impl Turns {
     }
 
     pub(crate) fn stopped(&self, agent_id: &str) {
-        if let Some(turn) = self.turns.locked().get_mut(agent_id) {
-            turn.ended_at = None;
-        }
+        self.change(|turns| {
+            if let Some(turn) = turns.get_mut(agent_id) {
+                turn.ended_at = None;
+            }
+        });
     }
 
     fn snapshot(
@@ -487,14 +533,13 @@ pub(crate) fn recorded(core: &Arc<Core>, agent_id: &str, answer: &Value) {
         feed: chat.as_ref().map(|chat| chat.feed.id().to_owned()),
         turn: chat.as_ref().and_then(|chat| chat.feed.turn_start()),
     };
-    {
-        let mut turns = core.inbox.turns.locked();
-        let turn = turn(&mut turns, agent_id);
+    core.inbox.change(|turns| {
+        let turn = turn(turns, agent_id);
         if turn.recordings.len() >= MAX_TURN_RECORDINGS {
             turn.recordings.remove(0);
         }
         turn.recordings.push(recording.clone());
-    }
+    });
     board::attach_recording(core, agent_id, recording);
 }
 
@@ -534,6 +579,12 @@ pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
     }
     turn(&mut core.inbox.turns.locked(), agent_id).handoff = Some(handoff.clone());
     handoff
+}
+
+/// Whether the agent changed any file in `project`, in any turn of its chat.
+pub(crate) fn ever_edited(core: &Core, project: &str, agent_id: &str) -> bool {
+    let filter = serde_json::from_value(json!({ "project": project, "agentId": agent_id }));
+    filter.is_ok_and(|filter| !core.edits.read(project, &filter).is_empty())
 }
 
 /// Whether a file the agent changed in any turn of its chat holds changes git has not committed,
@@ -971,7 +1022,7 @@ fn gate_item(card: &Summary, gate: &Step, promise: &str) -> InboxItem {
 }
 
 /// How an agent's turn went, or that it is still at work.
-fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
+fn agent_item(core: &Core, agent: &Agent, working: bool, turns: &Turned) -> InboxItem {
     let (ended_at, problem, recordings) = core.inbox.snapshot(&agent.id).unwrap_or_default();
     let card = board::agent_card(core, &agent.id);
     let mut item = if working {
@@ -984,16 +1035,12 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
     } else {
         let mut handoff = handoff(core, &agent.id);
         handoff.result = card.as_ref().and_then(|card| card.result.clone());
-        let turn = core.turns.of(&agent.id);
-        let phase = turn.as_ref().map(|turn| turn.state);
-        let uncommitted = (turn.as_ref().and_then(|turn| turn.done.as_ref()))
-            .map_or(handoff.uncommitted, |done| {
-                done.changes == WorkAt::Uncommitted
-            });
+        let done = turns.get(&agent.id).and_then(|turn| turn.done.as_ref());
+        let uncommitted = done.map_or(handoff.uncommitted, |done| {
+            done.changes == WorkAt::Uncommitted
+        });
         let (case, what) = match &problem {
-            Some(problem) if phase.is_none_or(|phase| phase == TurnPhase::Failed) => {
-                (Case::Failed(problem.fault), "Ran into a problem".to_owned())
-            }
+            Some(problem) => (Case::Failed(problem.fault), "Ran into a problem".to_owned()),
             _ if uncommitted => (Case::Changes, DONE_UNCOMMITTED.to_owned()),
             _ if card.as_ref().is_some_and(|card| card.done) => (Case::Finished, "Done".to_owned()),
             _ if handoff.edited > 0 => (
@@ -1289,19 +1336,28 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let places = core.workspaces.places();
     let now = epoch_ms();
     let mut shown = shown(core, chats, sessions, &own_titles);
-    let gathered = turn_state::Gathered::of(core, &shown);
+    let seen: Vec<turn_state::Seen> = (shown.iter())
+        .map(|agent| turn_state::Seen {
+            id: agent.agent_id.clone(),
+            status: agent.status,
+            name: agent.name.clone().unwrap_or_else(|| agent.title.clone()),
+        })
+        .collect();
+    let gathered = turn_state::Gathered::of(core, &seen);
     let chiefs = super::chief::all(core);
     for agent in &mut shown {
         agent.chief = chiefs.contains(&agent.agent_id);
         agent.turn = turn_state::of(core, &gathered, &agent.agent_id, agent.status);
     }
-    core.turns.keep(&shown);
     for agent in &mut shown {
         if let Some((place, _)) = places.get(&agent.agent_id) {
             super::settling::show(agent, place, now);
         }
     }
     let leads = core.workspaces.agent_leads();
+    let turns: Turned = (shown.iter())
+        .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
+        .collect();
     let (main, snoozed, settled) = super::settling::sections(shown);
     let mut listed = in_teams(main, &leads);
     listed.extend(in_teams(snoozed, &leads));
@@ -1342,7 +1398,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         .into_iter()
         .filter_map(|(project, agents)| Some((project, rollup(agents)?)))
         .collect();
-    let mut view = view_of(core, &agents(core, chats, sessions), sessions);
+    let mut view = view_of(core, &agents(core, chats, sessions), sessions, &turns);
     with_remote_workers(&mut listed, &mut view.remote_agents);
     view.items.retain(|item| {
         let Some(agent) =
@@ -1353,7 +1409,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         agent.snoozed_until.is_none() && (agent.settled_at.is_none() || item.need.is_some())
     });
     for agent in &mut listed {
-        agent.failed = (agent.turn.as_ref()).is_some_and(|turn| turn.state == TurnPhase::Failed);
+        agent.failed = (view.items.iter()).any(|item| {
+            item.kind == InboxKind::Failed && item.agent_id.as_ref() == Some(&agent.agent_id)
+        });
     }
     for item in &mut view.items {
         let agent = (listed.iter()).find(|agent| item.agent_id.as_ref() == Some(&agent.agent_id));
@@ -1725,7 +1783,7 @@ fn vault_items(core: &Core) -> Vec<InboxItem> {
         .collect()
 }
 
-fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
+fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo], turns: &Turned) -> Inbox {
     let mut items = waiting(core, agents, sessions);
     let listed: HashSet<String> = items
         .iter()
@@ -1738,7 +1796,7 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
         if listed.contains(&agent.id) || !(is_working || agent.group == AgentGroup::Done) {
             continue;
         }
-        items.push(agent_item(core, agent, is_working));
+        items.push(agent_item(core, agent, is_working, turns));
     }
     Inbox {
         items: ranked(items),
@@ -1764,6 +1822,7 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
     let before_until = |at: u64| until.is_none_or(|until| at <= until);
     let (chats, sessions) = core.ranked_infos();
     let agents = agents(core, &chats, &sessions);
+    let turns = turn_state::all_from(core, &chats, &sessions);
     let waiting = ranked(waiting(core, &agents, &sessions));
     let (mut finished, mut failed) = (Vec::new(), Vec::new());
     if let Some(since) = since {
@@ -1774,7 +1833,7 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
                 .find(|agent| agent.id == agent_id)
                 .cloned()
                 .unwrap_or_else(|| gone_agent(core, &agent_id));
-            let item = agent_item(core, &agent, false);
+            let item = agent_item(core, &agent, false, &turns);
             listed.insert(agent_id);
             match item.kind {
                 InboxKind::Failed => failed.push(item),

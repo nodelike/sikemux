@@ -644,10 +644,6 @@ struct ProjectInfo: Codable, Hashable, Sendable {
     /// How many saved chats it has that no agent holds, by the agent that saved
     /// them. The core fills it in.
     var savedChats: [String: Int]?
-    /// Its chief, @Chief, by agent id. The core keeps it; clients only read it.
-    var chief: String?
-    /// How many agents are open in it, the chief's whole team. The core fills it in.
-    var agents: Int?
 }
 
 /// A repository or account picked for a project on one code host.
@@ -1598,7 +1594,7 @@ enum Verdict: String, Codable, Hashable, Sendable {
 /// The five kinds of evidence, each drawn one way.
 enum Proof: Codable, Hashable, Sendable {
     /// A screenshot, or a recording when it has a length.
-    case picture(Picture)
+    case picture(PicturePayload)
     /// The change from `base` to `head`, which are the ends of a run of the
     /// slice's own commits with nobody else's between them.
     case diff(Diff)
@@ -1611,7 +1607,7 @@ enum Proof: Codable, Hashable, Sendable {
     /// One added after this build, by its `kind`.
     case unknown(String)
 
-    struct Picture: Codable, Hashable, Sendable {
+    struct PicturePayload: Codable, Hashable, Sendable {
         var path: String
         var seconds: Double?
         /// The chat run and turn it was made in.
@@ -1658,7 +1654,7 @@ enum Proof: Codable, Hashable, Sendable {
         let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .tag)
         switch tag {
         case "picture":
-            self = .picture(try Picture(from: decoder))
+            self = .picture(try PicturePayload(from: decoder))
         case "diff":
             self = .diff(try Diff(from: decoder))
         case "numbers":
@@ -1920,9 +1916,6 @@ enum TeamLink: String, Codable, Hashable, Sendable {
 /// How devices show an open agent here.
 struct AgentShown: Codable, Hashable, Sendable {
     var agentId: String
-    /// It is its project's chief, @Chief: the one chat of the project every other agent there
-    /// works under.
-    var chief: Bool?
     /// What the core calls it, such as Otter.
     var name: String?
     /// The CLI it runs, such as `claude`.
@@ -2109,6 +2102,8 @@ enum TurnStep: String, Codable, Hashable, Sendable {
     case tryIt
     /// Tells a stopped agent to go on with what is left.
     case carryOn
+    /// Tells a worker to take its landed commits back out.
+    case undo
     /// One added after this build.
     case unknown
 
@@ -2231,8 +2226,6 @@ struct CallAsker: Codable, Hashable, Sendable {
     /// Its name, such as Wren.
     var name: String
     var cli: String
-    /// The asker is its project's chief.
-    var chief: Bool?
 }
 
 /// One of the answers the person picks among.
@@ -2773,9 +2766,10 @@ struct ChatHead: Codable, Hashable, Sendable {
     var activity: ChatActivity?
     /// How its turn stands; none before its first turn.
     var turn: TurnState?
-    /// It is its project's chief, @Chief: the one chat of the project every other agent there
-    /// works under.
-    var chief: Bool?
+    /// The pages its latest turns changed, as the core took them, oldest first.
+    var shown: [TurnShown]?
+    /// Its workers' finished work, oldest first; empty for a chat that leads nobody.
+    var results: [ResultRow]?
     /// What the person has written and not sent, as the host keeps it for every app.
     var draft: ChatDraft?
     /// The goal the chat works on now.
@@ -3363,6 +3357,50 @@ enum ChatActivity: Codable, Hashable, Sendable {
         var container = encoder.container(keyedBy: TagKey.self)
         try container.encode(tag, forKey: .tag)
     }
+}
+
+/// The pages a turn of this chat changed, as the core took them once it finished.
+struct TurnShown: Codable, Hashable, Sendable {
+    /// When the turn began, in Unix milliseconds; its reply is the one that ended it.
+    var turn: Int
+    var pages: [PageShown]
+}
+
+/// One page at each width, with the last pictures of it before this change.
+struct PageShown: Codable, Hashable, Sendable {
+    /// Its path on the server, such as `/invoices`.
+    var page: String
+    var widths: [WidthShown]
+}
+
+struct WidthShown: Codable, Hashable, Sendable {
+    /// In CSS pixels: 390, 820 or 1440.
+    var width: Int
+    var after: Picture
+    /// None the first time the page was taken.
+    var before: Picture?
+}
+
+struct Picture: Codable, Hashable, Sendable {
+    /// The JPEG on the host, which a client reads as it reads a chat's files.
+    var path: String
+    var at: Int
+}
+
+/// A worker's finished work, as its lead's chat shows it.
+struct ResultRow: Codable, Hashable, Sendable {
+    var agentId: String
+    var name: String?
+    /// What it worked on: its chat's title.
+    var title: String
+    /// When its turn ended.
+    var at: Int
+    /// Where its work is and how its checks stand, as that worker's own turn says, with
+    /// `tryIt` among the next steps when its page can be served from its checkout.
+    var done: TurnDone
+    /// Its commits are on the project's branch, so `takeStep` with `undo` can take them out.
+    var undo: Bool?
+    var pages: [PageShown]?
 }
 
 /// A chat's unsent draft: its text, what the apps keep beside it, and its revision, which a

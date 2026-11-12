@@ -57,8 +57,10 @@ const PROBLEM_GAP_MS: u64 = 60_000;
 const PERMISSION_LIFE_MS: u64 = 60 * 60_000;
 const INPUT_LIFE_MS: u64 = 30 * 60_000;
 const FINISHED_LIFE_MS: u64 = 2 * 60_000;
-/// A turn that starts this soon after a CI wait's push is the one that wait woke.
-const WOKEN_WITHIN_MS: u64 = 60_000;
+/// How long the card saying how CI ended stays up.
+const CI_LIFE_MS: u64 = 30 * 60_000;
+/// What a card saying how CI ended is named by: the run, so agents waiting on one share it.
+const CI_CARD: &str = "ci|";
 const PROBLEM_LIFE_MS: u64 = 10 * 60_000;
 const CLEAR_LIFE_MS: u64 = 60 * 60_000;
 const MAX_TITLE_CHARS: usize = 100;
@@ -66,7 +68,6 @@ const MAX_BODY_CHARS: usize = 180;
 const MAX_DETAIL_CHARS: usize = 120;
 const MAX_OPTION_ID: usize = 128;
 
-/// Something that happened on this host that a phone may want to hear of.
 /// How the CI an agent waited on ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CiEnded {
@@ -74,8 +75,11 @@ pub(crate) enum CiEnded {
     Failed,
     Stopped,
     NeverStarted,
+    /// It was looked at too many times without an answer.
+    Unread,
 }
 
+/// Something that happened on this host that a phone may want to hear of.
 #[derive(Clone, Debug)]
 pub(crate) enum Signal {
     Attention(Box<Attention>),
@@ -101,6 +105,8 @@ pub(crate) enum Signal {
     /// The CI an agent ended its turn waiting on ended, under the title it gave the wait.
     CiEnded {
         agent_id: String,
+        /// The run or commit it was on, which every agent waiting on it shares.
+        run: String,
         what: String,
         how: CiEnded,
     },
@@ -154,11 +160,6 @@ struct State {
     finished: HashMap<(String, String), u64>,
     problems: HashMap<(String, String), u64>,
     waiting_for_input: HashSet<String>,
-    /// Agents whose CI wait the person was just told ended, with when, so the turn that wait
-    /// wakes is not told again.
-    woken: HashMap<String, u64>,
-    /// Agents at work on a turn a CI wait woke.
-    on_woken_turn: HashSet<String>,
     /// Permission requests still waiting, by agent and request.
     pending: HashMap<(String, String), Attention>,
     /// Agents' questions still waiting on the person, by agent and question.
@@ -501,29 +502,19 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         Signal::Pairing(device) => alert_all(core, &pairing(core, &device), now),
         Signal::PairingSettled { id } => clear_all(core, "", &pairing_card(&id), None, now),
         Signal::TurnStarted { agent_id } => {
-            let mut state = core.notify.state.locked();
-            let woken = (state.woken.remove(&agent_id))
-                .is_some_and(|at| now.saturating_sub(at) < WOKEN_WITHIN_MS);
-            match woken {
-                true => state.on_woken_turn.insert(agent_id.clone()),
-                false => state.on_woken_turn.remove(&agent_id),
-            };
-            state.turns.insert(agent_id, now);
+            core.notify.state.locked().turns.insert(agent_id, now);
         }
         Signal::TurnCompleted {
             agent_id,
             cancelled,
         } => {
-            let (started, woken) = {
-                let mut state = core.notify.state.locked();
-                let woken = state.on_woken_turn.remove(&agent_id);
-                (state.turns.remove(&agent_id), woken)
-            };
+            let started = core.notify.state.locked().turns.remove(&agent_id);
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
             let asking = core.harness.questions.waits_on_answer(&agent_id)
                 || core.harness.questions.asks_in_reply(&agent_id);
-            if long && !cancelled && !asking && !woken {
+            let waits = super::turn_state::set_a_wake(core, &agent_id);
+            if long && !cancelled && !asking && !waits {
                 if let Some(draft) = finished(core, &agent_id, now) {
                     alert_all(core, &draft, now);
                 }
@@ -531,15 +522,11 @@ fn apply(core: &Core, signal: Signal, now: u64) {
         }
         Signal::CiEnded {
             agent_id,
+            run,
             what,
             how,
         } => {
-            core.notify
-                .state
-                .locked()
-                .woken
-                .insert(agent_id.clone(), now);
-            if let Some(draft) = ci_ended(core, &agent_id, &what, how, now) {
+            if let Some(draft) = ci_ended(core, &agent_id, &run, &what, how, now) {
                 alert_all(core, &draft, now);
             }
         }
@@ -934,20 +921,28 @@ fn finished(core: &Core, agent_id: &str, now: u64) -> Option<Draft> {
     Some(draft)
 }
 
-fn ci_ended(core: &Core, agent_id: &str, what: &str, how: CiEnded, now: u64) -> Option<Draft> {
+fn ci_ended(
+    core: &Core,
+    agent_id: &str,
+    run: &str,
+    what: &str,
+    how: CiEnded,
+    now: u64,
+) -> Option<Draft> {
     let named = name(core, agent_id)?;
     let mut draft = named.draft(
         NotificationKind::Finished,
-        format!("wait|{agent_id}"),
+        format!("{CI_CARD}{run}"),
         agent_id,
         now,
-        FINISHED_LIFE_MS,
+        CI_LIFE_MS,
     );
     let how = match how {
         CiEnded::Passed => "passed",
         CiEnded::Failed => "failed",
         CiEnded::Stopped => "was stopped",
         CiEnded::NeverStarted => "never started",
+        CiEnded::Unread => "could not be read",
     };
     draft.title = clipped_line(&format!("{}'s CI {how}", named.agent), MAX_TITLE_CHARS);
     draft.body = clipped_line(what, MAX_BODY_CHARS);
@@ -1175,10 +1170,12 @@ fn alert_phones(core: &Core, draft: &Draft, now: u64, also: impl Fn(&str) -> boo
 /// finishing or failing a moment ago.
 fn due(core: &Core, to: &str, draft: &Draft, now: u64) -> bool {
     let state = core.notify.state.locked();
-    let once = matches!(
-        draft.kind,
-        NotificationKind::Permission | NotificationKind::Input | NotificationKind::Pairing
-    );
+    let ci = draft.card.starts_with(CI_CARD);
+    let once = ci
+        || matches!(
+            draft.kind,
+            NotificationKind::Permission | NotificationKind::Input | NotificationKind::Pairing
+        );
     if once && state.alerted.contains(&(to.to_owned(), draft.card.clone())) {
         return false;
     }
@@ -1186,6 +1183,7 @@ fn due(core: &Core, to: &str, draft: &Draft, now: u64) -> bool {
     let recent =
         |last: Option<&u64>, gap: u64| last.is_some_and(|last| now.saturating_sub(*last) < gap);
     match draft.kind {
+        NotificationKind::Finished if ci => true,
         NotificationKind::Finished => !recent(state.finished.get(&pair), FINISHED_GAP_MS),
         NotificationKind::Problem => !recent(state.problems.get(&pair), PROBLEM_GAP_MS),
         _ => true,
@@ -1196,6 +1194,7 @@ fn sent(core: &Core, to: &str, draft: &Draft, now: u64) {
     let mut state = core.notify.state.locked();
     let pair = (to.to_owned(), draft.agent_id.clone());
     match draft.kind {
+        NotificationKind::Finished if draft.card.starts_with(CI_CARD) => {}
         NotificationKind::Finished => {
             state.finished.insert(pair, now);
         }

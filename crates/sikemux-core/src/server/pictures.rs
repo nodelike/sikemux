@@ -15,7 +15,7 @@ use serde_json::json;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::shown::{PageShown, Picture, ResultRow, TurnShown, WidthShown};
-use sikemux_view::turn::{TurnPhase, WorkAt};
+use sikemux_view::turn::{TurnPhase, TurnState, WorkAt};
 
 use super::changed::What;
 use super::harness::forward;
@@ -431,15 +431,19 @@ async fn shoot(core: &Arc<Core>, agent: &str, project: &str, turn: u64) -> Resul
 }
 
 /// A row for each of `lead`'s workers whose turn finished, oldest first.
-pub(crate) fn results(core: &Core, lead: &str, leads: &HashMap<String, String>) -> Vec<ResultRow> {
+pub(crate) fn results(
+    core: &Core,
+    lead: &str,
+    leads: &HashMap<String, String>,
+    turns: &HashMap<String, TurnState>,
+) -> Vec<ResultRow> {
     let mut rows: Vec<ResultRow> = (leads.iter())
         .filter(|(_, of)| of.as_str() == lead)
         .filter_map(|(worker, _)| {
-            let turn = core
-                .turns
-                .of(worker)
+            let turn = turns
+                .get(worker)
                 .filter(|turn| turn.state == TurnPhase::Done)?;
-            let done = turn.done?;
+            let done = turn.done.clone()?;
             let started = core.inbox.ending(worker).map(|ended| ended.started_at);
             Some(ResultRow {
                 agent_id: worker.clone(),

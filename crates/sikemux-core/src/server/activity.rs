@@ -68,7 +68,8 @@ impl Core {
                     } else {
                         self.seen.wants_a_look(agent_id);
                     }
-                    self.inbox.ended(agent_id, None);
+                    let left = super::turn_state::left_open(self, agent_id);
+                    self.inbox.ended(agent_id, None, left);
                     super::turn_state::read_work(self, agent_id);
                 }
                 self.notify.send(Signal::TurnCompleted {
@@ -88,7 +89,7 @@ impl Core {
                 self.came_to_rest(agent_id);
                 super::board::chat_goal::turn_ended(self, agent_id, false);
                 self.seen.wants_a_look(agent_id);
-                self.inbox.ended(agent_id, Some(message));
+                self.inbox.ended(agent_id, Some(message), None);
                 self.notify.send(Signal::Problem {
                     agent_id: agent_id.to_owned(),
                     message: message.to_owned(),

@@ -176,10 +176,6 @@ export interface ProjectInfo {
      * them. The core fills it in.
      */
     savedChats?: Record<string, number>;
-    /** Its chief, @Chief, by agent id. The core keeps it; clients only read it. */
-    chief?: string;
-    /** How many agents are open in it, the chief's whole team. The core fills it in. */
-    agents?: number;
 }
 
 /** A repository or account picked for a project on one code host. */
@@ -1156,11 +1152,6 @@ export type TeamLink = "head" | "member" | "last";
 /** How devices show an open agent here. */
 export interface AgentShown {
     agentId: string;
-    /**
-     * It is its project's chief, @Chief: the one chat of the project every other agent there
-     * works under.
-     */
-    chief?: boolean;
     /** What the core calls it, such as Otter. */
     name?: string;
     /** The CLI it runs, such as `claude`. */
@@ -1292,7 +1283,7 @@ export interface NextStep {
 }
 
 /** A step the person can take on an agent's work with one click, by `takeStep`. */
-export type TurnStep = "commit" | "push" | "deployStaging" | "shipProduction" | "rollBack" | "tryIt" | "carryOn";
+export type TurnStep = "commit" | "push" | "deployStaging" | "shipProduction" | "rollBack" | "tryIt" | "carryOn" | "undo";
 
 export interface TurnStopped {
     /** What is left open, in the agent's own words, when it said. */
@@ -1371,8 +1362,6 @@ export interface CallAsker {
     /** Its name, such as Wren. */
     name: string;
     cli: string;
-    /** The asker is its project's chief. */
-    chief?: boolean;
 }
 
 /** One of the answers the person picks among. */
@@ -1752,11 +1741,10 @@ export interface ChatHead {
     activity?: ChatActivity;
     /** How its turn stands; none before its first turn. */
     turn?: TurnState;
-    /**
-     * It is its project's chief, @Chief: the one chat of the project every other agent there
-     * works under.
-     */
-    chief?: boolean;
+    /** The pages its latest turns changed, as the core took them, oldest first. */
+    shown?: TurnShown[];
+    /** Its workers' finished work, oldest first; empty for a chat that leads nobody. */
+    results?: ResultRow[];
     /** What the person has written and not sent, as the host keeps it for every app. */
     draft?: ChatDraft;
     /** The goal the chat works on now. */
@@ -2097,6 +2085,52 @@ export type ChatActivity =
     | {
           kind: "connecting";
       };
+
+/** The pages a turn of this chat changed, as the core took them once it finished. */
+export interface TurnShown {
+    /** When the turn began, in Unix milliseconds; its reply is the one that ended it. */
+    turn: number;
+    pages: PageShown[];
+}
+
+/** One page at each width, with the last pictures of it before this change. */
+export interface PageShown {
+    /** Its path on the server, such as `/invoices`. */
+    page: string;
+    widths: WidthShown[];
+}
+
+export interface WidthShown {
+    /** In CSS pixels: 390, 820 or 1440. */
+    width: number;
+    after: Picture;
+    /** None the first time the page was taken. */
+    before?: Picture;
+}
+
+export interface Picture {
+    /** The JPEG on the host, which a client reads as it reads a chat's files. */
+    path: string;
+    at: number;
+}
+
+/** A worker's finished work, as its lead's chat shows it. */
+export interface ResultRow {
+    agentId: string;
+    name?: string;
+    /** What it worked on: its chat's title. */
+    title: string;
+    /** When its turn ended. */
+    at: number;
+    /**
+     * Where its work is and how its checks stand, as that worker's own turn says, with
+     * `tryIt` among the next steps when its page can be served from its checkout.
+     */
+    done: TurnDone;
+    /** Its commits are on the project's branch, so `takeStep` with `undo` can take them out. */
+    undo?: boolean;
+    pages?: PageShown[];
+}
 
 /**
  * A chat's unsent draft: its text, what the apps keep beside it, and its revision, which a

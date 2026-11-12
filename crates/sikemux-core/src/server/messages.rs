@@ -1384,6 +1384,24 @@ pub(crate) async fn work_from_sikemux(
     deliver(core, &target, letter).await
 }
 
+/// Hands an agent the step the person took on its turn's line with one click. It starts a turn
+/// when the agent is at rest. The words are Sikemux's for that step, not the person's, so they
+/// answer no call and are not kept as what the person said.
+pub(crate) async fn step_from_person(
+    core: &Arc<Core>,
+    to: String,
+    text: String,
+) -> Result<Value, String> {
+    let target = running(core, to).await?;
+    let letter = Letter::from_sender(
+        Sender::Person,
+        MessageKind::Message,
+        text,
+        Some("The person took this step on your turn's line with one click; the words are Sikemux's for that step.".to_owned()),
+    );
+    deliver(core, &target, letter).await
+}
+
 /// Sends an agent back to what it offered, for a rule of its project to decide. It starts a turn
 /// when the agent is at rest, where a notice would be dropped. Fails when the agent has stopped or
 /// is gone.

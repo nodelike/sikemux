@@ -193,8 +193,9 @@ impl Triggers {
             .min()
     }
 
-    /// What the agent's chat waits on of its triggers: CI first, else the soonest timer, which
-    /// it has waited on since `rested_at`.
+    /// What the agent's chat waits on of the wakes it set itself to carry its work on: CI first,
+    /// else its soonest one-time timer, which it has waited on since `rested_at`. A repeating
+    /// trigger is automation and a paused one waits on nothing, so neither is a wait.
     pub(crate) fn wait_of(
         &self,
         agent_id: &str,
@@ -202,7 +203,9 @@ impl Triggers {
         expected: impl Fn(&str) -> Option<u64>,
     ) -> Option<TurnWait> {
         let state = self.state.locked();
-        let mine = || (state.triggers.iter()).filter(|trigger| trigger.prompts(agent_id));
+        let mine = || {
+            (state.triggers.iter()).filter(|trigger| trigger.prompts(agent_id) && !trigger.rests())
+        };
         if let Some(trigger) = mine().find(|trigger| trigger.ci.is_some()) {
             return trigger.ci.as_ref().map(|ci| TurnWait {
                 kind: TurnWaitKind::Ci,
@@ -213,6 +216,7 @@ impl Triggers {
             });
         }
         let soonest = mine()
+            .filter(|trigger| matches!(trigger.when, TriggerWhen::Once { .. }))
             .filter_map(|trigger| Some((trigger, trigger.next_at?)))
             .min_by_key(|(_, at)| *at)?;
         let (trigger, at) = soonest;
@@ -595,7 +599,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
                 return Err("A CI trigger prompts this chat once CI ends, so give it no time, webhook or board".into());
             }
             let (watch, shown) = ci::watch(core, &request.project, on.trim()).await?;
-            if let Some((said, _)) = ci::ended(core, &watch).await? {
+            if let ci::Ci::Ended(said, _) = ci::ended(core, &watch).await? {
                 return Ok(
                     json!({ "ended": said, "note": "It already ended, so no trigger was set." }),
                 );

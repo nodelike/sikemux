@@ -20,6 +20,9 @@ use crate::server::Core;
 
 /// How long a CI trigger goes without looking, when the CI watch says nothing moved.
 pub(super) const LOOK_AGAIN_MS: u64 = 5 * 60 * 1000;
+/// How many looks in a row may fail to read the CI before its wait ends as unread: an hour of
+/// looking again.
+const MAX_UNREAD: u32 = 12;
 const SHORT_SHA: usize = 9;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -31,11 +34,39 @@ pub(super) struct CiWatch {
     on: CiOn,
     /// When it was set, in Unix milliseconds.
     since: u64,
+    /// When the core first saw its CI running, which its estimate counts from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    running_since: Option<u64>,
+    /// How many looks in a row failed to read its CI.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    unread: u32,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
+}
+
+/// How the CI a trigger waits on stands.
+pub(super) enum Ci {
+    /// It goes on; `running` once a run of it has started.
+    Going { running: bool },
+    /// It ended, as the prompt tells it and as the person is told it.
+    Ended(String, CiEnded),
 }
 
 impl CiWatch {
+    /// When its wait began: when its CI was first seen running, else when it was set.
     pub(super) fn since(&self) -> u64 {
-        self.since
+        self.running_since.unwrap_or(self.since)
+    }
+
+    /// The run or commit it waits on, which every agent waiting on it shares.
+    fn run(&self) -> String {
+        let on = match &self.on {
+            CiOn::Commit(sha) => sha.clone(),
+            CiOn::Run(id) => id_text(id),
+        };
+        format!("{} {on}", self.repo.id)
     }
 
     /// What its wait is kept under, so the next wait on CI in the same repository has an
@@ -90,6 +121,8 @@ pub(super) async fn watch(
         repo: repo.watched(),
         on,
         since: epoch_ms(),
+        running_since: None,
+        unread: 0,
     };
     Ok((watch, shown))
 }
@@ -109,12 +142,8 @@ fn commit_of(dir: &Path, on: &str) -> Option<String> {
 const BLAME: &str =
     "who_wrote with a failed run's address names the commit that broke it, and why.";
 
-/// How the CI it waits on ended, as the prompt tells it and as the person is told it, or none
-/// while it goes on.
-pub(super) async fn ended(
-    core: &Arc<Core>,
-    watch: &CiWatch,
-) -> Result<Option<(String, CiEnded)>, String> {
+/// How the CI it waits on stands.
+pub(super) async fn ended(core: &Arc<Core>, watch: &CiWatch) -> Result<Ci, String> {
     let repo = codehost::of_project(core, &watch.dir).await?;
     match &watch.on {
         CiOn::Run(id) => run_ended(&repo, id).await,
@@ -122,11 +151,11 @@ pub(super) async fn ended(
     }
 }
 
-async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Option<(String, CiEnded)>, String> {
+async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Ci, String> {
     let detail = codehost::run(repo, id).await?;
     let run = &detail["run"];
     if run["status"] != "completed" {
-        return Ok(None);
+        return Ok(Ci::Going { running: true });
     }
     let conclusion = run["conclusion"].as_str().unwrap_or("ended");
     let url = run["url"].as_str().unwrap_or_default();
@@ -151,34 +180,32 @@ async fn run_ended(repo: &codehost::Repo, id: &Value) -> Result<Option<(String, 
         }
         said.push_str(&format!("\n{BLAME}"));
     }
-    Ok(Some((said.trim_end().to_owned(), how)))
+    Ok(Ci::Ended(said.trim_end().to_owned(), how))
 }
 
-async fn commit_ended(
-    repo: &codehost::Repo,
-    sha: &str,
-    since: u64,
-) -> Result<Option<(String, CiEnded)>, String> {
+async fn commit_ended(repo: &codehost::Repo, sha: &str, since: u64) -> Result<Ci, String> {
     let short: String = sha.chars().take(SHORT_SHA).collect();
     Ok(match codehost::commit_checks(repo, None, sha, &[]).await? {
-        Checks::Running { .. } => None,
-        Checks::None if epoch_ms().saturating_sub(since) < CI_START_WAIT_MS => None,
-        Checks::None => Some((
+        Checks::Running { .. } => Ci::Going { running: true },
+        Checks::None if epoch_ms().saturating_sub(since) < CI_START_WAIT_MS => {
+            Ci::Going { running: false }
+        }
+        Checks::None => Ci::Ended(
             format!(
                 "No CI run started on {short} within {} minutes of this trigger being set; it may not be pushed, or CI may skip it.",
                 CI_START_WAIT_MS / 60_000
             ),
             CiEnded::NeverStarted,
-        )),
-        Checks::Passed => Some((format!("CI on {short} passed."), CiEnded::Passed)),
-        Checks::Failed(lines) => Some((
+        ),
+        Checks::Passed => Ci::Ended(format!("CI on {short} passed."), CiEnded::Passed),
+        Checks::Failed(lines) => Ci::Ended(
             format!("CI on {short} failed:\n{lines}\n{BLAME}"),
             CiEnded::Failed,
-        )),
-        Checks::Stopped(lines) => Some((
+        ),
+        Checks::Stopped(lines) => Ci::Ended(
             format!("CI on {short} was stopped:\n{lines}"),
             CiEnded::Stopped,
-        )),
+        ),
     })
 }
 
@@ -226,20 +253,42 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     let Some(watch) = watch else { return };
     crate::server::codehost::ci::start(&core);
     let (said, how) = match ended(&core, &watch).await {
-        Ok(Some(ended)) => ended,
-        Ok(None) => return,
-        Err(error) => {
-            eprintln!("sikemux core: CI trigger {id} could not read its CI: {error}");
+        Ok(Ci::Ended(said, how)) => (said, how),
+        Ok(Ci::Going { running }) => {
+            let now = epoch_ms();
+            if (running && watch.running_since.is_none()) || watch.unread > 0 {
+                watched(&core, id, |watch| {
+                    watch.unread = 0;
+                    if running {
+                        watch.running_since.get_or_insert(now);
+                    }
+                });
+            }
             return;
+        }
+        Err(error) => {
+            let unread = watch.unread + 1;
+            if unread < MAX_UNREAD {
+                eprintln!("sikemux core: CI trigger {id} could not read its CI: {error}");
+                watched(&core, id, |watch| watch.unread = unread);
+                return;
+            }
+            (
+                format!("Its CI could not be read {MAX_UNREAD} times in a row, so this stopped waiting: {error}"),
+                CiEnded::Unread,
+            )
         }
     };
     let Some(mut trigger) = remove_where(&core, |trigger: &Trigger| trigger.id == id) else {
         return;
     };
-    let took = epoch_ms().saturating_sub(watch.since);
-    core.waits.took(&watch.waits_on(), took);
+    if let (Some(since), CiEnded::Passed | CiEnded::Failed) = (watch.running_since, how) {
+        core.waits
+            .took(&watch.waits_on(), epoch_ms().saturating_sub(since));
+    }
     core.notify.send(Signal::CiEnded {
         agent_id: trigger.agent_id.clone(),
+        run: watch.run(),
         what: trigger.title.clone(),
         how,
     });
@@ -254,4 +303,16 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         },
     )
     .await;
+}
+
+/// Changes what the CI trigger `id` keeps of its CI, saving it.
+fn watched(core: &Core, id: u64, change: impl FnOnce(&mut CiWatch)) {
+    core.triggers.change(|state| {
+        let watch = (state.triggers.iter_mut())
+            .find(|trigger| trigger.id == id)
+            .and_then(|trigger| trigger.ci.as_mut());
+        if let Some(watch) = watch {
+            change(watch);
+        }
+    });
 }

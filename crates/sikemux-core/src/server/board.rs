@@ -3578,22 +3578,30 @@ pub(crate) fn landed_set(core: &Core, project: &str) -> Option<sikemux_view::tur
     state.boards.get(project)?.settings.landed
 }
 
-/// Whether `environment` is `project`'s production: the last of its nearest environments.
-pub(crate) fn is_production(core: &Core, project: &str, environment: &str) -> bool {
-    let state = core.boards.state.locked();
-    let nearest = (levels(&state, project).into_iter()).find(|level| !level.is_empty());
-    nearest
-        .and_then(<[Environment]>::last)
-        .is_some_and(|last| last.name == environment)
+/// `project`'s production by its nearest environments: the last of several, or the only one
+/// when its name says production. None when it has none, or one that is not production.
+fn production_of(state: &State, project: &str) -> (usize, Option<String>) {
+    let nearest = (levels(state, project).into_iter()).find(|level| !level.is_empty());
+    let ladder = nearest.unwrap_or_default();
+    let production = (ladder.last())
+        .filter(|last| ladder.len() > 1 || last.name.to_ascii_lowercase().contains("prod"))
+        .map(|last| last.name.clone());
+    (ladder.len(), production)
 }
 
-/// Whether `project` deploys somewhere before production, and whether it deploys at all, by
-/// its nearest environments: the last of them is production.
+/// Whether `environment` is `project`'s production.
+pub(crate) fn is_production(core: &Core, project: &str, environment: &str) -> bool {
+    let state = core.boards.state.locked();
+    production_of(&state, project).1.as_deref() == Some(environment)
+}
+
+/// Whether `project` deploys somewhere before production, and to production at all, by its
+/// nearest environments.
 pub(crate) fn deploys_to(core: &Core, project: &str) -> (bool, bool) {
     let state = core.boards.state.locked();
-    let nearest = (levels(&state, project).into_iter()).find(|level| !level.is_empty());
-    let ladder = nearest.map_or(0, <[Environment]>::len);
-    (ladder > 1, ladder > 0)
+    let (ladder, production) = production_of(&state, project);
+    let production = production.is_some();
+    (ladder > usize::from(production), production)
 }
 
 /// The sites the person always allows agents in `project` to write to.

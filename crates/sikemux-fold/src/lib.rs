@@ -51,6 +51,38 @@ pub use team::AgentNeed;
 pub use update::UpdateKind;
 use update::{finished_compaction, stamped_at};
 
+fn plan_entries(update: &Value) -> Option<Vec<PlanEntry>> {
+    let entries = update.get("entries")?.as_array()?;
+    Some(
+        (entries.iter())
+            .filter_map(|entry| PlanEntry::deserialize(entry).ok())
+            .filter_map(|entry| {
+                let content = entry.content.trim();
+                (!content.is_empty()).then(|| PlanEntry {
+                    content: content.to_owned(),
+                    ..entry.clone()
+                })
+            })
+            .collect(),
+    )
+}
+
+/// The steps the agent plans, as the last plan an event of `kind` carries says them, for a
+/// reader that keeps no fold.
+pub fn plan_in(kind: ChatEventKind, payload: &Value) -> Option<Vec<PlanEntry>> {
+    if !matches!(kind, ChatEventKind::SessionUpdate) {
+        return None;
+    }
+    let updates: Vec<&Value> = match payload.get("updates").and_then(Value::as_array) {
+        Some(updates) => updates.iter().collect(),
+        None => vec![payload],
+    };
+    (updates.into_iter().rev())
+        .filter_map(|notification| notification.get("update"))
+        .find(|update| UpdateKind::of(update) == Some(UpdateKind::Plan))
+        .and_then(plan_entries)
+}
+
 /// Whether a call is one of our gestures, such as a reaction, which a chat shows
 /// only by what it did.
 pub fn is_gesture(title: &str) -> bool {
@@ -316,8 +348,6 @@ pub struct Fold {
     needs: team::Needs,
     /// The number of the change it takes in now.
     seq: u64,
-    /// When the agent last said the steps it plans.
-    plan_at: u64,
     /// The change that last said whether a turn runs.
     running_v: u64,
     /// The agent always offers an effort picker, empty until its session
@@ -603,7 +633,6 @@ impl Fold {
             settle_from: None,
             needs: team::Needs::default(),
             seq: 1,
-            plan_at: 0,
             running_v: 0,
             offers_effort: false,
             folder: None,
@@ -685,11 +714,6 @@ impl Fold {
         self.head.setup = setup.clone();
         self.set_head("setup");
         self.read_pickers();
-    }
-
-    /// The steps the agent plans, and when it last said them.
-    pub fn plan(&self) -> (&[PlanEntry], u64) {
-        (self.head.plan.as_deref().unwrap_or_default(), self.plan_at)
     }
 
     /// The models and efforts the session offers, on the ones it runs.
@@ -1213,23 +1237,7 @@ impl Fold {
             }
             UpdateKind::Notice => self.agent_notice(index, update),
             UpdateKind::Plan => {
-                self.plan_at = at;
-                self.head.plan = update
-                    .get("entries")
-                    .and_then(Value::as_array)
-                    .map(|entries| {
-                        entries
-                            .iter()
-                            .filter_map(|entry| PlanEntry::deserialize(entry).ok())
-                            .filter_map(|entry| {
-                                let content = entry.content.trim();
-                                (!content.is_empty()).then(|| PlanEntry {
-                                    content: content.to_owned(),
-                                    ..entry.clone()
-                                })
-                            })
-                            .collect()
-                    });
+                self.head.plan = plan_entries(update);
                 self.set_head("plan");
                 self.suppress_user_echo = false;
             }

@@ -227,6 +227,7 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
         .filter_map(|agent| Some((agent.agent_id.clone(), agent.name.clone()?)))
         .collect();
     let now = epoch_ms();
+    let turns = super::turn_state::all(core);
     agents
         .iter()
         .filter(|agent| project.is_none_or(|project| agent.project == project))
@@ -248,7 +249,7 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                 "cli": agent.cli,
                 "title": agent.title,
                 "status": status,
-                "turn": core.turns.of(&agent.agent_id).as_ref().and_then(super::turn_state::line),
+                "turn": turns.get(&agent.agent_id).and_then(super::turn_state::line),
                 "lastActive": since(agent.active_at, now),
                 "canMessage": agent.reach != Reach::Stopped
                     && agent.agent_id != caller

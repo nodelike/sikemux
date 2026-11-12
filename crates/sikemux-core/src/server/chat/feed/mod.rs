@@ -147,10 +147,10 @@ pub(crate) struct Feed {
 
 #[derive(Default)]
 struct Stand {
-    /// When the agent last said its plan, the step it was on, and the first it had not finished.
+    /// When the agent last said its plan, the step it was on, and what it left open.
     plan_at: u64,
     plan_on: Option<String>,
-    plan_open: Option<String>,
+    plan_left: Option<String>,
     /// How the turn stands, as clients were last told.
     turn: Option<TurnState>,
     /// What its turns and its workers' showed, as clients were last told.
@@ -448,21 +448,26 @@ impl Feed {
             .get("at")
             .and_then(Value::as_u64)
             .unwrap_or_else(epoch_ms);
+        if let Some(plan) = sikemux_fold::plan_in(kind, payload) {
+            let content = |entry: &PlanEntry| entry.content.clone();
+            let open: Vec<&PlanEntry> = (plan.iter())
+                .filter(|entry| entry.status != PlanStatus::Completed)
+                .collect();
+            let never_started = open
+                .iter()
+                .find(|entry| entry.status == PlanStatus::Pending);
+            let mut stand = self.stand.locked();
+            stand.plan_at = at;
+            stand.plan_on = (plan.iter())
+                .find(|entry| entry.status == PlanStatus::InProgress)
+                .map(content);
+            stand.plan_left = match open.len() {
+                0 | 1 => never_started.map(|entry| content(entry)),
+                _ => never_started.or(open.first()).map(|entry| content(entry)),
+            };
+        }
         if let Some(fold) = inner.fold.as_mut() {
-            let planned_at = fold.plan().1;
             fold.apply(index, kind, payload, at);
-            let (plan, at) = fold.plan();
-            if at != planned_at {
-                let content = |entry: &PlanEntry| entry.content.clone();
-                let mut stand = self.stand.locked();
-                stand.plan_at = at;
-                stand.plan_on = (plan.iter())
-                    .find(|entry| entry.status == PlanStatus::InProgress)
-                    .map(content);
-                stand.plan_open = (plan.iter())
-                    .find(|entry| entry.status != PlanStatus::Completed)
-                    .map(content);
-            }
         }
     }
 
@@ -1014,19 +1019,17 @@ impl Feed {
         }
     }
 
-    /// How the chat's turn stands, as clients were last told.
-    pub(crate) fn turn(&self) -> Option<TurnState> {
-        self.stand.locked().turn.clone()
+    /// The step of its plan the agent is on, of a plan it said at `since` or later.
+    pub(crate) fn plan_on(&self, since: u64) -> Option<String> {
+        let stand = self.stand.locked();
+        stand.plan_on.clone().filter(|_| stand.plan_at >= since)
     }
 
-    /// The step of its plan the agent is on, and the first it has not finished, of a plan it
-    /// said at `since` or later.
-    pub(crate) fn plan_steps(&self, since: u64) -> (Option<String>, Option<String>) {
+    /// What a plan it said at `since` or later leaves open: a step it never started, or the
+    /// first of several unfinished. One step left in progress is taken as a forgotten tick.
+    pub(crate) fn plan_left(&self, since: u64) -> Option<String> {
         let stand = self.stand.locked();
-        match stand.plan_at >= since {
-            true => (stand.plan_on.clone(), stand.plan_open.clone()),
-            false => (None, None),
-        }
+        stand.plan_left.clone().filter(|_| stand.plan_at >= since)
     }
 
     pub(crate) fn config_options(&self) -> Option<Value> {

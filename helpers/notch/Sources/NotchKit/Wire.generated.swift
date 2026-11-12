@@ -749,6 +749,8 @@ enum TurnStep: String, Codable, Hashable {
     case tryIt
     /// Tells a stopped agent to go on with what is left.
     case carryOn
+    /// Tells a worker to take its landed commits back out.
+    case undo
     /// One added after this build.
     case unknown
 

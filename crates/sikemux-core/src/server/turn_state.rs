@@ -1,37 +1,42 @@
 //! How each agent's turn stands: one function over what the core knows of it, which every agent
 //! row and chat head carries, so no client and no other part of the core works a state out again.
-//! Nothing here is stored but where git said the agent's work was when its turn ended, read off
-//! the view's path and again on each commit.
+//! What it reads of a turn is kept with the turn by `inbox::Turns`, through a restart; where git
+//! said the chat's work was is read off the view's path when a turn ends and on each commit.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
-use sikemux_process::sync::Locked;
 use sikemux_view::calls::CallResult;
 use sikemux_view::chat::FailureKind;
-use sikemux_view::inbox::AgentShown;
 use sikemux_view::slice::Verdict;
 use sikemux_view::turn::{
     ChecksStand, Landed, NextStep, Remedy, TurnCall, TurnDone, TurnFailed, TurnPhase, TurnState,
     TurnStep, TurnStopped, TurnWait, TurnWaitKind, WorkAt,
 };
 use sikemux_view::workspace::AgentWorktree;
-use sikemux_wire::protocol::{AgentStatus, ChatContext, FOR_AGENT_URI};
+use sikemux_wire::protocol::{AgentStatus, ChatContext, ChatInfo, SessionInfo, FOR_AGENT_URI};
 
 use super::changed::What;
 use super::inbox::{self, Fault};
 use super::{Core, CoreError, CoreResult};
 use crate::git::Git;
+use crate::text::clipped_line;
 
-/// Where git said an agent's work was.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The most of the agent's own words a line it is told carries.
+const MAX_TOLD_CHARS: usize = 200;
+
+/// Where git said a chat's work was.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct Work {
     pub changes: WorkAt,
     /// The commit its checkout was at, which the project's check is looked up by.
     pub head: Option<String>,
+    /// When that commit was made, in Unix milliseconds.
+    pub head_at: Option<u64>,
     pub project: String,
     /// The turn changed a page, and the agent's checkout can be served to look at it.
     pub can_try: bool,
@@ -42,8 +47,10 @@ pub(crate) struct Ended {
     /// None while it runs, and once the person stopped it.
     pub at: Option<u64>,
     pub started_at: u64,
-    /// A deploy of its went to a place before production during it, and passed.
-    pub staged: bool,
+    /// What its plan left open as it ended by itself.
+    pub left: Option<String>,
+    /// The commit a deploy to a place before production passed at.
+    pub staged: Option<String>,
     pub problem: Option<Problem>,
     pub work: Option<Work>,
 }
@@ -71,8 +78,15 @@ struct Ask {
     at: u64,
 }
 
+/// An open agent, as the turns of the others read it.
+pub(crate) struct Seen {
+    pub id: String,
+    pub status: AgentStatus,
+    pub name: String,
+}
+
 impl Gathered {
-    pub(crate) fn of(core: &Core, agents: &[AgentShown]) -> Self {
+    pub(crate) fn of(core: &Core, agents: &[Seen]) -> Self {
         let mut asks: HashMap<String, Vec<Ask>> = HashMap::new();
         for attention in core.chats.attentions() {
             let choices = attention.choices;
@@ -88,12 +102,15 @@ impl Gathered {
             .iter()
             .filter(|agent| agent.status == AgentStatus::Working);
         for worker in working {
-            let Some(lead) = leads.get(&worker.agent_id) else {
+            let Some(lead) = leads.get(&worker.id) else {
                 continue;
             };
-            let since = core.seen.started_at(&worker.agent_id).unwrap_or_default();
-            let name = worker.name.clone().unwrap_or_else(|| worker.title.clone());
-            workers.entry(lead.clone()).or_insert((name, since));
+            let since = (core.seen.started_at(&worker.id))
+                .or_else(|| core.seen.active_at(&worker.id))
+                .unwrap_or_else(epoch_ms);
+            workers
+                .entry(lead.clone())
+                .or_insert((worker.name.clone(), since));
         }
         Self {
             asks,
@@ -128,6 +145,52 @@ fn call_of(core: &Core, gathered: &Gathered, agent_id: &str) -> Option<TurnCall>
     })
 }
 
+/// How every open agent's turn stands, worked out now from the agents `chats` and `sessions` list.
+pub(crate) fn all_from(
+    core: &Core,
+    chats: &[ChatInfo],
+    sessions: &[SessionInfo],
+) -> HashMap<String, TurnState> {
+    let mut seen: Vec<Seen> = (chats.iter())
+        .map(|chat| Seen {
+            id: chat.agent_id.clone(),
+            status: chat.status,
+            name: (chat.name.clone())
+                .or_else(|| chat.title.clone())
+                .unwrap_or_default(),
+        })
+        .collect();
+    seen.extend(
+        super::roster::terminals(chats, sessions).filter_map(|(session, agent_id)| {
+            Some(Seen {
+                id: agent_id.to_owned(),
+                status: session.status?,
+                name: session.agent_name.clone().unwrap_or_default(),
+            })
+        }),
+    );
+    let gathered = Gathered::of(core, &seen);
+    (seen.iter())
+        .filter_map(|agent| {
+            Some((
+                agent.id.clone(),
+                of(core, &gathered, &agent.id, agent.status)?,
+            ))
+        })
+        .collect()
+}
+
+/// How every open agent's turn stands, worked out now.
+pub(crate) fn all(core: &Core) -> HashMap<String, TurnState> {
+    let (chats, sessions) = core.ranked_infos();
+    all_from(core, &chats, &sessions)
+}
+
+/// How `agent_id`'s turn stands, worked out now.
+pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
+    all(core).remove(agent_id)
+}
+
 fn standing(state: TurnPhase, since: u64) -> TurnState {
     TurnState {
         state,
@@ -153,20 +216,20 @@ pub(crate) fn of(
         state.call = Some(call);
         return Some(state);
     }
-    let chat = core.chats.get(agent_id);
+    let ended = core.inbox.ending(agent_id);
     if matches!(status, AgentStatus::Working | AgentStatus::Blocked) {
         let since = (core.seen.started_at(agent_id))
-            .or_else(|| core.inbox.ending(agent_id).map(|ended| ended.started_at))
-            .unwrap_or_default();
+            .or_else(|| ended.as_ref().map(|ended| ended.started_at))
+            .or_else(|| core.seen.active_at(agent_id))
+            .unwrap_or_else(epoch_ms);
         let mut state = standing(TurnPhase::Working, since);
-        state.on = chat.and_then(|chat| chat.feed.plan_steps(since).0);
+        state.on = (core.chats.get(agent_id)).and_then(|chat| chat.feed.plan_on(since));
         return Some(state);
     }
-    let ended = core.inbox.ending(agent_id);
     let rested_at = (ended.as_ref())
         .and_then(|ended| ended.at)
         .or_else(|| core.seen.active_at(agent_id))
-        .unwrap_or_default();
+        .unwrap_or_else(epoch_ms);
     if let Some(failed) = ended
         .as_ref()
         .and_then(|ended| failed(core, agent_id, ended))
@@ -186,14 +249,15 @@ pub(crate) fn of(
         state.stopped = Some(TurnStopped { left: None });
         return Some(state);
     };
-    let left = chat.and_then(|chat| chat.feed.plan_steps(ended.started_at).1);
-    if let Some(left) = left {
+    if let Some(left) = &ended.left {
         let mut state = standing(TurnPhase::Stopped, at);
-        state.stopped = Some(TurnStopped { left: Some(left) });
+        state.stopped = Some(TurnStopped {
+            left: Some(left.clone()),
+        });
         return Some(state);
     }
     let mut state = standing(TurnPhase::Done, at);
-    state.done = Some(done(core, agent_id, &ended));
+    state.done = (ended.work.as_ref()).map(|work| done(core, agent_id, &ended, work));
     Some(state)
 }
 
@@ -238,7 +302,7 @@ fn failed(core: &Core, agent_id: &str, ended: &Ended) -> Option<TurnFailed> {
         FailureKind::Limit => vec![Remedy::OtherAccount, Remedy::Retry],
         FailureKind::SignIn => vec![Remedy::SignIn, Remedy::OtherAccount],
         FailureKind::Network if problem.fault == Some(Fault::Retrying) => vec![Remedy::Reconnect],
-        FailureKind::Network | FailureKind::Other => vec![Remedy::Retry],
+        FailureKind::Network | FailureKind::Other | FailureKind::Unknown => vec![Remedy::Retry],
     };
     Some(TurnFailed {
         why,
@@ -248,31 +312,32 @@ fn failed(core: &Core, agent_id: &str, ended: &Ended) -> Option<TurnFailed> {
     })
 }
 
-fn done(core: &Core, agent_id: &str, ended: &Ended) -> TurnDone {
-    let work = ended.work.as_ref();
+/// Where the chat's work is, as git last said, and what can be done with it. Landed work that
+/// shipped or went to staging since its commit was made reads so.
+fn done(core: &Core, agent_id: &str, ended: &Ended, work: &Work) -> TurnDone {
     let shipped = (core.person_calls.latest_outcome(agent_id))
         .filter(|outcome| outcome.result == CallResult::Shipped)
-        .filter(|outcome| outcome.at >= ended.started_at);
-    let landed = work.map_or(WorkAt::None, |work| work.changes);
-    let changes = match (&shipped, ended.staged) {
-        (Some(_), _) => WorkAt::Shipped,
-        (None, true) if landed == WorkAt::Landed => WorkAt::Staged,
-        (None, _) => landed,
+        .filter(|outcome| work.head_at.is_none_or(|made| outcome.at >= made));
+    let staged = ended.staged.is_some() && ended.staged == work.head;
+    let changes = match work.changes {
+        WorkAt::Landed if shipped.is_some() => WorkAt::Shipped,
+        WorkAt::Landed if staged => WorkAt::Staged,
+        changes => changes,
     };
-    let verdict = work.and_then(|work| {
-        let head = work.head.as_deref()?;
-        super::board::verdict_on(core, &work.project, head)
-    });
+    let verdict = (work.changes != WorkAt::Uncommitted)
+        .then_some(work.head.as_deref())
+        .flatten()
+        .and_then(|head| super::board::verdict_on(core, &work.project, head));
     let checks = match verdict {
         Some(Verdict::Passed) => ChecksStand::Pass,
         Some(Verdict::Failed) => ChecksStand::Failed,
         None => ChecksStand::NotChecked,
     };
-    let places = work.map(|work| super::board::deploys_to(core, &work.project));
+    let places = super::board::deploys_to(core, &work.project);
     let can_roll_back = shipped.as_ref().is_some_and(|outcome| outcome.roll_back);
-    let mut next = next_steps(changes, places.unwrap_or_default());
+    let mut next = next_steps(changes, places);
     next.retain(|next| next.step != TurnStep::RollBack || can_roll_back);
-    if work.is_some_and(|work| work.can_try) && changes != WorkAt::None {
+    if work.can_try && changes != WorkAt::None {
         for step in &mut next {
             step.primary = false;
         }
@@ -361,15 +426,22 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
         .unwrap_or_else(|| core.workspaces.project_of(&cwd));
     let handoff = inbox::handoff(core, agent_id);
     let head = Git::quick(&cwd).trimmed(&["rev-parse", "HEAD"]).ok();
+    let head_at = Git::quick(&cwd)
+        .trimmed(&["log", "-1", "--format=%ct", "HEAD"])
+        .ok()
+        .and_then(|seconds| seconds.parse::<u64>().ok())
+        .map(|seconds| seconds * 1000);
     let pages = (handoff.files.iter()).any(|file| super::pictures::is_page_file(file));
+    let changed =
+        inbox::ever_edited(core, &project, agent_id) || core.inbox.changed_in_turn(agent_id);
     let changes = if handoff.uncommitted {
         WorkAt::Uncommitted
-    } else if handoff.edited == 0 && !core.inbox.changed_in_turn(agent_id) {
+    } else if !changed {
         WorkAt::None
     } else {
         let worktree = agent.and_then(|agent| agent.worktree);
         match head.as_deref() {
-            Some(head) if landed(core, &project, &cwd, worktree.as_ref(), head) => WorkAt::Landed,
+            Some(head) if landed(core, &project, worktree.as_ref(), head) => WorkAt::Landed,
             _ => WorkAt::Committed,
         }
     };
@@ -378,48 +450,43 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
     Some(Work {
         changes,
         head,
+        head_at,
         project,
         can_try,
     })
 }
 
-/// Whether `head` has landed on the project's branch, as the project counts landing: on the
-/// branch itself once committed, else on its remote.
-fn landed(
-    core: &Core,
-    project: &str,
-    cwd: &Path,
-    worktree: Option<&AgentWorktree>,
-    head: &str,
-) -> bool {
-    let (repo, branch) = match worktree {
-        Some(worktree) => match &worktree.base {
-            Some(base) => (worktree.repo.as_path(), base.clone()),
-            None => return false,
-        },
-        None => match Git::quick(cwd).trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"]) {
-            Ok(branch) => (cwd, branch),
-            Err(_) => return false,
-        },
+/// Whether `head` has landed on the project's branch, as the project counts landing: on that
+/// branch once committed, else on its remote. A side branch, pushed or not, has not landed.
+fn landed(core: &Core, project: &str, worktree: Option<&AgentWorktree>, head: &str) -> bool {
+    let repo = worktree.map_or(Path::new(project), |worktree| worktree.repo.as_path());
+    let Some(branch) = super::landing::project_branch(repo) else {
+        return false;
     };
-    let holds = |tip: &str| {
-        Git::quick(repo)
-            .output(&["merge-base", "--is-ancestor", head, tip])
-            .is_ok_and(|output| output.status.success())
+    let local = format!("refs/heads/{branch}");
+    let tip = match super::landing::means_now(core, project).means {
+        Landed::Committed => local,
+        _ => super::landing::remote_of(repo, &branch).unwrap_or(local),
     };
-    let upstream = Git::quick(repo)
-        .trimmed(&[
-            "rev-parse",
-            "--symbolic-full-name",
-            &format!("{branch}@{{upstream}}"),
-        ])
-        .ok()
-        .filter(|name| name.starts_with("refs/remotes/"));
-    let on_commit = super::landing::means_now(core, project).means == Landed::Committed;
-    match upstream.filter(|_| !on_commit) {
-        Some(upstream) => holds(&upstream),
-        None => holds(&format!("refs/heads/{branch}")),
-    }
+    Git::quick(repo)
+        .output(&["merge-base", "--is-ancestor", head, &tip])
+        .is_ok_and(|output| output.status.success())
+}
+
+/// What the agent's plan leaves open as its turn ends by itself.
+pub(crate) fn left_open(core: &Core, agent_id: &str) -> Option<String> {
+    let started = core.inbox.ending(agent_id)?.started_at;
+    core.chats.get(agent_id)?.feed.plan_left(started)
+}
+
+/// Whether the agent ends its turn on a wake it set itself: CI, a one-time timer, or a worker
+/// of its at work.
+pub(crate) fn set_a_wake(core: &Core, agent_id: &str) -> bool {
+    core.triggers
+        .wait_of(agent_id, epoch_ms(), |_| None)
+        .is_some()
+        || (core.workspaces.agent_leads().iter())
+            .any(|(worker, lead)| lead == agent_id && core.agent_now(worker).mid_turn())
 }
 
 /// How a turn that ended stands, in words for agents: the agent's own line, and another agent's
@@ -446,15 +513,20 @@ pub(crate) fn line(turn: &TurnState) -> Option<String> {
         }
         TurnPhase::Stopped => {
             match (turn.stopped.as_ref()).and_then(|stopped| stopped.left.as_ref()) {
-                Some(left) => {
-                    format!("stopped with this left open: {left}; nothing is set to wake it")
-                }
+                Some(left) => format!(
+                    "stopped with this left open: {}; nothing is set to wake it",
+                    clipped_line(left, MAX_TOLD_CHARS)
+                ),
                 None => "stopped before it finished; nothing is set to wake it".to_owned(),
             }
         }
         TurnPhase::Failed => {
             let said = (turn.failed.as_ref()).and_then(|failed| failed.said.as_deref());
-            format!("failed: {}", said.unwrap_or("the turn did not finish"))
+            let said = said.map(|said| clipped_line(said, MAX_TOLD_CHARS));
+            format!(
+                "failed: {}",
+                said.as_deref().unwrap_or("the turn did not finish")
+            )
         }
         TurnPhase::Waiting => {
             let wait = turn.wait.as_ref()?;
@@ -468,7 +540,10 @@ pub(crate) fn line(turn: &TurnState) -> Option<String> {
             };
             match wait.what.is_empty() {
                 true => format!("waiting on {on}"),
-                false => format!("waiting on {on}: {}", wait.what),
+                false => format!(
+                    "waiting on {on}: {}",
+                    clipped_line(&wait.what, MAX_TOLD_CHARS)
+                ),
             }
         }
         TurnPhase::Working | TurnPhase::NeedsYou | TurnPhase::Unknown => return None,
@@ -488,23 +563,6 @@ pub(crate) fn told(turn: &TurnState) -> Option<ChatContext> {
     })
 }
 
-/// Each agent's turn as the view last worked it out, for the core's other readers.
-#[derive(Default)]
-pub(crate) struct Latest(Mutex<HashMap<String, TurnState>>);
-
-impl Latest {
-    pub(crate) fn keep(&self, agents: &[AgentShown]) {
-        let kept = (agents.iter())
-            .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
-            .collect();
-        *self.0.locked() = kept;
-    }
-
-    pub(crate) fn of(&self, agent_id: &str) -> Option<TurnState> {
-        self.0.locked().get(agent_id).cloned()
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TakeStepParams {
@@ -512,10 +570,31 @@ pub struct TakeStepParams {
     pub step: TurnStep,
 }
 
-/// The person takes the next step on an agent's work with one click: it goes to the agent as
-/// their message. Shipping to production goes that way too, so the gate at production holds
-/// it and asks the person on its call; this ships nothing itself.
+/// The person takes a next step on an agent's work with one click, one its line offers now: it
+/// goes to the agent as a step, not as the person's own words, so it answers no call. Shipping
+/// to production goes that way too, so the gate at production holds it and asks the person on
+/// its call; this ships nothing itself.
 pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreResult<()> {
+    let turn = {
+        let (core, agent_id) = (core.clone(), params.agent_id.clone());
+        super::connection::blocking(move || Ok(now(&core, &agent_id))).await?
+    };
+    let done = turn.as_ref().and_then(|turn| turn.done.as_ref());
+    let offered = match (&turn, params.step) {
+        (Some(turn), TurnStep::CarryOn) => turn.state == TurnPhase::Stopped,
+        (_, TurnStep::Undo) => done.is_some_and(|done| {
+            matches!(
+                done.changes,
+                WorkAt::Landed | WorkAt::Staged | WorkAt::Shipped
+            )
+        }),
+        (_, step) => done.is_some_and(|done| done.next.iter().any(|next| next.step == step)),
+    };
+    if !offered {
+        return Err(CoreError::from(
+            "That step is not one this agent's work offers now; its line shows the steps it does",
+        ));
+    }
     let text = match params.step {
         TurnStep::Commit => "Commit your changes.",
         TurnStep::Push => "Land your commits on the project's branch, as the project lands them.",
@@ -531,11 +610,8 @@ pub(crate) async fn take_step(core: &Arc<Core>, params: TakeStepParams) -> CoreR
             ));
         }
     };
-    super::chat::calls::prompt_chat(
-        core,
-        super::chat::calls::PromptChatParams::new(params.agent_id, text.to_owned()),
-    )
-    .await
+    super::messages::step_from_person(core, params.agent_id, text.to_owned()).await?;
+    Ok(())
 }
 
 /// Opens the page the agent's checkout serves on its desk, starting the project's process there
