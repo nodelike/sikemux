@@ -402,7 +402,7 @@ pub async fn git_ai_message(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::{git, init_repo};
+    use crate::git::testing::{git, init_repo};
     use std::fs;
 
     #[test]

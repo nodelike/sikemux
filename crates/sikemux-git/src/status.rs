@@ -285,7 +285,7 @@ fn status_cache() -> &'static WalkCache<StatusWalk> {
     C.get_or_init(Default::default)
 }
 
-pub(crate) fn watched_generation(repo: &str) -> Option<(String, u64)> {
+pub fn watched_generation(repo: &str) -> Option<(String, u64)> {
     let key = super::watch::repo_key(repo).ok()?;
     let generation = super::watch::scan_generation(&key)?;
     Some((key, generation))
@@ -390,7 +390,7 @@ fn patched_status(
 
 /// The paths moved in the watched checkout `key` after change `since`, when
 /// asking git again of only them gives what asking of everything would.
-pub(crate) fn moved_since(repo: &Repository, key: &str, since: u64) -> Option<Vec<String>> {
+pub fn moved_since(repo: &Repository, key: &str, since: u64) -> Option<Vec<String>> {
     let moved = super::watch::changed_paths_since(key, since)?;
     let patchable = moved.len() <= MAX_PATCHED_PATHS
         && moved.iter().all(|path| moves_only_itself(path))
@@ -538,7 +538,7 @@ pub async fn git_project_repo(
 }
 
 /// The repository's branch chip, read from the same cached walk as its status.
-pub(crate) async fn git_chip(repo: String) -> Result<sikemux_view::workspace::ProjectGit, String> {
+pub async fn git_chip(repo: String) -> Result<sikemux_view::workspace::ProjectGit, String> {
     let status = git_status(repo).await?;
     Ok(sikemux_view::workspace::ProjectGit {
         branch: status.branch,
@@ -580,7 +580,7 @@ fn status_flights() -> &'static Flights<GitStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::{commit_base, git, init_repo, repo_arg};
+    use crate::testing::{commit_base, git, init_repo, repo_arg};
     use std::fs;
     use tempfile::tempdir;
 

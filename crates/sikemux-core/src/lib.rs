@@ -18,7 +18,7 @@ pub use sikemux_corekit::{
 #[cfg(unix)]
 pub use sikemux_corekit::{client, join, push, timeout, waiting};
 #[cfg(unix)]
-pub mod files;
+pub use sikemux_git::files;
 #[cfg(unix)]
 pub mod git;
 #[cfg(unix)]

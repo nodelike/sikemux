@@ -367,7 +367,7 @@ pub async fn git_compare(repo: String, base: String, head: String) -> Result<Git
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::{git, init_repo, repo_arg};
+    use crate::testing::{git, init_repo, repo_arg};
     use std::fs;
 
     #[test]

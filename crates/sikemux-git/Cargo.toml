@@ -1,0 +1,38 @@
+[package]
+name = "sikemux-git"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# For the tests of crates built on this one: the throwaway repositories its own tests use.
+testing = []
+
+[target.'cfg(unix)'.dependencies]
+sikemux-base = { path = "../sikemux-base" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+base64 = "0.22"
+git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
+hashlink = "0.12"
+hex = "0.4"
+libc = "0.2"
+notify = "8"
+rustix = { version = "1", features = ["fs"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.11"
+tempfile = "3"
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+trash = "5"
+url = "2"
+uuid = { version = "1", features = ["v4", "v7"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

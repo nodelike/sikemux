@@ -108,7 +108,7 @@ fn ssh_target(alias: &str) -> Option<(String, u16)> {
 }
 
 /// The address of the remote a repository is known by.
-pub(crate) fn identity_url(path: &str) -> Option<String> {
+pub fn identity_url(path: &str) -> Option<String> {
     identity_remote(path)
         .and_then(|remote| git_ok(path, &["remote", "get-url", &remote]).ok())
         .filter(|url| !url.trim().is_empty())
@@ -116,7 +116,7 @@ pub(crate) fn identity_url(path: &str) -> Option<String> {
 
 /// Whether any remote of the repository at `path` is `wanted`, as [`normalized_remote`] reads
 /// both.
-pub(crate) fn has_remote(path: &str, wanted: &str) -> bool {
+pub fn has_remote(path: &str, wanted: &str) -> bool {
     let wanted = normalized_remote(wanted);
     git_ok(path, &["remote", "-v"]).is_ok_and(|listed| {
         listed
@@ -144,7 +144,7 @@ fn identity_remote(path: &str) -> Option<String> {
 }
 
 /// The URL of the repository's `origin`, or of the only remote it has.
-pub(crate) fn main_remote(path: &str) -> Option<String> {
+pub fn main_remote(path: &str) -> Option<String> {
     if let Ok(origin) = open_repo(path).ok()?.find_remote("origin") {
         return origin.url().ok().map(str::to_owned);
     }
@@ -564,7 +564,7 @@ const GIT_OUTPUT_LIMIT: usize = 1024 * 1024;
 
 /// The URL of every remote of the repository `path` is in. A folder that is
 /// not in one but holds repositories gets the remotes of those.
-pub(crate) fn remote_urls(path: &Path) -> Vec<String> {
+pub fn remote_urls(path: &Path) -> Vec<String> {
     if let Some(urls) = urls_of(path) {
         return urls;
     }
@@ -585,7 +585,7 @@ pub(crate) fn remote_urls(path: &Path) -> Vec<String> {
 
 /// None when `repo` is not inside a repository.
 fn urls_of(repo: &Path) -> Option<Vec<String>> {
-    let listed = crate::git::Git::at(repo)
+    let listed = crate::Git::at(repo)
         .timeout(GIT_TIMEOUT)
         .limit(GIT_OUTPUT_LIMIT)
         .text(&["remote", "-v"])
@@ -602,10 +602,7 @@ fn urls_of(repo: &Path) -> Option<Vec<String>> {
 /// A remote such as `git@github-work:org/repo` names a host alias from
 /// ~/.ssh/config; this swaps in the host it stands for, so a plugin can tell
 /// which service the remote lives on.
-pub(crate) fn with_real_ssh_host(
-    remote_url: &str,
-    resolve: impl Fn(&str) -> Option<String>,
-) -> String {
+pub fn with_real_ssh_host(remote_url: &str, resolve: impl Fn(&str) -> Option<String>) -> String {
     if let Ok(mut parsed) = url::Url::parse(remote_url) {
         if !matches!(parsed.scheme(), "ssh" | "git+ssh") {
             return remote_url.to_owned();

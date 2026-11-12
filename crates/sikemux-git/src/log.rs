@@ -230,7 +230,8 @@ pub(super) fn describe_commits(
             date: relative_time(commit.time().seconds()),
             time: commit.time().seconds(),
             subject: commit.summary().ok().flatten().unwrap_or("").to_string(),
-            footer: !crate::trailers::agents(commit.message().unwrap_or_default()).is_empty(),
+            footer: !sikemux_corekit::trailers::agents(commit.message().unwrap_or_default())
+                .is_empty(),
             unpushed: unpushed.contains(&oid),
             refs: ref_map.get(&oid).cloned().unwrap_or_default(),
         });
@@ -347,7 +348,7 @@ pub async fn git_overview(repo: String) -> Result<GitOverview, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::{commit_base, git, git_at, init_repo, repo_arg};
+    use crate::testing::{commit_base, git, git_at, init_repo, repo_arg};
     use std::fs;
 
     /// A branch or tag that decorates a commit outside the window must not cost

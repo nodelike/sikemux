@@ -331,7 +331,7 @@ pub async fn git_discard_file(repo: String, path: String, mode: String) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::{commit_base, git, init_repo, repo_arg};
+    use crate::testing::{commit_base, git, init_repo, repo_arg};
     use std::fs;
 
     #[tokio::test]

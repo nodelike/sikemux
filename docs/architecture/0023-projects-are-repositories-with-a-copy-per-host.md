@@ -15,7 +15,7 @@ People now keep one repository open on more than one host at once: the laptop an
 such as citadel, with agents on both. Under 0019 that is two projects the person flips
 between by switching host, and a lead on one host and its workers on another sit in two
 lists. The matching 0017 needed is already built: the core keeps `ProjectInfo.identity`
-(`crates/sikemux-core/src/git/remote.rs::project_identity`), and ADR 0013 already moves code
+(`crates/sikemux-git/src/remote.rs::project_identity`), and ADR 0013 already moves code
 between hosts for workers.
 
 ## Decision

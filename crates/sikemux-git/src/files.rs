@@ -189,7 +189,7 @@ fn mark_ignored(listings: &mut [FileListing]) {
     }
     let ignored: HashSet<String> = by_repo
         .into_iter()
-        .flat_map(|(root, paths)| crate::git::ignored_paths(&root.to_string_lossy(), &paths))
+        .flat_map(|(root, paths)| crate::ignored_paths(&root.to_string_lossy(), &paths))
         .collect();
     if ignored.is_empty() {
         return;
@@ -396,7 +396,7 @@ pub fn preview(params: FilePreviewParams) -> Result<FilePreview> {
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |since| since.as_millis() as u64);
     Ok(FilePreview {
-        mime: crate::http::mime_of(path)?.to_owned(),
+        mime: sikemux_base::http::mime_of(path)?.to_owned(),
         size: meta.len(),
         modified,
     })

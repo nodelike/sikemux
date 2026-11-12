@@ -309,10 +309,10 @@ pub async fn git_blame(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::changes::git_diff;
-    use crate::git::revisions::git_show;
-    use crate::git::status::git_status;
-    use crate::git::tests::{commit_base, git, init_repo, repo_arg};
+    use crate::changes::git_diff;
+    use crate::revisions::git_show;
+    use crate::status::git_status;
+    use crate::testing::{commit_base, git, init_repo, repo_arg};
     use std::fs;
 
     use tempfile::tempdir;

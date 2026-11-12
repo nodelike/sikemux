@@ -314,7 +314,7 @@ pub async fn git_worktree_remove(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::tests::{commit_base, git, init_repo};
+    use crate::testing::{commit_base, git, init_repo};
     use std::fs;
     use tempfile::tempdir;
 

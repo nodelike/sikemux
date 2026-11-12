@@ -9855,6 +9855,7 @@ dependencies = [
  "sikemux-client",
  "sikemux-corekit",
  "sikemux-fold",
+ "sikemux-git",
  "sikemux-grid",
  "sikemux-keychain",
  "sikemux-loopback",
@@ -9924,6 +9925,34 @@ dependencies = [
  "sikemux-markdown",
  "sikemux-view",
  "sikemux-wire",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-git"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "git2",
+ "hashlink",
+ "hex",
+ "libc",
+ "notify",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-base",
+ "sikemux-corekit",
+ "sikemux-process",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "time",
+ "tokio",
+ "trash",
+ "url",
+ "uuid",
  "workspace-hack",
 ]
 

@@ -45,6 +45,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 base64 = "0.22"
 minisign-verify = "0.2"
 sikemux-client = { path = "../sikemux-client" }
+sikemux-git = { path = "../sikemux-git" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-loopback = { path = "../sikemux-loopback" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
@@ -72,6 +73,7 @@ zstd = { version = "0.14.3", default-features = false }
 
 [dev-dependencies]
 sikemux-corekit = { path = "../sikemux-corekit", features = ["testing"] }
+sikemux-git = { path = "../sikemux-git", features = ["testing"] }
 tempfile = "3"
 
 [lints.clippy]
