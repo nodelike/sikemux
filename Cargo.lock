@@ -9732,6 +9732,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "sikemux-agents"
+version = "0.1.0"
+dependencies = [
+ "agent-client-protocol",
+ "hex",
+ "libc",
+ "notify",
+ "rayon",
+ "reqwest",
+ "rusqlite",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-base",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-git",
+ "sikemux-keychain",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-view",
+ "sikemux-wire",
+ "tempfile",
+ "time",
+ "tokio",
+ "toml 1.1.6+spec-1.1.0",
+ "url",
+ "uuid",
+ "workspace-hack",
+ "zstd",
+]
+
+[[package]]
 name = "sikemux-base"
 version = "0.1.0"
 dependencies = [
@@ -9825,20 +9859,16 @@ dependencies = [
  "grep-matcher",
  "grep-regex",
  "grep-searcher",
- "hashlink",
  "hex",
  "hyper",
  "hyper-util",
  "ignore",
  "iroh",
  "libc",
- "memchr",
- "minisign-verify",
  "notify",
  "objc2 0.6.4",
  "objc2-foundation 0.3.2",
  "portable-pty",
- "quick-xml 0.42.0",
  "rayon",
  "regex",
  "reqwest",
@@ -9851,6 +9881,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "sikemux-agents",
  "sikemux-base",
  "sikemux-client",
  "sikemux-corekit",
@@ -9877,7 +9908,6 @@ dependencies = [
  "uuid",
  "webpki-roots",
  "workspace-hack",
- "zstd",
 ]
 
 [[package]]

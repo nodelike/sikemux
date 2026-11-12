@@ -100,7 +100,7 @@ CORE="$ROOT/packaging/binaries/sikemux-host-$TRIPLE"
 [[ "$STEP" == "package" ]] || build_app
 APP="$ROOT/target/release/sikemux"
 [[ -x "$APP" ]] || fail "the app is not compiled; run BUILD_STEP=compile first"
-PI_TOOLS="$ROOT/crates/sikemux-core/resources/sikemux_pi_tools.ts"
+PI_TOOLS="$ROOT/crates/sikemux-agents/resources/sikemux_pi_tools.ts"
 POSTINST="$ROOT/packaging/linux/postinst.sh"
 
 desktop_entry() {

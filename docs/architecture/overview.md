@@ -184,29 +184,30 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 
 ## Crates (`crates/`)
 
-| Crate                | Purpose                                                                                                                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `sikemux-core`       | The core: its socket server, terminals, tasks, chat agents, the harness and tool endpoint, updating in place                                                                               |
-| `sikemux-corekit`    | What the core is built on that needs no running core: the accounts client, the command line's protocol, tasks and releases                                                                 |
-| `sikemux-git`        | Reading and changing repositories, and the files in them: status, diffs, log, blame, branches, worktrees, remotes                                                                          |
-| `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                        |
-| `sikemux-base`       | What the core shares with the browser, simulator and voice crates: HTTP clients, pinned downloads, the async runtime, page building and the CLI endpoint's protocol                        |
-| `sikemux-wire`       | What the phone's Rust decodes: frames, requests, answers and events. The phone links it, so it holds data and nothing that acts on it                                                      |
-| `sikemux-view`       | What clients read from the core as JSON and draw. The phone does not link it, so a change reaches phones over the air                                                                      |
-| `sikemux-client`     | Talking to a core: on this host, from a paired device, and joining a host. The phone links it                                                                                              |
-| `sikemux-fold`       | A chat folded from what its agent says into the rows clients draw                                                                                                                          |
-| `sikemux-pty`        | The terminal engine: each PTY's screen, shell integration, the login-shell environment, task checks and `agent_detection/`, which reads an agent's screen to tell working, blocked or idle |
-| `sikemux-browser`    | The browser engine (see [The browser engine](#the-browser-engine))                                                                                                                         |
-| `sikemux-simulator`  | The iOS Simulator for agents and the desk: the device helper and the agents' tools                                                                                                         |
-| `sikemux-linked`     | Reaching the account's other hosts as a device of the person's own                                                                                                                         |
-| `sikemux-markdown`   | Parses markdown into the block tree the transcript draws; `sikemux-markdown-wasm` builds it for the web                                                                                    |
-| `sikemux-plugin-api` | The contract between the core and a plugin: a method name and JSON in, JSON or a stream out                                                                                                |
-| `sikemux-keychain`   | Secrets in the system keychain, for the plugins that sign in                                                                                                                               |
-| `sikemux-loopback`   | Waits for the browser to come back from a sign-in, on one port where each plugin has its own path                                                                                          |
-| `sikemux-process`    | Runs a subprocess with a timeout and an output limit, and the paths and environment Sikemux uses                                                                                           |
-| `sikemux-voice`      | Dictation for every app, over the `sikemux-voice` helper                                                                                                                                   |
-| `sikemux-mobile`     | The core's client as the phone app calls it (see [Mobile app](#mobile-app-mobile))                                                                                                         |
-| `workspace-hack`     | Keeps every build in the workspace on one set of dependency features, managed by hakari                                                                                                    |
+| Crate                | Purpose                                                                                                                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sikemux-core`       | The core: its socket server, terminals, tasks, chat agents, the harness and tool endpoint, updating in place                                                                                             |
+| `sikemux-corekit`    | What the core is built on that needs no running core: the accounts client, the command line's protocol, tasks and releases                                                                               |
+| `sikemux-git`        | Reading and changing repositories, and the files in them: status, diffs, log, blame, branches, worktrees, remotes                                                                                        |
+| `sikemux-agents`     | The agents the core runs, apart from running them: their catalog, accounts and sign-in, how each is launched, their sessions on disk, and the guards on their git and on what they send off this machine |
+| `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                                      |
+| `sikemux-base`       | What the core shares with the browser, simulator and voice crates: HTTP clients, pinned downloads, the async runtime, page building and the CLI endpoint's protocol                                      |
+| `sikemux-wire`       | What the phone's Rust decodes: frames, requests, answers and events. The phone links it, so it holds data and nothing that acts on it                                                                    |
+| `sikemux-view`       | What clients read from the core as JSON and draw. The phone does not link it, so a change reaches phones over the air                                                                                    |
+| `sikemux-client`     | Talking to a core: on this host, from a paired device, and joining a host. The phone links it                                                                                                            |
+| `sikemux-fold`       | A chat folded from what its agent says into the rows clients draw                                                                                                                                        |
+| `sikemux-pty`        | The terminal engine: each PTY's screen, shell integration, the login-shell environment, task checks and `agent_detection/`, which reads an agent's screen to tell working, blocked or idle               |
+| `sikemux-browser`    | The browser engine (see [The browser engine](#the-browser-engine))                                                                                                                                       |
+| `sikemux-simulator`  | The iOS Simulator for agents and the desk: the device helper and the agents' tools                                                                                                                       |
+| `sikemux-linked`     | Reaching the account's other hosts as a device of the person's own                                                                                                                                       |
+| `sikemux-markdown`   | Parses markdown into the block tree the transcript draws; `sikemux-markdown-wasm` builds it for the web                                                                                                  |
+| `sikemux-plugin-api` | The contract between the core and a plugin: a method name and JSON in, JSON or a stream out                                                                                                              |
+| `sikemux-keychain`   | Secrets in the system keychain, for the plugins that sign in                                                                                                                                             |
+| `sikemux-loopback`   | Waits for the browser to come back from a sign-in, on one port where each plugin has its own path                                                                                                        |
+| `sikemux-process`    | Runs a subprocess with a timeout and an output limit, and the paths and environment Sikemux uses                                                                                                         |
+| `sikemux-voice`      | Dictation for every app, over the `sikemux-voice` helper                                                                                                                                                 |
+| `sikemux-mobile`     | The core's client as the phone app calls it (see [Mobile app](#mobile-app-mobile))                                                                                                                       |
+| `workspace-hack`     | Keeps every build in the workspace on one set of dependency features, managed by hakari                                                                                                                  |
 
 ## Plugins
 

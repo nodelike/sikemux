@@ -20,7 +20,7 @@ const cssPath = resolve(
   root,
   "server/app/src/chat/styles/generated/agent-brands.css",
 );
-const rustPath = resolve(root, "crates/sikemux-core/src/agent_catalog.rs");
+const rustPath = resolve(root, "crates/sikemux-agents/src/agent_catalog.rs");
 const detectionKindPath = resolve(
   root,
   "crates/sikemux-pty/src/agent_detection/agent_kind.rs",

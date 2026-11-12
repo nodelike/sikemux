@@ -122,7 +122,7 @@ jobs:
           area rust '^(app/|crates/|plugins/|packaging/linux/build-packages\.txt$|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
           area simulator '^(helpers/sim/|crates/sikemux-simulator/|crates/sikemux-base/|crates/helper_build\.rs$|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|scripts/lib/build\.mjs$|rust-toolchain\.toml$)'
           area helpers '^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-notch-(icons|sources)\.mjs$|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
-          area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/smoke-core\.mjs$|scripts/app-metadata\.mjs$|scripts/lib/build\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
+          area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/smoke-core\.mjs$|scripts/app-metadata\.mjs$|scripts/lib/build\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-agents/resources/sikemux_pi_tools\.ts$)'
 
   # The same check as `pnpm deps:audit`: any vulnerability fails it, and so does any unsound or
   # unmaintained warning dependency-audit.json does not explain. Advisories arrive without a change
@@ -537,7 +537,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     env:
-      CORE_CRATES: -p sikemux-core -p sikemux-corekit -p sikemux-git -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
+      CORE_CRATES: -p sikemux-core -p sikemux-corekit -p sikemux-git -p sikemux-agents -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

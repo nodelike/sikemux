@@ -81,7 +81,7 @@ function bundleCore(binary) {
     join(contents, "Resources", "sikemux.icns"),
   );
   copyFileSync(
-    join(root, "crates", "sikemux-core", "resources", "sikemux_pi_tools.ts"),
+    join(root, "crates", "sikemux-agents", "resources", "sikemux_pi_tools.ts"),
     join(contents, "Resources", "sikemux_pi_tools.ts"),
   );
   const executable = join(contents, "MacOS", "sikemux-host");

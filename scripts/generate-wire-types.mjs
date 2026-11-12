@@ -15,7 +15,11 @@ const WIRE = "crates/sikemux-wire/src";
 const VIEW = "crates/sikemux-view/src";
 const CORE = "crates/sikemux-core/src";
 /** The crates the core is split into, whose types its calls name as `crate::` paths. */
-const CORE_PARTS = ["crates/sikemux-corekit/src", "crates/sikemux-git/src"];
+const CORE_PARTS = [
+  "crates/sikemux-corekit/src",
+  "crates/sikemux-git/src",
+  "crates/sikemux-agents/src",
+];
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const MARKDOWN = "crates/sikemux-markdown/src";
 const BASE = "crates/sikemux-base/src";

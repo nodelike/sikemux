@@ -17,9 +17,9 @@ fn git(args: &[&str]) -> Option<String> {
 
 /// What the core embeds from outside the `src` of the crates it links, from the workspace root.
 const EMBEDDED: &[&str] = &[
-    "crates/sikemux-core/resources",
-    "crates/sikemux-core/models-dev.json",
-    "crates/sikemux-core/model-providers.json",
+    "crates/sikemux-agents/resources",
+    "crates/sikemux-agents/models-dev.json",
+    "crates/sikemux-agents/model-providers.json",
     "tools",
     "app/Cargo.toml",
     "Cargo.lock",

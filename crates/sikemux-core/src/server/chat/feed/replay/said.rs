@@ -1,49 +1,10 @@
 //! What a chat said, as another agent reads it, and the title it goes by.
 
 use serde_json::Value;
-use sikemux_fold::{ChatEvent, ChatEventKind, UpdateKind};
+use sikemux_fold::{ChatEventKind, UpdateKind};
 
 use super::Replay;
 use crate::sessions::transcript::Said;
-
-impl Said {
-    fn of(event: &ChatEvent) -> Option<Self> {
-        let text = |pointer: &str| {
-            event
-                .payload
-                .pointer(pointer)
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        };
-        match event.kind {
-            ChatEventKind::Prompt => text("/text").map(Said::Asked),
-            ChatEventKind::TurnStarted => Some(Said::TurnStarted),
-            ChatEventKind::TurnCompleted => Some(Said::TurnEnded {
-                cancelled: text("/stopReason").as_deref() == Some("cancelled"),
-            }),
-            ChatEventKind::Error => Some(Said::Failed(text("/message").unwrap_or_default())),
-            ChatEventKind::SessionUpdate => match UpdateKind::within(&event.payload)? {
-                UpdateKind::AgentMessageChunk => text("/update/content/text").map(Said::Message),
-                UpdateKind::UserMessageChunk => text("/update/content/text").map(Said::Asked),
-                UpdateKind::ToolCall | UpdateKind::ToolCallUpdate => Some(Said::Tool {
-                    id: text("/update/toolCallId")?,
-                    title: text("/update/title"),
-                    failed: text("/update/status").as_deref() == Some("failed"),
-                }),
-                _ => None,
-            },
-            _ => None,
-        }
-    }
-
-    fn bytes(&self) -> usize {
-        match self {
-            Said::Asked(text) | Said::Message(text) | Said::Failed(text) => text.len(),
-            Said::Tool { id, title, .. } => id.len() + title.as_ref().map_or(0, String::len),
-            Said::TurnStarted | Said::TurnEnded { .. } => 0,
-        }
-    }
-}
 
 /// What a chat said from one point on, without its thinking, its subagents'
 /// work or what its tools returned.

@@ -121,7 +121,7 @@ function claudeAccount() {
 // The tools profile is the same without that, for the one sikemux-host the harness itself runs.
 // The zsh options Sikemux starts agents' shells with.
 export function agentZshOptions(at) {
-  return readRepo('crates/sikemux-core/src/agent_shell.rs', at).match(/const OPTIONS: &str = "([^"]+)"/)[1];
+  return readRepo('crates/sikemux-agents/src/agent_shell.rs', at).match(/const OPTIONS: &str = "([^"]+)"/)[1];
 }
 
 // Sikemux links a GNU-style timeout beside its git shim; macOS has none.

@@ -10,6 +10,7 @@ publish = false
 host-addresses-file = []
 
 [dependencies]
+sikemux-agents = { path = "../sikemux-agents" }
 sikemux-base = { path = "../sikemux-base" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-process = { path = "../sikemux-process" }
@@ -18,8 +19,6 @@ sikemux-markdown = { path = "../sikemux-markdown" }
 agent-client-protocol = { version = "2.0.0", features = ["unstable_session_notices"] }
 curve25519-dalek = { version = "5", default-features = false }
 hex = "0.4"
-memchr = "2"
-quick-xml = "0.42"
 regex = "1"
 serde = { version = "1", features = ["derive", "rc"] }
 ignore = "0.4"
@@ -43,14 +42,12 @@ uuid = { version = "1", features = ["v4", "v7"] }
 
 [target.'cfg(unix)'.dependencies]
 base64 = "0.22"
-minisign-verify = "0.2"
 sikemux-client = { path = "../sikemux-client" }
 sikemux-git = { path = "../sikemux-git" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-loopback = { path = "../sikemux-loopback" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
-hashlink = "0.12"
 iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
 libc = "0.2"
 notify = "8"
@@ -69,11 +66,9 @@ tokio-websockets = { version = "0.13", default-features = false, features = ["cl
 toml = "1"
 trash = "5"
 webpki-roots = "1"
-zstd = { version = "0.14.3", default-features = false }
 
 [dev-dependencies]
 sikemux-corekit = { path = "../sikemux-corekit", features = ["testing"] }
-sikemux-git = { path = "../sikemux-git", features = ["testing"] }
 tempfile = "3"
 
 [lints.clippy]

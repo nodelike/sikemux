@@ -6,30 +6,12 @@ use serde_json::Value;
 use sikemux_view::places::{Level, Place as Shown, PlaceKind, PlaceStats, Recognise};
 
 use crate::ship::{leads, Ship, Target};
+pub(crate) use crate::ship::{says_not_production, says_production, GITHUB_RELEASES};
 
-pub(crate) const GITHUB_RELEASES: &str = "GitHub releases";
 pub(crate) const MAX_PLACES: usize = 32;
 const MAX_RECOGNISED: usize = 128;
 const MAX_NAME_CHARS: usize = 64;
 const MAX_VALUE_CHARS: usize = 200;
-/// Words in a name that say it is production.
-const PRODUCTION_WORDS: [&str; 4] = ["prod", "production", "prd", "live"];
-/// Words in a name that say it is clearly not production.
-const NOT_PRODUCTION_WORDS: [&str; 13] = [
-    "dev",
-    "develop",
-    "development",
-    "staging",
-    "stage",
-    "stg",
-    "qa",
-    "uat",
-    "test",
-    "testing",
-    "sandbox",
-    "preview",
-    "demo",
-];
 /// What a step may not be called, in any case: the gates and the keys they go by.
 const RESERVED: [&str; 4] = ["Built", "Looks right", "looksRight", "Landed"];
 
@@ -167,10 +149,6 @@ pub(crate) fn matches_path(pattern: &str, path: &str) -> bool {
     rest.ends_with(last)
 }
 
-pub(crate) fn says_production(name: &str) -> bool {
-    has_word(name, &PRODUCTION_WORDS)
-}
-
 /// A Heroku app is production unless its name says it isn't; another tool's stage is when
 /// its name says so.
 pub(crate) fn stage_is_production(tool: &str, name: &str) -> bool {
@@ -178,15 +156,6 @@ pub(crate) fn stage_is_production(tool: &str, name: &str) -> bool {
         "Heroku" => !says_not_production(name),
         _ => says_production(name),
     }
-}
-
-pub(crate) fn says_not_production(name: &str) -> bool {
-    !says_production(name) && has_word(name, &NOT_PRODUCTION_WORDS)
-}
-
-fn has_word(name: &str, words: &[&str]) -> bool {
-    name.split(|c: char| !c.is_ascii_alphanumeric())
-        .any(|word| words.iter().any(|said| word.eq_ignore_ascii_case(said)))
 }
 
 /// An id made of `name`'s letters and digits, for a place or a seen action.
