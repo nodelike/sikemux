@@ -119,7 +119,6 @@ struct GlanceRows: View {
                 Text("+\(more) more \(more == 1 ? "needs" : "need") you")
                     .font(Theme.ui(12)).foregroundStyle(palette.tertiary).padding(.leading, 26)
             }
-            StateMark(state: agent.state)
         }
     }
 }
