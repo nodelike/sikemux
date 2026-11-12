@@ -1090,7 +1090,7 @@ impl Workbench {
         };
         let who = self
             .agent_by_id(&holder.agent_id)
-            .and_then(|row| row.name)
+            .and_then(|row| row.handle().map(str::to_owned))
             .unwrap_or_else(|| "An agent".to_owned());
         self.confirm(
             format!("Shut down {}?", device.name),

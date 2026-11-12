@@ -121,7 +121,11 @@ impl Render for AgentReview {
         });
         let title = agent
             .as_ref()
-            .map(|agent| agent.name.clone().unwrap_or_else(|| agent.title.clone()))
+            .map(|agent| {
+                agent
+                    .handle()
+                    .map_or_else(|| agent.title.clone(), str::to_owned)
+            })
             .unwrap_or_else(|| "Agent".into());
         let mut body = div().flex().flex_col().gap(SPACE_2);
         let mut actions = div().flex().flex_wrap().gap(SPACE_1H).child(

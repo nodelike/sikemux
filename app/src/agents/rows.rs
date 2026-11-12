@@ -20,6 +20,9 @@ pub struct AgentRow {
     pub provider: String,
     pub title: String,
     pub name: Option<String>,
+    /// Whether the chat has a title of its own, drawn with the name beside it; an untitled one
+    /// shows its `@name` as the title.
+    pub titled: bool,
     pub status: AgentStatus,
     pub subagents: u32,
     pub tasks: u32,
@@ -272,7 +275,8 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
             Some(name) if !row.titled => format!("@{name}"),
             _ => row.title.clone(),
         },
-        name: row.name.clone().filter(|_| row.titled),
+        name: row.name.clone(),
+        titled: row.titled,
         status: row.status,
         subagents: row.subagents,
         tasks: row.tasks,
@@ -291,4 +295,11 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         snoozed_until: row.snoozed_until,
         settled_at: row.settled_at,
     })
+}
+
+impl AgentRow {
+    /// The name drawn beside the title, which an untitled row already shows as its title.
+    pub fn handle(&self) -> Option<&str> {
+        self.name.as_deref().filter(|_| self.titled)
+    }
 }

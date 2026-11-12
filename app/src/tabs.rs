@@ -388,8 +388,7 @@ fn strip_tab(
                 .mark(agent.mark(19., cx))
                 .note(
                     agent
-                        .name
-                        .as_ref()
+                        .handle()
                         .map(|name| SharedString::from(format!("@{name}"))),
                 )
                 .counts(crate::agents::counts(&agent, cx))

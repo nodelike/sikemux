@@ -98,7 +98,7 @@ enum Choice {
     Mate {
         id: String,
         name: String,
-        title: String,
+        title: Option<String>,
         project: Option<String>,
         provider: String,
     },
@@ -527,7 +527,7 @@ impl Workbench {
                     Some(Choice::Mate {
                         id: row.id,
                         name: mate,
-                        title: row.title,
+                        title: row.titled.then_some(row.title),
                         project: name.clone(),
                         provider: row.provider,
                     })
@@ -1073,14 +1073,16 @@ pub fn dock(
                     .flatten();
                 shown_project = project.as_deref();
                 let row = bench.agent_by_id(id);
-                DockRow::new(format!("@{name}"), choose)
-                    .mark(
-                        row.as_ref()
-                            .map_or_else(|| ui::mark(provider, 13.), |agent| agent.mark(13., cx)),
-                    )
-                    .detail(title.clone())
-                    .state(row.and_then(|agent| ui::status_mark(&agent.id, agent.status, cx)))
-                    .group(group)
+                let shown = DockRow::new(format!("@{name}"), choose).mark(
+                    row.as_ref()
+                        .map_or_else(|| ui::mark(provider, 13.), |agent| agent.mark(13., cx)),
+                );
+                match title {
+                    Some(title) => shown.detail(title.clone()),
+                    None => shown,
+                }
+                .state(row.and_then(|agent| ui::status_mark(&agent.id, agent.status, cx)))
+                .group(group)
             }
             Choice::Entry { path, folder } => {
                 let parent = path.rsplit_once('/').map_or(".", |(parent, _)| parent);

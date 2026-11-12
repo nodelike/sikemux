@@ -155,7 +155,7 @@ impl Workbench {
         };
         let mut taken_up = Vec::new();
         for agent in self.agents_of(project) {
-            let handle = agent.name.as_ref().map(|name| format!("@{name}"));
+            let handle = agent.handle().map(|name| format!("@{name}"));
             let pinned = self.chat_of(&agent.id).is_some_and(|chat| chat.pinned);
             let row = Row::new(format!("{OPEN}{}", agent.id), agent.title.clone())
                 .handle(handle.clone().map(SharedString::from))

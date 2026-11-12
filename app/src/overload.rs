@@ -178,9 +178,7 @@ fn row(
         Some(agent) => agent.mark(MARK, cx),
         None => div().size(px(MARK)).into_any_element(),
     };
-    let name = agent
-        .and_then(|agent| agent.name)
-        .map(|name| format!("@{name}"));
+    let name = agent.and_then(|agent| agent.handle().map(|name| format!("@{name}")));
     let asks = bench.asks.clone();
     let sims = bench.sims.clone();
     let stop = heavy.stop.clone();

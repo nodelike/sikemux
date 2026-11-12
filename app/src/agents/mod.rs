@@ -1107,7 +1107,7 @@ fn agent_row(
         }
     }))
     .children(host_tag(bench, agent, cx))
-    .children(agent.name.clone().map(|name| {
+    .children(agent.handle().map(|name| {
         let name = ui::meta(format!("@{name}"), cx).pl(SPACE_2).pr(SPACE_1);
         match fades {
             true => ui::gives_way(AGENT_ROW, name).into_any_element(),

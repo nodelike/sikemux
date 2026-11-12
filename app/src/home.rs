@@ -553,8 +553,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         })
         .name(
             agent
-                .name
-                .as_ref()
+                .handle()
                 .map(|name| SharedString::from(format!("@{name}"))),
         )
         .when_some(

@@ -219,7 +219,7 @@ pub fn view(
             )
         });
     let who: Vec<String> = agent
-        .name
+        .handle()
         .iter()
         .map(|name| format!("@{name}"))
         .chain(Some(bench.agent_name(&agent.provider).to_owned()))

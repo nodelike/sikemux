@@ -176,7 +176,10 @@ impl Workbench {
             [] => return,
             [(agent, _)] => self.agent_by_id(&agent.id).map_or_else(
                 || "the chat".to_owned(),
-                |row| row.name.map_or(row.title, |name| format!("@{name}")),
+                |row| {
+                    row.handle()
+                        .map_or(row.title.clone(), |name| format!("@{name}"))
+                },
             ),
             more => format!("{} chats", more.len()),
         };
@@ -232,8 +235,8 @@ impl Workbench {
     /// What to call an agent in a question: its name when `named` and it has one, else its title.
     fn label_of(&self, agent: &str, named: bool) -> String {
         self.agent_by_id(agent)
-            .map(|row| match row.name {
-                Some(name) if named => name,
+            .map(|row| match row.handle() {
+                Some(name) if named => name.to_owned(),
                 _ => row.title,
             })
             .unwrap_or_else(|| "the agent".to_owned())
