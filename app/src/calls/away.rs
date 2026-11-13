@@ -68,10 +68,10 @@ pub(super) fn block(
             .flex_col()
             .gap(SPACE_1)
             .when(!answered.is_empty(), |queue| {
-                queue.child(div().w(px(CARD_WIDTH)).max_w_full().children(answered))
+                queue.child(div().w_full().children(answered))
             })
             .child(panel(&t).child(shown))
-            .child(div().w(px(CARD_WIDTH)).max_w_full().children(rest))
+            .child(div().w_full().children(rest))
     });
     let needs = match away.calls.len() - waiting.len() {
         0 => waiting.len().to_string(),

@@ -1179,11 +1179,10 @@ fn strip(
         .into_any_element()
 }
 
-/// The card's panel, as it floats in a chat.
+/// The card's panel, as it floats in a chat: as wide as the chat's column.
 fn panel(t: &Tokens) -> gpui_kit::Div {
     div()
-        .w(px(CARD_WIDTH))
-        .max_w_full()
+        .w_full()
         .p(SPACE_1H)
         .bg(t.surface_overlay)
         .border_1()
