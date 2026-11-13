@@ -1,26 +1,30 @@
-# Sikemux v0.6.1-nightly.17
+# Sikemux v0.6.1-nightly.18
 
 Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
 ## Before you update
 
-- **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android.
+- **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android. Phone 0.2.0-nightly.24 comes out alongside this nightly.
 - **This nightly links only with hosts on the 0.6.1 nightlies.** Hosts on stable 0.6.0 can't reach it.
 
-## New since nightly.16
+## New since nightly.17
 
-- **/clear and /yolo** join /model as commands Sikemux answers itself: /clear starts a fresh chat with the same agent, account, model and mode, and /yolo switches asking before acting.
-- **Limits read as used**, as Claude's own usage page does, and the top bar's popover is the accounts card alone.
-- **Files on a message show as small framed cards**, in the composer and the transcript alike.
-- **⌘J and ⌘K step through the split**: chat alone, chat with its desk, and the desk alone are always one press apart.
+- **Eight languages.** The Mac app and both phones speak eight languages, and Settings search finds the current language's words.
+- **Try Sikemux free.** OpenCode with no sign-in is ready on its free models, so you can try Sikemux with no subscription, and a first run with an agent already signed in opens straight on your newest project.
+- **Auto permission mode** sits between Normal and YOLO: Claude Code and Codex review risky actions themselves.
+- **Decisions show where they were made.** A decision an agent records itself shows under its reply as "Decided", with what it rests on and Overrule.
+- **The chief.** It greets you once, shows what happened while you were away, and a call's card says what its asker goes on assuming until you answer, with Go with this.
+- **Prompt cache.** The context meter fills toward where the agent compacts, and shows when a big Claude chat's prompt cache has expired, with a choice to summarise first.
+- **Heavy commands wait their turn.** Agents' heavy commands wait in one line on the host, admitted by measured memory, and `sikemux.json` can list your own.
+- **Agents on linked hosts** act like local ones: menus, pausing, renaming, closing, and what they wait on you for.
+- **1Password.** Keys and tokens can be `op://` references; Sikemux keeps only the reference.
+- **Search a host's chats by what was said**, on both phones.
+- **Usage** shows cache writes as their own figure and where each model's cost went.
+- Every UI icon is now Lucide's.
 
 ## Fixes
 
-- Nightly.16 crashed on open when a desk came back empty from the last run. It opens again.
-- A chat's live plan limits go to the account it really runs on.
-- Moving a chat to another account mid-turn no longer tells its lead it stopped.
-- A linked host shows online within seconds of coming back.
-- /model opens the composer's model picker instead of sending "/model" as text.
-- A resumed Claude chat shows an answer with a pasted image as an answer card.
+- **What you type for an access call stays private**, as with a secret: it reaches no agent and no record, the keyboard learns nothing from it, and words kept from earlier versions are scrubbed when you update. The same holds when a worker asks its lead for access.
+- A file an agent's quick shell command wrote is credited to that agent, so its turn no longer reads "no changes".
 
-For the complete patch history, compare [`v0.6.1-nightly.16...v0.6.1-nightly.17`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.16...v0.6.1-nightly.17).
+For the complete patch history, compare [`v0.6.1-nightly.17...v0.6.1-nightly.18`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.17...v0.6.1-nightly.18).
