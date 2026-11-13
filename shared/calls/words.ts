@@ -108,10 +108,7 @@ export function waitingOn(wait: TurnWait, say: Say = english): string {
 export function waited(wait: TurnWait, now = Date.now(), say: Say = english): string[] {
     if (wait.kind === "timer") return [];
     if (wait.kind === "line") {
-        return [
-            ...(wait.place != null ? [placeInLine(wait.place, say)] : []),
-            ...(wait.expectedMs != null ? [about(wait.expectedMs, say)] : []),
-        ];
+        return [...(wait.place != null ? [placeInLine(wait.place, say)] : []), ...(wait.expectedMs != null ? [about(wait.expectedMs, say)] : [])];
     }
     const gone = Math.floor(Math.max(0, now - wait.startedAt) / MINUTE);
     if (wait.expectedMs == null) return [say("{minutes} min", { minutes: gone })];
