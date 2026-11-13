@@ -1,9 +1,14 @@
 // A new chat's glow: light coming in from two corners in drifting smoky streaks, drawn as
 // dots on an 8x8 Bayer grid whose number thins out with the light, each dot taking its colour
-// from a ramp of the accent, so it never fills solid.
+// from a ramp of the accent, so it never fills solid. With a pane picture, the picture's
+// brightness decides how many dots the light lights, so the picture shows in the glow's dots.
 //
 // params: where the clock starts, how fast it runs, device pixels per point and the
-// pane's corner radius in points; then the accent and how solid the dots are.
+// pane's corner radius in points; then the accent and how solid the dots are; then whether
+// the picture given is the pane's.
+
+@group(2) @binding(0) var image: texture_2d<f32>;
+@group(2) @binding(1) var image_sampler: sampler;
 
 const PX_SIZE: f32 = 2.0;
 const REACH: f32 = 0.92;
@@ -17,6 +22,18 @@ fn light(at: vec2<f32>, source: vec2<f32>, strength: f32, size: vec2<f32>) -> f3
 fn dim_middle(at: vec2<f32>, size: vec2<f32>) -> f32 {
     let from_middle = (at - 0.5) * size / max(size.x, size.y);
     return mix(0.55, 1.0, smoothstep(0.05, 0.35, length(from_middle)));
+}
+
+// The picture's brightness at `point`, measured from the pane's middle with y up, as the
+// picture covers the pane.
+fn brightness(point: vec2<f32>, size: vec2<f32>, texels: vec4<f32>) -> f32 {
+    let aspect = texels.z / texels.w;
+    let covered = max(size.x / aspect, size.y) * vec2<f32>(aspect, 1.0);
+    let at = point / covered + 0.5;
+    let atlas = vec2<f32>(textureDimensions(image));
+    let uv = (texels.xy + vec2<f32>(at.x, 1.0 - at.y) * texels.zw) / atlas;
+    let texel = textureSampleLevel(image, image_sampler, uv, 0.0);
+    return dot(vec3<f32>(0.2126, 0.7152, 0.0722), texel.rgb);
 }
 
 fn ramp(level: f32, accent: vec3<f32>) -> vec3<f32> {
@@ -61,7 +78,13 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let drift = vec2<f32>(0.12 * t, 0.04 * t);
     let smoke = 0.6 * snoise(1.5 * streak + drift) + 0.3 * snoise(3.1 * streak + 7.0 - 1.6 * drift)
         + 0.1 * snoise(7.0 * streak + 3.0 + 2.5 * drift);
-    let level = clamp(energy * (0.8 + 0.45 * smoke) - 0.12, 0.0, 1.0);
+    var lit = energy * (0.8 + 0.45 * smoke);
+    if (shader.params[2].x > 0.5) {
+        let centre = (cell + 0.5) * PX_SIZE;
+        let point = vec2<f32>(centre.x, size.y - centre.y) - 0.5 * size;
+        lit = lit * (0.15 + 1.7 * brightness(point, size, shader.image));
+    }
+    let level = clamp(lit - 0.12, 0.0, 1.0);
     if (level <= bayer8(cell)) {
         discard;
     }

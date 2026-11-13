@@ -299,21 +299,23 @@ fn bake(path: &Path, glow_size: f32) -> Option<Arc<RenderImage>> {
 
 /// What fills a pane's frame behind everything the pane shows.
 pub fn field(cx: &App) -> Option<AnyElement> {
-    field_at(cx, false).map(|draw| draw(1.))
+    field_at(cx).map(|draw| draw(1.))
 }
 
 /// What fills an agent pane's frame: its usual field, crossing over to a new chat's glow as
-/// `glow` runs from 0 to 1. A pane picture stays under the glow, covering the whole pane.
+/// `glow` runs from 0 to 1. A pane picture shows in the glow's own dots.
 pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
-    let field = field_at(cx, false);
-    let whole_picture = cx
+    let field = field_at(cx);
+    let picture = cx
         .try_global::<Grain>()
-        .is_some_and(|grain| grain.picture.is_some())
-        .then(|| field_at(cx, true))
-        .flatten();
+        .filter(|grain| grain.shown && grain.strength > 0.)
+        .and_then(|grain| Some(grain.picture.as_ref()?.1.clone()));
+    let burned = if picture.is_some() { 1. } else { 0. };
+    let picture = picture.unwrap_or_else(blank);
     let accent = Tokens::get(cx).accent.to_rgb();
     let (start, speed) = clock(GLOW_SPEED, cx);
     move |glow| {
+        let picture = picture.clone();
         div()
             .absolute()
             .inset_0()
@@ -322,12 +324,6 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
                     .as_ref()
                     .filter(|_| glow < 1.)
                     .map(|draw| draw(1. - glow)),
-            )
-            .children(
-                whole_picture
-                    .as_ref()
-                    .filter(|_| glow > 0.)
-                    .map(|draw| draw(glow)),
             )
             .children((glow > 0.).then(|| {
                 canvas(
@@ -341,7 +337,8 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
                             inner_radius(),
                         ]);
                         params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, glow]);
-                        let _ = window.paint_ground_shader(bounds, &GLOW, params, None);
+                        params[8] = burned;
+                        let _ = window.paint_ground_shader(bounds, &GLOW, params, Some(&picture));
                     },
                 )
                 .absolute()
@@ -351,25 +348,32 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
     }
 }
 
+/// A one-pixel picture for a shader that reads one when there is none to give it.
+fn blank() -> Arc<RenderImage> {
+    static BLANK: OnceLock<Arc<RenderImage>> = OnceLock::new();
+    BLANK
+        .get_or_init(|| {
+            let pixel = image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
+            Arc::new(RenderImage::new([image::Frame::new(pixel)]))
+        })
+        .clone()
+}
+
 fn inner_radius() -> f32 {
     f32::from(RADIUS_3) - 1.
 }
 
-/// The pane's field drawn as solid as the number it is given, from 0 to 1, its picture over
-/// the whole pane when `whole`, else as the preferences say.
-fn field_at(cx: &App, whole: bool) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
+/// The pane's field drawn as solid as the number it is given, from 0 to 1.
+fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
     let grain = cx
         .try_global::<Grain>()
         .filter(|grain| grain.shown && grain.strength > 0.)?;
     if let Some((_, picture)) = &grain.picture {
-        let band = match whole || grain.look.full {
+        let band = match grain.look.full {
             true => relative(1.),
             false => relative(PICTURE_BAND),
         };
-        let mut params = picture_params(grain, cx);
-        if whole {
-            params[3] = 1.;
-        }
+        let params = picture_params(grain, cx);
         let picture = picture.clone();
         return Some(Rc::new(move |solid| {
             let mut params = params;
