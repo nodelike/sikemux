@@ -233,12 +233,18 @@ pub(crate) enum ChatCommand {
 }
 
 impl ChatCommand {
-    /// The person's own message or Stop.
+    /// Something the person did themselves, such as their message, Stop, or a change of mode
+    /// or model, which only the app sends. A retry is theirs only through
+    /// [`Chat::retry_failed`], and an account move can be the core's own, so neither counts.
     fn is_persons(&self) -> bool {
         match self {
             Self::Prompt { whose, .. } | Self::Steer { whose, .. } => whose.person,
             Self::Letter { person, .. } => *person,
-            Self::Edit { .. } | Self::Cancel => true,
+            Self::Edit { .. }
+            | Self::Cancel
+            | Self::SetPermissionMode { .. }
+            | Self::SetConfig { .. }
+            | Self::DiscardFailed => true,
             _ => false,
         }
     }
@@ -1283,9 +1289,12 @@ impl Chat {
             .await;
     }
 
+    /// The person's Retry.
     pub(crate) fn retry_failed(&self) -> CoreResult<()> {
         self.offline_failed.store(false, Ordering::Release);
-        self.send(ChatCommand::RetryFailed)
+        self.send(ChatCommand::RetryFailed)?;
+        self.person_came.notify_one();
+        Ok(())
     }
 
     pub(crate) fn discard_failed(&self) -> CoreResult<()> {
