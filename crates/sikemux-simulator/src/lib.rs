@@ -4,7 +4,9 @@
 //! ([`SimulatorManager`]), and the agents' `sim` tool ([`tools`]). The app
 //! hosting it gives it a [`Host`] for its data folder and its events.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
+
+use sikemux_process::line::{lapsed, Places};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -106,13 +108,6 @@ impl Attachment {
     }
 }
 
-/// An agent waiting for room to start a simulator.
-struct Waiter {
-    agent_id: String,
-    joined: Instant,
-    seen: Instant,
-}
-
 /// One agent's device, as the desk lists it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -174,7 +169,7 @@ struct Shared {
     /// Whether each agent was offered the tools when it listed them.
     offered: HashMap<String, bool>,
     /// Agents waiting for room to start a simulator, first come first served.
-    line: VecDeque<Waiter>,
+    line: Places,
     /// Devices Sikemux is booting now, and room reserved for ones about to boot.
     starting: HashSet<String>,
 }
@@ -502,7 +497,7 @@ impl SimulatorManager {
         let mut shared = self.shared.locked();
         shared.desk.remove(agent_id);
         shared.offered.remove(agent_id);
-        shared.line.retain(|waiter| waiter.agent_id != agent_id);
+        shared.line.leave(agent_id);
     }
 
     /// Stops following a device's log, and shuts it down a while later if
@@ -722,7 +717,7 @@ impl SimulatorManager {
         if place == 0 && wait.is_none() {
             let key = format!("reserved-by-{agent_id}");
             shared.starting.insert(key.clone());
-            shared.line.retain(|waiter| waiter.agent_id != agent_id);
+            shared.line.leave(agent_id);
             drop(shared);
             self.emit(LOAD_EVENT, json!({}));
             return Ok(Starting { manager: self, key });
@@ -740,45 +735,15 @@ impl SimulatorManager {
 
     /// The agent's place in line, joining it or keeping it, and when it joined.
     fn take_place(&self, agent_id: &str) -> (usize, Instant) {
-        let mut shared = self.shared.locked();
-        let now = Instant::now();
-        let before = shared.line.len();
-        shared
-            .line
-            .retain(|waiter| waiter.agent_id == agent_id || waiter.seen.elapsed() < PLACE_KEPT);
-        let place = match shared
-            .line
-            .iter()
-            .position(|waiter| waiter.agent_id == agent_id)
-        {
-            Some(place) => place,
-            None => {
-                shared.line.push_back(Waiter {
-                    agent_id: agent_id.to_owned(),
-                    joined: now,
-                    seen: now,
-                });
-                shared.line.len() - 1
-            }
-        };
-        let moved = shared.line.len() != before;
-        let waiter = &mut shared.line[place];
-        waiter.seen = now;
-        let taken = (place, waiter.joined);
-        drop(shared);
-        if moved {
+        let taken = self.shared.locked().line.take(agent_id, PLACE_KEPT);
+        if taken.moved {
             self.emit(LOAD_EVENT, json!({}));
         }
-        taken
+        (taken.ahead, taken.joined)
     }
 
     pub(crate) fn leave_line(&self, agent_id: &str) {
-        let left = {
-            let mut shared = self.shared.locked();
-            let before = shared.line.len();
-            shared.line.retain(|waiter| waiter.agent_id != agent_id);
-            shared.line.len() != before
-        };
+        let left = self.shared.locked().line.leave(agent_id);
         if left {
             self.emit(LOAD_EVENT, json!({}));
         }
@@ -796,10 +761,9 @@ impl SimulatorManager {
             })
             .collect();
         held.sort_by_key(|held| held.since);
-        let waiting = (shared.line.iter().enumerate())
-            .filter(|(_, waiter)| waiter.seen.elapsed() < PLACE_KEPT)
-            .map(|(ahead, waiter)| Waiting {
-                agent_id: waiter.agent_id.clone(),
+        let waiting = (shared.line.waiting(PLACE_KEPT))
+            .map(|(ahead, place)| Waiting {
+                agent_id: place.who.clone(),
                 ahead,
             })
             .collect();
@@ -836,7 +800,7 @@ impl SimulatorManager {
             .attachments
             .iter()
             .filter(|(agent_id, attachment)| {
-                agent_id.as_str() != waiting && attachment.used.elapsed() >= LEASE
+                agent_id.as_str() != waiting && lapsed(attachment.used, LEASE)
             })
             .map(|(agent_id, _)| agent_id.clone())
             .collect();

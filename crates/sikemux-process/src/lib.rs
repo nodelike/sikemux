@@ -12,6 +12,7 @@ pub mod cgroups;
 pub mod clock;
 pub mod files;
 pub mod jobs;
+pub mod line;
 pub mod machine;
 pub mod memory_pressure;
 pub mod names;
