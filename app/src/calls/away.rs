@@ -75,10 +75,6 @@ pub(super) fn block(
             (hours, minutes) => t!("{hours} h {minutes} min", hours = hours, minutes = minutes),
         }
     });
-    let from = match gone {
-        Some(gone) => t!("· {gone} · from @Chief", gone = gone),
-        None => t!("· from @Chief").to_owned(),
-    };
     let head = div()
         .flex()
         .items_center()
@@ -91,12 +87,12 @@ pub(super) fn block(
                 .text_color(t.text_primary)
                 .child(t!("While you were away")),
         )
-        .child(
+        .children(gone.map(|gone| {
             div()
                 .text_size(theme::ui_text(11.5))
                 .text_color(t.text_tertiary)
-                .child(from),
-        );
+                .child(format!("· {gone}"))
+        }));
     div()
         .w_full()
         .p(px(12.))

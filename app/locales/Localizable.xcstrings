@@ -122033,7 +122033,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "@{name}이(가)"
+            "value": "처리: @{name}"
           }
         },
         "pt-BR": {
@@ -162774,58 +162774,6 @@
         }
       }
     },
-    "· from @Chief": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· de @Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· 来自 @Chief"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· von @Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· de @Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· @Chief より"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· @Chief가 보냄"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· от @Chief"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· de @Chief"
-          }
-        }
-      }
-    },
     "· waits for you": {
       "localizations": {
         "es": {
@@ -162926,58 +162874,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "· {calls} chamadas de ferramentas"
-          }
-        }
-      }
-    },
-    "· {gone} · from @Chief": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· {gone} · de @Chief"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· {gone} · 来自 @Chief"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· {gone} · von @Chief"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· {gone} · de @Chief"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· {gone} · @Chief より"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· {gone} · @Chief가 보냄"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· {gone} · от @Chief"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· {gone} · de @Chief"
           }
         }
       }
