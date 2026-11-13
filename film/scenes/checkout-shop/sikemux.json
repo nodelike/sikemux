@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "ports": { "db": 5432 },
+  "env": {
+    "DATABASE_URL": "postgres://localhost:{port.db}/shop_{checkout}",
+    "VITE_API_URL": "http://localhost:{port.api}"
+  },
+  "tasks": [
+    { "id": "web", "label": "Web", "command": "python3 -m http.server $PORT", "port": 5173 },
+    { "id": "api", "label": "API", "command": "python3 -m http.server $PORT", "port": 8000 }
+  ],
+  "preview": { "url": "http://localhost:{port.web}" }
+}

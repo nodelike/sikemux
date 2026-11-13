@@ -25,7 +25,8 @@
 //!   page ID FILE                keeps FILE as the page a scripted page_show call names by ID
 //!   open FILE|terminal|git      opens FILE of the last project, a new terminal or Git in a tab
 //!   core METHOD "JSON"          calls the core's METHOD with JSON, $project standing for the
-//!                               last project's folder
+//!                               last project's folder, $chat for the last chat and $checkout
+//!                               for the checkout an earlier call answered
 //!   patch FILE                  applies FILE, a diff beside the scene, to the last project unstaged
 //!   prefer KEY [VALUE]          sets a preference, VALUE as JSON or else as text, or puts
 //!                               back the world's

@@ -1,0 +1,16 @@
+# A chat in a checkout of its own: the chip of its ten ports beside its branch under the
+# composer, and the popover with the checkout's name, its ports and the environment it gets.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+project storefront checkout-shop
+chat Wren
+core createAgentWorktree "{\"agentId\":\"$chat\",\"message\":\"Some orders come out a cent off\"}"
+core trustProject "{\"project\":\"$checkout\",\"fingerprint\":\"sha256:448402502474ec85c10620435e2d325cc0586fce998e090076b44e8af11b49e7\"}"
+core taskStart "{\"project\":\"$checkout\",\"taskId\":\"web\"}"
+core taskStart "{\"project\":\"$checkout\",\"taskId\":\"api\"}"
+settle 8
+snap after
+click 768,854
+settle 3
+snap after-popover

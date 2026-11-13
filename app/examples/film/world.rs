@@ -17,6 +17,8 @@ pub(super) struct World {
     pub(super) chat: Option<String>,
     /// The chats the scene opened, by the name it gave each.
     named: std::collections::HashMap<String, String>,
+    /// The folder of the checkout the last `core` call made, for `$checkout`.
+    checkout: Option<String>,
     pub(super) claude: PathBuf,
     pub(super) world: Value,
 }
@@ -171,6 +173,7 @@ impl World {
             project: None,
             chat: None,
             named: std::collections::HashMap::new(),
+            checkout: None,
             claude,
             world: args.world.clone(),
         })
@@ -611,8 +614,14 @@ impl World {
             }
             "core" => {
                 let (_, path) = self.project()?.clone();
-                let params = step.text(1)?.replace("$project", &path.to_string_lossy());
-                self.call(step.text(0)?, serde_json::from_str(&params)?)?;
+                let params = (step.text(1)?)
+                    .replace("$project", &path.to_string_lossy())
+                    .replace("$chat", self.chat.as_deref().unwrap_or_default())
+                    .replace("$checkout", self.checkout.as_deref().unwrap_or_default());
+                let answer = self.call(step.text(0)?, serde_json::from_str(&params)?)?;
+                if let Some(folder) = answer.pointer("/worktree/path").and_then(Value::as_str) {
+                    self.checkout = Some(folder.to_owned());
+                }
             }
             _ => return Ok(false),
         }
