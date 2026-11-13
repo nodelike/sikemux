@@ -1393,7 +1393,8 @@ impl Workbench {
                 })
         });
         if free {
-            draft.read(cx).focus_handle(cx).focus(window, cx);
+            // A draft made in this same frame misses its own focus event, so start its caret here.
+            draft.update(cx, |draft, cx| draft.focus(window, cx));
         }
     }
 
