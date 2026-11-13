@@ -1015,7 +1015,7 @@ pub(crate) fn refresh_away(core: &Core, calls: &[PersonCall]) {
         }
         let done = away.until_answered && live.is_empty();
         let answered = (away.shown.calls.iter())
-            .filter(|id| !live.contains(id))
+            .filter(|id| !live.contains(id) && !away.shown.answered.contains(id))
             .filter(|id| {
                 (calls.iter()).any(|call| &call.id == *id && call.state == CallState::Answered)
             })

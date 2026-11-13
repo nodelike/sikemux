@@ -117536,6 +117536,58 @@
         }
       }
     },
+    "You let @{name} go on assuming it": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du hast @{name} bei der Annahme bleiben lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dejaste que @{name} siguiera con su suposición"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous avez laissé @{name} poursuivre avec son hypothèse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name} の想定のまま進めてもらいました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@{name}의 가정대로 진행하게 했습니다"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você deixou @{name} seguir com a suposição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы позволили @{name} действовать по своему предположению"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你让 @{name} 按其假设继续"
+          }
+        }
+      }
+    },
     "You · Uncommitted changes": {
       "localizations": {
         "es": {

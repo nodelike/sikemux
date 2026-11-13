@@ -1216,8 +1216,13 @@ fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
         .chain(&answer.options)
         .filter_map(label)
         .collect();
+    let said_nothing = answer.words.is_none() && answer.note.is_none();
     match (&answer.by, picked.is_empty(), call.secret) {
         (_, _, true) => t!("You answered, kept private").to_owned(),
+        _ if handed_back(call) => t!("handed back to @{name}", name = call.asker.name),
+        (_, true, _) if said_nothing && call.assumption.is_some() => {
+            t!("You let @{name} go on assuming it", name = call.asker.name)
+        }
         (CallClient::Chat, ..) => t!("You answered in the chat").to_owned(),
         (_, false, _) => t!("You chose {options}", options = picked.join(", ")),
         (_, true, _) => t!("You answered in your own words").to_owned(),
@@ -1225,7 +1230,9 @@ fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
 }
 
 fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
-    let answered = (call.answer.as_ref()).map(|answer| answer_words(call, answer));
+    let answered = (call.answer.as_ref())
+        .filter(|_| !handed_back(call))
+        .map(|answer| answer_words(call, answer));
     let outcome = call.outcome.as_ref().and_then(|outcome| {
         Some(match (outcome.result, outcome.healthy) {
             (CallResult::Shipped, Some(true)) => t!("shipped · healthy").to_owned(),
@@ -1641,6 +1648,10 @@ fn call_keys<E: InteractiveElement>(keyed: E, id: &str, bench: &WeakEntity<Workb
         .on_action(on(id, bench, |_: &NextChoice| Press::Down))
         .on_action(on(id, bench, |_: &Tick| Press::Tick))
         .on_action(on(id, bench, |_: &Confirm| Press::Pick))
+}
+
+fn handed_back(call: &PersonCall) -> bool {
+    (call.outcome.as_ref()).is_some_and(|outcome| outcome.result == CallResult::HandedBack)
 }
 
 fn lets_stand(call: &PersonCall) -> bool {
