@@ -110,11 +110,11 @@ pub(crate) fn here(core: &Core, cwd: &Path) -> Option<Here> {
             (MAIN.to_owned(), project, None)
         }
     };
-    let load = cwd
+    let folder = cwd
         .ancestors()
         .take_while(|folder| folder.starts_with(&root))
-        .find(|folder| folder.join(CONFIG_FILE).is_file())
-        .map(config::load);
+        .find(|folder| folder.join(CONFIG_FILE).is_file());
+    let load = folder.map(config::load);
     let trusted = load
         .as_ref()
         .is_some_and(|load| tasks::config_needs(core, load).is_none());
@@ -132,6 +132,13 @@ pub(crate) fn here(core: &Core, cwd: &Path) -> Option<Here> {
         config,
         trusted,
     })
+}
+
+/// The project's own copy of `file`, a file in a checkout the core cut.
+pub(crate) fn projects_own(core: &Core, file: &Path) -> Option<PathBuf> {
+    let file = std::fs::canonicalize(file).ok()?;
+    let held = core.ports().blocks.of(&file)?;
+    Some(held.repo.join(file.strip_prefix(&held.path).ok()?))
 }
 
 /// `url` with the values of the checkout `dir` lies in filled in.

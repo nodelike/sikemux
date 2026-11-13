@@ -76,6 +76,7 @@ icons!(
     Download => "download",
     Editor => "editor",
     ExpandAll => "expand-all",
+    ExternalLink => "external-link",
     Eye => "eye",
     Fetch => "fetch",
     File => "file",

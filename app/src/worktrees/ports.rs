@@ -182,7 +182,7 @@ fn card(
                 .text_color(t.text_tertiary),
             )
             .when(listening, |row| {
-                row.child(ui::icon(Icon::Link, 12.).text_color(t.text_tertiary))
+                row.child(ui::icon(Icon::ExternalLink, 12.).text_color(t.text_tertiary))
             })
     });
     let kept = (!about.main_ports.is_empty()).then(|| {
