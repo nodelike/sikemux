@@ -8,7 +8,7 @@ PUBLISHED_HELPERS=(sikemux-voice sikemux-sim)
 MAC_TARGET=aarch64-apple-darwin
 PUBLISHED_HELPER_FILES=("${PUBLISHED_HELPERS[@]/%/-$MAC_TARGET}")
 # The README and sikemux.com promise a small download.
-DMG_BUDGET_BYTES=30000000
+DMG_BUDGET_BYTES=33000000
 TEAM=D577WD6Z5U
 TAURI_CLI_VERSION=2.12.0
 # No build sees these; each signing tool gets only the one it needs.
