@@ -345,4 +345,5 @@ crate::calls! {
     "boardNote" BoardNote (crate::board::BoardNoteParams) -> crate::board::ProjectBoard;
     "tasks" Tasks (crate::tasks::ProjectParams) -> crate::tasks::TaskList;
     "plugin" Plugin (crate::plugins::PluginCall) -> crate::plugins::PluginOutcome;
+    "chatFind" ChatFind (crate::chat_find::FindParams) -> crate::chat_find::FindAnswer;
 }

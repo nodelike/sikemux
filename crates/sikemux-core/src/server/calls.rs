@@ -175,7 +175,7 @@ calls! { core, client, method, params;
         let reading = core.clone();
         blocking(move || super::chat::page(&reading, params)).await?
     },
-    "chatFind" ChatFind (super::chat::find::FindParams) -> super::chat::find::FindAnswer: Watch, any_program, counted => {
+    "chatFind" = ChatFind: Watch, any_program, counted => {
         let (reading, client) = (core.clone(), client.id);
         blocking(move || super::chat::find(&reading, client, params)).await?
     },

@@ -31,6 +31,7 @@ pub mod attachments;
 pub mod board;
 pub mod call;
 pub mod chat;
+pub mod chat_find;
 pub mod chief;
 pub mod cli_install;
 pub mod codehost;

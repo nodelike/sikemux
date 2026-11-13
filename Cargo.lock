@@ -9973,6 +9973,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-agents",
+ "sikemux-calls",
  "sikemux-corekit",
  "sikemux-fold",
  "sikemux-markdown",

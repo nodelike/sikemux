@@ -6,6 +6,7 @@ publish = false
 
 [target.'cfg(unix)'.dependencies]
 sikemux-agents = { path = "../sikemux-agents" }
+sikemux-calls = { path = "../sikemux-calls" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-fold = { path = "../sikemux-fold" }
 sikemux-markdown = { path = "../sikemux-markdown" }
