@@ -680,7 +680,7 @@ mod tests {
         let effects = notify(
             &mut session,
             "turn/completed",
-            turn("turn-b", "failed", error.clone()),
+            turn("turn-b", "failed", error),
         );
         match ended(&effects) {
             Some((2, TurnEnd::Failed { failure, response })) => {

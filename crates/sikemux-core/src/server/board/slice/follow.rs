@@ -272,9 +272,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         RepoEvent::Committed { project, sha, .. }
         | RepoEvent::Landed {
             project, tip: sha, ..
-        } => known
-            .clone()
-            .filter(|known| known != sha && ancestor(project, sha, known)),
+        } => known.filter(|known| known != sha && ancestor(project, sha, known)),
         RepoEvent::Deployed { .. } | RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => {
             None
         }

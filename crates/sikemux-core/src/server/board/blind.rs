@@ -748,7 +748,7 @@ pub(super) async fn start(
                 core.open_agents(),
             );
             core.names().make_blind(&agent);
-            launch.agent_id = agent.clone();
+            launch.agent_id = agent;
             launch
                 .env
                 .insert(TOOLS_OFFER_ENV.into(), REVIEWER_OFFER.into());

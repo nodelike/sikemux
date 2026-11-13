@@ -141,9 +141,7 @@ pub fn render(
             .text_color(t.text_tertiary)
             .child(text.to_owned())
     };
-    let shown_url = url
-        .clone()
-        .unwrap_or_else(|| "http://127.0.0.1:47731/mcp".into());
+    let shown_url = url.unwrap_or_else(|| "http://127.0.0.1:47731/mcp".into());
     let add = div()
         .flex()
         .flex_col()

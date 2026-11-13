@@ -289,7 +289,7 @@ mod tests {
         let phone = iroh::SecretKey::from_bytes(&[7; 32]).public().to_string();
         assert_eq!(
             (host, phone),
-            (vector.ticket.host.clone(), vector.ticket.phone.clone())
+            (vector.ticket.host.clone(), vector.ticket.phone)
         );
     }
 

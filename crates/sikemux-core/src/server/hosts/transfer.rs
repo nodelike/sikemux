@@ -475,9 +475,7 @@ async fn close_here(core: &Arc<Core>, chat: &Sent) -> Result<(), String> {
         executable_path: None,
         config_path: chat.config.clone(),
     };
-    delete::delete(saved)
-        .await
-        .map_err(|error| error.to_string())
+    delete::delete(saved).await
 }
 
 #[derive(Serialize, Deserialize)]

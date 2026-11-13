@@ -213,7 +213,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             true => {
                 let (from, unlanded) = match own {
                     Some(tree) => (tree.repo.clone(), super::land::unlanded(&tree)?),
-                    None => (dir.clone(), None),
+                    None => (dir, None),
                 };
                 not_pushed = unlanded
                     .or_else(|| super::super::ship::check(&core, &agent_id, ship(), &from).err());

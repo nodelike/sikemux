@@ -207,7 +207,7 @@ impl Workbench {
             .target()
             .request_typed::<call::SetCheck>(SetCheckParams {
                 project: folder.to_owned(),
-                command: typed.to_owned(),
+                command: typed,
             });
         let folder = folder.to_owned();
         self.report(
@@ -396,10 +396,7 @@ fn space_choice(
             let space = at.checked_sub(1).and_then(|at| offered.get(at)).cloned();
             bench
                 .target()
-                .call_typed::<call::UpdateProject>(UpdateProjectParams::space(
-                    project.clone(),
-                    space,
-                ));
+                .call_typed::<call::UpdateProject>(UpdateProjectParams::space(project, space));
         },
         window,
         cx,

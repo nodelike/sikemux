@@ -79,7 +79,7 @@ pub fn unsourced(text: &str, sources: impl Fn(&str) -> Option<bool>) -> Vec<(Ran
                 | Tag::Subscript,
             ) => {
                 if marked == 0 {
-                    run.push((range.clone(), Piece::Marked));
+                    run.push((range, Piece::Marked));
                 }
                 marked += 1;
                 true
@@ -102,11 +102,11 @@ pub fn unsourced(text: &str, sources: impl Fn(&str) -> Option<bool>) -> Vec<(Ran
                     true => Piece::Words,
                     false => Piece::Marked,
                 };
-                run.push((range.clone(), piece));
+                run.push((range, piece));
                 true
             }
             Event::SoftBreak => {
-                run.push((range.clone(), Piece::Words));
+                run.push((range, Piece::Words));
                 true
             }
             Event::Code(_)
@@ -115,7 +115,7 @@ pub fn unsourced(text: &str, sources: impl Fn(&str) -> Option<bool>) -> Vec<(Ran
             | Event::HardBreak
             | Event::FootnoteReference(_)
             | Event::TaskListMarker(_) => {
-                run.push((range.clone(), Piece::Marked));
+                run.push((range, Piece::Marked));
                 true
             }
             _ => false,

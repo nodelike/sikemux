@@ -376,8 +376,7 @@ async fn finish(
         .code(state)
         .await
         .map_err(|error| format!("sign-in was not finished: {}", error.0))?;
-    let response = client()
-        .map_err(|error| error.to_string())?
+    let response = client()?
         .post(format!("{CLERK}/oauth/token"))
         .form(&[
             ("grant_type", "authorization_code"),
@@ -485,7 +484,7 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
             crate::accounts::api_base().trim_end_matches('/')
         )
     };
-    let client = client().map_err(|error| error.to_string())?;
+    let client = client()?;
     let response = client
         .post(api("/v1/devices/challenge"))
         .bearer_auth(access_token)

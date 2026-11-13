@@ -208,10 +208,7 @@ impl Workbench {
         if !self.pairing.phones.is_empty() {
             return self.answer_account_phones(allow, cx);
         }
-        let Some((asker, id)) = self
-            .waiting()
-            .map(|(asker, request)| (asker, request.id.clone()))
-        else {
+        let Some((asker, id)) = self.waiting().map(|(asker, request)| (asker, request.id)) else {
             return;
         };
         let access = std::mem::replace(&mut self.pairing.access, DeviceAccess::Full);

@@ -600,14 +600,12 @@ mod tests {
             listed(&first),
             vec![("claude", "/a", 400), ("codex", "/a", 300)]
         );
-        let second =
-            recent_page(request(providers(), &["/a", "/b"], 2, first.next.clone())).unwrap();
+        let second = recent_page(request(providers(), &["/a", "/b"], 2, first.next)).unwrap();
         assert_eq!(
             listed(&second),
             vec![("claude", "/b", 200), ("codex", "/b", 100)]
         );
-        let third =
-            recent_page(request(providers(), &["/a", "/b"], 2, second.next.clone())).unwrap();
+        let third = recent_page(request(providers(), &["/a", "/b"], 2, second.next)).unwrap();
         assert!(third.sessions.is_empty() && third.next.is_none());
     }
 

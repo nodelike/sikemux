@@ -1178,7 +1178,7 @@ pub fn tiles(
         let number = is_image(path).then_some(index + 1);
         let name = match is_snip(path) {
             true => picture_label(index + 1, path),
-            false => crate::ui::path::file_name(path).to_string(),
+            false => crate::ui::path::file_name(path),
         };
         let tile = framed(format!("attachment-{index}"), path, number, name, &t, cx)
             .when_some(opens, |tile, opens| tile.on_click(opens))
@@ -1519,7 +1519,7 @@ fn carried(
     t: &Tokens,
     cx: &App,
 ) -> gpui_kit::AnyElement {
-    let name = crate::ui::path::file_name(&path).to_string();
+    let name = crate::ui::path::file_name(&path);
     if !is_image(&path) {
         let (full, menu_full) = (
             path.to_string_lossy().into_owned(),
@@ -1583,7 +1583,7 @@ pub fn file_pill(
     t: &Tokens,
     cx: &App,
 ) -> gpui_kit::AnyElement {
-    let name = crate::ui::path::file_name(&path).to_owned();
+    let name = crate::ui::path::file_name(&path);
     let icon = crate::file_icons::icon(&SharedString::from(name.clone()), cx)
         .map(|icon| gpui_kit::img(icon).size(px(14.)).into_any_element())
         .unwrap_or_else(|| {

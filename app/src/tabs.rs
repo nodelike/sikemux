@@ -611,7 +611,7 @@ impl TabMenu {
             );
         }
         let close = {
-            let (strip, tab) = (strip.clone(), tab.clone());
+            let (strip, tab) = (strip.clone(), tab);
             on_bench(&self.bench, move |bench, cx| {
                 bench.close_tabs_asking(strip.clone(), vec![tab.clone()], cx)
             })

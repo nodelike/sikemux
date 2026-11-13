@@ -90,14 +90,12 @@ fn commits_after(search: &Search) -> Result<(String, bool, Vec<String>), String>
             false,
         ),
     };
-    let listed = git()
-        .trimmed(&[
-            "rev-list",
-            "--reverse",
-            "--first-parent",
-            &format!("{base}..{}", search.newest()),
-        ])
-        .map_err(|error| error.to_string())?;
+    let listed = git().trimmed(&[
+        "rev-list",
+        "--reverse",
+        "--first-parent",
+        &format!("{base}..{}", search.newest()),
+    ])?;
     Ok((
         base,
         known,

@@ -294,7 +294,7 @@ pub(crate) async fn place(core: &Arc<Core>, params: PlacePinParams) -> CoreResul
         .chats()
         .get(&params.agent_id)
         .map(|chat| chat.launch.cwd.clone()))
-    .or_else(|| (core.workspaces().agent(&params.agent_id)).map(|agent| agent.cwd.clone()));
+    .or_else(|| (core.workspaces().agent(&params.agent_id)).map(|agent| agent.cwd));
     let project = (named.as_ref().map(|named| named.project.clone()))
         .or_else(|| cwd.as_ref().map(|cwd| core.workspaces().project_of(cwd)))
         .ok_or_else(|| CoreError::from("That agent is gone"))?;

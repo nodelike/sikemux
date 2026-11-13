@@ -1094,7 +1094,7 @@ fn rule_change(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
             Some(t!("by @{name}", name = line.by.clone())),
         ),
     };
-    let quoted = t!("“{text}”", text = line.text.clone());
+    let quoted = t!("“{text}”", text = line.text);
     let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
     notice_box(looks)
         .child(ui::icon(Icon::Check, 12.).text_color(looks.quiet))

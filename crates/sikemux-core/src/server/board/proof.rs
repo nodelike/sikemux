@@ -138,7 +138,7 @@ async fn rewrite(core: &Arc<Core>, project: &str, card: u64, pull: AutoPull) -> 
     let (consent, picture, kept, owner) = {
         let state = core.boards().state.locked();
         let board = state.boards.get(project).ok_or("the board is gone")?;
-        let held = board.card(card).map_err(|error| error.to_string())?;
+        let held = board.card(card)?;
         let slice = held.slice.as_ref().ok_or("the slice is gone")?;
         let linked = (slice.pull.as_ref()).filter(|linked| linked.at.url == pull.url);
         let consent = match linked {

@@ -101,7 +101,7 @@ fn signing(bench: &Workbench, id: &str, this: &Entity<Workbench>, cx: &App) -> O
                 }),
             })
             .child({
-                let id = owned.clone();
+                let id = owned;
                 button(
                     "sign-in-cancel",
                     t!("Cancel"),
@@ -122,7 +122,7 @@ fn signing(bench: &Workbench, id: &str, this: &Entity<Workbench>, cx: &App) -> O
                     .child(message.clone()),
             )
             .child({
-                let id = owned.clone();
+                let id = owned;
                 button(
                     "sign-in-retry",
                     t!("Try again"),
@@ -264,7 +264,7 @@ fn account_row(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .child(name.clone())
+        .child(name)
         .when(in_use, |label| {
             label.child(
                 div()
@@ -383,7 +383,7 @@ pub fn render(
             body.child(rows::note(t!("Reading accounts…"), cx))
         });
     rows::section(
-        title.clone(),
+        title,
         Some(match count {
             1 => t!("1 account").into(),
             count => t!("{count} accounts", count = count).into(),

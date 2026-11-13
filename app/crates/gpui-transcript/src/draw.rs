@@ -1456,7 +1456,7 @@ impl Draw<'_> {
             Some(name) => (name.clone(), true),
             None => match &style.card.title {
                 Some(title) => title(lang.as_deref(), &code.text),
-                None => (lang.clone().unwrap_or_default(), true),
+                None => (lang.unwrap_or_default(), true),
             },
         };
         let (folder, file) = match title.rsplit_once('/') {

@@ -557,13 +557,12 @@ impl Workbench {
         cx.spawn(async move |bench, cx| {
             let here = core::Target::here(&asks);
             let ended = match here.request_typed::<call::InstallHost>(params).await {
-                Err(error) => Err(error.to_string()),
+                Err(error) => Err(error),
                 Ok(_) => here
                     .request_typed::<call::HostSetup>(HostAliasParams {
                         alias: alias.clone(),
                     })
                     .await
-                    .map_err(|error| error.to_string())
                     .and_then(|ended| match ended.problem {
                         Some(problem) => Err(problem),
                         None => Ok(ended.added),

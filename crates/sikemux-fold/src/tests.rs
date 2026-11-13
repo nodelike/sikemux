@@ -1378,7 +1378,7 @@ mod reducer {
     fn keeps_the_plan_title_and_config_the_session_reports() {
         let plan = json!({ "sessionUpdate": "plan", "entries": [{ "content": "Write tests", "status": "pending" }] });
         let mut chat = Chat::new();
-        chat.update(plan.clone())
+        chat.update(plan)
             .update(json!({ "sessionUpdate": "session_info_update", "title": "Coverage work" }))
             .update(json!({ "sessionUpdate": "config_option_update", "configOptions": [{ "id": "model" }] }));
         assert_eq!(

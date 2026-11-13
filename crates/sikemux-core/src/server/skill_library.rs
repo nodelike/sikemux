@@ -357,7 +357,7 @@ mod tests {
         write_skill(&claude, "deploy");
         write_skill(&claude, "notes");
 
-        let seen = library_overview(&data, vec![("Claude", claude.clone()), ("Pi", empty)]);
+        let seen = library_overview(&data, vec![("Claude", claude), ("Pi", empty)]);
         assert_eq!(seen.skills.len(), 2);
         assert_eq!(seen.own.len(), 1);
         assert_eq!(seen.own[0].agent, "Claude");

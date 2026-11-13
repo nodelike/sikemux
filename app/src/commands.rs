@@ -458,9 +458,7 @@ impl Workbench {
             project.path.to_string_lossy().into_owned(),
         );
         let target = self.target();
-        let config = target.request_typed::<call::ProjectConfig>(ProjectParams {
-            project: folder.clone(),
-        });
+        let config = target.request_typed::<call::ProjectConfig>(ProjectParams { project: folder });
         let listed = self
             .git_repo()
             .map(|repo| target.request_typed::<git_call::Worktrees>(git_call::Worktrees { repo }));

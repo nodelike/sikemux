@@ -175,7 +175,7 @@ impl Codex {
                     answer["decision"].as_str(),
                     Some("accept" | "acceptForSession")
                 );
-                let mut done = command.clone();
+                let mut done = command;
                 done["status"] = json!(if allowed { "completed" } else { "declined" });
                 if allowed {
                     done["aggregatedOutput"] = json!("hi\n");

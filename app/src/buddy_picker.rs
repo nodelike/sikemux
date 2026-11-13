@@ -310,7 +310,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         t!("Following the default in Settings")
     };
     let reset: dialog::Answer = {
-        let (this, agent_id) = (cx.entity(), agent_id.clone());
+        let (this, agent_id) = (cx.entity(), agent_id);
         Rc::new(move |_, cx| {
             this.update(cx, |bench, _| {
                 let buddy = own_color.map(|color| AgentBuddy {

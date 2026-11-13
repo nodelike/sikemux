@@ -70,7 +70,7 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         let (ahead, behind) = (repo.ahead, repo.behind);
         let branch = Some(repo.branch.as_str()).filter(|branch| !branch.is_empty());
         let default = chosen.as_deref() == Some(path.as_str());
-        let (opened, starred, folder) = (path.clone(), path.clone(), folder.clone());
+        let (opened, starred, folder) = (path.clone(), path, folder.clone());
         div()
             .id(("git-repo", index))
             .h(px(32.))

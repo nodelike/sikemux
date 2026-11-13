@@ -303,7 +303,7 @@ pub fn around(
         .content(move |_, window, cx| {
             let close = list_picker::dismiss(cx.entity());
             let (agent, here, bench) = (agent.clone(), here.clone(), this.clone());
-            window.use_keyed_state(key.clone(), cx, move |window, cx| {
+            window.use_keyed_state(key, cx, move |window, cx| {
                 let folded = (bench.read(cx).folded().into_iter()).find(|folded| {
                     (folded.copies.iter())
                         .any(|copy| copy.place == here.place && copy.project == here.project)

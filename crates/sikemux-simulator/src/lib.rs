@@ -351,7 +351,7 @@ impl SimulatorManager {
         };
         let answer = self.sim.call_within(executable, request, limit).await;
         checkpoint()?;
-        answer.map_err(|error| error.to_string())
+        answer
     }
 
     /// The iOS simulators the helper lists, when this Mac can run them, then the Android devices.

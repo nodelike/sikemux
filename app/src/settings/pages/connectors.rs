@@ -911,7 +911,7 @@ fn sign_in_with_browser(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         )
     });
     let call = PluginCall {
-        plugin: plugin.to_owned(),
+        plugin,
         method: method.to_owned(),
         params,
     };

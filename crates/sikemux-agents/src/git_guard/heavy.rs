@@ -418,7 +418,7 @@ fn take_turn(program: &str, request: BuildRequest) -> Option<Session> {
     session
         .send(&CliClientCommand::Build {
             protocol: descriptor.protocol,
-            token: descriptor.token.clone(),
+            token: descriptor.token,
             request,
         })
         .ok()?;

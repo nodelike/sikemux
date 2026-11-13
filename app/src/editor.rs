@@ -290,7 +290,7 @@ pub fn pane(
         return viewer::pane(bench, this, &key, cx);
     }
     if viewer::not_text(&path) {
-        let opening = key.clone();
+        let opening = key;
         cx.defer_in(window, move |bench, window, cx| {
             let handle = window.window_handle();
             bench
@@ -302,7 +302,7 @@ pub fn pane(
     }
     let Some(loaded) = (bench.editors.read(cx).open.get(&key)).map(|document| document.loaded)
     else {
-        let opening = key.clone();
+        let opening = key;
         cx.defer_in(window, move |bench, window, cx| {
             open(bench, opening, window, cx)
         });

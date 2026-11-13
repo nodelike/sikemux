@@ -91,8 +91,7 @@ pub fn execute(
         check,
         &request.method,
         &request.params,
-    ))
-    .map_err(|error| error.to_string());
+    ));
     if acts_on_a_tab {
         marks.extend(manager.mark_acting(agent_id));
         manager.release_acting(agent_id, marks);

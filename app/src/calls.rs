@@ -1455,7 +1455,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                     false => chip.hover(move |style| style.bg(hover)),
                 })
                 .child(div().size(px(7.)).rounded_full().bg(t.warn))
-                .child(words.clone())
+                .child(words)
                 .into_any_element()
         })
         .content(move |_, window, cx| {

@@ -701,7 +701,7 @@ mod tests {
         git_in(&tree, &["commit", "-qm", "worker"]);
         let worktree = AgentWorktree {
             repo: main.clone(),
-            path: tree.clone(),
+            path: tree,
             branch: "sikemux/work".into(),
             base: Some("main".into()),
             start_sha,

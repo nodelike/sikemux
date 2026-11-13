@@ -729,7 +729,7 @@ pub async fn codex_ask(
         .stderr(std::process::Stdio::null());
     let mut child = command
         .spawn()
-        .map_err(|_| format!("Could not start Codex {topic} lookup").to_string())?;
+        .map_err(|_| format!("Could not start Codex {topic} lookup"))?;
     let mut stdin = child
         .stdin
         .take()

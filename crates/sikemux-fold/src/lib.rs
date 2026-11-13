@@ -1693,7 +1693,7 @@ impl Fold {
         let id = text_of(update.get("toolCallId"))
             .unwrap_or_default()
             .to_owned();
-        let key = (within.clone(), id.clone());
+        let key = (within.clone(), id);
         if self.gestures.contains_key(&key)
             || text_of(update.get("title")).is_some_and(tools::is_gesture)
         {

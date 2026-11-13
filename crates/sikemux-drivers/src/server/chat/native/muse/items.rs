@@ -499,7 +499,7 @@ impl Items {
             }
             "toolCall" if hidden(text_or_empty(item, "tool")) => {}
             "toolCall" => {
-                if self.shown.insert(id.clone()) {
+                if self.shown.insert(id) {
                     self.child_spoke(session);
                     out.push((session.to_owned(), tool_call(item, cwd)));
                 }

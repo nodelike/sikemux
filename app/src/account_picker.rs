@@ -118,7 +118,7 @@ pub fn picker(
                 .overflow_hidden()
                 .text_ellipsis()
                 .whitespace_nowrap()
-                .child(label.clone()),
+                .child(label),
         )
         .child(ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary));
     if disabled {
@@ -134,7 +134,7 @@ pub fn picker(
             used: accounts::used(bench, profile),
         })
         .collect();
-    let on = current.id.clone();
+    let on = current.id;
     Some(
         trigger
             .dropdown_menu_with_anchor(

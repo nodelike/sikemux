@@ -1043,7 +1043,7 @@ impl Workbench {
     /// Gives each question in the front chat its own draft: what was typed for the question
     /// left is kept, and the one now on show gets back its unsent words or its typed answer.
     pub fn follow_question_drafts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(agent) = self.agent().map(|agent| agent.id.clone()) else {
+        let Some(agent) = self.agent().map(|agent| agent.id) else {
             return;
         };
         let open: Vec<&Question> = self

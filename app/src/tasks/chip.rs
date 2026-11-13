@@ -118,7 +118,7 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
             started_at: run.run.started_at.map(|at| at as i64),
             port: port_number,
         }),
-        output: output.clone(),
+        output,
         groups: task_groups(tasks, project),
         selected: id.clone(),
         others: (bench.feeds.in_front().ports.iter())

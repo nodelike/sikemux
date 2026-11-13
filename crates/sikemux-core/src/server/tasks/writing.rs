@@ -58,7 +58,7 @@ pub(crate) async fn add(
                     } else {
                         project.join(&cwd).to_string_lossy().into_owned()
                     },
-                    command: task.command.clone(),
+                    command: task.command,
                 }),
                 answered_by,
             );

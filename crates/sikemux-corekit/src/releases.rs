@@ -410,7 +410,7 @@ mod tests {
         );
         assert_eq!(credits.avatars.keys().collect::<Vec<_>>(), [avatar]);
 
-        let mut elsewhere = manifest.clone();
+        let mut elsewhere = manifest;
         elsewhere["credits"]["compare"] = json!("https://example.com/compare/a...b");
         assert_eq!(bundled_credits(&elsewhere), None);
         assert_eq!(bundled_credits(&json!({ "version": "0.4.2" })), None);

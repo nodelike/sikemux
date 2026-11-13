@@ -1680,7 +1680,7 @@ impl Reader {
         self.data.subagents.insert(
             session_id.clone(),
             Child {
-                name: name.clone(),
+                name,
                 parent: parent_session,
                 ended: false,
                 background,

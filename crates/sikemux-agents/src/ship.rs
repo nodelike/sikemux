@@ -899,7 +899,7 @@ fn workflow(args: &[String], env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -
     }
     let file = named.clone().unwrap_or_default();
     let unread = Target::Workflow {
-        file: file.clone(),
+        file,
         environments: Vec::new(),
         publishes: false,
         deploys: false,

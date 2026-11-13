@@ -1017,7 +1017,7 @@ pub fn trust_remote_file(socket: &Path, key: &SecretKey) -> Result<(), String> {
         Keeper::new(socket, false)?.save(&HostKey {
             secret: key.clone(),
             trusted: stored.trusted()?,
-            account: stored.owner.clone(),
+            account: stored.owner,
             retired: None,
             written: None,
         })
@@ -1225,8 +1225,8 @@ mod tests {
         keeper
             .save(&HostKey {
                 trusted: stored.trusted().unwrap(),
-                written: Some(written.clone()),
-                ..key.clone()
+                written: Some(written),
+                ..key
             })
             .unwrap();
         let (stored, key, written) = load(&keeper, &path).unwrap();
@@ -1241,7 +1241,7 @@ mod tests {
             inner.keeper = Some(Keeper::new(&socket, false).unwrap());
             inner.secret = Some(key.secret.clone());
             inner.bound = key.account.clone();
-            inner.kept = (written.clone(), key.account.clone());
+            inner.kept = (written.clone(), key.account);
             inner.written = written;
             inner.stored = stored;
         }

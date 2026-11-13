@@ -227,9 +227,7 @@ fn read_brief(
     cx.spawn(async move |cx| {
         let read = asked.await.map(|read: RotationBriefRead| read.brief);
         let _ = reader.update(cx, |reading, cx| {
-            reading
-                .briefs
-                .insert(at, read.map_err(|error| error.to_string()));
+            reading.briefs.insert(at, read);
             cx.notify();
         });
     })

@@ -351,7 +351,7 @@ pub fn anchor(bench: &Workbench, width: f32, cx: &mut Context<Workbench>) -> imp
                 .bg(t.surface_overlay)
                 .border_1()
                 .border_color(t.border)
-                .when_some(editor.clone(), |pop, editor| pop.child(editor))
+                .when_some(editor, |pop, editor| pop.child(editor))
         })
 }
 

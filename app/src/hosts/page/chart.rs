@@ -125,7 +125,7 @@ pub fn history(series: Series, height: f32, t: &Tokens) -> AnyElement {
         .map(|(at, words)| (series.x(*at), words.clone()))
         .collect();
     let end = placed.last().copied();
-    let (limit, line) = (series.limit, placed.clone());
+    let (limit, line) = (series.limit, placed);
     let lines: Vec<f32> = marks.iter().map(|(x, _)| *x).collect();
     let painted = canvas(
         |_, _, _| {},

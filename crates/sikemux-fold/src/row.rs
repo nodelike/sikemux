@@ -234,7 +234,7 @@ fn theirs(tool: &ToolCall, args: &Map<String, Value>) -> ToolRow {
         .map(|ran| ran.split('\n').next().unwrap_or_default().trim())
         .filter(|ran| command && !ran.is_empty());
     let aside = match (file, ran, searched) {
-        (_, _, Some(_)) => folders.clone().or_else(|| Some(line.to_owned())),
+        (_, _, Some(_)) => folders.or_else(|| Some(line.to_owned())),
         (Some(path), _, _) => {
             (!line.is_empty() && !names_file(line, path)).then(|| line.to_owned())
         }

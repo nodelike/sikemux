@@ -798,7 +798,7 @@ fn team_rows(
     mut heads: Vec<(String, AnyElement)>,
     cx: &mut Context<Workbench>,
 ) -> (Option<AnyElement>, Vec<AnyElement>) {
-    let chosen = bench.agent().map(|agent| agent.id.clone());
+    let chosen = bench.agent().map(|agent| agent.id);
     let glided = bench
         .rails
         .glide

@@ -560,7 +560,7 @@ fn agents(run: &mut Run, driver: &Arc<Driver>, minutes: Option<f64>) {
             .line("10 chats streaming, one in front")
     );
     let changing = {
-        let (driver, chats) = (driver.clone(), chats.clone());
+        let (driver, chats) = (driver.clone(), chats);
         run.measure(30., move |_, index| {
             if index % 360 == 0 {
                 driver.front(&chats[(index / 360) % chats.len()], "agent");

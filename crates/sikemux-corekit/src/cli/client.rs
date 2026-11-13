@@ -139,7 +139,7 @@ pub fn attempt(
     session
         .send(&CliClientCommand::Harness {
             protocol: descriptor.protocol,
-            token: descriptor.token.clone(),
+            token: descriptor.token,
             request: HarnessRequest {
                 id: Uuid::new_v4().to_string(),
                 project: project.to_owned(),

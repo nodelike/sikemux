@@ -724,8 +724,7 @@ impl Simulators {
             });
         }
         {
-            let (engine, udid, agent) =
-                (Arc::clone(&engine), device.udid.clone(), agent.to_owned());
+            let (engine, udid, agent) = (Arc::clone(&engine), device.udid, agent.to_owned());
             cx.spawn(async move |sims, cx| {
                 let ask = |kind: &str| {
                     let (engine, asked) = (Arc::clone(&engine), request(kind, &udid, Map::new()));

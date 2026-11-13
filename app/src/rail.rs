@@ -510,7 +510,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
             let row_key = (host.id.clone())
                 .or_else(|| host.ssh.as_ref().map(|alias| format!("ssh:{alias}")))
                 .unwrap_or_else(|| name.to_string());
-            let row = Row::new(SharedString::from(format!("host-{row_key}")), name.clone())
+            let row = Row::new(SharedString::from(format!("host-{row_key}")), name)
                 .chosen(chosen)
                 .when_some(alias.clone(), |row, alias| {
                     row.on_click(cx.listener(move |bench, _, _, cx| {
@@ -1011,7 +1011,7 @@ fn project_tree(
             ))
     });
     let go = {
-        let (front, identity) = (front.clone(), folded.identity.clone());
+        let (front, identity) = (front, folded.identity.clone());
         cx.listener(move |bench, _, _, cx| {
             if let Some(front) = &front {
                 bench.go_to_copy(front, identity.as_deref(), cx)

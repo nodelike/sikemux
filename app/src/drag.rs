@@ -309,13 +309,10 @@ pub fn tab(
         .on_drag(dragged, |dragged: &DraggedTab, _: Point<Pixels>, _, cx| {
             ghost(dragged.label.clone(), cx)
         })
-        .can_drop({
-            let strip = strip.clone();
-            move |value, _, _| {
-                value
-                    .downcast_ref::<DraggedTab>()
-                    .is_some_and(|dragged| dragged.strip == strip)
-            }
+        .can_drop(move |value, _, _| {
+            value
+                .downcast_ref::<DraggedTab>()
+                .is_some_and(|dragged| dragged.strip == strip)
         })
         .on_drag_move::<DraggedTab>({
             let this = this.clone();

@@ -533,7 +533,7 @@ impl Claude {
                 turn.messages.insert(uuid.clone());
                 turn.waiting.insert(uuid.clone());
                 if prompt.letter {
-                    turn.letters.insert(uuid.clone(), prompt.text.clone());
+                    turn.letters.insert(uuid.clone(), prompt.text);
                 }
             }
         }

@@ -441,7 +441,7 @@ fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFail
     let project = project_path(bench);
     sikemux_core::tasks::results::fix_prompt(
         &project,
-        &crate::ui::path::file_name(Path::new(&project)).to_string(),
+        &crate::ui::path::file_name(Path::new(&project)),
         &finished.task.label,
         &finished.task.id,
         failures,
@@ -452,7 +452,7 @@ fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFail
 fn failure_fix_request(bench: &Workbench, finished: &Finished) -> String {
     let task = finished.task;
     sikemux_core::tasks::results::stopped_prompt(
-        &crate::ui::path::file_name(Path::new(&project_path(bench))).to_string(),
+        &crate::ui::path::file_name(Path::new(&project_path(bench))),
         &task.label,
         &finished.stopped().unwrap_or_default(),
         &task.command,

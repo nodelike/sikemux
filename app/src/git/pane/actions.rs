@@ -420,7 +420,7 @@ impl GitPane {
             Some((kind, label, model)) => (Some(kind), label, Some(model)),
             None => (None, "Hermes".to_owned(), None),
         };
-        self.quietly::<git_call::AiMessage>(t!("Generate message with {label}", label = label), git_call::AiMessage { repo: self.repo.clone(), provider: provider.clone(), model: model.clone() }, cx, move |pane, answer, cx| {
+        self.quietly::<git_call::AiMessage>(t!("Generate message with {label}", label = label), git_call::AiMessage { repo: self.repo.clone(), provider, model }, cx, move |pane, answer, cx| {
             pane.generating = false;
             let Ok(message) = answer else {
                 return;

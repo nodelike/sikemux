@@ -201,7 +201,7 @@ impl AgentMenu {
                                     Target::new(&bench.asks, place.clone())
                                         .call_typed::<call::RenameAgent>(RenameAgentParams {
                                             agent_id: renamed.clone(),
-                                            name: typed.to_owned(),
+                                            name: typed,
                                         });
                                 }
                             },
@@ -241,7 +241,7 @@ impl AgentMenu {
                                         .call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
                                             retitled.clone(),
                                             AgentPatch {
-                                                title: Some(typed.to_owned()),
+                                                title: Some(typed),
                                                 renamed: Some(true),
                                                 ..AgentPatch::default()
                                             },
@@ -315,7 +315,7 @@ impl AgentMenu {
             cx,
         );
         if self.asleep {
-            let (row, place, local) = (id.clone(), asked.clone(), record.is_some());
+            let (row, place, local) = (id.clone(), asked, record.is_some());
             popup = popup.item(
                 PopupMenuItem::new(t!("Resume"))
                     .icon(Icon::Resume)
@@ -333,7 +333,7 @@ impl AgentMenu {
         } else if record.is_none_or(|agent| agent.resume_id.is_some()) {
             popup = popup.item(PopupMenuItem::new(t!("Sleep")).icon(Icon::Power).on_click(
                 self.on_bench({
-                    let (id, place) = (id.clone(), asked.clone());
+                    let (id, place) = (id.clone(), asked);
                     move |bench, _| {
                         Target::new(&bench.asks, place.clone()).call_typed::<call::SleepAgent>(
                             AgentParams {

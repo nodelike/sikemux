@@ -287,7 +287,7 @@ mod tools {
             ),
             Pick::Use(&ours)
         );
-        let all_held: HashMap<String, Claim> = [ours.clone(), booted.clone(), taken.clone()]
+        let all_held: HashMap<String, Claim> = [ours, booted.clone(), taken.clone()]
             .iter()
             .map(|device| (device.udid.clone(), claim("agent-b")))
             .collect();
@@ -302,7 +302,7 @@ mod tools {
             ),
             Pick::Create
         );
-        let without_ours = [booted.clone(), taken.clone()];
+        let without_ours = [booted.clone(), taken];
         assert_eq!(
             pick_device(
                 &without_ours,
@@ -575,7 +575,7 @@ mod tools {
             .unwrap_err()
             .contains("off the screen"));
         assert!(labelled(&plain, "Maps").unwrap_err().contains("no element"));
-        let mut twice = elements.clone();
+        let mut twice = elements;
         twice[1].label = "Settings Pro".into();
         let twice = numbered(&twice);
         assert_eq!(labelled(&twice, "Settings"), Ok((340.0, 434.0)));

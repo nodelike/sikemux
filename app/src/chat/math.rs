@@ -56,7 +56,7 @@ pub(super) fn block(
     };
     let id = ElementId::NamedChild(Arc::new(fence.id), "math".into());
     div()
-        .id(id.clone())
+        .id(id)
         .group("math")
         .relative()
         .py(SPACE_2)

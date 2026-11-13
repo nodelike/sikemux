@@ -341,7 +341,7 @@ impl GitPane {
                         t!("creating branch…").into(),
                         git_call::BranchCreate {
                             repo: pane.repo.clone(),
-                            name: name.clone(),
+                            name,
                             start_point: start.clone(),
                         },
                         cx,
@@ -453,7 +453,7 @@ impl GitPane {
             t!("checking out {name}", name = branch.full_ref),
             git_call::CheckoutRemoteBranch {
                 repo: self.repo.clone(),
-                remote: remote.clone(),
+                remote,
                 branch: branch.name.clone(),
                 local_name: branch.tracked_by.clone(),
             },
@@ -521,7 +521,7 @@ impl GitPane {
                     git_call::RemoteSetUrl {
                         repo: pane.repo.clone(),
                         name: name.clone(),
-                        url: url.clone(),
+                        url,
                     },
                     cx,
                     |pane, _, cx| pane.read_remotes(cx),
@@ -552,7 +552,7 @@ impl GitPane {
                     cx,
                     move |pane, _, cx| {
                         if pane.branches.open.as_deref() == Some(old.as_str()) {
-                            pane.branches.open = Some(new.clone());
+                            pane.branches.open = Some(new);
                         }
                         pane.read_remotes(cx)
                     },
@@ -592,7 +592,7 @@ impl GitPane {
             label,
             git_call::Fetch {
                 repo: self.repo.clone(),
-                remote: remote.clone(),
+                remote,
             },
             cx,
         );

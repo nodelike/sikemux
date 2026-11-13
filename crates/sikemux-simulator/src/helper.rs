@@ -623,7 +623,7 @@ mod tests {
         .unwrap();
         assert_eq!(id, 3);
         assert_eq!(
-            reply.unwrap_err().to_string(),
+            reply.unwrap_err(),
             "iPhone 17 is not running. Call sim attach to start it, or ask the person."
         );
     }
@@ -804,7 +804,7 @@ mod tests {
             r#"{"id":4,"type":"error","reason":"streamUnavailable","message":"No H.264 encoder."}"#,
         )
         .unwrap();
-        assert!(reply.unwrap_err().to_string().contains("streamUnavailable"));
+        assert!(reply.unwrap_err().contains("streamUnavailable"));
     }
 
     #[test]

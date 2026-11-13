@@ -371,7 +371,7 @@ mod tests {
 
         let suffix_project = ServerKey::new("folder::c", "rust");
         let mut registry = HashMap::new();
-        registry.insert(nested_project.clone(), 1);
+        registry.insert(nested_project, 1);
         registry.insert(delimiter_language.clone(), 2);
         registry.insert(suffix_project, 3);
         let mut selected = server_keys_for_project(&registry, "c");

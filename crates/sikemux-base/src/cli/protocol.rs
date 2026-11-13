@@ -364,7 +364,7 @@ mod tests {
         let mut relative = request.clone();
         relative.targets[0].path = "file.rs".into();
         assert!(relative.validate().is_err());
-        let mut directory = request.clone();
+        let mut directory = request;
         directory.targets[0].kind = CliTargetKind::Directory;
         assert!(directory.validate().is_err());
     }

@@ -401,11 +401,7 @@ impl Android {
                 let read = self.device(&serial, "tree", Map::new(), limit).await?;
                 let launcher = self.launcher(&serial).await;
                 let package = read["package"].as_str().unwrap_or_default().to_owned();
-                let pid = self
-                    .pids
-                    .locked()
-                    .get(&(serial.clone(), package.clone()))
-                    .copied();
+                let pid = self.pids.locked().get(&(serial.clone(), package)).copied();
                 Ok(tree(&read, display.scale, launcher.as_deref(), pid))
             }
             "tap" => {

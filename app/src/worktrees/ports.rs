@@ -257,7 +257,6 @@ fn card(
             from = from,
             to = to
         )
-        .to_owned()
     });
     let note = match (free, kept) {
         (Some(free), Some(kept)) => Some(format!(
@@ -265,9 +264,7 @@ fn card(
             t!("The project folder keeps {ports}.", ports = kept)
         )),
         (Some(free), None) => Some(free),
-        (None, Some(kept)) => {
-            Some(t!("The project folder keeps {ports}.", ports = kept).to_owned())
-        }
+        (None, Some(kept)) => Some(t!("The project folder keeps {ports}.", ports = kept)),
         (None, None) => None,
     };
     let env = env_group(&about.env, shown, bench, cx);

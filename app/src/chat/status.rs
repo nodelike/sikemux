@@ -630,7 +630,7 @@ pub(super) fn trouble(
             .map(|said| said.parts.into_iter().map(String::from).collect())
             .unwrap_or_else(|| vec![error.clone()]),
         None if network => vec![t!("lost the connection to {maker}", maker = maker)],
-        None => vec![error.clone()],
+        None => vec![error],
     };
     let mut buttons = Vec::new();
     if network {

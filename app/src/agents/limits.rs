@@ -992,7 +992,7 @@ fn account_line(
             )
         });
     frame()
-        .group(group.clone())
+        .group(group)
         .when_some(target, |account, target| {
             account
                 .cursor_pointer()
@@ -1512,7 +1512,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                 let bench = bench.read(cx);
                 let agents = self::agents(bench, true);
                 let room = f32::from(window.viewport_size().height) - POPOVER_MARGIN;
-                let view = self::view(bench, false, false, room.max(FLOAT_LEAST), this.clone());
+                let view = self::view(bench, false, false, room.max(FLOAT_LEAST), this);
                 floating(cx)
                     .w(px(POPOVER_WIDTH))
                     .child(every_account(&view, &agents, cx))
