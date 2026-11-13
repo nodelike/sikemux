@@ -1,0 +1,33 @@
+# One heavy command at a time. Once the line knows pnpm e2e takes about 40 s, a second agent
+# asking for the same run shares it, and one that would wait over 45 s is sent away until its
+# turn: its chat ends with its place in line and Go first.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer buildRuns 1
+project storefront line-shop
+chat Flint
+title "Measure the end-to-end suite"
+say "shell pnpm e2e"
+hold 45
+chat Maple
+title "Bundle the storefront"
+say "shell pnpm e2e"
+hold 2
+chat Otter
+title "Check the refund totals"
+say "shell pnpm e2e"
+hold 1
+chat Pike
+title "Tax per country"
+say "shell pnpm e2e tax"
+hold 1
+chat Wren
+title "Some orders come out a cent off"
+say "shell pnpm e2e cart"
+hold 12
+settle 2
+snap chat
+click 958,17
+settle 2
+snap popover

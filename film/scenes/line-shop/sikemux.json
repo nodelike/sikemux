@@ -1,4 +1,4 @@
 {
   "version": 1,
-  "heavy": [{ "command": "pnpm test", "final": true }, { "command": "pnpm build" }]
+  "heavy": [{ "command": "pnpm test", "final": true }, { "command": "pnpm build" }, { "command": "pnpm e2e" }]
 }
