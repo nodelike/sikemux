@@ -9,7 +9,7 @@ use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, radians, Anchor, AnyElement, App, AppContext, Context, FontWeight, Hsla,
-    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Transformation,
+    InteractiveElement, IntoElement, ParentElement, Pixels, SharedString, Styled, Transformation,
     WeakEntity,
 };
 
@@ -32,7 +32,10 @@ struct Choice {
 }
 
 /// The host picker, then the project picker when a project is in front.
-pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
+/// The host and project in the middle of the top bar, centred on the window while they fit
+/// between the window's buttons and the `chips` wide end of the bar; past that they move left,
+/// then the project's name shortens.
+pub fn view(bench: &Workbench, chips: Pixels, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let host_mark = |choice: &HostChoice| match choice {
         HostChoice::This => (Icon::Laptop, t.text_primary),
@@ -129,17 +132,20 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 on_pick,
                 &cx.entity(),
             )
+            .min_w_0()
             .into_any_element()
         })
     });
-    div()
-        .absolute()
-        .inset_0()
+    let buttons = match cfg!(target_os = "macos") {
+        true => px(80.),
+        false => px(0.),
+    };
+    let place = div()
+        .min_w_0()
         .flex()
         .items_center()
-        .justify_center()
         .gap(SPACE_0)
-        .child(host)
+        .child(div().flex_none().child(host))
         .children(
             project
                 .map(|project| {
@@ -154,7 +160,15 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 .into_iter()
                 .flatten(),
         )
-        .children(crate::calls::chip(bench, cx))
+        .children(crate::calls::chip(bench, cx));
+    div()
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .child(div().flex_1().min_w(buttons))
+        .child(place)
+        .child(div().flex_1().min_w(chips))
         .into_any_element()
 }
 
@@ -232,6 +246,7 @@ fn pill(id: &'static str, shown: Choice, cx: &App) -> BaseButton {
     BaseButton::new(SharedString::from(format!("{id}-pill")))
         .accessibility_label(shown.label.clone())
         .h(px(26.))
+        .min_w_0()
         .max_w(px(220.))
         .px(SPACE_2H)
         .flex()

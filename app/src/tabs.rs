@@ -43,6 +43,12 @@ const TAB_ROW_HEIGHT: f32 = 42.;
 /// they keep only their marks so they stay clear of the place in the middle.
 const ROOMY_BAR: f32 = 1360.;
 
+thread_local! {
+    /// How wide the chips at the bar's right end were last drawn, which the place in the middle
+    /// keeps clear of.
+    static CHIPS_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.) };
+}
+
 /// How tall the bar and, when a place has tabs, the row of them under it stand.
 pub fn top_height(bench: &Workbench) -> f32 {
     BAR_HEIGHT
@@ -69,6 +75,15 @@ pub fn top_bar(
     let t = Tokens::get(cx).clone();
     let tabs = strip_with_tabs(bench).map(|strip| strip_tabs(bench, &strip, cx));
     let bar = div()
+        .on_children_prepainted(|bounds, window, cx| {
+            let chips = bounds
+                .last()
+                .map_or(0., |chips| f32::from(chips.size.width));
+            if (CHIPS_WIDTH.get() - chips).abs() > 0.5 {
+                CHIPS_WIDTH.set(chips);
+                ui::redraw_after_paint(window, cx);
+            }
+        })
         .id("top-bar")
         .relative()
         .flex()
@@ -83,7 +98,11 @@ pub fn top_bar(
             bar.child(div().w(px(80.)).flex_none())
         })
         .child(div().flex_1())
-        .child(crate::hosts::top_place::view(bench, cx))
+        .child(crate::hosts::top_place::view(
+            bench,
+            px(CHIPS_WIDTH.get()) + SPACE_2,
+            cx,
+        ))
         .child(
             div()
                 .flex()
