@@ -59,6 +59,19 @@ if (!ciWorkflow.includes("run: pnpm check:helpers\n")) fail("CI does not build t
 for (const crate of ["sikemux-app", "sikemux-gpui", ...fs.readdirSync("app/crates")]) {
   if (!hakari.includes(`"${crate}"`)) fail(`.config/hakari.toml lets workspace-hack traverse ${crate}, which would bring GPUI's dependencies into the core's builds`);
 }
+// The crates' `testing` features switch on test-only keys and shorter waits, so nothing that ships may enable one.
+const manifests = ["crates", "plugins", "app/crates"].flatMap((dir) => fs.readdirSync(dir).map((name) => `${dir}/${name}/Cargo.toml`)).concat(["app/Cargo.toml", "app/lib/Cargo.toml"]).filter((path) => fs.existsSync(path));
+for (const path of manifests) {
+  let section = "";
+  for (const line of fs.readFileSync(path, "utf8").split("\n")) {
+    if (line.startsWith("[")) section = line;
+    else if (/features\s*=\s*\[[^\]]*"testing"/.test(line) && !section.includes("dev-dependencies")) fail(`${path} turns on a testing feature outside its dev-dependencies, which would ship test-only behaviour`);
+  }
+}
+if (!/^resolver = "2"$/m.test(fs.readFileSync("Cargo.toml", "utf8"))) fail("the workspace is not on resolver 2, so dev-dependencies' testing features would reach release builds");
+for (const [name, text] of [["scripts/build-mac.sh", macBuild], ["scripts/build-linux.sh", linuxBuild], ["scripts/build-core.mjs", coreBuild], [".github/workflows/release.yml", releaseWorkflow]]) {
+  if (text.includes("--all-features")) fail(`${name} builds with --all-features, which would ship the crates' testing features`);
+}
 if (pkg.version !== app.version) fail("package.json and the GPUI app's versions differ");
 if (app.name !== "Sikemux" || app.identifier !== "com.nodelike.sikemux") fail("the app's name or identifier changed");
 if (app["dev-name"] !== "Sikemux Dev" || app["dev-identifier"] !== "com.nodelike.sikemux.dev") fail("the dev app's name or identifier changed");
