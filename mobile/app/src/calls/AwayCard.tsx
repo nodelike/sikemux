@@ -89,8 +89,7 @@ export function AwayCard({
                   {work.lines ? (
                     <>
                       {' · '}
-                      <Text style={styles.removed}>{`−${work.lines.dels}`}</Text>{' '}
-                      <Text style={styles.added}>{`+${work.lines.adds}`}</Text>
+                      <Text style={styles.removed}>{`−${work.lines.dels}`}</Text> <Text style={styles.added}>{`+${work.lines.adds}`}</Text>
                     </>
                   ) : null}
                 </Text>
