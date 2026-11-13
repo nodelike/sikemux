@@ -4,6 +4,7 @@
 
 #[cfg(unix)]
 use sikemux_agents::agent_shell;
+#[cfg(test)]
 use sikemux_agents::ship;
 pub use sikemux_agents::{acp, agent_catalog, harness, skills};
 #[cfg(unix)]

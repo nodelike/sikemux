@@ -1,0 +1,60 @@
+[package]
+name = "sikemux-repo"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# For the tests of the core built on this crate.
+testing = []
+
+[target.'cfg(unix)'.dependencies]
+sikemux-remote = { path = "../sikemux-remote" }
+sikemux-git = { path = "../sikemux-git" }
+sikemux-client = { path = "../sikemux-client" }
+sikemux-markdown = { path = "../sikemux-markdown" }
+notify = "8"
+git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
+regex = "1"
+sha2 = "0.11"
+hex = "0.4"
+uuid = { version = "1", features = ["v4", "v7"] }
+libc = "0.2"
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
+url = "2"
+base64 = "0.22"
+reqwest = { version = "0.13", default-features = false, features = ["form", "gzip", "json", "query", "rustls-no-provider", "stream"] }
+tempfile = "3"
+rayon = "1"
+ignore = "0.4"
+globset = "0.4"
+thiserror = "1"
+semver = "1"
+toml = "1"
+rustix = { version = "1", features = ["fs"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+sikemux-agents = { path = "../sikemux-agents" }
+sikemux-base = { path = "../sikemux-base" }
+sikemux-calls = { path = "../sikemux-calls" }
+sikemux-chat = { path = "../sikemux-chat" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-fold = { path = "../sikemux-fold" }
+sikemux-kernel = { path = "../sikemux-kernel" }
+sikemux-keychain = { path = "../sikemux-keychain" }
+sikemux-plugin-api = { path = "../sikemux-plugin-api" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-pty = { path = "../sikemux-pty" }
+sikemux-serve = { path = "../sikemux-serve" }
+sikemux-workspace = { path = "../sikemux-workspace" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

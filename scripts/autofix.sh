@@ -85,7 +85,7 @@ linux_clippy() {
     CC_aarch64_unknown_linux_gnu="$PWD/scripts/lib/zig-linux-cc" \
     AR_aarch64_unknown_linux_gnu="$PWD/scripts/lib/zig-linux-ar" \
     cargo clippy --target aarch64-unknown-linux-gnu --all-targets --all-features \
-    -p sikemux-core -p sikemux-calls -p sikemux-corekit -p sikemux-git -p sikemux-agents -p sikemux-kernel -p sikemux-serve -p sikemux-workspace -p sikemux-chat -p sikemux-remote -p sikemux-drivers -p sikemux-hostkit -p sikemux-host -p sikemux-wire -p sikemux-client -p sikemux-pty -p sikemux-process -p sikemux-keychain \
+    -p sikemux-core -p sikemux-calls -p sikemux-corekit -p sikemux-git -p sikemux-agents -p sikemux-kernel -p sikemux-serve -p sikemux-workspace -p sikemux-chat -p sikemux-remote -p sikemux-repo -p sikemux-drivers -p sikemux-hostkit -p sikemux-host -p sikemux-wire -p sikemux-client -p sikemux-pty -p sikemux-process -p sikemux-keychain \
     -- -D warnings
 }
 
