@@ -87,6 +87,7 @@ pub(crate) struct Fields {
     pub(super) hosts: hosts::Hosts,
     pub(super) mods: mods::Mods,
     pub(super) chiefs: chief::Chiefs,
+    pub(super) remote_above: super::remote_above::RemoteAbove,
 }
 
 pub(crate) trait Parts {
@@ -143,6 +144,7 @@ pub(crate) trait Parts {
     fn hosts(&self) -> &hosts::Hosts;
     fn mods(&self) -> &mods::Mods;
     fn chiefs(&self) -> &chief::Chiefs;
+    fn remote_above(&self) -> &super::remote_above::RemoteAbove;
 }
 
 impl Parts for Core {
@@ -356,6 +358,10 @@ impl Parts for Core {
 
     fn chiefs(&self) -> &chief::Chiefs {
         &self.kept::<Fields>().chiefs
+    }
+
+    fn remote_above(&self) -> &super::remote_above::RemoteAbove {
+        &self.kept::<Fields>().remote_above
     }
 }
 

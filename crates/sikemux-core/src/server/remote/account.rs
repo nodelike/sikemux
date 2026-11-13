@@ -209,7 +209,7 @@ impl live::Account for HostAccount {
             core.hosts().relink.now();
             core.vault().wake();
             crate::server::stash::catch_up(&core);
-            crate::server::hooks::connect(&core);
+            (core.remote_above().hooks_connect)(&core);
         }
     }
 
@@ -367,7 +367,7 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
         );
     }
     for host in unlinked {
-        crate::server::hosts::unlinked(core, &host, "it was removed from your account");
+        (core.remote_above().hosts_unlinked)(core, &host, "it was removed from your account");
     }
     if let Some(reason) = released {
         let_go(core, reason);
@@ -384,7 +384,7 @@ pub(super) fn unlink_all(core: &Core) {
         .remote()
         .change(|stored| Ok(std::mem::take(&mut stored.links)));
     for link in links.unwrap_or_default() {
-        crate::server::hosts::unlinked(core, &link.id, "this host left your account");
+        (core.remote_above().hosts_unlinked)(core, &link.id, "this host left your account");
     }
 }
 
@@ -456,7 +456,7 @@ fn take_off(core: &Core, id: &str, by_the_person: bool) -> CoreResult<RemoteStat
         Ok(linked)
     })?;
     if linked {
-        crate::server::hosts::unlink(core, id);
+        (core.remote_above().hosts_unlink)(core, id);
     }
     core.close_device_clients(Some(id));
     Ok(announce(core))

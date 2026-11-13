@@ -259,7 +259,7 @@ pub(super) fn halt(core: &Core) -> Option<Endpoint> {
         inner.running.take()
     };
     core.close_device_clients(None);
-    crate::server::hosts::halt(core);
+    (core.remote_above().hosts_halt)(core);
     running.map(|running| {
         running.accept.abort();
         running.endpoint

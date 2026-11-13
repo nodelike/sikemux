@@ -97,6 +97,7 @@ pub use sikemux_workspace::server::project_roots;
 pub mod questions;
 pub(crate) use sikemux_serve::server::reaper;
 pub mod remote;
+mod remote_above;
 pub mod remote_image;
 mod repo_events;
 mod requests;
@@ -513,6 +514,7 @@ impl ServerCore for Core {
                     hosts,
                     mods: mods::Mods::new(data_dir),
                     chiefs: chief::Chiefs::new(data_dir),
+                    remote_above: base::remote_above(),
                 }) as sikemux_kernel::Parts,
             ]
         });

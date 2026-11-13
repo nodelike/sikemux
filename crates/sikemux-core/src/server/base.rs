@@ -20,8 +20,10 @@ use sikemux_view::prefs::PreferenceChange;
 
 use super::activity_log::{transcript_of, Place};
 use super::chat_above::ChatAbove;
+use super::hooks;
 use super::launching;
 use super::notch;
+use super::remote_above::RemoteAbove;
 use super::workspace_above::WorkspaceAbove;
 use super::ServerCore;
 use super::{
@@ -286,6 +288,19 @@ pub(super) fn chat_above() -> ChatAbove {
         questions_offers_in_reply: questions::offers_in_reply,
         questions_withdraw_dialogs: questions::withdraw_dialogs,
         triggers_seed: triggers::seed,
+    }
+}
+
+pub(super) fn remote_above() -> RemoteAbove {
+    RemoteAbove {
+        hooks_connect: hooks::connect,
+        hosts_halt: hosts::halt,
+        hosts_unlink: hosts::unlink,
+        hosts_unlinked: hosts::unlinked,
+        person_calls_asked_by: person_calls::asked_by,
+        person_calls_open_call: person_calls::open_call,
+        person_calls_raised_open: person_calls::raised_open,
+        turn_state_set_a_wake: turn_state::set_a_wake,
     }
 }
 

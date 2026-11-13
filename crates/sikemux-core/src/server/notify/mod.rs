@@ -405,7 +405,7 @@ fn inbox(core: &Core, now: u64) {
     let held = |call: &PersonCall| {
         (items.iter()).any(|item| item.hold.as_ref().is_some_and(|hold| hold.id == call.id))
     };
-    let mut raised = super::person_calls::raised_open(core);
+    let mut raised = (core.remote_above().person_calls_raised_open)(core);
     raised.retain(|call| !held(call));
     let told = (items.iter().map(|item| (item.id.clone(), Told::Item(item)))).chain(
         raised
@@ -552,7 +552,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
             let asking = core.harness().questions.waits_on_answer(&agent_id);
-            let waits = super::turn_state::set_a_wake(core, &agent_id);
+            let waits = (core.remote_above().turn_state_set_a_wake)(core, &agent_id);
             if long && !cancelled && !asking && !waits {
                 if let Some(draft) = finished(core, &agent_id, now) {
                     alert_all(core, &draft, now);
@@ -798,7 +798,7 @@ fn permission(core: &Core, attention: &Attention) -> Option<Draft> {
 }
 
 fn question(core: &Core, agent_id: &str, id: &str, asked: &Asked) -> Option<Draft> {
-    match super::person_calls::asked_by(core, id) {
+    match (core.remote_above().person_calls_asked_by)(core, id) {
         Some(call) if call.id == id => return called(core, &call, question_card(agent_id, id)),
         Some(_) => return None,
         None => {}
@@ -823,7 +823,8 @@ fn question(core: &Core, agent_id: &str, id: &str, asked: &Asked) -> Option<Draf
 /// What the person is told of an inbox item that needs them, in the inbox's words:
 /// who, what is needed, and the detail or where.
 fn needed(core: &Core, item: &InboxItem, now: u64) -> Draft {
-    let call = (item.hold.as_ref()).and_then(|hold| super::person_calls::open_call(core, &hold.id));
+    let call = (item.hold.as_ref())
+        .and_then(|hold| (core.remote_above().person_calls_open_call)(core, &hold.id));
     if let Some(draft) = call.and_then(|call| called(core, &call, inbox_card(&item.id))) {
         return draft;
     }
