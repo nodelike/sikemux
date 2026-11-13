@@ -196,9 +196,12 @@ fn merge_in(
     let text = after
         .as_ref()
         .map(|fields| Value::Object(fields.clone()).to_string());
+    let own = collection.starts_with('.');
     let counts = counts_in(&mut books.counts, transaction, module)?;
-    counts.documents += i64::from(after.is_some()) - i64::from(before.is_some());
-    counts.bytes += stamped.len() as i64 - stored.map_or(0, |stored| stored.len()) as i64;
+    if !own {
+        counts.documents += i64::from(after.is_some()) - i64::from(before.is_some());
+        counts.bytes += stamped.len() as i64 - stored.map_or(0, |stored| stored.len()) as i64;
+    }
     counts.changes += 1;
     let version = counts.changes;
     transaction
@@ -228,6 +231,9 @@ fn merge_in(
         .map_err(failed)?;
     if before == after {
         return Ok(None);
+    }
+    if own {
+        return Ok(Some((newest.by, after)));
     }
     let empty = Map::new();
     let (old, new) = (
@@ -548,6 +554,9 @@ impl Store {
                         params![module, collection, id],
                     )
                     .map_err(failed)?;
+                if collection.starts_with('.') {
+                    continue;
+                }
                 let counts = counts_in(&mut books.counts, transaction, &module)?;
                 counts.documents -= i64::from(shows);
                 counts.bytes -= bytes;
@@ -620,7 +629,8 @@ impl Store {
             let freed: Vec<(String, i64)> = {
                 let mut statement = transaction
                     .prepare_cached(
-                        "SELECT mod, SUM(LENGTH(stamped)) FROM documents
+                        "SELECT mod, SUM(CASE WHEN collection LIKE '.%' THEN 0 ELSE LENGTH(stamped) END)
+                         FROM documents
                          WHERE value IS NULL AND dirty = 0 AND ms < ?1 GROUP BY mod",
                     )
                     .map_err(failed)?;

@@ -1,4 +1,5 @@
-//! Keeps every host's copy of the mods' documents in step through the account (ADR 0016). A
+//! Keeps every host's copy of the mods' documents, and their folders, in step through the
+//! account (ADR 0016). A
 //! write lands in this host's store and answers at once; a moment later this host sends the
 //! documents it changed, each sealed under the vault key, and merges in what the account's other
 //! hosts sent. The server sees each mod's id and the sizes and times of its documents, never
@@ -8,6 +9,8 @@
 //! key: a random key kept as one more sealed document of the mod, at an id of all zeros, so ids
 //! stay the same when the vault key is replaced.
 
+mod folder_rows;
+mod folders;
 mod rows;
 
 use std::collections::{BTreeSet, HashSet};
@@ -78,11 +81,24 @@ pub(crate) struct Sync {
     account: Mutex<Option<String>>,
     /// The mods whose changes the account had no room for, as their problem says.
     full: Mutex<BTreeSet<String>>,
+    /// The mods whose folder to look at again, here or on the account.
+    folders: Mutex<BTreeSet<String>>,
+    /// Every mod's folder is to be looked at, as when the core starts or the account changes.
+    every_folder: AtomicBool,
 }
 
 impl Sync {
     /// A document changed here, so the account hears of it in a moment.
     pub(super) fn changed(&self) {
+        self.wake.notify_one();
+    }
+
+    /// The folders of the mods `ids` changed here, so the account hears of it in a moment.
+    pub(super) fn folders_changed(&self, ids: &[String]) {
+        if ids.is_empty() {
+            return;
+        }
+        self.folders.locked().extend(ids.iter().cloned());
         self.wake.notify_one();
     }
 
@@ -220,6 +236,7 @@ enum Next {
 pub(super) async fn run(core: Weak<Core>) {
     let Some(wake) = core.upgrade().map(|core| {
         core.mods().sync.pull.store(true, Ordering::Release);
+        core.mods().sync.every_folder.store(true, Ordering::Release);
         core.mods().sync.wake.clone()
     }) else {
         return;
@@ -272,6 +289,7 @@ async fn round(core: &Arc<Core>) -> CoreResult<Next> {
         *sync.account.locked() = Some(account.clone());
         sync.purged.locked().clear();
         sync.pull.store(true, Ordering::Release);
+        sync.every_folder.store(true, Ordering::Release);
         if !std::mem::take(&mut *sync.full.locked()).is_empty() {
             super::settled_changed(core);
         }
@@ -297,10 +315,19 @@ async fn round(core: &Arc<Core>) -> CoreResult<Next> {
     if let Some(wait) = purge(core).await? {
         return Ok(Next::Later(wait));
     }
+    let folders_wait = folders::step(core).await?;
     if let Some(wait) = name(core, sealing).await? {
         return Ok(Next::Later(wait));
     }
-    push(core, sealing).await
+    let next = push(core, sealing).await?;
+    let files_wait = folders::files(core).await?;
+    Ok(
+        match (next, folders_wait.into_iter().chain(files_wait).min()) {
+            (Next::Idle, Some(wait)) => Next::Later(wait),
+            (Next::Later(next), Some(wait)) => Next::Later(next.min(wait)),
+            (next, _) => next,
+        },
+    )
 }
 
 /// Takes in what the account sent, in the order it gives, and tells open panes what changed.
@@ -308,9 +335,18 @@ async fn take_in(core: &Arc<Core>, arrivals: Vec<Incoming>) -> CoreResult<()> {
     if arrivals.is_empty() {
         return Ok(());
     }
+    let purged: Vec<String> = (arrivals.iter())
+        .filter_map(|arrival| match arrival {
+            Incoming::Purge(module) => Some(module.clone()),
+            _ => None,
+        })
+        .collect();
     let worker = core.clone();
-    let (paths, merged) =
+    let (mut paths, merged) =
         blocking(move || worker.mods().data.take_in(arrivals, epoch_ms())).await?;
+    folders::purged(core, purged).await?;
+    let files = format!("/{}", folder_rows::FILES);
+    paths.retain(|path| !path.ends_with(&files));
     for MergedIn {
         module,
         collection,
@@ -319,6 +355,14 @@ async fn take_in(core: &Arc<Core>, arrivals: Vec<Incoming>) -> CoreResult<()> {
         doc,
     } in &merged
     {
+        let of_folder = collection == folder_rows::FILES
+            || (collection == super::data::OWN && id == folder_rows::FOLDER);
+        if of_folder {
+            core.mods()
+                .sync
+                .folders_changed(std::slice::from_ref(module));
+            continue;
+        }
         if let Some(doc) = doc {
             let written = ModWritten {
                 collection,
@@ -642,6 +686,15 @@ async fn send_push(
     Ok(answer)
 }
 
+/// Fails once this host is signed in to another account than the round began with.
+fn same_account(core: &Core) -> CoreResult<()> {
+    let synced = core.mods().sync.account.locked().clone();
+    if synced.is_none() || core.remote().owner() != synced {
+        return Err("this host's account changed; the mods' data waits for the next round".into());
+    }
+    Ok(())
+}
+
 enum Answer<T> {
     Got(T),
     /// The server asked this host to wait this long before trying again.
@@ -664,10 +717,7 @@ async fn ask<T: DeserializeOwned>(
             content_type: "application/json".into(),
             headers: Vec::new(),
         });
-    let synced = core.mods().sync.account.locked().clone();
-    if synced.is_none() || core.remote().owner() != synced {
-        return Err("this host's account changed; the mods' data waits for the next round".into());
-    }
+    same_account(core)?;
     let response = host_send_any(core, method, path, body).await?;
     let status = response.status();
     if status.is_success() {

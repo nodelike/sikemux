@@ -156,6 +156,23 @@ pub fn open_bound(vault: &Key, context: &str, sealed: &str) -> Option<Vec<u8>> {
     open_with(&key, context, &bytes)
 }
 
+/// Seals `plain` under `key`, bound to `context`, as bytes rather than text.
+pub fn seal_bytes(key: &Key, context: &str, plain: &[u8]) -> Option<Vec<u8>> {
+    seal_with(
+        &LessSafeKey::new(UnboundKey::new(&AES_256_GCM, key).ok()?),
+        context,
+        plain,
+    )
+}
+
+pub fn open_bytes(key: &Key, context: &str, sealed: &[u8]) -> Option<Vec<u8>> {
+    open_with(
+        &LessSafeKey::new(UnboundKey::new(&AES_256_GCM, key).ok()?),
+        context,
+        sealed,
+    )
+}
+
 /// Crockford's base32, which leaves out letters that read like digits.
 const RECOVERY_ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 

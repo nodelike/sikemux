@@ -38,8 +38,8 @@ const HISTORY_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 const HISTORY_BYTES: i64 = 4 * 1024 * 1024;
 /// Who a write from the mod's own page is stamped with.
 const PERSON: &str = "person";
-/// The collection the core keeps a mod's own things in, such as its badge. No page or agent can
-/// name it, as a name never starts with a dot.
+/// The collection the core keeps a mod's own things in, such as its badge and its folder's listing.
+/// No page or agent can name it, or any collection starting with a dot.
 pub(super) const OWN: &str = ".mod";
 const BADGE: &str = "badge";
 
@@ -455,7 +455,26 @@ fn open(path: &Path, account: Option<String>) -> rusqlite::Result<Open> {
              sealed TEXT NOT NULL,
              PRIMARY KEY (mod, sid)
          ) WITHOUT ROWID;
-         CREATE TABLE IF NOT EXISTS purging (mod TEXT PRIMARY KEY) WITHOUT ROWID;",
+         CREATE TABLE IF NOT EXISTS purging (mod TEXT PRIMARY KEY) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS folders (
+             mod TEXT PRIMARY KEY,
+             matched TEXT,
+             own INTEGER NOT NULL DEFAULT 0,
+             note TEXT
+         ) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS file_uploads (
+             mod TEXT NOT NULL,
+             hash TEXT NOT NULL,
+             path TEXT NOT NULL,
+             PRIMARY KEY (mod, hash)
+         ) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS file_drops (
+             mod TEXT NOT NULL,
+             hash TEXT NOT NULL,
+             text INTEGER NOT NULL,
+             after INTEGER NOT NULL,
+             PRIMARY KEY (mod, hash)
+         ) WITHOUT ROWID;",
     )?;
     let clock = connection
         .query_row("SELECT ms, n FROM clock", [], |row| {
@@ -721,12 +740,12 @@ impl Store {
                 .connection
                 .prepare_cached(
                     "SELECT collection, COUNT(*) FROM documents
-                     WHERE mod = ?1 AND value IS NOT NULL AND collection != ?2
+                     WHERE mod = ?1 AND value IS NOT NULL AND collection NOT LIKE '.%'
                      GROUP BY collection",
                 )
                 .map_err(failed)?;
             let rows = statement
-                .query_map(params![id, OWN], |row| {
+                .query_map(params![id], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
                 })
                 .map_err(failed)?;
@@ -917,9 +936,22 @@ impl Store {
         })
     }
 
-    /// Keeps `badge` as the mod `id`'s badge, stamped like a document so it merges like one, but
-    /// with no history and outside the mod's counts. Answers whether it changed.
+    /// Keeps `badge` as the mod `id`'s badge. Answers whether it changed.
     pub(super) fn set_badge(&self, id: &str, badge: Option<&str>, host: &str) -> CoreResult<bool> {
+        let fields = badge.map(|text| Map::from_iter([("text".to_owned(), json!(text))]));
+        self.set_own(id, (OWN, BADGE), fields, host)
+    }
+
+    /// Keeps `fields` as one of the core's own documents of the mod `id`, or removes it on none,
+    /// stamped like a document so it merges like one, but with no history and outside the mod's
+    /// counts. Answers whether it changed.
+    pub(super) fn set_own(
+        &self,
+        id: &str,
+        (collection, document): (&str, &str),
+        fields: Option<Map<String, Value>>,
+        host: &str,
+    ) -> CoreResult<bool> {
         self.with(|open| {
             let transaction = open
                 .connection
@@ -928,7 +960,7 @@ impl Store {
             let stored: Option<String> = transaction
                 .query_row(
                     "SELECT stamped FROM documents WHERE mod = ?1 AND collection = ?2 AND id = ?3",
-                    params![id, OWN, BADGE],
+                    params![id, collection, document],
                     |row| row.get(0),
                 )
                 .optional()
@@ -937,8 +969,7 @@ impl Store {
                 Some(stamped) => serde_json::from_str(stamped)?,
                 None => Document::default(),
             };
-            let now = shown(&stored).and_then(|fields| fields.get("text").cloned());
-            if now.as_ref().and_then(Value::as_str) == badge {
+            if shown(&stored) == fields {
                 return Ok(false);
             }
             let clock = open.clock.tick(epoch_ms());
@@ -948,8 +979,8 @@ impl Store {
                 host: host.to_owned(),
                 by: PERSON.to_owned(),
             };
-            let change = match badge {
-                Some(text) => Change::Set(Map::from_iter([("text".to_owned(), json!(text))])),
+            let change = match fields {
+                Some(fields) => Change::Set(fields),
                 None => Change::Remove,
             };
             let merged = merge(stored.clone(), change.stamped(&stored, &stamp));
@@ -972,8 +1003,8 @@ impl Store {
                          changed = excluded.changed, who = excluded.who, ms = excluded.ms, dirty = 1",
                     params![
                         id,
-                        OWN,
-                        BADGE,
+                        collection,
+                        document,
                         serde_json::to_string(&merged)?,
                         text,
                         changes,
@@ -1008,7 +1039,16 @@ impl Store {
 /// Forgets every document of the mod `id`, their history and what this host knows of the
 /// account's copy of them.
 pub(super) fn forget(transaction: &Connection, id: &str) -> CoreResult<()> {
-    for table in ["documents", "mods", "history", "namings", "unopened"] {
+    for table in [
+        "documents",
+        "mods",
+        "history",
+        "namings",
+        "unopened",
+        "folders",
+        "file_uploads",
+        "file_drops",
+    ] {
         transaction
             .execute(&format!("DELETE FROM {table} WHERE mod = ?1"), params![id])
             .map_err(failed)?;

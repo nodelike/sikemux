@@ -4,6 +4,7 @@
 
 mod bridge;
 mod data;
+mod folder;
 mod schema;
 mod sync;
 pub use bridge::{BridgeParams, BridgeWrite};
@@ -53,6 +54,8 @@ const MAX_ID: usize = 64;
 const MAX_NAME_CHARS: usize = 60;
 const MAX_DESCRIPTION_CHARS: usize = 400;
 const MAX_DECLARED: usize = 64;
+/// How long a mod's folder stays still before its change counts, as an agent writes several files.
+const QUIET: Duration = Duration::from_millis(150);
 
 /// A collection of the mod's own data, as its `mod.json` describes it.
 #[derive(Deserialize)]
@@ -324,7 +327,7 @@ fn list_in(folder: &Path) -> Vec<ModInfo> {
 pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
     let folder = core.mods().folder()?;
     let worker = core.clone();
-    let (mut mods, badges) = blocking(move || {
+    let (mut mods, badges, notes) = blocking(move || {
         let examples = EXAMPLES
             .iter()
             .filter_map(|(id, manifest, _)| {
@@ -342,7 +345,9 @@ pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
             folder,
             examples,
         };
-        Ok((list, worker.mods().data.badges().unwrap_or_default()))
+        let data = &worker.mods().data;
+        let notes = data.folder_notes().unwrap_or_default();
+        Ok((list, data.badges().unwrap_or_default(), notes))
     })
     .await?;
     for shown in &mut mods.mods {
@@ -350,7 +355,8 @@ pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
             .mods()
             .allowed(&shown.id, &shown.writes, &shown.connect);
         shown.badge = badges.get(&shown.id).cloned();
-        shown.note = core.mods().sync.problem(&shown.id);
+        shown.note =
+            (core.mods().sync.problem(&shown.id)).or_else(|| notes.get(&shown.id).cloned());
         let settled = core.mods().settled.locked();
         shown.project = settled.pinned.get(&shown.id).cloned();
         shown.off = settled.off.contains(&shown.id);
@@ -662,7 +668,7 @@ pub(crate) fn watch(core: &Arc<Core>) {
             };
             follow(&mut watcher);
             while let Ok(first) = changes.recv() {
-                std::thread::sleep(Duration::from_millis(150));
+                std::thread::sleep(QUIET);
                 let mut paths = first;
                 while let Ok(more) = changes.try_recv() {
                     paths.extend(more);
@@ -672,6 +678,7 @@ pub(crate) fn watch(core: &Arc<Core>) {
                     return;
                 };
                 let ids: Vec<String> = touched(&real, &paths).into_iter().collect();
+                core.mods().sync.folders_changed(&ids);
                 core.changed(What::ReadIn(Topic::Mods, None, Some(ids)));
             }
         })

@@ -100,6 +100,17 @@ when its home goes away.
   A server that answers with less than a host already read has lost its record, and hosts send
   theirs back; only a host away longer than removals are kept drops what the server no longer
   lists.
+- **A mod's folder follows the account beside its data.** A listing of the folder's files, each by
+  path and SHA-256, is one more of the mod's documents, with the listing it was made from; its
+  small text files are documents named by their hash, and its other files are sealed by the host
+  under a key derived from the mod's naming key and the file's hash, and kept by the server under
+  an id derived the same way, in the stash's encrypted file store apart from the stash's items and
+  room. A folder goes up only when it is whole and has stopped changing, and comes down into a
+  folder beside the mod that is then swapped in. The listing is one field, so the newest whole
+  folder wins; a host whose own copy lost, because it changed since it last matched the account
+  or published a copy the winner was not made from, moves that copy to the Trash rather than
+  deleting it. Approvals, pins and turning a mod off stay per host: what a mod may do is decided
+  on the host it runs on, wherever it was written.
 - **The host that refreshes a shared sign-in renews it ahead of time.** It seals each new access
   token into the entry before the old one runs out, and the other hosts use that token rather than
   refreshing. Whichever host writes a newer token for the same identity becomes the one that

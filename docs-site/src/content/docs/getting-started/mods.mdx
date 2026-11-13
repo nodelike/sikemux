@@ -19,9 +19,17 @@ Right-click a mod's row to:
 
 - **Show only in** the project in front. A mod shows in every project until you do; **Show in every project** brings it back.
 - **Edit with an agent**.
-- **Remove** it, which moves its folder to the Trash.
+- **Remove** it, which moves its folder to the Trash, on every host of your account.
 
 **Settings → Mods** lists every mod with what it reads, what it may change and the sites it reaches, and opens, turns off or removes each.
+
+### On every host
+
+When you're signed in, a mod follows your account to every host: its folder, pictures included, and its data. Change a mod on one host, yourself or with an agent, and your other hosts have the new version a few seconds after its files stop changing. A folder still being written, without a readable `mod.json` and `index.html`, waits until it is whole. Sikemux's server keeps the folder sealed under your [account vault](/agents/connectors/#account-vault)'s key, so it can't read the files or their names. Files starting with a dot, such as `.git`, and symbolic links stay on the host they're on. A mod can hold up to 512 files and 64 MB, at most 25 MB a file; one that holds more stays on its own host, and **Settings → Mods** says why.
+
+If two hosts change the same mod while apart, the one changed last wins on both, and the other copy goes to that host's Trash, where you can get it back. **Settings → Mods** says so under the mod on that host.
+
+What you allow a mod to change and the sites it may reach are asked once on each host, so a mod arriving from another host asks before it writes. Turning a mod off and showing it only in one project stay on the host where you chose them. A mod's folder deleted by hand comes back from your account; **Remove** it to remove it everywhere.
 
 ### Examples
 

@@ -22,7 +22,7 @@ mod seal;
 pub mod shown;
 mod sync;
 
-pub use seal::{open_bound, random_key, seal_bound, Key};
+pub use seal::{open_bound, open_bytes, random_key, seal_bound, seal_bytes, Key};
 
 /// What an entry holds, sealed under the vault key.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
