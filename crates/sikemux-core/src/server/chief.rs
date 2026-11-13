@@ -1599,24 +1599,28 @@ mod tests {
         const NAME: &str = "the_week_before_a_clock_change_begins_at_nine_on_its_monday";
         if std::env::var("TZ").as_deref() != Ok(ZONE) {
             let module = module_path!().split_once("::").expect("in a crate").1;
-            let ran = std::process::Command::new(std::env::current_exe().expect("this test"))
-                .args([
-                    &format!("{module}::{NAME}"),
-                    "--exact",
-                    "--list",
-                    "--format=terse",
-                ])
-                .output()
-                .expect("the tests list");
+            let ran = sikemux_process::user_environment::command(
+                std::env::current_exe().expect("this test"),
+            )
+            .args([
+                &format!("{module}::{NAME}"),
+                "--exact",
+                "--list",
+                "--format=terse",
+            ])
+            .output()
+            .expect("the tests list");
             assert!(
                 String::from_utf8_lossy(&ran.stdout).contains(NAME),
                 "the test cannot find itself"
             );
-            let ran = std::process::Command::new(std::env::current_exe().expect("this test"))
-                .args([&format!("{module}::{NAME}"), "--exact"])
-                .env("TZ", ZONE)
-                .status()
-                .expect("the test runs in Los Angeles");
+            let ran = sikemux_process::user_environment::command(
+                std::env::current_exe().expect("this test"),
+            )
+            .args([&format!("{module}::{NAME}"), "--exact"])
+            .env("TZ", ZONE)
+            .status()
+            .expect("the test runs in Los Angeles");
             assert!(ran.success());
             return;
         }
