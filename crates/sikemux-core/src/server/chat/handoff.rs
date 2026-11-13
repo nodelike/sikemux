@@ -36,7 +36,10 @@ const SESSION_TURNS: usize = 60;
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Pending {
     context: ChatContext,
-    shown: Handoff,
+    /// What the apps show of it; none for a fresh session's brief, which the chat's line shows.
+    shown: Option<Handoff>,
+    /// The fresh session a brief was built for, the only one that takes it.
+    session: Option<String>,
 }
 
 /// The handoffs waiting, by the agent whose next message carries each, each also on disk so a
@@ -83,15 +86,28 @@ impl Handoffs {
         self.pending.locked().insert(agent_id.to_owned(), pending);
     }
 
-    /// What goes with `agent_id`'s next message, once.
-    pub(crate) fn take(&self, agent_id: &str) -> Option<ChatContext> {
+    /// Has `agent_id`'s next message carry the brief of the fresh `session` it goes to.
+    pub(crate) fn carry(&self, agent_id: &str, context: ChatContext, session: &str) {
+        let pending = Pending {
+            context,
+            shown: None,
+            session: Some(session.to_owned()),
+        };
+        self.set(agent_id, pending);
+    }
+
+    /// What goes with `agent_id`'s next message, in `session`, once. A brief built for another
+    /// session is let go.
+    pub(crate) fn take(&self, agent_id: &str, session: &str) -> Option<ChatContext> {
         let pending = self.pending.locked().remove(agent_id)?;
         self.unkeep(agent_id);
-        Some(pending.context)
+        (pending.session.as_deref())
+            .is_none_or(|built_for| built_for == session)
+            .then_some(pending.context)
     }
 
     pub(crate) fn shown(&self, agent_id: &str) -> Option<Handoff> {
-        (self.pending.locked().get(agent_id)).map(|pending| pending.shown.clone())
+        (self.pending.locked().get(agent_id)).and_then(|pending| pending.shown.clone())
     }
 
     pub(crate) fn forget(&self, agent_id: &str) -> bool {
@@ -266,7 +282,11 @@ fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pen
         // A line that would close the block early is kept as text.
         text: text.replace("</context", "&lt;/context"),
     };
-    Some(Pending { context, shown })
+    Some(Pending {
+        context,
+        shown: Some(shown),
+        session: None,
+    })
 }
 
 /// Tells the chat's apps what its next message hands over, or that nothing waits to be.

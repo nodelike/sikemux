@@ -567,10 +567,8 @@ pub(crate) async fn run<B: Backend>(
         stalled: stalled_tx,
         letter_turn: false,
         sink: telling,
-        rotation_brief: None,
-        fresh_from: None,
     };
-    running.chat.rotation.runs_on(running.footing());
+    rotation::runs_on(&running.chat, running.footing());
     running.opened(replay).await;
     let end = loop {
         if !running.chat.prompted() && commands.is_empty() {
@@ -631,10 +629,6 @@ struct Running<'a, B> {
     letter_turn: bool,
     /// Tells the chat what a fresh session under it says.
     sink: Sink,
-    /// What a fresh session is told with its first message.
-    rotation_brief: Option<ChatContext>,
-    /// The session the chat ran on before a fresh one that has not answered yet.
-    fresh_from: Option<String>,
 }
 
 impl<B: Backend> Running<'_, B> {
@@ -671,13 +665,11 @@ impl<B: Backend> Running<'_, B> {
 
     /// At rest after a turn, a session grown full writes its handoff note now, while its cache
     /// is warm; the fresh session starts with the next message. Once a fresh session has
-    /// answered a message, the chat goes on in it; until then each message carries its brief.
+    /// answered a message, the chat goes on in it.
     async fn ready_rotation(&mut self, commands: &mpsc::UnboundedReceiver<ChatCommand>) {
-        if self.fresh_from.is_some() && self.chat.rotation.fresh_answered() {
-            let from = self.fresh_from.take();
-            self.rotation_brief = None;
+        if let Some(from) = self.chat.rotation.moved_on() {
             let start = self.state.start();
-            if from.is_some_and(|from| start.session_id != from) {
+            if start.session_id != from {
                 self.chat.mark_ready(start.clone());
                 self.chat.emit(ChatEventKind::Ready, json!(start));
             }
@@ -723,7 +715,7 @@ impl<B: Backend> Running<'_, B> {
     /// A slash command runs in the old session, since it could not carry the brief.
     async fn rotate_if_due(&mut self) {
         const STARTING: std::time::Duration = std::time::Duration::from_secs(60);
-        if self.fresh_from.is_some() {
+        if self.chat.rotation.awaits_fresh() {
             return;
         }
         let Some(core) = self.chat.core.upgrade() else {
@@ -765,10 +757,8 @@ impl<B: Backend> Running<'_, B> {
         self.backend = backend;
         self.state.reloadable = self.backend.reloadable();
         self.chat.note_agent(self.backend.pid());
-        self.chat.meter.started_fresh();
-        self.chat.rotation.rotated(self.footing());
         // Until the fresh session has answered, a restart takes the old one up again.
-        self.fresh_from = Some(from.clone());
+        rotation::rotated(&self.chat, from.clone(), self.footing());
         let at = sikemux_process::clock::epoch_ms();
         rotation::keep(&core, self.chat.agent_id(), at, &brief.whole);
         let rotation = SessionRotation {
@@ -782,7 +772,7 @@ impl<B: Backend> Running<'_, B> {
             &self.state.session_id,
             json!({ "sessionUpdate": UpdateKind::SessionRotated, "rotation": rotation }),
         );
-        self.rotation_brief = Some(brief.message);
+        (core.chats().handoffs).carry(self.chat.agent_id(), brief.message, &self.state.session_id);
     }
 
     /// Summarises a big chat whose prompt cache expired before its message goes, unless the
@@ -839,9 +829,9 @@ impl<B: Backend> Running<'_, B> {
         self.state.turn += 1;
         self.chat.begin_turn();
         if !crate::server::chat::prompt::is_command(&replay.text) {
-            replay.context.extend(self.rotation_brief.clone());
             if let Some(core) = self.chat.core.upgrade() {
-                let handoff = core.chats().handoffs.take(self.chat.agent_id());
+                let handoffs = &core.chats().handoffs;
+                let handoff = handoffs.take(self.chat.agent_id(), &self.state.session_id);
                 if handoff.is_some() {
                     self.chat.feed.set_handoff(None);
                 }

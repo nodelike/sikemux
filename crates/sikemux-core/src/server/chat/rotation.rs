@@ -75,23 +75,20 @@ struct Inner {
     /// The session found full as a turn ended; its next message starts the fresh one.
     full_session: Option<String>,
     failed_at: u64,
-    /// A fresh session started and has not answered a turn yet.
-    unanswered: bool,
+    fresh: Option<Fresh>,
+}
+
+/// A fresh session started under the chat, which it moves to once the fresh one has answered.
+struct Fresh {
+    /// The session the chat ran on before, which a restart takes up again until then.
+    from: String,
+    footing: Footing,
+    /// What the meter read of the session before.
+    meter: cap::KeptMeter,
+    answered: bool,
 }
 
 impl State {
-    /// The session the chat runs on now. A session it already knew keeps the footing it started on.
-    pub(crate) fn runs_on(&self, now: Footing) {
-        let mut inner = self.inner.locked();
-        if inner
-            .footing
-            .as_ref()
-            .is_none_or(|was| was.session != now.session)
-        {
-            inner.footing = Some(now);
-        }
-    }
-
     pub(crate) fn note_handoff(&self, note: String) {
         let note = note.trim().chars().take(NOTE_CHARS).collect();
         self.inner.locked().handoff = Some((note, epoch_ms()));
@@ -103,22 +100,26 @@ impl State {
         (epoch_ms().saturating_sub(*at) < NOTE_KEPT_MS).then(|| note.clone())
     }
 
-    /// The fresh session started: what readied it is spent.
-    pub(crate) fn rotated(&self, now: Footing) {
+    pub(crate) fn answered(&self) {
+        if let Some(fresh) = self.inner.locked().fresh.as_mut() {
+            fresh.answered = true;
+        }
+    }
+
+    /// A fresh session started under the chat and has not answered yet.
+    pub(crate) fn awaits_fresh(&self) -> bool {
+        self.inner.locked().fresh.is_some()
+    }
+
+    /// Once the fresh session has answered, the chat goes on in it and what readied it is
+    /// spent. Answers the session it moved from.
+    pub(crate) fn moved_on(&self) -> Option<String> {
         let mut inner = self.inner.locked();
+        let fresh = inner.fresh.take_if(|fresh| fresh.answered)?;
+        inner.footing = Some(fresh.footing);
         inner.handoff = None;
         inner.full_session = None;
-        inner.footing = Some(now);
-        inner.unanswered = true;
-    }
-
-    pub(crate) fn answered(&self) {
-        self.inner.locked().unanswered = false;
-    }
-
-    /// The session the chat rotated to last has answered a turn.
-    pub(crate) fn fresh_answered(&self) -> bool {
-        !self.inner.locked().unanswered
+        Some(fresh.from)
     }
 
     /// The fresh session did not start. Its note waits for the next try.
@@ -144,7 +145,7 @@ pub(crate) fn kept(chat: &Chat) -> KeptSession {
         footing: inner.footing.clone(),
         handoff: inner.handoff.clone(),
         full_session: inner.full_session.clone(),
-        meter: chat.meter.kept(),
+        meter: (inner.fresh.as_ref()).map_or_else(|| chat.meter.kept(), |fresh| fresh.meter),
     }
 }
 
@@ -154,6 +155,31 @@ pub(crate) fn take_up(chat: &Chat, kept: KeptSession) {
     inner.handoff = kept.handoff;
     inner.full_session = kept.full_session;
     chat.meter.take_up(kept.meter);
+}
+
+/// The session the chat runs on now. A session it already knew keeps the footing it started
+/// on. A fresh one it had not moved to yet is let go, with the meter's reading of the session
+/// it goes on in.
+pub(crate) fn runs_on(chat: &Chat, now: Footing) {
+    let mut inner = chat.rotation.inner.locked();
+    if let Some(fresh) = (inner.fresh).take_if(|fresh| fresh.footing.session != now.session) {
+        chat.meter.take_up(fresh.meter);
+    }
+    if (inner.footing.as_ref()).is_none_or(|was| was.session != now.session) {
+        inner.footing = Some(now);
+    }
+}
+
+/// A fresh session started under the chat from `from`, on `now`.
+pub(crate) fn rotated(chat: &Chat, from: String, now: Footing) {
+    let meter = chat.meter.kept();
+    chat.meter.started_fresh();
+    chat.rotation.inner.locked().fresh = Some(Fresh {
+        from,
+        footing: now,
+        meter,
+        answered: false,
+    });
 }
 
 /// Whether the person turned rotation on.
