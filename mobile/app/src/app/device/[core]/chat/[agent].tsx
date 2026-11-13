@@ -290,9 +290,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const screen = (
     <Screen>
       <Nav
-        title={
-          <ChatTitle agentId={agentId} turn={state.turn} provider={provider} name={info?.name} title={title} chief={state.chief} />
-        }
+        title={<ChatTitle agentId={agentId} turn={state.turn} provider={provider} name={info?.name} title={title} chief={state.chief} />}
         end={
           <Pressable
             onPress={() => setMenu(true)}
