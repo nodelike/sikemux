@@ -270,5 +270,7 @@ gpui-pre-wgpu = { git = "https://github.com/sikemux/gpui", rev = "d6b834997774c4
 gpui-pre-windows = { git = "https://github.com/sikemux/gpui", rev = "d6b834997774c41e3c359080e448dc3d668e8337" }
 gpui-pre-ztracing = { git = "https://github.com/sikemux/gpui", rev = "d6b834997774c41e3c359080e448dc3d668e8337" }
 gpui-pre-ztracing-macro = { git = "https://github.com/sikemux/gpui", rev = "d6b834997774c41e3c359080e448dc3d668e8337" }
+# crash-handler 0.7 with 0.8.1's fix for crashing child processes, until minidumper-child takes 0.8.
+crash-handler = { git = "https://github.com/sikemux/crash-handling", rev = "7443679fda95eb546cd4ec33100a13d3c6674aab" }
 # irosashi with C Oniguruma and Shiki's injection rules, until frostybee/irosashi takes them.
 irosashi = { git = "https://github.com/sikemux/irosashi", rev = "80b45db8aaf19a060d05fa27caf752a72cee8a21" }

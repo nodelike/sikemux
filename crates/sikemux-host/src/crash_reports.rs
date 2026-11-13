@@ -74,9 +74,17 @@ struct Startup {
 /// its own, so it costs the person's start nothing. `socket` is the core's, which knows the
 /// account the person is signed in to.
 pub fn start(process: Process, data_dir: Option<PathBuf>, socket: Option<PathBuf>) {
-    let Some(dsn) = DSN else {
-        return;
-    };
+    if let Some(dsn) = DSN {
+        start_sending_to(dsn, process, data_dir, socket);
+    }
+}
+
+fn start_sending_to(
+    dsn: &'static str,
+    process: Process,
+    data_dir: Option<PathBuf>,
+    socket: Option<PathBuf>,
+) {
     if let Some(data_dir) = data_dir {
         let _ = DATA_DIR.set(data_dir);
     }
@@ -605,4 +613,220 @@ impl log::Log for Breadcrumbs {
     }
 
     fn flush(&self) {}
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{Child, Command, ExitStatus, Stdio};
+    use std::time::Instant;
+
+    use super::*;
+
+    const TEST: &str = "crash_reports::tests::crashes_under_the_crash_handler_end";
+    const ROLE: &str = "SIKEMUX_TEST_CRASH_ROLE";
+    const PORT: &str = "SIKEMUX_TEST_CRASH_PORT";
+
+    /// A core with crash reports on, and the programs it starts, which inherit its handler. Each
+    /// crash must end its process: the core's own after writing its minidump. Reports go to a
+    /// listener in this test, never to Sentry.
+    #[test]
+    fn crashes_under_the_crash_handler_end() {
+        match std::env::var(ROLE).as_deref() {
+            Ok("core") => core(),
+            Ok("overflow") => overflow_a_tokio_worker(),
+            Ok("segfault") => segfault(),
+            _ => {}
+        }
+        let home = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let envelopes = Arc::new(Mutex::new(Vec::new()));
+        let received = envelopes.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                if let Some(body) = answer(stream) {
+                    received.locked().push(body);
+                }
+            }
+        });
+
+        let mut core = test_process("core")
+            .env("HOME", home.path())
+            .env(PORT, port.to_string())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let ended = wait_for(&mut core, Duration::from_secs(60));
+        let mut printed = String::new();
+        core.stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut printed)
+            .unwrap();
+        for role in ["overflow", "segfault"] {
+            assert!(
+                printed.contains(&format!("{role} ended by a signal")),
+                "a program the core started did not end of its {role}:\n{printed}"
+            );
+        }
+        assert!(
+            ended.is_some_and(|status| !status.success()),
+            "the core did not end of its own stack overflow: {ended:?}\n{printed}"
+        );
+
+        let minidump_sent = || {
+            envelopes.locked().iter().any(|body| {
+                contains(body, b"event.minidump") && contains(body, b"\"process\":\"core\"")
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while !minidump_sent() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(minidump_sent(), "the core's crash sent no minidump");
+    }
+
+    fn core() -> ! {
+        clear_inherited_handlers();
+        let home = sikemux_process::paths::home().unwrap();
+        let dsn = format!("http://public@127.0.0.1:{}/1", std::env::var(PORT).unwrap());
+        start_sending_to(
+            dsn.leak(),
+            Process::Core,
+            Some(home.join("data")),
+            Some(home.join("core.sock")),
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Hub::main().client().is_none() {
+            assert!(Instant::now() < deadline, "crash reports never started");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for role in ["overflow", "segfault"] {
+            let mut child = test_process(role)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            match wait_for(&mut child, Duration::from_secs(5)) {
+                Some(status) if status.signal().is_some() => println!("{role} ended by a signal"),
+                other => println!("{role} did not end by a signal: {other:?}"),
+            }
+            std::io::stdout().flush().unwrap();
+        }
+        overflow_a_tokio_worker()
+    }
+
+    /// Whatever started this test, such as a Sikemux already running, may have a crash handler
+    /// these processes would inherit. A core started at login inherits none.
+    #[cfg(target_os = "macos")]
+    fn clear_inherited_handlers() {
+        unsafe extern "C" {
+            static mach_task_self_: u32;
+            fn task_set_exception_ports(
+                task: u32,
+                mask: u32,
+                port: u32,
+                behavior: i32,
+                flavor: i32,
+            ) -> i32;
+        }
+        const ALL_EXCEPTIONS: u32 = 0x1ffe;
+        const DEFAULT_BEHAVIOR: i32 = 1;
+        // SAFETY: sets this task's exception ports to none, which takes no memory of ours.
+        let result = unsafe {
+            task_set_exception_ports(mach_task_self_, ALL_EXCEPTIONS, 0, DEFAULT_BEHAVIOR, 0)
+        };
+        assert_eq!(result, 0);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn clear_inherited_handlers() {}
+
+    fn overflow_a_tokio_worker() -> ! {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .build()
+            .unwrap()
+            .block_on(async {
+                let _ = tokio::spawn(async { deep(u64::MAX) }).await;
+            });
+        unreachable!("the stack did not overflow")
+    }
+
+    #[inline(never)]
+    fn deep(depth: u64) -> u64 {
+        let frame = std::hint::black_box([depth as u8; 8192]);
+        if depth == 0 {
+            0
+        } else {
+            deep(depth - 1) + u64::from(frame[7])
+        }
+    }
+
+    fn segfault() -> ! {
+        // SAFETY: this process is meant to crash here, and nothing runs after the write.
+        unsafe { std::ptr::null_mut::<u8>().write_volatile(1) };
+        unreachable!("writing to null did not crash")
+    }
+
+    fn test_process(role: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([TEST, "--exact", "--nocapture", "--test-threads=1"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env(ROLE, role);
+        for name in ["HOME", PORT] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
+        command
+    }
+
+    fn wait_for(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
+        let deadline = Instant::now() + limit;
+        while Instant::now() < deadline {
+            if let Some(status) = child.try_wait().unwrap() {
+                return Some(status);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        None
+    }
+
+    /// Reads one request and answers it as Sentry would, returning its body.
+    fn answer(mut stream: TcpStream) -> Option<Vec<u8>> {
+        let mut request = Vec::new();
+        let mut chunk = [0; 8192];
+        let head_end = loop {
+            let read = stream.read(&mut chunk).ok().filter(|read| *read > 0)?;
+            request.extend_from_slice(&chunk[..read]);
+            if let Some(at) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                break at + 4;
+            }
+        };
+        let head = String::from_utf8_lossy(&request[..head_end]).to_lowercase();
+        let length: usize = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse().ok())?;
+        while request.len() < head_end + length {
+            let read = stream.read(&mut chunk).ok().filter(|read| *read > 0)?;
+            request.extend_from_slice(&chunk[..read]);
+        }
+        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}");
+        Some(request.split_off(head_end))
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
+    }
 }
