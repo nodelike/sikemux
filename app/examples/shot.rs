@@ -28,7 +28,7 @@
 //!                                 JSON after "menu name: ", each a list of its items in order with their label
 //!                                 and whether they are disabled or checked (null where the menu does not say,
 //!                                 as Kit's items do not), and separators as {"separator":true};
-//!                                 "toast success|info|error text" shows a toast saying the text;
+//!                                 "toast success|info|error|undo text" shows a toast saying the text;
 //!                                 "star" shows the ask for a GitHub star;
 //!                                 "settings <page>" opens settings at the page of that name;
 //!                                 "language es" draws the app in that language, as its picker does
@@ -288,6 +288,7 @@ fn main() -> anyhow::Result<()> {
                     let note = match kind {
                         "error" => toast::error(said),
                         "info" => toast::info(said),
+                        "undo" => toast::undoable(said, |_, _| {}),
                         _ => toast::success(said),
                     };
                     window.push_notification(note, cx);

@@ -191,6 +191,8 @@ icons!(
     Wand => "wand",
     Warning => "warning",
     InfoCircle => "info-circle",
+    CheckCircle => "check-circle",
+    AlertCircle => "alert-circle",
     Waterfall => "waterfall",
     Window => "window",
     Workflow => "workflow",

@@ -136,6 +136,8 @@ const DRAWN = {
   upload: [ICONS, "IconUpload"],
   warning: [ICONS, "IconWarning"],
   "info-circle": [ICONS, "IconInfo"],
+  "check-circle": [ICONS, "IconCircleCheck"],
+  "alert-circle": [ICONS, "IconCircleAlert"],
   waterfall: [ICONS, "IconWaterfall"],
   workflow: [ICONS, "IconWorkflow"],
   wrench: [ICONS, "IconWrench"],
