@@ -9866,6 +9866,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "sikemux-chat"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "hyper",
+ "hyper-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-base",
+ "sikemux-calls",
+ "sikemux-corekit",
+ "sikemux-drivers",
+ "sikemux-fold",
+ "sikemux-kernel",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-serve",
+ "sikemux-view",
+ "sikemux-wire",
+ "sikemux-workspace",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "sikemux-client"
 version = "0.1.0"
 dependencies = [
@@ -9923,6 +9954,7 @@ dependencies = [
  "sikemux-agents",
  "sikemux-base",
  "sikemux-calls",
+ "sikemux-chat",
  "sikemux-client",
  "sikemux-corekit",
  "sikemux-drivers",

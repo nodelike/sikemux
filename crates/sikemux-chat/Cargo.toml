@@ -1,0 +1,43 @@
+[package]
+name = "sikemux-chat"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# For the tests of the core built on this crate: the stand-ins its own tests use.
+testing = []
+
+[target.'cfg(unix)'.dependencies]
+sikemux-agents = { path = "../sikemux-agents" }
+sikemux-base = { path = "../sikemux-base" }
+sikemux-calls = { path = "../sikemux-calls" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-drivers = { path = "../sikemux-drivers" }
+sikemux-fold = { path = "../sikemux-fold" }
+sikemux-kernel = { path = "../sikemux-kernel" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-pty = { path = "../sikemux-pty" }
+sikemux-serve = { path = "../sikemux-serve" }
+sikemux-workspace = { path = "../sikemux-workspace" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+reqwest = { version = "0.13", default-features = false, features = ["form", "gzip", "json", "query", "rustls-no-provider", "stream"] }
+uuid = { version = "1", features = ["v4", "v7"] }
+hyper = { version = "1", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+url = "2"
+sha2 = "0.11"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
