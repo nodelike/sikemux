@@ -18,3 +18,11 @@ pub struct SettleParams {
     pub agent_ids: Vec<String>,
     pub settled: bool,
 }
+
+/// A time the snooze menu offers, on this computer's clock.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnoozePreset {
+    pub label: String,
+    pub until: u64,
+}

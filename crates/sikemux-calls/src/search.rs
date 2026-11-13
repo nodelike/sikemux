@@ -74,3 +74,12 @@ pub struct WindowParams {
     pub before: u32,
     pub after: u32,
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchParams {
+    pub project: String,
+    pub query: String,
+    #[serde(default)]
+    pub options: SearchOptions,
+}

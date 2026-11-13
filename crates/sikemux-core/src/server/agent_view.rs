@@ -7,29 +7,15 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::agent_view::{AgentViewKind, AgentViewParams};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::agent::AgentActivity;
 use super::{launching, session, Core, CoreResult};
 
 const AT_WORK: &str = "Wait for the agent to finish";
-
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub enum AgentViewKind {
-    Chat,
-    Terminal,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentViewParams {
-    pub agent_id: String,
-    pub to: AgentViewKind,
-}
 
 /// Answers `{ptyId}` once the agent runs in a terminal, or null once it runs
 /// as a chat.

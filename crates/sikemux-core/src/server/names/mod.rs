@@ -12,6 +12,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::names::{AgentName, ClosedAgent, ClosedAgentsParams, RenameAgentParams};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -179,27 +180,6 @@ pub(crate) struct RanSession {
     /// What it was last working on, as the app titled it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentName {
-    pub agent_id: String,
-    pub name: String,
-    pub project: String,
-    pub parent: Option<String>,
-}
-
-/// A closed agent the person named, which can be opened again as itself.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClosedAgent {
-    pub agent_id: String,
-    pub name: String,
-    pub provider: String,
-    pub session_id: String,
-    pub title: Option<String>,
-    pub buddy: Option<AgentBuddy>,
 }
 
 /// A closed agent that came back as itself.
@@ -1371,13 +1351,6 @@ pub(crate) async fn name_agent(
     .await
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RenameAgentParams {
-    pub agent_id: String,
-    pub name: String,
-}
-
 pub(crate) async fn rename_agent(
     core: &Arc<Core>,
     params: RenameAgentParams,
@@ -1407,12 +1380,6 @@ pub(crate) async fn agent_names(core: &Arc<Core>) -> CoreResult<Vec<AgentName>> 
         Ok(core.names().of(&agents))
     })
     .await
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClosedAgentsParams {
-    pub cwd: PathBuf,
 }
 
 /// The closed agents of the project at `cwd` that keep the names the person

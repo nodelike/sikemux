@@ -11,3 +11,9 @@ pub struct DeviceParams {
 pub struct AccountPictureParams {
     pub hash: String,
 }
+
+/// Where the browser goes to sign in.
+#[derive(Serialize, Deserialize)]
+pub struct SignInPage {
+    pub url: String,
+}

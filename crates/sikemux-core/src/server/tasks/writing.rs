@@ -3,27 +3,7 @@
 use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddParams {
-    pub project: String,
-    pub label: String,
-    pub command: String,
-    pub cwd: Option<String>,
-    /// For the team in `sikemux.json`, or for this person only.
-    pub team: bool,
-    /// The task this one is an edit of, which goes when its id or place changes.
-    pub replaces: Option<String>,
-}
-
-/// The task saved, by its id.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskAdded {
-    pub task_id: String,
-}
+pub use sikemux_calls::tasks::{AddParams, RemoveTaskParams, SetCheckParams, TaskAdded};
 
 /// Saves a task the person wrote; answers its id.
 pub(crate) async fn add(
@@ -73,13 +53,6 @@ pub(crate) async fn add(
     .await
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetCheckParams {
-    pub project: String,
-    pub command: String,
-}
-
 /// Names the project's check command in its `sikemux.json`. A file the person
 /// trusted stays trusted, since they wrote this change themselves.
 pub(crate) async fn set_check(core: &Arc<Core>, params: SetCheckParams) -> CoreResult<Value> {
@@ -107,13 +80,6 @@ pub(crate) async fn set_check(core: &Arc<Core>, params: SetCheckParams) -> CoreR
         Ok(Value::Null)
     })
     .await
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoveTaskParams {
-    pub project: String,
-    pub task_id: String,
 }
 
 pub(crate) async fn remove(core: &Arc<Core>, params: RemoveTaskParams) -> CoreResult<Value> {

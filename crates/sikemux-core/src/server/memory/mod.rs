@@ -11,6 +11,7 @@ use crate::server::parts::Parts;
 pub use sikemux_calls::memory::{
     KeepSeededParams, MemoryEntryParams, MemoryParams, MemoryUpdateParams,
 };
+pub use sikemux_calls::memory::{MemoryAddParams, NewMemory};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -266,33 +267,6 @@ fn folder_for(project: &str, folder: Option<&str>) -> Result<String, String> {
         ));
     }
     Ok(canonical.to_string_lossy().into_owned())
-}
-
-/// A rule or knowledge to keep, as the person writes it.
-#[derive(Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
-pub enum NewMemory {
-    Rule {
-        text: String,
-        /// The goal card it is kept on instead, for a rule only that goal's
-        /// agents follow.
-        goal: Option<u64>,
-        sensitive: bool,
-        /// A folder above the project, to keep it for every project under it.
-        folder: Option<String>,
-    },
-    Knowledge {
-        text: String,
-        about: Vec<String>,
-        sensitive: bool,
-        check: Option<MemoryCheck>,
-        /// A folder above the project, to keep it for every project under it.
-        folder: Option<String>,
-    },
 }
 
 /// What `folder` keeps, kept from now on when it kept nothing yet.
@@ -1080,13 +1054,6 @@ async fn run<T: Send + 'static>(
     blocking(move || work().map_err(Into::into))
         .await
         .map_err(|error| error.to_string())
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryAddParams {
-    pub project: String,
-    pub entry: NewMemory,
 }
 
 pub(crate) async fn person_view(

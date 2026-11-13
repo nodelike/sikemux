@@ -4,13 +4,13 @@
 
 use crate::launch::claude_model;
 use crate::server::parts::Parts;
+pub use sikemux_calls::model_providers::Check;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use reqwest::{RequestBuilder, StatusCode};
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
@@ -24,16 +24,6 @@ const MAX_KEPT: usize = 200;
 const MAX_TOKENS: u32 = 1024;
 const TOOL: &str = "get_weather";
 const ASK: &str = "What is the weather in Paris right now? Use the tool.";
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct Check {
-    pub works: bool,
-    /// When it was checked, in Unix milliseconds.
-    pub at: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub detail: Option<String>,
-}
 
 /// Checks by provider, then model.
 type Kept = BTreeMap<String, BTreeMap<String, Check>>;

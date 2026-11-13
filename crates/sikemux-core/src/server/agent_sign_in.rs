@@ -5,6 +5,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::agent_sign_in::Page;
 pub use sikemux_calls::agent_sign_in::{AfterSignIn, LauncherParams};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -67,15 +68,6 @@ impl Account {
             BTreeMap::new(),
         ))
     }
-}
-
-/// The page a running sign-in opened, for a client to open where no browser did.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Page {
-    pub agent: String,
-    pub config_path: Option<String>,
-    pub url: String,
 }
 
 /// A sign-in running for one account, which the person can answer or stop.

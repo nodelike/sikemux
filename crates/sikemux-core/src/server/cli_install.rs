@@ -1,40 +1,17 @@
 //! The `sikemux` command for the person's shell: a link in their own bin
 //! folder to the core's executable, which Settings offers to put there.
 
+pub use sikemux_calls::cli_install::{CliInstallState, CliInstallStatus};
 use std::env;
 use std::fs;
 #[cfg(unix)]
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 use super::connection::blocking;
 use super::{CoreError, CoreResult};
 
 type Installed<T> = Result<T, String>;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum CliInstallState {
-    Unavailable,
-    NotInstalled,
-    Installed,
-    /// Only on Windows, where the command is a copy that a newer build replaces.
-    Outdated,
-    Conflict,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CliInstallStatus {
-    pub state: CliInstallState,
-    pub install_dir: String,
-    pub cli_path: String,
-    pub executable: Option<String>,
-    pub path_configured: bool,
-    pub message: String,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DestinationState {

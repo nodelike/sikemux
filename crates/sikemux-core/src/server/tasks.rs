@@ -8,6 +8,10 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::tasks::{
+    ProjectConfigRead, ProjectParams, RerunParams, RerunStarted, RunView, TrustAnswerParams,
+    TrustProjectParams, TrustQuestion,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -112,18 +116,6 @@ pub(crate) struct TrustAsk {
     confirm_label: String,
     #[serde(skip)]
     grant: Grant,
-}
-
-/// `sikemux.json` as read now, and whether the person trusts it on this host.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectConfigRead {
-    #[serde(flatten)]
-    pub load: ConfigLoad,
-    pub trusted: bool,
-    /// What the person is asked before it runs, while it is not trusted.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trust_ask: Option<Value>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -420,34 +412,6 @@ pub struct TaskList {
     pub tasks: Vec<TaskView>,
     /// The task to offer first: the one the person has running, else the first.
     pub default: Option<String>,
-}
-
-/// A trust question waiting on the person, as the `trustAsks` call answers.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TrustQuestion {
-    pub id: String,
-    pub project: String,
-    /// The run that waits on the answer, when one does.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_id: Option<String>,
-    pub title: String,
-    pub body: String,
-    pub commands: Vec<TrustCommand>,
-    pub confirm_label: String,
-}
-
-/// A run as clients show it, with the agent that started it and the test results it left,
-/// as the `taskRuns` call answers.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunView {
-    #[serde(flatten)]
-    pub run: Run,
-    pub agent_id: Option<String>,
-    pub terminal_key: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tests: Option<TestResults>,
 }
 
 fn view(project: &Path, task: &Definition, run: Option<&Run>) -> TaskView {
@@ -1036,20 +1000,6 @@ pub(crate) async fn start(core: &Arc<Core>, params: TaskStartParams) -> CoreResu
     Ok(TaskStarted::Running { execution_id })
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RerunParams {
-    pub execution_id: String,
-}
-
-/// The task made to run only the failed tests, and its run.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RerunStarted {
-    pub task_id: String,
-    pub execution_id: String,
-}
-
 /// Adds a task that runs only the tests a finished run failed, and starts it.
 pub(crate) async fn rerun_failed(
     core: &Arc<Core>,
@@ -1182,23 +1132,6 @@ pub(crate) async fn publish_runs(core: Arc<Core>) {
             core.changed(What::Read(Topic::Runs));
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ProjectParams {
-    pub project: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct TrustProjectParams {
-    pub project: String,
-    pub fingerprint: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct TrustAnswerParams {
-    pub id: String,
-    pub trust: bool,
 }
 
 /// The name of the device the person acted from, when it was not this host's own window.

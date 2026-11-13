@@ -19,6 +19,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::activity_log::CommandUsed;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
@@ -1114,11 +1115,6 @@ fn streaks(days: &[ActivityDay], today: i64) -> ActivityStreaks {
         longest,
         current,
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CommandUsed {
-    pub id: String,
 }
 
 #[derive(Serialize, Deserialize)]

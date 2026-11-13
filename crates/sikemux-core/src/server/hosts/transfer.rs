@@ -12,6 +12,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::hosts::{Left, SendParams, SessionSent};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -34,27 +35,6 @@ use sikemux_view::workspace::{AgentBuddy, WorkspaceAgent};
 
 /// Long enough to send a project's chats over a slow link.
 const TAKE_WAIT: Duration = Duration::from_secs(10 * 60);
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SendParams {
-    /// The project, by id.
-    pub project: String,
-    pub host: String,
-    #[serde(default)]
-    pub uncommitted: bool,
-    /// Moves rather than copies.
-    #[serde(default, rename = "move")]
-    pub moving: bool,
-    /// Into a worktree at this project's commit on the other host, when its checkout there
-    /// stands elsewhere.
-    #[serde(default)]
-    pub worktree: bool,
-    /// The project on the other host, by its id there, the person has in front, which the
-    /// session goes into when that host has several checkouts of the repository.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub there: Option<String>,
-}
 
 /// A chat on its way, as the other host is told it.
 #[derive(Serialize, Deserialize)]
@@ -84,35 +64,6 @@ pub(super) struct Take {
     work: Option<String>,
     chats: Vec<Carried>,
     tabs: Vec<Tab>,
-}
-
-/// What stays behind, and why.
-#[derive(Serialize, Deserialize)]
-pub struct Left {
-    pub title: String,
-    pub why: String,
-}
-
-/// Where a project's session went: the host and project there, the chats it carried, those a
-/// move closed here and those it left, and how its uncommitted changes went.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionSent {
-    pub host: String,
-    pub host_name: String,
-    pub project: String,
-    pub path: Option<String>,
-    pub uncommitted: Option<String>,
-    /// The chats the other host holds now.
-    pub carried: Vec<String>,
-    /// Of those, the ones a move closed here.
-    #[serde(default)]
-    pub closed: Vec<String>,
-    pub left: Vec<Left>,
-    /// Why nothing went: the other host's checkout stands at another commit or branch, so
-    /// the session can go into a worktree there instead.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub differs: Option<String>,
 }
 
 /// Sends the project's session to the linked host `host`, answering what went, what stayed and

@@ -4,10 +4,11 @@
 //! allowed the mod's writes. Credentials stay in the core: a page only ever sees answers.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::mods::{BridgeParams, BridgeWrite};
 use std::sync::Arc;
 
 use crate::server::plugins::{AgentTool, Manifest};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_plugin_api::codehost as host_method;
 
@@ -166,28 +167,6 @@ fn connector(manifests: &[&Manifest], name: &str) -> Option<Asked> {
         true => Asked::read(wanted, reach),
         false => Asked::write(name, reach),
     })
-}
-
-/// What a mod's page asks through its bridge. `name` and `params` are the page's own, so the
-/// core works out what they mean.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BridgeParams {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub params: Value,
-    /// The project of the strip the mod's pane is in.
-    #[serde(default)]
-    pub project: Option<String>,
-}
-
-/// How a mod's write went: done, or waiting on the person to allow what its manifest declares.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum BridgeWrite {
-    Ask { name: String, writes: Vec<String> },
-    Done(Value),
 }
 
 /// The mod's manifest, once its folder still holds one that reads.

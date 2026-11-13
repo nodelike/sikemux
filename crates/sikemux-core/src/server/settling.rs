@@ -4,12 +4,12 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::settling::SnoozePreset;
 pub use sikemux_calls::settling::{SettleParams, SnoozeParams};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::inbox::AgentShown;
 use sikemux_wire::protocol::AgentGroup;
@@ -268,14 +268,6 @@ fn not_chiefs(core: &Core, agent_ids: Vec<String>) -> CoreResult<Vec<String>> {
         return Err("@Chief keeps its row; it is never snoozed or settled".into());
     }
     Ok(others)
-}
-
-/// A time the snooze menu offers, on this computer's clock.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SnoozePreset {
-    pub label: String,
-    pub until: u64,
 }
 
 /// `hour` o'clock `days_later` days from now on this computer's clock.

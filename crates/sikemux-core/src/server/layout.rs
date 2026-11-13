@@ -7,6 +7,10 @@ use crate::server::changed::What;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::layout::{
+    ActivateProjectParams, HostParams, OpenPaths, PaneParams, PathOpened, ResizeSplit, TabParams,
+    TabsParams,
+};
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -804,41 +808,10 @@ pub(crate) fn show_terminal(
     )
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TabParams {
-    #[serde(flatten)]
-    pub at: At,
-    pub tab: String,
-    /// Where `moveTab` puts it, counted in the strip as it is now.
-    pub to: Option<usize>,
-    /// The name `renameTab` gives it; an empty one gives back its own name.
-    pub title: Option<String>,
-}
-
-impl TabParams {
-    pub fn new(at: At, tab: impl Into<String>) -> Self {
-        Self {
-            at,
-            tab: tab.into(),
-            to: None,
-            title: None,
-        }
-    }
-}
-
 /// Closes a tab. Agents it shows close with it, since an agent always has a
 /// tab; terminals keep running until a client ends them.
 pub(crate) fn close_tab(core: &Arc<Core>, params: TabParams) -> CoreResult<()> {
     close(core, &params.at, &[params.tab])
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TabsParams {
-    #[serde(flatten)]
-    pub at: At,
-    pub tabs: Vec<String>,
 }
 
 /// Closes several tabs of one strip at once, as `closeTab` closes one.
@@ -1131,17 +1104,6 @@ pub(crate) fn move_tab(core: &Core, params: TabParams) -> CoreResult<()> {
     })
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct ActivateProjectParams {
-    pub project: String,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct HostParams {
-    /// "this", "host:<key>" for another host on the account, or "ssh:<alias>".
-    pub host: String,
-}
-
 /// Puts the asking client on a host: this one, another on the account, or an SSH host, whose
 /// strip comes forward, opening a terminal there when it has none.
 pub(crate) async fn choose_host(core: &Arc<Core>, params: HostParams) -> CoreResult<()> {
@@ -1179,27 +1141,6 @@ pub(crate) async fn choose_host(core: &Arc<Core>, params: HostParams) -> CoreRes
         }
         Ok(())
     })
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct OpenPaths {
-    pub targets: Vec<CliOpenTarget>,
-    /// Opens the files without bringing their projects forward.
-    #[serde(default)]
-    pub behind: bool,
-}
-
-/// How one target of [`OpenPaths`] went: its project and tab, or why it did not open.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PathOpened {
-    pub target_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tab: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
 }
 
 /// Opens what `sikemux open` or an agent's `ui_open` names: a folder's project, or a file
@@ -1406,15 +1347,6 @@ fn first_view_id(pane: &Pane) -> String {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PaneParams {
-    #[serde(flatten)]
-    pub at: At,
-    pub tab: String,
-    pub pane: String,
-}
-
 /// Closes one view of a tab; a tab left with nothing closes as `closeTab` does.
 /// An agent shown in it closes with it. A view already gone is closed already.
 pub(crate) fn close_pane(core: &Arc<Core>, params: PaneParams) -> CoreResult<()> {
@@ -1493,17 +1425,6 @@ pub(crate) fn separate_pane(core: &Core, params: PaneParams) -> CoreResult<Strin
         strip.active = Some(id.clone());
         Ok(id)
     })
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResizeSplit {
-    #[serde(flatten)]
-    pub at: At,
-    pub tab: String,
-    pub split: String,
-    /// Each pane's share, in any unit; the core keeps them in thousandths.
-    pub sizes: Vec<u16>,
 }
 
 pub(crate) fn resize_split(core: &Core, params: ResizeSplit) -> CoreResult<()> {

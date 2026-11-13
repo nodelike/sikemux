@@ -8,6 +8,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::messages::{AgentMessageRows, AgentMessagesParams, MessageKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
@@ -73,18 +74,6 @@ const TURN_OUTPUT_MS: u64 = 1000;
 /// Pastes a terminal agent may leave untaken in a row before Sikemux stops
 /// typing into it until it starts a turn of its own.
 const MAX_MISSED_PASTES: u8 = 3;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum MessageKind {
-    Message,
-    /// How a worker's turn ended, sent to its lead.
-    Report,
-    Question,
-    Answer,
-    /// A note from Sikemux itself, such as two agents changing the same lines.
-    Notice,
-}
 
 struct Letter {
     kind: MessageKind,
@@ -2333,23 +2322,6 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
         mailbox.state.locked().delivering.remove(&agent_id);
         mailbox.wake.now();
     });
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMessagesParams {
-    pub project: String,
-    #[serde(default)]
-    pub limit: Option<usize>,
-}
-
-/// A project's messages between agents, one row each, newest first, under the
-/// project's own path.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMessageRows {
-    pub project: String,
-    pub rows: Vec<log::MessageRow>,
 }
 
 /// Runs `read` off the async threads on the project at `project`, which must be an absolute

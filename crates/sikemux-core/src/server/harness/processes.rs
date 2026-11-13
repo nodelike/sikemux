@@ -3,6 +3,7 @@
 use super::*;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::harness::RunSelector;
 
 pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run, String> {
     let kill = core
@@ -52,34 +53,6 @@ pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run
             .cloned()
             .ok_or_else(|| crate::harness::runs::NOT_IN_PROJECT.into())
     })
-}
-
-/// The runs that match every field given.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunSelector {
-    execution_id: Option<String>,
-    project: Option<String>,
-    agent_id: Option<String>,
-}
-
-impl RunSelector {
-    /// The one run `execution_id` names.
-    pub fn of_execution(execution_id: &str) -> Self {
-        Self {
-            execution_id: Some(execution_id.to_owned()),
-            project: None,
-            agent_id: None,
-        }
-    }
-
-    pub(crate) fn of_agent(agent_id: &str) -> Self {
-        Self {
-            execution_id: None,
-            project: None,
-            agent_id: Some(agent_id.to_owned()),
-        }
-    }
 }
 
 /// Stops the active runs that match, such as the ones a closed project or

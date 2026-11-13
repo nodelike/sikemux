@@ -6,8 +6,8 @@
 
 use super::Core;
 use crate::server::parts::Parts;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
+pub use sikemux_calls::streams::SearchStreamParams;
 pub use sikemux_calls::streams::StreamParams;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -168,13 +168,6 @@ async fn flush_while_open(stream: Arc<Stream>) {
             stream.flush();
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SearchStreamParams {
-    pub stream: u64,
-    #[serde(flatten)]
-    pub search: crate::server::search::SearchParams,
 }
 
 pub(crate) fn search_stream(

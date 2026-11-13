@@ -14,13 +14,13 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 pub use sikemux_calls::share::{GuestMessageParams, StopShareParams};
+pub use sikemux_calls::share::{ShareChatParams, ShareState, ShareView};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
@@ -50,31 +50,6 @@ const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_GUEST_NAME_CHARS: usize = 40;
 /// The longest message a viewer may write.
 const MAX_GUEST_CHARS: usize = 10_000;
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShareView {
-    pub id: String,
-    pub agent_id: String,
-    pub url: String,
-    /// Milliseconds since the Unix epoch.
-    pub expires_at: u64,
-    pub viewers: u32,
-    pub state: ShareState,
-    /// Why the server would not open it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub problem: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ShareState {
-    /// Waiting for the accounts server, which is out of reach or has not
-    /// answered yet.
-    Connecting,
-    Open,
-    Refused,
-}
 
 struct Running {
     stored: StoredShare,
@@ -678,14 +653,6 @@ async fn pasted_picture(core: &Core, path: PathBuf) -> CoreResult<String> {
         Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
     })
     .await
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShareChatParams {
-    pub agent_id: String,
-    pub lifetime_ms: u64,
-    pub title: Option<String>,
 }
 
 pub(crate) fn share_chat_for(core: &Arc<Core>, params: ShareChatParams) -> CoreResult<ShareView> {

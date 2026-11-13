@@ -5,6 +5,7 @@
 //! exactly what the person jumps to, so a fixed list of build, dependency and
 //! cache folders is left out instead.
 
+pub use sikemux_calls::project_files::{ProjectEntriesParams, ProjectFiles, ProjectFilesParams};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
@@ -13,7 +14,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use ignore::WalkBuilder;
-use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use crate::git::watch::{repo_key, should_skip_dir, GIT_CONFIG, GIT_STATE};
@@ -132,42 +132,6 @@ fn project_cache_from(
 
 fn project_cache(repo: &str) -> Result<Arc<ProjectCache>, String> {
     project_cache_from(cache(), repo, MAX_PROJECT_CACHE_ENTRIES)
-}
-
-/// The answer to `projectFiles`: the whole list, only what changed since the
-/// client's scan, or neither when nothing did.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectFiles {
-    pub scan_id: u64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub files: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub added: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub removed: Option<Vec<String>>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectFilesParams {
-    pub project: String,
-    #[serde(default)]
-    pub since: Option<u64>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectEntriesParams {
-    project: String,
-    #[serde(default)]
-    query: String,
-    #[serde(default = "entries_shown")]
-    limit: usize,
-}
-
-fn entries_shown() -> usize {
-    8
 }
 
 /// The most entries `projectEntries` answers with.

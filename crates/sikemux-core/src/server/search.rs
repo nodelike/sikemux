@@ -10,6 +10,7 @@ use ignore::{DirEntry, ParallelVisitor, ParallelVisitorBuilder, WalkBuilder, Wal
 use rayon::prelude::*;
 use regex::bytes::RegexBuilder as BytesRegexBuilder;
 use serde::{Deserialize, Serialize};
+pub use sikemux_calls::search::SearchParams;
 pub use sikemux_calls::search::{
     FileWindow, ReplaceError, ReplaceFile, ReplaceParams, ReplaceResults, SearchOptions,
     WindowParams,
@@ -359,15 +360,6 @@ fn repo_relative(repo: &str, path: &Path) -> Option<String> {
 }
 
 // ---- search command (streaming) ----------------------------------------
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchParams {
-    pub project: String,
-    pub query: String,
-    #[serde(default)]
-    pub options: SearchOptions,
-}
 
 /// Searches the project, handing each matching file to `on_file` as the
 /// walk finds it, until the walk ends, `owner` starts a newer search of the

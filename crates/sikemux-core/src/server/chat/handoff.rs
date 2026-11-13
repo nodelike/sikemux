@@ -4,6 +4,7 @@
 //! latest exchanges word for word, and how the commands run went. Every app shows it before then.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::chat::{ChatHandedOff, DropHandoffParams, HandOffParams};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -275,31 +276,6 @@ fn tell(core: &Core, agent_id: &str) {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HandOffParams {
-    pub agent_id: String,
-    /// The agent taking the chat over, such as `codex`.
-    pub provider: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_provider: Option<String>,
-    /// A new chat takes it over, and this one stays as it is.
-    #[serde(default)]
-    pub fork: bool,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatHandedOff {
-    /// The chat that carries on: the same one, or the fork.
-    pub agent_id: String,
-    pub project: String,
-}
-
 /// Hands the chat to another agent, or forks it, and has the chat that carries on wait for the
 /// person with the handoff shown.
 pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<ChatHandedOff> {
@@ -366,12 +342,6 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
         agent_id,
         project: source.project,
     })
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DropHandoffParams {
-    pub agent_id: String,
 }
 
 /// The chat's next message goes without the handoff waiting for it.

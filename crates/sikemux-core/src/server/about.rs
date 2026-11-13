@@ -3,20 +3,15 @@
 //! the host has.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::about::{AvatarsParams, NotesParams, Tools, WhatsNew};
 use sikemux_view::prefs::PreferenceChange;
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::user_environment::find_executable;
 
 use super::connection::blocking;
 use super::{Core, CoreError, CoreResult};
 use crate::releases;
-
-#[derive(Serialize, Deserialize)]
-pub struct NotesParams {
-    pub version: String,
-}
 
 pub(crate) async fn release_notes(params: NotesParams) -> CoreResult<releases::ReleaseNotes> {
     releases::release_notes(params.version)
@@ -24,24 +19,9 @@ pub(crate) async fn release_notes(params: NotesParams) -> CoreResult<releases::R
         .map_err(CoreError::from)
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct AvatarsParams {
-    pub urls: Vec<String>,
-}
-
 /// Contributors' pictures as `data:` addresses, by the address GitHub gave.
 pub(crate) async fn release_avatars(params: AvatarsParams) -> HashMap<String, String> {
     releases::release_avatars(params.urls).await
-}
-
-/// The release running here, and whether the person has yet to read its notes.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WhatsNew {
-    pub version: String,
-    /// Shown once the introduction is done, for a release the person has not
-    /// marked seen by setting `lastSeenVersion` to it.
-    pub unseen: bool,
 }
 
 pub(crate) fn whats_new(core: &Core) -> WhatsNew {
@@ -63,18 +43,6 @@ pub(crate) fn introduced(core: &Core) -> CoreResult<()> {
         ));
     }
     Ok(())
-}
-
-/// The person's shell, and whether git, Homebrew and the plugins' own
-/// command-line tools are on the host.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Tools {
-    pub shell: String,
-    pub git: bool,
-    pub brew: bool,
-    pub aws: bool,
-    pub rnd: bool,
 }
 
 /// Whether a git that runs is here. A Mac without the developer tools has a stand-in at

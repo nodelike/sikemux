@@ -7,7 +7,8 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+pub use sikemux_calls::launching::{SessionTaken, SmartPickParams, StartParams};
 use sikemux_view::prefs::PreferenceChange;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -356,12 +357,6 @@ pub(crate) async fn start(
     Ok(started)
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct SmartPickParams {
-    pub launcher: String,
-    pub project: String,
-}
-
 /// The account smart accounts would start a new chat of `launcher` in `project` on, and why, so a
 /// client can say it before the chat exists. None when the launcher names its account or smart
 /// accounts would not pick one.
@@ -572,16 +567,6 @@ pub(crate) fn start_chat(
         let result = start_new(&core, Some(&client), choice).await;
         client.answer::<ask::StartChat>(request_id, result);
     });
-}
-
-/// Takes up an agent's session again in the project it ran in, recent or not, and
-/// answers the agent that holds it once its session is ready.
-/// The agent a saved session came back as, and the project it is in.
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionTaken {
-    pub agent_id: String,
-    pub project: String,
 }
 
 pub(crate) async fn resume_session(
@@ -800,19 +785,6 @@ pub(crate) fn resume_chat(
         Ok(choice) => start_chat(core, client, request_id, choice),
         Err(error) => client.respond(request_id, Err(error)),
     }
-}
-
-/// A saved agent to start; one moved to another agent before it ran waits for the person.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StartParams {
-    pub agent_id: String,
-    #[serde(default)]
-    pub waits_for_person: bool,
-    /// Drops a chat still waiting for the person first, as it would otherwise keep the launch
-    /// it was made with and not what its record says now.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub again: bool,
 }
 
 #[derive(Deserialize)]

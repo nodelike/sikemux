@@ -5,6 +5,9 @@
 //! OMP as they start, and lets Claude Code and Codex chats run on it.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::model_providers::{
+    CheckParams, Choices, ConnectParams, HelperParams, ModelFacts, ProviderParams, ServedModels,
+};
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -76,38 +79,6 @@ pub struct ModelProvider {
     pub checks: BTreeMap<String, Check>,
     #[serde(flatten)]
     pub choices: Choices,
-}
-
-/// The models a provider serves, with what it starts chats on.
-#[derive(Serialize, Deserialize)]
-pub struct ServedModels {
-    pub models: Vec<String>,
-    #[serde(flatten)]
-    pub choices: Choices,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Choices {
-    /// The coding model it starts helpers and checks on.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// The model each agent's chat starts on.
-    pub defaults: BTreeMap<String, String>,
-    /// What models.dev says of these models, by API name.
-    pub facts: BTreeMap<String, ModelFacts>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelFacts {
-    pub context: u64,
-    /// USD per million tokens; a plan's models cost nothing more.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub input: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output: Option<f64>,
-    /// Only a hint: a check is the final word.
-    pub tool_call: bool,
 }
 
 fn choices(provider: &Provider, feed: &Snapshot, served: Option<&[String]>) -> Choices {
@@ -328,11 +299,6 @@ pub(crate) async fn list(core: &Arc<Core>) -> CoreResult<Vec<ModelProvider>> {
     Ok(listed)
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ProviderParams {
-    pub id: String,
-}
-
 /// The models a connected provider serves, read with its key.
 pub(crate) async fn models(core: &Arc<Core>, params: ProviderParams) -> CoreResult<ServedModels> {
     let provider = keyed(core, &params.id)?;
@@ -346,12 +312,6 @@ pub(crate) async fn models(core: &Arc<Core>, params: ProviderParams) -> CoreResu
         choices: choices(&provider, &feed, Some(&models)),
         models,
     })
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CheckParams {
-    pub id: String,
-    pub model: String,
 }
 
 /// Asks the provider whether `model` calls tools the way agents need, now.
@@ -377,19 +337,8 @@ pub(crate) async fn helper(core: &Arc<Core>) -> CoreResult<Option<Helper>> {
     on_store(core, Providers::helper).await
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct HelperParams {
-    pub helper: Option<Helper>,
-}
-
 pub(crate) async fn set_helper(core: &Arc<Core>, params: HelperParams) -> CoreResult<()> {
     Ok(on_store(core, move |store| store.set_helper(params.helper.as_ref())).await??)
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ConnectParams {
-    pub id: String,
-    pub key: String,
 }
 
 /// Saves the key once the provider accepts it. Agents already running keep

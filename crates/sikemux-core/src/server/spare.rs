@@ -6,6 +6,7 @@
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::spare::{NewTerminal, SshParams};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -267,25 +268,6 @@ pub(crate) fn opening_size(core: &Core) -> (u16, u16) {
     core.spares().held.locked().size.unwrap_or((80, 24))
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct NewTerminal {
-    #[serde(default)]
-    pub project: String,
-    /// Opens it among the terminals of no project, in the home folder.
-    #[serde(default)]
-    pub terminals: bool,
-}
-
-impl NewTerminal {
-    /// One among the terminals of no project.
-    pub fn loose() -> Self {
-        Self {
-            project: String::new(),
-            terminals: true,
-        }
-    }
-}
-
 /// Opens a terminal tab in `project` on the shell started ahead when it fits,
 /// or on a new one, or among the terminals of no project. Answers the tab's id.
 pub(crate) async fn new_terminal(core: &Arc<Core>, params: NewTerminal) -> CoreResult<String> {
@@ -395,19 +377,6 @@ pub(crate) async fn command_shell(
         Some(startup),
     )
     .await
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct SshParams {
-    pub host: String,
-}
-
-impl SshParams {
-    pub(crate) fn new(host: &str) -> Self {
-        Self {
-            host: host.to_owned(),
-        }
-    }
 }
 
 /// Opens a terminal tab connected to `host`, by its alias in the person's

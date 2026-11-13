@@ -6,6 +6,7 @@
 //! chat's session until the fresh one has answered, and carries on if the fresh one fails.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::chat::{RotationBriefParams, RotationBriefRead};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -481,20 +482,6 @@ pub(crate) fn forget(core: &Core, agent_id: &str) {
             eprintln!("sikemux core: a closed chat's briefs were not removed: {error}");
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RotationBriefParams {
-    pub agent_id: String,
-    /// When the fresh session started, as its line says.
-    pub at: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RotationBriefRead {
-    pub brief: RotationBrief,
 }
 
 /// The whole brief a fresh session started from, for "Read the whole brief".

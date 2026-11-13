@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::server::parts::Parts;
-use serde::{Deserialize, Serialize};
+pub use sikemux_calls::harness::{PageHtml, PageParams};
 
 pub(super) const PAGE_IN_REPLY: &str = "The person sees the page in your reply, above the text you write next. Do not describe or restate it; write only what it does not already say.";
 pub(super) const PAGE_ON_DESK: &str =
@@ -67,19 +67,6 @@ pub(super) async fn show_page(
         PAGE_KEPT
     };
     Ok(json!({ "page": page, "note": note }))
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct PageParams {
-    pub id: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct PageHtml {
-    pub html: String,
-    /// A JPEG of the page as its desk tab first drew it, in base64, for a page shown in a tab.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub picture: Option<String>,
 }
 
 fn picture_path(dir: &Path, id: &str) -> PathBuf {

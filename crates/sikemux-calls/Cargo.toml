@@ -5,6 +5,9 @@ edition = "2021"
 publish = false
 
 [dependencies]
+sikemux-agents = { path = "../sikemux-agents" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-git = { path = "../sikemux-git" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 serde = { version = "1", features = ["derive", "rc"] }

@@ -10,6 +10,10 @@ use crate::server::changed::What;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::workspace::{
+    CloseAgentsParams, DefaultsParams, MoveProjectParams, RemoveProjectParams, SpacesParams,
+    UpdateProjectParams,
+};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1434,11 +1438,6 @@ pub(crate) async fn add_project(
     Ok(project)
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct RemoveProjectParams {
-    pub path: PathBuf,
-}
-
 /// Stops offering a project, and closes its agents.
 pub(crate) fn remove_project(core: &Core, params: RemoveProjectParams) -> CoreResult<()> {
     let before = core.workspaces().agent_ids();
@@ -1450,24 +1449,6 @@ pub(crate) fn remove_project(core: &Core, params: RemoveProjectParams) -> CoreRe
     Ok(())
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct UpdateProjectParams {
-    pub id: String,
-    pub patch: Map<String, Value>,
-}
-
-impl UpdateProjectParams {
-    /// Moves the project into `space`, or out of any.
-    pub fn space(id: impl Into<String>, space: Option<String>) -> Self {
-        let mut patch = Map::new();
-        patch.insert("space".to_owned(), Value::from(space));
-        Self {
-            id: id.into(),
-            patch,
-        }
-    }
-}
-
 /// Renames, pins or moves a project to a space.
 pub(crate) fn update_project(core: &Core, params: UpdateProjectParams) -> CoreResult<ProjectInfo> {
     let picks_changed = params.patch.contains_key("codeHosts");
@@ -1477,12 +1458,6 @@ pub(crate) fn update_project(core: &Core, params: UpdateProjectParams) -> CoreRe
         super::codehost::picked(&core, &project.path.to_string_lossy());
     }
     Ok(project)
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct MoveProjectParams {
-    pub id: String,
-    pub index: usize,
 }
 
 /// Moves a project to `index` of the list as clients show it. A list sorted by recency or by
@@ -1514,19 +1489,8 @@ pub(crate) fn sort_projects(
     }
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct SpacesParams {
-    pub spaces: Vec<SpaceInfo>,
-}
-
 pub(crate) fn set_spaces(core: &Core, params: SpacesParams) -> CoreResult<()> {
     core.workspaces().set_spaces(params.spaces)
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DefaultsParams {
-    pub permission_mode: PermissionMode,
 }
 
 /// Keeps the mode agents start in, and offers the launchers in it.
@@ -1680,12 +1644,6 @@ fn tidy_tags(tags: Vec<String>) -> Vec<String> {
 pub(crate) fn update_agent(core: &Core, params: UpdateAgentParams) -> CoreResult<WorkspaceAgent> {
     core.workspaces()
         .edit_agent(&params.agent_id, |agent| params.patch.apply(agent))
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CloseAgentsParams {
-    pub agent_ids: Vec<String>,
 }
 
 pub(crate) fn close_agents(core: &Core, params: CloseAgentsParams) -> CoreResult<()> {

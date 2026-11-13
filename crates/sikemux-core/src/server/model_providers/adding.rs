@@ -3,12 +3,12 @@
 //! list, asked which other APIs it serves, and kept as one the person added.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::model_providers::{Entered, Reading};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::StatusCode;
-use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::launch::providers::{self, Custom, Kind, Provider, Providers};
@@ -26,41 +26,6 @@ const MAX_LABEL_CHARS: usize = 60;
 
 /// The paths an OpenAI- or Anthropic-compatible API serves under its base URL.
 const ENDPOINTS: [&str; 4] = ["/chat/completions", "/responses", "/messages", "/models"];
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Entered {
-    pub base_url: String,
-    #[serde(default)]
-    pub key: Option<String>,
-    /// The name the person gave it, in place of the one read from its URL.
-    #[serde(default)]
-    pub label: Option<String>,
-}
-
-/// The provider at a base URL, checked with the key entered or saved. Never the key.
-#[derive(Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Reading {
-    /// Its name: the catalogue's, the one entered, or one from its domain.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    /// The base URL as Sikemux keeps it, without a trailing slash or endpoint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
-    pub has_key: bool,
-    /// The catalogue's provider at that URL.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub known_id: Option<String>,
-    pub speaks: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub runs_with: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<Vec<String>>,
-    /// Why it cannot be added as it stands.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub failure: Option<String>,
-}
 
 /// The provider entered, the key it came with or was saved with, and what it
 /// listed with that key.

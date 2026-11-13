@@ -2,12 +2,12 @@
 //! `agent_sessions` and the composer, and which of them are open now.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::saved::SessionSearchParams;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::agent_accounts::folders::{sessions_root, sessions_shared};
@@ -277,18 +277,6 @@ pub(crate) async fn find(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     })
     .await
     .map_err(|error| error.to_string())
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionSearchParams {
-    pub query: String,
-    #[serde(default)]
-    pub projects: Option<Vec<PathBuf>>,
-    #[serde(default)]
-    pub limit: Option<usize>,
-    #[serde(default)]
-    pub budget_ms: Option<u64>,
 }
 
 /// The `agentSessions` call: the same search for the person's composer, which

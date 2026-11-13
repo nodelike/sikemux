@@ -5,13 +5,15 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::skill_library::{
+    GlobalSkillAdded, Located, Named, NewSkill, OwnSkills, SkillsOverview, Source,
+};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
@@ -23,34 +25,6 @@ use super::{Core, CoreError, CoreResult};
 
 /// The most global skills kept as newly added until the person answers.
 const MAX_ADDED: usize = 64;
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OwnSkills {
-    pub agent: String,
-    pub folder: PathBuf,
-    pub skills: Vec<Skill>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillsOverview {
-    pub library: PathBuf,
-    pub skills: Vec<Skill>,
-    pub own: Vec<OwnSkills>,
-    /// Names in the library that one of the person's own skills also uses.
-    pub clashes: Vec<String>,
-}
-
-/// A skill that appeared in an agent's own global folder while the core ran,
-/// most likely written there by that agent's own skill maker.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GlobalSkillAdded {
-    pub agent: String,
-    pub name: String,
-    pub path: PathBuf,
-}
 
 /// The global skills that appeared since the core started, until moved in.
 fn newly_added() -> std::sync::MutexGuard<'static, Vec<GlobalSkillAdded>> {
@@ -130,29 +104,6 @@ fn adopt_global(
         )
     })?;
     Ok(skill)
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct NewSkill {
-    pub name: String,
-    pub description: String,
-    pub body: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Source {
-    pub source: String,
-    pub subfolder: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Named {
-    pub name: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Located {
-    pub path: PathBuf,
 }
 
 /// Runs `work` on the library in the data folder, off the async threads.

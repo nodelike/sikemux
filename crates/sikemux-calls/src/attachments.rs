@@ -17,3 +17,15 @@ pub struct ChatFile {
     pub mime: Option<&'static str>,
     pub data: String,
 }
+
+#[derive(Deserialize, Serialize)]
+pub struct KeepPastedParams {
+    pub name: String,
+    pub mime: String,
+    pub data: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Kept {
+    pub path: PathBuf,
+}

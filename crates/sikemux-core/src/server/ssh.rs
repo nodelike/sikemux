@@ -5,43 +5,16 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::ssh::{Reach, SshHost};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Weak;
 
 use notify::{RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
 use sikemux_pty::shell_protocol::{ssh_link_word, SshLink, SSH_LINK_OSC};
 
 use super::changed::Topic;
 use super::Core;
-
-/// How a host's terminals reach it, the best of them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Reach {
-    /// No terminal is open to it.
-    Idle,
-    Failed,
-    Connecting,
-    Ok,
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SshHost {
-    /// What `ssh` is given, and what the host is called.
-    pub alias: String,
-    pub hostname: Option<String>,
-    pub user: Option<String>,
-    pub port: Option<u16>,
-    /// The config's line, from 0, whose `Host` names it.
-    pub line: usize,
-    /// The file an `Include` brought it from, when it is not ~/.ssh/config.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub file: Option<String>,
-    pub status: Reach,
-}
 
 fn config_path() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".ssh/config"))

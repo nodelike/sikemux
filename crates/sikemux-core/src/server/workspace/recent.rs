@@ -8,21 +8,8 @@ use crate::server::names::RanSession;
 use crate::server::parts::Parts;
 use crate::sessions::said::FoundLine;
 use serde::{Deserialize, Serialize};
+pub use sikemux_calls::workspace::{PinChatParams, SessionChoice};
 use sikemux_view::chat::ChatTrigger;
-
-/// An agent's session a client takes up again, named by its agent and the project it ran in.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionChoice {
-    pub provider: String,
-    pub session_id: String,
-    pub project: PathBuf,
-    /// The worktree of `project` it ran in, when it ran in one.
-    #[serde(default)]
-    pub cwd: Option<PathBuf>,
-    #[serde(default)]
-    pub title: Option<String>,
-}
 
 /// A closed chat whose triggers wait for it to be taken up again, so Recent keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -146,12 +133,6 @@ pub struct PinnedParams {
 
 pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<()> {
     core.workspaces().set_pinned(params.chats)
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct PinChatParams {
-    pub recent: String,
-    pub pinned: bool,
 }
 
 pub(crate) fn pin_chat(core: &Core, params: PinChatParams) -> CoreResult<()> {

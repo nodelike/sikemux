@@ -4,10 +4,12 @@
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::worktree::{
+    RemoveWorktreeParams, WorktreeParams, WorktreeRemovalInfo, WorktreeRemoved, WorktreeReview,
+};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::AgentWorktree;
@@ -17,29 +19,6 @@ use crate::server::{board, ports, tasks};
 use crate::server::{Core, CoreError, CoreResult};
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::AgentState;
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeParams {
-    pub agent_id: String,
-}
-
-/// What removing an agent's worktree would cost.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeRemovalInfo {
-    pub branch: String,
-    pub path: PathBuf,
-    /// The agent is at work, so it keeps its worktree until its turn ends.
-    pub busy: bool,
-    /// Other agents and projects in the worktree, by name, which keep it.
-    pub shared_with: Vec<String>,
-    /// Files with changes not committed, which removing it loses.
-    pub dirty_files: usize,
-    /// Commits on its branch its base does not have, which deleting the
-    /// branch loses.
-    pub unmerged_commits: usize,
-}
 
 fn worktree_of(core: &Core, agent_id: &str) -> CoreResult<(WorkspaceAgent, AgentWorktree)> {
     let agent = core.workspaces().agent_or_gone(agent_id)?;
@@ -92,28 +71,6 @@ fn costs(worktree: &AgentWorktree) -> (usize, usize) {
 pub(crate) fn busy(core: &Core, agent_id: &str) -> bool {
     let state = core.agent_now(agent_id).chat_state();
     state.is_some_and(|state| state != AgentState::Idle)
-}
-
-/// What an agent's worktree shows of its work, as its review lays it out.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeReview {
-    pub branch: String,
-    pub path: PathBuf,
-    /// The first line of what it put on its card as the result.
-    pub summary: Option<String>,
-    /// Files changed since it branched, committed or not.
-    pub changed: Vec<String>,
-    /// How many of them are not committed.
-    pub uncommitted: usize,
-    /// Test results were found.
-    pub tested: bool,
-    pub passed: u64,
-    pub failed: u64,
-    /// Where a server it started listens.
-    pub url: Option<String>,
-    /// What to tell it about the tests that fail, while some do.
-    pub failures: Option<String>,
 }
 
 /// The paths `git status --porcelain` lists, a rename by its new name.
@@ -260,25 +217,6 @@ pub(crate) async fn removal(
         dirty_files,
         unmerged_commits,
     })
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoveWorktreeParams {
-    pub agent_id: String,
-    /// The person agreed to lose the worktree's uncommitted changes.
-    #[serde(default)]
-    pub discard_changes: bool,
-    /// The person agreed to lose commits only its branch has.
-    #[serde(default)]
-    pub delete_branch: bool,
-}
-
-/// What removing did to the branch.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorktreeRemoved {
-    pub branch_deleted: bool,
 }
 
 /// The agent's folder once the worktree is gone: the same place in the main

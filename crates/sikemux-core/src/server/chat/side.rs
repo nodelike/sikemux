@@ -4,9 +4,9 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::chat::{SideChat, SideChatParams};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use sikemux_view::chat::SIDE_URI;
 use sikemux_wire::protocol::ChatContext;
 
@@ -18,22 +18,6 @@ use crate::server::{Core, CoreError, CoreResult};
 const EXCHANGES: usize = 8;
 const LONGEST_SAID: usize = 1_500;
 const DIGEST_CHARS: usize = 12_000;
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SideChatParams {
-    /// The chat to open one beside.
-    pub agent_id: String,
-    /// The first message, sent at once when given.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SideChat {
-    pub agent_id: String,
-}
 
 /// Starts a side chat of `params.agent_id`, waiting for the person's first message.
 pub(crate) async fn start(core: &Arc<Core>, params: SideChatParams) -> CoreResult<SideChat> {

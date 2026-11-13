@@ -7,6 +7,10 @@ use super::remote_image::PictureData;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::stash::{
+    AttachStashParams, AttachedStash, SeeParams, StashItemParams, StashKept, StashPromptParams,
+    StashedPrompt,
+};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -229,21 +233,11 @@ async fn take(core: &Core, id: &str) -> CoreResult<()> {
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct StashItemParams {
-    pub id: String,
-}
-
 /// Takes an item out of the account's stash for good, on every device.
 pub(crate) async fn remove(core: &Core, params: StashItemParams) -> CoreResult<()> {
     host_request(core, Method::DELETE, &item_path(&params.id)?, None).await?;
     core.changed(What::Read(Topic::Stash));
     Ok(())
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct SeeParams {
-    pub at: String,
 }
 
 /// The person has seen the stash as it stood at `at`, the newest item they saw, on every device.
@@ -252,11 +246,6 @@ pub(crate) async fn see(core: &Core, params: SeeParams) -> CoreResult<StashSeen>
     let seen = as_host(core, Method::PUT, "/v1/stash/seen", Some(body)).await?;
     core.changed(What::Read(Topic::Stash));
     Ok(seen)
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StashKept {
-    pub path: PathBuf,
 }
 
 /// The item's file, kept on this host for the person to open.
@@ -288,38 +277,6 @@ pub(crate) async fn picture(core: &Core, params: StashItemParams) -> CoreResult<
         mime,
         data: STANDARD.encode(bytes),
     })
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AttachStashParams {
-    pub id: String,
-    pub agent_id: String,
-    /// False when the app keeps its own draft: the item's file is only kept here, and the app
-    /// adds it to its message and marks the item used once it is sent.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub draft: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AttachedStash {
-    pub agent_id: String,
-    /// Where the item's file was kept on this host, when it has one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<PathBuf>,
-    /// Where each of the item's files was kept: its own, or a prompt's.
-    pub paths: Vec<PathBuf>,
-}
-
-impl AttachedStash {
-    fn new(agent_id: String, paths: Vec<PathBuf>) -> Self {
-        Self {
-            agent_id,
-            path: paths.first().cloned(),
-            paths,
-        }
-    }
 }
 
 /// Puts a stash item in the draft of one of this host's chats, unsent, and marks it used; or
@@ -384,17 +341,6 @@ async fn files(core: &Core, item: &StashItem) -> CoreResult<Vec<PathBuf>> {
         _ => {}
     }
     Ok(paths)
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StashPromptParams {
-    pub agent_id: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StashedPrompt {
-    pub id: String,
 }
 
 /// The most a prompt's text can be, as the accounts server takes it.

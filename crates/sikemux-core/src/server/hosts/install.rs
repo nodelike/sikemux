@@ -10,6 +10,7 @@ use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
 pub use sikemux_calls::hosts::{AliasParams, SetupEnded};
+pub use sikemux_calls::hosts::{InstallParams, SetUpWork};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,18 +32,6 @@ const SIGN_IN_WAIT: Duration = Duration::from_secs(3 * 60);
 const START_WAIT: Duration = Duration::from_secs(60);
 /// Printed before `login --json`, so what a shell's startup files print is not read as its answer.
 const LOGIN_MARK: &str = "sikemux-login";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SetUpWork {
-    Install,
-    /// Updates a host that runs an older release, then restarts its core; a host signed out
-    /// signs in on the way.
-    Update,
-    SignIn,
-    /// Starts the stopped core of a host Sikemux is already on.
-    Start,
-}
 
 /// What is being done to an SSH host from here, kept until the next set-up of that host so a
 /// caller that asks late still hears how it ended.
@@ -69,12 +58,6 @@ impl SetupRow {
             Some(_) => super::listed::Reach::Away,
         }
     }
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct InstallParams {
-    pub alias: String,
-    pub work: SetUpWork,
 }
 
 /// How a set-up ended: the name of the host it added to the account, or why it stopped short.

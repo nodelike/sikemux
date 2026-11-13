@@ -22,6 +22,10 @@ pub fn change_prompt(name: &str, folder: &str, id: &str, asked: &str) -> String 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::mods::{
+    AllowParams, BadgeParams, ModExample, ModInfo, ModList, ModPage, ModParams, OffParams,
+    PinModParams,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -70,61 +74,6 @@ struct Manifest {
     reads: Vec<String>,
     #[serde(default)]
     writes: Vec<String>,
-}
-
-/// A mod as clients list it.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModInfo {
-    /// Its folder's name.
-    pub id: String,
-    pub name: String,
-    /// One of the app's icon names, such as `git-pull-request`.
-    #[serde(default)]
-    pub icon: Option<String>,
-    #[serde(default)]
-    pub description: String,
-    /// The data and connectors it reads, such as `agents` or `github`.
-    #[serde(default)]
-    pub reads: Vec<String>,
-    /// What it may change once the person allows it, such as `agents.send`.
-    #[serde(default)]
-    pub writes: Vec<String>,
-    /// Why it cannot be shown, such as a `mod.json` that does not read.
-    #[serde(default)]
-    pub problem: Option<String>,
-    /// Whether the person allowed the writes it declares.
-    #[serde(default)]
-    pub allowed: bool,
-    /// A few words the mod's page shows beside its name, such as "3 failing".
-    #[serde(default)]
-    pub badge: Option<String>,
-    /// The folder of the project it is pinned to, where alone it shows.
-    #[serde(default)]
-    pub project: Option<String>,
-    /// Turned off by the person: it neither shows nor reads.
-    #[serde(default)]
-    pub off: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModExample {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    /// Already in the mods folder.
-    pub added: bool,
-}
-
-/// The mods folder, every mod in it, and the examples there are to copy.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModList {
-    pub folder: PathBuf,
-    pub mods: Vec<ModInfo>,
-    #[serde(default)]
-    pub examples: Vec<ModExample>,
 }
 
 /// What the person decided about the mods, kept in the data folder rather than beside the mods,
@@ -319,13 +268,6 @@ fn settled_changed(core: &Core) {
     core.changed(What::ReadIn(Topic::Mods, None, Some(Vec::new())));
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct AllowParams {
-    pub id: String,
-    /// The writes the person was shown and allowed, or none to take the approval back.
-    pub writes: Option<Vec<String>>,
-}
-
 /// Keeps what the person decided about a mod's writes. An approval holds only for the writes
 /// the mod declares now, so one shown before its `mod.json` changed is turned down.
 pub(super) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<()> {
@@ -349,12 +291,6 @@ pub(super) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<(
     }
     settled_changed(core);
     Ok(())
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct BadgeParams {
-    pub id: String,
-    pub badge: Option<String>,
 }
 
 /// Keeps the few words a mod shows beside its name until the core stops.
@@ -385,16 +321,6 @@ pub(super) fn set_badge(core: &Core, params: BadgeParams) -> CoreResult<()> {
         settled_changed(core);
     }
     Ok(())
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct ModParams {
-    pub id: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ModPage {
-    pub html: String,
 }
 
 /// A mod's page with every local picture and font it names inlined, so a client on another
@@ -442,13 +368,6 @@ fn shown_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct PinModParams {
-    pub id: String,
-    /// The project folder it shows in alone, or none to show it in every project.
-    pub project: Option<String>,
-}
-
 pub(super) fn pin(core: &Core, params: PinModParams) -> CoreResult<()> {
     mod_folder(core, &params.id)?;
     core.mods().settle(|settled| match params.project {
@@ -461,12 +380,6 @@ pub(super) fn pin(core: &Core, params: PinModParams) -> CoreResult<()> {
     });
     settled_changed(core);
     Ok(())
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct OffParams {
-    pub id: String,
-    pub off: bool,
 }
 
 pub(super) fn turn_off(core: &Core, params: OffParams) -> CoreResult<()> {

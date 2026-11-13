@@ -15,6 +15,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 pub use sikemux_calls::account::AccountPictureParams;
+pub use sikemux_calls::account::SignInPage;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -519,12 +520,6 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
         return Err(crate::accounts::refusal(response).await);
     }
     Ok(user_id)
-}
-
-/// Where the browser goes to sign in.
-#[derive(Serialize, Deserialize)]
-pub struct SignInPage {
-    pub url: String,
 }
 
 /// This host as `user_id`'s account is to register it, signed for the challenge `nonce`, when

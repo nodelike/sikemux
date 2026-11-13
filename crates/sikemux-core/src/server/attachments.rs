@@ -6,8 +6,8 @@ use super::access::{Needs, Peer};
 use super::connection::blocking;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
-use serde::{Deserialize, Serialize};
 pub use sikemux_calls::attachments::{ChatFile, ChatFileParams};
+pub use sikemux_calls::attachments::{KeepPastedParams, Kept};
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -232,18 +232,6 @@ pub(crate) async fn chat_file(
         })
     })
     .await
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct KeepPastedParams {
-    pub name: String,
-    pub mime: String,
-    pub data: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Kept {
-    pub path: PathBuf,
 }
 
 /// A file pasted into a terminal, kept where pictures pasted into chats are, so the

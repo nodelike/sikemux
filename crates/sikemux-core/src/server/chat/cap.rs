@@ -6,6 +6,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::chat::KeepHistoryParams;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -388,14 +389,6 @@ pub(crate) fn summarising(chat: &Chat) {
         .compacting_since
         .store(epoch_ms(), Ordering::Release);
     chat.feed.set_expired_cache(None);
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct KeepHistoryParams {
-    pub agent_id: String,
-    /// Off, the chat is summarised before the next message.
-    pub keep: bool,
 }
 
 /// The person's switch for a chat whose cache expired: summarise it before the next message, or
