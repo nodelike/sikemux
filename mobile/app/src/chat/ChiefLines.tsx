@@ -1,5 +1,6 @@
 import { useContext, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { getCalendars } from 'expo-localization';
 
 import {
   FROM_NOW_ON,
@@ -82,7 +83,7 @@ export function WeekLine({ week }: { week: ChiefWeek }) {
   const t = useT();
   return (
     <View style={styles.week}>
-      <Text style={styles.when}>{weekCame(week.to, t)}</Text>
+      <Text style={styles.when}>{weekCame(week.to, t, getCalendars()[0]?.uses24hourClock === false)}</Text>
       <Text style={styles.count}>{weekCount(week, t)}</Text>
     </View>
   );
@@ -97,12 +98,13 @@ export function RuleLine({ line }: { line: RuleChange }) {
   const styles = useStyles(makeStyles);
   const t = useT();
   const { head, tail } = ruleChange(line, t);
+  const rule = quoted(line.text, t);
   return (
-    <View style={[styles.head, styles.rule]}>
+    <View style={[styles.head, styles.rule]} accessible accessibilityLabel={[head, rule, tail].filter(Boolean).join(', ')}>
       <Icon name="IconCheck" size={12} color={colors.tertiary} />
       <Text style={styles.quiet}>{head}</Text>
       <Text style={[styles.quiet, styles.ruleText]} numberOfLines={1}>
-        {`· ${quoted(line.text, t)}`}
+        {`· ${rule}`}
       </Text>
       {tail ? <Text style={styles.quiet}>{`· ${tail}`}</Text> : null}
     </View>

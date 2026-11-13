@@ -389,6 +389,7 @@ const PHONE_ICONS = [
   "IconLock",
   "IconLogLines",
   "IconLogOut",
+  "IconMerge",
   "IconMessage",
   "IconMore",
   "IconMoreVertical",

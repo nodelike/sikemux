@@ -665,3 +665,65 @@
 .md-faint {
   color: var(--text-tertiary);
 }
+
+/* A `why` link the core checked, drawn in the answer's line as the Mac's chip. */
+.chat-why-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 300px;
+  padding: 0 6px 0 4px;
+  border-radius: var(--radius-2);
+  background: var(--surface-active);
+  color: var(--text-primary);
+  line-height: 1.5;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.chat-why-chip > svg {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.chat-why-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+}
+
+/* The chief's chat: an Overrule and the week's count, as quiet lines. */
+.chat-chief-line {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0;
+  padding: 2px 0 2px 12px;
+}
+
+.chat-chief-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.chat-chief-quoted {
+  color: var(--text-primary);
+}
+
+.chat-chief-why,
+.chat-chief-when {
+  color: var(--text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.chat-chief-week {
+  margin: 12px 0;
+}
+
+.chat-chief-count {
+  margin-top: 4px;
+  color: var(--text-primary);
+}

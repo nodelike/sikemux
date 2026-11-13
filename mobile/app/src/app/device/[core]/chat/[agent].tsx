@@ -31,7 +31,7 @@ import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { answerWritten, composingCall, queueOf, stopComposing, useKept, waitingCall } from '@/calls/hostCalls';
-import { NO_CHIPS, TELL_CHIEF, answering as answeringWords, sendTo, sendToTold, typeYourAnswer } from '@shared/calls/words';
+import { NO_CHIPS, TELL_CHIEF, answering as answeringWords, sendToTold, typeYourAnswer } from '@shared/calls/words';
 import { AwayCard } from '@/calls/AwayCard';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
@@ -47,7 +47,6 @@ import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
 import { type Translate, useT } from '@/i18n';
 import { retry as reconnect, useDevices, useLive } from '@/devices/hub';
-import { projectOf } from '@/devices/words';
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
 import { agentLabel } from '@shared/agents/catalog';
@@ -244,16 +243,12 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const answersHere = !state.chief || (!!docked?.asker.chief && queue.length === 1);
   const composing = watchOnly || changing || !answersHere ? undefined : answeringIn(composingCall(docked, keptCalls), t);
   const canAnswerCall = !watchOnly && live.status === 'open';
-  // In a project with a chief the composer says who an idle chat's words go to, as the Mac does.
-  const projectId = live.snapshot ? projectOf(live.snapshot, agentId) : undefined;
-  const hasChief = !!live.snapshot?.workspace.projects.find((project) => project.id === projectId)?.chief;
+  // The composer says who an idle chat's words go to, as the Mac does: the chief, or a worker the chief hears.
   const composerTo = state.chief
     ? { words: t(TELL_CHIEF), commands: true }
     : state.chiefHears && info?.name
       ? { words: sendToTold(info.name, t), commands: false }
-      : hasChief && info?.name
-        ? { words: sendTo(info.name, t), commands: false }
-        : undefined;
+      : undefined;
   // React's compiler keeps this element while its inputs stay the same, so a view from the host leaves the card be.
   const dock = docked ? (
     <CallDock

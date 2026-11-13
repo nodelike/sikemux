@@ -7,6 +7,7 @@ import { safeWebUrl } from '@shared/lib/urls';
 import { tableSource } from '@shared/markdown/tableSource';
 import type { MdElement, MdNode } from '@shared/markdown/types';
 import { visibleText } from '@shared/markdown/visible';
+import { WHY_URI, whyChip } from '@shared/chat/why';
 import { useT, type Translate } from '@/i18n';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
@@ -19,6 +20,7 @@ import type { FoundCode, FoundNode } from './found';
 import { FileRef, hostImagePath, LinkedImage, namesFile } from './FileRef';
 import { ImageViewerHost } from './ImageViewer';
 import type { Fading } from './reveal';
+import { WhyChipsContext, WhyChipText } from './WhyChip';
 
 type Table = Extract<MdElement, { t: 'table' }>;
 
@@ -69,6 +71,12 @@ function Link({ url, children, styles }: { url: string; children: ReactNode; sty
       {children}
     </Text>
   );
+}
+
+/** A `why` link as the Mac draws it: the chip the core checked, or nothing for one it did not. */
+function WhyLink({ href }: { href: string }) {
+  const chip = whyChip(useContext(WhyChipsContext), href);
+  return chip ? <WhyChipText chip={chip} /> : null;
 }
 
 type Ink = { styles: Styles; paths: boolean };
@@ -167,6 +175,7 @@ function inline(node: MdNode, key: number, ink: Ink): ReactNode {
       );
     }
     case 'a': {
+      if (node.href.startsWith(WHY_URI)) return <WhyLink key={key} href={node.href} />;
       const label = inlines(node.c, { styles, paths: false });
       const url = openable(node.href);
       if (url)

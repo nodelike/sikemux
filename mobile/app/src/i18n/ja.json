@@ -435,7 +435,6 @@
   "Send me the link": "リンクを送る",
   "Send the guest's message to the agent": "ゲストのメッセージをエージェントに送る",
   "Send the next message without the handoff": "次のメッセージを引き継ぎなしで送る",
-  "Send to @{name}": "@{name} に送信",
   "Send to queue behind the running turn": "送信して実行中のターンの後に並べる",
   "Send to steer this turn": "送信してこのターンを誘導",
   "Send, waiting for {host}": "送信、{host} を待っています",
@@ -787,5 +786,14 @@
   "Now a check": "チェックになりました",
   "Rule changed": "ルールを変更しました",
   "Rule removed": "ルールを外しました",
-  "by @{name}": "@{name} による"
+  "by @{name}": "@{name} による",
+  "your message": "あなたのメッセージ",
+  "the change": "変更",
+  "landed {day}": "{day} に取り込み",
+  "your answer": "あなたの回答",
+  "your rule": "あなたのルール",
+  "said {day}": "{day}に発言",
+  "decided": "決定済み",
+  "source": "ソース",
+  "today": "今日"
 }

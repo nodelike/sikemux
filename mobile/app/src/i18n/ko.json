@@ -435,7 +435,6 @@
   "Send me the link": "링크 보내기",
   "Send the guest's message to the agent": "게스트의 메시지를 에이전트에게 보내기",
   "Send the next message without the handoff": "다음 메시지를 인계 없이 보내기",
-  "Send to @{name}": "@{name}에게 보내기",
   "Send to queue behind the running turn": "보내서 실행 중인 턴 뒤에 대기",
   "Send to steer this turn": "보내서 이번 턴 방향 바꾸기",
   "Send, waiting for {host}": "보내기, {host} 기다리는 중",
@@ -787,5 +786,14 @@
   "Now a check": "이제 검사로 바뀜",
   "Rule changed": "규칙이 바뀜",
   "Rule removed": "규칙이 제거됨",
-  "by @{name}": "@{name}이(가)"
+  "by @{name}": "처리: @{name}",
+  "your message": "내 메시지",
+  "the change": "변경 사항",
+  "landed {day}": "{day} 반영됨",
+  "your answer": "내 답변",
+  "your rule": "내 규칙",
+  "said {day}": "{day}에 말함",
+  "decided": "결정됨",
+  "source": "소스",
+  "today": "오늘"
 }

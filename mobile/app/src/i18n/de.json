@@ -435,7 +435,6 @@
   "Send me the link": "Link an mich senden",
   "Send the guest's message to the agent": "Nachricht des Gasts an den Agenten senden",
   "Send the next message without the handoff": "Nächste Nachricht ohne Übergabe senden",
-  "Send to @{name}": "An @{name} senden",
   "Send to queue behind the running turn": "Senden, um hinter dem laufenden Durchgang einzureihen",
   "Send to steer this turn": "Senden, um diesen Durchgang zu lenken",
   "Send, waiting for {host}": "Senden, wartet auf {host}",
@@ -787,5 +786,14 @@
   "Now a check": "Jetzt eine Prüfung",
   "Rule changed": "Regel geändert",
   "Rule removed": "Regel entfernt",
-  "by @{name}": "von @{name}"
+  "by @{name}": "von @{name}",
+  "your message": "deine Nachricht",
+  "the change": "die Änderung",
+  "landed {day}": "gelandet {day}",
+  "your answer": "deine Antwort",
+  "your rule": "deine Regel",
+  "said {day}": "gesagt {day}",
+  "decided": "entschieden",
+  "source": "Quelle",
+  "today": "heute"
 }

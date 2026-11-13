@@ -435,7 +435,6 @@
   "Send me the link": "把链接发给我",
   "Send the guest's message to the agent": "将访客的消息发送给智能体",
   "Send the next message without the handoff": "发送下一条消息时不带交接内容",
-  "Send to @{name}": "发送给 @{name}",
   "Send to queue behind the running turn": "发送后排在当前一轮之后",
   "Send to steer this turn": "发送以引导本轮",
   "Send, waiting for {host}": "发送，等待 {host}",
@@ -787,5 +786,14 @@
   "Now a check": "现已成为检查",
   "Rule changed": "规则已更改",
   "Rule removed": "规则已移除",
-  "by @{name}": "由 @{name}"
+  "by @{name}": "由 @{name}",
+  "your message": "你的消息",
+  "the change": "该更改",
+  "landed {day}": "{day}合入",
+  "your answer": "你的回答",
+  "your rule": "你的规则",
+  "said {day}": "{day}说过",
+  "decided": "已决定",
+  "source": "来源",
+  "today": "今天"
 }

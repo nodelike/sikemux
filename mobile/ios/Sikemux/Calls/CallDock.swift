@@ -47,6 +47,7 @@ struct CallDock: View {
                         .padding(.top, 2)
                         .onTapGesture { if !whole { contextOpen.toggle() } }
                         .accessibilityAddTraits(whole ? [] : .isButton)
+                        .accessibilityValue(whole ? "" : contextOpen ? "expanded" : "collapsed")
                         .accessibilityHint(whole ? "" : contextOpen ? CallWords.showLess : CallWords.showAll)
                 }
                 ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {

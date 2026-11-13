@@ -172,6 +172,11 @@ extension Icons {
         IconShape(d: "M21 12H9", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
+    static let merge = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "M21 18a3 3 0 1 1 -6 0a3 3 0 1 1 6 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M9 6a3 3 0 1 1 -6 0a3 3 0 1 1 6 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M6 21V9a9 9 0 0 0 9 9", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+    ])
     static let more = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M13 12a1 1 0 1 1 -2 0a1 1 0 1 1 2 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M20 12a1 1 0 1 1 -2 0a1 1 0 1 1 2 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
@@ -512,6 +517,7 @@ extension Icons {
         case "IconLock": return lock
         case "IconLogLines": return logLines
         case "IconLogOut": return logOut
+        case "IconMerge": return merge
         case "IconMessage": return message
         case "IconMore": return more
         case "IconMoreVertical": return moreVertical

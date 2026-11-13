@@ -88,12 +88,15 @@ struct RuleLine: View {
 
     var body: some View {
         let (head, tail) = CallWords.ruleChange(line)
+        let rule = CallWords.quoted(line.text)
         HStack(spacing: 8) {
             IconView(icon: Icons.check, size: 12).foregroundStyle(palette.tertiary)
             Text(head).foregroundStyle(palette.tertiary).fixedSize()
-            Text("· \(CallWords.quoted(line.text))").foregroundStyle(palette.ink).lineLimit(1)
+            Text("· \(rule)").foregroundStyle(palette.ink).lineLimit(1)
             if let tail { Text("· \(tail)").foregroundStyle(palette.tertiary).fixedSize() }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([head, rule, tail].compactMap { $0 }.joined(separator: ", "))
         .font(Theme.ui(13))
         .padding(.leading, 12)
         .padding(.vertical, 6)

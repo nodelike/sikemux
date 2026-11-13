@@ -435,7 +435,6 @@
   "Send me the link": "Отправить мне ссылку",
   "Send the guest's message to the agent": "Отправить сообщение гостя агенту",
   "Send the next message without the handoff": "Отправить следующее сообщение без передачи",
-  "Send to @{name}": "Отправить @{name}",
   "Send to queue behind the running turn": "Отправьте, чтобы поставить в очередь после текущего хода",
   "Send to steer this turn": "Отправьте, чтобы направить этот ход",
   "Send, waiting for {host}": "Отправить, ждём {host}",
@@ -787,5 +786,14 @@
   "Now a check": "Теперь это проверка",
   "Rule changed": "Правило изменено",
   "Rule removed": "Правило убрано",
-  "by @{name}": "— @{name}"
+  "by @{name}": "— @{name}",
+  "your message": "ваше сообщение",
+  "the change": "изменение",
+  "landed {day}": "влито {day}",
+  "your answer": "ваш ответ",
+  "your rule": "ваше правило",
+  "said {day}": "сказано {day}",
+  "decided": "решено",
+  "source": "источник",
+  "today": "сегодня"
 }

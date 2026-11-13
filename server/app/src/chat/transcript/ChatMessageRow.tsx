@@ -30,6 +30,7 @@ import {
   FoldedMarkdown,
   SentChipsContext,
   warmChatMarkdown,
+  WhyChipsContext,
 } from "../markdown/ChatMarkdown";
 import { ToolGroup } from "../tools/ToolGroup";
 import { ToolRow } from "../tools/ToolRow";
@@ -53,8 +54,10 @@ import type {
   ContentBlock,
   SubagentCard,
   TaskNotice,
+  WhyChip,
 } from "@shared/wire.generated";
 import { ContextChipLabel } from "./ContextChip";
+import { OverruledLine, WeekLine } from "./ChiefLines";
 import type { MdElement } from "@shared/markdown/types";
 import { Shimmer } from "../ui/Shimmer";
 
@@ -318,6 +321,8 @@ function NoticePart({ notice }: { notice: TaskNotice }) {
 }
 
 function AgentNoticePart({ notice }: { notice: AgentNotice }) {
+  if (notice.overruled) return <OverruledLine overruled={notice.overruled} />;
+  if (notice.week) return <WeekLine week={notice.week} />;
   return (
     <div
       className={`chat-notice agent severity-${notice.severity}`}
@@ -547,6 +552,8 @@ function LeftOut({ message }: { message: ChatMessage }) {
   );
 }
 
+const NO_WHY_CHIPS: WhyChip[] = [];
+
 export const ChatMessageRow = memo(function ChatMessageRow({
   message,
   live,
@@ -612,11 +619,13 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           </div>
         )}
         <SentChipsContext.Provider value={chips}>
-          <PartGroups
-            parts={shown}
-            live={live}
-            typed={message.role === "user"}
-          />
+          <WhyChipsContext.Provider value={message.chips ?? NO_WHY_CHIPS}>
+            <PartGroups
+              parts={shown}
+              live={live}
+              typed={message.role === "user"}
+            />
+          </WhyChipsContext.Provider>
         </SentChipsContext.Provider>
         <LeftOut message={message} />
         {copyable && (

@@ -554,6 +554,9 @@
   .left-out { display: flex; align-items: center; gap: 6px; margin: 6px 0 4px; font-size: 12.5px; color: var(--text-tertiary); }
   .left-out i { font-style: normal; }
   .left-out b { font-weight: 400; color: var(--text-secondary); }
+  .why-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 5px 0 3px; border-radius: 5px; background: var(--surface-active); color: var(--text-primary); white-space: nowrap; }
+  .why-chip svg { color: var(--text-tertiary); }
+  .why-chip em { font-style: normal; color: var(--text-secondary); }
   .prose .faint { color: var(--text-tertiary); }
   .call-ctx.whole { display: block; -webkit-line-clamp: unset; }
   .call-who .call-place { margin-left: auto; font-size: 13px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
@@ -3002,7 +3005,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A worker, with a chief</b><div class="note">In a project with a chief, a worker's chat says who its words go to, and that the chief hears them: "Send to @Atobe · @Chief is told", whenever the core sets chiefHears on the chat. What the person types still goes to the worker; the chief reads it in its next digest. Without chiefHears it says "Send to @Atobe", as before.</div></figcaption></figure>
+      <figcaption><b>A worker, with a chief</b><div class="note">In a project with a chief, a worker's chat says who its words go to, and that the chief hears them: "Send to @Atobe · @Chief is told", whenever the core sets chiefHears on the chat. What the person types still goes to the worker; the chief reads it in its next digest. Without chiefHears it keeps its usual hint, as the Mac does.</div></figcaption></figure>
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
@@ -4032,6 +4035,30 @@ expected 1 write, got 2</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Sentences with no source</b><div class="note">When Sikemux leaves sentences out of an answer because they rest on no source, a quiet line under the answer says how many, as the Mac does: "2 sentences with no source left out · Show". Show asks the host for the answer with them back where they stood, in the faint ink, and the line says Hide, which takes them out again (the second answer). When the host cannot put them back (an answer too big for one page, a refusal, no connection, or no host, as in a shared chat), Show lists them under the answer instead, faint. The words are in all eight languages.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Birch</b><i>·</i><em>Why checkout is slow</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="msg-user">Why does the cart resize images on upload?</div>
+          <div class="msg-time">21:12</div>
+          <div class="prose">You asked for pictures to stay under 200 KB on phones <span class="why-chip">{{IconMessage:12}}your message <em>Tue 9:14 PM</em></span>, and the resize went in with the upload rewrite <span class="why-chip">{{IconCommit:12}}the change <em>landed Mon</em></span>. Full-size pictures in the cart are now a check <span class="why-chip">{{IconBook:12}}your rule <em>said Oct 30</em></span>, and the size was picked for you <span class="why-chip">{{IconMerge:12}}decided <em>today</em></span>.</div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Ask about this project</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>What a claim rests on</b><div class="note">In an answer to why something is as it is, each link the host checked is drawn where it stands as the Mac's chip: its mark, what it is (your message, the change, your answer, your rule, decided), then when, in the secondary ink. A link the host did not check is drawn as nothing, as on the Mac. Tapping your message opens that agent's chat; the others open nothing on the phone, which has no commit, rule or call to show them on. A shared chat's page draws the same chips and opens none. The words are in all eight languages.</div></figcaption></figure>
 
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>

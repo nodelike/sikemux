@@ -66,6 +66,8 @@ struct Inline {
     /// The places the find bar found, and where in the part's words this run starts.
     var marks: Marks?
     var cursor: FindCursor?
+    /// The `why` links the core checked in this answer.
+    var why: [WhyChip] = []
 
     func string(_ nodes: [MdNode]) -> AttributedString {
         var out = AttributedString()
@@ -90,7 +92,7 @@ struct Inline {
     }
 
     private func inner(_ paths: Bool) -> Inline {
-        Inline(palette: palette, style: style, paths: paths, marks: marks, cursor: cursor)
+        Inline(palette: palette, style: style, paths: paths, marks: marks, cursor: cursor, why: why)
     }
 
     private func string(_ node: MdNode) -> AttributedString {
@@ -149,6 +151,11 @@ struct Inline {
             }
             return plain(image.alt, counts: false)
         case .a(let link):
+            if link.href.hasPrefix(WhyLink.prefix) {
+                // The find bar still counts the link's words, so what follows keeps its place.
+                _ = inner(false).string(link.c)
+                return WhyLink.chip(link.href, in: why, palette: palette)
+            }
             var label = inner(false).string(link.c)
             if let url = TranscriptLink.openable(link.href) {
                 return linked(label, url)
@@ -258,8 +265,10 @@ struct BlockView: View, Equatable {
             && a.first == b.first && a.lead == b.lead && a.depth == b.depth
     }
 
+    @Environment(\.whyChips) private var why
+
     private var inline: Inline {
-        Inline(palette: palette, style: style, marks: marks, cursor: marks.map { FindCursor($0.base) })
+        Inline(palette: palette, style: style, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why)
     }
 
     var body: some View {
@@ -297,8 +306,10 @@ struct BlockView: View, Equatable {
             let set =
                 lead ? ProseStyle(size: style.size * 1.07, lineHeight: style.lineHeight, color: style.color) : style
             Prose(
-                text: Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) })
-                    .string(paragraph.c).fading(fading, color: set.color), style: set)
+                text: Inline(
+                    palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why
+                )
+                .string(paragraph.c).fading(fading, color: set.color), style: set)
         default:
             Prose(text: inline.string(block), style: style)
         }
@@ -307,6 +318,7 @@ struct BlockView: View, Equatable {
 
 /// A heading at its level's size against the text's: ## stands larger with room above, ### is a spaced-capital label.
 private struct HeadingBlock: View {
+    @Environment(\.whyChips) private var why
     let heading: MdElement.H
     let style: ProseStyle
     let palette: Palette
@@ -326,7 +338,7 @@ private struct HeadingBlock: View {
         let words =
             label
             ? AttributedString(visibleText(heading.c).uppercased())
-            : Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) })
+            : Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why)
                 .string(heading.c).fading(fading, color: set.color)
         Prose(
             text: words.settingAttributes(AttributeContainer().font(Theme.ui(size, .semibold)).tracking(tracking)),
@@ -364,6 +376,7 @@ private func isBlock(_ node: MdNode) -> Bool {
 
 /// An item's or a footnote's contents: runs of words as one line, blocks under them.
 struct Contents: View {
+    @Environment(\.whyChips) private var why
     let nodes: [MdNode]
     let style: ProseStyle
     let palette: Palette
@@ -402,7 +415,7 @@ struct Contents: View {
                     Prose(
                         text: Inline(
                             palette: palette, style: style, marks: marks?.from(start),
-                            cursor: marks.map { _ in FindCursor(start) }
+                            cursor: marks.map { _ in FindCursor(start) }, why: why
                         ).string(run), style: style)
                 case .block(let block, let start):
                     BlockView(block: block, style: style, palette: palette, marks: marks?.from(start), depth: depth)
@@ -602,6 +615,7 @@ enum ServiceMark {
 /// A table sized from its text up front, scrolling sideways in its own box when it is wider than the screen.
 private struct TableBlock: View {
     @Environment(\.palette) private var palette
+    @Environment(\.whyChips) private var why
     let table: MdElement.Table
     let style: ProseStyle
 
@@ -659,7 +673,7 @@ private struct TableBlock: View {
                 let words =
                     head
                     ? AttributedString(visibleText(nodes).uppercased())
-                    : Inline(palette: palette, style: set).string(nodes)
+                    : Inline(palette: palette, style: set, why: why).string(nodes)
                 Text(words)
                     .font(head ? Theme.ui(12, .semibold) : set.font)
                     .tracking(head ? 0.6 : 0)

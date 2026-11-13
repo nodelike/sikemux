@@ -44,6 +44,7 @@ import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notic
 import { ContextChips } from '@/chat/ContextChips';
 import { Editing, MessageEditor } from '@/chat/MessageEditor';
 import { FiredTrigger } from '@/chat/FiredTrigger';
+import { WhyChipsContext } from '@/chat/WhyChip';
 import { LongText } from '@/chat/LongText';
 import { LeftOut, type Restored, useRestored } from '@/chat/LeftOut';
 
@@ -469,7 +470,9 @@ export function Message({
   return (
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? t('Tap for copy and how long it took') : undefined}>
       <Grow id={message.id} live={live}>
-        <Parts id={message.id} parts={shownParts(message.parts, kept)} live={live} restored={restored} />
+        <WhyChipsContext.Provider value={message.chips}>
+          <Parts id={message.id} parts={shownParts(message.parts, kept)} live={live} restored={restored} />
+        </WhyChipsContext.Provider>
         {live ? null : <LeftOut message={message} />}
         {strip ? <Strip meta={strip} mine={false} /> : null}
       </Grow>

@@ -262,8 +262,6 @@ enum CallWords {
     static let chief = "@Chief"
     /// The composer's words in the chief's own chat.
     static let tellChief = String(localized: "Tell @Chief what you want")
-    /// The composer's words in a worker's chat, in a project with a chief.
-    static func sendTo(_ name: String) -> String { String(localized: "Send to @\(name)") }
     /// Under the chief's row when a tap cannot reach the host to open its chat.
     static let chiefOffline = String(localized: "Not connected to this host yet, so its chief can't open.")
     /// The composer's words in a worker's chat whose project's chief hears what is typed there.

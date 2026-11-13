@@ -227,8 +227,6 @@ export function rowLabel(turn: TurnState, now = Date.now(), say: Say = english):
 export const CHIEF = "@Chief";
 /** The composer's words in the chief's own chat. */
 export const TELL_CHIEF = "Tell @Chief what you want";
-/** The composer's words in a worker's chat, in a project with a chief. */
-export const sendTo = (name: string, say: Say = english) => say("Send to @{name}", { name });
 /** Under the chief's row when a tap cannot reach the host to open its chat. */
 export const CHIEF_OFFLINE = "Not connected to this host yet, so its chief can't open.";
 /** The composer's words in a worker's chat whose project's chief hears what is typed there. */
@@ -278,11 +276,11 @@ export function ruleChange(line: { restored?: boolean; commit?: string; was?: st
 }
 /** What was decided, quoted, never as the person's own words. */
 export const quoted = (text: string, say: Say = english) => say("“{text}”", { text });
-/** When the week's count came: `Monday · 09:00`. */
-export function weekCame(at: number, say: Say = english): string {
+/** When the week's count came: `Monday · 09:00`, or `Monday · 9:00 AM` on a 12-hour clock. */
+export function weekCame(at: number, say: Say = english, hour12 = false): string {
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const day = say(days[new Date(at).getDay()]);
-    const time = new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+    const time = new Date(at).toLocaleTimeString(undefined, { hour: hour12 ? "numeric" : "2-digit", minute: "2-digit", hour12 });
     return say("{day} · {time}", { day, time });
 }
 /** The chief's count of a week, as the Mac words it. */

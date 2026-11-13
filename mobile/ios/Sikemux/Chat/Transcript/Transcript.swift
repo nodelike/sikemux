@@ -38,6 +38,10 @@ struct Transcript<Footer: View>: View {
     }
 
     private func opened(_ url: URL) -> OpenURLAction.Result {
+        if let agent = WhyLink.agent(url) {
+            if let core = context.core { Router.shared.push(.chat(core: core, agent: agent)) }
+            return .handled
+        }
         guard let path = TranscriptLink.filePath(url) else { return .systemAction }
         if let image = HostFiles.imagePath(path), let core = context.core {
             context.showHostImage(core: core, path: image)

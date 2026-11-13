@@ -22,6 +22,9 @@ import {
   useLongTextFold,
 } from "@shared/chat/longText";
 import { openLink } from "../transcript/chatAgent";
+import { WHY_URI, whyChip } from "@shared/chat/why";
+import type { WhyChip } from "@shared/wire.generated";
+import { WhyChipLabel } from "../transcript/WhyChip";
 import { ChatImage } from "../files/ChatImage";
 import { DiffText } from "../tools/DiffView";
 import { decodedFenceName } from "@shared/chat/transcript";
@@ -44,9 +47,14 @@ function ChatLink({
   guess?: PathGuess;
   children?: ReactNode;
 }) {
+  const whyChips = useContext(WhyChipsContext);
   const imagePath = localImagePath(href);
   const preview = useImagePreview(guess ? null : imagePath);
   const file = useFileRef(href);
+  if (href.startsWith(WHY_URI)) {
+    const chip = whyChip(whyChips, href);
+    return chip ? <WhyChipLabel chip={chip} /> : null;
+  }
   if (preview && imagePath) return <ChatImage src={preview} path={imagePath} />;
   if (file)
     return (
@@ -190,6 +198,9 @@ const markdownComponents: MarkdownComponents = {
 };
 
 /** What each chip a sent message's draft wrote says, by the words it stands for in the text. */
+/** The `why` links the core checked in the answer being drawn. */
+export const WhyChipsContext = createContext<WhyChip[]>([]);
+
 export const SentChipsContext = createContext<ReadonlyMap<string, string>>(
   new Map(),
 );
