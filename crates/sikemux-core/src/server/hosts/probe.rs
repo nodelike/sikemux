@@ -8,18 +8,18 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::hosts::{Found, Unanswered};
 use std::collections::{HashMap, HashSet};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use super::super::changed::Topic;
 use super::super::Core;
-use super::install::SetUpWork;
 
 /// Long enough to connect and ask.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
@@ -71,47 +71,6 @@ pub(super) fn core_command(args: &str) -> String {
         "{FIND_CORE}[ -n \"$c\" ] || {{ echo 'Sikemux is not installed there' >&2; exit 127; }}\n{}\n",
         args.replace("$core", "\"$c\"")
     )
-}
-
-/// What the SSH host's Sikemux is, beside this host's account.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Found {
-    /// The host answered, and no Sikemux is there.
-    Nothing,
-    Same,
-    SignedOut,
-    Other,
-    Stopped,
-    /// A release too old to say which host it is, or to be signed in from here.
-    Outdated,
-}
-
-impl Found {
-    /// What setting the host up takes, if anything does.
-    pub(crate) fn set_up(self) -> Option<SetUpWork> {
-        match self {
-            Found::Nothing => Some(SetUpWork::Install),
-            Found::SignedOut => Some(SetUpWork::SignIn),
-            Found::Stopped => Some(SetUpWork::Start),
-            Found::Outdated => Some(SetUpWork::Update),
-            Found::Same | Found::Other => None,
-        }
-    }
-}
-
-/// Why an SSH host has no answer yet. Nothing is offered until it has one.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum Unanswered {
-    /// Not asked yet, or being asked.
-    Checking,
-    /// ssh could not reach it.
-    Unreachable { detail: String },
-    /// ssh needs a password or a key it was not offered.
-    SshSignIn { detail: String },
-    /// It answered with something that says nothing about Sikemux.
-    Failed { detail: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

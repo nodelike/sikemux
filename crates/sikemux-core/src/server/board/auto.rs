@@ -7,8 +7,12 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::board::{
+    BoardReviewerParams, BoardSettings, BoardSettingsParams, CardPull, CardRun, Landing,
+    ReviewerChoice, RunHold, RunStage,
+};
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -23,14 +27,11 @@ use super::record::RunRecord;
 use super::recover::{self, Recovery, TookOn};
 use super::review::Review;
 use super::{blind, finish, goal, queue, risk, Board, Card, CardStatus, Owner, Team};
-use crate::server::calls::given;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
-use crate::server::places::{Passes, Place};
 use crate::server::spawn::Ending;
 use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, messages, Core};
-use sikemux_view::turn::Landed;
 use sikemux_wire::protocol::{ChatLaunch, Event};
 
 pub(super) const MAX_SLOTS: u32 = crate::server::names::MAX_SPAWNED_PER_PROJECT as u32;
@@ -39,132 +40,9 @@ pub(super) const MAX_SLOTS: u32 = crate::server::names::MAX_SPAWNED_PER_PROJECT 
 const MAX_RUNS_ABOVE: usize = 3;
 /// How many unfinished cards one run may add for Auto to take.
 pub(super) const MAX_CARDS_PER_RUN: usize = 16;
-const DEFAULT_SLOTS: u32 = 2;
 pub(super) const PICKED_IN: &str = "in the board's Auto settings";
 const MAX_LAUNCHER_CHARS: usize = 256;
 const MAX_MODEL_CHARS: usize = 200;
-
-/// Who passes a slice's Landed gate in a project, and so whether anything
-/// lands before the person says.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Landing {
-    /// Sikemux, once the slice's commits are on the branch; Auto merges its
-    /// pull request itself once its checks pass and its reviewer approves.
-    #[default]
-    Core,
-    /// The person: nothing counts as landed until they pass it, and Auto
-    /// leaves its pull request open for them to merge.
-    Person,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReviewerChoice {
-    /// The app's launcher it starts with, which must run another CLI than
-    /// the card's builder.
-    pub launcher: String,
-    pub provider: Option<String>,
-    pub model: Option<String>,
-}
-
-/// How a project's board runs on its own.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct BoardSettings {
-    pub auto: bool,
-    /// How many of Auto's agents work at once.
-    pub slots: u32,
-    /// The app's launcher Auto's agents start with; none for the first that works.
-    pub launcher: Option<String>,
-    /// The connected provider its agents run on in place of their own accounts.
-    pub provider: Option<String>,
-    pub model: Option<String>,
-    pub landing: Landing,
-    /// What counts as landed, as the person set it; none reads it from the project's history.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub landed: Option<Landed>,
-    /// Who reviews each change before it merges; none for any signed-in
-    /// agent on another CLI than its builder's.
-    pub reviewer: Option<ReviewerChoice>,
-    /// The project's places, as its place file keeps them, in the order its slices reach
-    /// those that give them a step.
-    #[serde(skip)]
-    pub places: Vec<Place>,
-    #[serde(skip)]
-    pub places_confirmed: Option<u64>,
-    /// Whole dollars of Auto's spending in the project past which it starts no new cards.
-    pub spend_ceiling: Option<u32>,
-    /// The linked hosts cards go to past this host's places, by key, the first with room first.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub hosts: Vec<String>,
-}
-
-impl BoardSettings {
-    fn place(&self, name: &str) -> Option<&Place> {
-        self.places.iter().find(|known| known.shown.name == name)
-    }
-
-    pub(super) fn passes(&self, name: &str) -> Option<Passes> {
-        let confirmed = self.places_confirmed.is_some();
-        self.place(name).map(|place| place.passes(confirmed))
-    }
-
-    /// What it means for the place called `name`, in the core's words.
-    pub(super) fn passes_words(&self, name: &str) -> String {
-        match self.passes(name) {
-            Some(Passes::Nobody) => format!("{name} goes freely"),
-            Some(Passes::Check) => format!("{name} goes once the project's check passes"),
-            Some(Passes::Person) => format!("{name} waits for the person's yes"),
-            None => format!("{name} is no longer one of the project's, so it waits for a person"),
-        }
-    }
-
-    /// Who passes the place called `name`, under its step on a ladder.
-    pub(super) fn step_words(&self, name: &str) -> &'static str {
-        match self.passes(name) {
-            Some(Passes::Nobody) => "Goes freely",
-            Some(Passes::Check) => "Once the check passes",
-            Some(Passes::Person) | None => "The person",
-        }
-    }
-
-    /// What a card's run record compares runs by.
-    pub(super) fn switches(&self) -> BTreeMap<String, bool> {
-        BTreeMap::from([("coreLands".to_owned(), self.lands_itself())])
-    }
-
-    /// Whether Auto merges the project's changes itself, and so agrees a contract first, keeps
-    /// each card's commits on the remote and queues its merges. A person who lands the changes
-    /// merges them as they please, with nothing of Auto's pushed.
-    pub(super) fn lands_itself(&self) -> bool {
-        self.landing == Landing::Core
-    }
-
-    /// Where a deploy's health is read after it, for the place called `name`.
-    pub(crate) fn health(&self, name: &str) -> Option<String> {
-        self.place(name)?.health.clone()
-    }
-}
-
-impl Default for BoardSettings {
-    fn default() -> Self {
-        Self {
-            auto: false,
-            slots: DEFAULT_SLOTS,
-            launcher: None,
-            provider: None,
-            model: None,
-            landing: Landing::Core,
-            landed: None,
-            reviewer: None,
-            places: Vec::new(),
-            places_confirmed: None,
-            spend_ceiling: None,
-            hosts: Vec::new(),
-        }
-    }
-}
 
 fn known_provider(
     provider: Option<String>,
@@ -176,69 +54,11 @@ fn known_provider(
     }
 }
 
-/// What the person changes of how a project's board runs on its own; what it leaves out
-/// stays as it is, and a null clears it.
-#[derive(Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BoardSettingsParams {
-    pub project: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auto: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slots: Option<u32>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub launcher: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub provider: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub model: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub reviewer: Option<Option<BoardReviewerParams>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub landing: Option<Landing>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub landed: Option<Option<Landed>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub spend_ceiling: Option<Option<u32>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hosts: Option<Vec<String>>,
+pub(crate) trait BoardReviewerParamsExt: Sized {
+    fn choice(self, knows: &impl Fn(&str) -> bool) -> Result<ReviewerChoice, String>;
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct BoardReviewerParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub launcher: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-}
-
-impl BoardReviewerParams {
+impl BoardReviewerParamsExt for BoardReviewerParams {
     fn choice(self, knows: &impl Fn(&str) -> bool) -> Result<ReviewerChoice, String> {
         let launcher = text("launcher", self.launcher, MAX_LAUNCHER_CHARS)?
             .ok_or("reviewer.launcher must name the agent that reviews")?;
@@ -259,9 +79,17 @@ fn text(key: &str, text: Option<String>, max: usize) -> Result<Option<String>, S
     }
 }
 
-impl BoardSettings {
+pub(crate) trait BoardSettingsExt: Sized {
     /// These settings with what `params` changes, naming only providers Sikemux `knows`.
-    pub(super) fn changed(
+    fn changed(
+        &self,
+        params: BoardSettingsParams,
+        knows: impl Fn(&str) -> bool,
+    ) -> Result<Self, String>;
+}
+
+impl BoardSettingsExt for BoardSettings {
+    fn changed(
         &self,
         params: BoardSettingsParams,
         knows: impl Fn(&str) -> bool,
@@ -307,59 +135,6 @@ impl BoardSettings {
             settings.hosts = elsewhere::checked_hosts(hosts)?;
         }
         Ok(settings)
-    }
-}
-
-/// The step of Auto's own work a card's run is at. Its slice and `held` say
-/// what waits on the person and whether the work landed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RunStage {
-    /// Its worktree and agent are being made.
-    Starting,
-    Working,
-    /// An agent on another CLI reviews what its builder proposes to build.
-    Contracting,
-    /// Its work is being committed, pushed and put in a pull request.
-    Shipping,
-    /// Its pull request's checks are running.
-    Checking,
-    /// Its checks passed, and an agent on another CLI reviews the change
-    /// blind before it merges.
-    Reviewing,
-    /// Its agent was asked to fix what failed.
-    Fixing,
-    Merging,
-    /// Its pull request is open, and Auto watches it for the person to merge
-    /// it or comment on it.
-    Watching,
-}
-
-/// What the person is needed for once Auto gives a card back to them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RunHold {
-    /// Something failed that needs mending.
-    Fix,
-    /// Something only the person can do, such as starting its agent again.
-    Unblock,
-}
-
-impl RunStage {
-    /// Its agent is at work, so it takes one of Auto's places.
-    pub(super) fn busy(self) -> bool {
-        matches!(
-            self,
-            RunStage::Starting | RunStage::Working | RunStage::Contracting | RunStage::Fixing
-        )
-    }
-
-    /// A turn of its agent ending sends its work on.
-    fn ships_on_turn_end(self) -> bool {
-        matches!(
-            self,
-            RunStage::Working | RunStage::Fixing | RunStage::Watching
-        )
     }
 }
 
@@ -483,33 +258,6 @@ impl AutoRun {
             }),
         }
     }
-}
-
-/// A card's run as the app and devices read it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CardRun {
-    pub agent: String,
-    pub repo: String,
-    pub worktree: String,
-    pub branch: String,
-    pub base: String,
-    pub start_sha: String,
-    pub stage: RunStage,
-    /// Auto gave the card back to the person, who is needed for this.
-    pub held: Option<RunHold>,
-    /// Auto gave it back, or its pull request waits for them.
-    pub waits_on_person: bool,
-    pub note: Option<String>,
-    pub pull: Option<CardPull>,
-}
-
-/// A run's pull request as the app and devices read it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CardPull {
-    pub number: u64,
-    pub url: String,
-    pub host: String,
 }
 
 /// How many of the board's cards have an agent of Auto's at work that is

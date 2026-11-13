@@ -9,12 +9,13 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::hosts::SetupRow;
 pub use sikemux_calls::hosts::{AliasParams, SetupEnded};
 pub use sikemux_calls::hosts::{InstallParams, SetUpWork};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -42,17 +43,13 @@ pub(crate) struct Setup {
     ended: watch::Sender<Option<Done>>,
 }
 
-/// A set-up as the host's row shows it: running, or why it stopped.
-#[derive(Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SetupRow {
-    pub work: SetUpWork,
-    pub problem: Option<String>,
+pub(crate) trait SetupRowExt: Sized {
+    /// Connecting while it runs; out of reach once it has stopped short.
+    fn reach(&self) -> super::listed::Reach;
 }
 
-impl SetupRow {
-    /// Connecting while it runs; out of reach once it has stopped short.
-    pub(crate) fn reach(&self) -> super::listed::Reach {
+impl SetupRowExt for SetupRow {
+    fn reach(&self) -> super::listed::Reach {
         match self.problem {
             None => super::listed::Reach::Connecting,
             Some(_) => super::listed::Reach::Away,

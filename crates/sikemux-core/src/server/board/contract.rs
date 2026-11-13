@@ -7,6 +7,7 @@
 
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::board::{CardContract, ContractState, ContractTerm};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -24,31 +25,6 @@ use crate::server::{messages, Core};
 const MAX_ROUNDS: u32 = 3;
 const MAX_TERMS: usize = 20;
 const MAX_TERM_CHARS: usize = 1000;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContractTerm {
-    pub behaviour: String,
-    pub verify: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ContractState {
-    /// Its builder has not proposed one yet.
-    Awaited,
-    /// Its builder ended a turn without one and was reminded.
-    Reminded,
-    /// A reviewer has the latest proposal.
-    Reviewing,
-    /// A reviewer objected and its builder is proposing again.
-    Revising,
-    Agreed,
-    /// The latest proposal stands without a reviewer's agreement, for the reason on record.
-    Stands,
-    /// Its builder never proposed one.
-    Skipped,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,16 +76,6 @@ impl Contract {
             "why": self.why,
         })
     }
-}
-
-/// A card's contract as the app and devices read it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CardContract {
-    pub terms: Vec<ContractTerm>,
-    pub state: ContractState,
-    pub rounds: u32,
-    pub why: Option<String>,
 }
 
 fn term_text(item: &Value, key: &str) -> Result<String, String> {

@@ -7,6 +7,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::board::{AuditEveryParams, AuditNowParams};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -58,21 +59,6 @@ struct Run {
     /// The project's commit it audited.
     head: String,
     commits: u32,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuditEveryParams {
-    pub project: String,
-    /// An `every` of an hour or more, or `daily`; none stops them.
-    #[serde(default)]
-    pub every: Option<TriggerWhen>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AuditNowParams {
-    pub project: String,
 }
 
 /// The person sets when the project's audits run.

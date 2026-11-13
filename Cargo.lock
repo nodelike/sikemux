@@ -9834,6 +9834,7 @@ dependencies = [
  "sikemux-agents",
  "sikemux-corekit",
  "sikemux-git",
+ "sikemux-plugin-api",
  "sikemux-view",
  "sikemux-wire",
  "workspace-hack",

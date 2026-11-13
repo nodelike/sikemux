@@ -4,6 +4,7 @@
 //! its pull request, and a ticket closed in its tracker closes its card, but
 //! for a slice the person lands that has not landed, which waits for them.
 
+use crate::server::board::BoardTicketParamsExt;
 use crate::server::parts::Parts;
 use std::sync::Arc;
 

@@ -1,8 +1,14 @@
+use crate::params::given;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use serde_json::Value;
 use sikemux_agents::launch::PermissionMode;
+use sikemux_agents::sessions::said::FoundLine;
+use sikemux_view::device::RecentInfo;
+use sikemux_view::workspace::AgentBuddy;
+use sikemux_view::workspace::PinnedChat;
 use sikemux_view::workspace::SpaceInfo;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Deserialize, Serialize)]
@@ -76,4 +82,105 @@ pub struct AddProjectParams {
     pub path: PathBuf,
     pub name: Option<String>,
     pub id: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAgentParams {
+    pub agent_id: String,
+    pub patch: AgentPatch,
+}
+
+/// The fields of an agent a client may change; a null one is cleared. The
+/// rest, such as its terminal or worktree, only the core sets.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub renamed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<PermissionMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lead: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub resume_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub profile_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_provider: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub effort: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub buddy: Option<Option<AgentBuddy>>,
+}
+
+impl UpdateAgentParams {
+    pub fn new(agent_id: impl Into<String>, patch: AgentPatch) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            patch,
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct PinnedParams {
+    pub chats: Vec<PinnedChat>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentChatsParams {
+    /// Every project's when absent.
+    pub project: Option<String>,
+    pub query: Option<String>,
+    pub cursor: Option<sikemux_agents::sessions::recent::RecentCursor>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RecentChats {
+    pub chats: Vec<RecentInfo>,
+    pub next: Option<sikemux_agents::sessions::recent::RecentCursor>,
+    /// Where each chat found by its words said them, by the chat's id.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub said: HashMap<String, FoundLine>,
 }

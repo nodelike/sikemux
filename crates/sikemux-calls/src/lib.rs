@@ -33,6 +33,7 @@ pub mod call;
 pub mod chat;
 pub mod chief;
 pub mod cli_install;
+pub mod codehost;
 pub mod custom_command;
 pub mod diagnosis;
 pub mod diagrams;

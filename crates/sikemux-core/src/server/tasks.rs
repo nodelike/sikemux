@@ -8,6 +8,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::tasks::{ConfigStatus, JavaView, Source, TaskList, TaskView};
 pub use sikemux_calls::tasks::{
     ProjectConfigRead, ProjectParams, RerunParams, RerunStarted, RunView, TrustAnswerParams,
     TrustProjectParams, TrustQuestion,
@@ -235,21 +236,6 @@ impl Tasks {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Source {
-    /// From `sikemux.json`.
-    Project,
-    /// From the person's `.sikemux/tasks.json`.
-    Personal,
-    /// Suggested by the build files.
-    Detected,
-    /// A failed test run narrowed to its failures.
-    Rerun,
-    /// A shell command an agent gave.
-    Command,
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct Definition {
     id: String,
@@ -366,55 +352,6 @@ fn relative(project: &Path, path: &Path) -> String {
         Ok(inside) => inside.to_string_lossy().into_owned(),
         Err(_) => path.to_string_lossy().into_owned(),
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JavaView {
-    pub required: u32,
-    pub runs_on: Option<u32>,
-    pub current: Option<u32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskView {
-    pub id: String,
-    pub label: String,
-    pub command: String,
-    /// Relative to the project, `.` for its root.
-    pub cwd: String,
-    pub source: Source,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub java: Option<JavaView>,
-    /// A run of it the person started is going.
-    pub running: bool,
-    /// The terminal that run shows in.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<u64>,
-}
-
-/// Whether the project's `sikemux.json` is there, and whether it reads.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ConfigStatus {
-    Absent,
-    Invalid,
-    Valid,
-}
-
-/// Everything a project can run, as the `tasks` call answers.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskList {
-    pub project: PathBuf,
-    pub config_status: ConfigStatus,
-    /// What is wrong with an invalid `sikemux.json`.
-    pub config_errors: Option<Vec<config::ConfigError>>,
-    pub trusted: bool,
-    pub tasks: Vec<TaskView>,
-    /// The task to offer first: the one the person has running, else the first.
-    pub default: Option<String>,
 }
 
 fn view(project: &Path, task: &Definition, run: Option<&Run>) -> TaskView {

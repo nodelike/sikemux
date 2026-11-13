@@ -10,6 +10,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 pub use sikemux_calls::plugins::{Disabled, PluginCall, StreamCall};
+pub use sikemux_calls::plugins::{PluginFailure, PluginOutcome};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -31,53 +32,6 @@ use crate::cli::protocol::HarnessRequest;
 use super::changed::Topic;
 use super::connection::ClientConn;
 use super::{Core, CoreError, CoreResult};
-
-/// How a plugin call failed, as the window shows it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PluginFailure {
-    pub plugin: String,
-    pub category: FailureCategory,
-    pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<u16>,
-}
-
-impl From<PluginFailure> for String {
-    fn from(failure: PluginFailure) -> Self {
-        failure.message
-    }
-}
-
-impl PluginFailure {
-    pub fn new(plugin: &str, category: FailureCategory, message: impl Into<String>) -> Self {
-        Self {
-            plugin: plugin.to_owned(),
-            category,
-            message: message.into(),
-            status: None,
-        }
-    }
-}
-
-/// What the core answers the window's `plugin` call with.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum PluginOutcome {
-    Value(Value),
-    Failed(PluginFailure),
-}
-
-impl PluginOutcome {
-    /// The value inside the answer, read as a `T`, or what its failure said.
-    pub fn read<T: serde::de::DeserializeOwned>(self) -> Result<T, String> {
-        match self {
-            PluginOutcome::Value(value) => {
-                serde_json::from_value(value).map_err(|error| error.to_string())
-            }
-            PluginOutcome::Failed(failure) => Err(failure.message),
-        }
-    }
-}
 
 /// One line of a plugin stream on the tool endpoint.
 #[derive(Clone, Serialize, Deserialize)]

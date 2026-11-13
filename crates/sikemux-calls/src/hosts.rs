@@ -108,3 +108,102 @@ pub struct SessionSent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub differs: Option<String>,
 }
+
+/// A set-up as the host's row shows it: running, or why it stopped.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupRow {
+    pub work: SetUpWork,
+    pub problem: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Reach {
+    Connected,
+    Connecting,
+    /// A linked host this one has not reached, which it keeps trying, or an
+    /// SSH host whose terminals are not connected.
+    Away,
+    /// Only for an SSH host: ssh gave up connecting to it.
+    Failed,
+}
+
+#[derive(Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HostRow {
+    /// The host's core key; none for an SSH host not linked with this one.
+    pub id: Option<String>,
+    pub name: String,
+    pub platform: Option<String>,
+    pub reach: Reach,
+    /// The SSH host it was installed on or found at from here, or the row's own alias.
+    pub ssh: Option<String>,
+    /// What is being done to its SSH host from here: installing, updating or signing in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<SetupRow>,
+    /// What its SSH host was found to run when last asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub found: Option<Found>,
+    /// Why its SSH host has no answer yet; nothing is offered meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unanswered: Option<Unanswered>,
+    /// What setting its SSH host up takes, once it answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_up: Option<SetUpWork>,
+}
+
+/// A linked host as Settings and phones list it.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkedHost {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    pub linked_at: u64,
+    pub last_seen: Option<u64>,
+    pub connected: bool,
+    /// Agents of teams this host shares with it.
+    pub agents: usize,
+}
+
+/// What the SSH host's Sikemux is, beside this host's account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Found {
+    /// The host answered, and no Sikemux is there.
+    Nothing,
+    Same,
+    SignedOut,
+    Other,
+    Stopped,
+    /// A release too old to say which host it is, or to be signed in from here.
+    Outdated,
+}
+
+impl Found {
+    /// What setting the host up takes, if anything does.
+    pub fn set_up(self) -> Option<SetUpWork> {
+        match self {
+            Found::Nothing => Some(SetUpWork::Install),
+            Found::SignedOut => Some(SetUpWork::SignIn),
+            Found::Stopped => Some(SetUpWork::Start),
+            Found::Outdated => Some(SetUpWork::Update),
+            Found::Same | Found::Other => None,
+        }
+    }
+}
+
+/// Why an SSH host has no answer yet. Nothing is offered until it has one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Unanswered {
+    /// Not asked yet, or being asked.
+    Checking,
+    /// ssh could not reach it.
+    Unreachable { detail: String },
+    /// ssh needs a password or a key it was not offered.
+    SshSignIn { detail: String },
+    /// It answered with something that says nothing about Sikemux.
+    Failed { detail: String },
+}

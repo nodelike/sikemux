@@ -5,10 +5,16 @@
 //! a window reload, a restart and an update.
 
 use crate::server::agent_now::AgentNowCore;
+use crate::server::board::auto::BoardSettingsExt;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::board::{
+    BoardAddParams, BoardAddTicketParams, BoardCard, BoardCardParams, BoardColumn, BoardParams,
+    BoardTicketCard, BoardTicketParams, BoardUpdateParams, CardStatus, CardTicket,
+    ForgetInheritedParams, ProjectBoard, Tracker,
+};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -29,10 +35,7 @@ use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_view::inbox::InboxRecording;
-use sikemux_view::slice::{
-    Assertion, Collect, Decision, GoalEta, GoalReport, GoalRule, NextGate, ReportEvery, SliceState,
-    SliceView, Wait,
-};
+use sikemux_view::slice::{Assertion, Collect, SliceState, Wait};
 
 mod archive;
 mod arrival;
@@ -111,64 +114,6 @@ const RECENT_DONE: usize = 10;
 const MAX_RECORDINGS: usize = 8;
 const ONLY_PERSON_ACCEPTS: &str =
     "Only the person writes a card's acceptance criteria; leave out acceptance";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CardStatus {
-    Open,
-    Progress,
-    Done,
-}
-
-impl CardStatus {
-    fn words(self) -> &'static str {
-        match self {
-            CardStatus::Open => "open",
-            CardStatus::Progress => "in progress",
-            CardStatus::Done => "done",
-        }
-    }
-
-    fn parse(text: &str) -> Result<Self, String> {
-        match text.trim().to_lowercase().as_str() {
-            "open" => Ok(CardStatus::Open),
-            "progress" | "in progress" | "in_progress" => Ok(CardStatus::Progress),
-            "done" => Ok(CardStatus::Done),
-            _ => Err("status must be open, progress or done".into()),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Tracker {
-    Jira,
-    Linear,
-}
-
-/// The Jira or Linear ticket the person put a card on the board for.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CardTicket {
-    pub key: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    /// What the ticket is in its tracker, such as Epic, Story or Bug.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    pub provider: Tracker,
-    /// The status last put on the ticket in its tracker, so each change goes
-    /// there once.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub synced: Option<CardStatus>,
-    /// Why the last change did not reach the ticket.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sync_note: Option<String>,
-    /// Its tracker closed it while its slice had not landed, where the person
-    /// lands slices, so the person decides what that means.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub done_unlanded: bool,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1224,7 +1169,11 @@ impl Changes {
     }
 }
 
-impl BoardTicketParams {
+pub(crate) trait BoardTicketParamsExt: Sized {
+    fn ticket(self) -> Result<CardTicket, String>;
+}
+
+impl BoardTicketParamsExt for BoardTicketParams {
     fn ticket(self) -> Result<CardTicket, String> {
         let field = |name: &str, text: String, max: usize| -> Result<String, String> {
             let trimmed = text.trim();
@@ -1555,97 +1504,6 @@ fn remember_team(core: &Core, board: &mut Board, id: u64) {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BoardCard {
-    pub id: u64,
-    pub title: String,
-    pub details: String,
-    pub acceptance: String,
-    pub contract: Option<CardContract>,
-    pub status: CardStatus,
-    pub owner: Option<String>,
-    pub owner_name: Option<String>,
-    pub owner_cli: Option<String>,
-    /// The model provider paying for the owner's turns, when not its own account.
-    pub paid_by: Option<String>,
-    pub team: Option<String>,
-    pub team_name: Option<String>,
-    pub parent: Option<u64>,
-    pub depends_on: Vec<u64>,
-    pub waits_on: Vec<u64>,
-    pub created_by: Option<String>,
-    pub created_by_name: String,
-    pub result: Option<String>,
-    pub ticket: Option<CardTicket>,
-    /// The ticket of the nearest card above it that has one, which it is filed under.
-    pub ticket_above: Option<String>,
-    pub column: BoardColumn,
-    /// The question of its owner's it waits on the person to answer, by id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub question: Option<String>,
-    pub auto: Option<CardRun>,
-    /// Browser recordings, for a card that is not a slice; a slice's are in its evidence.
-    pub recordings: Vec<InboxRecording>,
-    /// For a slice of a goal: its promise, gates, evidence and notes.
-    pub slice: Option<SliceView>,
-    /// For a goal, its slices' cards in board order: those right under it,
-    /// and its own card when it is a slice itself.
-    #[serde(default)]
-    pub goal_slices: Vec<u64>,
-    /// It sits at the top of the board with slices, or with an agent working it or a card under
-    /// it, as a chat started from Home does.
-    #[serde(default)]
-    pub is_goal: bool,
-    /// A short name its summary gave a goal whose title is only its prompt cut short.
-    #[serde(default)]
-    pub display_title: Option<String>,
-    /// For a goal, the gates its slices wait at, in the order they will be
-    /// reached: a slice that waits on another comes after it.
-    pub next: Vec<NextGate>,
-    /// For a goal, how its slices stand together; none for a card with no
-    /// slices under it.
-    #[serde(default)]
-    pub goal_state: Option<SliceState>,
-    /// Every slice left in the goal lost its owner, so it isn't moving: the person's inbox says so.
-    #[serde(default)]
-    pub goal_stalled: bool,
-    /// For a goal, when its work should be through and whether that slipped.
-    #[serde(default)]
-    pub eta: Option<GoalEta>,
-    /// For a goal, how often its report is written; none writes none.
-    #[serde(default)]
-    pub report_every: Option<ReportEvery>,
-    /// For a goal, its latest report; `goalReports` lists those before it.
-    #[serde(default)]
-    pub report: Option<GoalReport>,
-    /// For a goal, what it decided, oldest first, retired ones too.
-    pub decisions: Vec<Decision>,
-    /// For a goal, rules only its own agents follow, oldest first, retired
-    /// ones too.
-    pub rules: Vec<GoalRule>,
-    /// Its ticket or trigger arriving again while it was open, oldest first.
-    pub arrivals: Vec<arrival::Arrival>,
-    /// For a goal, what must hold once its slices are done, oldest first,
-    /// retired ones too.
-    pub assertions: Vec<Assertion>,
-    pub at: u64,
-    pub updated_at: u64,
-    /// When it was put aside in Later, off the board until someone takes it up again.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub aside_at: Option<u64>,
-}
-
-/// Where a board shows a card: `needs` holds the cards waiting on the person.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum BoardColumn {
-    Open,
-    Progress,
-    Needs,
-    Done,
-}
-
 /// The column a card shows in: done once done, else waiting on the person
 /// while anything on it does.
 fn column_of(core: &Core, board: &Board, card: &Card) -> BoardColumn {
@@ -1659,28 +1517,6 @@ fn column_of(core: &Core, board: &Board, card: &Card) -> BoardColumn {
 
 fn ticket_above(board: &Board, card: &Card) -> Option<String> {
     (board.up_from(card).skip(1)).find_map(|card| Some(card.ticket.as_ref()?.key.clone()))
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectBoard {
-    pub project: String,
-    pub cards: Vec<BoardCard>,
-    pub settings: BoardSettings,
-    /// Places an agent proposed, waiting for the person's answer.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub places_proposal: Option<PlacesProposal>,
-    /// How many of its cards have an agent of Auto's at work.
-    pub running: usize,
-    pub auto_note: Option<String>,
-    /// What could not be done of what the person asked, a line each.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub problems: Vec<String>,
-    /// The triggers that add cards to it when their time comes, soonest first.
-    pub triggers: Vec<sikemux_view::chat::ChatTrigger>,
-    /// When its drift audits run and what the latest found; none when it never had any.
-    #[serde(default)]
-    pub audit: Option<sikemux_view::audit::AuditView>,
 }
 
 /// How a goal with no slices and no owner stands, as its card's column does.
@@ -3242,40 +3078,11 @@ pub(crate) fn project_at(core: &Core, path: &str) -> Result<String, String> {
     }
 }
 
-/// The project a board call is about, by its absolute path.
-#[derive(Serialize, Deserialize)]
-pub struct BoardParams {
-    pub project: String,
+trait BoardAddParamsExt: Sized {
+    fn adding(self) -> Result<Adding, String>;
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BoardAddParams {
-    pub project: String,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub details: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub acceptance: Option<String>,
-    /// One sentence saying what it changes, which makes it a slice.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub promise: Option<String>,
-    /// The goal's assertions it fulfils, as a slice.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub asserts: Vec<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<u64>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub depends_on: Vec<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ticket: Option<BoardTicketParams>,
-    /// The agent in this project that holds it at once, such as the one
-    /// started to do it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub owner: Option<String>,
-}
-
-impl BoardAddParams {
+impl BoardAddParamsExt for BoardAddParams {
     fn adding(self) -> Result<Adding, String> {
         Ok(Adding {
             title: title_of(&self.title)?,
@@ -3291,80 +3098,11 @@ impl BoardAddParams {
     }
 }
 
-/// The Jira or Linear ticket a card is put on the board for.
-#[derive(Serialize, Deserialize)]
-pub struct BoardTicketParams {
-    pub key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    /// What the ticket is in its tracker, such as Epic, Story or Bug.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    /// Jira when left out.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<Tracker>,
+trait BoardUpdateParamsExt: Sized {
+    fn changes(self) -> Result<Changes, String>;
 }
 
-/// A ticket the person puts on a project's board, with the tickets under it and the keys
-/// of the tickets it waits on and holds up.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BoardAddTicketParams {
-    pub project: String,
-    pub title: String,
-    #[serde(default)]
-    pub details: String,
-    pub ticket: BoardTicketParams,
-    #[serde(default)]
-    pub subtasks: Vec<BoardTicketCard>,
-    #[serde(default)]
-    pub blocked_by: Vec<String>,
-    #[serde(default)]
-    pub blocks: Vec<String>,
-}
-
-/// A ticket under the one put on the board, made a card under its card.
-#[derive(Serialize, Deserialize)]
-pub struct BoardTicketCard {
-    pub title: String,
-    #[serde(default)]
-    pub details: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ticket: Option<BoardTicketParams>,
-}
-
-/// What the person changes of a card; what it leaves out stays as it is.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BoardUpdateParams {
-    pub project: String,
-    pub id: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub details: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub acceptance: Option<String>,
-    /// One sentence saying what it changes, which makes it a slice.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub promise: Option<String>,
-    /// The goal's assertions it fulfils, as a slice; the person alone takes
-    /// one off a slice that has started.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub asserts: Option<Vec<u64>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<CardStatus>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub result: Option<String>,
-    /// The cards it waits on, none to wait on nothing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub depends_on: Option<Vec<u64>>,
-    /// The card it goes under, 0 for none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<u64>,
-}
-
-impl BoardUpdateParams {
+impl BoardUpdateParamsExt for BoardUpdateParams {
     fn changes(self) -> Result<Changes, String> {
         Ok(Changes {
             title: self.title.as_deref().map(title_of).transpose()?,
@@ -3383,12 +3121,6 @@ impl BoardUpdateParams {
             ticks: None,
         })
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct BoardCardParams {
-    pub project: String,
-    pub id: u64,
 }
 
 /// One project's board, empty when it has no cards yet.
@@ -3642,15 +3374,6 @@ pub(crate) fn mirror_places(
     if let Some(core) = core.arc() {
         send_notices(&core, settled.notices);
     }
-}
-
-/// The folder environment a released client removes, from a project under it.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ForgetInheritedParams {
-    pub project: String,
-    pub folder: String,
-    pub name: String,
 }
 
 /// A released client removes an environment a folder held. Folders hold none now: each

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sikemux_view::workspace::AgentWorktree;
 use std::path::PathBuf;
 
 #[derive(Deserialize, Serialize)]
@@ -63,4 +64,24 @@ pub struct RemoveWorktreeParams {
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeRemoved {
     pub branch_deleted: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWorktreeParams {
+    pub agent_id: String,
+    /// What the agent was asked first, which names the branch.
+    pub message: String,
+    /// The repository to use when the agent's folder holds several.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<PathBuf>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MadeAgentWorktree {
+    pub worktree: AgentWorktree,
+    pub cwd: PathBuf,
+    /// Why the project's worktree setup did not all finish, when it did not.
+    pub setup_error: Option<String>,
 }

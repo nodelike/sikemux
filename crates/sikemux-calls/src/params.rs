@@ -28,3 +28,10 @@ pub struct GoFirstParams {
 pub struct AgentParams {
     pub agent_id: String,
 }
+
+/// A field the params name, null or not, as against one they leave out.
+pub fn given<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    field: D,
+) -> Result<Option<Option<T>>, D::Error> {
+    Option::deserialize(field).map(Some)
+}

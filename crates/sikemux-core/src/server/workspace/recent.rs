@@ -6,9 +6,9 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::names::RanSession;
 use crate::server::parts::Parts;
-use crate::sessions::said::FoundLine;
 use serde::{Deserialize, Serialize};
 pub use sikemux_calls::workspace::{PinChatParams, SessionChoice};
+pub use sikemux_calls::workspace::{PinnedParams, RecentChats, RecentChatsParams};
 use sikemux_view::chat::ChatTrigger;
 
 /// A closed chat whose triggers wait for it to be taken up again, so Recent keeps it.
@@ -126,11 +126,6 @@ pub(super) fn running_now<'a>(chat: &Recent, open: &'a [ChatInfo]) -> Option<&'a
         .find(|live| holds(chat, &live.provider, live.session_id.as_deref()))
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct PinnedParams {
-    pub chats: Vec<PinnedChat>,
-}
-
 pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<()> {
     core.workspaces().set_pinned(params.chats)
 }
@@ -241,25 +236,6 @@ pub(super) fn saved_chat(launcher: String, session: saved_chats::RecentSession) 
         project: session.project.into(),
         active_at: session.mtime * 1000,
     }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecentChatsParams {
-    /// Every project's when absent.
-    pub project: Option<String>,
-    pub query: Option<String>,
-    pub cursor: Option<saved_chats::RecentCursor>,
-    pub limit: Option<usize>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct RecentChats {
-    pub chats: Vec<RecentInfo>,
-    pub next: Option<saved_chats::RecentCursor>,
-    /// Where each chat found by its words said them, by the chat's id.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub said: HashMap<String, FoundLine>,
 }
 
 /// A page of a project's saved chats, or every project's, newest first, those matching

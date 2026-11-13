@@ -29,6 +29,7 @@ pub mod transfer;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::hosts::LinkedHost;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -38,7 +39,7 @@ use std::time::Duration;
 
 use iroh::endpoint::Connection;
 use iroh::{EndpointAddr, RelayUrl};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
@@ -299,20 +300,6 @@ impl Hosts {
             None => DialState::Unknown,
         }
     }
-}
-
-/// A linked host as Settings and phones list it.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LinkedHost {
-    pub id: String,
-    pub name: String,
-    pub platform: String,
-    pub linked_at: u64,
-    pub last_seen: Option<u64>,
-    pub connected: bool,
-    /// Agents of teams this host shares with it.
-    pub agents: usize,
 }
 
 pub(crate) fn views(core: &Core) -> Vec<LinkedHost> {

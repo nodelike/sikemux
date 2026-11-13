@@ -5,6 +5,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 pub use sikemux_calls::remote::ApprovalSetting;
+pub use sikemux_calls::remote::{DeviceChange, PairingAnswer, RemotePairing};
 
 pub(crate) fn set_access(core: &Core, id: &str, access: DeviceAccess) -> CoreResult<RemoteStatus> {
     core.remote().change(|stored| {
@@ -31,17 +32,6 @@ pub(crate) fn rename_paired(core: &Core, id: &str, name: &str) -> CoreResult<()>
     Ok(())
 }
 
-/// Who waits to join this host and who is paired, and the hosts linked with
-/// it or asking to be, for the owner's devices.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RemotePairing {
-    pub pending: Vec<PendingDevice>,
-    pub devices: Vec<DeviceInfo>,
-    pub links: Vec<crate::server::hosts::LinkedHost>,
-    pub pending_links: Vec<PendingDevice>,
-}
-
 pub(crate) fn pairing(core: &Core) -> RemotePairing {
     let status = core.remote().status();
     RemotePairing {
@@ -52,26 +42,11 @@ pub(crate) fn pairing(core: &Core) -> RemotePairing {
     }
 }
 
-#[derive(Deserialize)]
-pub struct PairingAnswer {
-    id: String,
-    allow: bool,
-    access: DeviceAccess,
-}
-
 pub(crate) fn answer_pairing(core: &Core, answer: PairingAnswer) -> CoreResult<RemotePairing> {
     core.remote()
         .answer(&answer.id, answer.allow.then_some(answer.access))?;
     announce(core);
     Ok(pairing(core))
-}
-
-#[derive(Deserialize)]
-pub struct DeviceChange {
-    id: String,
-    /// None unpairs the device.
-    #[serde(default)]
-    access: Option<DeviceAccess>,
 }
 
 /// Turns the lock of ADR 0018 on or off: whether each new device and host

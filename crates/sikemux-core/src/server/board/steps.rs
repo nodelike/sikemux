@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+pub use sikemux_calls::board::{BoardProposalParams, PlacesProposal};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::slice::Gate;
 
@@ -14,24 +15,6 @@ use crate::server::places::{self, Place};
 use crate::server::Core;
 
 const MAX_WHY_CHARS: usize = 500;
-
-/// Places an agent proposed, for the person to accept or turn down.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlacesProposal {
-    pub places: Vec<Place>,
-    pub why: String,
-    /// The agent that proposed them, by name.
-    pub by: String,
-    pub at: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BoardProposalParams {
-    pub project: String,
-    pub accept: bool,
-}
 
 /// `board_decide` with environments: keeps the places an agent proposed for the person to
 /// answer, in place of any it proposed before. It changes nothing else. Each is given as an

@@ -5,6 +5,7 @@
 //! OMP as they start, and lets Claude Code and Codex chats run on it.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::model_providers::ModelProvider;
 pub use sikemux_calls::model_providers::{
     CheckParams, Choices, ConnectParams, HelperParams, ModelFacts, ProviderParams, ServedModels,
 };
@@ -13,12 +14,10 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::launch::model_feed::Snapshot;
-use crate::launch::providers::{
-    self, AnthropicApi, Helper, KeySpec, Kind, Provider, Providers, KEY_SERVICE,
-};
+use crate::launch::providers::{self, Helper, Kind, Provider, Providers, KEY_SERVICE};
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::connection::blocking;
@@ -47,38 +46,6 @@ fn known(core: &Core, id: &str) -> CoreResult<Arc<Provider>> {
     store(core)?
         .find(id)
         .ok_or_else(|| CoreError::from(format!("Sikemux does not know a provider called {id}")))
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelProvider {
-    pub id: String,
-    pub label: String,
-    pub kind: Kind,
-    pub sign_up_url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub key: Option<KeySpec>,
-    /// Base URL of its OpenAI-compatible API.
-    pub openai: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub anthropic: Option<AnthropicApi>,
-    /// The person added it, rather than Sikemux's catalogue holding it.
-    #[serde(default)]
-    pub custom: bool,
-    /// A keyed provider has its key saved; a local runner is answering.
-    pub connected: bool,
-    /// What a running local runner has installed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<Vec<String>>,
-    /// The agents Sikemux can run on it in place of their makers' accounts.
-    pub agents: Vec<String>,
-    /// The agent Sikemux runs it with.
-    pub runs_with: Option<String>,
-    pub speaks: Vec<String>,
-    /// Whether each model checked so far calls tools the way agents need.
-    pub checks: BTreeMap<String, Check>,
-    #[serde(flatten)]
-    pub choices: Choices,
 }
 
 fn choices(provider: &Provider, feed: &Snapshot, served: Option<&[String]>) -> Choices {

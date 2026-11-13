@@ -5,7 +5,7 @@
 //! already holds is kept on that card instead, the newest few times, and
 //! whoever answers for the card hears.
 
-use serde::{Deserialize, Serialize};
+pub use sikemux_calls::board::Arrival;
 use sikemux_process::clock::epoch_ms;
 
 use super::failing::Broke;
@@ -15,18 +15,6 @@ use crate::text::clipped;
 /// Arrivals a card keeps; the oldest go first.
 const MAX_ARRIVALS: usize = 8;
 const MAX_DETAILS_CHARS: usize = 4000;
-
-/// Work that arrived again for a card that already held it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Arrival {
-    /// The ticket's, trigger's or CI failure's title.
-    pub title: String,
-    /// What came with it, such as a webhook's request or what CI printed, cut
-    /// to what a card keeps.
-    pub details: String,
-    pub at: u64,
-}
 
 pub(super) enum Key<'a> {
     Ticket(&'a str),

@@ -35,3 +35,17 @@ pub struct RenameAgentParams {
 pub struct ClosedAgentsParams {
     pub cwd: PathBuf,
 }
+
+/// The list of words new agents are named from, picked in settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum NameTheme {
+    Nature,
+    #[default]
+    Anime,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct NameThemeParams {
+    pub theme: NameTheme,
+}

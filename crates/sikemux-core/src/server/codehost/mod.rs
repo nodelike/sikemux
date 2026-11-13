@@ -6,13 +6,14 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::codehost::{CodeHostProjectParams, PullsParams, TrackedContextParams};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use sikemux_plugin_api::codehost::{
     Comment, Issue, IssuePage, Label, ListedPull, Pull, PullList, PullState, TrackedItem,
@@ -170,17 +171,6 @@ fn listed_state(state: Option<String>) -> Result<String, PluginFailure> {
             format!("{state} is not open, closed or all"),
         )),
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct PullsParams {
-    pub project: String,
-    pub state: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CodeHostProjectParams {
-    pub project: String,
 }
 
 pub(crate) async fn pulls(core: &Arc<Core>, client: ClientId, params: PullsParams) -> Answer {
@@ -383,13 +373,6 @@ const CONTEXT_BODY: usize = 12_000;
 const CONTEXT_COMMENT: usize = 2_000;
 /// The latest comments an agent's context keeps.
 const CONTEXT_COMMENTS: usize = 5;
-
-#[derive(Serialize, Deserialize)]
-pub struct TrackedContextParams {
-    pub project: String,
-    pub kind: TrackedKind,
-    pub number: u64,
-}
 
 /// The `codeHostTrackedContext` call: an issue or pull request as context an
 /// agent can work from, `{uri, title, text}`.

@@ -15,6 +15,9 @@
 use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::board::{
+    AnswerCommandParams, AssertParams, DecideParams, OverruleParams, UndoOverruleParams,
+};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -831,19 +834,6 @@ fn longer_words(text: &str) -> HashSet<String> {
         .collect()
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DecideParams {
-    pub project: String,
-    pub card: u64,
-    /// The decision to correct or retire; none to record a new one.
-    pub decision: Option<u64>,
-    pub text: Option<String>,
-    pub why: Option<String>,
-    #[serde(default)]
-    pub retire: bool,
-}
-
 pub(crate) async fn person_decide(
     core: &Arc<Core>,
     params: DecideParams,
@@ -949,18 +939,6 @@ pub(crate) fn decided_since(
     decided
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OverruleParams {
-    pub project: String,
-    /// The goal whose log keeps the decision; none for its project's own log.
-    pub goal: Option<u64>,
-    pub decision: u64,
-    /// What the person wants instead, when they said.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub instead: Option<String>,
-}
-
 /// The person overrules what agents decided: it is retired, and the agent that goes by it hears,
 /// as does the one that decided it. Asked again for a decision they already overruled, as a
 /// second click sent before the first is answered, it changes nothing and answers the board.
@@ -1055,14 +1033,6 @@ pub(crate) async fn overrule(
         told,
     );
     Ok(view)
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UndoOverruleParams {
-    pub project: String,
-    pub goal: Option<u64>,
-    pub decision: u64,
 }
 
 /// Undoes the person's Overrule: the decision stands again, the rule that brought its kind to
@@ -1226,20 +1196,6 @@ pub(crate) async fn tool_assert(
     .map_err(|error| error.to_string())
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AnswerCommandParams {
-    pub project: String,
-    pub card: u64,
-    pub assertion: u64,
-    /// The command the person saw, which an answer holds for only while the assertion names it.
-    pub command: String,
-    /// The changed files the person saw, which it holds for only while these are what wait.
-    #[serde(default)]
-    pub files: Vec<NamedFile>,
-    pub accept: bool,
-}
-
 /// The person answers a command an agent wrote, or a change to a file a command names. Accepted,
 /// that exact command or content counts. A command turned down goes back to the one they last
 /// approved, or its assertion is retired with none. A content turned down keeps the command from
@@ -1328,19 +1284,6 @@ pub(crate) async fn person_answer_command(
     })
     .await
     .map_err(|error| error.to_string())
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AssertParams {
-    pub project: String,
-    pub card: u64,
-    /// The assertion to correct or retire; none to write a new one.
-    pub assertion: Option<u64>,
-    pub text: Option<String>,
-    pub evidence: Option<Collect>,
-    #[serde(default)]
-    pub retire: bool,
 }
 
 pub(crate) async fn person_assert(

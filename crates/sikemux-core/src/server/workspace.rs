@@ -11,6 +11,7 @@ use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
 pub use sikemux_calls::workspace::AddProjectParams;
+pub use sikemux_calls::workspace::{AgentPatch, UpdateAgentParams};
 pub use sikemux_calls::workspace::{
     CloseAgentsParams, DefaultsParams, MoveProjectParams, RemoveProjectParams, SpacesParams,
     UpdateProjectParams,
@@ -37,12 +38,10 @@ use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRequest
 use sikemux_view::device::RecentInfo;
 use sikemux_view::prefs::{PreferenceChange, ProjectSort};
 use sikemux_view::workspace::{
-    AgentBuddy, Backdrop, LauncherInfo, PinnedChat, ProjectInfo, SpaceInfo, Workspace,
-    WorkspaceAgent,
+    Backdrop, LauncherInfo, PinnedChat, ProjectInfo, SpaceInfo, Workspace, WorkspaceAgent,
 };
 use sikemux_wire::protocol::{ChatAccount, ChatInfo, ChatLaunch, ChatState, SessionInfo};
 
-use super::calls::given;
 use super::changed::Topic;
 use super::chat;
 use super::connection::blocking;
@@ -1524,84 +1523,11 @@ pub(crate) fn create_agent(
     core.workspaces().put_agent_draft(params.agent)
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateAgentParams {
-    pub agent_id: String,
-    pub patch: AgentPatch,
+pub(crate) trait AgentPatchExt: Sized {
+    fn apply(self, agent: &mut WorkspaceAgent);
 }
 
-/// The fields of an agent a client may change; a null one is cleared. The
-/// rest, such as its terminal or worktree, only the core sets.
-#[derive(Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AgentPatch {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub renamed: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub permission_mode: Option<PermissionMode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub keep_alive: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub lead: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub resume_id: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub profile_id: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub model: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub model_provider: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub effort: Option<Option<String>>,
-    #[serde(
-        default,
-        deserialize_with = "given",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub buddy: Option<Option<AgentBuddy>>,
-}
-
-impl UpdateAgentParams {
-    pub fn new(agent_id: impl Into<String>, patch: AgentPatch) -> Self {
-        Self {
-            agent_id: agent_id.into(),
-            patch,
-        }
-    }
-}
-
-impl AgentPatch {
+impl AgentPatchExt for AgentPatch {
     fn apply(self, agent: &mut WorkspaceAgent) {
         fn set<T>(field: &mut T, to: Option<T>) {
             if let Some(to) = to {

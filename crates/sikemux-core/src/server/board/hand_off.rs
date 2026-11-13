@@ -7,15 +7,14 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::board::{BoardHandOffParams, HandOnParams, HandedOff};
 use std::path::Path;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::{
     add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, By, NoCheck,
-    ProjectBoard,
 };
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
@@ -27,52 +26,6 @@ use sikemux_wire::protocol::{ChatContext, Event, PermissionMode, FOR_AGENT_URI};
 
 /// The longest card title made from what was typed; the whole text goes into its details.
 const TITLE_CHARS: usize = 80;
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BoardHandOffParams {
-    pub project: String,
-    /// What the person typed, which the agent is sent and the slice promises.
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub files: Vec<String>,
-    /// The app's launcher the agent starts with; none for the first that works.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub launcher: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// The connected provider it runs on in place of its own account.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
-    /// Whether it asks before it acts; none for what its launcher does.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub permission_mode: Option<PermissionMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-}
-
-/// Where the person hands a slice whose owner stalled.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HandOnParams {
-    pub project: String,
-    pub id: u64,
-    /// The agent that takes it; none starts a new one in a checkout of its own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub to: Option<String>,
-    /// The app's launcher a new one starts with; none for the first that works.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub launcher: Option<String>,
-}
-
-/// The slice that tracks the work, and the agent doing it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HandedOff {
-    pub card: u64,
-    pub agent: String,
-    pub board: ProjectBoard,
-}
 
 /// The agent started and the card it holds, before it is sent its task.
 struct Started {

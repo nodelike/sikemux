@@ -1,8 +1,8 @@
 //! One place as the core keeps it: what clients show, the hard facts that recognise an action
 //! landing there, its health address, and the step it gives a slice's ladder.
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
+pub use sikemux_calls::places::{Passes, Place, StepPass};
 use sikemux_view::places::{Level, Place as Shown, PlaceKind, PlaceStats, Recognise};
 
 use crate::ship::{leads, Ship, Target};
@@ -15,73 +15,12 @@ const MAX_VALUE_CHARS: usize = 200;
 /// What a step may not be called, in any case: the gates and the keys they go by.
 const RESERVED: [&str; 4] = ["Built", "Looks right", "looksRight", "Landed"];
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Place {
-    #[serde(flatten)]
-    pub shown: Shown,
-    pub recognise: Vec<Recognise>,
-    /// An address that answers once a deploy there is healthy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub health: Option<String>,
-    /// The step it gives the project's slices, named by the place's name; none for no step.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub step: Option<StepPass>,
-    /// What changes it is done again and again, such as a nightly release, so its call offers
-    /// to stop asking.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub recurs: bool,
+pub(crate) trait PlaceExt: Sized {
+    fn recognises(&self, ship: &Ship) -> bool;
 }
 
-/// What a slice needs at a place's step besides a deploy there that went well.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum StepPass {
-    Deploy,
-    /// The project's check passes first. Only a place that isn't production has it.
-    Check,
-}
-
-/// Who passes a place's step on a slice's ladder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Passes {
-    /// The core, once a deploy there went well.
-    Nobody,
-    /// The core, once the project's check passed and a deploy there went well.
-    Check,
-    /// The person.
-    Person,
-}
-
-impl Place {
-    pub(crate) fn name(&self) -> &str {
-        &self.shown.name
-    }
-
-    /// What agents may do there now: a production place is at `mine` until the person
-    /// confirms the list, or sets this place's level themselves.
-    pub(crate) fn level(&self, confirmed: bool) -> Level {
-        let unseen = !confirmed && self.shown.said_by.is_none();
-        match self.shown.production && unseen {
-            true => Level::Mine,
-            false => self.shown.level,
-        }
-    }
-
-    /// Whether a change there waits for the person's yes.
-    pub(crate) fn asks(&self, confirmed: bool) -> bool {
-        self.shown.production && self.level(confirmed) == Level::Mine
-    }
-
-    pub(crate) fn passes(&self, confirmed: bool) -> Passes {
-        match (self.asks(confirmed), self.shown.production, self.step) {
-            (true, _, _) => Passes::Person,
-            (false, false, Some(StepPass::Check)) => Passes::Check,
-            _ => Passes::Nobody,
-        }
-    }
-
-    pub(crate) fn recognises(&self, ship: &Ship) -> bool {
+impl PlaceExt for Place {
+    fn recognises(&self, ship: &Ship) -> bool {
         self.recognise.iter().any(|fact| covers(fact, ship))
     }
 }

@@ -2,6 +2,7 @@ use crate::agent_updates::Updating;
 use serde::{Deserialize, Serialize};
 use sikemux_agents::agent_accounts::Book;
 use sikemux_agents::agent_accounts::Profile;
+use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -209,4 +210,15 @@ pub struct Installed {
     /// The models updating to the newest release lets it run, by name.
     #[serde(default)]
     pub unlocks: Vec<String>,
+}
+
+/// Where an account's agent program is, what was tried and failed on the
+/// way, and whether it is signed in. The program comes from the person's own
+/// profile, never from the caller.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Availability {
+    pub program: Option<PathBuf>,
+    pub failures: Vec<String>,
+    pub status: sikemux_agents::agent_accounts::status::AgentStatus,
 }

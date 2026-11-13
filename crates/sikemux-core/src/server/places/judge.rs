@@ -4,6 +4,7 @@
 //! that isn't production, or a target whose name says it isn't, lets it run, and what no fact
 //! places runs and is listed as seen.
 
+use crate::server::places::place::PlaceExt;
 use sikemux_view::inbox::ShipKind;
 use sikemux_view::places::{Level, Recognise};
 

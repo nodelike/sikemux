@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sikemux_wire::protocol::SessionId;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -78,4 +79,45 @@ pub struct ProjectPort {
 #[derive(Serialize, Deserialize)]
 pub struct PortsParams {
     pub project: Option<String>,
+}
+
+/// A port of a checkout, and what listens on it now.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutPort {
+    pub name: String,
+    pub port: u16,
+    /// The program that listens, when one does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process: Option<String>,
+}
+
+/// A checkout's name, ports and environment, as the person and agents are shown them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutAbout {
+    pub name: String,
+    pub path: PathBuf,
+    /// The first of its own ten, none in the project's own folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_port: Option<u16>,
+    pub ports: Vec<CheckoutPort>,
+    /// Each name with the port the project's own folder keeps.
+    pub main_ports: Vec<(String, u16)>,
+    pub env: Vec<(String, String)>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CheckoutParams {
+    pub cwd: PathBuf,
+}
+
+impl CheckoutAbout {
+    /// Its ports no name takes, as a first and last.
+    pub fn unnamed(&self) -> Option<(u16, u16)> {
+        let block = sikemux_corekit::tasks::checkout::MAX_PORT_NAMES as u16;
+        let first = self.first_port?;
+        let next = first + self.ports.len() as u16;
+        (next < first + block).then_some((next, first + block - 1))
+    }
 }

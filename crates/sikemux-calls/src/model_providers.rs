@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
+use sikemux_agents::launch::providers::AnthropicApi;
 use sikemux_agents::launch::providers::Helper;
+use sikemux_agents::launch::providers::KeySpec;
+use sikemux_agents::launch::providers::Kind;
 use std::collections::BTreeMap;
 
 /// The models a provider serves, with what it starts chats on.
@@ -99,4 +102,36 @@ pub struct Check {
     pub at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelProvider {
+    pub id: String,
+    pub label: String,
+    pub kind: Kind,
+    pub sign_up_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<KeySpec>,
+    /// Base URL of its OpenAI-compatible API.
+    pub openai: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anthropic: Option<AnthropicApi>,
+    /// The person added it, rather than Sikemux's catalogue holding it.
+    #[serde(default)]
+    pub custom: bool,
+    /// A keyed provider has its key saved; a local runner is answering.
+    pub connected: bool,
+    /// What a running local runner has installed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<String>>,
+    /// The agents Sikemux can run on it in place of their makers' accounts.
+    pub agents: Vec<String>,
+    /// The agent Sikemux runs it with.
+    pub runs_with: Option<String>,
+    pub speaks: Vec<String>,
+    /// Whether each model checked so far calls tools the way agents need.
+    pub checks: BTreeMap<String, Check>,
+    #[serde(flatten)]
+    pub choices: Choices,
 }

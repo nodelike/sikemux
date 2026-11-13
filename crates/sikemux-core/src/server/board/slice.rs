@@ -24,6 +24,7 @@ pub(crate) use words::*;
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::board::{BoardNoteParams, BoardPassParams};
 use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -2376,32 +2377,6 @@ pub(crate) fn check_stands(
         .and_then(|runs| runs.of(head))
         .is_some_and(|run| run.verdict == Some(Verdict::Passed));
     passed.then_some(()).ok_or_else(|| not_yet(head))
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct BoardPassParams {
-    pub project: String,
-    pub card: u64,
-    pub gate: Gate,
-    /// The project's environment `gate` stands for; a step that is one passes only by this name.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub environment: Option<String>,
-}
-
-/// A change the person asks for on a slice, on a piece of its evidence when given, at `spot`
-/// on it. With `reopens`, they say that change, ticked off, is not done, and `text` may say why.
-#[derive(Serialize, Deserialize)]
-pub struct BoardNoteParams {
-    pub project: String,
-    pub card: u64,
-    #[serde(default)]
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub evidence: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub spot: Option<Spot>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reopens: Option<u64>,
 }
 
 /// The person passes the gate a slice waits at, when it is theirs to pass.

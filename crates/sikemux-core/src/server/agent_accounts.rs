@@ -4,6 +4,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::agent_accounts::Availability;
 pub use sikemux_calls::agent_accounts::{
     Account, Authenticate, ChatAccounts, ChatAccountsParams, Choosing, Forget, InProject,
     MoveChatParams, MovedChat, NamedAccount, Picked, Removing, Smart, StayedChat, Unpicking,
@@ -14,8 +15,6 @@ pub use sikemux_calls::agent_accounts::{
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, Once};
-
-use serde::{Deserialize, Serialize};
 
 use super::changed::Topic;
 use super::connection::blocking;
@@ -480,17 +479,6 @@ pub(crate) async fn freshen(core: Arc<Core>, book: Book, provider: String) {
 
 pub(super) async fn add(adding: Adding) -> CoreResult<String> {
     blocking(move || Ok(folders::add(&adding.provider, &adding.name)?)).await
-}
-
-/// Where an account's agent program is, what was tried and failed on the
-/// way, and whether it is signed in. The program comes from the person's own
-/// profile, never from the caller.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Availability {
-    pub program: Option<PathBuf>,
-    pub failures: Vec<String>,
-    pub status: status::AgentStatus,
 }
 
 /// Asks an account again, once however many ask together, and tells every

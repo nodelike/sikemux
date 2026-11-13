@@ -3,10 +3,11 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::worktree::{AgentWorktreeParams, MadeAgentWorktree};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sikemux_process::vars;
 use sikemux_view::changed::Topic;
 use sikemux_view::host_stats::HostEventKind;
@@ -21,26 +22,6 @@ use crate::server::connection::blocking;
 use crate::server::ports::checkout;
 use crate::server::{launching, tasks, Core, CoreResult};
 use crate::tasks::config::{self, ConfigLoad, WorktreeHook};
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentWorktreeParams {
-    pub agent_id: String,
-    /// What the agent was asked first, which names the branch.
-    pub message: String,
-    /// The repository to use when the agent's folder holds several.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo: Option<PathBuf>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MadeAgentWorktree {
-    pub worktree: AgentWorktree,
-    pub cwd: PathBuf,
-    /// Why the project's worktree setup did not all finish, when it did not.
-    pub setup_error: Option<String>,
-}
 
 pub(crate) const NOT_IN_GIT: &str = "is not in a git repository";
 

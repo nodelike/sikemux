@@ -3,53 +3,19 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::hosts::install::SetupRowExt;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::hosts::{HostRow, Reach};
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sikemux_process::sync::Locked;
 use sikemux_pty::shell_protocol::SshLink;
 
 use super::super::changed::Topic;
 use super::super::{Core, CoreResult};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Reach {
-    Connected,
-    Connecting,
-    /// A linked host this one has not reached, which it keeps trying, or an
-    /// SSH host whose terminals are not connected.
-    Away,
-    /// Only for an SSH host: ssh gave up connecting to it.
-    Failed,
-}
-
-#[derive(Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct HostRow {
-    /// The host's core key; none for an SSH host not linked with this one.
-    pub id: Option<String>,
-    pub name: String,
-    pub platform: Option<String>,
-    pub reach: Reach,
-    /// The SSH host it was installed on or found at from here, or the row's own alias.
-    pub ssh: Option<String>,
-    /// What is being done to its SSH host from here: installing, updating or signing in.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub setup: Option<super::install::SetupRow>,
-    /// What its SSH host was found to run when last asked.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub found: Option<super::probe::Found>,
-    /// Why its SSH host has no answer yet; nothing is offered meanwhile.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unanswered: Option<super::probe::Unanswered>,
-    /// What setting its SSH host up takes, once it answered.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub set_up: Option<super::install::SetUpWork>,
-}
 
 /// One row per host: the hosts linked with this one in the order they were linked, each with
 /// the SSH host it is reached at from here, then the SSH hosts a terminal is open to or a set-up

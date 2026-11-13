@@ -13,6 +13,7 @@ use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
 pub use sikemux_calls::names::{AgentName, ClosedAgent, ClosedAgentsParams, RenameAgentParams};
+pub use sikemux_calls::names::{NameTheme, NameThemeParams};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -123,16 +124,11 @@ struct Book {
     theme: NameTheme,
 }
 
-/// The list of words new agents are named from, picked in settings.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum NameTheme {
-    Nature,
-    #[default]
-    Anime,
+pub(crate) trait NameThemeExt: Sized {
+    fn words(self) -> &'static [&'static str];
 }
 
-impl NameTheme {
+impl NameThemeExt for NameTheme {
     fn words(self) -> &'static [&'static str] {
         match self {
             Self::Nature => NATURE,
@@ -1288,11 +1284,6 @@ fn valid_name(name: &str) -> Result<String, String> {
             "a name is one word of up to {MAX_NAME_CHARS} letters and digits, starting with a letter"
         ))
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct NameThemeParams {
-    pub theme: NameTheme,
 }
 
 #[derive(Deserialize)]

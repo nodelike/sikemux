@@ -5,9 +5,9 @@
 
 use crate::server::parts::Parts;
 pub use sikemux_calls::board::GoalReportsParams;
+pub use sikemux_calls::board::ReportEveryParams;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::slice::{GateState, GoalReport, ReportEvery, ReportLine, SliceState};
@@ -27,16 +27,6 @@ const MIN_MINUTES: u32 = 5;
 const MAX_MINUTES: u32 = 24 * 60;
 /// How many slices of each kind a notification names before it counts the rest.
 const NAMED: usize = 2;
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReportEveryParams {
-    pub project: String,
-    pub id: u64,
-    /// None stops its reports.
-    #[serde(default)]
-    pub every: Option<ReportEvery>,
-}
 
 /// The person sets how often goal `id` is reported on. A report is written at once, so the page
 /// shows one straight away.
