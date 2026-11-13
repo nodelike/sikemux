@@ -333,6 +333,7 @@ pub fn caps(value: &str, cx: &App) -> Div {
         .when(theme::sharp(), |label| {
             label
                 .font_family(theme::MONO)
+                .font_weight(FontWeight::NORMAL)
                 .text_size(crate::theme::ui_text(theme::TEXT_3XS))
                 .letter_spacing(0.18)
         })

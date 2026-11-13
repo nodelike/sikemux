@@ -348,6 +348,10 @@ impl RenderOnce for Button {
         let on_click = self.on_click.filter(|_| !self.disabled);
         let (over, keep_over) = motion::hovered(&self.id, window, cx);
         let lit = over && !self.disabled;
+        let (fill, on_fill) = match crate::theme::sharp() {
+            true => (t.text_primary, t.surface),
+            false => (t.accent, t.on_accent),
+        };
         let mut fade = |channel, target| {
             motion::fade(&self.id, channel, target, motion::CONTROL_TINT, window, cx)
         };
@@ -400,10 +404,10 @@ impl RenderOnce for Button {
                 .px(SPACE_3)
                 .justify_center()
                 .gap(SPACE_1H)
-                .bg(t.accent)
+                .bg(fill)
                 .text_size(crate::theme::ui_text(TEXT_SM))
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(t.on_accent),
+                .text_color(on_fill),
             Variant::Dashed => base
                 .h(px(22.))
                 .px(SPACE_2)
@@ -445,12 +449,12 @@ impl RenderOnce for Button {
                 })
         });
         let (glyph, rest) = match self.variant {
-            Variant::Primary => (13., t.on_accent),
+            Variant::Primary => (13., on_fill),
             Variant::Outline | Variant::Ghost => (11., t.text_secondary),
             Variant::Dashed => (11., t.text_tertiary),
         };
         let hover = if self.variant == Variant::Primary {
-            t.on_accent
+            on_fill
         } else {
             t.text_primary
         };
@@ -474,7 +478,7 @@ impl RenderOnce for Button {
             kbd(keys, cx)
                 .font_family(crate::theme::MONO)
                 .when(self.variant == Variant::Primary, |keys| {
-                    keys.text_color(t.on_accent.opacity(0.8))
+                    keys.text_color(on_fill.opacity(0.8))
                 })
                 .when_some(self.sized, |keys, (_, _, text)| {
                     keys.text_size(crate::theme::ui_text(text))
@@ -489,7 +493,7 @@ impl RenderOnce for Button {
                         .right(px(-4.))
                         .bottom(px(-4.))
                         .size(px(7.))
-                        .bg(t.text_primary),
+                        .bg(t.accent),
                 )
             },
         )
