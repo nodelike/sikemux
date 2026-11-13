@@ -153,6 +153,10 @@ pub(crate) struct ReaderState {
     /// result already says it. One moved to the background is shown then.
     foreground: HashMap<String, Value>,
     compaction: Option<String>,
+    /// The chat was told the running compaction ended, with no size, so a boundary without
+    /// one does not tell it again.
+    #[serde(default)]
+    compaction_sized: bool,
     /// Claude Code retried this turn's request with no answer from Anthropic,
     /// so a failure that ends it was the network's.
     offline_retries: bool,
@@ -451,6 +455,7 @@ impl Reader {
                 tasks: HashMap::new(),
                 foreground: HashMap::new(),
                 compaction: None,
+                compaction_sized: false,
                 offline_retries: false,
                 task_plan: TaskPlan::default(),
                 used: None,
@@ -1332,9 +1337,12 @@ impl Reader {
                 error_status,
             } => self.retrying(attempt.unwrap_or(1), error_status),
             SystemEvent::CompactBoundary { compact_metadata } => {
-                if let Some(metadata) = compact_metadata {
-                    self.boundary(metadata);
+                match compact_metadata {
+                    Some(metadata) => self.boundary(metadata),
+                    None if !self.data.compaction_sized => self.sink.compacted(0),
+                    None => {}
                 }
+                self.data.compaction_sized = false;
                 self.compacted("completed", None);
             }
             SystemEvent::TaskStarted(message) => self.task_started(&message),
@@ -1520,10 +1528,17 @@ impl Reader {
         if status.as_deref() == Some("compacting") && self.data.compaction.is_none() {
             let id = uuid.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
             self.data.compaction = Some(id.clone());
+            self.data.compaction_sized = false;
             self.send(None, compaction(&id, true, "in_progress", None));
         }
         match compact_result.as_deref() {
-            Some("success") => self.compacted("completed", None),
+            Some("success") => {
+                if self.data.compaction.is_some() && !self.data.compaction_sized {
+                    self.sink.compacted(0);
+                    self.data.compaction_sized = true;
+                }
+                self.compacted("completed", None);
+            }
             Some("failed") => {
                 let error = compact_error.as_deref().unwrap_or("unknown error");
                 self.compacted("failed", Some(format!("Compaction failed: {error}")));
