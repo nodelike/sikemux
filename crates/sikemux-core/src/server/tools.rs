@@ -360,7 +360,13 @@ async fn build(
     request: crate::cli::protocol::BuildRequest,
 ) {
     use super::line::Place;
-    let may_come_back = request.may_come_back;
+    let typed_by_its_agent = request
+        .started_by
+        .zip(request.agent_id.as_deref())
+        .is_some_and(|((pid, started), agent_id)| {
+            super::callers::is_root_of(pid, started, agent_id)
+        });
+    let may_come_back = request.may_come_back && typed_by_its_agent;
     let turn = super::line::Turn::ask(core, request);
     let mut told = false;
     let mut following = false;

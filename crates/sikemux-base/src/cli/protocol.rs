@@ -171,10 +171,14 @@ pub struct BuildRequest {
     /// Runs at once while it is measured, unless it was seen to take a lot of memory before.
     #[serde(default)]
     pub watched: bool,
-    /// The agent typed it itself, so it may be told to come back when its turn comes rather
-    /// than wait where it is.
+    /// It runs for an agent outside any task, so it may be told to come back when its turn
+    /// comes rather than wait where it is, when the agent typed it itself.
     #[serde(default)]
     pub may_come_back: bool,
+    /// The process that started it, past the shell that ran it if one did, and when that
+    /// process started: the agent's own program when the agent typed the command itself.
+    #[serde(default)]
+    pub started_by: Option<(u32, u64)>,
     /// Its output is not a terminal, so it can be copied for another caller of the same command.
     #[serde(default)]
     pub copies_output: bool,

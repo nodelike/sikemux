@@ -79,7 +79,8 @@ pub(super) fn run(
     let agent = std::env::var(vars::AGENT_ID).ok();
     let task = std::env::var(vars::TASK_EXECUTION_ID).ok();
     let request = BuildRequest {
-        may_come_back: agent.is_some() && task.is_none() && typed_by_its_agent(),
+        may_come_back: agent.is_some() && task.is_none(),
+        started_by: started_by(),
         agent_id: agent.clone(),
         command: what,
         pid: Some(std::process::id()),
@@ -223,18 +224,18 @@ fn told_stop(mut session: Session, why: &Mutex<Option<String>>) {
     }
 }
 
-/// Whether the agent typed the command itself: it runs straight from the shell the agent's
-/// tool started, not from a script, a make file or a terminal of its own.
-fn typed_by_its_agent() -> bool {
-    let shell = |pid: u32| {
-        sikemux_process::procs::name(pid)
-            .is_some_and(|name| SHELLS.contains(&name.trim_start_matches('-')))
-    };
+/// The process that started this command, past the shell that ran it if one did, with when it
+/// started. The core sends the command away only when that is the agent's own program, so a
+/// command a script, a make file or a package runner started waits where it is.
+fn started_by() -> Option<(u32, u64)> {
     let parent = std::os::unix::process::parent_id();
-    let Some((grandparent, _)) = sikemux_process::procs::parent(parent) else {
-        return false;
+    let shell = sikemux_process::procs::name(parent)
+        .is_some_and(|name| SHELLS.contains(&name.trim_start_matches('-')));
+    let by = match shell {
+        true => sikemux_process::procs::parent(parent)?.0,
+        false => parent,
     };
-    shell(parent) && !shell(grandparent)
+    Some((by, sikemux_process::procs::started(by)?))
 }
 
 /// What starts a program at utility priority, on systems that have it, so an agent's heavy

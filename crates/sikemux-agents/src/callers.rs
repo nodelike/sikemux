@@ -155,6 +155,14 @@ fn live_roots() -> HashMap<u32, (u64, String)> {
         .collect()
 }
 
+/// Whether `pid`, started at `started`, is `agent_id`'s own program, as Sikemux started it.
+pub fn is_root_of(pid: u32, started: u64, agent_id: &str) -> bool {
+    known()
+        .roots
+        .get(&pid)
+        .is_some_and(|root| root.started == started && root.agent_id == agent_id)
+}
+
 /// Every agent's root process that still runs, with its agent.
 pub fn agent_roots() -> HashMap<u32, String> {
     live_roots()
