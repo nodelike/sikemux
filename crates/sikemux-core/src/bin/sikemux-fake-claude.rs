@@ -36,7 +36,8 @@
 //! Sikemux's ask for a handoff note is echoed like any prompt, but held like `hold` with
 //! `FAKE_CLAUDE_NOTE=hold`, and never answered, even on an interrupt, with
 //! `FAKE_CLAUDE_NOTE=deaf`. `FAKE_CLAUDE_REFUSE_MODE` names a permission mode it refuses to
-//! go to, and `FAKE_CLAUDE_CONTEXT` how many tokens each of its model calls reads (10).
+//! go to, `FAKE_CLAUDE_MUTE_MODE` one it never answers the ask for, and `FAKE_CLAUDE_CONTEXT`
+//! how many tokens each of its model calls reads (10).
 //!
 //! With `FAKE_CLAUDE_OUT_OF_USAGE=1` every prompt fails as `limit` does. A
 //! message under an id the transcript already has is dropped, as Claude Code
@@ -591,6 +592,12 @@ impl Claude {
                     "type": "control_response",
                     "response": { "subtype": "error", "request_id": request_id, "error": "Cannot set permission mode" },
                 }));
+                return;
+            }
+            Some("set_permission_mode")
+                if std::env::var("FAKE_CLAUDE_MUTE_MODE").ok().as_deref()
+                    == request["mode"].as_str() =>
+            {
                 return;
             }
             Some("interrupt") => {

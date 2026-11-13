@@ -1,7 +1,7 @@
 //! Claude Code's control channel: requests either side sends inside the
 //! stream of messages, each answered by a `control_response` naming it.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -11,6 +11,7 @@ use super::super::process::Writer;
 use super::super::rpc::{error_text, ANSWER_WAIT};
 use super::super::session::Sink;
 use super::messages::ControlResponse;
+use super::reader::Shared;
 
 #[derive(Clone)]
 pub struct Control {
@@ -81,8 +82,9 @@ impl Control {
 
     /// Puts the chat's own permission mode back after a hidden turn ran in another, asking
     /// again when Claude refuses. Claude still refusing, or not answering, is started again on
-    /// its session, which it launches in that mode.
-    pub fn restore_mode(&self, mode: String, sink: Sink) {
+    /// its session, which it launches in that mode, unless the chat has let go of that Claude,
+    /// whose `shared` state is then gone.
+    pub fn restore_mode(&self, mode: String, sink: Sink, shared: Weak<Mutex<Shared>>) {
         const ASKS: usize = 3;
         let control = self.clone();
         tokio::spawn(async move {
@@ -96,6 +98,9 @@ impl Control {
                         break;
                     }
                 }
+            }
+            if shared.strong_count() == 0 {
+                return;
             }
             eprintln!("sikemux core: Claude did not go back to its permission mode {mode} after a handoff note: {why}");
             sink.broke(format!(

@@ -874,7 +874,8 @@ impl Backend for Claude {
             None => {
                 unhush(&self.shared);
                 let mode = self.shared.locked().mode.clone();
-                (self.running.control).restore_mode(mode, self.sink.clone());
+                let shared = Arc::downgrade(&self.shared);
+                (self.running.control).restore_mode(mode, self.sink.clone(), shared);
                 return Err("Claude did not answer the ask to refuse tools".to_owned());
             }
         }
@@ -882,7 +883,8 @@ impl Backend for Claude {
         if let Err(error) = self.writer().send(&user_message(&uuid, vec![ask], None)) {
             unhush(&self.shared);
             let mode = self.shared.locked().mode.clone();
-            (self.running.control).restore_mode(mode, self.sink.clone());
+            let shared = Arc::downgrade(&self.shared);
+            (self.running.control).restore_mode(mode, self.sink.clone(), shared);
             return Err(error);
         }
         self.note_asked = true;
@@ -914,7 +916,8 @@ impl Backend for Claude {
                 shared.hushed = false;
                 shared.mode.clone()
             };
-            (self.running.control).restore_mode(mode, self.sink.clone());
+            let shared = Arc::downgrade(&self.shared);
+            (self.running.control).restore_mode(mode, self.sink.clone(), shared);
             return;
         }
         // Still hushed, so what the stopped turn says late never reaches the chat.

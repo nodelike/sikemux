@@ -1136,7 +1136,8 @@ impl Reader {
                 shared.quiet = None;
                 if std::mem::take(&mut shared.hushed) {
                     shared.handed = Some(result.result.clone().unwrap_or_default());
-                    (self.control).restore_mode(shared.mode.clone(), self.sink.clone());
+                    let weak = Arc::downgrade(&self.shared);
+                    (self.control).restore_mode(shared.mode.clone(), self.sink.clone(), weak);
                 }
             }
             quiet
