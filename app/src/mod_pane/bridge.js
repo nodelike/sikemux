@@ -61,6 +61,8 @@
       set: (collection, id, doc) => ask("write", "data.set", { collection, id, doc }),
       patch: (collection, id, patch) => ask("write", "data.patch", { collection, id, patch }),
       remove: (collection, id) => ask("write", "data.remove", { collection, id }),
+      history: (collection, id) => ask("read", "data.history", { collection, id: id ?? null }),
+      undo: (collection, id, version) => ask("write", "data.undo", { collection, id, version }),
     }),
     badge: (text) => post({ op: "badge", text: text == null ? null : String(text) }),
     every,

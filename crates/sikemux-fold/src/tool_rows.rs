@@ -543,6 +543,28 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "mod_read",
+        Spec {
+            verb: "read",
+            kind: "read",
+            icon: "dashboard",
+            target: &["{mod}/{collection}/{id}", "{mod}/{collection}", "{mod}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
+        "mod_write",
+        Spec {
+            verb: "change",
+            kind: "edit",
+            icon: "dashboard",
+            target: &["{mod}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "page_preview",
         Spec {
             verb: "preview",

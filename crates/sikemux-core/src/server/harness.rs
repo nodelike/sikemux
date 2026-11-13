@@ -668,6 +668,15 @@ async fn dispatch(
         }
         "page.show" => show_page(core, request).await,
         "ui.open" => ui_open(core, request).await,
+        "mod.read" => super::mods::tool_read(core, request.params)
+            .await
+            .map_err(|error| error.to_string()),
+        "mod.write" => {
+            let agent = super::caller::agent_of(&request, "mod_write")?;
+            super::mods::tool_write(core, &agent, request.params)
+                .await
+                .map_err(|error| error.to_string())
+        }
         _ => forward(core, request).await,
     }
 }

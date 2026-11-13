@@ -76,6 +76,7 @@ const METHODS: &[Method] = &[
     acting("agent."),
     acting_unseen_by_blind("board."),
     acting("memory."),
+    acting("mod."),
     plumbing(acting(COMMIT_FOOTER_METHOD)),
     plumbing(acting(COMMIT_MADE_METHOD)),
     plumbing(acting(GIT_GUARD_METHOD)),
