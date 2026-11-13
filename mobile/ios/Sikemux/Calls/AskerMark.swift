@@ -7,7 +7,8 @@ struct AskerMark: View {
     let agentId: String
     let provider: String
     var chief = false
-    var turn: TurnPhase?
+    var turn: TurnState?
+    var asking = false
     var size: CGFloat = 20
 
     var body: some View {
@@ -16,7 +17,7 @@ struct AskerMark: View {
                 .foregroundStyle(palette.accent)
                 .frame(width: size, height: size)
         } else {
-            AgentFaceView(agentId: agentId, provider: provider, turn: turn, size: size)
+            AgentFaceView(agentId: agentId, provider: provider, turn: turn, asking: asking, size: size)
                 .frame(width: size, height: size)
         }
     }

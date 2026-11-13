@@ -156,7 +156,7 @@ private struct DeviceCard: View {
                         HStack(spacing: -5) {
                             ForEach(busy.prefix(4), id: \.agentId) { agent in
                                 AgentFaceView(
-                                    agentId: agent.agentId, provider: agent.cli, turn: agent.turn?.state, size: 18
+                                    agentId: agent.agentId, provider: agent.cli, turn: agent.turn, size: 18
                                 )
                                 .frame(width: 18, height: 18)
                             }

@@ -256,6 +256,7 @@ fn standing(state: TurnPhase, since: u64) -> TurnState {
         done: None,
         stopped: None,
         failed: None,
+        seen: false,
     }
 }
 
@@ -313,6 +314,7 @@ pub(crate) fn of(
     }
     let mut state = standing(TurnPhase::Done, at);
     state.done = (ended.work.as_ref()).map(|work| done(core, agent_id, &ended, work));
+    state.seen = !core.seen().unread(agent_id);
     Some(state)
 }
 
@@ -773,4 +775,26 @@ fn undo_words(core: &Core, agent_id: &str) -> Result<String, String> {
         "Take these commits of yours back out of the project's branch, by reverting them there as the project lands changes:\n{}",
         work.own.join("\n")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::activity::{Activity, ActivityCore};
+    use crate::server::ServerCore;
+
+    #[tokio::test]
+    async fn a_finished_turn_is_seen_once_a_focused_client_shows_it() {
+        let core = Core::new(Default::default(), None).unwrap();
+        core.note_activity("agent", Activity::Started);
+        core.note_activity("agent", Activity::Finished { cancelled: false });
+        let turn = now(&core, "agent").expect("the turn ended");
+        assert_eq!(turn.state, TurnPhase::Done);
+        assert!(!turn.seen);
+
+        core.seen().show(1, ["agent".to_owned()], true);
+        let turn = now(&core, "agent").expect("the turn ended");
+        assert_eq!(turn.state, TurnPhase::Done);
+        assert!(turn.seen);
+    }
 }

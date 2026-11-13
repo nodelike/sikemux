@@ -109,7 +109,7 @@ struct CallDock: View {
                             AskerMark(
                                 agentId: other.asker.agentId, provider: other.asker.cli,
                                 chief: other.asker.chief == true,
-                                turn: .needsYou, size: 16)
+                                asking: true, size: 16)
                             Text(other.question).font(Theme.ui(14)).foregroundStyle(palette.secondary).lineLimit(1)
                             Spacer(minLength: 8)
                             Text(Format.age(Format.date(millis: other.raisedAt))).font(Theme.ui(12.5))
@@ -334,7 +334,7 @@ struct CallWho: View {
         HStack(spacing: 8) {
             AskerMark(
                 agentId: call.asker.agentId, provider: call.asker.cli, chief: call.asker.chief == true,
-                turn: .needsYou)
+                asking: true)
             Text("@\(call.asker.name)").font(Theme.ui(14, .medium)).foregroundStyle(palette.secondary)
             Text("·").foregroundStyle(palette.inkFaint)
             Text(Format.age(Format.date(millis: call.raisedAt))).foregroundStyle(palette.tertiary)

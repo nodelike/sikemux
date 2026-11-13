@@ -291,7 +291,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     <Screen>
       <Nav
         title={
-          <ChatTitle agentId={agentId} turn={state.turn?.state} provider={provider} name={info?.name} title={title} chief={state.chief} />
+          <ChatTitle agentId={agentId} turn={state.turn} provider={provider} name={info?.name} title={title} chief={state.chief} />
         }
         end={
           <Pressable

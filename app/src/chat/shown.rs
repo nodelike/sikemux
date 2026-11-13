@@ -241,6 +241,7 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
         done: Some(row.done.clone()),
         stopped: None,
         failed: None,
+        seen: false,
     };
     let facts = crate::turn_line::said(&turn, maker, ui::time::now_ms())
         .map(|said| said.parts.join(" · "))

@@ -106,7 +106,7 @@ export const CallDock = memo(function CallDock({
     <View style={[styles.card, inPlace && styles.cardInPlace]}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.inner} scrollEnabled={!inPlace} persistentScrollbar>
         <View style={styles.who}>
-          <AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} turn="needsYou" />
+          <AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} asking />
           <Text style={styles.name}>@{call.asker.name}</Text>
           <Text style={styles.sep}>·</Text>
           <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
@@ -259,7 +259,7 @@ export const CallDock = memo(function CallDock({
               }}
               style={styles.folded}
               accessibilityRole="button">
-              <AskerMark agentId={other.asker.agentId} provider={other.asker.cli} chief={other.asker.chief} turn="needsYou" size={16} />
+              <AskerMark agentId={other.asker.agentId} provider={other.asker.cli} chief={other.asker.chief} asking size={16} />
               <Text style={styles.foldedText} numberOfLines={1}>
                 {other.question}
               </Text>

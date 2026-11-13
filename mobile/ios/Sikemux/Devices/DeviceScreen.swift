@@ -473,7 +473,7 @@ private struct ProjectTail: View {
                     HStack(spacing: -4) {
                         ForEach(chats.prefix(3), id: \.agentId) { chat in
                             AgentFaceView(
-                                agentId: chat.agentId, provider: chat.provider, turn: turn(chat.agentId)?.state,
+                                agentId: chat.agentId, provider: chat.provider, turn: turn(chat.agentId),
                                 size: 16
                             )
                             .frame(width: 16, height: 16)

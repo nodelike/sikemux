@@ -62,7 +62,7 @@ struct CallsTab: View {
             mark: {
                 AskerMark(
                     agentId: call.asker.agentId, provider: call.asker.cli, chief: call.asker.chief == true,
-                    turn: call.state == .open ? .needsYou : nil)
+                    asking: call.state == .open)
             },
             end: { HStack(spacing: 8) { end() }.font(Theme.ui(12.5)).fixedSize() }
         )

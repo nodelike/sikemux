@@ -80,7 +80,7 @@ function DeviceCard({ device, onAccount, offAccount }: { device: PairedDevice; o
             <View style={styles.faces}>
               {busy.slice(0, 4).map((agent, index) => (
                 <View key={agent.agentId} style={[styles.face, index > 0 && styles.faceAfter]}>
-                  <AgentFace agentId={agent.agentId} provider={agent.cli} turn={agent.turn?.state} size={18} />
+                  <AgentFace agentId={agent.agentId} provider={agent.cli} turn={agent.turn} size={18} />
                 </View>
               ))}
             </View>

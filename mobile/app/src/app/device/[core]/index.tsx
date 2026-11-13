@@ -45,7 +45,7 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
         <View style={styles.faces}>
           {chats.slice(0, 3).map((chat, index) => (
             <View key={chat.agentId} style={[styles.face, index > 0 && { marginLeft: -4 }]}>
-              <AgentFace agentId={chat.agentId} provider={chat.provider} turn={turnOf(chat.agentId)?.state} size={16} />
+              <AgentFace agentId={chat.agentId} provider={chat.provider} turn={turnOf(chat.agentId)} size={16} />
             </View>
           ))}
         </View>

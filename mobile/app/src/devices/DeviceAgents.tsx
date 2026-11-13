@@ -233,7 +233,7 @@ const ChatRow = memo(function ChatRow({
     <Row
       mark={
         <Faded away={away}>
-          <AgentFace agentId={shown.agentId} provider={shown.cli} turn={shown.turn?.state} size={20} />
+          <AgentFace agentId={shown.agentId} provider={shown.cli} turn={shown.turn} size={20} />
         </Faded>
       }
       name={away ? undefined : shown.name}
@@ -339,7 +339,7 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
     <Row
       mark={
         <Faded away={away}>
-          <AgentFace agentId={shown.agentId} provider={shown.cli} turn={shown.turn?.state} size={20} />
+          <AgentFace agentId={shown.agentId} provider={shown.cli} turn={shown.turn} size={20} />
         </Faded>
       }
       name={away ? undefined : shown.name}

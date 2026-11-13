@@ -168,13 +168,14 @@ export function WakeTime({ at, now }: { at: number; now: number }) {
  * How an agent's turn stands, as the Mac's rail and the notch mark a row, one state per row: its working squares; a
  * ring filling in the neutral ink as a CI or check wait with an estimate runs, with the minutes left; the pink timer for
  * any other wait, with the time left when it waits for a set time; the amber dot with how long a call has waited; the
- * purple dot once done, red once failed, a hollow ring once stopped. The core says which.
+ * purple dot once done until the person has seen it, red once failed, a hollow ring once stopped. The core says
+ * which.
  */
 export function TurnMark({ turn, now }: { turn?: TurnState; now: number }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
-  if (!turn) return null;
+  if (!turn || turn.seen) return null;
   const share = turn.state === 'waiting' ? ringShare(turn.wait, now) : undefined;
   const time = rowMinutes(turn, now, t);
   const tint = turn.state === 'needsYou' ? colors.warn : turn.state === 'waiting' && share == null ? colors.cmd : colors.tertiary;

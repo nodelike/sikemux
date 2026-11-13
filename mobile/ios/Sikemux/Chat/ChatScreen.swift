@@ -80,7 +80,7 @@ private struct ChatPane: View {
         Screen {
             Nav(back: nil, onBack: nil) {
                 ChatTitle(
-                    agentId: agentId, turn: rows.head.turn?.state, provider: provider, name: info?.name, title: title,
+                    agentId: agentId, turn: rows.head.turn, provider: provider, name: info?.name, title: title,
                     chief: rows.head.chief == true)
             } end: {
                 Button {

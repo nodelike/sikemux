@@ -2071,6 +2071,9 @@ struct TurnState: Codable, Hashable, Sendable {
     var done: TurnDone?
     var stopped: TurnStopped?
     var failed: TurnFailed?
+    /// Done, and the person has looked at it since, so a row shows the agent as idle while its
+    /// chat still ends on the line saying what it did.
+    var seen: Bool?
 }
 
 enum TurnPhase: String, Codable, Hashable, Sendable {

@@ -25,6 +25,10 @@ pub struct TurnState {
     pub stopped: Option<TurnStopped>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failed: Option<TurnFailed>,
+    /// Done, and the person has looked at it since, so a row shows the agent as idle while its
+    /// chat still ends on the line saying what it did.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub seen: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 import { StyleSheet, Text } from 'react-native';
 
-import type { TurnPhase } from '@shared/wire.generated';
+import type { TurnState } from '@shared/wire.generated';
 import { AgentFace } from '@/devices/Buddy';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -19,7 +19,7 @@ export function ChatTitle({
 }: {
   agentId?: string;
   /** How its turn stands, which the face wears. */
-  turn?: TurnPhase;
+  turn?: TurnState;
   provider: string;
   name?: string | null;
   title: string;

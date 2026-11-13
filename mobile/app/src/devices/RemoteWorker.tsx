@@ -31,7 +31,7 @@ export const WorkerRow = memo(function WorkerRow({ worker }: { worker: RemoteAge
         dim={!reachable}
         mark={
           <View style={!reachable && styles.away}>
-            <AgentFace agentId={worker.agentId} provider={worker.cli} turn={worker.turn?.state} size={20} />
+            <AgentFace agentId={worker.agentId} provider={worker.cli} turn={worker.turn} size={20} />
           </View>
         }
         title={worker.titled ? worker.title : undefined}

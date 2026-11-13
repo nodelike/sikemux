@@ -45,11 +45,11 @@ pub fn status_mark(agent: &str, status: AgentStatus, cx: &App) -> Option<AnyElem
     Some(mark_of(agent, mark, cx))
 }
 
-/// An agent's row mark for how its turn stands; none before the agent's first turn. A ring
-/// draws itself again each second on its own while its wait runs.
+/// An agent's row mark for how its turn stands; none before the agent's first turn, or once its
+/// finished turn was seen. A ring draws itself again each second on its own while its wait runs.
 pub fn turn_mark(agent: &str, turn: Option<&TurnState>) -> Option<AnyElement> {
     let turn = turn
-        .filter(|turn| turn_line::mark(turn, 0).is_some())?
+        .filter(|turn| !turn.seen && turn_line::mark(turn, 0).is_some())?
         .clone();
     Some(
         Slot::new(

@@ -158,7 +158,7 @@ private struct ChatRow: View {
             onLongPress: onHold,
             mark: {
                 AskerMark(
-                    agentId: shown.agentId, provider: shown.cli, chief: shown.chief == true, turn: shown.turn?.state
+                    agentId: shown.agentId, provider: shown.cli, chief: shown.chief == true, turn: shown.turn
                 )
                 .opacity(away ? 0.55 : 1)
             },
@@ -195,7 +195,7 @@ private struct TerminalAgentRow: View {
             onPress: onOpen, onLongPress: onHold,
             mark: {
                 AskerMark(
-                    agentId: shown.agentId, provider: shown.cli, chief: shown.chief == true, turn: shown.turn?.state
+                    agentId: shown.agentId, provider: shown.cli, chief: shown.chief == true, turn: shown.turn
                 )
                 .opacity(away ? 0.55 : 1)
             },
@@ -350,7 +350,7 @@ struct WorkerRow: View {
                     }
                 },
                 mark: {
-                    AskerMark(agentId: worker.agentId, provider: worker.cli, turn: worker.turn?.state)
+                    AskerMark(agentId: worker.agentId, provider: worker.cli, turn: worker.turn)
                         .opacity(reachable ? 1 : 0.55)
                 },
                 end: {

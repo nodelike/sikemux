@@ -3,14 +3,15 @@ import SwiftUI
 /// How an agent's turn stands, as the Mac's rail and the notch mark a row, one state per row: its working squares; a
 /// ring filling in the neutral ink as a CI or check wait with an estimate runs, with the minutes left; the pink timer
 /// for any other wait, with the time left when it waits for a set time; the amber dot with how long a call has waited;
-/// the purple dot once done, red once failed, a hollow ring once stopped. The core says which.
+/// the purple dot once done until the person has seen it, red once failed, a hollow ring once stopped. The core says
+/// which.
 struct TurnMark: View {
     @Environment(\.palette) private var palette
     let turn: TurnState?
     let now: Date
 
     var body: some View {
-        if let turn {
+        if let turn, turn.seen != true {
             HStack(spacing: 4) {
                 if let minutes = CallWords.rowMinutes(turn, now: now) {
                     Text(minutes)
@@ -68,9 +69,13 @@ struct WaitRing: View {
 }
 
 extension BuddyState {
-    /// The face a turn's state wears.
-    init(_ phase: TurnPhase?) {
-        switch phase {
+    /// The face a turn wears: a finished turn the person has seen wears idle, as its row's mark does.
+    init(_ turn: TurnState) {
+        if turn.seen == true {
+            self = .idle
+            return
+        }
+        switch turn.state {
         case .working: self = .working
         case .needsYou: self = .waiting
         case .done: self = .done

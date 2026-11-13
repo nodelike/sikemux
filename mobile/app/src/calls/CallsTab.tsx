@@ -48,14 +48,7 @@ export function CallsTab({
   const row = (call: PersonCall, end: ReactNode) => (
     <Row
       key={call.id}
-      mark={
-        <AskerMark
-          agentId={call.asker.agentId}
-          provider={call.asker.cli}
-          chief={call.asker.chief}
-          turn={call.state === 'open' ? 'needsYou' : undefined}
-        />
-      }
+      mark={<AskerMark agentId={call.asker.agentId} provider={call.asker.cli} chief={call.asker.chief} asking={call.state === 'open'} />}
       title={call.question}
       end={end}
       onPress={

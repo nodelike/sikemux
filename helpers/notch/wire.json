@@ -13,7 +13,7 @@
     "Inbox": "items working agents rollup",
     "AgentShown": "agentId chief name cli title session group turn failed subagents tasks nextTrigger calledAt face projectName reconnecting snoozedUntil settledAt line",
     "InLine": "place what by",
-    "TurnState": "state since on wait call done stopped failed",
+    "TurnState": "state since on wait call done stopped failed seen",
     "TurnWait": "kind what startedAt expectedMs until",
     "TurnCall": "id question waitingSince count",
     "TurnDone": "changes checks tests healthy next",

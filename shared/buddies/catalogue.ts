@@ -3,7 +3,7 @@ import { buddies, personas } from "./packs/blobs";
 import { cyclops, glow, googly, matrix, peekers, soot } from "./packs/eyes";
 import { screens } from "./packs/screens";
 import type { AgentBuddy, BuddyPack, BuddyShape, BuddyState } from "./shared";
-import type { AgentGroup, TurnPhase } from "../wire.generated";
+import type { AgentGroup, TurnState } from "../wire.generated";
 import { EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
 
 export { DEFAULT_BUDDY_STYLE, EVERY_PACK, EVERY_SHAPE, type BuddyStyle } from "./style";
@@ -50,9 +50,10 @@ export function resolveBuddy(agent: { id: string; buddy?: AgentBuddy }, style: B
     return { pack, shape, color: pack.colors[colorIndex], colorIndex };
 }
 
-/** The face a turn's state wears, as the core says how the turn stands. */
-export function buddyStateOfTurn(turn: TurnPhase): BuddyState {
-    switch (turn) {
+/** The face a turn wears, as the core says how it stands: a finished turn the person has seen wears idle, as its row's mark does. */
+export function buddyStateOfTurn(turn: TurnState): BuddyState {
+    if (turn.seen) return "idle";
+    switch (turn.state) {
         case "working":
             return "working";
         case "needsYou":

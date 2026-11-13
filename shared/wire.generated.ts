@@ -1260,6 +1260,11 @@ export interface TurnState {
     done?: TurnDone;
     stopped?: TurnStopped;
     failed?: TurnFailed;
+    /**
+     * Done, and the person has looked at it since, so a row shows the agent as idle while its
+     * chat still ends on the line saying what it did.
+     */
+    seen?: boolean;
 }
 
 export type TurnPhase = "working" | "waiting" | "needsYou" | "done" | "stopped" | "failed";

@@ -1,4 +1,4 @@
-import type { TurnPhase } from '@shared/wire.generated';
+import type { TurnState } from '@shared/wire.generated';
 import { AgentFace } from '@/devices/Buddy';
 import { Icon } from '@/ui/Icon';
 import { useColors } from '@/ui/theme';
@@ -9,15 +9,17 @@ export function AskerMark({
   provider,
   chief,
   turn,
+  asking,
   size = 20,
 }: {
   agentId: string;
   provider: string;
   chief?: boolean;
-  turn?: TurnPhase;
+  turn?: TurnState;
+  asking?: boolean;
   size?: number;
 }) {
   const colors = useColors();
   if (chief) return <Icon name="Logo" size={size * 0.75} color={colors.accent} />;
-  return <AgentFace agentId={agentId} provider={provider} turn={turn} size={size} />;
+  return <AgentFace agentId={agentId} provider={provider} turn={turn} asking={asking} size={size} />;
 }

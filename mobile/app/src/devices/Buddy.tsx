@@ -5,7 +5,7 @@ import { SvgXml } from 'react-native-svg';
 import { buddyStateOfTurn, type BuddyState } from '@shared/buddies/catalogue';
 import { drawnFace, type DrawnFace } from '@shared/buddies/faces';
 import { buddyMarkup, FULL_BOX } from '@shared/buddies/render';
-import type { AgentFace as Face, FaceStyle, TurnPhase } from '@shared/wire.generated';
+import type { AgentFace as Face, FaceStyle, TurnState } from '@shared/wire.generated';
 import { AgentIcon } from '@/ui/Icon';
 import { useAnimating } from '@/ui/motion';
 
@@ -86,13 +86,16 @@ export function AgentFace({
   agentId,
   provider,
   turn,
+  asking,
   size,
   logoSize = size,
 }: {
   agentId?: string | null;
   provider: string;
   /** How its turn stands, which the face wears. */
-  turn?: TurnPhase;
+  turn?: TurnState;
+  /** It waits on the person to answer its call, whatever its turn says. */
+  asking?: boolean;
   size: number;
   logoSize?: number;
 }) {
@@ -104,7 +107,7 @@ export function AgentFace({
     [faces, agentId, wears, face],
   );
   return look && faces ? (
-    <Buddy look={look} moves={faces.style.motion} state={turn ? buddyStateOfTurn(turn) : 'idle'} size={size} />
+    <Buddy look={look} moves={faces.style.motion} state={asking ? 'waiting' : turn ? buddyStateOfTurn(turn) : 'idle'} size={size} />
   ) : (
     <AgentIcon provider={provider} size={logoSize} />
   );

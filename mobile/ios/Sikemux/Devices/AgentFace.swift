@@ -41,12 +41,14 @@ struct AgentFaceView: View {
     let provider: String
     var group: AgentGroup?
     /// How its turn stands, which the face wears in place of `group` where the core says it.
-    var turn: TurnPhase?
+    var turn: TurnState?
+    /// It waits on the person to answer its call, whatever its turn says.
+    var asking = false
     let size: CGFloat
     var logoSize: CGFloat?
 
     var body: some View {
-        let state = turn.map { BuddyState($0) } ?? BuddyState(group)
+        let state: BuddyState = asking ? .waiting : turn.map { BuddyState($0) } ?? BuddyState(group)
         if let faces, let agentId, let face = faces.face(agentId), let art = BuddyArt.shared.art(face, state: state) {
             BuddyFigure(art: art, state: state, moves: faces.style.motion, size: size)
         } else {

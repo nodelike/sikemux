@@ -17,13 +17,15 @@ enum Mark: Hashable {
     case stopped
 
     /// The mark for how an agent's turn stands, as the core sends it; none for a state this
-    /// build does not know.
+    /// build does not know, or a finished turn the person has seen.
     init?(turn: TurnState) {
         switch turn.state {
         case .working: self = .working
         case .waiting: self = turn.wait.map(Mark.fills) == true ? .waiting : .timer
         case .needsYou: self = .needs
-        case .done: self = .done
+        case .done:
+            if turn.seen == true { return nil }
+            self = .done
         case .failed: self = .failed
         case .stopped: self = .stopped
         case .unknown: return nil

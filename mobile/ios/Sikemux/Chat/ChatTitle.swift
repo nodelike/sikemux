@@ -7,7 +7,7 @@ struct ChatTitle: View {
     var agentId: String?
     var group: AgentGroup?
     /// How its turn stands, which the face wears in place of `group` where the core says it.
-    var turn: TurnPhase?
+    var turn: TurnState?
     let provider: String
     var name: String?
     let title: String
