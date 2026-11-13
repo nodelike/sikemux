@@ -193,6 +193,17 @@ impl Run {
     fn same(&self, cwd: &str, command: &str) -> bool {
         self.cwd == cwd && self.command == command
     }
+
+    /// Moves the caller waiting on its turn out of its agent's cgroup before it starts the
+    /// command, so when memory runs out systemd-oomd stops the build and not the agent with it.
+    fn take_own_cgroup(&self) {
+        let Some((pid, started)) = self.pid.zip(self.started) else {
+            return;
+        };
+        if self.kind == Kind::Command && sikemux_process::procs::started(pid) == Some(started) {
+            sikemux_process::cgroups::move_into_own_cgroup(pid);
+        }
+    }
 }
 
 pub(crate) enum Place {
@@ -541,6 +552,7 @@ impl Line {
             if run.copies_output && run.log.is_none() {
                 run.log = self.new_log(run.id);
             }
+            run.take_own_cgroup();
             state.running.push(run);
         }
         if !blocked {
@@ -1362,6 +1374,7 @@ fn taken_back(state: &mut State, request: &BuildRequest, cwd: &str, caller: Call
         run.started = request.pid.and_then(sikemux_process::procs::started);
         run.since = epoch_ms();
         run.copies_output = request.copies_output;
+        run.take_own_cgroup();
         return Some(run.id);
     }
     let run = state.waiting.iter_mut().find(|run| mine(run))?;
