@@ -202,19 +202,29 @@ pub(crate) fn would_deadlock(state: &State, agent_id: &str, key: &str) -> Option
         .map(str::to_owned)
 }
 
-/// The turn holds whose agent made no tool call for a while, by run.
-pub(crate) fn idle_holds(state: &State, called: &HashMap<String, u64>, now: u64) -> Vec<u64> {
+/// The turn holds whose agent is not working: no tool call of any kind started or ended for a
+/// while, none still running, and no heavy command or process run of its alive. By run.
+pub(crate) fn idle_holds(state: &State, now: u64) -> Vec<u64> {
     let idle = super::debug_ms("SIKEMUX_LINE_IDLE_MS").unwrap_or(IDLE_MS);
+    let busy = |agent: &str| {
+        state
+            .open_calls
+            .get(agent)
+            .is_some_and(|open| !open.is_empty())
+            || (state.running.iter().chain(&state.waiting))
+                .any(|run| run.kind != Kind::Hold && run.is_for(agent))
+    };
     (state.running.iter())
         .filter(|run| run.kind == Kind::Hold && run.held == Held::Turn)
         .filter(|run| {
             let agent = run.agent_id.as_deref().unwrap_or_default();
-            let last = called
+            let last = state
+                .called
                 .get(agent)
                 .copied()
                 .unwrap_or(run.since)
                 .max(run.since);
-            now.saturating_sub(last) >= idle
+            now.saturating_sub(last) >= idle && !busy(agent)
         })
         .map(|run| run.id)
         .collect()

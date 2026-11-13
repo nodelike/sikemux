@@ -53,6 +53,8 @@ const CORES_PER_RUN: usize = 6;
 const FINISHED_KEPT_MS: u64 = 60_000;
 const LOOK_EVERY: Duration = Duration::from_secs(2);
 const LOGS: &str = "line-logs";
+/// The most tool calls kept as still running for one agent.
+const MOST_OPEN_CALLS: usize = 64;
 /// The most rows clients are sent of what runs and waits.
 const SHOWN_ROWS: usize = 32;
 
@@ -75,8 +77,11 @@ struct State {
     finished: Vec<(u64, Option<i32>, Option<PathBuf>, u64)>,
     /// Why the first in line did not start at the last look.
     why: String,
-    /// When each agent last called a tool, in Unix milliseconds, so a turn's hold it forgot ends.
+    /// When each agent last started or ended a tool call of any kind, in Unix milliseconds, so a
+    /// turn's hold it forgot ends.
     called: HashMap<String, u64>,
+    /// The tool calls each agent has started and not ended, by id.
+    open_calls: HashMap<String, std::collections::HashSet<String>>,
     /// Programs outside Sikemux listening on the ports of things runs wait for.
     outside: HashMap<u16, String>,
 }
@@ -551,7 +556,7 @@ impl Line {
             run.since = epoch_ms();
             drop(state);
             tidy(core);
-            return Ok((true, format!("You hold {label} until your turn ends. Nobody else gets it meanwhile; it goes to whoever waits next once your turn ends, you close, or you make no tool call for ten minutes.")));
+            return Ok((true, format!("You hold {label} until your turn ends. Nobody else gets it meanwhile; it goes to whoever waits next once your turn ends, you close, or you do no work for ten minutes.")));
         }
         if !state.waiting.iter().any(|run| mine(run)) {
             if let Some(other) = things::would_deadlock(&state, agent_id, &key) {
@@ -573,7 +578,7 @@ impl Line {
         let answer = match granted {
             Some(run) => {
                 run.held = Held::Turn;
-                Ok((true, format!("You hold {label} until your turn ends. Nobody else gets it meanwhile; it goes to whoever waits next once your turn ends, you close, or you make no tool call for ten minutes.")))
+                Ok((true, format!("You hold {label} until your turn ends. Nobody else gets it meanwhile; it goes to whoever waits next once your turn ends, you close, or you do no work for ten minutes.")))
             }
             None => {
                 let at = (state.waiting.iter())
@@ -618,7 +623,7 @@ impl Line {
         answer
     }
 
-    /// `agent_id` called a tool, so a thing it holds for its turn stays held.
+    /// `agent_id` called one of Sikemux's tools, so a thing it holds for its turn stays held.
     pub(crate) fn called(&self, agent_id: &str) {
         self.state
             .locked()
@@ -626,9 +631,33 @@ impl Line {
             .insert(agent_id.to_owned(), epoch_ms());
     }
 
+    /// One of `agent_id`'s tool calls, of any kind, its own shell's included, began, moved or
+    /// ended, as `update` from its chat says: while one runs, a thing it holds for its turn stays
+    /// held.
+    pub(crate) fn tool_update(&self, agent_id: &str, update: &serde_json::Value) {
+        let Some(id) = update.get("toolCallId").and_then(serde_json::Value::as_str) else {
+            return;
+        };
+        let status = update.get("status").and_then(serde_json::Value::as_str);
+        let ended = matches!(status, Some("completed" | "failed"));
+        let mut state = self.state.locked();
+        state.called.insert(agent_id.to_owned(), epoch_ms());
+        let open = state.open_calls.entry(agent_id.to_owned()).or_default();
+        match ended {
+            true => {
+                open.remove(id);
+            }
+            false if open.len() < MOST_OPEN_CALLS => {
+                open.insert(id.to_owned());
+            }
+            false => {}
+        }
+    }
+
     /// `agent_id`'s turn ended, and with it what it held for the turn.
     pub(crate) fn turn_ended(&self, core: &Core, agent_id: &str) {
         let mut state = self.state.locked();
+        state.open_calls.remove(agent_id);
         let before = state.running.len();
         state.running.retain(|run| {
             !(run.kind == Kind::Hold && run.held == Held::Turn && run.is_for(agent_id))
@@ -648,6 +677,7 @@ impl Line {
         state.running.retain(|run| !theirs(run));
         state.waiting.retain(|run| !theirs(run));
         state.called.remove(agent_id);
+        state.open_calls.remove(agent_id);
         if state.running.len() + state.waiting.len() != before {
             drop(state);
             tidy_soon(core);
@@ -780,7 +810,7 @@ fn tidy(core: &Arc<Core>) {
     let room = Room::now(core, outside);
     let mut state = line.state.locked();
     let now = epoch_ms();
-    let idle = things::idle_holds(&state, &state.called, now);
+    let idle = things::idle_holds(&state, now);
     let mut quiet = Vec::new();
     state.running.retain(|run| match idle.contains(&run.id) {
         true => {
@@ -820,7 +850,7 @@ fn tidy(core: &Arc<Core>) {
         }
     }
     for (agent, thing) in quiet {
-        let words = format!("You held {thing} for your turn but made no tool call for a while, so it went to whoever waits for it next. Call hold again when you need it.");
+        let words = format!("You held {thing} for your turn but did no work for a while, so it went to whoever waits for it next. Call hold again when you need it.");
         tell(core, agent, words);
     }
     for (agent, thing, waiting) in long {

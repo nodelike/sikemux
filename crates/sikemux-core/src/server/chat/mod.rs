@@ -925,6 +925,7 @@ impl Chat {
         let Some(core) = self.core.upgrade() else {
             return;
         };
+        core.line().tool_update(self.agent_id(), update);
         if core
             .collisions()
             .saw(self.agent_id(), &self.launch.cwd, update)

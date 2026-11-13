@@ -185,8 +185,10 @@ Some things only one agent can use at a time, such as the app on a fixed port.
 whose entry `needs` one holds it while it runs, starting only once everything
 it needs is free; pass `needs` with a `command` to `process_start` for the
 same. To hold one for your turn, call `hold` with its name. What you hold goes
-when your turn ends, when you close, or after ten minutes without a tool call;
-nothing else takes it from you. When another holds it, `hold` answers that it
+when your turn ends, when you close, or after ten minutes in which you do no
+work: no tool call of yours, your own shell's included, started or still
+running, and no process or heavy command of yours alive. Nothing else takes it
+from you. When another holds it, `hold` answers that it
 is not yet yours, who holds it and your place; Sikemux messages you when it is
 free, and you call `hold` again within 90 seconds. Two agents that would each
 wait for what the other holds are refused.
