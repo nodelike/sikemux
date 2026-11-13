@@ -43,7 +43,6 @@ const FILE: &str = "chiefs.json";
 const AWAY_MS: u64 = 60 * 60_000;
 /// Being with the chief again this soon after the last time is not written down again.
 const WITH_STEP_MS: u64 = 60_000;
-const WEEK_MS: u64 = 7 * 24 * 60 * 60_000;
 /// What a turn's digest holds at most, so it stays a few hundred tokens with twenty agents.
 const DIGEST_CHARS: usize = 4_000;
 /// What of one agent's or the person's words a digest line quotes.
@@ -1499,6 +1498,12 @@ fn week_began(at: u64) -> Option<u64> {
     }
 }
 
+/// When the week before the one that began at `began` began, which is not seven days earlier
+/// when the clocks changed in it.
+fn week_before(began: u64) -> Option<u64> {
+    week_began(began.checked_sub(1)?)
+}
+
 /// At the first tick after each Monday 09:00, every chief the person was with the week before
 /// shows its count of that week in its chat, when something was decided or a call answered. It
 /// starts no turn: the chief hears the numbers with its next one.
@@ -1509,32 +1514,33 @@ async fn count_weeks(core: Arc<Core>) {
     loop {
         ticker.tick().await;
         prune(&core);
-        let Some(began) = week_began(epoch_ms()) else {
+        let Some((before, began)) =
+            week_began(epoch_ms()).and_then(|began| Some((week_before(began)?, began)))
+        else {
             continue;
         };
         let due: Vec<(String, String, bool)> = (core.chiefs().state.locked().seats.iter())
             .filter(|(_, seat)| seat.counted < began)
             .map(|(chief, seat)| {
-                let was_with = seat.with_weeks.contains(&(began - WEEK_MS));
+                let was_with = seat.with_weeks.contains(&before);
                 (chief.clone(), seat.project.clone(), was_with)
             })
             .collect();
         for (chief, project, was_with) in due {
             core.chiefs().seat(&chief, |seat| seat.counted = began);
             if was_with {
-                count_week(&core, &chief, &project, began);
+                count_week(&core, &chief, &project, before, began);
             }
         }
     }
 }
 
-fn count_week(core: &Core, chief: &str, project: &str, began: u64) {
+fn count_week(core: &Core, chief: &str, project: &str, from: u64, began: u64) {
     let Some(project) = (core.workspaces().projects().into_iter()).find(|info| info.id == project)
     else {
         return;
     };
     let path = project.path.to_string_lossy().into_owned();
-    let from = began - WEEK_MS;
     let (decided, overruled) = super::board::goal::counted_since(core, &path, from, began);
     let answered = super::person_calls::answered_since(core, &path, from, began);
     let as_picked = answered.iter().filter(|as_picked| **as_picked).count();
@@ -1594,7 +1600,39 @@ fn prune(core: &Core) {
 
 #[cfg(test)]
 mod tests {
-    use super::{can_start_text, StartsOn};
+    use super::{can_start_text, week_before, StartsOn};
+
+    #[test]
+    fn the_week_before_a_clock_change_begins_at_nine_on_its_monday() {
+        const ZONE: &str = "America/Los_Angeles";
+        const NAME: &str = "the_week_before_a_clock_change_begins_at_nine_on_its_monday";
+        if std::env::var("TZ").as_deref() != Ok(ZONE) {
+            let module = module_path!().split_once("::").expect("in a crate").1;
+            let ran = std::process::Command::new(std::env::current_exe().expect("this test"))
+                .args([
+                    &format!("{module}::{NAME}"),
+                    "--exact",
+                    "--list",
+                    "--format=terse",
+                ])
+                .output()
+                .expect("the tests list");
+            assert!(
+                String::from_utf8_lossy(&ran.stdout).contains(NAME),
+                "the test cannot find itself"
+            );
+            let ran = std::process::Command::new(std::env::current_exe().expect("this test"))
+                .args([&format!("{module}::{NAME}"), "--exact"])
+                .env("TZ", ZONE)
+                .status()
+                .expect("the test runs in Los Angeles");
+            assert!(ran.success());
+            return;
+        }
+        let monday_nine_pdt = 1_793_030_400_000;
+        let next_monday_nine_pst = 1_793_638_800_000;
+        assert_eq!(week_before(next_monday_nine_pst), Some(monday_nine_pdt));
+    }
 
     #[test]
     fn an_account_named_by_an_address_is_called_by_its_place() {
