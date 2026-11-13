@@ -111,6 +111,10 @@ impl Trigger {
         self.paused.is_some() || self.stopped.is_some()
     }
 
+    fn waits_in_line(&self) -> bool {
+        self.park.as_ref().is_some_and(park::Park::waits_in_line)
+    }
+
     /// Whether it prompts the open chat `agent_id`.
     fn prompts(&self, agent_id: &str) -> bool {
         self.board.is_none() && self.paused.is_none() && self.agent_id == agent_id
@@ -192,9 +196,10 @@ impl Triggers {
         true
     }
 
-    /// The chat's triggers, soonest first, as its clients show them.
+    /// The chat's triggers, soonest first, as its clients show them. A wait in line is left
+    /// out, since the chat's waiting line shows it.
     pub(crate) fn shown(&self, agent_id: &str) -> Vec<ChatTrigger> {
-        self.shown_where(|trigger| trigger.prompts(agent_id))
+        self.shown_where(|trigger| trigger.prompts(agent_id) && !trigger.waits_in_line())
     }
 
     /// The triggers that add cards to the project's board, soonest first.
@@ -284,7 +289,7 @@ impl Triggers {
         let mine = state
             .triggers
             .iter()
-            .filter(|trigger| trigger.prompts(agent_id));
+            .filter(|trigger| trigger.prompts(agent_id) && !trigger.waits_in_line());
         mine.count() as u32
     }
 

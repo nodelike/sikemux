@@ -216,6 +216,11 @@ impl Park {
         }
     }
 
+    /// Whether it waits on a heavy command's turn in line.
+    pub(super) fn waits_in_line(&self) -> bool {
+        matches!(self.on, On::Line { .. })
+    }
+
     /// Whether it waits on `command`'s turn in line, run in `cwd`.
     pub(super) fn is_line(&self, at: &str, run: &str) -> bool {
         matches!(&self.on, On::Line { cwd, command } if cwd == at && command == run)

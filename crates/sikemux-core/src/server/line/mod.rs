@@ -957,9 +957,7 @@ fn ordinal(place: usize) -> String {
     format!("{place}{suffix}")
 }
 
+/// Rounded up to whole minutes, as the apps word the same wait.
 fn about(ms: u64) -> String {
-    match ms / 60_000 {
-        0 => format!("about {} s", (ms / 1000).max(1)),
-        minutes => format!("about {minutes} min"),
-    }
+    format!("about {} min", ms.div_ceil(60_000).max(1))
 }
