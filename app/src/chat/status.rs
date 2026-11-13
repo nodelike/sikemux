@@ -16,7 +16,7 @@ use sikemux_core::server::TakeStepParams;
 use sikemux_view::chat::{
     ChatActivity, ChatConnection, FailureKind, ToolAction, ToolFamily, ToolIntent, ToolRow,
 };
-use sikemux_view::turn::{Remedy, TurnPhase, TurnState, TurnStep};
+use sikemux_view::turn::{Remedy, TurnPhase, TurnState, TurnStep, TurnWaitKind};
 use sikemux_wire::protocol::AgentStatus;
 
 use super::Chat;
@@ -194,6 +194,7 @@ impl Activity {
                 })
                 .collect(),
             TurnPhase::NeedsYou => self.look().into_iter().collect(),
+            TurnPhase::Waiting => self.go_first(turn, cx).into_iter().collect(),
             TurnPhase::Stopped => take(TurnStep::CarryOn, Variant::Outline)
                 .into_iter()
                 .collect(),
@@ -207,6 +208,36 @@ impl Activity {
             )
             .pt(SPACE_3)
             .pb(px(END_SPACE))
+            .into_any_element(),
+        )
+    }
+
+    /// Go first, while its heavy command waits in the host's line behind another.
+    fn go_first(&self, turn: &TurnState, cx: &App) -> Option<AnyElement> {
+        let wait = (turn.wait.as_ref()).filter(|wait| {
+            wait.kind == TurnWaitKind::Line && wait.place.is_some_and(|at| at > 1)
+        })?;
+        let agent = self.agent.as_ref()?.id.as_str();
+        let bench = self.bench.clone()?;
+        let build = (bench
+            .upgrade()?
+            .read(cx)
+            .this_view()?
+            .load
+            .as_ref()?
+            .builds
+            .iter())
+        .find(|build| build.ahead.is_some() && build.agent_id.as_deref() == Some(agent))?
+        .id;
+        Some(
+            crate::overload::go_first_button(
+                "turn-go-first",
+                self.target.clone(),
+                build,
+                wait.what.clone(),
+                bench,
+            )
+            .sized(26., 10., TEXT_XS)
             .into_any_element(),
         )
     }

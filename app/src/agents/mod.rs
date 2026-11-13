@@ -1379,7 +1379,7 @@ const RECENT_ROW: &str = "recent-row";
 
 pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
     let t = Tokens::get(cx).clone();
-    (agent.subagents > 0 || agent.tasks > 0 || agent.build_queued).then(|| {
+    (agent.subagents > 0 || agent.tasks > 0 || agent.line.is_some()).then(|| {
         let count = |glyph: Icon, size: f32, color, value: u32| {
             div()
                 .flex()
@@ -1412,8 +1412,12 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
             .when(agent.tasks > 0, |row| {
                 row.child(count(Icon::Command, 11., t.warn, agent.tasks))
             })
-            .when(agent.build_queued, |row| {
-                row.child(labelled(Icon::Hourglass, t.warn, t!("queued").into()))
+            .when_some(agent.line.as_ref(), |row, line| {
+                row.child(labelled(
+                    Icon::Hourglass,
+                    t.warn,
+                    crate::turn_line::in_line(line.place),
+                ))
             })
     })
 }

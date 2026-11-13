@@ -35,7 +35,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
         }
         TurnPhase::Waiting => {
             let wait = turn.wait.as_ref()?;
-            (waiting_on(wait), waited(wait, now).into_iter().collect())
+            (waiting_on(wait), waited(wait, now))
         }
         TurnPhase::NeedsYou => {
             let call = turn.call.as_ref()?;
@@ -187,6 +187,10 @@ pub fn brief(turn: &TurnState, now: u64) -> Option<String> {
             Some(TurnWaitKind::Deploy) => with(t!("deploy")),
             Some(TurnWaitKind::Check) => with(t!("checks")),
             Some(TurnWaitKind::Timer) => with(t!("timer")),
+            Some(TurnWaitKind::Line) => match turn.wait.as_ref().and_then(|wait| wait.place) {
+                Some(place) => in_line(place),
+                None => t!("in line").to_owned(),
+            },
             _ => with(t!("waiting")),
         },
         TurnPhase::NeedsYou => with(t!("needs you")),
@@ -226,27 +230,64 @@ fn waiting_on(wait: &TurnWait) -> String {
             Some(until) => t!("Waiting until {when}", when = moment(until)),
             None => t!("Waiting").into(),
         },
-        TurnWaitKind::Process
-        | TurnWaitKind::Line
-        | TurnWaitKind::InUse
-        | TurnWaitKind::Unknown => t!("Waiting on {what}", what = wait.what),
+        TurnWaitKind::Line => t!("In line for {what}", what = wait.what),
+        TurnWaitKind::InUse => t!("Waiting for {what}", what = wait.what),
+        TurnWaitKind::Process | TurnWaitKind::Unknown => {
+            t!("Waiting on {what}", what = wait.what)
+        }
     }
 }
 
-/// How long a wait has gone, against how long it usually takes once that is known.
-fn waited(wait: &TurnWait, now: u64) -> Option<String> {
-    if wait.kind == TurnWaitKind::Timer {
-        return None;
-    }
+/// How long a wait has gone, against how long it usually takes once that is known; for a
+/// command in line, its place and about how long it has left.
+fn waited(wait: &TurnWait, now: u64) -> Vec<String> {
     let gone = now.saturating_sub(wait.started_at) / 60_000;
-    Some(match wait.expected_ms {
-        Some(expected) => t!(
-            "{gone} of ~{expected} min",
-            gone = gone,
-            expected = expected.div_ceil(60_000)
-        ),
-        None => t!("{minutes} min", minutes = gone),
-    })
+    match wait.kind {
+        TurnWaitKind::Timer => Vec::new(),
+        TurnWaitKind::Line => (wait.place.map(place))
+            .into_iter()
+            .chain(wait.expected_ms.map(about))
+            .collect(),
+        _ => vec![match wait.expected_ms {
+            Some(expected) => t!(
+                "{gone} of ~{expected} min",
+                gone = gone,
+                expected = expected.div_ceil(60_000)
+            ),
+            None => t!("{minutes} min", minutes = gone),
+        }],
+    }
+}
+
+/// A place in the host's line as a list of them says it: "next", "2nd".
+pub fn place(place: u32) -> String {
+    match place {
+        0 | 1 => t!("next").to_owned(),
+        place => ordinal(place),
+    }
+}
+
+/// A place in the host's line on its own: "next in line", "2nd in line".
+pub fn in_line(place: u32) -> String {
+    match place {
+        0 | 1 => t!("next in line").to_owned(),
+        place => t!("{place} in line", place = ordinal(place)),
+    }
+}
+
+fn ordinal(place: u32) -> String {
+    match (place % 100, place % 10) {
+        (11..=13, _) => t!("{place}th", place = place),
+        (_, 1) => t!("{place}st", place = place),
+        (_, 2) => t!("{place}nd", place = place),
+        (_, 3) => t!("{place}rd", place = place),
+        _ => t!("{place}th", place = place),
+    }
+}
+
+/// How long a wait has left, roughly: "about 4 min".
+pub fn about(ms: u64) -> String {
+    t!("about {minutes} min", minutes = ms.div_ceil(60_000).max(1))
 }
 
 fn changed(changes: WorkAt) -> &'static str {
