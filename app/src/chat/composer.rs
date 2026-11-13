@@ -521,7 +521,7 @@ impl RenderOnce for Composer {
                     .relative()
                     .w_full()
                     .max_w(super::column::composer(cx))
-                    .rounded(theme::RADIUS_4)
+                    .rounded(theme::RADIUS_3)
                     .child(
                         div()
                             .relative()
@@ -538,7 +538,7 @@ impl RenderOnce for Composer {
                             } else {
                                 edge
                             })
-                            .rounded(theme::RADIUS_4)
+                            .rounded(theme::RADIUS_3)
                             .bg(fill)
                             .children(tiles)
                             .child(
@@ -1583,7 +1583,7 @@ fn send(
         .flex()
         .items_center()
         .justify_center()
-        .rounded_full()
+        .rounded(theme::RADIUS_2)
         .bg(t.text_primary)
         .when(!stopping && !drafted, |button| button.opacity(0.28))
         .when_some(about, |button, about| button.tooltip(ui::tooltip(about)))
