@@ -1364,7 +1364,7 @@ its agents or keep them.
 The person may link this host with others on their account, in Settings,
 Devices. `agent_spawn` with `host`, the name a linked host goes by here, starts
 the agent there, on that host's own sign-in for `cli`, never yours; a refusal
-lists the linked hosts. That host picks the account as it does for a new chat
+lists the linked hosts with each one's memory and cores. That host picks the account as it does for a new chat
 there, and refuses at once when `cli` is signed in to no account there or
 every account is at its limit, saying when one is free again and which other
 clis it can start. It runs as a chat, so leave out `mode`, `resume` and
@@ -1389,6 +1389,13 @@ moved or took it since, which gets the worker a free name again. Merge what you 
 host does not answer, what you send it waits and goes once it is back, and you
 hear when it has been out of reach for a few minutes and when it is back. If
 the person removes the link, you hear that too.
+
+Send work a host can carry. A host with 8 GB or less cannot build or check the
+Rust core, so keep that work here or on a bigger host, and send it light work
+such as research, docs or eval runs. Tell its agent to keep scripts and notes
+in its checkout, not the temporary folder, which a reboot can empty, and to wait
+with `process_start` and `trigger_add`, not background shell loops, which stop
+after two hours.
 
 ### Finding and resuming an earlier session
 
