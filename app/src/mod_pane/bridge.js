@@ -1,4 +1,4 @@
-(() => {
+(kept) => {
   const post = (message) =>
     window.webkit.messageHandlers.sikemux.postMessage(
       JSON.stringify({ kind: "mod", ...message }),
@@ -9,6 +9,26 @@
   const listeners = { shown: new Set(), hidden: new Set() };
   let next = 1;
   let shown = true;
+  let view = kept.view ?? null;
+  const MAX_VIEW_BYTES = 16 * 1024;
+
+  if (kept.scroll) {
+    const [x, y] = kept.scroll;
+    const until = Date.now() + 5000;
+    const settled = () => Math.abs(window.scrollX - x) < 1 && Math.abs(window.scrollY - y) < 1;
+    const growing = new ResizeObserver(() => {
+      window.scrollTo(x, y);
+      if (settled() || Date.now() > until) stop();
+    });
+    const stop = () => {
+      growing.disconnect();
+      for (const event of ["wheel", "keydown", "pointerdown", "touchstart"])
+        removeEventListener(event, stop, true);
+    };
+    for (const event of ["wheel", "keydown", "pointerdown", "touchstart"])
+      addEventListener(event, stop, true);
+    growing.observe(document.documentElement);
+  }
 
   const ask = (op, name, params) =>
     new Promise((resolve, reject) => {
@@ -65,6 +85,16 @@
       undo: (collection, id, version) => ask("write", "data.undo", { collection, id, version }),
     }),
     badge: (text) => post({ op: "badge", text: text == null ? null : String(text) }),
+    view: Object.freeze({
+      get: () => (view == null ? null : JSON.parse(view)),
+      set(value) {
+        const text = value == null ? null : JSON.stringify(value);
+        if (text != null && new TextEncoder().encode(text).length > MAX_VIEW_BYTES)
+          throw new Error("sikemux.view keeps at most 16 KiB; keep more in sikemux.data");
+        view = text;
+        post({ op: "view", text });
+      },
+    }),
     every,
     get shown() {
       return shown;
@@ -107,6 +137,7 @@
     shown(now) {
       if (shown === now) return;
       shown = now;
+      if (!now) post({ op: "scroll", x: window.scrollX, y: window.scrollY });
       for (const timer of timers) {
         if (now && Date.now() - timer.last >= timer.ms) tick(timer);
         arm(timer);
@@ -114,4 +145,4 @@
       for (const listener of listeners[now ? "shown" : "hidden"]) listener();
     },
   };
-})();
+}

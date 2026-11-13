@@ -2,15 +2,17 @@
 //! the pane on the app's ground, and read again whenever the mod's files move. Its page reaches
 //! the core through `window.sikemux`, the bridge in `bridge.js`: what it reads and writes is the
 //! core's to allow, and a watch reads again only when what it reads moves, while the pane shows.
+//! A page out of sight a while is thrown away and drawn again from its data when it shows.
 
 use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui_kit::{
     div, AnyElement, App, AppContext, Context, IntoElement, ParentElement, Render, SharedString,
     Styled, WeakEntity, Window,
 };
+use serde::Serialize;
 use serde_json::{json, Value};
 use sikemux_calls::mods::follows;
 pub use sikemux_calls::mods::Moved;
@@ -21,7 +23,7 @@ use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::page_view::{PageEvent, Room};
 use crate::theme::{Tokens, TEXT_XS};
-use crate::workbench::{Strip, Workbench};
+use crate::workbench::Workbench;
 use crate::{page_view, theme};
 use sikemux_calls::call;
 use sikemux_calls::mods::AllowParams;
@@ -40,6 +42,20 @@ const MAX_WATCHES: usize = 32;
 const MAX_PARAMS_BYTES: usize = 16 * 1024;
 /// Room for a document at the core's 60 KiB limit and the names around it.
 const MAX_DATA_PARAMS_BYTES: usize = 64 * 1024;
+const MAX_VIEW_BYTES: usize = 16 * 1024;
+/// How many pages out of sight stay alive, the latest put out of sight first, however long.
+const LIVE_HIDDEN: usize = 3;
+/// How long any other page out of sight stays alive.
+const DROP_AFTER: Duration = Duration::from_secs(5 * 60);
+
+/// What a page is given back when it is drawn again after being thrown away.
+#[derive(Default, Serialize)]
+struct Kept {
+    /// What the page kept with `sikemux.view.set`, as JSON.
+    view: Option<String>,
+    /// Where the page was scrolled when it went out of sight.
+    scroll: Option<[f64; 2]>,
+}
 
 pub struct Watched {
     name: String,
@@ -62,6 +78,11 @@ pub struct ModPane {
     reading: bool,
     /// Whether the pane's tab is in front.
     shown: bool,
+    /// When the pane's tab last went to the back, while it is there.
+    hidden_since: Option<Instant>,
+    kept: Kept,
+    /// The mod's data changed while the pane was not shown, so who changed it is read on showing.
+    change_stale: bool,
     /// The mod's files moved while the pane was not shown.
     stale: bool,
     watches: BTreeMap<u64, Watched>,
@@ -82,6 +103,7 @@ impl ModPane {
         id: String,
         core: Target,
         project: Option<String>,
+        shown: bool,
         bench: WeakEntity<Workbench>,
     ) -> Self {
         Self {
@@ -92,7 +114,10 @@ impl ModPane {
             page: None,
             problem: None,
             reading: false,
-            shown: true,
+            shown,
+            hidden_since: None,
+            kept: Kept::default(),
+            change_stale: false,
             stale: true,
             watches: BTreeMap::new(),
             gathering: false,
@@ -107,15 +132,50 @@ impl ModPane {
         if std::mem::replace(&mut self.shown, true) {
             return;
         }
+        self.hidden_since = None;
+        if self.page.is_some() && std::mem::take(&mut self.change_stale) {
+            self.read_change(cx);
+        }
         self.run("__sikemux.shown(true)");
         self.gather(cx);
         cx.notify();
     }
 
-    pub fn hide(&mut self) {
-        if std::mem::replace(&mut self.shown, false) {
-            self.run("__sikemux.shown(false)");
+    /// Puts the pane out of sight, and asks the workbench to let go of the pages kept too long
+    /// once this one may be among them. Answers whether it was shown.
+    pub fn hide(&mut self, cx: &mut Context<Self>) -> bool {
+        if !std::mem::replace(&mut self.shown, false) {
+            return false;
         }
+        let since = Instant::now();
+        self.hidden_since = Some(since);
+        self.run("__sikemux.shown(false)");
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(DROP_AFTER).await;
+            let _ = this.update(cx, |pane, cx| {
+                if pane.hidden_since == Some(since) {
+                    let _ = pane.bench.update(cx, |bench, cx| bench.drop_mod_pages(cx));
+                }
+            });
+        })
+        .detach();
+        true
+    }
+
+    /// When the pane's page went out of sight, while it is out of sight and alive.
+    fn live_hidden_since(&self) -> Option<Instant> {
+        self.hidden_since.filter(|_| self.page.is_some())
+    }
+
+    /// Lets go of the page and what it watches, so its web view and the process behind it go;
+    /// the page is read and drawn again when the pane shows.
+    fn drop_page(&mut self) {
+        if self.page.take().is_none() {
+            return;
+        }
+        self.watches.clear();
+        self.generation += 1;
+        self.stale = true;
     }
 
     /// The mod's files moved: reads its page again now, or once its tab comes to the front.
@@ -128,6 +188,9 @@ impl ModPane {
 
     /// Something a watch may read moved: the watches that read it read again once the pane shows.
     pub fn moved(&mut self, moved: Moved, cx: &mut Context<Self>) {
+        if self.page.is_none() {
+            return;
+        }
         let mut any = false;
         for watch in self.watches.values_mut() {
             if follows(&watch.name) == Some(moved) {
@@ -143,7 +206,14 @@ impl ModPane {
     /// The mod's data in `collections` changed, or in any of them without: the data watches
     /// on those read again once the pane shows.
     pub fn data_moved(&mut self, collections: Option<&[&str]>, cx: &mut Context<Self>) {
-        self.read_change(cx);
+        if self.page.is_none() {
+            self.change_stale = true;
+            return;
+        }
+        match self.shown {
+            true => self.read_change(cx),
+            false => self.change_stale = true,
+        }
         let mut any = false;
         for watch in self.watches.values_mut() {
             let collection = watch.params["collection"].as_str().unwrap_or_default();
@@ -251,10 +321,19 @@ impl ModPane {
     }
 
     fn present(&mut self, html: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.change_stale = false;
         self.read_change(cx);
         self.watches.clear();
         self.generation += 1;
-        let html = sikemux_base::pages::themed(html, &theme_rule(cx), Some(BRIDGE));
+        let kept = Kept {
+            view: self.kept.view.clone(),
+            scroll: self.page.is_none().then_some(self.kept.scroll).flatten(),
+        };
+        let kept = serde_json::to_string(&kept)
+            .unwrap_or_else(|_| "{}".to_owned())
+            .replace('<', "\\u003c");
+        let bridge = format!("({BRIDGE})({kept});");
+        let html = sikemux_base::pages::themed(html, &theme_rule(cx), Some(&bridge));
         if let Some(page) = &self.page {
             page.show(&html);
             return;
@@ -327,6 +406,16 @@ impl ModPane {
             }
             Some("unwatch") => {
                 self.watches.remove(&id);
+            }
+            Some("view") => {
+                let view = message["text"].as_str();
+                if view.is_none_or(|view| view.len() <= MAX_VIEW_BYTES) {
+                    self.kept.view = view.map(str::to_owned);
+                }
+            }
+            Some("scroll") => {
+                let at = |axis: &str| message[axis].as_f64().unwrap_or_default();
+                self.kept.scroll = Some([at("x"), at("y")]);
             }
             Some("badge") => {
                 let badge = message["text"].as_str();
@@ -688,8 +777,8 @@ impl Render for ModPane {
 }
 
 impl Workbench {
-    /// Keeps a pane for each mod view of the strip in front, showing those of the tab in front
-    /// and pausing the rest, and lets go of the others.
+    /// Keeps a pane for each mod view of every strip, showing those of the tab in front and
+    /// pausing the rest, and lets go of those whose tab closed.
     pub(crate) fn mod_panes(&mut self, cx: &mut Context<Self>) {
         let views_in = |pane: &sikemux_view::layout::Pane| -> Vec<(String, String)> {
             crate::panes::views(pane)
@@ -697,42 +786,66 @@ impl Workbench {
                 .map(|view| (view.id.clone(), view.target.clone()))
                 .collect()
         };
-        let shown: Vec<(String, String)> = self
-            .strip()
-            .map(|strip| {
-                self.tabs(&strip)
-                    .iter()
-                    .flat_map(|tab| views_in(&tab.pane))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut open: Vec<(String, String, Option<String>)> = Vec::new();
+        if let Some(view) = self.shown() {
+            let layout = &view.layout;
+            let folder = |project: &str| {
+                (self.projects().iter())
+                    .find(|known| known.id == project)
+                    .map(|known| known.path.to_string_lossy().into_owned())
+            };
+            let strips = (layout.projects.iter())
+                .map(|(project, tabs)| (tabs, folder(project)))
+                .chain(layout.hosts.values().map(|tabs| (tabs, None)))
+                .chain([(&layout.terminals, None)]);
+            for (tabs, project) in strips {
+                for tab in &tabs.tabs {
+                    for (view, id) in views_in(&tab.pane) {
+                        open.push((view, id, project.clone()));
+                    }
+                }
+            }
+        }
         let in_front = self
             .tab()
             .map(|tab| views_in(&tab.pane))
             .unwrap_or_default();
         let core = self.target();
-        let project = match self.strip() {
-            Some(Strip::Project(_)) => self
-                .project()
-                .map(|project| project.path.to_string_lossy().into_owned()),
-            _ => None,
-        };
+        let mut hid = false;
         self.mod_panes.retain(|view, pane| {
-            let kept = shown.iter().any(|(id, target)| {
+            let kept = open.iter().any(|(id, target, _)| {
                 let pane = pane.read(cx);
                 id == view && &pane.id == target && pane.core.place() == core.place()
             });
             match kept && in_front.iter().any(|(id, _)| id == view) {
                 true => pane.update(cx, |pane, cx| pane.show(cx)),
-                false => pane.update(cx, |pane, _| pane.hide()),
+                false => hid |= pane.update(cx, |pane, cx| pane.hide(cx)),
             }
             kept
         });
-        for (view, id) in shown {
+        if hid {
+            self.drop_mod_pages(cx);
+        }
+        for (view, id, project) in open {
             if let std::collections::hash_map::Entry::Vacant(slot) = self.mod_panes.entry(view) {
+                let shown = in_front.iter().any(|(front, _)| front == slot.key());
                 let bench = cx.weak_entity();
-                let pane = crate::mod_pane::ModPane::new(id, core.clone(), project.clone(), bench);
+                let pane = ModPane::new(id, core.clone(), project, shown, bench);
                 slot.insert(cx.new(|_| pane));
+            }
+        }
+    }
+
+    /// Lets go of the pages of mod panes out of sight, but for the latest few put there, once they
+    /// have been out of sight a while.
+    pub(crate) fn drop_mod_pages(&mut self, cx: &mut Context<Self>) {
+        let mut hidden: Vec<(Instant, &gpui_kit::Entity<ModPane>)> = (self.mod_panes.values())
+            .filter_map(|pane| Some((pane.read(cx).live_hidden_since()?, pane)))
+            .collect();
+        hidden.sort_by_key(|(since, _)| std::cmp::Reverse(*since));
+        for (since, pane) in hidden.into_iter().skip(LIVE_HIDDEN) {
+            if since.elapsed() >= DROP_AFTER {
+                pane.update(cx, |pane, _| pane.drop_page());
             }
         }
     }

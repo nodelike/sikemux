@@ -72,6 +72,10 @@ The page reaches Sikemux through `window.sikemux`:
 | `sikemux.badge(text)` | Shows a few words beside the mod's name in the rail, or none with `null`. The badge is kept with the mod's data, so it stays after Sikemux restarts. |
 | `sikemux.every(ms, run)` | Runs `run` every `ms` milliseconds while the mod shows. |
 | `sikemux.on("shown" \| "hidden", listener)` | Hears the mod's tab come forward or go out of sight. |
+| `sikemux.view.get()` | The value the page last kept with `view.set`, or `null`. |
+| `sikemux.view.set(value)` | Keeps a small JSON value, at most 16 KiB, such as the tab or filter chosen, until the mod's tab closes. |
+
+A mod out of sight for five minutes may be closed to save memory, unless it is one of the last three you put out of sight. Its tab stays where it is, and when you come back to it the page opens again from the start: it reads and watches what it needs again, and finds what it kept with `sikemux.view` and the place it was scrolled to. Keep anything that should last longer, or reach other windows and agents, in `sikemux.data`.
 
 What a mod reads, each named in `reads`:
 
