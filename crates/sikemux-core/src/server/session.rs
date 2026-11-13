@@ -36,8 +36,10 @@ use sikemux_wire::protocol::{
 use super::access::Peer;
 use super::agent::{self, AgentActivity};
 use super::connection::{blocking, ClientConn};
-use super::model_proxy::Grant as ModelGrant;
 use super::prepare::{Owner, PreparedLaunch};
+
+/// An agent's token for the model proxy, good until its session drops it.
+pub(crate) type ModelGrant = Box<dyn std::any::Any + Send + Sync>;
 use super::{CapacityPermit, Core, CoreError, CoreResult};
 
 const OUTPUT_COALESCE: Duration = Duration::from_millis(2);
@@ -1084,7 +1086,7 @@ pub(crate) fn reconnect_ssh(session: &Session) {
         return;
     };
     if session.shell_at_prompt() {
-        let command = format!("{}\r", super::ssh::startup(host));
+        let command = format!("{}\r", super::ssh_startup::startup(host));
         queue_input(
             session,
             command.into_bytes(),

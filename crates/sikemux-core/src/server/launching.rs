@@ -853,7 +853,8 @@ pub(crate) async fn spawn(
             }
         };
         prepared.owner.started_by = started_by;
-        prepared.model_grant = model_grant;
+        prepared.model_grant =
+            model_grant.map(|grant| Box::new(grant) as super::session::ModelGrant);
         super::session::spawn_session(&core, prepared)
     })
     .await

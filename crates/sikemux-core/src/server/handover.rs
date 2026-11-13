@@ -187,7 +187,9 @@ fn capture(session: &Session, directory: &Path) -> CoreResult<SessionRecord> {
         task_output_end,
         agent: session.agent.as_ref().map(AgentActivity::record),
         shell_files: session.shell_files().map(Path::to_path_buf),
-        model_grant: session.model_grant.locked().as_ref().map(Grant::kept),
+        model_grant: (session.model_grant.locked().as_ref())
+            .and_then(|grant| grant.downcast_ref::<Grant>())
+            .map(Grant::kept),
         setup: session.in_setup(),
     })
 }
@@ -762,7 +764,7 @@ fn adopt_session(
             setup: record.setup,
             model_grant: record
                 .model_grant
-                .map(|kept| core.model_proxy().restore(kept)),
+                .map(|kept| Box::new(core.model_proxy().restore(kept)) as session::ModelGrant),
         },
         io,
         Box::new(child),

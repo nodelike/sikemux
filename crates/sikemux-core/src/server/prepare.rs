@@ -97,7 +97,7 @@ pub(crate) struct PreparedLaunch {
     pub continues: Option<Continuation>,
     /// It sets a host up, so only the person's own app types into it.
     pub setup: bool,
-    pub model_grant: Option<super::model_proxy::Grant>,
+    pub model_grant: Option<super::session::ModelGrant>,
 }
 
 /// The command a terminal starts with, minus the parts only the app can do: it applies the
@@ -124,7 +124,7 @@ pub(crate) fn prepare_terminal(
             .ssh_host
             .as_deref()
             .filter(|_| direct_command.is_none())
-            .map(super::ssh::startup)
+            .map(super::ssh_startup::startup)
     });
     if startup.is_some() && direct_command.is_some() {
         return Err(

@@ -17,6 +17,7 @@ mod base;
 pub mod board;
 mod caller;
 pub mod calls;
+mod capacity;
 mod catalog;
 mod changed;
 pub mod chat;
@@ -114,6 +115,7 @@ pub mod skill_library;
 pub mod spare;
 mod spawn;
 pub mod ssh;
+mod ssh_startup;
 mod stalls;
 pub mod stash;
 pub mod streams;
@@ -124,6 +126,7 @@ pub mod triage;
 pub mod triggers;
 pub mod turn_state;
 pub mod updates;
+mod updating;
 mod upgrade;
 pub mod usage;
 pub mod vault;
@@ -168,6 +171,7 @@ use tokio::sync::Notify;
 use crate::client::{probe, ProbeError};
 use sikemux_wire::protocol::{BuildIdentity, Event, SessionId};
 
+pub(crate) use capacity::{Capacity, CapacityPermit};
 pub(crate) use sikemux_agents::callers;
 pub(crate) use sikemux_kernel::{Core, CoreError, CoreResult, Listening};
 
@@ -278,32 +282,6 @@ pub enum ServerError {
     Manifests(String),
     #[error("{0}")]
     Io(#[from] std::io::Error),
-}
-
-/// Counts launching, live and retained sessions, so the PTY budget holds even
-/// while a session is between being spawned and being published.
-pub(crate) struct Capacity {
-    active: AtomicUsize,
-    limit: usize,
-}
-
-pub(crate) struct CapacityPermit(Arc<Capacity>);
-
-impl Capacity {
-    fn try_acquire(self: &Arc<Self>) -> CoreResult<CapacityPermit> {
-        self.active
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
-                (active < self.limit).then_some(active + 1)
-            })
-            .map(|_| CapacityPermit(self.clone()))
-            .map_err(|_| CoreError::from("pty: PTY capacity reached"))
-    }
-}
-
-impl Drop for CapacityPermit {
-    fn drop(&mut self) {
-        self.0.active.fetch_sub(1, Ordering::AcqRel);
-    }
 }
 
 /// Session and window call ids start from the clock, so an id a client still
