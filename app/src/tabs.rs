@@ -148,6 +148,21 @@ pub fn top_bar(
                         .children(crate::agents::limits::chip(bench, cx))
                         .child(
                             IconButton::new(
+                                "devices",
+                                Icon::Gauge,
+                                match crate::keymap::hint(actions::FocusHosts::ID, cx) {
+                                    Some(keys) => t!("Devices — {keys}", keys = keys),
+                                    None => t!("Devices").to_owned(),
+                                },
+                            )
+                            .width(30.)
+                            .pressed(bench.hosts_page_in_front())
+                            .on_click(|_, window, cx| {
+                                crate::keymap::dispatch(actions::FocusHosts::ID, window, cx)
+                            }),
+                        )
+                        .child(
+                            IconButton::new(
                                 "focus",
                                 Icon::Focus,
                                 match crate::keymap::hint(actions::FocusMode::ID, cx) {
