@@ -18,6 +18,7 @@ import {
   QUESTIONS,
   CALLS,
   TURNS,
+  LINES,
   RECENT,
   RECORDED,
   SESSIONS,
@@ -80,6 +81,7 @@ function shown() {
         background: false,
         activeAt: Date.now(),
         turn: TURNS[chat.agentId],
+        line: LINES[chat.agentId],
         chief: PROJECTS.some((project) => 'chief' in project && project.chief === chat.agentId) || undefined,
       };
     })

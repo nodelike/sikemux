@@ -797,6 +797,7 @@
   "source": "来源",
   "today": "今天",
   "next in line": "下一个",
+  "in use by @{name}": "@{name} 正在使用",
   "{place} in line": "排在{place}",
   "{place}st": "第{place}",
   "{place}nd": "第{place}",

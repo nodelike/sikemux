@@ -797,6 +797,7 @@
   "source": "источник",
   "today": "сегодня",
   "next in line": "следующий",
+  "in use by @{name}": "занято @{name}",
   "{place} in line": "{place} в очереди",
   "{place}st": "{place}-й",
   "{place}nd": "{place}-й",

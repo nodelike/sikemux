@@ -3,7 +3,7 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
 import Svg, { Circle } from 'react-native-svg';
 
-import type { TurnState } from '@shared/wire.generated';
+import type { InLine, TurnState } from '@shared/wire.generated';
 import { inLine, ringShare, rowLabel, rowMinutes } from '@shared/calls/words';
 import { useT } from '@/i18n';
 
@@ -108,16 +108,21 @@ export function SubagentCount({ count }: { count: number }) {
   );
 }
 
-/** Where a heavy command the agent started stands in the host's line, as the Mac's rail says it: "2nd in line". */
-export function LinePlace({ place }: { place: number }) {
+/**
+ * Where a heavy command the agent started stands in the host's line, as the Mac's rail says it: "2nd in line", or the
+ * thing it waits for while another agent holds it.
+ */
+export function LinePlace({ line }: { line: InLine }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
-  const words = inLine(place, t);
+  const words = line.by == null ? inLine(line.place, t) : line.what;
   return (
     <View style={styles.count} accessible accessibilityLabel={words}>
       <Icon name="IconHourglass" size={11} color={colors.warn} />
-      <Text style={styles.countText}>{words}</Text>
+      <Text style={[styles.countText, line.by != null && styles.thing]} numberOfLines={1}>
+        {words}
+      </Text>
     </View>
   );
 }
@@ -242,6 +247,7 @@ const makeStyles = (colors: Palette) => {
     dot: { width: 7, height: 7, borderRadius: 4 },
     count: { flexDirection: 'row', alignItems: 'center', gap: 3 },
     countText: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.secondary, fontVariant: ['tabular-nums'] },
+    thing: { maxWidth: 56 },
     time: { fontFamily: fonts.ui, fontSize: 11, fontVariant: ['tabular-nums'] },
     markBox: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
   });

@@ -797,6 +797,7 @@
   "source": "소스",
   "today": "오늘",
   "next in line": "다음 차례",
+  "in use by @{name}": "@{name} 사용 중",
   "{place} in line": "대기 {place}",
   "{place}st": "{place}번째",
   "{place}nd": "{place}번째",

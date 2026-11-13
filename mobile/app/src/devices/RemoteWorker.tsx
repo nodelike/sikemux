@@ -37,7 +37,7 @@ export const WorkerRow = memo(function WorkerRow({ worker }: { worker: RemoteAge
           <>
             {worker.subagents ? <SubagentCount count={worker.subagents} /> : null}
             {worker.tasks ? <ShellCount count={worker.tasks} /> : null}
-            {worker.line ? <LinePlace place={worker.line.place} /> : null}
+            {worker.line ? <LinePlace line={worker.line} /> : null}
             <TurnMark turn={worker.turn} now={minute * 60_000} />
           </>
         ) : undefined

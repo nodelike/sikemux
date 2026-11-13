@@ -111,6 +111,12 @@ export function waited(wait: TurnWait, now = Date.now(), say: Say = english): st
         return [...(wait.place != null ? [inLine(wait.place, say)] : []), ...(wait.expectedMs != null ? [about(wait.expectedMs, say)] : [])];
     }
     const gone = Math.floor(Math.max(0, now - wait.startedAt) / MINUTE);
+    if (wait.kind === "inUse") {
+        return [
+            ...(wait.by != null ? [say("in use by @{name}", { name: wait.by })] : []),
+            ...(gone > 0 ? [say("{minutes} min", { minutes: gone })] : []),
+        ];
+    }
     if (wait.expectedMs == null) return [say("{minutes} min", { minutes: gone })];
     return [say("{minutes} of ~{expected} min", { minutes: gone, expected: Math.ceil(wait.expectedMs / MINUTE) })];
 }

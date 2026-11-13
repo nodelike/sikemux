@@ -797,6 +797,7 @@
   "source": "Quelle",
   "today": "heute",
   "next in line": "als Nächstes dran",
+  "in use by @{name}": "belegt von @{name}",
   "{place} in line": "{place} in der Reihe",
   "{place}st": "{place}.",
   "{place}nd": "{place}.",

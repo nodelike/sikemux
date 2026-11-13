@@ -247,7 +247,7 @@ const ChatRow = memo(function ChatRow({
           <>
             {shown.subagents ? <SubagentCount count={shown.subagents} /> : null}
             {shown.tasks ? <ShellCount count={shown.tasks} /> : null}
-            {shown.line ? <LinePlace place={shown.line.place} /> : null}
+            {shown.line ? <LinePlace line={shown.line} /> : null}
             <TurnMark turn={shown.turn} now={minute * 60_000} />
           </>
         )

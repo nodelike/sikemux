@@ -79,6 +79,8 @@ export function TurnLine({
     chip('carryOn', false)
   ) : null;
 
+  // A wait's place, holder and minutes matter more than its long name, which gives way first.
+  const waiting = shown.phase === 'waiting';
   return (
     <View style={styles.wrap}>
       <View style={styles.line}>
@@ -89,10 +91,14 @@ export function TurnLine({
           {shown.phase === 'working' ? (
             <Shimmer style={[styles.word, { color: colors.ink }]}>{shown.word}</Shimmer>
           ) : (
-            <Text style={[styles.word, { color: tint(shown.phase, colors) }]}>{shown.word}</Text>
+            <Text
+              style={[styles.word, waiting && styles.shortened, { color: tint(shown.phase, colors) }]}
+              numberOfLines={waiting ? 1 : undefined}>
+              {shown.word}
+            </Text>
           )}
           {shown.parts.map((part, index) => (
-            <View key={index} style={styles.part}>
+            <View key={index} style={[styles.part, waiting && styles.whole]}>
               <Text style={styles.dot}>·</Text>
               <Text style={[styles.partText, { color: index === 0 ? colors.secondary : colors.tertiary }]} numberOfLines={1}>
                 {part}
@@ -150,6 +156,8 @@ const makeStyles = (colors: Palette) => {
     mark: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
     words: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
     word: { fontFamily: fonts.uiMedium, fontSize: 13 },
+    shortened: { flexShrink: 1 },
+    whole: { flexShrink: 0 },
     part: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 },
     dot: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint },
     partText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12.5 },

@@ -60,7 +60,12 @@ struct TurnLine: View {
 
     private func words(_ said: CallWords.Said) -> some View {
         HStack(spacing: 6) {
-            Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).fixedSize()
+            if said.phase == .waiting {
+                // A wait's place, holder and minutes matter more than its long name, which gives way first.
+                Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).lineLimit(1).layoutPriority(-1)
+            } else {
+                Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).fixedSize()
+            }
             ForEach(Array(said.parts.enumerated()), id: \.offset) { index, part in
                 Text("·").foregroundStyle(palette.inkFaint).fixedSize()
                 Text(part)

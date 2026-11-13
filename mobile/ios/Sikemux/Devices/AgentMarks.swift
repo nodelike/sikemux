@@ -68,6 +68,7 @@ struct MarkCount: View {
     let tint: Color
     let text: String
     var dim = false
+    var widest: CGFloat?
 
     var body: some View {
         HStack(spacing: 3) {
@@ -76,6 +77,9 @@ struct MarkCount: View {
                 .font(Theme.ui(12, .medium))
                 .monospacedDigit()
                 .foregroundStyle(dim ? palette.tertiary : palette.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: widest, alignment: .leading)
         }
         .accessibilityElement(children: .ignore)
     }
@@ -107,14 +111,17 @@ struct ShellCount: View {
     }
 }
 
-/// Where a heavy command the agent started stands in the host's line, as the Mac's rail says it: "2nd in line".
+/// Where a heavy command the agent started stands in the host's line, as the Mac's rail says it: "2nd in line", or
+/// the thing it waits for while another agent holds it.
 struct LinePlace: View {
     @Environment(\.palette) private var palette
-    let place: Int
+    let line: InLine
 
     var body: some View {
-        MarkCount(icon: Icons.hourglass, tint: palette.warn, text: CallWords.inLine(place))
-            .accessibilityLabel(CallWords.inLine(place))
+        let words = line.by == nil ? CallWords.inLine(line.place) : line.what
+        MarkCount(icon: Icons.hourglass, tint: palette.warn, text: words, widest: line.by == nil ? nil : 56)
+            .fixedSize()
+            .accessibilityLabel(words)
     }
 }
 

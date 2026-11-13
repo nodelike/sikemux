@@ -797,6 +797,7 @@
   "source": "ソース",
   "today": "今日",
   "next in line": "次の順番",
+  "in use by @{name}": "@{name} が使用中",
   "{place} in line": "{place}の順番",
   "{place}st": "{place}番目",
   "{place}nd": "{place}番目",

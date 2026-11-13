@@ -797,6 +797,7 @@
   "source": "origen",
   "today": "hoy",
   "next in line": "el siguiente en la fila",
+  "in use by @{name}": "en uso por @{name}",
   "{place} in line": "{place} en la fila",
   "{place}st": "{place}.º",
   "{place}nd": "{place}.º",

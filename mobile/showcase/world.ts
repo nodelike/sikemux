@@ -12,6 +12,7 @@ import type {
   ChatView,
   ChiefAway,
   GoalMarker,
+  InLine,
   PermissionAsk,
   PermissionMode,
   PersonCall,
@@ -397,6 +398,9 @@ export const QUESTIONS = [
 
 const AGO = (ms: number) => Date.now() - ms;
 
+/** Opened with `?line`, two agents wait on the host: Maple in line for a command, Wren for a thing Otter holds. */
+const LINE_SCENE = typeof location !== 'undefined' && new URLSearchParams(location.search).has('line');
+
 /** How each demo chat's turn stands, as the core says it on its row and its chat's last line. */
 export const TURNS: Record<string, TurnState> = {
   'chat-dark-mode': { state: 'working', since: AGO(80_000), on: 'Adding the dark mode switch' },
@@ -422,7 +426,29 @@ export const TURNS: Record<string, TurnState> = {
     since: AGO(300_000),
     call: { id: 'call-ledger', question: 'Ship the ledger import to production?', waitingSince: AGO(300_000), count: 1 },
   },
+  ...(LINE_SCENE
+    ? {
+        'chat-login': {
+          state: 'waiting',
+          since: AGO(60_000),
+          wait: { kind: 'line', what: 'pnpm test', startedAt: AGO(60_000), expectedMs: 240_000, place: 2 },
+        },
+        'chat-login-check': {
+          state: 'waiting',
+          since: AGO(720_000),
+          wait: { kind: 'inUse', what: 'Stripe webhook listener', startedAt: AGO(720_000), by: 'Otter' },
+        },
+      }
+    : {}),
 };
+
+/** Where the `?line` scenes' agents stand on the host: one in line for a command, one waiting for a thing. */
+export const LINES: Record<string, InLine> = LINE_SCENE
+  ? {
+      'chat-login': { what: 'pnpm test', place: 2, expectedMs: 240_000 },
+      'chat-login-check': { what: 'Stripe webhook listener', place: 1, by: 'Otter' },
+    }
+  : {};
 
 /** The calls the demo agents put to the person, open and answered. */
 export const CALLS: PersonCall[] = [
