@@ -10,8 +10,7 @@ pkgrel=1
 pkgdesc='The IDE for you and your coding agents'
 arch=('x86_64')
 url='https://sikemux.com'
-# namcap rejects FSL-1.1-MIT as an SPDX licence, so it is named as our own.
-license=('LicenseRef-FSL-1.1-MIT')
+license=('MIT')
 # The app opens Vulkan, EGL, Wayland and Xext while it runs rather than linking them.
 # Browser recording loads GStreamer's base and good plugins by name.
 depends=(

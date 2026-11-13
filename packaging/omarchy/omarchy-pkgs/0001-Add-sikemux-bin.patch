@@ -7,10 +7,10 @@ Agent: Haruhi (claude 2.1.319, opus[1m], sikemux 0.6.1-nightly.6, session 05ad21
 Agent-Signature: M0O1K50OmHCuI29BZmYx7AJ9Lq+66RRs9Y2p9p0F4uE0ahNGqo0N5qkVEH+VpulKR0iPRgjIUc1Q4lqC3re9Cg
 ---
  pkgbuilds/sikemux-bin/.omarchy/package.json | 10 ++++
- pkgbuilds/sikemux-bin/PKGBUILD              | 64 +++++++++++++++++++++
+ pkgbuilds/sikemux-bin/PKGBUILD              | 63 +++++++++++++++++++++
  pkgbuilds/sikemux-bin/sikemux.sysusers      |  1 +
  pkgbuilds/sikemux-bin/sikemux.tmpfiles      |  4 ++
- 4 files changed, 79 insertions(+)
+ 4 files changed, 78 insertions(+)
  create mode 100644 pkgbuilds/sikemux-bin/.omarchy/package.json
  create mode 100644 pkgbuilds/sikemux-bin/PKGBUILD
  create mode 100644 pkgbuilds/sikemux-bin/sikemux.sysusers
@@ -37,7 +37,7 @@ new file mode 100644
 index 0000000..0a8967d
 --- /dev/null
 +++ b/pkgbuilds/sikemux-bin/PKGBUILD
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,63 @@
 +# Maintainer: nodelike
 +
 +pkgname=sikemux-bin
@@ -46,8 +46,7 @@ index 0000000..0a8967d
 +pkgdesc='The IDE for you and your coding agents'
 +arch=('x86_64')
 +url='https://sikemux.com'
-+# namcap rejects FSL-1.1-MIT as an SPDX licence, so it is named as our own.
-+license=('LicenseRef-FSL-1.1-MIT')
++license=('MIT')
 +# The app opens Vulkan, EGL, Wayland and Xext while it runs rather than linking them.
 +# Browser recording loads GStreamer's base and good plugins by name.
 +depends=(

@@ -179,7 +179,7 @@ Name: sikemux
 Version: $PACKAGE_VERSION
 Release: 1
 Summary: $SUMMARY
-License: FSL-1.1-MIT
+License: MIT
 BuildArch: $ARCH
 AutoReqProv: yes
 SPEC

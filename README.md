@@ -52,4 +52,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the layout and checks.
 
 ## License
 
-[FSL-1.1-MIT](LICENSE) © nodelike. Free to use, modify and self-host; not to resell as a competing product. Each release becomes MIT after two years. "Sikemux" and its logo are trademarks of nodelike.
+[MIT](LICENSE) © nodelike. "Sikemux" and its logo are trademarks of nodelike.
