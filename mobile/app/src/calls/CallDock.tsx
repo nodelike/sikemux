@@ -14,6 +14,7 @@ import {
   hidden,
   kept,
   keepsWordsPrivate,
+  HAVE_NONE,
   NOT_MINE,
   OWN_WORDS,
   PICK,
@@ -102,6 +103,11 @@ export const CallDock = memo(function CallDock({
     if (!params || !ready) return;
     haptics.select();
     void answer(core, connection, call, store, params, report);
+  };
+
+  const haveNone = () => {
+    haptics.select();
+    void answer(core, connection, call, store, { id: call.id, none: true }, report);
   };
 
   return (
@@ -207,16 +213,14 @@ export const CallDock = memo(function CallDock({
             ) : null}
             <View style={{ flex: 1 }} />
             {call.canHandBack && canAnswer ? (
-              <Pressable
+              <QuietAction
+                label={t(NOT_MINE)}
                 disabled={draft.sending}
                 onPress={() => {
                   haptics.select();
                   void notMine(connection, call, store, report);
                 }}
-                style={styles.runs}
-                accessibilityRole="button">
-                <Text style={styles.notMine}>{t(NOT_MINE)}</Text>
-              </Pressable>
+              />
             ) : null}
           </View>
         ) : null}
@@ -230,6 +234,12 @@ export const CallDock = memo(function CallDock({
             {typed ? <Text style={styles.hiddenSize}>{hidden(draft.typed, t)}</Text> : null}
             <Text style={styles.kept}>{kept(call.asker.name, t)}</Text>
           </>
+        ) : null}
+        {call.secret && canAnswer ? (
+          <View style={styles.extras}>
+            <View style={{ flex: 1 }} />
+            <QuietAction label={t(HAVE_NONE)} disabled={draft.sending} onPress={haveNone} />
+          </View>
         ) : null}
         {failed ? <Text style={styles.failed}>{pushFailed(failed, t)}</Text> : null}
         {call.assumption ? (
@@ -414,6 +424,16 @@ function CallPicture({ path, style, top }: { path?: string; style: object; top?:
         />
       ) : null}
     </View>
+  );
+}
+
+/** A quiet text action on a call's card, beside or above Go with this. */
+function QuietAction({ label, disabled, onPress }: { label: string; disabled: boolean; onPress: () => void }) {
+  const styles = useStyles(makeStyles);
+  return (
+    <Pressable disabled={disabled} onPress={onPress} style={styles.runs} accessibilityRole="button" accessibilityState={{ disabled }}>
+      <Text style={styles.notMine}>{label}</Text>
+    </Pressable>
   );
 }
 

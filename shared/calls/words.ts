@@ -360,6 +360,8 @@ export const OWN_WORDS = "Or answer in your own words…";
 export const SECRET_FIELD = "Type or paste it…";
 export const GO_WITH_THIS = "Go with this";
 export const NOT_MINE = "Not mine";
+/** On a call for a secret: the person has none of what it asks for. */
+export const HAVE_NONE = "I don't have one";
 export const WHAT_RUNS = "What runs";
 /** What the asker goes on with until the person answers, above Go with this. */
 export const goesOn = (name: string, assumption: string, say: Say = english) =>
@@ -430,6 +432,7 @@ export function cameOf(call: PersonCall, say: Say = english): string {
     }
     const answer = call.answer;
     if (!answer) return say("closed");
+    if (answer.none) return say("had none to give");
     const picked = answer.option != null ? [answer.option] : (answer.options ?? []);
     if (keepsWordsPrivate(call) && !picked.length) return say("answered, kept private");
     if (answer.words != null) return say("in your words");
