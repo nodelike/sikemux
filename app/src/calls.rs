@@ -505,23 +505,41 @@ impl Workbench {
 
     /// Answers call `id` with what its card holds.
     pub(crate) fn go_with(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some((place, call)) = self.call_at(id) else {
+        let Some((_, call)) = self.call_at(id) else {
+            return;
+        };
+        let Some(params) = self.calls.read(cx).answer(call, cx) else {
+            return;
+        };
+        self.send_answer(params, cx);
+    }
+
+    /// Answers call `id`, which asks for a secret, with the person having none to give.
+    pub(crate) fn have_none(&mut self, id: &str, cx: &mut Context<Self>) {
+        let params = AnswerCallParams {
+            id: id.to_owned(),
+            none: true,
+            ..AnswerCallParams::default()
+        };
+        self.send_answer(params, cx);
+    }
+
+    /// Sends the answer `params` holds, once, its card sending until the core replies.
+    fn send_answer(&mut self, params: AnswerCallParams, cx: &mut Context<Self>) {
+        let id = params.id.clone();
+        let Some((place, _)) = self.call_at(&id) else {
             return;
         };
         let cards = self.calls.clone();
-        let Some(params) = cards.read(cx).answer(call, cx) else {
-            return;
-        };
-        if cards.read(cx).sending(id) {
+        if cards.read(cx).sending(&id) {
             return;
         }
         cards.update(cx, |cards, cx| {
-            if let Some(held) = cards.held.get_mut(id) {
+            if let Some(held) = cards.held.get_mut(&id) {
                 held.sending = true;
             }
             cx.notify();
         });
-        let id = params.id.clone();
         let asked = Target::new(&self.asks, place).request_typed::<call::AnswerCall>(params);
         cx.spawn(async move |bench, cx| {
             let failed = asked.await.err();
@@ -875,6 +893,20 @@ fn card(
                 .ok();
         })
     });
+    let have_none = call.secret.then(|| {
+        let (bench, id) = (bench.clone(), call.id.clone());
+        Button::new(
+            SharedString::from(format!("call-have-none-{}", call.id)),
+            t!("I don't have one"),
+            Variant::Ghost,
+        )
+        .sized(26., 9., 12.)
+        .disabled(sending)
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            bench.update(cx, |bench, cx| bench.have_none(&id, cx)).ok();
+        })
+    });
     let not_mine = call.can_hand_back.then(|| {
         let (bench, id) = (bench.clone(), call.id.clone());
         Button::new(
@@ -907,6 +939,7 @@ fn card(
         .items_center()
         .gap(SPACE_1)
         .children(not_mine)
+        .children(have_none)
         .children(open_chat)
         .child(go);
     let foot = match &call.assumption {
@@ -1267,6 +1300,7 @@ fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
     let said_nothing = answer.words.is_none() && answer.note.is_none();
     let private = call.keeps_words_private() && picked.is_empty();
     match (&answer.by, picked.is_empty(), private) {
+        _ if answer.none => t!("You had none to give").to_owned(),
         (_, _, true) => t!("You answered, kept private").to_owned(),
         _ if handed_back(call) => t!("handed back to @{name}", name = call.asker.name),
         (by, true, _)
