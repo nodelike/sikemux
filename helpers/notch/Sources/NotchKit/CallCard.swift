@@ -226,7 +226,7 @@ struct CallCard: View {
                     draft.choose(option.id, in: call)
                 }
             }
-            if call.secret != true {
+            if !call.keepsWordsPrivate {
                 if !call.options.isEmpty { Theme.hairline.frame(height: 1) }
                 field
             }
@@ -566,6 +566,9 @@ private struct CallRow: View {
 
 extension PersonCall {
     var letsStand: Bool { assumption != nil && options.isEmpty }
+    /// What the person types for it is kept private, a secret's or an access call's, so the notch takes
+    /// no words for it: they are typed in the asker's chat.
+    var keepsWordsPrivate: Bool { secret == true || kind == .access }
 }
 
 /// Who asks a call: the project's chief wears Sikemux's S, as its rows do; any other agent its own face.

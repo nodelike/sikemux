@@ -680,7 +680,7 @@ function goingOn() {
                 assumption: "the free plan", options: ["Pay for the team plan", "Stay on the free plan"], pick: 0, handBack: true,
                 against: "a week is enough while the server has few users." },
                 { id: "g2", age: "1m", question: "Which Stripe key do the staging payment tests take?", context: "The tests charge test cards on staging before bank transfer ships.",
-                assumption: "they run against the local mock until there is one", options: [] }] };
+                assumption: "they run against the local mock until there is one", options: ["Skip, use the local mock"], private: true }] };
 }
 
 /** The sikemux project's chief asking a call of its own, which wears Sikemux's S as its row does. */
@@ -877,7 +877,7 @@ function callCard(call, card, listed = false) {
         : call.page ? `<div class="pic page">${invoice(call.page)}</div>` : `<div class="gap12"></div>`;
     const rows = call.options.map((o, i) => `<div class="opt${chosen.includes(i) ? " on" : ""}" data-option="${i}"><span class="rd"></span>${o}${
         i === call.pick ? `<span class="pick"><img src="../../../brand/mark/mark-purple.svg" alt="">pick</span>` : ""}</div>`).join("");
-    const field = `<div class="fld">${GLYPH.pencil}${card.typed ? `<span class="val">${card.typed}</span>` : hint}</div>`;
+    const field = call.private ? "" : `<div class="fld">${GLYPH.pencil}${card.typed ? `<span class="val">${card.typed}</span>` : hint}</div>`;
     const runs = call.production && call.action
         ? `<div class="runs${card.runs ? " open" : ""}" data-runs>${GLYPH.chevronSmall}What runs</div>${card.runs ? `<div class="runs-cmd">${call.action}</div>` : ""}`
         : "";
@@ -1469,13 +1469,13 @@ const SECTIONS = [
               shows: "The pictures sit in a strip above the options: the chosen option's leads, large, the others smaller and dimmed beside it. Clicking a small one chooses its option.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "t1" } },
             { id: "P8", name: "Your own words", when: "The person clears the pick and types.",
-              shows: "No row chosen, the field ringed in the accent with what was typed. Go with this sends it as the answer. A call asking for a password or a key opens in Sikemux instead, with Answer in Sikemux in place of Go with this.",
+              shows: "No row chosen, the field ringed in the accent with what was typed. Go with this sends it as the answer. A call asking for a secret opens in Sikemux instead, with Answer in Sikemux in place of Go with this; a call for access takes no words here either (P12).",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1", cards: { q1: { chosen: [], typed: "Cents, and convert on import" } } } },
             { id: "P11", name: "A call its asker goes on from", when: "An agent asks something it need not wait on, and goes on with what it assumes until the person answers.",
               shows: "The same card, the footer's sentence saying what it assumes in its own words, after ours so its ending never runs into them: Until you answer, @Fern goes on assuming the free plan, with the clock, on its own line above the buttons. A call to production never goes on: its asker always waits.",
               leaves: "As P4.", opts: { agents: () => [...only(["a2"]), goingOn()], mode: "call", callId: "g1" } },
-            { id: "P12", name: "A call with no options that goes on", when: "The asker goes on with an assumption and offers nothing to pick: only a call for access, such as a key, comes without options.",
-              shows: "Only the field, and Go with this ready with nothing typed: it lets the assumption stand, as Fine does on a phone. Typed words answer it instead.",
+            { id: "P12", name: "A call for access that goes on", when: "The asker goes on with an assumption while it waits for a key, and offers what needs none.",
+              shows: "Its option, Skip, use the local mock, and no field: what the person types for a key or a password is kept private, so the notch takes none of it. Go with this sends the option once it is chosen; Open chat opens the asker's chat, whose composer answers the call privately.",
               leaves: "As P4.", opts: { agents: () => [...only(["a2"]), goingOn()], mode: "call", callId: "g2" } },
             { id: "P13", name: "A call the chief asks", when: "The project's chief puts a call to the person itself.",
               shows: "The same card, its asker drawn as Sikemux's S in the accent, as the chief's row is, in the card's head and in the call's row of the list; any other asker wears its own face.",

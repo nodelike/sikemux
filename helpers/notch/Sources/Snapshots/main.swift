@@ -286,7 +286,9 @@ let goingOnCalls = [
     PersonCall(id: "g2", project: "/Users/me/server", kind: .access, asker: asker("a14", "Fern", "claude"), joined: nil,
                question: "Which Stripe key do the staging payment tests take?",
                context: "The tests charge test cards on staging before bank transfer ships.",
-               assumption: "they run against the local mock until there is one", options: [], pick: nil, against: nil, evidence: nil,
+               assumption: "they run against the local mock until there is one",
+               options: [CallOption(id: "skip", label: "Skip, use the local mock", detail: nil, picture: nil)], pick: nil,
+               against: nil, evidence: nil,
                action: nil, brief: nil, place: nil, canHandBack: false, multi: nil, secret: nil, raisedAt: now - 60_000, state: .open,
                answer: nil, outcome: nil),
 ]
@@ -481,7 +483,7 @@ render("P8-own-words", agents: ["a2", "a9"], height: 380, card: { store in
 }) { $0.mode = .call("q1") }
 render("P10-money-call", agents: ["a2", "a12"], height: 420) { $0.mode = .call("m1") }
 render("P11-going-on-call", agents: ["a2", "a14"], height: 460) { $0.mode = .call("g1") }
-render("P12-going-on-no-options", agents: ["a2", "a14"], height: 320) { $0.mode = .call("g2") }
+render("P12-access-going-on", agents: ["a2", "a14"], height: 320) { $0.mode = .call("g2") }
 render("P13-chief-call", agents: ["c1", "a2"], height: 420) { $0.mode = .call("c1q") }
 render("P9-what-runs", agents: ["a2", "a12"], height: 720, card: { $0.drafts["7"]?.actionOpen = true }) { $0.mode = .call("7") }
 render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
