@@ -641,6 +641,7 @@ mod reducer {
                 cut: false,
                 exit_code: Some(1),
                 image: None,
+                page: None,
             })
         );
     }
@@ -1826,6 +1827,7 @@ mod tool_output {
             cut: false,
             exit_code: None,
             image: None,
+            page: None,
         })
     }
 
@@ -1848,6 +1850,7 @@ mod tool_output {
                 cut: false,
                 exit_code: Some(0),
                 image: None,
+                page: None,
             })
         );
         let mcp = json!({ "result": { "content": [{ "type": "text", "text": "3 hits" }] }, "error": null });
@@ -1877,6 +1880,7 @@ mod tool_output {
                     data: "SEVMTE8=".into(),
                     mime_type: "image/png".into(),
                 }),
+                page: None,
             })
         );
     }

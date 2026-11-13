@@ -5289,11 +5289,18 @@ struct ToolOutput: Codable, Hashable, Sendable {
     var cut: Bool
     var exitCode: Int?
     var image: OutputImage?
+    /// The page a screenshot is of, taken out of `text`.
+    var page: OutputPage?
 }
 
 struct OutputImage: Codable, Hashable, Sendable {
     var data: String
     var mimeType: String
+}
+
+struct OutputPage: Codable, Hashable, Sendable {
+    var title: String
+    var url: String
 }
 
 /// How the person wants Sikemux to behave, the same in every app. A field

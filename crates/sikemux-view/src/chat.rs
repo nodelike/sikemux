@@ -1610,6 +1610,16 @@ pub struct ToolOutput {
     pub exit_code: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<OutputImage>,
+    /// The page a screenshot is of, taken out of `text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<OutputPage>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputPage {
+    pub title: String,
+    pub url: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

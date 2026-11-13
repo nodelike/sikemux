@@ -3403,11 +3403,18 @@ export interface ToolOutput {
     cut: boolean;
     exitCode?: number;
     image?: OutputImage;
+    /** The page a screenshot is of, taken out of `text`. */
+    page?: OutputPage;
 }
 
 export interface OutputImage {
     data: string;
     mimeType: string;
+}
+
+export interface OutputPage {
+    title: string;
+    url: string;
 }
 
 /**

@@ -15,7 +15,8 @@ use gpui_kit::{
 };
 use gpui_transcript::{FileKind, FilePress};
 use sikemux_view::chat::{
-    ChatPart, DiffLine, DiffSummary, OutputSummary, ToolAction, ToolCall, ToolDetail, ToolRow,
+    ChatPart, DiffLine, DiffSummary, OutputPage, OutputSummary, ToolAction, ToolCall, ToolDetail,
+    ToolRow,
 };
 
 use super::Drawn;
@@ -23,7 +24,9 @@ use crate::core::ChatAsk;
 use crate::icons::Icon;
 use crate::motion;
 use crate::picture::{self, Picture};
-use crate::theme::{self, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_3XS, TEXT_XS};
+use crate::theme::{
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_3XS, TEXT_XS,
+};
 use crate::ui;
 use crate::ui::clock::{self, Slot};
 use crate::ui::shimmer::shimmer;
@@ -947,17 +950,8 @@ fn terminal(
         }))
         .children(lines.map(|lines| div().text_color(looks.faint).child(lines)))
         .children(more);
-    let shot = picture.map(|picture| {
-        div().pt(SPACE_1).child(picture::thumb(
-            SharedString::from(format!("shot:{id}")),
-            picture,
-            px(300.),
-            px(440.),
-            looks.bench.clone(),
-            looks.quiet,
-            cx,
-        ))
-    });
+    let page = output.and_then(|output| output.page.as_ref());
+    let shot = picture.map(|picture| shot_card(&id, picture, page, looks, cx));
     let printed = output.filter(|_| !shown.is_empty()).map(|_| {
         well(looks)
             .relative()
@@ -1001,6 +995,83 @@ fn terminal(
         .when(cut, |body| {
             body.child(quiet_note(t!("The rest of the output was not kept")))
         })
+}
+
+/// A screenshot with the page it shows under it, its site's icon, title and address.
+fn shot_card(
+    id: &str,
+    picture: Picture,
+    page: Option<&OutputPage>,
+    looks: &Drawn,
+    cx: &mut App,
+) -> Div {
+    let thumb = picture::thumb(
+        SharedString::from(format!("shot:{id}")),
+        picture,
+        px(300.),
+        px(440.),
+        looks.bench.clone(),
+        looks.quiet,
+        cx,
+    );
+    let meta = page.map(|page| {
+        let site = url::Url::parse(&page.url)
+            .ok()
+            .and_then(|url| {
+                url.host_str()
+                    .map(|host| host.trim_start_matches("www.").to_owned())
+            })
+            .unwrap_or_else(|| page.url.clone());
+        let asks = looks
+            .bench
+            .upgrade()
+            .map(|bench| bench.read(cx).asks.clone());
+        let icon = super::site_icon(&page.url, true, Icon::Globe, asks.as_ref(), Tokens::get(cx));
+        let title = (!page.title.is_empty()).then(|| {
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .text_color(looks.ink)
+                .font_weight(FontWeight::MEDIUM)
+                .child(page.title.clone())
+        });
+        div()
+            .h(px(30.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .gap(px(7.))
+            .border_t_1()
+            .border_color(looks.line)
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .child(div().flex_none().child(icon))
+            .children(title)
+            .child(
+                div()
+                    .flex_none()
+                    .ml_auto()
+                    .font_family(theme::MONO)
+                    .text_size(crate::theme::ui_text(TEXT_2XS))
+                    .text_color(looks.faint)
+                    .child(site),
+            )
+    });
+    div().pt(SPACE_1).flex().child(
+        div()
+            .flex()
+            .flex_col()
+            .max_w(px(300.))
+            .rounded(px(8.))
+            .overflow_hidden()
+            .border_1()
+            .border_color(looks.line)
+            .bg(looks.tints.sunken)
+            .child(thumb)
+            .children(meta),
+    )
 }
 
 /// The lines a change made, with their old and new numbers, a +/− gutter and the lines around

@@ -7,8 +7,8 @@ use std::borrow::Cow;
 use serde_json::{Map, Value};
 
 use sikemux_view::chat::{
-    DiffLine, DiffSummary, GifRef, McpAppRef, OutputImage, OutputSummary, PageRef, ToolCall,
-    ToolDetail, ToolDiff, ToolOutput,
+    DiffLine, DiffSummary, GifRef, McpAppRef, OutputImage, OutputPage, OutputSummary, PageRef,
+    ToolCall, ToolDetail, ToolDiff, ToolOutput,
 };
 
 use super::tool_rows::{FAMILIES, GESTURES};
@@ -389,7 +389,12 @@ pub(super) fn tool_output(
     if raw.is_none() && image.is_none() {
         return None;
     }
-    let (text, cut) = capped(raw.as_deref().unwrap_or_default());
+    let raw = raw.unwrap_or_default();
+    let (page, rest) = match image {
+        Some(_) => shot_caption(&raw),
+        None => (None, raw),
+    };
+    let (text, cut) = capped(&rest);
     Some(ToolOutput {
         text,
         cut,
@@ -397,7 +402,45 @@ pub(super) fn tool_output(
             .and_then(|raw| raw.get("exit_code"))
             .and_then(Value::as_i64),
         image,
+        page,
     })
+}
+
+/// A picture's caption split into the page it shows, from a "title url" line, and the rest.
+/// The agent's own "[Image: source: …]" note of where it saved the picture is dropped.
+fn shot_caption(text: &str) -> (Option<OutputPage>, String) {
+    let mut page = None;
+    let mut rest = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("[Image: source:")
+            || trimmed.starts_with("[image:")
+            || trimmed == "screenshot"
+        {
+            continue;
+        }
+        if page.is_none() {
+            if let Some((title, url)) = trimmed
+                .rsplit_once(' ')
+                .filter(|(_, url)| url.starts_with("https://") || url.starts_with("http://"))
+            {
+                page = Some(OutputPage {
+                    title: title.trim().to_owned(),
+                    url: url.to_owned(),
+                });
+                continue;
+            }
+            if trimmed.starts_with("https://") || trimmed.starts_with("http://") {
+                page = Some(OutputPage {
+                    title: String::new(),
+                    url: trimmed.to_owned(),
+                });
+                continue;
+            }
+        }
+        rest.push(line);
+    }
+    (page, rest.join("\n").trim().to_owned())
 }
 
 pub(super) fn output_summary(output: &ToolOutput) -> OutputSummary {
