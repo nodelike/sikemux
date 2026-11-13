@@ -366,7 +366,17 @@ impl RenderOnce for Composer {
             .read(cx)
             .clone();
         let aside_room = self.aside.as_ref().map(|(room, _)| *room);
-        let (room, labelled) = shape(width.get(), aside_room);
+        let missing = [
+            self.stash.is_some(),
+            self.modes.is_some(),
+            self.usage.is_some(),
+            self.dictation.is_some(),
+        ]
+        .into_iter()
+        .filter(|present| !present)
+        .count() as f32;
+        let crowd = (f32::from(u8::from(self.snapshot.is_some())) - missing) * CONTROL;
+        let (room, labelled) = shape(width.get(), aside_room, crowd);
         let attach = IconButton::new("composer-attach", Icon::Plus, t!("Add files"))
             .glyph(17.)
             .width(31.)
@@ -494,7 +504,9 @@ impl RenderOnce for Composer {
             .items_center()
             .on_children_prepainted(move |bounds, window, cx| {
                 let composer = bounds.first().map_or(0., |box_| box_.size.width.into());
-                if shape(composer, aside_room) != shape(width.replace(composer), aside_room) {
+                if shape(composer, aside_room, crowd)
+                    != shape(width.replace(composer), aside_room, crowd)
+                {
                     crate::ui::redraw_after_paint(window, cx);
                 }
                 Drawn::keep(cx, |drawn| Drawn {
@@ -517,7 +529,14 @@ impl RenderOnce for Composer {
                             .flex()
                             .flex_col()
                             .border_1()
-                            .border_color(if yolo_on { t.accent } else { edge })
+                            .border_color(if yolo_on {
+                                Hsla {
+                                    a: YOLO_EDGE,
+                                    ..t.accent
+                                }
+                            } else {
+                                edge
+                            })
                             .rounded(theme::RADIUS_4)
                             .bg(fill)
                             .children(tiles)
@@ -593,6 +612,9 @@ fn tab_hint(suggestion: SharedString, text_size: gpui_kit::Pixels, cx: &App) -> 
                 .top(text_size * GLYPHS_BELOW_MIDDLE),
         )
 }
+
+/// How strongly the accent edges the box while YOLO is on.
+const YOLO_EDGE: f32 = 0.5;
 
 /// A one-line notice just above the box: a send refused, something waited on, or something
 /// just done with how to take it back.
@@ -855,6 +877,7 @@ fn stash_button(fresh: usize, open: bool, toggle: Act, room: Room, cx: &App) -> 
 
 /// How much of the bar fits at the composer's width. The model's name shortens first; past
 /// that the Stash and the effort lose their names, then YOLO, then the model's name goes.
+/// The widths are for a bar holding every control: Stash, the mode, the meter and the mic.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 enum Room {
     Bare,
@@ -867,9 +890,9 @@ impl Room {
     /// The room at a composer drawn `width` wide, or all of it before it is first drawn.
     fn of(width: f32) -> Self {
         match width {
-            w if w == 0. || w >= 500. => Room::Full,
-            w if w >= 430. => Room::Compact,
-            w if w >= 380. => Room::Tight,
+            w if w == 0. || w >= 550. => Room::Full,
+            w if w >= 465. => Room::Compact,
+            w if w >= 425. => Room::Tight,
             _ => Room::Bare,
         }
     }
@@ -893,11 +916,20 @@ fn snapshot_button(take: Act, cx: &App) -> IconButton {
 
 /// The room left for the bar's own controls at a composer `width` wide, and whether a control
 /// at its end keeps its words; a control that has dropped them still takes its share of the bar.
-fn shape(width: f32, aside: Option<AsideRoom>) -> (Room, bool) {
+/// `crowd` is how much more the bar holds than the full set `Room` is measured for.
+fn shape(width: f32, aside: Option<AsideRoom>, crowd: f32) -> (Room, bool) {
     let labelled = width == 0. || aside.is_none_or(|aside| width >= aside.labelled_from);
     let taken = aside.filter(|_| !labelled).map_or(0., |aside| aside.bare);
-    (Room::of(width - taken), labelled)
+    let room = if width == 0. {
+        Room::Full
+    } else {
+        Room::of(width - taken - crowd)
+    };
+    (room, labelled)
 }
+
+/// What one control at its smallest takes from the bar, with the gap after it.
+const CONTROL: f32 = 36.;
 
 /// SAFE, AUTO or YOLO: whether the agent asks before it acts, has its own reviewer ask only
 /// what is risky, or never asks, opening a menu of the modes it has. YOLO's letters run through
