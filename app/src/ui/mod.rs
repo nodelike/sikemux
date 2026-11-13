@@ -46,8 +46,8 @@ use std::f32::consts::TAU;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     canvas, div, img, point, px, svg, AnyElement, App, Context, Div, ElementId, FontFallbacks,
-    FontWeight, HighlightStyle, Hsla, IntoElement, ParentElement, PathBuilder, Render,
-    SharedString, Styled, StyledText, Svg, Window,
+    FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
+    Render, SharedString, Stateful, Styled, StyledText, Svg, Window,
 };
 
 use sikemux_view::workspace::AgentFace;
@@ -73,6 +73,32 @@ pub const SHOW_IN_FILES: &str = if cfg!(target_os = "macos") {
 } else {
     n!("Show in Files")
 };
+
+pub const DISCORD: &str = "https://discord.gg/UKfmHpF9kX";
+
+/// One quiet line that opens Sikemux's Discord, where people ask for help.
+pub fn discord_link(id: impl Into<ElementId>, size: f32, cx: &App) -> Stateful<Div> {
+    let t = Tokens::get(cx).clone();
+    div()
+        .id(id)
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(px((size * 0.45).round()))
+        .whitespace_nowrap()
+        .cursor_pointer()
+        .text_size(theme::ui_text(size))
+        .text_color(t.text_tertiary)
+        .group("discord-link")
+        .hover(move |link| link.text_color(t.text_primary))
+        .clicks(|_, _, cx| cx.open_url(DISCORD))
+        .child(
+            icon(Icon::Discord, size)
+                .text_color(t.text_tertiary)
+                .group_hover("discord-link", move |icon| icon.text_color(t.text_primary)),
+        )
+        .child(t!("Questions? Ask on Discord"))
+}
 
 pub fn icon(icon: Icon, size: f32) -> Svg {
     svg().path(icon.path()).size(px(size)).flex_none()

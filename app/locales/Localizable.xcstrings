@@ -72566,6 +72566,58 @@
         }
       }
     },
+    "Questions? Ask on Discord": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Preguntas? Pregunta en Discord"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "有问题？到 Discord 上问"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fragen? Frag auf Discord"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Des questions ? Posez-les sur Discord"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "質問は Discord で"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "질문이 있나요? Discord에서 물어보세요"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Есть вопросы? Спросите в Discord"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dúvidas? Pergunte no Discord"
+          }
+        }
+      }
+    },
     "Queue: it waits until the turn ends": {
       "localizations": {
         "es": {

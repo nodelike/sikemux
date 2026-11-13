@@ -1373,6 +1373,16 @@ fn poster(
         .border_color(t.border)
         .bg(t.surface_sunken)
         .children(mark)
+        .child(
+            div()
+                .absolute()
+                .top(px(room.fit(26., 10.)))
+                .right(px(room.pad()))
+                .child(
+                    ui::discord_link("welcome-discord", room.fit(14., 12.), cx)
+                        .on_mouse_down(MouseButton::Left, keep_press),
+                ),
+        )
         .children(back.map(|back| {
             div()
                 .absolute()

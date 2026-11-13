@@ -257,7 +257,16 @@ pub fn welcome(
     let provider = agent.map_or("claude", |agent| agent.provider.as_str());
     let under = div()
         .w_full()
-        .children(placed.map(|placed| smart_pick(bench, placed, provider, cx)));
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap(SPACE_3)
+        .children(placed.map(|placed| {
+            div()
+                .w_full()
+                .child(smart_pick(bench, placed, provider, cx))
+        }))
+        .child(ui::discord_link("chat-welcome-discord", TEXT_2XS, cx));
     welcome_over(project.unwrap_or_default(), under, shown, cx)
         .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
         .mx(px(22.))

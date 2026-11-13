@@ -73,6 +73,7 @@ icons!(
     Dashboard => "dashboard",
     Database => "database",
     Discard => "discard",
+    Discord => "discord",
     Download => "download",
     Editor => "editor",
     ExpandAll => "expand-all",
