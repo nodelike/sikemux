@@ -23,7 +23,8 @@
         "stash.changed",
         "stash.removed",
         "stash.seen",
-        "vault.changed"
+        "vault.changed",
+        "mods.changed"
       ]
     },
     "RevokeReason": {
@@ -39,7 +40,7 @@
         "type": { "$ref": "#/$defs/AccountEventType" },
         "at": { "type": "string", "format": "date-time" },
         "key": {
-          "description": "The device the event is about. Only on device events.",
+          "description": "The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own.",
           "$ref": "devices.json#/$defs/DeviceKey"
         },
         "role": {

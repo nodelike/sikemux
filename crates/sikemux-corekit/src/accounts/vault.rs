@@ -5,6 +5,114 @@ use serde::{Deserialize, Serialize};
 
 use sikemux_wire::accounts::protocol::*;
 
+/// A document the push did not store, because another host wrote it first or it was purged.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModConflict {
+    pub r#mod: ModId,
+    pub id: ModDocumentId,
+    /// The server's copy, for the host to merge and push again at its revision, or null when the server holds none: push again at revision 0.
+    pub current: Option<ModDocument>,
+}
+
+/// The latest sealed copy of one mod document.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModDocument {
+    pub r#mod: ModId,
+    pub id: ModDocumentId,
+    pub generation: VaultGeneration,
+    pub sealed: VaultSealed,
+    /// The document was removed; the sealed copy is its marker.
+    pub removed: bool,
+    pub revision: VaultRevision,
+    pub seq: ModSeq,
+    pub updated_by: DeviceKey,
+    pub updated_at: String,
+}
+
+/// A mod document's id, which the host derives from its collection and id under the vault key, in lowercase hex. The server never sees either.
+pub type ModDocumentId = String;
+
+/// One document a host stores, built on the revision it last saw.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModDocumentPut {
+    pub r#mod: ModId,
+    pub id: ModDocumentId,
+    pub sealed: VaultSealed,
+    pub removed: bool,
+    /// The document's revision as the host last saw it, or 0 for one the server does not hold.
+    pub revision: i64,
+}
+
+/// A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash.
+pub type ModId = String;
+
+/// A mod whose documents were all removed from the account, at that seq.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModPurge {
+    pub r#mod: ModId,
+    pub seq: ModSeq,
+}
+
+/// Where a change stands in the account's mod changes. Every stored document and purge takes the next one, so a host asks for what changed after the last it saw.
+pub type ModSeq = i64;
+
+/// A ModSeq in a query string.
+pub type ModSeqParam = String;
+
+/// What changed after the seq asked for, oldest first. Apply documents and purges together in seq order.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModsPulled {
+    pub documents: Vec<ModDocument>,
+    pub purges: Vec<ModPurge>,
+    /// The seq to ask after next time.
+    pub next: ModSeq,
+    /// The page was full: ask again after next straight away.
+    pub more: bool,
+    /// The seq asked for is older than removals the server has since forgotten, or newer than any it gave, so this answer starts over from 0. Once the last page arrives, drop every local document these pages did not list.
+    pub reset: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModsPurged {
+    /// The purge's seq.
+    pub seq: ModSeq,
+}
+
+/// Documents a host changed since its last push. Each is stored only if its revision is still the server's.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModsPush {
+    /// The generation of the key every document is sealed under, which must be current.
+    pub generation: VaultGeneration,
+    /// Each document once, at most 4 MiB of request in all.
+    pub documents: Vec<ModDocumentPut>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModsPushed {
+    /// The account's latest seq after the push.
+    pub seq: ModSeq,
+    pub stored: Vec<ModStored>,
+    pub conflicts: Vec<ModConflict>,
+}
+
+/// A document the push stored.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModStored {
+    pub r#mod: ModId,
+    pub id: ModDocumentId,
+    pub revision: VaultRevision,
+    pub seq: ModSeq,
+}
+
 /// The connector a sign-in is for, such as sikemux.github.
 pub type PluginId = String;
 
@@ -173,6 +281,19 @@ pub struct WrappedKey {
 pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
     use super::through;
     Some(match name {
+        "ModConflict" => through::<ModConflict>(json),
+        "ModDocument" => through::<ModDocument>(json),
+        "ModDocumentId" => through::<ModDocumentId>(json),
+        "ModDocumentPut" => through::<ModDocumentPut>(json),
+        "ModId" => through::<ModId>(json),
+        "ModPurge" => through::<ModPurge>(json),
+        "ModSeq" => through::<ModSeq>(json),
+        "ModSeqParam" => through::<ModSeqParam>(json),
+        "ModsPulled" => through::<ModsPulled>(json),
+        "ModsPurged" => through::<ModsPurged>(json),
+        "ModsPush" => through::<ModsPush>(json),
+        "ModsPushed" => through::<ModsPushed>(json),
+        "ModStored" => through::<ModStored>(json),
         "PluginId" => through::<PluginId>(json),
         "RecoveryKey" => through::<RecoveryKey>(json),
         "Vault" => through::<Vault>(json),

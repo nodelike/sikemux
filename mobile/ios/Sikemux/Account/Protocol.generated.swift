@@ -23,7 +23,7 @@ struct AccountEvent: Codable, Hashable, Sendable {
     var id: EventId
     var type: AccountEventType
     var at: String
-    /// The device the event is about. Only on device events.
+    /// The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own.
     var key: DeviceKey?
     /// That device's role. Only on device events.
     var role: DeviceRole?
@@ -43,6 +43,7 @@ enum AccountEventType: String, Codable, Hashable, Sendable {
     case stashRemoved = "stash.removed"
     case stashSeen = "stash.seen"
     case vaultChanged = "vault.changed"
+    case modsChanged = "mods.changed"
     /// A value added after this build, which it cannot act on.
     case unknown
 

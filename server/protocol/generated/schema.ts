@@ -73,7 +73,8 @@ export const schema = {
         type: { $ref: "#/$defs/AccountEventType" },
         at: { type: "string", format: "date-time" },
         key: {
-          description: "The device the event is about. Only on device events.",
+          description:
+            "The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own.",
           $ref: "#/$defs/DeviceKey",
         },
         role: {
@@ -105,6 +106,7 @@ export const schema = {
         "stash.removed",
         "stash.seen",
         "vault.changed",
+        "mods.changed",
       ],
     },
     AccountProfile: {
@@ -1111,6 +1113,186 @@ export const schema = {
         android: { $ref: "#/$defs/ChannelVersions" },
       },
       required: ["macos", "linux", "ios", "android"],
+      additionalProperties: false,
+    },
+    ModConflict: {
+      description:
+        "A document the push did not store, because another host wrote it first or it was purged.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        id: { $ref: "#/$defs/ModDocumentId" },
+        current: {
+          description:
+            "The server's copy, for the host to merge and push again at its revision, or null when the server holds none: push again at revision 0.",
+          anyOf: [{ $ref: "#/$defs/ModDocument" }, { type: "null" }],
+        },
+      },
+      required: ["mod", "id", "current"],
+      additionalProperties: false,
+    },
+    ModDocument: {
+      description: "The latest sealed copy of one mod document.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        id: { $ref: "#/$defs/ModDocumentId" },
+        generation: { $ref: "#/$defs/VaultGeneration" },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        removed: {
+          description:
+            "The document was removed; the sealed copy is its marker.",
+          type: "boolean",
+        },
+        revision: { $ref: "#/$defs/VaultRevision" },
+        seq: { $ref: "#/$defs/ModSeq" },
+        updatedBy: { $ref: "#/$defs/DeviceKey" },
+        updatedAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "mod",
+        "id",
+        "generation",
+        "sealed",
+        "removed",
+        "revision",
+        "seq",
+        "updatedBy",
+        "updatedAt",
+      ],
+      additionalProperties: false,
+    },
+    ModDocumentId: {
+      description:
+        "A mod document's id, which the host derives from its collection and id under the vault key, in lowercase hex. The server never sees either.",
+      type: "string",
+      pattern: "^[0-9a-f]{64}$",
+    },
+    ModDocumentPut: {
+      description:
+        "One document a host stores, built on the revision it last saw.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        id: { $ref: "#/$defs/ModDocumentId" },
+        sealed: { $ref: "#/$defs/VaultSealed" },
+        removed: { type: "boolean" },
+        revision: {
+          description:
+            "The document's revision as the host last saw it, or 0 for one the server does not hold.",
+          type: "integer",
+          minimum: 0,
+          maximum: 999999999,
+        },
+      },
+      required: ["mod", "id", "sealed", "removed", "revision"],
+      additionalProperties: false,
+    },
+    ModId: {
+      description:
+        "A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash.",
+      type: "string",
+      pattern: "^[a-z0-9][a-z0-9-]{0,63}$",
+    },
+    ModPurge: {
+      description:
+        "A mod whose documents were all removed from the account, at that seq.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        seq: { $ref: "#/$defs/ModSeq" },
+      },
+      required: ["mod", "seq"],
+      additionalProperties: false,
+    },
+    ModSeq: {
+      description:
+        "Where a change stands in the account's mod changes. Every stored document and purge takes the next one, so a host asks for what changed after the last it saw.",
+      type: "integer",
+      minimum: 0,
+      maximum: 9007199254740991,
+    },
+    ModSeqParam: {
+      description: "A ModSeq in a query string.",
+      type: "string",
+      pattern: "^(0|[1-9][0-9]{0,15})$",
+    },
+    ModsPulled: {
+      description:
+        "What changed after the seq asked for, oldest first. Apply documents and purges together in seq order.",
+      type: "object",
+      properties: {
+        documents: { type: "array", items: { $ref: "#/$defs/ModDocument" } },
+        purges: { type: "array", items: { $ref: "#/$defs/ModPurge" } },
+        next: {
+          description: "The seq to ask after next time.",
+          $ref: "#/$defs/ModSeq",
+        },
+        more: {
+          description: "The page was full: ask again after next straight away.",
+          type: "boolean",
+        },
+        reset: {
+          description:
+            "The seq asked for is older than removals the server has since forgotten, or newer than any it gave, so this answer starts over from 0. Once the last page arrives, drop every local document these pages did not list.",
+          type: "boolean",
+        },
+      },
+      required: ["documents", "purges", "next", "more", "reset"],
+      additionalProperties: false,
+    },
+    ModsPurged: {
+      type: "object",
+      properties: {
+        seq: { description: "The purge's seq.", $ref: "#/$defs/ModSeq" },
+      },
+      required: ["seq"],
+      additionalProperties: false,
+    },
+    ModsPush: {
+      description:
+        "Documents a host changed since its last push. Each is stored only if its revision is still the server's.",
+      type: "object",
+      properties: {
+        generation: {
+          description:
+            "The generation of the key every document is sealed under, which must be current.",
+          $ref: "#/$defs/VaultGeneration",
+        },
+        documents: {
+          description: "Each document once, at most 4 MiB of request in all.",
+          type: "array",
+          items: { $ref: "#/$defs/ModDocumentPut" },
+          minItems: 1,
+          maxItems: 200,
+        },
+      },
+      required: ["generation", "documents"],
+      additionalProperties: false,
+    },
+    ModsPushed: {
+      type: "object",
+      properties: {
+        seq: {
+          description: "The account's latest seq after the push.",
+          $ref: "#/$defs/ModSeq",
+        },
+        stored: { type: "array", items: { $ref: "#/$defs/ModStored" } },
+        conflicts: { type: "array", items: { $ref: "#/$defs/ModConflict" } },
+      },
+      required: ["seq", "stored", "conflicts"],
+      additionalProperties: false,
+    },
+    ModStored: {
+      description: "A document the push stored.",
+      type: "object",
+      properties: {
+        mod: { $ref: "#/$defs/ModId" },
+        id: { $ref: "#/$defs/ModDocumentId" },
+        revision: { $ref: "#/$defs/VaultRevision" },
+        seq: { $ref: "#/$defs/ModSeq" },
+      },
+      required: ["mod", "id", "revision", "seq"],
       additionalProperties: false,
     },
     Network: {

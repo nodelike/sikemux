@@ -22,6 +22,11 @@ import type {
   HostSignInState,
   JoinRequest,
   JoinTicket,
+  ModSeqParam,
+  ModsPulled,
+  ModsPurged,
+  ModsPush,
+  ModsPushed,
   Network,
   PendingHost,
   PushTokenRegistration,
@@ -193,6 +198,18 @@ export function apiClient(send: Send) {
     /** Which agents on which hosts used the vault's entries in the last 30 days. */
     listVaultUses: (query: { entry?: VaultEntryId } = {}) =>
       send<VaultUses>("GET", `/v1/vault/uses${search(query)}`),
+    /** Store the mod documents this host changed, each only if its revision is still the server's. */
+    pushModDocuments: (body: ModsPush) =>
+      send<ModsPushed>("POST", `/v1/mods/documents`, body),
+    /** The mod documents and purges after a seq, a page at a time. */
+    pullModDocuments: (query: { since?: ModSeqParam } = {}) =>
+      send<ModsPulled>("GET", `/v1/mods/documents${search(query)}`),
+    /** Remove every document of one mod from the account, when the person removes the mod. */
+    purgeModDocuments: (mod: string) =>
+      send<ModsPurged>(
+        "DELETE",
+        `/v1/mods/${encodeURIComponent(mod)}/documents`,
+      ),
   };
 }
 
