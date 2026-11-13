@@ -38,7 +38,7 @@ const HISTORY_BYTES: i64 = 4 * 1024 * 1024;
 const PERSON: &str = "person";
 /// The collection the core keeps a mod's own things in, such as its badge. No page or agent can
 /// name it, as a name never starts with a dot.
-const OWN: &str = ".mod";
+pub(super) const OWN: &str = ".mod";
 const BADGE: &str = "badge";
 
 /// When, where and by whom a field was written. Stamps order by time, then by host, so every
@@ -230,12 +230,22 @@ pub(super) type Names<'a> = &'a dyn Fn(&str) -> Option<String>;
 
 /// The time and count of the last stamp this host gave.
 #[derive(Clone, Copy, Default)]
-struct Clock {
+pub(super) struct Clock {
     ms: u64,
     n: u32,
 }
 
 impl Clock {
+    /// Moves past `stamp`, so the next stamp given here is newer than it.
+    pub(super) fn pass(&mut self, stamp: &Stamp) {
+        if (stamp.ms, stamp.n) > (self.ms, self.n) {
+            *self = Clock {
+                ms: stamp.ms,
+                n: stamp.n,
+            };
+        }
+    }
+
     fn tick(&mut self, now: u64) -> Clock {
         *self = match now > self.ms {
             true => Clock { ms: now, n: 0 },
@@ -248,9 +258,9 @@ impl Clock {
     }
 }
 
-struct Open {
-    connection: Connection,
-    clock: Clock,
+pub(super) struct Open {
+    pub(super) connection: Connection,
+    pub(super) clock: Clock,
 }
 
 pub(crate) struct Store {
@@ -258,7 +268,7 @@ pub(crate) struct Store {
     open: Mutex<Option<Open>>,
 }
 
-fn failed(error: rusqlite::Error) -> CoreError {
+pub(super) fn failed(error: rusqlite::Error) -> CoreError {
     CoreError::from(format!("the mods' data could not be reached: {error}"))
 }
 
@@ -280,8 +290,16 @@ fn open(path: &Path) -> rusqlite::Result<Open> {
              changed INTEGER NOT NULL,
              who TEXT NOT NULL,
              ms INTEGER NOT NULL,
+             revision INTEGER NOT NULL DEFAULT 0,
+             generation INTEGER NOT NULL DEFAULT 0,
+             dirty INTEGER NOT NULL DEFAULT 0,
+             sid TEXT,
              PRIMARY KEY (mod, collection, id)
          ) WITHOUT ROWID;
+         CREATE INDEX IF NOT EXISTS documents_by_sid ON documents (mod, sid);
+         CREATE INDEX IF NOT EXISTS documents_to_push ON documents (dirty) WHERE dirty = 1;
+         CREATE INDEX IF NOT EXISTS documents_to_reseal ON documents (generation)
+             WHERE dirty = 0 AND revision > 0;
          CREATE TABLE IF NOT EXISTS mods (
              mod TEXT PRIMARY KEY,
              changes INTEGER NOT NULL,
@@ -306,7 +324,27 @@ fn open(path: &Path) -> rusqlite::Result<Open> {
              one INTEGER PRIMARY KEY CHECK (one = 0),
              ms INTEGER NOT NULL,
              n INTEGER NOT NULL
-         );",
+         );
+         CREATE TABLE IF NOT EXISTS synced (
+             one INTEGER PRIMARY KEY CHECK (one = 0),
+             account TEXT NOT NULL,
+             seq INTEGER NOT NULL
+         );
+         CREATE TABLE IF NOT EXISTS namings (
+             mod TEXT PRIMARY KEY,
+             key TEXT NOT NULL,
+             revision INTEGER NOT NULL,
+             generation INTEGER NOT NULL
+         ) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS unopened (
+             mod TEXT NOT NULL,
+             sid TEXT NOT NULL,
+             generation INTEGER NOT NULL,
+             revision INTEGER NOT NULL,
+             sealed TEXT NOT NULL,
+             PRIMARY KEY (mod, sid)
+         ) WITHOUT ROWID;
+         CREATE TABLE IF NOT EXISTS purging (mod TEXT PRIMARY KEY) WITHOUT ROWID;",
     )?;
     let clock = connection
         .query_row("SELECT ms, n FROM clock", [], |row| {
@@ -339,10 +377,99 @@ const VERSION_COLUMNS: &str = "version, collection, id, who, ms, was, existed";
 
 /// What the mod's counts were before a list of writes, and what they come to.
 #[derive(Default)]
-struct Counts {
-    changes: i64,
-    documents: i64,
-    bytes: i64,
+pub(super) struct Counts {
+    pub(super) changes: i64,
+    pub(super) documents: i64,
+    pub(super) bytes: i64,
+}
+
+pub(super) fn counts_of(transaction: &Connection, id: &str) -> CoreResult<Counts> {
+    Ok(transaction
+        .query_row(
+            "SELECT changes, documents, bytes FROM mods WHERE mod = ?1",
+            params![id],
+            |row| {
+                Ok(Counts {
+                    changes: row.get(0)?,
+                    documents: row.get(1)?,
+                    bytes: row.get(2)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(failed)?
+        .unwrap_or_default())
+}
+
+/// Keeps `counts` for the mod `id` and trims its history to what it keeps.
+pub(super) fn save_counts(transaction: &Connection, id: &str, counts: &Counts) -> CoreResult<()> {
+    transaction
+        .execute(
+            "INSERT INTO mods (mod, changes, documents, bytes) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (mod) DO UPDATE
+             SET changes = excluded.changes, documents = excluded.documents, bytes = excluded.bytes",
+            params![id, counts.changes, counts.documents, counts.bytes],
+        )
+        .map_err(failed)?;
+    transaction
+        .execute(
+            "DELETE FROM history WHERE mod = ?1 AND (ms < ?2 OR version IN (
+                 SELECT version FROM (
+                     SELECT version,
+                         ROW_NUMBER() OVER (ORDER BY version DESC) AS place,
+                         SUM(LENGTH(was)) OVER (ORDER BY version DESC) AS bytes
+                     FROM history WHERE mod = ?1
+                 ) WHERE place > ?3 OR bytes > ?4
+             ))",
+            params![
+                id,
+                epoch_ms().saturating_sub(HISTORY_MS) as i64,
+                HISTORY_VERSIONS,
+                HISTORY_BYTES
+            ],
+        )
+        .map_err(failed)?;
+    Ok(())
+}
+
+pub(super) fn save_clock(transaction: &Connection, clock: Clock) -> CoreResult<()> {
+    transaction
+        .execute(
+            "INSERT INTO clock (one, ms, n) VALUES (0, ?1, ?2)
+             ON CONFLICT (one) DO UPDATE SET ms = excluded.ms, n = excluded.n",
+            params![clock.ms as i64, clock.n],
+        )
+        .map_err(failed)?;
+    Ok(())
+}
+
+/// Keeps one change to a document in the mod's history: the fields it changed as they were.
+pub(super) fn keep_version(
+    transaction: &Connection,
+    (id, version, batch): (&str, i64, i64),
+    (collection, document): (&str, &str),
+    (by, ms): (&str, u64),
+    was: Map<String, Value>,
+    existed: bool,
+) -> CoreResult<()> {
+    transaction
+        .execute(
+            "INSERT INTO history (mod, version, collection, id, who, ms, was, existed, batch)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                id,
+                version,
+                collection,
+                document,
+                by,
+                ms as i64,
+                Value::Object(was).to_string(),
+                existed,
+                batch
+            ],
+        )
+        .map_err(failed)?;
+    Ok(())
 }
 
 impl Store {
@@ -353,7 +480,7 @@ impl Store {
         }
     }
 
-    fn with<T>(&self, work: impl FnOnce(&mut Open) -> CoreResult<T>) -> CoreResult<T> {
+    pub(super) fn with<T>(&self, work: impl FnOnce(&mut Open) -> CoreResult<T>) -> CoreResult<T> {
         let path = (self.path.as_ref())
             .ok_or_else(|| CoreError::from("this host keeps no data for mods"))?;
         let mut cache = self.open.locked();
@@ -542,21 +669,7 @@ impl Store {
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(failed)?;
-            let mut counts: Counts = transaction
-                .query_row(
-                    "SELECT changes, documents, bytes FROM mods WHERE mod = ?1",
-                    params![id],
-                    |row| {
-                        Ok(Counts {
-                            changes: row.get(0)?,
-                            documents: row.get(1)?,
-                            bytes: row.get(2)?,
-                        })
-                    },
-                )
-                .optional()
-                .map_err(failed)?
-                .unwrap_or_default();
+            let mut counts = counts_of(&transaction, id)?;
             let mut done = Vec::with_capacity(writes.len());
             let batch = counts.changes + 1;
             for write in writes {
@@ -570,41 +683,17 @@ impl Store {
                     }
                 };
                 let schema = schemas.get(&write.collection);
-                done.push(write_one(&transaction, (id, batch), write, schema, &stamp, &mut counts)?);
+                done.push(write_one(
+                    &transaction,
+                    (id, batch),
+                    write,
+                    schema,
+                    &stamp,
+                    &mut counts,
+                )?);
             }
-            transaction
-                .execute(
-                    "INSERT INTO mods (mod, changes, documents, bytes) VALUES (?1, ?2, ?3, ?4)
-                     ON CONFLICT (mod) DO UPDATE
-                     SET changes = excluded.changes, documents = excluded.documents, bytes = excluded.bytes",
-                    params![id, counts.changes, counts.documents, counts.bytes],
-                )
-                .map_err(failed)?;
-            transaction
-                .execute(
-                    "DELETE FROM history WHERE mod = ?1 AND (ms < ?2 OR version IN (
-                         SELECT version FROM (
-                             SELECT version,
-                                 ROW_NUMBER() OVER (ORDER BY version DESC) AS place,
-                                 SUM(LENGTH(was)) OVER (ORDER BY version DESC) AS bytes
-                             FROM history WHERE mod = ?1
-                         ) WHERE place > ?3 OR bytes > ?4
-                     ))",
-                    params![
-                        id,
-                        epoch_ms().saturating_sub(HISTORY_MS) as i64,
-                        HISTORY_VERSIONS,
-                        HISTORY_BYTES
-                    ],
-                )
-                .map_err(failed)?;
-            transaction
-                .execute(
-                    "INSERT INTO clock (one, ms, n) VALUES (0, ?1, ?2)
-                     ON CONFLICT (one) DO UPDATE SET ms = excluded.ms, n = excluded.n",
-                    params![open.clock.ms as i64, open.clock.n],
-                )
-                .map_err(failed)?;
+            save_counts(&transaction, id, &counts)?;
+            save_clock(&transaction, open.clock)?;
             transaction.commit().map_err(failed)?;
             Ok(done)
         })
@@ -743,11 +832,11 @@ impl Store {
                 .map_err(failed)?;
             transaction
                 .execute(
-                    "INSERT INTO documents (mod, collection, id, stamped, value, changed, who, ms)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                    "INSERT INTO documents (mod, collection, id, stamped, value, changed, who, ms, dirty)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)
                      ON CONFLICT (mod, collection, id) DO UPDATE
                      SET stamped = excluded.stamped, value = excluded.value,
-                         changed = excluded.changed, who = excluded.who, ms = excluded.ms",
+                         changed = excluded.changed, who = excluded.who, ms = excluded.ms, dirty = 1",
                     params![
                         id,
                         OWN,
@@ -760,30 +849,38 @@ impl Store {
                     ],
                 )
                 .map_err(failed)?;
-            transaction
-                .execute(
-                    "INSERT INTO clock (one, ms, n) VALUES (0, ?1, ?2)
-                     ON CONFLICT (one) DO UPDATE SET ms = excluded.ms, n = excluded.n",
-                    params![open.clock.ms as i64, open.clock.n],
-                )
-                .map_err(failed)?;
+            save_clock(&transaction, open.clock)?;
             transaction.commit().map_err(failed)?;
             Ok(true)
         })
     }
 
-    /// Forgets every document of the mod `id`, and their history.
+    /// Forgets every document of the mod `id`, and their history, here and on the account's
+    /// other hosts.
     pub(crate) fn clear(&self, id: &str) -> CoreResult<()> {
         self.with(|open| {
             let transaction = open.connection.transaction().map_err(failed)?;
-            for table in ["documents", "mods", "history"] {
-                transaction
-                    .execute(&format!("DELETE FROM {table} WHERE mod = ?1"), params![id])
-                    .map_err(failed)?;
-            }
+            forget(&transaction, id)?;
+            transaction
+                .execute(
+                    "INSERT OR IGNORE INTO purging (mod) VALUES (?1)",
+                    params![id],
+                )
+                .map_err(failed)?;
             transaction.commit().map_err(failed)
         })
     }
+}
+
+/// Forgets every document of the mod `id`, their history and what this host knows of the
+/// account's copy of them.
+pub(super) fn forget(transaction: &Connection, id: &str) -> CoreResult<()> {
+    for table in ["documents", "mods", "history", "namings", "unopened"] {
+        transaction
+            .execute(&format!("DELETE FROM {table} WHERE mod = ?1"), params![id])
+            .map_err(failed)?;
+    }
+    Ok(())
 }
 
 fn written_back(collection: String, id: String, was: &str, existed: bool) -> CoreResult<Write> {
@@ -868,11 +965,11 @@ fn write_one(
     counts.changes += 1;
     transaction
         .execute(
-            "INSERT INTO documents (mod, collection, id, stamped, value, changed, who, ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO documents (mod, collection, id, stamped, value, changed, who, ms, dirty)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)
              ON CONFLICT (mod, collection, id) DO UPDATE
              SET stamped = excluded.stamped, value = excluded.value, changed = excluded.changed,
-                 who = excluded.who, ms = excluded.ms",
+                 who = excluded.who, ms = excluded.ms, dirty = 1",
             params![
                 id,
                 collection,
@@ -885,23 +982,14 @@ fn write_one(
             ],
         )
         .map_err(failed)?;
-    transaction
-        .execute(
-            "INSERT INTO history (mod, version, collection, id, who, ms, was, existed, batch)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                id,
-                counts.changes,
-                collection,
-                document,
-                stamp.by,
-                stamp.ms as i64,
-                Value::Object(was).to_string(),
-                was_shown,
-                batch
-            ],
-        )
-        .map_err(failed)?;
+    keep_version(
+        transaction,
+        (id, counts.changes, batch),
+        (&collection, &document),
+        (&stamp.by, stamp.ms),
+        was,
+        was_shown,
+    )?;
     Ok(Some(value.unwrap_or(Value::Null)))
 }
 
@@ -1030,6 +1118,7 @@ async fn written(
         paths.sort();
         paths.dedup();
         core.changed(What::ReadIn(Topic::ModData, None, Some(paths)));
+        core.mods().sync.changed();
     }
     Ok(done)
 }

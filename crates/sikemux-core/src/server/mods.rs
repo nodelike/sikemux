@@ -5,8 +5,10 @@
 mod bridge;
 mod data;
 mod schema;
+mod sync;
 pub use bridge::{BridgeParams, BridgeWrite};
 pub use sikemux_calls::mods::{change_prompt, follows, make_prompt, Moved};
+pub(super) use sync::{catch_up, heard};
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
@@ -106,6 +108,7 @@ pub(crate) struct Mods {
     settled: Mutex<Settled>,
     kept: Kept,
     data: data::Store,
+    sync: sync::Sync,
 }
 
 impl Mods {
@@ -116,6 +119,7 @@ impl Mods {
             settled: Mutex::new(kept.load()),
             kept,
             data: data::Store::new(data_dir),
+            sync: sync::Sync::default(),
         }
     }
 
@@ -416,6 +420,7 @@ pub(super) async fn set_badge(core: &Arc<Core>, params: BadgeParams) -> CoreResu
     })
     .await?;
     if moved {
+        core.mods().sync.changed();
         settled_changed(core);
     }
     Ok(())
@@ -593,6 +598,7 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
         settled.dismissed.remove(&params.id);
     });
     super::triggers::mod_removed(core, &params.id);
+    core.mods().sync.changed();
     settled_changed(core);
     Ok(())
 }
@@ -672,7 +678,7 @@ pub(crate) fn watch(core: &Arc<Core>) {
 impl super::part::Part for Mods {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         watch(core);
-        Vec::new()
+        vec![tokio::spawn(sync::run(Arc::downgrade(core)))]
     }
 
     fn flush(&self) {

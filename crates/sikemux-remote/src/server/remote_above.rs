@@ -63,10 +63,11 @@ pub struct RemoteAbove {
     pub check_updates_soon: fn(&Core),
     /// Each plugin's sign-ins for the vault, with the folder the plugin keeps them in.
     pub vault_books: fn(&Core) -> Vec<VaultBook>,
-    /// The account said these things happened; the stash takes what is its.
-    pub stash_heard: fn(&Arc<Core>, &[AccountEvent]),
-    /// The stash reads what the account kept while this host was away.
-    pub stash_catch_up: fn(&Arc<Core>),
+    /// The account said these things happened; the stash and the mods take what is theirs.
+    pub account_heard: fn(&Arc<Core>, &[AccountEvent]),
+    /// The live connection is up again: the stash and the mods read what the account kept while
+    /// this host was away.
+    pub account_catch_up: fn(&Arc<Core>),
     /// What the inbox tells the person of now.
     pub inbox_told: fn(&Core) -> Vec<InboxItem>,
     /// What each agent needs of the person, for the chats that show it.

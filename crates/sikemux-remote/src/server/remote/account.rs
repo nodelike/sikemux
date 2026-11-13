@@ -163,7 +163,7 @@ impl live::Account for HostAccount {
     fn apply(&self, events: &[AccountEvent]) {
         if let Some(core) = self.0.upgrade() {
             apply_events(&core, events);
-            (core.remote_above().stash_heard)(&core, events);
+            (core.remote_above().account_heard)(&core, events);
         }
     }
 
@@ -209,7 +209,7 @@ impl live::Account for HostAccount {
             });
             (core.remote_above().hosts_relink)(&core);
             core.vault().wake();
-            (core.remote_above().stash_catch_up)(&core);
+            (core.remote_above().account_catch_up)(&core);
             (core.remote_above().hooks_connect)(&core);
         }
     }

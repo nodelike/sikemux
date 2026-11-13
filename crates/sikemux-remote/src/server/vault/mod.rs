@@ -22,6 +22,8 @@ mod seal;
 pub mod shown;
 mod sync;
 
+pub use seal::{open_bound, random_key, seal_bound, Key};
+
 /// What an entry holds, sealed under the vault key.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -178,6 +180,13 @@ pub struct Vault {
 impl Vault {
     pub fn wake(&self) {
         self.wake.notify_one();
+    }
+
+    /// The account, the key's generation and the key, while this host holds the vault's key, for
+    /// what else the account keeps sealed under it.
+    pub fn key(&self) -> Option<(String, i64, Key)> {
+        let state = self.state.locked();
+        Some((state.account.clone()?, state.generation, state.key?))
     }
 
     /// The person changed a connector, so this host's sign-ins are compared with the vault's.

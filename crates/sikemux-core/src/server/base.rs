@@ -38,7 +38,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
-use super::{hooks, inbox, stash};
+use super::{hooks, inbox, mods, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
 use std::sync::Arc;
@@ -326,8 +326,14 @@ pub(super) fn remote_above() -> RemoteAbove {
                 .map(|plugins::Provided(plugins)| plugins.vault_books())
                 .unwrap_or_default()
         },
-        stash_heard: stash::heard,
-        stash_catch_up: stash::catch_up,
+        account_heard: |core, events| {
+            stash::heard(core, events);
+            mods::heard(core, events);
+        },
+        account_catch_up: |core| {
+            stash::catch_up(core);
+            mods::catch_up(core);
+        },
         inbox_told: inbox::told,
         agent_needs: inbox::agent_needs,
         activity_glance: |core| {

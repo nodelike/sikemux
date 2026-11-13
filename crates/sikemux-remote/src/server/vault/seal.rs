@@ -137,14 +137,23 @@ fn entry_aad(place: Place) -> String {
 }
 
 pub fn seal_entry(vault: &Key, place: Place, plain: &[u8]) -> Option<String> {
-    let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, vault).ok()?);
-    Some(URL_SAFE_NO_PAD.encode(seal_with(&key, &entry_aad(place), plain)?))
+    seal_bound(vault, &entry_aad(place), plain)
 }
 
 pub fn open_entry(vault: &Key, place: Place, sealed: &str) -> Option<Vec<u8>> {
+    open_bound(vault, &entry_aad(place), sealed)
+}
+
+/// Seals `plain` under the vault key, bound to `context`, which opening must name again.
+pub fn seal_bound(vault: &Key, context: &str, plain: &[u8]) -> Option<String> {
+    let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, vault).ok()?);
+    Some(URL_SAFE_NO_PAD.encode(seal_with(&key, context, plain)?))
+}
+
+pub fn open_bound(vault: &Key, context: &str, sealed: &str) -> Option<Vec<u8>> {
     let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, vault).ok()?);
     let bytes = URL_SAFE_NO_PAD.decode(sealed).ok()?;
-    open_with(&key, &entry_aad(place), &bytes)
+    open_with(&key, context, &bytes)
 }
 
 /// Crockford's base32, which leaves out letters that read like digits.
