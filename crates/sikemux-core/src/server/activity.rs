@@ -100,6 +100,9 @@ impl ActivityCore for Core {
                     }
                     let left = super::turn_state::left_open(self, agent_id);
                     self.inbox().ended(agent_id, None, left);
+                    if super::turn_state::began_ask(self, agent_id) {
+                        self.inbox().asked(agent_id);
+                    }
                     super::turn_state::read_work(self, agent_id);
                 }
                 self.notify().send(Signal::TurnCompleted {

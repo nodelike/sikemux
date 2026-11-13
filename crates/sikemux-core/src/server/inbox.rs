@@ -321,6 +321,10 @@ struct Turn {
     staged: Option<String>,
     /// Where git said the chat's work was, read when this turn ended and on each commit since.
     work: Option<turn_state::Work>,
+    /// When the ask it works on began: its latest turn the person or its own lead started, which
+    /// every other turn carries on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    asked_at: Option<u64>,
     /// How many times what it left was let go, so a handoff worked out before that is not kept.
     #[serde(skip)]
     let_go: u64,
@@ -369,9 +373,29 @@ impl Turns {
             *turn(turns, agent_id) = Turn {
                 started_at: epoch_ms(),
                 staged: earlier.staged,
+                asked_at: earlier.asked_at,
                 ..Turn::default()
             };
         });
+    }
+
+    /// The person or the agent's own lead started its latest turn, so a new ask began with it.
+    pub(crate) fn asked(&self, agent_id: &str) {
+        self.change(|turns| {
+            if let Some(turn) = turns.get_mut(agent_id) {
+                turn.asked_at = Some(turn.started_at);
+            }
+        });
+    }
+
+    /// Where the agent's work is, as git last said, once a turn of its that started at or after
+    /// `since` has ended.
+    pub(crate) fn worked_since(&self, agent_id: &str, since: u64) -> Option<WorkAt> {
+        let turns = self.turns.locked();
+        let turn = turns.get(agent_id)?;
+        (turn.started_at >= since && turn.ended_at.is_some())
+            .then(|| turn.work.as_ref().map(|work| work.changes))
+            .flatten()
     }
 
     /// The turn ended by itself; `problem` says what went wrong, if anything.
@@ -496,6 +520,7 @@ impl Turns {
         Some(turn_state::Ended {
             at: turn.ended_at,
             started_at: turn.started_at,
+            asked_at: turn.asked_at,
             left: turn.left.clone(),
             staged: turn.staged.clone(),
             problem: (turn.problem.as_ref()).map(|problem| turn_state::Problem {

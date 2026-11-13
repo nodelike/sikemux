@@ -67,6 +67,8 @@ pub(crate) struct Ended {
     /// None while it runs, and once the person stopped it.
     pub at: Option<u64>,
     pub started_at: u64,
+    /// When the ask it works on began, once the person or its own lead started a turn of its.
+    pub asked_at: Option<u64>,
     /// What its plan left open as it ended by itself.
     pub left: Option<String>,
     /// The commit a deploy to a place before production passed at.
@@ -90,6 +92,8 @@ pub(crate) struct Gathered {
     workers: HashMap<String, (String, u64)>,
     /// The lead each worker stopped to hear an answer from, with when it asked.
     leads: HashMap<String, (String, u64)>,
+    /// The workers of each lead.
+    teams: HashMap<String, Vec<String>>,
     /// Owners of slices waiting on the project's check: since when, and how long it usually takes.
     on_check: HashMap<String, (u64, Option<u64>)>,
 }
@@ -115,6 +119,10 @@ impl Gathered {
             asks.entry(agent).or_default().push(ask_of(attention));
         }
         let leads = core.workspaces().agent_leads();
+        let mut teams: HashMap<String, Vec<String>> = HashMap::new();
+        for (worker, lead) in &leads {
+            teams.entry(lead.clone()).or_default().push(worker.clone());
+        }
         let mut workers = HashMap::new();
         let working = agents
             .iter()
@@ -134,6 +142,7 @@ impl Gathered {
             asks,
             workers,
             leads: core.harness().questions.waiting_on_leads(),
+            teams,
             on_check: super::board::owners_on_check(core),
         }
     }
@@ -220,6 +229,10 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
         );
     }
     let leads = core.workspaces().agent_leads();
+    let team: Vec<String> = (leads.iter())
+        .filter(|(_, lead)| *lead == agent_id)
+        .map(|(worker, _)| worker.clone())
+        .collect();
     let worker = (leads.iter()).find(|(worker, lead)| *lead == agent_id && mid_turn(worker));
     let workers = (worker.into_iter())
         .map(|(worker, _)| {
@@ -238,6 +251,7 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
         asks,
         workers,
         leads,
+        teams: HashMap::from([(agent_id.to_owned(), team)]),
         on_check,
     };
     of(core, &gathered, agent_id, status)
@@ -320,8 +334,70 @@ pub(crate) fn of(
     }
     let mut state = standing(TurnPhase::Done, at);
     state.done = (ended.work.as_ref()).map(|work| done(core, agent_id, &ended, work));
+    if let Some(done) = &mut state.done {
+        if let Some(changes) = team_work(core, gathered, agent_id, &ended, done.changes) {
+            done.changes = changes;
+            done.next.clear();
+        }
+    }
     state.seen = !core.seen().unread(agent_id);
     Some(state)
+}
+
+/// Where a lead's work stands with that of the workers it ran for its current ask, when a
+/// worker's is the least advanced of theirs and its own. None when no such worker changed
+/// anything, or the lead's own work is no further along, so its own line and buttons stand.
+fn team_work(
+    core: &Core,
+    gathered: &Gathered,
+    lead: &str,
+    ended: &Ended,
+    own: WorkAt,
+) -> Option<WorkAt> {
+    let asked = ended.asked_at.unwrap_or(ended.started_at);
+    let least = (gathered.teams.get(lead)?.iter())
+        .filter_map(|worker| core.inbox().worked_since(worker, asked))
+        .filter(|changes| advanced(*changes).is_some())
+        .min_by_key(|changes| advanced(*changes))?;
+    let own_behind = advanced(own).is_some() && advanced(own) <= advanced(least);
+    (!own_behind).then_some(least)
+}
+
+/// Whether the person or the agent's own lead started its latest turn, which begins a new ask;
+/// any other turn, such as a worker's report, a trigger or the board's nudge, carries one on.
+pub(crate) fn began_ask(core: &Core, agent_id: &str) -> bool {
+    let Some(chat) = core.chats().get(agent_id) else {
+        return false;
+    };
+    let prompt = chat.feed.turn_prompt().unwrap_or_default();
+    match sender_of(&prompt) {
+        Some(sender) => {
+            (core.workspaces().agent_leads().get(agent_id)).is_some_and(|lead| lead == sender)
+        }
+        None => !chat.feed.person_said().is_empty(),
+    }
+}
+
+/// The id of the agent whose message `prompt` is, when it is one.
+fn sender_of(prompt: &str) -> Option<&str> {
+    let (opening, _) = prompt
+        .trim_start()
+        .strip_prefix("<agent-message ")?
+        .split_once('>')?;
+    let (_, rest) = opening.split_once(" agent-id=\"")?;
+    Some(rest.split_once('"')?.0)
+}
+
+/// How far work that changed something has gone; none when nothing changed or it is not known.
+fn advanced(changes: WorkAt) -> Option<u8> {
+    match changes {
+        WorkAt::Uncommitted => Some(0),
+        WorkAt::Committed => Some(1),
+        WorkAt::Landed => Some(2),
+        WorkAt::Staged => Some(3),
+        WorkAt::Shipped => Some(4),
+        WorkAt::None | WorkAt::Unknown => None,
+    }
 }
 
 /// What set to wake the agent it waits on, its turn having ended at `rested_at`: CI or a timer
@@ -807,7 +883,9 @@ fn undo_words(core: &Core, agent_id: &str) -> Result<String, String> {
 mod tests {
     use super::*;
     use crate::server::activity::{Activity, ActivityCore};
+    use crate::server::workspace::AddProjectParamsExt;
     use crate::server::ServerCore;
+    use serde_json::{json, Value};
 
     #[tokio::test]
     async fn a_finished_turn_is_seen_once_a_focused_client_shows_it() {
@@ -822,5 +900,70 @@ mod tests {
         let turn = now(&core, "agent").expect("the turn ended");
         assert_eq!(turn.state, TurnPhase::Done);
         assert!(turn.seen);
+    }
+
+    fn work(changes: WorkAt) -> Work {
+        Work {
+            changes,
+            head: None,
+            head_at: None,
+            project: "widget".to_owned(),
+            can_try: false,
+            own: Vec::new(),
+            shared: 0,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_lead_whose_worker_committed_what_it_asked_for_reads_committed_without_a_button() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let project = crate::server::workspace::add_project(
+            &core,
+            crate::server::workspace::AddProjectParams::at(dir.path().to_owned()),
+        )
+        .await
+        .expect("the project");
+        let worker = json!({
+            "id": "worker",
+            "provider": "claude",
+            "project": project.id,
+            "cwd": dir.path(),
+            "title": "Fix the header",
+            "lead": "lead",
+            "permissionMode": "auto",
+        });
+        let Value::Object(worker) = worker else {
+            unreachable!()
+        };
+        core.workspaces()
+            .put_agent_draft(worker)
+            .expect("the worker");
+        core.note_activity("lead", Activity::Started);
+        core.note_activity("worker", Activity::Started);
+        core.note_activity("worker", Activity::Finished { cancelled: false });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while (core.inbox().ending("worker")).is_none_or(|ended| ended.work.is_none()) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the worker's work was never read"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        core.inbox().keep_work("worker", work(WorkAt::Committed));
+        core.note_activity("lead", Activity::Finished { cancelled: false });
+        core.inbox().keep_work("lead", work(WorkAt::None));
+
+        let turn = now(&core, "lead").expect("the turn ended");
+        assert_eq!(turn.state, TurnPhase::Done);
+        let done = turn.done.expect("where the work is");
+        assert_eq!(done.changes, WorkAt::Committed);
+        assert!(done.next.is_empty());
+
+        core.inbox().keep_work("lead", work(WorkAt::Uncommitted));
+        let done = now(&core, "lead").and_then(|turn| turn.done);
+        let done = done.expect("where the work is");
+        assert_eq!(done.changes, WorkAt::Uncommitted);
+        assert!(done.next.iter().any(|next| next.step == TurnStep::Commit));
     }
 }
