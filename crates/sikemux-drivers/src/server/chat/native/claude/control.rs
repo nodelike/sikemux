@@ -12,6 +12,10 @@ use super::super::rpc::{error_text, ANSWER_WAIT};
 use super::super::session::Sink;
 use super::messages::ControlResponse;
 use super::reader::Shared;
+use sikemux_process::sync::Locked;
+
+/// An ask written to Claude: its id, and what its answer comes back on.
+type ModeAsked = (String, tokio::sync::oneshot::Receiver<Answered>);
 
 #[derive(Clone)]
 pub struct Control {
@@ -60,16 +64,23 @@ impl Control {
         self.write(&id, request)
     }
 
-    /// Asks Claude to work in permission `mode`: whether it did, or None when it gave no
-    /// answer in time.
-    pub async fn set_mode(&self, mode: &str) -> Option<Result<(), String>> {
-        const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+    /// Writes the ask for Claude to work in permission `mode`, answering what waits for its
+    /// answer.
+    fn ask_mode(&self, mode: &str) -> Result<ModeAsked, String> {
         let id = request_id();
         let answered = self.pending.waited(id.clone(), None);
         let request = json!({ "subtype": "set_permission_mode", "mode": mode });
-        if let Err(error) = self.write(&id, request) {
-            return Some(Err(error));
-        }
+        self.write(&id, request)?;
+        Ok((id, answered))
+    }
+
+    /// Whether Claude worked in the mode asked, or None when it gave no answer in time.
+    async fn mode_answer(&self, asked: Result<ModeAsked, String>) -> Option<Result<(), String>> {
+        const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+        let (id, answered) = match asked {
+            Ok(asked) => asked,
+            Err(error) => return Some(Err(error)),
+        };
         match tokio::time::timeout(WAIT, answered).await {
             Ok(Ok(answer)) => Some(answer.map(drop).map_err(|error| error_text(&error))),
             Ok(Err(_)) => Some(Err("Claude stopped before it answered".to_owned())),
@@ -80,17 +91,37 @@ impl Control {
         }
     }
 
+    /// Asks Claude to work in permission `mode`: whether it did, or None when it gave no
+    /// answer in time.
+    pub async fn set_mode(&self, mode: &str) -> Option<Result<(), String>> {
+        self.mode_answer(self.ask_mode(mode)).await
+    }
+
     /// Puts the chat's own permission mode back after a hidden turn ran in another, asking
     /// again when Claude refuses. Claude still refusing, or not answering, is started again on
     /// its session, which it launches in that mode, unless the chat has let go of that Claude,
-    /// whose `shared` state is then gone.
+    /// whose `shared` state is then gone. The first ask is written before this returns, so a
+    /// mode the person picks after it goes to Claude after it, and asks again for the chat's
+    /// mode as it then stands.
     pub fn restore_mode(&self, mode: String, sink: Sink, shared: Weak<Mutex<Shared>>) {
         const ASKS: usize = 3;
         let control = self.clone();
+        let first = self.ask_mode(&mode);
         tokio::spawn(async move {
             let mut why = String::new();
+            let mut asked = Some(first);
             for _ in 0..ASKS {
-                match control.set_mode(&mode).await {
+                let answer = match asked.take() {
+                    Some(first) => control.mode_answer(first).await,
+                    None => {
+                        let Some(now) = shared.upgrade().map(|shared| shared.locked().mode.clone())
+                        else {
+                            return;
+                        };
+                        control.set_mode(&now).await
+                    }
+                };
+                match answer {
                     Some(Ok(())) => return,
                     Some(Err(error)) => why = error,
                     None => {
