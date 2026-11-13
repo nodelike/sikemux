@@ -296,6 +296,22 @@ fn landed_row(landed: &AwayLanded, bench: &Entity<Workbench>, t: &Tokens, cx: &A
                 .text_color(t.text_tertiary)
                 .child(format!("· {change}"))
         }))
+        .children(landed.lines.map(|lines| {
+            div()
+                .flex_none()
+                .flex()
+                .gap(px(5.))
+                .child(
+                    div()
+                        .text_color(t.git_deleted)
+                        .child(format!("−{}", lines.dels)),
+                )
+                .child(
+                    div()
+                        .text_color(t.git_added)
+                        .child(format!("+{}", lines.adds)),
+                )
+        }))
         .child(div().flex_1().min_w(SPACE_2))
         .when(landed.try_it, |row| {
             let label = crate::turn_line::step_label(TurnStep::TryIt).unwrap_or_default();

@@ -24,7 +24,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::calls::{CallState, PersonCall};
 use sikemux_view::chat::{
-    AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, OverruledDecision, RuleChange,
+    AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, LinesChanged, OverruledDecision,
+    RuleChange,
 };
 use sikemux_view::turn::{TurnPhase, TurnStep};
 use sikemux_view::workspace::ProjectInfo;
@@ -62,8 +63,9 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - Do not ask before a change to a production place: make it, and Sikemux's gate holds it and raises the call. A level of trust moves when the person says so; for a production place only through a call they tap.
 - Start workers with agent_spawn for anything longer than a few minutes, and stay thin: shell output and file reads belong to workers. Their reports reach you; read more with agent_read only when you need it.
 - Pick for each worker the cheapest agent and model that will do its job well, and keep work off an account near its limit.
+- When a smaller change or a deletion solves the problem, choose it.
 - When the person repeats a correction a rule of theirs already makes, give memory_update that rule's id with wrong \"said again\". If a check can express it, have a worker land one, then wrong \"now a check: <commit>\"; never for an Overrule's rule.
-- Report a result as what changed, where it is and what to try. Never say something is done unless Sikemux's state line for that work says so.
+- When you report to the person, lead with the outcome, then only what needs them. Report a result as what changed, where it is and what to try. Never say something is done unless Sikemux's state line for that work says so.
 - Come back to the person at five moments only: a call; done, with where the work is and what to try; slipped, with the new time and why; stuck on something only they have; and when they ask.";
 
 /// What the chief is handed as it starts: how it works, then the project's rules and knowledge.
@@ -112,9 +114,8 @@ struct Seat {
     wrote: Vec<String>,
     /// What Sikemux has to tell it with its next turn, and when.
     notes: Vec<(u64, String)>,
-    /// Which agent landed work in its project, when, and what its commit says it changed, newest
-    /// last.
-    landed: Vec<(String, u64, String)>,
+    /// The work landed in its project, newest last.
+    landed: Vec<Landing>,
     /// What happened while the person was away, shown until it is done with.
     away: Option<Away>,
     /// Lines of its chat the core keeps until the person has seen them or they are done with,
@@ -124,6 +125,17 @@ struct Seat {
     counted: u64,
     /// Where its session stands, so a sleep or a new core goes on from it.
     session: Option<rotation::KeptSession>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Landing {
+    agent: String,
+    at: u64,
+    /// What its commit says it changed.
+    change: String,
+    #[serde(default)]
+    lines: Option<LinesChanged>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -494,14 +506,24 @@ pub(crate) fn chat_rested(core: &Core, agent_id: &str, feed: &str) {
 }
 
 /// `agent` landed work in the project at `path` with a commit whose message is `message`.
-pub(crate) fn landed(core: &Core, path: &str, agent: &str, message: &str) {
+pub(crate) fn landed(
+    core: &Core,
+    path: &str,
+    agent: &str,
+    message: &str,
+    lines: Option<LinesChanged>,
+) {
     let Some(chief) = chief_at(core, path) else {
         return;
     };
-    let now = epoch_ms();
+    let landing = Landing {
+        agent: agent.to_owned(),
+        at: epoch_ms(),
+        change: change_of(message),
+        lines,
+    };
     core.chiefs().seat(&chief, |seat| {
-        seat.landed
-            .push((agent.to_owned(), now, change_of(message)));
+        seat.landed.push(landing);
         if seat.landed.len() > MOST_LANDED {
             seat.landed.remove(0);
         }
@@ -1087,17 +1109,26 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
         .chiefs()
         .read(chief, |seat| seat.landed.clone())
         .unwrap_or_default();
-    let mut last_landed: HashMap<String, (u64, String)> = HashMap::new();
-    for (agent, at, change) in landings.into_iter().filter(|(_, at, _)| *at >= since) {
-        last_landed.insert(agent, (at, change));
+    let mut by_agent: HashMap<String, Landing> = HashMap::new();
+    for landing in landings.into_iter().filter(|landing| landing.at >= since) {
+        let before = by_agent.get(&landing.agent).and_then(|before| before.lines);
+        let lines = match (before, landing.lines) {
+            (Some(before), Some(lines)) => Some(LinesChanged {
+                adds: before.adds + lines.adds,
+                dels: before.dels + lines.dels,
+            }),
+            (before, lines) => lines.or(before),
+        };
+        by_agent.insert(landing.agent.clone(), Landing { lines, ..landing });
     }
     let turns = super::turn_state::all(core);
-    let mut landed: Vec<AwayLanded> = (last_landed.into_iter())
-        .map(|(agent_id, (at, change))| AwayLanded {
+    let mut landed: Vec<AwayLanded> = (by_agent.into_iter())
+        .map(|(agent_id, landing)| AwayLanded {
             name: core.names().name(&agent_id),
             title: core.workspaces().title(&agent_id).unwrap_or_default(),
-            at,
-            change: (!change.is_empty()).then_some(change),
+            at: landing.at,
+            change: (!landing.change.is_empty()).then_some(landing.change),
+            lines: landing.lines,
             try_it: (turns.get(&agent_id))
                 .and_then(|turn| turn.done.as_ref())
                 .is_some_and(|done| done.next.iter().any(|next| next.step == TurnStep::TryIt)),

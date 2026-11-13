@@ -2453,8 +2453,16 @@ export interface AwayLanded {
     at: number;
     /** What its commit says it changed, in one sentence. */
     change?: string;
+    /** What all its landings since the card began added and removed. */
+    lines?: LinesChanged;
     /** Its turn offers Try it. */
     tryIt?: boolean;
+}
+
+/** How many lines a landing added and removed. */
+export interface LinesChanged {
+    adds: number;
+    dels: number;
 }
 
 /** The pages a turn of this chat changed, as the core took them once it finished. */

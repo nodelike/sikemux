@@ -1877,9 +1877,20 @@ pub struct AwayLanded {
     /// What its commit says it changed, in one sentence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change: Option<String>,
+    /// What all its landings since the card began added and removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lines: Option<LinesChanged>,
     /// Its turn offers Try it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub try_it: bool,
+}
+
+/// How many lines a landing added and removed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinesChanged {
+    pub adds: u64,
+    pub dels: u64,
 }
 
 /// A rule kept from what the person said in a chat.

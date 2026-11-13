@@ -69,6 +69,13 @@ struct AwayCard: View {
         .padding(.bottom, 2)
     }
 
+    private func linesText(_ lines: LinesChanged?) -> Text {
+        guard let lines else { return Text("") }
+        let removed = Text("−\(lines.dels)").foregroundStyle(palette.gitDeleted)
+        let added = Text("+\(lines.adds)").foregroundStyle(palette.gitAdded)
+        return Text(" · \(removed) \(added)")
+    }
+
     private func landedRow(_ work: AwayLanded) -> some View {
         HStack(spacing: 10) {
             LandedMark(core: core, agentId: work.agentId)
@@ -77,11 +84,12 @@ struct AwayCard: View {
                 .padding(.top, 3)
             VStack(alignment: .leading, spacing: 2) {
                 Text(work.title).font(Theme.ui(14.5)).foregroundStyle(palette.ink).lineLimit(2)
-                Text(
-                    [work.name.map { "@\($0)" }, Format.age(Date(timeIntervalSince1970: Double(work.at) / 1000))]
-                        .compactMap { $0 }.joined(separator: " · ")
-                )
-                .font(Theme.ui(12.5)).foregroundStyle(palette.tertiary).lineLimit(1)
+                let under = [
+                    work.name.map { "@\($0)" }, Format.age(Date(timeIntervalSince1970: Double(work.at) / 1000)),
+                ]
+                .compactMap { $0 }.joined(separator: " · ")
+                Text("\(under)\(linesText(work.lines))")
+                    .font(Theme.ui(12.5)).foregroundStyle(palette.tertiary).lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             IconView(icon: Icons.chevron, size: 12).foregroundStyle(palette.tertiary)

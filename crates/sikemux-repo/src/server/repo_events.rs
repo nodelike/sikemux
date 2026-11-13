@@ -7,7 +7,9 @@ use std::collections::{BTreeSet, VecDeque};
 use std::path::Path;
 use std::sync::Mutex;
 
+use sikemux_git::Git;
 use sikemux_process::sync::Locked;
+use sikemux_view::chat::LinesChanged;
 use sikemux_view::slice::{CheckRun, Verdict};
 use tokio::sync::Notify;
 
@@ -91,7 +93,8 @@ pub fn commit_made(core: &Core, made: CommitMade<'_>) {
         core.checks()
             .wait_for(project.clone(), std::path::PathBuf::from(&project), commit);
         (core.repo_above().board_landed)(core, &project);
-        (core.repo_above().chief_landed)(core, &project, made.agent, made.message);
+        let lines = lines_changed(made.top, &format!("{}^", made.sha), made.sha);
+        (core.repo_above().chief_landed)(core, &project, made.agent, made.message, lines);
     }
     core.repo_events().tell(RepoEvent::Committed {
         project,
@@ -101,6 +104,27 @@ pub fn commit_made(core: &Core, made: CommitMade<'_>) {
     });
     core.collisions()
         .committed(made.agent, made.top, made.paths);
+}
+
+/// How many lines the change from `from` to `tip` added and removed; none when it changed no
+/// lines, as a change of only binary or renamed files does.
+pub(crate) fn lines_changed(repo: &Path, from: &str, tip: &str) -> Option<LinesChanged> {
+    let numstat = Git::quick(repo)
+        .trimmed(&["diff", "-M", "--numstat", from, tip])
+        .ok()?;
+    let mut lines = LinesChanged { adds: 0, dels: 0 };
+    for line in numstat.lines() {
+        let mut counts = line.split('\t');
+        lines.adds += counts
+            .next()
+            .and_then(|n| n.parse::<u64>().ok())
+            .unwrap_or(0);
+        lines.dels += counts
+            .next()
+            .and_then(|n| n.parse::<u64>().ok())
+            .unwrap_or(0);
+    }
+    (lines.adds + lines.dels > 0).then_some(lines)
 }
 
 impl RepoEvent {

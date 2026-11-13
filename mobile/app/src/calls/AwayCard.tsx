@@ -86,6 +86,13 @@ export function AwayCard({
                 </Text>
                 <Text style={styles.under} numberOfLines={1}>
                   {[work.name ? `@${work.name}` : null, formatAge(work.at, minute * 60_000, t)].filter(Boolean).join(' · ')}
+                  {work.lines ? (
+                    <>
+                      {' · '}
+                      <Text style={styles.removed}>{`−${work.lines.dels}`}</Text>{' '}
+                      <Text style={styles.added}>{`+${work.lines.adds}`}</Text>
+                    </>
+                  ) : null}
                 </Text>
               </View>
               <Icon name="IconChevron" size={12} color={colors.tertiary} />
@@ -196,6 +203,8 @@ const makeStyles = (colors: Palette) =>
     what: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 20, color: colors.ink },
     struck: { textDecorationLine: 'line-through', color: colors.tertiary },
     under: { marginTop: 2, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
+    removed: { color: colors.gitDeleted },
+    added: { color: colors.gitAdded },
     act: {
       height: 32,
       paddingHorizontal: 12,

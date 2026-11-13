@@ -3775,8 +3775,16 @@ struct AwayLanded: Codable, Hashable, Sendable {
     var at: Int
     /// What its commit says it changed, in one sentence.
     var change: String?
+    /// What all its landings since the card began added and removed.
+    var lines: LinesChanged?
     /// Its turn offers Try it.
     var tryIt: Bool?
+}
+
+/// How many lines a landing added and removed.
+struct LinesChanged: Codable, Hashable, Sendable {
+    var adds: Int
+    var dels: Int
 }
 
 /// The pages a turn of this chat changed, as the core took them once it finished.

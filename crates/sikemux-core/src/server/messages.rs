@@ -753,7 +753,7 @@ pub(crate) fn task(
         paths: Vec::new(),
         waits: false,
         note: Some(format!(
-            "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person. {answer}"
+            "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person: report to it. {answer}"
         )),
     })
 }

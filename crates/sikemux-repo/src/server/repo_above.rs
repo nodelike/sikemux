@@ -12,6 +12,7 @@ use serde_json::Value;
 use sikemux_calls::board::{BoardSettingsParams, Landing, ProjectBoard};
 use sikemux_calls::questions::{AnswerParams, AnswersParams};
 use sikemux_plugin_api::vault::Caller;
+use sikemux_view::chat::LinesChanged;
 use sikemux_view::host_stats::HostEventKind;
 use sikemux_view::turn::Landed;
 use sikemux_wire::protocol::AgentStatus;
@@ -54,7 +55,7 @@ pub struct RepoAbove {
     /// Every project's chief, by agent id.
     pub chief_all: fn(&Core) -> HashSet<String>,
     /// `agent` landed work in the project at `path` with a commit whose message is `message`.
-    pub chief_landed: fn(&Core, &str, &str, &str),
+    pub chief_landed: fn(&Core, &str, &str, &str, Option<LinesChanged>),
     /// Whether question `id` asks for a change to production, which only its call answers.
     pub questions_asks_production: fn(&Core, &str) -> bool,
     /// The CLI the agent runs, or "agent" when it is not known.
