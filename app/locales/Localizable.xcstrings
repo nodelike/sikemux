@@ -34169,6 +34169,7 @@
         }
       }
     },
+    "Filter": {},
     "Filter branches": {
       "localizations": {
         "es": {
@@ -61679,6 +61680,7 @@
         }
       }
     },
+    "Nothing matches": {},
     "Nothing matches \"{query}\".": {
       "localizations": {
         "es": {
@@ -87733,6 +87735,7 @@
         }
       }
     },
+    "Show all {count}": {},
     "Show buddies": {
       "localizations": {
         "es": {
@@ -87993,6 +87996,7 @@
         }
       }
     },
+    "Show fewer": {},
     "Show in Files": {
       "localizations": {
         "es": {

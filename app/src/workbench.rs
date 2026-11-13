@@ -77,6 +77,8 @@ pub struct Workbench {
     on_screen: Option<(Vec<String>, bool)>,
     /// What the per-project and worktree watches were last made for.
     pub(crate) watched: feed::Watched,
+    /// How the checkout popover shows the environment values.
+    pub(crate) checkout_env: crate::worktrees::ports::EnvList,
     pub hosts_page: crate::hosts::page::Page,
     pub battery: Option<Battery>,
     pub agent_setup: crate::agents::setup::Setup,
@@ -319,6 +321,7 @@ impl Workbench {
             window_active: window.is_window_active(),
             on_screen: None,
             watched: feed::Watched::default(),
+            checkout_env: crate::worktrees::ports::EnvList::new(window, cx),
             hosts_page: crate::hosts::page::Page::new(window, cx),
             battery: crate::battery::read(),
             agent_setup: Default::default(),

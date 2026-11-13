@@ -11,6 +11,6 @@ core taskStart "{\"project\":\"$checkout\",\"taskId\":\"web\"}"
 core taskStart "{\"project\":\"$checkout\",\"taskId\":\"api\"}"
 settle 8
 snap after
-click 768,854
+click 768,567
 settle 3
 snap after-popover

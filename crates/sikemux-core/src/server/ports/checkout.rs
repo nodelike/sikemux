@@ -55,6 +55,19 @@ impl Here {
         env
     }
 
+    /// What the person is shown of what processes here get: the checkout's name and the
+    /// project's own `env`, as the ports and folder are shown apart.
+    pub(crate) fn shown_environment(&self) -> Vec<(String, String)> {
+        let name = (values::CHECKOUT_VAR.to_owned(), self.name.clone());
+        let config = self.config.as_ref().filter(|_| self.trusted);
+        let ports = self.ports();
+        let own = config.into_iter().flat_map(|config| {
+            (config.env.iter())
+                .map(|(key, value)| (key.clone(), values::fill(value, &self.place(), &ports)))
+        });
+        std::iter::once(name).chain(own).collect()
+    }
+
     /// What a process `task_id` started here adds: `PORT` when it has one, and its own `env`.
     pub(crate) fn task_environment(&self, task_id: &str) -> Vec<(String, String)> {
         let Some(config) = &self.config else {
@@ -298,7 +311,7 @@ pub(crate) fn about(here: &Here, listening: &[ListeningPort]) -> CheckoutAbout {
         first_port: here.first_port,
         ports,
         main_ports,
-        env: here.environment(),
+        env: here.shown_environment(),
     }
 }
 

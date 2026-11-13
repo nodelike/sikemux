@@ -1,0 +1,24 @@
+# The checkout popover for a project with forty environment values, trusted in the project's own
+# folder only: collapsed, then every value under a filter.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+project storefront checkout-env-shop
+chat Wren
+core trustProject "{\"project\":\"$project\",\"fingerprint\":\"sha256:fd17bcc27cea928e2fdbc001c1ff6a529d4e404c4abc6892aa0e916b426681e2\"}"
+core createAgentWorktree "{\"agentId\":\"$chat\",\"message\":\"Some orders come out a cent off\"}"
+core taskStart "{\"project\":\"$checkout\",\"taskId\":\"web\"}"
+core taskStart "{\"project\":\"$checkout\",\"taskId\":\"api\"}"
+settle 8
+click 768,567
+settle 3
+snap after-popover-40
+click 770,483
+settle 2
+move 900,390 0.3
+scroll -160 0.5
+settle 1
+snap after-popover-40-scrolled
+type "url" 8
+settle 2
+snap after-popover-40-open

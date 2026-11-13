@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "ports": {
+    "db": 5432
+  },
+  "env": {
+    "DATABASE_URL": "postgres://localhost:{port.db}/shop_{checkout}",
+    "VITE_API_URL": "http://localhost:{port.api}",
+    "REDIS_URL": "redis://localhost:6379/1",
+    "SESSION_SECRET_PATH": "{root}/.secrets/session.key",
+    "UPLOADS_DIR": "{root}/.data/{checkout}/uploads",
+    "LOG_LEVEL": "debug",
+    "NODE_ENV": "development",
+    "APP_URL": "http://localhost:{port.web}",
+    "STRIPE_WEBHOOK_URL": "http://localhost:{port.api}/webhooks/stripe",
+    "OAUTH_REDIRECT_URI": "http://localhost:{port.web}/auth/callback",
+    "SENTRY_ENVIRONMENT": "dev-{checkout}",
+    "FEATURE_NEW_CHECKOUT": "true",
+    "FEATURE_GIFT_CARDS": "false",
+    "CACHE_TTL_SECONDS": "30",
+    "SMTP_HOST": "localhost",
+    "SMTP_PORT": "1025",
+    "S3_ENDPOINT": "http://localhost:9000",
+    "S3_BUCKET": "shop-{checkout}",
+    "PAYMENTS_MODE": "test",
+    "TAX_SERVICE_URL": "http://localhost:{port.api}/tax",
+    "SEARCH_INDEX": "products_{checkout}",
+    "QUEUE_NAME": "jobs_{checkout}",
+    "WORKER_CONCURRENCY": "2",
+    "RATE_LIMIT_PER_MINUTE": "600",
+    "CORS_ORIGINS": "http://localhost:{port.web}",
+    "PUBLIC_ASSETS_URL": "http://localhost:{port.web}/assets",
+    "IMAGE_CDN_URL": "http://localhost:{port.web}/img",
+    "CURRENCY_DEFAULT": "EUR",
+    "LOCALE_DEFAULT": "en-GB",
+    "ANALYTICS_DISABLED": "true",
+    "PDF_RENDERER_PATH": "{root}/tools/render-pdf",
+    "SEED_FILE": "{root}/db/seed.sql",
+    "MIGRATIONS_DIR": "{root}/db/migrations",
+    "TMP_DIR": "{root}/.tmp/{checkout}",
+    "GRAPHQL_PLAYGROUND": "true",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+    "OTEL_SERVICE_NAME": "shop-{checkout}",
+    "MAX_CART_ITEMS": "100",
+    "ROUNDING_MODE": "half_even",
+    "ORDER_NUMBER_PREFIX": "DEV-"
+  },
+  "tasks": [
+    {
+      "id": "web",
+      "label": "Web",
+      "command": "python3 -m http.server $PORT",
+      "port": 5173
+    },
+    {
+      "id": "api",
+      "label": "API",
+      "command": "python3 -m http.server $PORT",
+      "port": 8000
+    }
+  ],
+  "preview": {
+    "url": "http://localhost:{port.web}"
+  }
+}

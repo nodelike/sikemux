@@ -72,6 +72,7 @@ impl Workbench {
                 None => target.watch::<call::WorktreeMerged>(Read::WorktreeMerged, merged),
             }
         }
+        self.checkout_env.open = false;
         self.watched.worktree = watched;
     }
 }

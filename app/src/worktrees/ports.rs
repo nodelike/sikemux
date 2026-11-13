@@ -3,10 +3,12 @@
 
 use gpui::Anchor;
 use gpui_kit::base::Popover;
+use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, ClipboardItem, Context, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, StatefulInteractiveElement, Styled, WeakEntity,
+    div, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity, FontWeight,
+    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
+    Styled, WeakEntity, Window,
 };
 use sikemux_core::server::ports::checkout::CheckoutAbout;
 
@@ -19,6 +21,26 @@ use crate::ui::{self, IconButton};
 use crate::workbench::Workbench;
 
 const WIDTH: f32 = 360.;
+/// How many environment values show before "Show all".
+const FIRST_VALUES: usize = 5;
+const ENV_ROW: f32 = 22.;
+/// How tall the list of every value is, so the popover keeps its height however many there are.
+const ENV_LIST: f32 = 9. * ENV_ROW;
+
+/// Whether the popover shows every environment value, and the filter over them.
+pub struct EnvList {
+    pub open: bool,
+    pub filter: Entity<InputState>,
+}
+
+impl EnvList {
+    pub fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
+        Self {
+            open: false,
+            filter: cx.new(|cx| InputState::new(window, cx).placeholder(t!("Filter"))),
+        }
+    }
+}
 
 /// The ports chip for `agent`, while it works in a checkout of its own that has them.
 pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Option<AnyElement> {
@@ -26,6 +48,7 @@ pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Opti
     let first = known.worktree.as_ref()?.first_port?;
     let t = Tokens::get(cx).clone();
     let about = bench.feeds.in_front().checkout.clone();
+    let shown = (bench.checkout_env.open, bench.checkout_env.filter.clone());
     let (bench, agent) = (cx.entity().downgrade(), agent.to_owned());
     let face = move |open: bool| {
         div()
@@ -57,7 +80,7 @@ pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Opti
             .anchor(Anchor::BottomLeft)
             .offset(SPACE_1H)
             .trigger_with(move |open, _, _| face(open).into_any_element())
-            .content(move |_, _, cx| card(about.clone(), &bench, &agent, cx))
+            .content(move |_, _, cx| card(about.clone(), &shown, &bench, &agent, cx))
             .into_any_element(),
     )
 }
@@ -71,6 +94,7 @@ fn range(first: u16) -> String {
 /// environment it gives.
 fn card(
     about: Option<CheckoutAbout>,
+    shown: &(bool, Entity<InputState>),
     bench: &WeakEntity<Workbench>,
     agent: &str,
     cx: &mut App,
@@ -212,11 +236,7 @@ fn card(
         }
         (None, None) => None,
     };
-    let env = about.env.iter().map(|(key, value)| {
-        mono(format!("{key}={value}"), t.text_secondary)
-            .w_full()
-            .whitespace_normal()
-    });
+    let env = env_group(&about.env, shown, bench, cx);
     frame
         .child(heading(t!("Checkout"), cx))
         .child(checkout)
@@ -232,7 +252,7 @@ fn card(
             )
         })
         .child(heading(t!("Env"), cx))
-        .child(div().flex().flex_col().gap(px(3.)).children(env))
+        .child(env)
         .child(
             ui::text(
                 t!("Worked out from sikemux.json. Every agent and process in this checkout gets them."),
@@ -243,6 +263,159 @@ fn card(
             .w_full()
             .whitespace_normal()
             .text_color(t.text_tertiary),
+        )
+        .into_any_element()
+}
+
+/// The ENV group: a few values, then all of them in a list of fixed height under a filter.
+/// Each value is one line; the full value and a copy button show on hover.
+fn env_group(
+    env: &[(String, String)],
+    (open, filter): &(bool, Entity<InputState>),
+    bench: &WeakEntity<Workbench>,
+    cx: &mut App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let (open, filter) = (*open, filter.clone());
+    let row = |at: usize, key: &str, value: &str| {
+        let line = format!("{key}={value}");
+        let copied = line.clone();
+        let group = SharedString::from(format!("checkout-env-{at}"));
+        div()
+            .id(("checkout-env", at))
+            .group(group.clone())
+            .h(px(ENV_ROW))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(SPACE_1)
+            .tooltip(ui::tooltip(line))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .text_size(theme::ui_text(TEXT_XS))
+                    .font_family(theme::MONO)
+                    .font_features(theme::tabular())
+                    .whitespace_nowrap()
+                    .child(
+                        div()
+                            .flex_none()
+                            .max_w(px(170.))
+                            .truncate()
+                            .text_color(t.text_primary)
+                            .child(key.to_owned()),
+                    )
+                    .child(div().flex_none().text_color(t.text_tertiary).child("="))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(t.text_secondary)
+                            .child(value.to_owned()),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .opacity(0.)
+                    .group_hover(group, |copy| copy.opacity(1.))
+                    .child(
+                        IconButton::new(("checkout-env-copy", at), Icon::Copy, t!("Copy"))
+                            .small()
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()))
+                            }),
+                    ),
+            )
+    };
+    if !open {
+        let more = (env.len() > FIRST_VALUES).then(|| {
+            let bench = bench.clone();
+            ui::sign_in::link(
+                "checkout-env-all",
+                t!("Show all {count}", count = env.len()),
+                &*cx,
+            )
+            .on_click(move |_, window, cx| {
+                let opened = bench.update(cx, |bench, cx| {
+                    bench.checkout_env.open = true;
+                    cx.notify();
+                    bench.checkout_env.filter.clone()
+                });
+                if let Ok(filter) = opened {
+                    filter.update(cx, |filter, cx| filter.focus(window, cx));
+                }
+            })
+        });
+        return div()
+            .flex()
+            .flex_col()
+            .children(
+                env.iter()
+                    .take(FIRST_VALUES)
+                    .enumerate()
+                    .map(|(at, (key, value))| row(at, key, value)),
+            )
+            .children(more.map(|more| div().pt(SPACE_1).child(more)))
+            .into_any_element();
+    }
+    let fewer = {
+        let bench = bench.clone();
+        ui::sign_in::link("checkout-env-fewer", t!("Show fewer"), &*cx)
+            .flex_none()
+            .on_click(move |_, _, cx| {
+                bench
+                    .update(cx, |bench, cx| {
+                        bench.checkout_env.open = false;
+                        cx.notify();
+                    })
+                    .ok();
+            })
+    };
+    let query = filter.read(cx).value().trim().to_lowercase();
+    let found: Vec<_> = (env.iter().enumerate())
+        .filter(|(_, (key, value))| {
+            query.is_empty()
+                || key.to_lowercase().contains(&query)
+                || value.to_lowercase().contains(&query)
+        })
+        .collect();
+    let empty = found.is_empty().then(|| {
+        ui::text(t!("Nothing matches"), TEXT_XS, FontWeight::NORMAL).text_color(t.text_tertiary)
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_1)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(ui::Field::new(&filter).small().mono().icon(Icon::Search)),
+                )
+                .child(fewer),
+        )
+        .child(
+            div()
+                .id("checkout-env-list")
+                .h(px(ENV_LIST))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .children(
+                    found
+                        .into_iter()
+                        .map(|(at, (key, value))| row(at, key, value)),
+                )
+                .children(empty),
         )
         .into_any_element()
 }
