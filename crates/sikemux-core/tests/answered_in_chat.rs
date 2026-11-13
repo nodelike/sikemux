@@ -261,11 +261,20 @@ fn holding(dir: &Path, part: &str, words: &str, found: &mut Vec<std::path::PathB
     }
 }
 
-/// QA #233: a lead that passed its worker's access call to the person and then answered it itself
-/// had its answer kept in clear as a decision, so the away block, the inbox and every reader of
-/// decisions could quote it.
+/// QA #233: a lead's answer to its worker's access question was kept in clear as a decision, so
+/// the away block, the inbox and every reader of decisions could quote it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_leads_answer_to_an_access_question_is_kept_as_settled_without_its_words() {
+    lead_answers_access_question(false).await;
+}
+
+/// The same, once the lead has passed the call on to the person and then answers it itself.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_leads_answer_to_an_access_call_it_passed_on_is_kept_without_its_words() {
+    lead_answers_access_question(true).await;
+}
+
+async fn lead_answers_access_question(passed_on: bool) {
     let root = tempfile::Builder::new()
         .prefix("qa233")
         .tempdir_in("/tmp")
@@ -304,11 +313,17 @@ async fn a_leads_answer_to_an_access_question_is_kept_as_settled_without_its_wor
         std::thread::sleep(Duration::from_millis(10));
     };
 
-    let mut passed = raise(asked);
-    passed["for"] = json!(worker);
-    lead.says(&format!("tool agent.ask {passed}"), "tool ")
-        .await;
-    raised(&root, asked);
+    if passed_on {
+        let mut passed = raise(asked);
+        passed["for"] = json!(worker);
+        lead.says(&format!("tool agent.ask {passed}"), "tool ")
+            .await;
+        raised(&root, asked);
+    } else {
+        let mut asker = Agent::open(&socket, &worker).await;
+        let heard = asker.says("how is the vault going?", "echo:").await;
+        assert!(heard.contains("how is the vault going"), "{heard}");
+    }
 
     let passphrase = "correct horse battery staple";
     let send = json!({ "to": worker, "answers": question, "text": passphrase, "why": format!("the vault takes {passphrase}") });
@@ -336,10 +351,6 @@ async fn a_leads_answer_to_an_access_question_is_kept_as_settled_without_its_wor
     let why = lead.says(&format!("tool agent.why {why}"), "tool ").await;
     let mut kept = Vec::new();
     holding(&root.join("data"), "board", "correct horse", &mut kept);
-    println!(
-        "digest: {digest}\nboard holds it: {}\nwhy: {why}\nlog files holding it: {kept:?}",
-        board.to_string().contains("correct horse")
-    );
 
     let decision = &digest["decided"][0]["decision"];
     assert!(

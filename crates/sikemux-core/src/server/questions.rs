@@ -161,6 +161,10 @@ struct Question {
     /// straight to the person and the answer never enters a transcript.
     #[serde(default)]
     secret: bool,
+    /// The asker asks for access only the person has, such as a credential, so its answer is
+    /// never kept or shown again, while it is with the asker's lead too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    access: bool,
     at: u64,
     stage: Stage,
     /// The linked host it was also put to the person on, where its asker's team
@@ -259,7 +263,9 @@ impl Question {
 
     /// Its answer may be a password or a token, so it is never shown again.
     fn hides_answer(&self) -> bool {
-        self.secret || (self.raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Access)
+        self.secret
+            || self.access
+            || (self.raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Access)
     }
 
     /// The option of its call that runs what it holds, on an approval of a plugin call.
@@ -279,7 +285,7 @@ impl Question {
     fn call(&self) -> PersonCall {
         let reason = self.raise.as_ref().map(|raise| raise.reason);
         let kind = match reason {
-            _ if self.secret => CallKind::Access,
+            _ if self.secret || self.access => CallKind::Access,
             _ if self.approval.is_some() || self.production() => CallKind::Production,
             Some(RaisedFor::Money) => CallKind::Money,
             Some(RaisedFor::Access) => CallKind::Access,
@@ -480,6 +486,7 @@ struct Asked {
     blocked: bool,
     assumption: Option<String>,
     secret: bool,
+    access: bool,
     approval: Option<Approval>,
     proof: Option<ProofAsk>,
     dialog: Option<String>,
@@ -732,9 +739,7 @@ impl Questions {
                 text: question.text.clone(),
                 blocked: question.blocked,
                 assumption: question.assumption.clone(),
-                access: question.secret
-                    || (question.raise.as_ref())
-                        .is_some_and(|raise| raise.reason == RaisedFor::Access),
+                access: question.hides_answer(),
                 answers: match question.multi {
                     true => Vec::new(),
                     false => (question.choices.iter())
@@ -1063,6 +1068,9 @@ fn recommended(label: &str) -> (&str, bool) {
     }
 }
 
+/// What an access call lacks without an option, so the person is never stuck.
+const ACCESS_CHOICE: &str = "choices: at least one that needs no credential, such as \"Skip, use something else\", so the person is never stuck; what they type reaches you only as a private file";
+
 /// What `ask` was given to raise a decision to the person, refused when it does not stand alone,
 /// saying everything missing. The choice picked gets marked as recommended.
 fn raise_of(
@@ -1102,9 +1110,7 @@ fn raise_of(
         missing.push("choices: at least two options".to_owned());
     }
     if !needs_choice && choices.is_empty() {
-        missing.push(
-            "choices: at least one that needs no credential, such as \"Skip, use something else\", so the person is never stuck; what they type reaches you only as a private file".to_owned(),
-        );
+        missing.push(ACCESS_CHOICE.to_owned());
     }
     if needs_choice && pick.is_none() {
         missing.push("pick: the choice you would take".to_owned());
@@ -1267,6 +1273,7 @@ fn open(
                 stage.clone()
             },
             secret: asked.secret,
+            access: asked.access,
             id: format!("question-{}", uuid::Uuid::new_v4().simple()),
             agent_id: agent_id.to_owned(),
             name: name.clone(),
@@ -1361,8 +1368,9 @@ fn for_lead(question: &Question) -> (String, String) {
         None => "you get it once more to decide, then it goes to the person as something you could not decide".to_owned(),
     };
     let id = &question.agent_id;
+    let private = kept_private(question);
     let note = format!(
-        "@{name} ({id}), an agent you started, asks you this. You decide it: answer with agent_send to {id}, setting answers to {} and why. {RAISE_RULE}, setting for to {id}. If your turn ends with neither, {if_silent}.",
+        "@{name} ({id}), an agent you started, asks you this. You decide it: answer with agent_send to {id}, setting answers to {} and why. {RAISE_RULE}, setting for to {id}. If your turn ends with neither, {if_silent}.{private}",
         question.id
     );
     (text, note)
@@ -1372,13 +1380,22 @@ fn for_lead(question: &Question) -> (String, String) {
 const RAISE_RULE: &str = "Raise it to the person only if it is irreversible or leaves this machine, spends money, is a call of taste or product direction, or needs access only they have: use ask with reason, choices, pick and breaks";
 
 /// The question as its lead reads it when it comes back, after a turn that left it unanswered.
+/// What a lead is told of a question whose answer is hidden, after how to answer it.
+fn kept_private(question: &Question) -> &'static str {
+    match question.hides_answer() {
+        true => " It asks for access, so what you send goes to it alone: the record keeps only that you answered it privately, and no why of yours.",
+        false => "",
+    }
+}
+
 fn for_lead_again(question: &Question) -> (String, String) {
     let (text, _) = for_lead(question);
     let name = &question.name;
     let id = &question.agent_id;
     let note = format!(
-        "You ended your turn without answering @{name} ({id}), which is still waiting. Decide it now: answer with agent_send to {id}, setting answers to {} and why. {RAISE_RULE}, setting for to {id}. If this turn ends with neither, it goes to the person as something you could not decide.",
-        question.id
+        "You ended your turn without answering @{name} ({id}), which is still waiting. Decide it now: answer with agent_send to {id}, setting answers to {} and why. {RAISE_RULE}, setting for to {id}. If this turn ends with neither, it goes to the person as something you could not decide.{}",
+        question.id,
+        kept_private(question)
     );
     (text, note)
 }
@@ -1482,6 +1499,12 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     if secret && !blocked {
         return Err("a secret question is blocked: wait for the answer".into());
     }
+    let access = !secret && params.get("reason").and_then(Value::as_str) == Some("access");
+    if access && choices.is_empty() {
+        return Err(format!(
+            "An access question can reach the person, so it needs {ACCESS_CHOICE}"
+        ));
+    }
     let raised = !secret
         && reachable_lead(core, &agent_id).is_none()
         && (params.get("reason").is_some() || (blocked && raises(core, &agent_id)));
@@ -1507,6 +1530,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             blocked,
             assumption,
             secret,
+            access,
             approval: None,
             proof: None,
             dialog: None,
@@ -1558,6 +1582,7 @@ pub(crate) fn put_to_person(
             blocked: true,
             assumption: None,
             secret: false,
+            access: false,
             approval: Some(approval),
             proof: None,
             dialog: None,
@@ -1603,6 +1628,7 @@ pub(crate) fn put_proof_to_person(
                 "Nothing is written to the pull request until you post it.".to_owned(),
             ),
             secret: false,
+            access: false,
             approval: None,
             proof: Some(proof),
             dialog: None,
@@ -1638,6 +1664,7 @@ pub(crate) fn ask_for_dialog(
             blocked: true,
             assumption: None,
             secret: false,
+            access: false,
             approval: None,
             proof: None,
             dialog: Some(dialog),
@@ -1831,6 +1858,7 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
                 blocked: true,
                 assumption: None,
                 secret: question["isSecret"].as_bool().unwrap_or(false),
+                access: false,
                 approval: None,
                 proof: None,
                 dialog: None,
