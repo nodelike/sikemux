@@ -299,13 +299,18 @@ fn bake(path: &Path, glow_size: f32) -> Option<Arc<RenderImage>> {
 
 /// What fills a pane's frame behind everything the pane shows.
 pub fn field(cx: &App) -> Option<AnyElement> {
-    field_at(cx).map(|draw| draw(1.))
+    field_at(cx, false).map(|draw| draw(1.))
 }
 
 /// What fills an agent pane's frame: its usual field, crossing over to a new chat's glow as
-/// `glow` runs from 0 to 1.
+/// `glow` runs from 0 to 1. A pane picture stays under the glow, covering the whole pane.
 pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
-    let field = field_at(cx);
+    let field = field_at(cx, false);
+    let whole_picture = cx
+        .try_global::<Grain>()
+        .is_some_and(|grain| grain.picture.is_some())
+        .then(|| field_at(cx, true))
+        .flatten();
     let accent = Tokens::get(cx).accent.to_rgb();
     let (start, speed) = clock(GLOW_SPEED, cx);
     move |glow| {
@@ -317,6 +322,12 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
                     .as_ref()
                     .filter(|_| glow < 1.)
                     .map(|draw| draw(1. - glow)),
+            )
+            .children(
+                whole_picture
+                    .as_ref()
+                    .filter(|_| glow > 0.)
+                    .map(|draw| draw(glow)),
             )
             .children((glow > 0.).then(|| {
                 canvas(
@@ -344,17 +355,21 @@ fn inner_radius() -> f32 {
     f32::from(RADIUS_3) - 1.
 }
 
-/// The pane's field drawn as solid as the number it is given, from 0 to 1.
-fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
+/// The pane's field drawn as solid as the number it is given, from 0 to 1, its picture over
+/// the whole pane when `whole`, else as the preferences say.
+fn field_at(cx: &App, whole: bool) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
     let grain = cx
         .try_global::<Grain>()
         .filter(|grain| grain.shown && grain.strength > 0.)?;
     if let Some((_, picture)) = &grain.picture {
-        let band = match grain.look.full {
+        let band = match whole || grain.look.full {
             true => relative(1.),
             false => relative(PICTURE_BAND),
         };
-        let params = picture_params(grain, cx);
+        let mut params = picture_params(grain, cx);
+        if whole {
+            params[3] = 1.;
+        }
         let picture = picture.clone();
         return Some(Rc::new(move |solid| {
             let mut params = params;
