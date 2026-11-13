@@ -1,14 +1,10 @@
-//! YOLO's look: a rainbow through the theme's own colours, as the word in the composer and as
-//! the composer's edge.
+//! YOLO's look: a rainbow through the theme's own colours, as the word in the composer.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use gpui_kit::{
-    div, img, linear_color_stop, linear_gradient, Div, Hsla, Image, ImageFormat, Img,
-    ParentElement, Pixels, Rgba, Styled,
-};
+use gpui_kit::{img, Hsla, Image, ImageFormat, Img, Rgba, Styled};
 
 use crate::theme::{self, Tokens};
 
@@ -76,41 +72,4 @@ pub fn wordmark(size: f32, t: &Tokens) -> Img {
         .flex_none()
         .h(theme::ui_text(tall))
         .w(theme::ui_text(tall * width / height))
-}
-
-/// The rainbow behind a box set in from it, so it shows only as the box's edge, stronger on a
-/// light theme: one two-colour gradient between each pair of neighbours, as GPUI's take two stops.
-pub fn edge(radius: Pixels, t: &Tokens) -> Div {
-    let strength = if t.dark { 0.45 } else { 0.6 };
-    let mut colors: Vec<Hsla> = (stops(t).into_iter())
-        .map(|color| Hsla {
-            a: strength,
-            ..color
-        })
-        .collect();
-    if colors.len() == 1 {
-        colors.push(colors[0]);
-    }
-    let last = colors.len() - 2;
-    div()
-        .absolute()
-        .inset_0()
-        .flex()
-        .children(colors.windows(2).enumerate().map(|(at, pair)| {
-            let band = div().flex_1().h_full().bg(linear_gradient(
-                90.,
-                linear_color_stop(pair[0], 0.),
-                linear_color_stop(pair[1], 1.),
-            ));
-            let band = if at == 0 {
-                band.rounded_l(radius)
-            } else {
-                band
-            };
-            if at == last {
-                band.rounded_r(radius)
-            } else {
-                band
-            }
-        }))
 }
