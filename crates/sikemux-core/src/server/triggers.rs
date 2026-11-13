@@ -125,6 +125,15 @@ impl Trigger {
     }
 }
 
+struct Due {
+    firing: Vec<Firing>,
+    /// Triggers that look at what they wait on before firing.
+    looking: Vec<u64>,
+    /// Triggers given a new next time, or ended, without firing now.
+    moved: Vec<Trigger>,
+    next: Option<u64>,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Saved {
@@ -313,12 +322,12 @@ impl Triggers {
     }
 
     /// Takes out the triggers whose time has come, moving repeating ones on
-    /// to their next time, and says which triggers look at what they wait on
-    /// before firing and when the next one left is due.
-    fn take_due(&self, now: u64) -> (Vec<Firing>, Vec<u64>, Option<u64>) {
+    /// to their next time.
+    fn take_due(&self, now: u64) -> Due {
         let mut state = self.state.locked();
         let mut firing = Vec::new();
         let mut looking = Vec::new();
+        let mut moved = Vec::new();
         let mut changed = false;
         state.triggers.retain_mut(|trigger| {
             let Some(due) = trigger.next_at.filter(|due| *due <= now) else {
@@ -349,6 +358,7 @@ impl Triggers {
             let last = next.is_none();
             if trigger.check.is_some() {
                 looking.push(trigger.id);
+                moved.push(trigger.clone());
             } else if !late || last {
                 firing.push(Firing {
                     trigger: trigger.clone(),
@@ -356,6 +366,8 @@ impl Triggers {
                     last,
                     request: None,
                 });
+            } else {
+                moved.push(trigger.clone());
             }
             trigger.next_at = next;
             next.is_some()
@@ -369,7 +381,12 @@ impl Triggers {
             .filter(|trigger| !trigger.rests())
             .filter_map(|trigger| trigger.next_at)
             .min();
-        (firing, looking, next)
+        Due {
+            firing,
+            looking,
+            moved,
+            next,
+        }
     }
 
     fn agents(&self) -> Vec<String> {
@@ -537,15 +554,20 @@ pub(crate) fn settle(core: &Arc<Core>) {
         });
         closed.iter().for_each(|trigger| unhook(core, trigger));
     }
-    let (firing, looking, next) = core.triggers().take_due(epoch_ms());
+    let Due {
+        firing,
+        looking,
+        moved,
+        next,
+    } = core.triggers().take_due(epoch_ms());
     if let Some(next) = next {
         core.triggers().wake.at(next);
     }
     for id in looking {
         tokio::spawn(look(core.clone(), id));
     }
-    for firing in &firing {
-        show(core, &firing.trigger);
+    for trigger in firing.iter().map(|firing| &firing.trigger).chain(&moved) {
+        show(core, trigger);
     }
     for firing in firing {
         tokio::spawn(fire(core.clone(), firing));
