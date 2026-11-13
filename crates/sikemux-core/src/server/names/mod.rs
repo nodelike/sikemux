@@ -10,8 +10,8 @@ mod words;
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::names::{AgentName, ClosedAgent, ClosedAgentsParams, RenameAgentParams};
 pub use sikemux_calls::names::{NameTheme, NameThemeParams};
 use std::collections::{HashMap, HashSet, VecDeque};

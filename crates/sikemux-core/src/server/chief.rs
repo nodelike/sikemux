@@ -9,6 +9,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chief::{OpenChiefParams, OpenedChief};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

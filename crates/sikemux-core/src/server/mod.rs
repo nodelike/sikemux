@@ -137,6 +137,7 @@ mod why;
 pub(crate) use sikemux_serve::server::window;
 pub mod workspace;
 mod workspace_above;
+mod workspace_state;
 pub mod worktree;
 
 pub use calls::call;
@@ -147,9 +148,10 @@ use crate::server::changed::ChangedCore;
 use crate::server::parts::PartCore;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_corekit::lock::lock_holder;
 use sikemux_corekit::lock::lock_path;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt, PermissionsExt};
@@ -329,23 +331,6 @@ pub(crate) trait ServerCore {
 
     fn reload_manifests(&self) -> CoreResult<ManifestReloadReport>;
 
-    fn running_agents(&self) -> HashSet<String>;
-
-    /// The agents that keep their names: those running here and those the
-    /// workspace holds, asleep or not.
-    fn open_agents(&self) -> HashSet<String>;
-
-    /// The agent's name, given now when it has none. A closed agent opening again under its
-    /// id comes back as itself, with the buddy it wore, which it answers too. Reads and writes
-    /// the disk, so it belongs on a blocking thread.
-    fn name_agent(
-        &self,
-        agent_id: &str,
-        cwd: &Path,
-        provider: Option<&str>,
-        resume_id: Option<&str>,
-    ) -> (names::AgentName, Option<names::Returned>);
-
     /// Each ssh terminal's config host and how it reaches it.
     fn ssh_links(&self) -> Vec<(String, Option<sikemux_pty::shell_protocol::SshLink>)>;
 
@@ -446,6 +431,20 @@ impl ServerCore for Core {
                     above: base::above(),
                     build: config.build.clone(),
                 }) as sikemux_kernel::Parts,
+                Box::new(workspace_state::WorkspaceFields {
+                    workspaces: workspace::Workspaces::new(data_dir, from_app::app_state(data_dir)),
+                    names,
+                    clones: new_project::Clones::default(),
+                    preferences: preferences::Prefs::new(data_dir, themes::on_omarchy()),
+                    activity_log,
+                    open_files: Default::default(),
+                    drafts: drafts::Drafts::new(data_dir),
+                    diagrams: diagrams::Diagrams::new(data_dir),
+                    seen: seen::Seen::default(),
+                    faces: faces::Faces::new(data_dir),
+                    workspace_above: base::workspace_above(),
+                    attachment_dir: config.attachment_dir.clone(),
+                }) as sikemux_kernel::Parts,
                 Box::new(parts::Fields {
                     config,
                     manifest_folder: Mutex::new(None),
@@ -453,7 +452,6 @@ impl ServerCore for Core {
                     ports: ports::Ports::new(data_dir),
                     usage_wake: Notify::new(),
                     ssh_watch: OnceLock::new(),
-                    preferences: preferences::Prefs::new(data_dir, themes::on_omarchy()),
                     streams: streams::Streams::default(),
                     look: themes::Look::default(),
                     harness,
@@ -463,8 +461,6 @@ impl ServerCore for Core {
                     outside: outside::Outside::new(data_dir),
                     shares: share::Shares::default(),
                     hooks: hooks::Hooks::default(),
-                    workspaces: workspace::Workspaces::new(data_dir, from_app::app_state(data_dir)),
-                    seen: seen::Seen::default(),
                     settling: settling::Settling::default(),
                     stalls: stalls::Stalls::default(),
                     lifecycle: lifecycle::Lifecycle::default(),
@@ -474,10 +470,8 @@ impl ServerCore for Core {
                     build_outputs: Default::default(),
                     line: line::Line::new(data_dir),
                     session_watch: session_watch::SessionWatch::default(),
-                    activity_log,
                     device_view: device_view::DeviceViews::default(),
                     host_watch: host_stats::HostWatch::default(),
-                    names,
                     boards: board::Boards::new(data_dir),
                     places: places::store::Store::new(data_dir),
                     goal_summaries: goal_summary::Summaries::new(data_dir),
@@ -494,7 +488,6 @@ impl ServerCore for Core {
                     tasks: tasks::Tasks::new(data_dir),
                     git: git::Projects::default(),
                     code_host_lists: Default::default(),
-                    open_files: Default::default(),
                     layouts: layout::Layouts::new(data_dir),
                     account: Default::default(),
                     vault: vault::Vault::default(),
@@ -506,14 +499,9 @@ impl ServerCore for Core {
                     inbox: inbox::Turns::new(data_dir),
                     joins: Default::default(),
                     hosts,
-                    faces: faces::Faces::new(data_dir),
-                    drafts: drafts::Drafts::new(data_dir),
-                    diagrams: diagrams::Diagrams::new(data_dir),
                     mods: mods::Mods::new(data_dir),
                     mcp_apps: mcp_apps::McpApps::new(data_dir),
-                    clones: new_project::Clones::default(),
                     chiefs: chief::Chiefs::new(data_dir),
-                    workspace_above: base::workspace_above(),
                 }) as sikemux_kernel::Parts,
             ]
         });
@@ -572,52 +560,6 @@ impl ServerCore for Core {
             }
         }
         Ok(report)
-    }
-
-    fn running_agents(&self) -> HashSet<String> {
-        let mut running: HashSet<String> = self.chats().ids().into_iter().collect();
-        running.extend(self.all_sessions().iter().filter_map(|session| {
-            session
-                .agent
-                .as_ref()
-                .map(|agent| agent.agent_id().to_owned())
-        }));
-        running
-    }
-
-    fn open_agents(&self) -> HashSet<String> {
-        let mut open = self.running_agents();
-        open.extend(self.workspaces().agent_ids());
-        open
-    }
-
-    fn name_agent(
-        &self,
-        agent_id: &str,
-        cwd: &Path,
-        provider: Option<&str>,
-        resume_id: Option<&str>,
-    ) -> (names::AgentName, Option<names::Returned>) {
-        let starting = names::Starting {
-            agent_id,
-            project: self.workspaces().project_of(cwd),
-            provider,
-            resume_id,
-        };
-        let reopened = (self.names()).come_back(agent_id, &starting.project, self.open_agents());
-        if let Some(buddy) = reopened.as_ref().and_then(|back| back.buddy.as_ref()) {
-            let _ = self
-                .workspaces()
-                .edit_agent(agent_id, |agent| agent.buddy = Some(buddy.clone()));
-        }
-        let (named, changed) = self.names().give(starting, self.open_agents());
-        if let Some(agent) = self.workspaces().agent(agent_id) {
-            (self.names()).note_runs(vec![(agent.id, agent.profile_id, agent.terminal)]);
-        }
-        if changed || reopened.is_some() {
-            self.changed(What::View);
-        }
-        (named, reopened)
     }
 
     fn ssh_links(&self) -> Vec<(String, Option<sikemux_pty::shell_protocol::SshLink>)> {

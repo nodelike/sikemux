@@ -4,6 +4,7 @@ use super::offers::{choose_before_start, choose_while_asleep, keep_model_choice}
 use super::*;
 use crate::agent_accounts::Takers;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 
 /// The person began writing in a new chat, or a sleeping one, so its agent starts while
 /// they write.

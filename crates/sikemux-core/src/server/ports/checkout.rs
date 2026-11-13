@@ -1,6 +1,7 @@
 //! What a folder's checkout gives everything Sikemux starts in it: its name, its ports and the
 //! project's environment, and what the person and agents are told of them.
 
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::ports::{CheckoutAbout, CheckoutParams, CheckoutPort};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

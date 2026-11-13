@@ -5,6 +5,7 @@
 //! last did something, so lists can put the most recent first and idle agents
 //! nobody looks at can be put to sleep.
 
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
@@ -13,7 +14,6 @@ use sikemux_process::sync::Locked;
 
 use super::changed::ChangedCore;
 use super::connection::ClientId;
-use super::parts::Parts;
 
 #[derive(Default)]
 struct View {

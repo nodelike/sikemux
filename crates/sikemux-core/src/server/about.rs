@@ -3,6 +3,7 @@
 //! the host has.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::about::{AvatarsParams, NotesParams, Tools, WhatsNew};
 use sikemux_view::prefs::PreferenceChange;
 use std::collections::HashMap;

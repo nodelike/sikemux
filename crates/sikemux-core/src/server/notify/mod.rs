@@ -21,6 +21,7 @@ use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};

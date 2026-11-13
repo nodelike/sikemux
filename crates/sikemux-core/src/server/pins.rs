@@ -6,6 +6,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::{Path, PathBuf};

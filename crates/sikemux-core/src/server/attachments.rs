@@ -5,7 +5,7 @@
 use super::access::{Needs, Peer};
 use super::connection::blocking;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::attachments::{ChatFile, ChatFileParams};
 pub use sikemux_calls::attachments::{KeepPastedParams, Kept};
 use std::fs::{self, File, OpenOptions};
@@ -204,7 +204,7 @@ pub(crate) async fn chat_file(
     peer: &Peer,
     params: ChatFileParams,
 ) -> CoreResult<ChatFile> {
-    let pasted = core.config().attachment_dir.clone();
+    let pasted = core.attachment_dir().clone();
     let path = params.path;
     let kept = match pasted {
         Some(dir) => {
@@ -214,7 +214,7 @@ pub(crate) async fn chat_file(
         None => false,
     } || (core.workspace_above().question_keeps_picture)(core, Path::new(&path));
     if !kept {
-        core.permit(peer, Needs::Full).map_err(|_| {
+        (core.workspace_above().permit)(core, peer, Needs::Full).map_err(|_| {
             CoreError::from("this device can open only the pictures pasted into chats")
         })?;
     }

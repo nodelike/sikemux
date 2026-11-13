@@ -6,6 +6,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::KeepHistoryParams;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

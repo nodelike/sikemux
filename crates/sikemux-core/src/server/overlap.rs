@@ -1,7 +1,7 @@
 //! The files a new agent's brief names that other open agents are already
 //! changing, so the lead hears of it while it can still merge or order the work.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 

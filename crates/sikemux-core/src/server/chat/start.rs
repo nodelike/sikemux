@@ -4,7 +4,8 @@ use super::offers::offer_options;
 use super::*;
 use crate::server::activity::ActivityCore;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 
 /// The notice a chat shows when an update started its agent again rather
 /// than carrying it over.

@@ -4,6 +4,7 @@
 use crate::server::agent_now::AgentNowCore;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashMap;
 use std::sync::Arc;
 

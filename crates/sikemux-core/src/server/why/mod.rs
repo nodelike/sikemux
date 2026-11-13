@@ -7,6 +7,7 @@
 //! thinking.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};

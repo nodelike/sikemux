@@ -4,7 +4,7 @@
 use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
 /// A launcher's id: the CLI it starts and the account it starts it on, written `kind` or

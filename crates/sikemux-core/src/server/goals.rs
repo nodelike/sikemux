@@ -8,6 +8,7 @@ use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};

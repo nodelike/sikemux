@@ -6,6 +6,8 @@
 use super::Core;
 #[cfg(target_os = "macos")]
 use crate::server::parts::Parts;
+#[cfg(target_os = "macos")]
+use crate::server::workspace_state::WorkspaceParts;
 
 /// Starts or stops the helper, as the person's Notch preferences say.
 pub(crate) fn follow(core: &Core) {

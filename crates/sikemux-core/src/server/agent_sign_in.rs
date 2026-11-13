@@ -4,7 +4,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::agent_sign_in::Page;
 pub use sikemux_calls::agent_sign_in::{Account, Code};
 pub use sikemux_calls::agent_sign_in::{AfterSignIn, LauncherParams};

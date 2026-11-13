@@ -6,6 +6,7 @@
 //! chat's session until the fresh one has answered, and carries on if the fresh one fails.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::{RotationBriefParams, RotationBriefRead};
 use std::path::PathBuf;
 

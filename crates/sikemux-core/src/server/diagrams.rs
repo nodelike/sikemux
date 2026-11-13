@@ -3,7 +3,7 @@
 //! keeps each as the apps wrote it: what it means is theirs. Keys name what a diagram is of:
 //! `file:<host>:<path>`, `chat:<agent>:<text>`.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::diagrams::{DiagramLayout, DiagramParams};
 use std::collections::BTreeMap;
 use std::path::Path;

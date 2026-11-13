@@ -6,6 +6,7 @@
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};

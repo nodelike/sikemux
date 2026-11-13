@@ -2,7 +2,7 @@
 //! starts after this one died, or after the host restarted, takes each chat
 //! up again by itself and carries on a turn that was cut short.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 

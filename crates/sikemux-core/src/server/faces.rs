@@ -6,7 +6,7 @@
 use super::Core;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::faces::FaceStyleChange;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};

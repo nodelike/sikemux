@@ -8,6 +8,7 @@ mod saved;
 mod sizes;
 mod things;
 
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};

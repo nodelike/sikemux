@@ -4,6 +4,7 @@ use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 
 /// The items being put in a chat's draft right now, so an event and a catch-up that both
 /// hear of one deliver it once.

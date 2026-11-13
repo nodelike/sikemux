@@ -6,7 +6,8 @@
 
 use crate::server::activity::ActivityCore;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

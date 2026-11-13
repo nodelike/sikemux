@@ -3,7 +3,8 @@
 
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::sync::Arc;
 
 use sikemux_wire::protocol::{AgentState, AgentStatus};

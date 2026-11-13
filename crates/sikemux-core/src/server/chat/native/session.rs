@@ -3,6 +3,7 @@
 //! agent again under the chat.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::ops::ControlFlow;
 use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;

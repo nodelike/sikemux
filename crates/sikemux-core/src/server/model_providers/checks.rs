@@ -3,7 +3,7 @@
 //! kept with its date so it is asked once.
 
 use crate::launch::claude_model;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::model_providers::Check;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};

@@ -2,7 +2,7 @@
 //! device asked for it: in the background, in a terminal tab of its own, beside
 //! or in place of the view in focus, or in a terminal floating over the window.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::custom_command::{CommandRan, CommandResult, RunCustomParams};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

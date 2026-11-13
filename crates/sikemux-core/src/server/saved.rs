@@ -2,6 +2,7 @@
 //! `agent_sessions` and the composer, and which of them are open now.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::saved::SessionSearchParams;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

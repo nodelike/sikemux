@@ -6,7 +6,8 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::sync::Arc;
 
 use crate::server::connection::blocking;

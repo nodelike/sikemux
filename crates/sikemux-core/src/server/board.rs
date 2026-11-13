@@ -9,7 +9,8 @@ use crate::server::board::auto::BoardSettingsExt;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{
     BoardAddParams, BoardAddTicketParams, BoardCard, BoardCardParams, BoardColumn, BoardParams,
     BoardTicketCard, BoardTicketParams, BoardUpdateParams, CardStatus, CardTicket,
@@ -3523,6 +3524,7 @@ impl super::part::Part for Boards {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::ServerCore;
 
     const PROJECT: &str = "/project";
 

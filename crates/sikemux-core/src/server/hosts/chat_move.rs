@@ -2,7 +2,7 @@
 //! the same agent, on its own sign-in, in its copy of the project, with the draft, model and
 //! effort the chat had, and this host closes the chat.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::hosts::{ChatMoved, MoveChatToHostParams};
 use std::sync::Arc;
 use std::time::Duration;

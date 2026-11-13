@@ -1,6 +1,6 @@
 //! Who called an agent tool, and what its params say, for every tool alike.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use serde_json::Value;
 
 use crate::cli::protocol::HarnessRequest;

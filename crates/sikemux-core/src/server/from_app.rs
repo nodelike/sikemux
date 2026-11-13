@@ -3,6 +3,7 @@
 //! that could not finish runs again when the core next starts.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

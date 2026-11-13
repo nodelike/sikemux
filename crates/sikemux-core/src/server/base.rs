@@ -2,6 +2,7 @@
 //! built over them, as those features do it.
 
 use crate::server::parts::PartCore;
+use crate::server::workspace_state::WorkspaceParts;
 use sikemux_wire::protocol::{AgentState, Event, SessionId};
 
 use super::above::Above;
@@ -100,6 +101,8 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
             }
             chief::on_screen(core, agent_ids, focused);
         },
+        chat_agents: |core| core.chats().ids(),
+        permit: |core, peer, needs| core.permit(peer, needs),
         chat_place,
         preference_changed,
         shown_preferences: |core| core.shown_preferences(),

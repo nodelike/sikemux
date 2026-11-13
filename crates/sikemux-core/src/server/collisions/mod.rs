@@ -14,6 +14,7 @@ mod watch;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use sikemux_fold::UpdateKind;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};

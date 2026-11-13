@@ -9,6 +9,7 @@ pub(crate) use omarchy::{follow_background as follow_omarchy_background, here as
 
 use super::{Core, CoreResult};
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use serde::Deserialize;
 pub use sikemux_calls::themes::{ThemePaletteParams, ThemeParams};
 pub use sikemux_corekit::themes::default_palette;

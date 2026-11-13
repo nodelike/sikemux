@@ -8,6 +8,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;
 pub use sikemux_calls::tasks::{ConfigStatus, JavaView, Source, TaskList, TaskView};
 pub use sikemux_calls::tasks::{

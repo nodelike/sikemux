@@ -4,7 +4,7 @@
 use super::changed::Topic;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::preferences::WorktreeDefaultParams;
 use std::collections::HashSet;
 use std::path::Path;

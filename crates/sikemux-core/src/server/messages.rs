@@ -9,6 +9,7 @@ use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::messages::{AgentMessageRows, AgentMessagesParams, MessageKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};

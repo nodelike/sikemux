@@ -5,7 +5,8 @@
 //! without an owner.
 
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -939,6 +940,7 @@ pub(super) fn standing_for(owners: &Owners, core: &Core, agent_id: &str) -> Hash
 mod tests {
     use super::*;
     use crate::server::names::Starting;
+    use crate::server::ServerCore;
 
     /// `git_commit` refused a named file over lines of an agent long closed, with "Ask them with
     /// agent_send", because the names the core keeps of a closed agent counted as it being open.

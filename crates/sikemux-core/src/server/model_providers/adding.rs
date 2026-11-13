@@ -2,7 +2,7 @@
 //! is found by its URL and connected; any other is checked against its model
 //! list, asked which other APIs it serves, and kept as one the person added.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::model_providers::{Entered, Reading};
 use std::collections::HashSet;
 use std::sync::Arc;

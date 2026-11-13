@@ -7,7 +7,8 @@
 use crate::server::activity::ActivityCore;
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;
 use std::sync::Arc;
 

@@ -4,6 +4,7 @@
 
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

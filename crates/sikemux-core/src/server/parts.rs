@@ -4,21 +4,21 @@
 use super::connection::ClientId as GoneClient;
 use super::part::Part;
 use crate::server::serving::ServeParts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::task::JoinHandle;
 
 use tokio::sync::Notify;
 
-use super::{model_proxy, ports, preferences, streams, themes, ServerConfig};
+use super::{model_proxy, ports, streams, themes, ServerConfig};
 
 use super::{
-    account, activity_log, board, chat, checks, chief, codehost, collisions, device_view, diagrams,
-    drafts, edits, faces, git, goal_summary, goals, harness, hooks, host_stats, hosts, inbox, join,
-    landing, layout, lifecycle, line, mcp_apps, memory, mods, names, new_project, notify,
-    open_files, outside, person_calls, pictures, pins, places, remote, remote_image, repo_events,
-    seen, session_watch, settling, share, ship, spare, stalls, tasks, tools, triggers, updates,
-    vault, workspace, worktree, Core,
+    account, board, chat, checks, chief, codehost, collisions, device_view, edits, git,
+    goal_summary, goals, harness, hooks, host_stats, hosts, inbox, join, landing, layout,
+    lifecycle, line, mcp_apps, memory, mods, notify, outside, person_calls, pictures, pins, places,
+    remote, remote_image, repo_events, session_watch, settling, share, ship, spare, stalls, tasks,
+    tools, triggers, updates, vault, worktree, Core,
 };
 
 pub(crate) struct Fields {
@@ -30,7 +30,6 @@ pub(crate) struct Fields {
     pub(super) usage_wake: Notify,
     /// Watches the SSH config once a client has listed its hosts.
     pub(super) ssh_watch: OnceLock<Option<::notify::RecommendedWatcher>>,
-    pub(super) preferences: preferences::Prefs,
     /// Answers in parts on the connections that asked for them.
     pub(super) streams: streams::Streams,
     pub(super) look: themes::Look,
@@ -42,8 +41,6 @@ pub(crate) struct Fields {
     pub(super) outside: outside::Outside,
     pub(super) shares: share::Shares,
     pub(super) hooks: hooks::Hooks,
-    pub(super) workspaces: workspace::Workspaces,
-    pub(super) seen: seen::Seen,
     pub(super) settling: settling::Settling,
     pub(super) stalls: stalls::Stalls,
     pub(super) lifecycle: lifecycle::Lifecycle,
@@ -57,10 +54,8 @@ pub(crate) struct Fields {
     /// Builds agents start, taking turns.
     pub(super) line: line::Line,
     pub(super) session_watch: session_watch::SessionWatch,
-    pub(super) activity_log: Arc<activity_log::ActivityLog>,
     pub(super) device_view: device_view::DeviceViews,
     pub(super) host_watch: host_stats::HostWatch,
-    pub(super) names: names::Names,
     pub(super) boards: board::Boards,
     pub(super) goal_summaries: goal_summary::Summaries,
     pub(super) goals: goals::Goals,
@@ -77,8 +72,6 @@ pub(crate) struct Fields {
     pub(super) git: git::Projects,
     /// The code-host lists clients look at, kept and read again while they do.
     pub(super) code_host_lists: codehost::Lists,
-    /// The files clients have open, watched wherever they are.
-    pub(super) open_files: open_files::OpenFiles,
     pub(super) layouts: layout::Layouts,
     /// Who this host is signed in to Sikemux as.
     pub(super) account: account::Account,
@@ -93,18 +86,9 @@ pub(crate) struct Fields {
     pub(super) joins: join::Joins,
     /// Hosts linked with this one, and the agents of teams shared with them.
     pub(super) hosts: hosts::Hosts,
-    /// The faces agents wear, and the style the person picked for them.
-    pub(super) faces: faces::Faces,
-    /// What the person has typed and not sent yet, by what it is for.
-    pub(super) drafts: drafts::Drafts,
-    /// Where the person moved each diagram's tables, by what it is a diagram of.
-    pub(super) diagrams: diagrams::Diagrams,
     pub(super) mods: mods::Mods,
     pub(super) mcp_apps: mcp_apps::McpApps,
-    /// The repositories coming down into new projects.
-    pub(super) clones: new_project::Clones,
     pub(super) chiefs: chief::Chiefs,
-    pub(super) workspace_above: super::workspace_above::WorkspaceAbove,
 }
 
 pub(crate) trait Parts {
@@ -114,7 +98,6 @@ pub(crate) trait Parts {
     fn ports(&self) -> &ports::Ports;
     fn usage_wake(&self) -> &Notify;
     fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>>;
-    fn preferences(&self) -> &preferences::Prefs;
     fn streams(&self) -> &streams::Streams;
     fn look(&self) -> &themes::Look;
     fn harness(&self) -> &harness::Harness;
@@ -124,8 +107,6 @@ pub(crate) trait Parts {
     fn outside(&self) -> &outside::Outside;
     fn shares(&self) -> &share::Shares;
     fn hooks(&self) -> &hooks::Hooks;
-    fn workspaces(&self) -> &workspace::Workspaces;
-    fn seen(&self) -> &seen::Seen;
     fn settling(&self) -> &settling::Settling;
     fn stalls(&self) -> &stalls::Stalls;
     fn lifecycle(&self) -> &lifecycle::Lifecycle;
@@ -136,10 +117,8 @@ pub(crate) trait Parts {
     fn build_outputs(&self) -> &worktree::build_output::BuildOutputs;
     fn line(&self) -> &line::Line;
     fn session_watch(&self) -> &session_watch::SessionWatch;
-    fn activity_log(&self) -> &Arc<activity_log::ActivityLog>;
     fn device_view(&self) -> &device_view::DeviceViews;
     fn host_watch(&self) -> &host_stats::HostWatch;
-    fn names(&self) -> &names::Names;
     fn boards(&self) -> &board::Boards;
     fn goal_summaries(&self) -> &goal_summary::Summaries;
     fn goals(&self) -> &goals::Goals;
@@ -155,7 +134,6 @@ pub(crate) trait Parts {
     fn tasks(&self) -> &tasks::Tasks;
     fn git(&self) -> &git::Projects;
     fn code_host_lists(&self) -> &codehost::Lists;
-    fn open_files(&self) -> &open_files::OpenFiles;
     fn layouts(&self) -> &layout::Layouts;
     fn account(&self) -> &account::Account;
     fn vault(&self) -> &vault::Vault;
@@ -167,14 +145,9 @@ pub(crate) trait Parts {
     fn inbox(&self) -> &inbox::Turns;
     fn joins(&self) -> &join::Joins;
     fn hosts(&self) -> &hosts::Hosts;
-    fn faces(&self) -> &faces::Faces;
-    fn drafts(&self) -> &drafts::Drafts;
-    fn diagrams(&self) -> &diagrams::Diagrams;
     fn mods(&self) -> &mods::Mods;
     fn mcp_apps(&self) -> &mcp_apps::McpApps;
-    fn clones(&self) -> &new_project::Clones;
     fn chiefs(&self) -> &chief::Chiefs;
-    fn workspace_above(&self) -> &super::workspace_above::WorkspaceAbove;
 }
 
 impl Parts for Core {
@@ -200,10 +173,6 @@ impl Parts for Core {
 
     fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>> {
         &self.kept::<Fields>().ssh_watch
-    }
-
-    fn preferences(&self) -> &preferences::Prefs {
-        &self.kept::<Fields>().preferences
     }
 
     fn streams(&self) -> &streams::Streams {
@@ -240,14 +209,6 @@ impl Parts for Core {
 
     fn hooks(&self) -> &hooks::Hooks {
         &self.kept::<Fields>().hooks
-    }
-
-    fn workspaces(&self) -> &workspace::Workspaces {
-        &self.kept::<Fields>().workspaces
-    }
-
-    fn seen(&self) -> &seen::Seen {
-        &self.kept::<Fields>().seen
     }
 
     fn settling(&self) -> &settling::Settling {
@@ -290,20 +251,12 @@ impl Parts for Core {
         &self.kept::<Fields>().session_watch
     }
 
-    fn activity_log(&self) -> &Arc<activity_log::ActivityLog> {
-        &self.kept::<Fields>().activity_log
-    }
-
     fn device_view(&self) -> &device_view::DeviceViews {
         &self.kept::<Fields>().device_view
     }
 
     fn host_watch(&self) -> &host_stats::HostWatch {
         &self.kept::<Fields>().host_watch
-    }
-
-    fn names(&self) -> &names::Names {
-        &self.kept::<Fields>().names
     }
 
     fn boards(&self) -> &board::Boards {
@@ -366,10 +319,6 @@ impl Parts for Core {
         &self.kept::<Fields>().code_host_lists
     }
 
-    fn open_files(&self) -> &open_files::OpenFiles {
-        &self.kept::<Fields>().open_files
-    }
-
     fn layouts(&self) -> &layout::Layouts {
         &self.kept::<Fields>().layouts
     }
@@ -414,18 +363,6 @@ impl Parts for Core {
         &self.kept::<Fields>().hosts
     }
 
-    fn faces(&self) -> &faces::Faces {
-        &self.kept::<Fields>().faces
-    }
-
-    fn drafts(&self) -> &drafts::Drafts {
-        &self.kept::<Fields>().drafts
-    }
-
-    fn diagrams(&self) -> &diagrams::Diagrams {
-        &self.kept::<Fields>().diagrams
-    }
-
     fn mods(&self) -> &mods::Mods {
         &self.kept::<Fields>().mods
     }
@@ -434,16 +371,8 @@ impl Parts for Core {
         &self.kept::<Fields>().mcp_apps
     }
 
-    fn clones(&self) -> &new_project::Clones {
-        &self.kept::<Fields>().clones
-    }
-
     fn chiefs(&self) -> &chief::Chiefs {
         &self.kept::<Fields>().chiefs
-    }
-
-    fn workspace_above(&self) -> &super::workspace_above::WorkspaceAbove {
-        &self.kept::<Fields>().workspace_above
     }
 }
 

@@ -2,7 +2,7 @@
 //! renaming, deleting or moving one to another project the way each
 //! provider's own commands do.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::saved_sessions::{RecentChat, RecentRenamed};
 use std::sync::Arc;
 

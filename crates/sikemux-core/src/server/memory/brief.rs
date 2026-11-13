@@ -5,6 +5,7 @@
 //! gets only what the person said, nothing an agent added.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;
 
 use sikemux_process::clock::epoch_ms;

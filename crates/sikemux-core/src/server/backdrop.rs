@@ -2,7 +2,7 @@
 //! from the person's preferences so that no app has to send it.
 
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;
 use sikemux_view::prefs::{PaneColours, Preferences};
 use sikemux_view::theme::UiTokens;

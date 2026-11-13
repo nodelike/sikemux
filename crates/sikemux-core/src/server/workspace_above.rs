@@ -11,6 +11,7 @@ use sikemux_wire::protocol::ChatInfo;
 
 use sikemux_view::prefs::{PreferenceChange, Preferences};
 
+use super::access::{Needs, Peer};
 use super::activity_log::Place;
 use super::workspace::Held;
 
@@ -51,6 +52,10 @@ pub(crate) struct WorkspaceAbove {
     pub held_chats: fn(&Core) -> Held,
     /// The workspace as clients are sent it.
     pub workspace_view: fn(&Core) -> Workspace,
+    /// The agents with a chat running.
+    pub chat_agents: fn(&Core) -> Vec<String>,
+    /// Whether this peer may do what needs this much.
+    pub permit: fn(&Core, &Peer, Needs) -> CoreResult<()>,
     /// A client shows these agents, focused or not, and draws their terminals or not.
     pub agents_shown: fn(&Arc<Core>, &[String], bool, bool),
     /// Where the chat of this agent works and what its CLI writes, when it has a chat.

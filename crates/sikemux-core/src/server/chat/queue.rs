@@ -3,6 +3,7 @@
 //! ends, unless the person steers them in sooner or takes one back.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::QueuedMessageParams;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;

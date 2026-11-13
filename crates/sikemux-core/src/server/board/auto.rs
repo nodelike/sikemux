@@ -6,7 +6,8 @@ use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{
     BoardReviewerParams, BoardSettings, BoardSettingsParams, CardPull, CardRun, Landing,
     ReviewerChoice, RunHold, RunStage,

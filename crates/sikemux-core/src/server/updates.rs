@@ -9,6 +9,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::updates::{HostUpdatesParams, UpdateInstallParams};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

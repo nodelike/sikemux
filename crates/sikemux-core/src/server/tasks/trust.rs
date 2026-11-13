@@ -3,6 +3,7 @@
 use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 
 pub(super) fn config_ask(
     path: &str,

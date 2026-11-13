@@ -2,7 +2,7 @@
 //! token that works only while its process runs; the core puts the provider's key on each
 //! request here, so the key never enters an agent's environment.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddrV4};

@@ -3,8 +3,8 @@
 //! at once and comes down in the background, its progress in the project's `cloning`.
 
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
 use crate::server::workspace::AddProjectParamsExt;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::new_project::repo_name;
 pub use sikemux_calls::new_project::{CloneProjectParams, NewProjectParams};
 use std::collections::HashMap;

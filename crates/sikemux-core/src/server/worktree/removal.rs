@@ -3,7 +3,7 @@
 //! their answers, and the agent goes back to the main checkout.
 
 use crate::server::agent_now::AgentNowCore;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::worktree::{
     RemoveWorktreeParams, WorktreeParams, WorktreeRemovalInfo, WorktreeRemoved, WorktreeReview,
 };

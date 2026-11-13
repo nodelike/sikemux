@@ -4,6 +4,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;
 pub use sikemux_calls::params::{AgentParams, GoFirstParams, NoParams, StopBuildParams};
 use std::sync::Arc;

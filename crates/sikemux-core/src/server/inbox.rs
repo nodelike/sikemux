@@ -5,6 +5,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use serde::{Deserialize, Serialize};
 pub use sikemux_calls::inbox::DigestParams;
 use std::collections::{BTreeMap, HashMap, HashSet};

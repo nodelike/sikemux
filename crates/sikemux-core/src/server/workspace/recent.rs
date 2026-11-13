@@ -5,7 +5,6 @@ use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::names::RanSession;
-use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 pub use sikemux_calls::workspace::{PinChatParams, SessionChoice};
 pub use sikemux_calls::workspace::{PinnedParams, RecentChats, RecentChatsParams};

@@ -23,6 +23,7 @@ pub(crate) mod reset;
 pub mod rotation;
 pub mod side;
 mod start;
+use crate::server::workspace_state::WorkspaceParts;
 use sikemux_drivers::server::chat::states;
 mod turn;
 mod usage;

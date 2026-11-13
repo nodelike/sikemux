@@ -5,6 +5,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 

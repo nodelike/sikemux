@@ -6,6 +6,7 @@
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace::AddProjectParamsExt;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::move_agent::{MoveParams, MoveToFolder};
 use std::sync::Arc;
 

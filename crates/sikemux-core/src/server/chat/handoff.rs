@@ -4,6 +4,7 @@
 //! latest exchanges word for word, and how the commands run went. Every app shows it before then.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::{ChatHandedOff, DropHandoffParams, HandOffParams};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

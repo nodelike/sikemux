@@ -5,6 +5,7 @@
 
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;

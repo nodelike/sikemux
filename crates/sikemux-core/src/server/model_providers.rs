@@ -4,7 +4,7 @@
 //! provider saves its key in the host's Keychain, hands it to OpenCode, Pi and
 //! OMP as they start, and lets Claude Code and Codex chats run on it.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::model_providers::ModelProvider;
 pub use sikemux_calls::model_providers::{
     CheckParams, Choices, ConnectParams, HelperParams, ModelFacts, ProviderParams, ServedModels,

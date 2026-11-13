@@ -7,6 +7,7 @@
 
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};

@@ -8,6 +8,7 @@
 use crate::server::activity::ActivityCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::atomic::Ordering;

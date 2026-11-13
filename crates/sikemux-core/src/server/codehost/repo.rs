@@ -2,6 +2,7 @@
 //! plugin and the person's own sign-in to it, and what reviewers say on them.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

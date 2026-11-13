@@ -2,7 +2,7 @@
 //! one, wait for it, and with full access start one, send it a message or stop its turn.
 
 use crate::server::device_view::DeviceViewCore;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::sync::Arc;
 use std::time::Duration;
 

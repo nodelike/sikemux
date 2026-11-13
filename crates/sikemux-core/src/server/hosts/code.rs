@@ -6,6 +6,7 @@
 //! back as a bundle onto a branch named for it, which the lead merges or not.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;

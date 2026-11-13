@@ -6,7 +6,8 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{AuditEveryParams, AuditNowParams};
 use std::path::Path;
 use std::sync::Arc;

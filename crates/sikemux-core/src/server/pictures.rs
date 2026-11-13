@@ -8,7 +8,8 @@
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeParts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::pictures::{TurnPictureData, TurnPictureParams};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -623,6 +624,7 @@ pub(crate) fn results(
 mod tests {
     use super::*;
     use crate::server::workspace::AddProjectParamsExt;
+    use crate::server::ServerCore;
 
     fn set(project: String, agent: &str) -> Set {
         Set {

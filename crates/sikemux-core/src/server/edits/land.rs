@@ -7,7 +7,7 @@
 //! keeping what it has not committed. Syncing moves the agent's checkout to the
 //! branch's tip in that way too, its commits made again on it.
 
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;

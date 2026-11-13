@@ -3,6 +3,7 @@
 //! no checks; the card's branch is only pushed when its work ships.
 
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

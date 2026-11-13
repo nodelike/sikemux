@@ -6,7 +6,8 @@
 //! asked about it.
 
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::workspace_state::WorkspaceCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{CardContract, ContractState, ContractTerm};
 use std::path::Path;
 use std::sync::Arc;
