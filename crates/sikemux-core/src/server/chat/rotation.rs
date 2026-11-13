@@ -209,7 +209,8 @@ pub(crate) fn due(core: &Core, chat: &Chat, now: &Footing) -> Option<RotationRea
         return None;
     }
     let last_call = chat.meter.last_call_ms();
-    if rotating && inner.full_session.as_ref() == Some(&now.session) {
+    let full = chat.meter.context() >= FULL_TOKENS;
+    if rotating && full && inner.full_session.as_ref() == Some(&now.session) {
         return Some(RotationReason::Full);
     }
     if last_call == 0 {
