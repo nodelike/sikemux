@@ -595,6 +595,7 @@
   "Turn on": "オンにする",
   "Turn on notifications?": "通知をオンにしますか？",
   "Type or paste it…": "入力または貼り付け…",
+  "Type or paste it · kept private": "入力または貼り付け · 非公開",
   "Type the {count} digits": "{count} 桁の数字を入力",
   "Type {word} to confirm": "確認のため {word} と入力してください",
   "Typing {what}": "{what} に入力中",

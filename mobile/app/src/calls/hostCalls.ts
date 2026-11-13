@@ -81,10 +81,12 @@ export function waitingCall(queue: PersonCall[], held: Kept, agentId: string): P
 
 /**
  * The call whatever a chat's composer sends answers, while one waits there and the person has not taken its chip off.
- * A step to production, or a secret, is answered only on its card.
+ * A step to production is answered only on its card. A secret's chip never comes off, so what is typed for it never
+ * goes to the agent as a message.
  */
 export function composingCall(call: PersonCall | undefined, held: Kept): PersonCall | undefined {
-  if (!call || held.composingOff.has(call.id) || call.kind === 'production' || call.secret) return undefined;
+  if (!call || call.kind === 'production') return undefined;
+  if (!call.secret && held.composingOff.has(call.id)) return undefined;
   return call;
 }
 

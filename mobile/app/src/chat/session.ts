@@ -591,6 +591,19 @@ export class ChatSession {
     this.draft.keep();
   };
 
+  /** Whether a call for a secret waits in the chat, whose answer the draft then holds. */
+  holdSecret = (on: boolean) => {
+    this.draft.holdSecret(on);
+  };
+
+  /** The draft's words were typed while a secret waited, so they may hold it. */
+  typedSecret = () => this.draft.typedSecret;
+
+  /** Drops the words typed while a secret waited, which were its answer. */
+  dropSecret = () => {
+    this.draft.dropSecret();
+  };
+
   private now() {
     return (this.options.now ?? Date.now)();
   }

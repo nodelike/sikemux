@@ -62,6 +62,10 @@ export class Draft {
   /** Changes made here since the draft was last saved, which the host's draft must not replace. */
   private edits = 0;
   private saving: ReturnType<typeof setTimeout> | undefined;
+  /** A call for a secret waits in the chat, so what is typed is its answer and is kept nowhere. */
+  private secret = false;
+  /** The words were changed while a secret waited, so they may hold it. */
+  private typed = false;
 
   constructor(
     private readonly agentId: string,
@@ -82,6 +86,7 @@ export class Draft {
 
   /** Answers whether the draft named anything before, so its chips must be drawn again. */
   write(text: string): boolean {
+    if (this.secret) this.typed = true;
     const named = this.tokens.length > 0;
     const tagged = this.tokens.filter((token) => token.id.startsWith(IMAGE)).map((token) => token.id);
     ({ text: this.text, tokens: this.tokens } = editDraft(this.text, text, this.tokens));
@@ -93,6 +98,7 @@ export class Draft {
 
   /** Writes what was picked from the mention menu over the word from `start` that asked for it, as a chip when it is one. */
   mention(start: number, pick: { written: string; id?: string; label?: string; context?: ContextChip }) {
+    if (this.secret) this.typed = true;
     const before = this.text.slice(0, start);
     const kept = this.tokens.filter((token) => token.end <= start);
     this.tokens = pick.id
@@ -190,10 +196,41 @@ export class Draft {
     return !this.edits;
   }
 
+  /**
+   * While a call for a secret waits, the draft is neither saved on the host nor written down here. Once it has gone,
+   * words typed meanwhile go too, since they were its answer, and the draft is saved again.
+   */
+  holdSecret(on: boolean) {
+    if (on === this.secret) return;
+    this.secret = on;
+    if (on) {
+      clearTimeout(this.saving);
+      return;
+    }
+    this.dropSecret();
+    if (this.edits) this.edited();
+  }
+
+  /** The words were changed while a secret waited, so they may hold it. */
+  get typedSecret() {
+    return this.typed;
+  }
+
+  /** Drops the words typed while a secret waited, which were its answer. */
+  dropSecret() {
+    if (!this.typed) return;
+    this.typed = false;
+    this.text = '';
+    this.tokens = [];
+    this.tracked = {};
+    this.host.emit();
+  }
+
   /** The draft changed here: it is saved on the host once typing rests. */
   edited() {
     this.edits += 1;
     clearTimeout(this.saving);
+    if (this.secret) return;
     this.saving = setTimeout(() => {
       this.keep();
       void this.save();
@@ -202,7 +239,7 @@ export class Draft {
 
   /** Writes down what is not saved on the host yet, so it outlives the app quitting. */
   keep() {
-    if (!this.edits) return;
+    if (!this.edits || this.secret) return;
     this.host.store?.save({
       text: this.text,
       attachments: this.attachments.filter((attachment) => !attachment.upload),
@@ -218,7 +255,7 @@ export class Draft {
    */
   async save() {
     const connection = this.host.live();
-    if (!this.edits || !connection) return;
+    if (!this.edits || !connection || this.secret) return;
     const edits = this.edits;
     const paths = pathsOf(this.attachments);
     const { attachments: _files, context: _chips, ...rest } = this.extra;

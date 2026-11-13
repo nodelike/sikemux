@@ -31,7 +31,7 @@ import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { answerWritten, composingCall, queueOf, stopComposing, useKept, waitingCall } from '@/calls/hostCalls';
-import { NO_CHIPS, TELL_CHIEF, answering as answeringWords, sendToTold, typeYourAnswer } from '@shared/calls/words';
+import { NO_CHIPS, SECRET_COMPOSER, TELL_CHIEF, answering as answeringWords, sendToTold, typeYourAnswer } from '@shared/calls/words';
 import { AwayCard } from '@/calls/AwayCard';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
@@ -237,11 +237,20 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const awayCalls = state.chief ? state.away?.calls : undefined;
   const queue = useMemo(() => queueOf(calls, agentId, awayCalls), [calls, agentId, awayCalls]);
   const docked = waitingCall(queue, keptCalls, agentId);
+  // Typed words answer the oldest call open here that asks for a secret, whichever call is docked, so they never reach
+  // an agent as a message or another call's answer.
+  const secret = watchOnly ? undefined : oldest(queue.filter((call) => call.secret));
   // Change on an assumption wins over a call docked in the same chat, until it is sent or taken off.
-  const changing = watchOnly ? null : assumptions.changing;
+  const changing = watchOnly || secret ? null : assumptions.changing;
   // In the chief's chat, typed words answer a docked call only when it is the chief's own and the only one open.
   const answersHere = !state.chief || (!!docked?.asker.chief && queue.length === 1);
-  const composing = watchOnly || changing || !answersHere ? undefined : answeringIn(composingCall(docked, keptCalls), t);
+  const composing = secret
+    ? answeringIn(secret, t)
+    : watchOnly || changing || !answersHere
+      ? undefined
+      : answeringIn(composingCall(docked, keptCalls), t);
+  const holdsSecret = !!composing?.secret;
+  useEffect(() => session.holdSecret(holdsSecret), [session, holdsSecret]);
   const canAnswerCall = !watchOnly && live.status === 'open';
   // The composer says who an idle chat's words go to, as the Mac does: the chief, or a worker the chief hears.
   const composerTo = state.chief
@@ -493,7 +502,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                     changing
                       ? typeYourAnswer(changing.name, t)
                       : composing
-                        ? typeYourAnswer(composing.asker, t)
+                        ? composing.secret
+                          ? t(SECRET_COMPOSER)
+                          : typeYourAnswer(composing.asker, t)
                         : composerPlaceholder(
                             state,
                             {
@@ -532,7 +543,8 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                             chip: composing.chip,
                             cli: composing.cli,
                             chipsRefused: t(NO_CHIPS),
-                            onRemove: () => stopComposing(core, composing.id),
+                            secret: composing.secret,
+                            onRemove: composing.secret ? undefined : () => stopComposing(core, composing.id),
                             onAnswer: (written) =>
                               answerWritten(
                                 connection,
@@ -634,6 +646,10 @@ const makeStyles = (colors: Palette) => {
   });
 };
 
+function oldest(calls: PersonCall[]): PersonCall | undefined {
+  return calls.reduce<PersonCall | undefined>((first, call) => (first && first.raisedAt <= call.raisedAt ? first : call), undefined);
+}
+
 /** What the composer says while it answers `call`, worked out apart from the call so the docked card keeps its element. */
 function answeringIn(call: PersonCall | undefined, t: Translate) {
   return (
@@ -642,6 +658,7 @@ function answeringIn(call: PersonCall | undefined, t: Translate) {
       cli: call.asker.cli,
       chip: answeringWords(call.asker.name, call.question, t),
       asker: call.asker.name,
+      secret: !!call.secret,
     }
   );
 }

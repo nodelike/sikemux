@@ -390,6 +390,8 @@ export const NO_CHIPS = "A call's answer takes words and files, not chips. Take 
 export const answering = (name: string, question: string, say: Say = english) => say("Answering @{name} · {question}", { name, question });
 /** The composer's placeholder while a call waits in the chat. */
 export const typeYourAnswer = (name: string, say: Say = english) => say("Or type your answer to @{name}", { name });
+/** The composer's placeholder while a call for a secret waits in the chat, which what is sent there answers. */
+export const SECRET_COMPOSER = "Type or paste it · kept private";
 
 /** A weighty call's brief, which stands as its context. */
 export function context(call: PersonCall): string | undefined {

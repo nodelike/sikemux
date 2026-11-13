@@ -27,6 +27,7 @@ import {
 import { useT } from '@/i18n';
 import type { CallOption, PersonCall } from '@shared/wire.generated';
 import { AskerMark } from '@/calls/AskerMark';
+import { SECRET_INPUT } from '@/calls/secretInput';
 import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, goesOnAsIs, notMine, see, useKept } from '@/calls/hostCalls';
 import { useHostFile } from '@/chat/hostFiles';
 import { haptics } from '@/ui/haptics';
@@ -160,11 +161,7 @@ export const CallDock = memo(function CallDock({
                 // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.
                 style={[styles.input, draft.typed ? styles.hiddenText : null]}
                 multiline
-                autoCorrect={false}
-                autoCapitalize="none"
-                autoComplete="off"
-                importantForAutofill="no"
-                keyboardType="visible-password"
+                {...SECRET_INPUT}
                 caretHidden={!!draft.typed}
                 editable={canAnswer}
                 onFocus={() => setFocused(true)}
