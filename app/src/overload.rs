@@ -467,7 +467,11 @@ fn groups(bench: &Workbench, load: &HostLoad, cx: &App) -> Groups {
                     .and_then(|agent| agent.line)
                     .and_then(|line| line.expected_ms);
                 let place = ahead + 1;
-                let detail = [turn_line::place(place)]
+                let said = match place {
+                    1 => turn_line::place(place),
+                    _ => turn_line::in_line(place),
+                };
+                let detail = [said]
                     .into_iter()
                     .chain(wait.map(turn_line::about))
                     .collect();
