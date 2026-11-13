@@ -1,6 +1,7 @@
 //! A branch's history: its commits newest first, each on a lane of the graph that shows
 //! where it branched and merged, and the card that heads a commit's review.
 
+use crate::ui::Clicks;
 use sikemux_calls::call;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
@@ -412,7 +413,7 @@ pub fn commit_row(
             }
         })
         .on_hover(super::hover(view, key))
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             choosing.update(cx, |pane, cx| pane.choose_commit(index, window, cx))
         })
         .child(
@@ -793,7 +794,7 @@ fn commit_agents(pane: &GitPane, hash: &str, compact: bool, cx: &App) -> Option<
             .when(reachable, |chip| {
                 chip.cursor_pointer()
                     .hover(move |chip| chip.bg(t.surface_hover).text_color(t.text_primary))
-                    .on_click(move |_, window, cx| {
+                    .clicks(move |_, window, cx| {
                         cx.stop_propagation();
                         open_owner(&opened, &bench, &core, window, cx);
                     })

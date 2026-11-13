@@ -1,6 +1,7 @@
 //! The width a desk's page lays out at: the chip at the right of its address bar, and All,
 //! the live page in one column beside pictures of it at the other two widths.
 
+use crate::ui::Clicks;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::FRAC_PI_2;
 use std::sync::Arc;
@@ -10,8 +11,7 @@ use gpui_kit::component::Sizable;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, radians, relative, AnyElement, Context, FontWeight, Image, ImageFormat,
-    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, Transformation,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Transformation,
 };
 use sikemux_browser::viewport::Viewport;
 use sikemux_browser::BrowserTab;
@@ -318,7 +318,7 @@ pub(super) fn all(
                                 ),
                             }),
                     )
-                    .on_click(move |_, _, cx| {
+                    .clicks(move |_, _, cx| {
                         bench
                             .update(cx, |bench, cx| {
                                 bench.with_engine(cx, |engine| {

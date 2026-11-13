@@ -2,6 +2,7 @@ use crate::battery::battery_chip;
 use crate::core::Target;
 use crate::tabs;
 use crate::tasks::chip::run_chip;
+use crate::ui::Clicks;
 use crate::workbench::actions;
 use sikemux_calls::call;
 use sikemux_calls::layout::TabParams;
@@ -277,7 +278,7 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
             .text_color(t.text_tertiary)
             .hover(move |style| style.text_color(t.text_primary))
             .tooltip(ui::tooltip(about.join(" · ")))
-            .on_click(|_, window, cx| crate::keymap::dispatch(actions::FocusGit::ID, window, cx))
+            .clicks(|_, window, cx| crate::keymap::dispatch(actions::FocusGit::ID, window, cx))
             .child(mark)
             .child(
                 div()

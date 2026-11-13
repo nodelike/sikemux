@@ -1,6 +1,7 @@
 //! A DBML block in an agent's reply, drawn as a diagram of its tables, with its text a
 //! click away; and the pieces of such a block a Mermaid block shares.
 
+use crate::ui::Clicks;
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -119,7 +120,7 @@ fn block(
             .tooltip(crate::ui::tooltip(t!(
                 "Open on the desk, with room to spread out"
             )))
-            .on_click(move |_, _, cx| open_on_desk(&code, &bench, &agent, cx))
+            .clicks(move |_, _, cx| open_on_desk(&code, &bench, &agent, cx))
             .child(t!("Open on desk"))
     };
     let title = head(fence.icon, fence.lang, &t)
@@ -219,7 +220,7 @@ pub(super) fn choice(
             true => chip.bg(t.surface_chosen),
             false => chip.hover(|chip| chip.bg(t.surface_hover)),
         })
-        .on_click(move |_, _, cx| pick(cx))
+        .clicks(move |_, _, cx| pick(cx))
         .child(label)
 }
 

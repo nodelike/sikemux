@@ -1,3 +1,4 @@
+use crate::ui::Clicks;
 use crate::workbench::actions;
 use std::cell::Cell;
 use std::f32::consts::FRAC_PI_2;
@@ -635,7 +636,7 @@ pub fn notice_line(notice: Notice, cx: &App) -> gpui_kit::Div {
                 .child(words)
                 .children(action.map(|(label, act)| {
                     ui::sign_in::link("composer-notice-action", label, cx)
-                        .on_click(move |_, window, cx| act(window, cx))
+                        .clicks(move |_, window, cx| act(window, cx))
                 }))
         }
         Notice::Waiting(words) => {
@@ -648,7 +649,7 @@ pub fn notice_line(notice: Notice, cx: &App) -> gpui_kit::Div {
             .child(div().text_color(t.text_disabled).child("·"))
             .child(
                 ui::sign_in::link("composer-notice-undo", label, cx)
-                    .on_click(move |_, window, cx| act(window, cx)),
+                    .clicks(move |_, window, cx| act(window, cx)),
             ),
     }
 }

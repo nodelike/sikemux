@@ -1,6 +1,7 @@
 //! The cards a turn waits on the person with: a permission to grant and a secret to give.
 
 use super::*;
+use crate::ui::Clicks;
 
 use gpui_kit::component::input::{Copy, Cut, Textarea};
 use gpui_kit::component::Sizable;
@@ -181,8 +182,7 @@ fn evidence_opens(
         "approval-evidence-{}",
         evidence.id
     )))
-    .cursor_pointer()
-    .on_click(cx.listener(move |bench, _, window, cx| match still {
+    .clicks(cx.listener(move |bench, _, window, cx| match still {
         true => bench.show_picture(path.clone(), window, cx),
         false => {
             bench.open_file(&path, cx);

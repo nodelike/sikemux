@@ -34,6 +34,7 @@ pub use find_bar::FindBar;
 pub use floats::{
     card_tooltip, float, menu, menu_button, tooltip, MenuRow, FLOAT_INSET, PANEL_INSET,
 };
+pub use gpui_clicks::Clicks;
 pub(crate) use lists::relist;
 pub use lists::{close_button, gives_way, hover_actions, Group, Row, Tab, ROW};
 pub use pane::{floating_panel, pane, pane_frame, PaneHeader, AGENT_INSET};

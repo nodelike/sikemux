@@ -2,6 +2,7 @@
 //! signed in and as whom, its switch and its sign-in, and the few settings its tools read that
 //! only the person changes.
 
+use crate::ui::Clicks;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::switch::Switch;
@@ -1180,18 +1181,17 @@ pub fn dialog(
         sign_in::links()
             .when_some(switch, |links, words| {
                 links.child(
-                    sign_in::link("connector-other-way", words, cx).on_click(on(this, switch_way)),
+                    sign_in::link("connector-other-way", words, cx).clicks(on(this, switch_way)),
                 )
             })
             .when_some(page, |links, (page, label)| {
                 links.child(
                     sign_in::link("connector-token-page", label, cx)
-                        .on_click(move |_, _, cx| cx.open_url(&page)),
+                        .clicks(move |_, _, cx| cx.open_url(&page)),
                 )
             })
             .child(
-                sign_in::link("connector-cancel", t!("Cancel"), cx)
-                    .on_click(on(this, close_sign_in)),
+                sign_in::link("connector-cancel", t!("Cancel"), cx).clicks(on(this, close_sign_in)),
             ),
     );
     let close: dialog::Answer = {

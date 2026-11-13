@@ -1,10 +1,11 @@
 //! Which program and account folder each launch uses. Profiles never hold credentials.
 
+use crate::ui::Clicks;
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
+    ParentElement, SharedString, Styled, Subscription, Window,
 };
 use sikemux_agents::agent_accounts::Profile;
 
@@ -208,7 +209,7 @@ pub fn render(
                                 )),
                         ),
                 )
-                .on_click(move |_, window, cx| {
+                .clicks(move |_, window, cx| {
                     let picked = picked.clone();
                     this.update(cx, |bench, cx| load(bench, Some(picked), window, cx))
                 })

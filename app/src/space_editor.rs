@@ -1,6 +1,7 @@
 //! The Mac's Edit Spaces…: each space as a row to drag into place, mark with an icon, rename
 //! or delete, with New and Done at its foot.
 
+use crate::ui::Clicks;
 use std::collections::HashMap;
 
 use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
@@ -268,15 +269,13 @@ impl Render for SpaceEditor {
                     .border_color(t.border)
                     .flex()
                     .justify_between()
+                    .child(foot("space-edit-new", Icon::Plus, t!("New"), false).clicks(
+                        move |_, _, cx| {
+                            let _ = made.update(cx, |bench, cx| bench.new_space(None, cx));
+                        },
+                    ))
                     .child(
-                        foot("space-edit-new", Icon::Plus, t!("New"), false).on_click(
-                            move |_, _, cx| {
-                                let _ = made.update(cx, |bench, cx| bench.new_space(None, cx));
-                            },
-                        ),
-                    )
-                    .child(
-                        foot("space-edit-done", Icon::Check, t!("Done"), true).on_click(
+                        foot("space-edit-done", Icon::Check, t!("Done"), true).clicks(
                             move |_, _, cx| {
                                 let _ = done.update(cx, |bench, cx| bench.close_space_editor(cx));
                             },

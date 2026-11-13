@@ -2,6 +2,7 @@
 //! agent palette, the project picker, New… and the themes. Each fills a list of
 //! rows; the person types to narrow it, moves through it and picks one.
 
+use crate::ui::Clicks;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -10,8 +11,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, list, px, AnyElement, App, AppContext, Context, Entity, FocusHandle, FontWeight, Hsla,
     InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, ListAlignment, ListState,
-    MouseButton, ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window,
+    MouseButton, ParentElement, SharedString, Styled, Subscription, Window,
 };
 
 use crate::icons::Icon;
@@ -911,9 +911,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                     bench.browse(window, cx);
                     bench.parts.redraw(&bench.parts.finder, cx);
                 }))
-                .on_click(
-                    cx.listener(move |bench, _, window, cx| bench.pick(Some(line), window, cx)),
-                )
+                .clicks(cx.listener(move |bench, _, window, cx| bench.pick(Some(line), window, cx)))
         })
         .when(palette.numbering(cx), |element| {
             element.child(
@@ -1025,7 +1023,7 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .when(!on, |option| {
                             option.hover(move |style| style.text_color(t.text_primary))
                         })
-                        .on_click(cx.listener(move |bench, _, window, cx| {
+                        .clicks(cx.listener(move |bench, _, window, cx| {
                             chosen.set(at);
                             if let Some(palette) = &bench.overlays.palette {
                                 let input = palette.input.clone();

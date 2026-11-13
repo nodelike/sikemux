@@ -1,12 +1,12 @@
 //! The Playbook's Setup page: what a new checkout of the project runs, its ports, its heavy
 //! commands and what agents use one at a time, and whether that was proved on a fresh checkout.
 
+use crate::ui::Clicks;
 use std::path::PathBuf;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, Context, Entity, FontWeight, Hsla, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled,
+    div, px, AnyElement, App, Context, Entity, FontWeight, Hsla, IntoElement, ParentElement, Styled,
 };
 use sikemux_calls::call;
 use sikemux_calls::setup::Outcome;
@@ -325,7 +325,7 @@ fn failure_line(step: &SetupStep, cx: &mut Context<Workbench>) -> AnyElement {
                 .children(log.map(|log| {
                     ui::sign_in::link("setup-open-log", t!("Open log"), cx)
                         .underline()
-                        .on_click(move |_, _, cx| cx.open_with_system(&log))
+                        .clicks(move |_, _, cx| cx.open_with_system(&log))
                 })),
         )
         .into_any_element()

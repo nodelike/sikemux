@@ -2,6 +2,7 @@ use crate::agents::limits::limits;
 use crate::agents::terminal_pages::ssh_page;
 use crate::agents::terminal_pages::terminals_page;
 use crate::hosts::Place;
+use crate::ui::Clicks;
 use crate::workbench::actions;
 use crate::workbench::actions::CommandId;
 use sikemux_calls::agent_view::AgentViewKind;
@@ -1044,7 +1045,7 @@ fn agent_row(
                     .justify_center()
                     .opacity(0.)
                     .group_hover(ui::ROW, |chevron| chevron.opacity(1.))
-                    .on_click(cx.listener({
+                    .clicks(cx.listener({
                         let id = agent.id.clone();
                         move |bench, _, _, cx| {
                             cx.stop_propagation();

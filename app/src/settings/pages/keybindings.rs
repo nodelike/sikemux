@@ -1,5 +1,6 @@
 //! Every command's keys, and recording new ones.
 
+use crate::ui::Clicks;
 use sikemux_view::prefs::PreferenceChange;
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -8,8 +9,8 @@ use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, Animation, AnimationExt, AnyElement, App, AppContext, Context, Entity,
-    InteractiveElement, IntoElement, Keystroke, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window,
+    InteractiveElement, IntoElement, Keystroke, ParentElement, SharedString, Styled, Subscription,
+    Window,
 };
 
 use crate::icons::Icon;
@@ -256,7 +257,7 @@ fn keycap(
                 .hover(|style| style.border_color(t.border_strong))
                 .child(keys_label(keys)),
         })
-        .on_click(move |_, _, cx| this.update(cx, |bench, cx| record(bench, id, cx)))
+        .clicks(move |_, _, cx| this.update(cx, |bench, cx| record(bench, id, cx)))
         .into_any_element()
 }
 

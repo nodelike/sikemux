@@ -1,12 +1,13 @@
 //! The questions the shell puts to the person over the window, and what their answers do.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
+    ParentElement, SharedString, Styled, Window,
 };
 
 use crate::theme::Tokens;
@@ -252,12 +253,12 @@ fn panel(
         .justify_center()
         .bg(gpui_kit::black().opacity(0.4))
         .occlude()
-        .on_click(move |_, _, cx| close(cx))
+        .clicks_keep_cursor(move |_, _, cx| close(cx))
         .child(
             div()
                 .id(id)
                 .occlude()
-                .on_click(|_, _, cx| cx.stop_propagation())
+                .clicks_keep_cursor(|_, _, cx| cx.stop_propagation())
                 .bg(t.surface_overlay)
                 .border_1()
                 .border_color(t.border)

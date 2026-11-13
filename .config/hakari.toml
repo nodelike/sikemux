@@ -18,6 +18,7 @@ unify-target-host = "none"
 [traversal-excludes]
 workspace-members = [
     "film-frame",
+    "gpui-clicks",
     "gpui-native-view",
     "gpui-terminal-grid",
     "gpui-transcript",

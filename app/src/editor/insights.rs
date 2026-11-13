@@ -1,6 +1,7 @@
 //! The bar under an editor: the project's problems as its language servers
 //! report them, and the outline of the file in front.
 
+use crate::ui::Clicks;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -269,7 +270,7 @@ pub(super) fn bar(
                 t.text_tertiary
             })
             .when(chosen, |tab| tab.bg(t.surface_chosen))
-            .on_click(move |_, _, cx| {
+            .clicks(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
                     let outline = bench.editors.update(cx, |editors, cx| {
                         let insights = &mut editors.insights;
@@ -551,9 +552,8 @@ fn row(
         .gap(SPACE_2H)
         .h(px(24.))
         .px(SPACE_3)
-        .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             let at = at.clone();
             this.update(cx, |bench, cx| go(bench, at, cx))
         })

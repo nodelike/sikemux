@@ -185,9 +185,7 @@ impl RenderOnce for IconButton {
             .bg(wash)
             .on_hover(keep_over)
             .when_some(on_click, |button, handler| {
-                button
-                    .cursor_pointer()
-                    .on_click(move |event, window, cx| handler(event, window, cx))
+                button.on_click(move |event, window, cx| handler(event, window, cx))
             })
             .child(crate::motion::animated(
                 ElementId::NamedChild(Arc::new(self.id), "turned".into()),
@@ -647,9 +645,7 @@ impl Segmented {
                                 segment.hover(move |style| style.text_color(t.text_secondary))
                             })
                             .when_some(on_select, |segment, handler| {
-                                segment
-                                    .cursor_pointer()
-                                    .on_click(move |_, window, cx| handler(&index, window, cx))
+                                segment.on_click(move |_, window, cx| handler(&index, window, cx))
                             })
                             .children(glyph.map(|glyph| {
                                 icon(glyph, 12.).text_color(ink).when(!chosen, |glyph| {
@@ -724,9 +720,7 @@ impl RenderOnce for Segmented {
                             .when(chosen, |segment| segment.bg(t.surface_active))
                             .hover(move |style| style.text_color(t.text_primary))
                             .when_some(on_select, |segment, handler| {
-                                segment
-                                    .cursor_pointer()
-                                    .on_click(move |_, window, cx| handler(&index, window, cx))
+                                segment.on_click(move |_, window, cx| handler(&index, window, cx))
                             })
                             .when_some(tip, |segment, tip: SharedString| {
                                 segment.tooltip(super::tooltip(tip))

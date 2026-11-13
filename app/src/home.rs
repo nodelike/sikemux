@@ -1,4 +1,5 @@
 use crate::activity_view::Metric;
+use crate::ui::Clicks;
 use crate::workbench::actions;
 use crate::workbench::actions::CommandId;
 
@@ -497,7 +498,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.live)
                 .tooltip(ui::tooltip(crate::share::watching(share)))
-                .on_click(open_share)
+                .clicks(open_share)
                 .child(ui::icon(Icon::Eye, 13.).text_color(t.live))
                 .when(viewers > 0, |button| button.child(viewers.to_string()))
                 .into_any_element()
@@ -532,10 +533,9 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
             let picked = agent.id.clone();
             div()
                 .id("agent-buddy")
-                .cursor_pointer()
                 .tooltip(ui::tooltip(t!("Change buddy")))
                 .child(agent.mark(16., cx))
-                .on_click(cx.listener(move |bench, _, _, cx| bench.open_buddy_picker(&picked, cx)))
+                .clicks(cx.listener(move |bench, _, _, cx| bench.open_buddy_picker(&picked, cx)))
                 .into_any_element()
         }
         false => ui::mark(&agent.provider, 16.).into_any_element(),
@@ -577,12 +577,11 @@ fn side_of(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>) -> 
             .px(SPACE_1H)
             .rounded(crate::theme::RADIUS_1)
             .bg(t.surface_chosen)
-            .cursor_pointer()
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_tertiary)
             .hover(|tag| tag.text_color(t.text_primary))
             .tooltip(ui::tooltip(t!("Go to the main chat")))
-            .on_click(cx.listener(move |bench, _, _, cx| bench.open_agent(&main, cx)))
+            .clicks(cx.listener(move |bench, _, _, cx| bench.open_agent(&main, cx)))
             .child(t!("side of @{name}", name = name))
             .into_any_element(),
     )

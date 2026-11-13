@@ -1,6 +1,7 @@
 //! Git as the window shows it: a file's diff, and what an editor's text changed since
 //! a revision.
 
+use crate::ui::Clicks;
 use sikemux_calls::call;
 use sikemux_calls::drafts::DraftsParams;
 use sikemux_view::layout::At;
@@ -418,10 +419,9 @@ pub fn row(
                 .id(id)
                 .h(HIDDEN_HEIGHT)
                 .w_full()
-                .cursor_pointer()
                 .hover(move |bar| bar.bg(hover))
                 .tooltip(ui::tooltip(shown))
-                .on_click(move |_, window, cx| expand(window, cx)),
+                .clicks(move |_, window, cx| expand(window, cx)),
         );
     }
     let tint = match *kind {
@@ -453,9 +453,8 @@ pub fn row(
                 .text_right()
                 .text_color(tint.unwrap_or(look.number))
                 .when_some(open, |gutter, open| {
-                    gutter.cursor_pointer().on_click(move |_, window, cx| {
-                        window.dispatch_action(open.boxed_clone(), cx)
-                    })
+                    gutter
+                        .clicks(move |_, window, cx| window.dispatch_action(open.boxed_clone(), cx))
                 })
                 .child(number.to_string()),
         )

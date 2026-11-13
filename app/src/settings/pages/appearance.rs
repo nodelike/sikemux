@@ -1,6 +1,7 @@
 //! How the app looks: its theme, the size of its text, the panes' grain or
 //! picture, the agents' buddies, and the window's opacity and blur.
 
+use crate::ui::Clicks;
 use sikemux_calls::call;
 use sikemux_calls::faces::FaceStyleChange;
 use sikemux_view::prefs::PreferenceChange;
@@ -851,7 +852,7 @@ pub fn render(
                             .when(!chosen, |card| {
                                 card.hover(|style| style.bg(t.surface_hover))
                             })
-                            .on_click(move |_, _, cx| {
+                            .clicks(move |_, _, cx| {
                                 let id = id.clone();
                                 pick.update(cx, |bench, _| {
                                     crate::settings::set(bench, PreferenceChange::ThemeId(id))
@@ -1298,7 +1299,7 @@ pub fn render(
                     .text_color(t.text_secondary)
                     .child(name),
             )
-            .on_click(click)
+            .clicks(click)
     };
     let pack_cards = div()
         .flex()
@@ -1352,13 +1353,12 @@ pub fn render(
                 .items_center()
                 .rounded(theme::RADIUS_2)
                 .border_1()
-                .cursor_pointer()
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_secondary)
                 .border_color(if mixing { t.border_strong } else { t.border })
                 .when(mixing, |chip| chip.bg(t.surface_chosen))
                 .child(t!("Mix"))
-                .on_click(choose(style.pack.clone(), "mixed".into())),
+                .clicks(choose(style.pack.clone(), "mixed".into())),
         )
         .children(chosen_pack.into_iter().flat_map(|pack| {
             pack.shapes.iter().enumerate().map(|(at, shape)| {
@@ -1371,13 +1371,12 @@ pub fn render(
                     .justify_center()
                     .rounded(theme::RADIUS_2)
                     .border_1()
-                    .cursor_pointer()
                     .border_color(if on { t.border_strong } else { t.border })
                     .when(on, |chip| chip.bg(t.surface_chosen))
                     .when(!on, |chip| chip.hover(|style| style.bg(t.surface_hover)))
                     .tooltip(ui::tooltip(shape.name.clone()))
                     .child(face(pack, shape, at as u32, 26.))
-                    .on_click(choose(pack.id.clone(), shape.id.clone()))
+                    .clicks(choose(pack.id.clone(), shape.id.clone()))
             })
         }));
     let stacked = |label: &'static str, about: &'static str, body: AnyElement| {

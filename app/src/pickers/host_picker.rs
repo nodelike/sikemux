@@ -1,12 +1,12 @@
 //! The host picker a new chat's host opens: the hosts holding a copy of its project, which the
 //! chat can move to, then the account's other hosts, which a copy of the project goes to first.
 
+use crate::ui::Clicks;
 use gpui_kit::base::{Popover, Selectable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, Anchor, AnyElement, App, Context, Entity, FocusHandle, Focusable, InteractiveElement,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    WeakEntity, Window,
+    IntoElement, ParentElement, Render, SharedString, Styled, WeakEntity, Window,
 };
 
 use crate::copies::{Folded, HostCopy};
@@ -227,7 +227,7 @@ impl HostPicker {
             }
         };
         let (this, picked) = (this.clone(), choice.clone());
-        row.on_click(move |_, window, cx| {
+        row.clicks(move |_, window, cx| {
             let picked = picked.clone();
             this.update(cx, |picker, cx| picker.pick(picked, window, cx))
         })

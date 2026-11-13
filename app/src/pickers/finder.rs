@@ -1,5 +1,6 @@
 //! ⌘P: every file in the project in front, ranked by name as the person types.
 
+use crate::ui::Clicks;
 use sikemux_calls::call;
 use sikemux_calls::project_files::ProjectFiles as ScannedFiles;
 use sikemux_calls::project_files::ProjectFilesParams;
@@ -11,8 +12,8 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, uniform_list, AnyElement, App, AppContext, Context, Entity, FocusHandle,
-    InteractiveElement, IntoElement, MouseButton, ParentElement, ScrollStrategy,
-    StatefulInteractiveElement, Styled, Subscription, Task, UniformListScrollHandle, Window,
+    InteractiveElement, IntoElement, MouseButton, ParentElement, ScrollStrategy, Styled,
+    Subscription, Task, UniformListScrollHandle, Window,
 };
 
 use crate::core::Target;
@@ -401,7 +402,7 @@ fn row(bench: &Workbench, place: usize, cx: &mut Context<Workbench>) -> AnyEleme
                 bench.parts.redraw(&bench.parts.finder, cx);
             }
         }))
-        .on_click(cx.listener(move |bench, _, window, cx| bench.choose(place, window, cx)))
+        .clicks(cx.listener(move |bench, _, window, cx| bench.choose(place, window, cx)))
         .child(
             div()
                 .w(px(22.))

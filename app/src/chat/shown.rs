@@ -2,14 +2,14 @@
 //! and after at a phone's, a tablet's and a desktop's width under the reply that ended it, and in
 //! a lead's chat a row for each worker's finished work with Try it and Undo.
 
+use crate::ui::Clicks;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, img, px, AnyElement, App, FontWeight, Global, Image, InteractiveElement, IntoElement,
-    ObjectFit, ParentElement, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-    WeakEntity,
+    ObjectFit, ParentElement, SharedString, Styled, StyledImage, WeakEntity,
 };
 use sikemux_calls::call;
 use sikemux_calls::pictures::TurnPictureParams;
@@ -154,7 +154,7 @@ fn framed(
                         .flex_none()
                         .object_fit(ObjectFit::Fill),
                 )
-                .on_click(move |_, window, cx| {
+                .clicks(move |_, window, cx| {
                     bench
                         .update(cx, |bench, cx| {
                             bench.show_picture(shown.clone(), window, cx)
@@ -315,10 +315,9 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
                 .items_center()
                 .justify_center()
                 .rounded(theme::RADIUS_2)
-                .cursor_pointer()
                 .hover(move |chevron| chevron.bg(t.surface_active))
                 .child(ui::icon(Icon::Chevron, 12.).text_color(looks.quiet))
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     bench
                         .update(cx, |bench, cx| bench.open_agent(&worker_id, cx))
                         .ok();

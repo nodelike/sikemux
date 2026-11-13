@@ -2,6 +2,7 @@
 //! it stands, the evidence its gate leads with and its checks. Choosing one opens its slice; one
 //! with no slice can start one that reviews it or answers its comments.
 
+use crate::ui::Clicks;
 use std::collections::HashMap;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -327,7 +328,7 @@ fn pull_row(
         })
         .on_hover(super::hover(view, key))
         .hover_listener_mode(HoverListenerMode::InputModalityIndependent)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             choosing.update(cx, |pane, cx| {
                 window.focus(&pane.focus, cx);
                 pane.pulls.chosen = index;

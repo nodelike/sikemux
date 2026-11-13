@@ -57,7 +57,7 @@ pub fn menu_button<T: Selectable + IntoElement + 'static>(
     items: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
 ) -> impl IntoElement {
     MenuTrigger {
-        frame: div().id(id),
+        frame: div().id(id).cursor_pointer(),
         trigger,
     }
     .dropdown_menu_with_anchor(anchor, menu(items))

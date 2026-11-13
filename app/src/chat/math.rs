@@ -1,6 +1,7 @@
 //! A block of math in an agent's reply, from `$$…$$` or a ```math fence, typeset once the
 //! agent has finished writing it, with its LaTeX a click away.
 
+use crate::ui::Clicks;
 use std::sync::{Arc, LazyLock};
 
 use gpui_kit::prelude::FluentBuilder;
@@ -81,7 +82,7 @@ pub(super) fn block(
                 .group_hover("math", |shown| shown.visible())
                 .child(fence.copy),
         )
-        .on_click(move |event, _, cx| {
+        .clicks_keep_cursor(move |event, _, cx| {
             if event.click_count() == 2 {
                 block.update(cx, |block, cx| {
                     block.source = true;

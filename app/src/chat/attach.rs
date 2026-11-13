@@ -1,6 +1,7 @@
 //! The files a message carries: picked, dropped on the chat or pasted, shown as tiles over
 //! the draft, each picture also named in the draft where it belongs, as `[Image #n]`.
 
+use crate::ui::Clicks;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -14,8 +15,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnimationExt, App, AppContext, Axis, ClipboardEntry, ClipboardItem, Context, Div,
     ExternalPaths, FontWeight, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    PathPromptOptions, SharedString, StatefulInteractiveElement, Styled, StyledImage, WeakEntity,
-    Window,
+    PathPromptOptions, SharedString, Styled, StyledImage, WeakEntity, Window,
 };
 use gpui_transcript::FilePress;
 use sikemux_calls::chat::MAX_ATTACHMENTS;
@@ -954,8 +954,7 @@ pub fn with_why(
                                 cx,
                             )
                             .id(id.clone())
-                            .cursor_pointer()
-                            .on_click(move |_, _, cx| {
+                            .clicks(move |_, _, cx| {
                                 let open = open.clone();
                                 bench.update(cx, |bench, cx| open_why(bench, open, cx)).ok();
                             })
@@ -1523,6 +1522,7 @@ fn carried(
         );
         let menu_file = file.clone();
         return div()
+            .cursor_pointer()
             .on_mouse_down(MouseButton::Left, move |event, window, cx| {
                 let press = if event.click_count > 1 {
                     FilePress::OpenTwice

@@ -3445,7 +3445,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=f1849bb1dca4dedc30edc27770088b6c251d2c31#f1849bb1dca4dedc30edc27770088b6c251d2c31"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -3484,9 +3484,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-clicks"
+version = "0.1.0"
+dependencies = [
+ "gpui-pre",
+]
+
+[[package]]
 name = "gpui-component"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=f1849bb1dca4dedc30edc27770088b6c251d2c31#f1849bb1dca4dedc30edc27770088b6c251d2c31"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3533,7 +3540,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=f1849bb1dca4dedc30edc27770088b6c251d2c31#f1849bb1dca4dedc30edc27770088b6c251d2c31"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -3625,7 +3632,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=f1849bb1dca4dedc30edc27770088b6c251d2c31#f1849bb1dca4dedc30edc27770088b6c251d2c31"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -3638,7 +3645,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.8.1"
-source = "git+https://github.com/sikemux/gpui-kit?rev=f1849bb1dca4dedc30edc27770088b6c251d2c31#f1849bb1dca4dedc30edc27770088b6c251d2c31"
+source = "git+https://github.com/sikemux/gpui-kit?rev=885582c8574a83ca836fc2590476bf637afd6c29#885582c8574a83ca836fc2590476bf637afd6c29"
 dependencies = [
  "anyhow",
  "gpui-pre",
@@ -3655,6 +3662,7 @@ version = "0.1.0"
 dependencies = [
  "block2 0.6.2",
  "futures",
+ "gpui-clicks",
  "gpui-pre",
  "gpui-pre-platform",
  "objc2 0.6.4",
@@ -4152,6 +4160,7 @@ dependencies = [
 name = "gpui-transcript"
 version = "0.1.0"
 dependencies = [
+ "gpui-clicks",
  "gpui-pre",
  "gpui-pre-platform",
  "libc",
@@ -10155,6 +10164,7 @@ dependencies = [
  "film-frame",
  "flate2",
  "gpui-base",
+ "gpui-clicks",
  "gpui-component",
  "gpui-kit",
  "gpui-native-view",

@@ -2,6 +2,7 @@
 //! what can be done with each, and the card that heads a branch's review.
 
 use super::Said;
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, list, px, Anchor, AnyElement, App, Context, Div, Entity, FontWeight, HoverListenerMode,
@@ -766,7 +767,7 @@ fn branch_row(
         })
         .on_hover(super::hover(view, key))
         .hover_listener_mode(HoverListenerMode::InputModalityIndependent)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             choosing.update(cx, |pane, cx| {
                 window.focus(&pane.focus, cx);
                 pane.choose_branch(index, cx);

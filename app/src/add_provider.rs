@@ -2,6 +2,7 @@
 //! names the provider and says which agent runs it; this host installs that agent meanwhile
 //! when it lacks it.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -10,8 +11,7 @@ use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, Animation, AnimationExt, AnyElement, App, AppContext, Context, Entity, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, Subscription, Window,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Subscription, Window,
 };
 
 use crate::agents::setup::{self, Installing};
@@ -484,7 +484,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .text_color(ink)
                                 .child(words)
-                                .when(failed, |state| state.cursor_pointer().on_click(open))
+                                .when(failed, |state| state.clicks(open))
                         })),
                 )
                 .when(running, |line| {

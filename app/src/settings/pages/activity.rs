@@ -1,12 +1,13 @@
 //! What agents did across every project: the totals, the calendar, and the
 //! share each model, agent and project had, priced at API rates.
 
+use crate::ui::Clicks;
 use chrono::TimeZone;
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, relative, AnyElement, App, AppContext, Context, Entity, InteractiveElement,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
+    IntoElement, ParentElement, SharedString, Styled, Window,
 };
 use serde_json::{json, Map, Value};
 use sikemux_calls::activity_log::ActivityModel;
@@ -484,12 +485,11 @@ fn models(
                 let (this, id) = (this.clone(), id.clone());
                 div()
                     .id(SharedString::from(format!("{tag}-{id}")))
-                    .cursor_pointer()
                     .text_size(crate::theme::ui_text(TEXT_2XS_H))
                     .text_color(t.text_secondary)
                     .hover(|style| style.text_color(t.text_primary))
                     .child(label)
-                    .on_click(move |_, window, cx| {
+                    .clicks(move |_, window, cx| {
                         let id = id.clone();
                         this.update(cx, |bench, cx| edit(bench, id, own, window, cx))
                     })

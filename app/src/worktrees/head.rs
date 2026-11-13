@@ -1,6 +1,7 @@
 //! What an agent's header says of its worktree's branch, as the Mac's does: the pull request
 //! the branch has, and a way to remove the worktree once its work is merged.
 
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
@@ -145,7 +146,7 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             .child(ui::icon(Icon::PullRequest, 12.).text_color(color))
             .child(ui::mono(format!("#{number}"), TEXT_2XS, cx).text_color(color))
             .child(word)
-            .on_click(cx.listener(move |bench, _, _, cx| {
+            .clicks(cx.listener(move |bench, _, _, cx| {
                 bench.open_on_desk(&opened, &url, cx);
             }))
     });
@@ -158,7 +159,7 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
                 branch = branch,
                 path = path
             )))
-            .on_click(cx.listener(move |bench, _, window, cx| {
+            .clicks(cx.listener(move |bench, _, window, cx| {
                 bench.remove_worktree(&removed, pull_merged, window, cx)
             }))
     });

@@ -1,6 +1,7 @@
 //! The person's tags on chats: the Tags submenu that puts them on and takes them off, the
 //! rail's button that lists only one tag's chats, and the pill that says which.
 
+use crate::ui::Clicks;
 use std::collections::BTreeMap;
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
@@ -187,12 +188,11 @@ pub(crate) fn pill(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                     .py(px(2.))
                     .rounded(theme::RADIUS_1)
                     .bg(t.surface_chosen)
-                    .cursor_pointer()
                     .hover(move |style| style.bg(t.surface_active))
                     .child(ui::caps(&tag, cx).text_color(t.text_primary))
                     .child(ui::icon(Icon::Close, 9.).text_color(t.text_tertiary))
                     .tooltip(ui::tooltip(t!("Show every chat again")))
-                    .on_click(cx.listener(|bench, _, _, cx| bench.show_tag(None, cx))),
+                    .clicks(cx.listener(|bench, _, _, cx| bench.show_tag(None, cx))),
             )
             .into_any_element(),
     )

@@ -2,6 +2,7 @@
 //! from as one contained block.
 
 use super::*;
+use crate::ui::Clicks;
 use sikemux_calls::call;
 use sikemux_calls::chat::RotationBriefParams;
 use sikemux_calls::chat::RotationBriefRead;
@@ -43,7 +44,7 @@ pub(super) fn line(rotation: &SessionRotation, looks: &Drawn, cx: &App) -> AnyEl
             motion::DETAIL_FOLD,
             ui::icon(Icon::Chevron, 10.).text_color(looks.quiet),
         ))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&toggled);
                 cx.notify();
@@ -110,10 +111,9 @@ fn brief(rotation: &SessionRotation, looks: &Drawn, cx: &App) -> AnyElement {
         Some(Ok(_)) => div().into_any_element(),
         None => div()
             .id(SharedString::from(format!("rotation-read:{at}")))
-            .cursor_pointer()
             .text_color(looks.ink)
             .child(t!("Read the whole brief"))
-            .on_click(move |_, _, cx| read_brief(&bench, &reader, &agent, at, cx))
+            .clicks(move |_, _, cx| read_brief(&bench, &reader, &agent, at, cx))
             .into_any_element(),
     };
     div()

@@ -1,6 +1,7 @@
 //! The repositories inside a project folder that is not one itself, which the Git tab
 //! lists until one is opened, with the one opened by default marked.
 
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -79,9 +80,8 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .items_center()
             .gap(SPACE_2)
             .rounded(theme::RADIUS_2)
-            .cursor_pointer()
             .hover(move |row| row.bg(t.surface_hover))
-            .on_click(cx.listener(move |bench, _, _, cx| bench.pick_git_repo(opened.clone(), cx)))
+            .clicks(cx.listener(move |bench, _, _, cx| bench.pick_git_repo(opened.clone(), cx)))
             .child(ui::icon(Icon::Git, 13.).text_color(if changes > 0 {
                 t.git_modified
             } else {

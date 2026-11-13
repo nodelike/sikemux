@@ -2,6 +2,7 @@
 //! On a real first run nothing leaves it but finishing, and only finishing counts it done. When
 //! an agent is already signed in and its history names projects, it finishes by itself.
 
+use crate::ui::Clicks;
 use std::cell::Cell;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -1347,12 +1348,11 @@ fn poster(
         div()
             .id("welcome-close")
             .flex_none()
-            .cursor_pointer()
             .text_size(theme::ui_text(room.fit(14., 12.)))
             .text_color(t.text_tertiary)
             .hover(move |close| close.text_color(ink))
             .on_mouse_down(MouseButton::Left, keep_press)
-            .on_click(move |_, _, cx| this.update(cx, leave))
+            .clicks(move |_, _, cx| this.update(cx, leave))
             .child(t!("Esc closes"))
     });
     let size = room.mark_size(welcome.git_missing);
@@ -1549,9 +1549,8 @@ fn agent_tile(
         .pl(px(left))
         .pr(px(edge))
         .bg(t.surface_sunken)
-        .cursor_pointer()
         .on_mouse_down(MouseButton::Left, keep_press)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             picked.update(cx, |bench, cx| go(bench, Stop::Row(at), window, cx))
         })
         .children((field > 0.).then(|| {
@@ -1775,7 +1774,7 @@ fn project_row(
             false => row.hover(move |row| row.bg(hovered)),
         })
         .on_mouse_down(MouseButton::Left, keep_press)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             this.update(cx, |bench, cx| {
                 go(bench, Stop::Row(at), window, cx);
                 toggle(bench, at, cx);
@@ -2019,7 +2018,7 @@ fn back_link(lit: Option<Stop>, room: Room, this: &Entity<Workbench>, t: &Tokens
         })
         .hover(move |back| back.text_color(ink))
         .on_mouse_down(MouseButton::Left, keep_press)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             this.update(cx, |bench, cx| {
                 go(bench, Stop::Back, window, cx);
                 activate(bench, false, window, cx);
@@ -2112,7 +2111,7 @@ fn quiet(
         })
         .hover(move |words| words.text_color(ink))
         .on_mouse_down(MouseButton::Left, keep_press)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             this.update(cx, |bench, cx| {
                 go(bench, stop, window, cx);
                 activate(bench, false, window, cx);

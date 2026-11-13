@@ -1,10 +1,11 @@
 //! What an agent put in its reply besides text, as its protocol gave it: a picture, or a
 //! link to a file or page.
 
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, WeakEntity,
+    SharedString, Styled, WeakEntity,
 };
 use gpui_transcript::FilePress;
 use sikemux_view::chat::ContentBlock;
@@ -127,7 +128,7 @@ pub fn content(
         .when_some(uri.clone().filter(|_| file), |row, uri| {
             let menu = (uri.clone(), pressed.clone());
             row.cursor_pointer()
-                .on_click(move |event, window, cx| {
+                .clicks(move |event, window, cx| {
                     let press = if event.click_count() > 1 {
                         FilePress::OpenTwice
                     } else {
@@ -142,7 +143,7 @@ pub fn content(
         .when_some(uri.filter(|_| !file), |row, uri| {
             row.cursor_pointer()
                 .hover(move |row| row.text_color(ink))
-                .on_click(move |_, window, cx| link::open(&uri, &agent, &bench, window, cx))
+                .clicks(move |_, window, cx| link::open(&uri, &agent, &bench, window, cx))
         })
         .child(ui::icon(Icon::File, 13.).text_color(looks.quiet))
         .child(div().min_w_0().truncate().child(label))

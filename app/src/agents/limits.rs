@@ -1,6 +1,7 @@
 //! The Limits panel: how much of its plan each agent's account has used, drawn as a ruler per
 //! agent, with every account in a float over the rows and in the top bar's popover.
 
+use crate::ui::Clicks;
 use std::cell::Cell;
 use std::f32::consts::TAU;
 use std::sync::Arc;
@@ -648,9 +649,8 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
         .child(name);
     if shown.signed_out {
         return row
-            .cursor_pointer()
             .hover(|row| row.bg(t.surface_hover))
-            .on_click(sign_in(view, agent.provider, shown))
+            .clicks(sign_in(view, agent.provider, shown))
             .child(div().flex_1())
             .child(go(t!("Sign in"), cx))
             .into_any_element();
@@ -917,9 +917,8 @@ fn account_line(
             };
             return frame()
                 .py(px(ACCOUNT_PAD / 2.))
-                .cursor_pointer()
                 .hover(|account| account.bg(t.surface_hover))
-                .on_click(sign_in(view, agent.provider, shown))
+                .clicks(sign_in(view, agent.provider, shown))
                 .child(names.child(go(t!("Sign in"), cx)))
                 .into_any_element();
         }
@@ -929,9 +928,8 @@ fn account_line(
                 short.child(name(shown.name.clone()).flex_1()).child(
                     go(t!("Undo"), cx)
                         .id(SharedString::from(format!("limits-undo-{key}")))
-                        .cursor_pointer()
                         .hover(|link| link.text_color(t.text_primary))
-                        .on_click(view.on(move |bench, _, cx| undo_pick(bench, cx))),
+                        .clicks(view.on(move |bench, _, cx| undo_pick(bench, cx))),
                 ),
             )
             .into_any_element();
@@ -1000,9 +998,8 @@ fn account_line(
         .group(group)
         .when_some(target, |account, target| {
             account
-                .cursor_pointer()
                 .hover(|account| account.bg(t.surface_hover))
-                .on_click(view.on(move |bench, _, cx| pick(bench, &target, cx)))
+                .clicks(view.on(move |bench, _, cx| pick(bench, &target, cx)))
         })
         .child(names)
         .children(lines)
@@ -1194,8 +1191,7 @@ fn reset_row(
                 )))
                 .px(px(2.))
                 .text_color(t.accent)
-                .cursor_pointer()
-                .on_click(tap(|bench, key, _, cx| {
+                .clicks(tap(|bench, key, _, cx| {
                     bench.accounts.limits.arming = Some(key);
                     redraw(bench, cx);
                 }))
@@ -1258,9 +1254,8 @@ fn reset_row(
                         )))
                         .px(px(4.))
                         .text_color(t.text_secondary)
-                        .cursor_pointer()
                         .hover(|cancel| cancel.text_color(t.text_primary))
-                        .on_click(tap(|bench, _, _, cx| {
+                        .clicks(tap(|bench, _, _, cx| {
                             bench.accounts.limits.arming = None;
                             redraw(bench, cx);
                         })),

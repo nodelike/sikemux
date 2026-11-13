@@ -3,6 +3,7 @@
 //! list move the chat to another agent, handing over what it said once it has begun, and before
 //! it starts a provider's model moves it onto that provider.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::base::{Popover, Selectable};
@@ -652,7 +653,7 @@ fn chip(
                 .child(agent.label.clone()),
         )
         .children(state.map(|(words, ink)| div().text_color(ink).child(words)))
-        .on_click(move |_, window, cx| on(window, cx))
+        .clicks(move |_, window, cx| on(window, cx))
         .into_any_element()
 }
 
@@ -684,7 +685,7 @@ impl Menu {
             })
             .when(at == self.chosen, |row| row.bg(t.surface_hover))
             .map(|row| list_picker::hover_chooses(row, at, &menu, |list, at| list.chosen = at))
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 let act = act.clone();
                 menu.update(cx, |menu, cx| menu.pick(act, window, cx))
             })

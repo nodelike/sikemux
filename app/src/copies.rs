@@ -1,6 +1,7 @@
 //! A project as the rail lists it, once for every host that holds a copy (ADR 0023): which copy
 //! is in front, and how the person moves to another copy or makes one on a host without.
 
+use crate::ui::Clicks;
 use std::path::PathBuf;
 
 use gpui_kit::component::menu::PopupMenu;
@@ -732,7 +733,7 @@ fn row_note(
         .child(ui::text(word, TEXT_2XS, gpui_kit::FontWeight::MEDIUM))
         .tooltip(ui::tooltip(said))
         .when_some(dismiss, |chip, dismiss| {
-            chip.cursor_pointer().on_click(move |_, _, cx| {
+            chip.clicks(move |_, _, cx| {
                 cx.stop_propagation();
                 let _ = this.update(cx, |bench, cx| dismiss(bench, cx));
             })

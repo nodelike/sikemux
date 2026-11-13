@@ -1,6 +1,7 @@
 //! The chip beside a checkout's branch under the composer: its ten ports, and on a click its
 //! name, which of its ports listen and the environment everything started in it gets.
 
+use crate::ui::Clicks;
 use gpui::Anchor;
 use gpui_kit::base::Popover;
 use std::cell::Cell;
@@ -207,7 +208,7 @@ fn card(
             .when(listening, |row| {
                 row.cursor_pointer()
                     .hover(|style| style.bg(t.surface_hover))
-                    .on_click(move |_, _, cx| {
+                    .clicks(move |_, _, cx| {
                         bench
                             .update(cx, |bench, cx| bench.open_on_desk(&agent, &url, cx))
                             .ok();
@@ -376,7 +377,7 @@ fn env_group(
                 t!("Show all {count}", count = env.len()),
                 &*cx,
             )
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 let opened = bench.update(cx, |bench, cx| {
                     bench.checkout_env.open = true;
                     cx.notify();
@@ -403,7 +404,7 @@ fn env_group(
         let bench = bench.clone();
         ui::sign_in::link("checkout-env-fewer", t!("Show fewer"), &*cx)
             .flex_none()
-            .on_click(move |_, _, cx| {
+            .clicks(move |_, _, cx| {
                 bench
                     .update(cx, |bench, cx| {
                         bench.checkout_env.open = false;

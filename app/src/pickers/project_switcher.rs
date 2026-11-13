@@ -2,6 +2,7 @@
 //! host it acts on, then, when that is this host, folders found under the person's project
 //! roots, searchable in both.
 
+use crate::ui::Clicks;
 use gpui_kit::base::{Popover, Selectable};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
@@ -218,7 +219,7 @@ impl Render for ProjectSwitcher {
                     |list, at| list.chosen = at,
                     cx,
                 )
-                .on_click(move |_, window, cx| {
+                .clicks(move |_, window, cx| {
                     let picked = picked.clone();
                     this.update(cx, |switcher, cx| switcher.pick(picked, window, cx))
                 })

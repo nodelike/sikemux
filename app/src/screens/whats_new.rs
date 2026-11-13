@@ -1,6 +1,7 @@
 //! What's New: the notes of the release running here, who made it and how much went
 //! into it, beside a sky in the release's colours.
 
+use crate::ui::Clicks;
 use sikemux_calls::about::AvatarsParams;
 use sikemux_calls::about::NotesParams;
 use sikemux_calls::call;
@@ -532,9 +533,8 @@ fn contributors(
                 .border_color(gpui_kit::transparent_black())
                 .rounded(theme::RADIUS_2)
                 .bg(t.surface_overlay)
-                .cursor_pointer()
                 .hover(|row| row.border_color(t.border).bg(t.surface_raised))
-                .on_click(open(&person.login))
+                .clicks(open(&person.login))
                 .child(avatar(news, person, 30., cx))
                 .child(
                     div()
@@ -584,7 +584,7 @@ fn contributors(
                                 person.login,
                                 commit_count(person.commits)
                             )))
-                            .on_click(open(&person.login))
+                            .clicks(open(&person.login))
                             .child(avatar(news, person, 28., cx))
                     }))
                     .when(shown.len() < rest.len(), |wall| {
@@ -603,9 +603,8 @@ fn contributors(
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .text_color(t.text_secondary)
-                                .cursor_pointer()
                                 .hover(|rest| rest.text_color(t.text_primary).bg(t.surface_hover))
-                                .on_click(move |_, _, cx| {
+                                .clicks(move |_, _, cx| {
                                     this.update(cx, |bench, cx| {
                                         if let Some(news) = news_of(bench) {
                                             news.everyone = true;
@@ -668,9 +667,8 @@ fn main(
             .font_weight(FontWeight::MEDIUM)
             .line_height(crate::theme::ui_text(TEXT_3XS))
             .text_color(t.text_tertiary)
-            .cursor_pointer()
             .hover(|esc| esc.text_color(t.text_primary).border_color(t.border_strong))
-            .on_click(move |_, _, cx| this.update(cx, experience::close))
+            .clicks(move |_, _, cx| this.update(cx, experience::close))
             .child("esc")
     };
     div()
@@ -732,9 +730,8 @@ fn main(
                             .id("whats-new-compare")
                             .text_size(crate::theme::ui_text(TEXT_XS))
                             .text_color(t.text_tertiary)
-                            .cursor_pointer()
                             .hover(|link| link.text_color(t.live))
-                            .on_click(move |_, _, cx| cx.open_url(&compare))
+                            .clicks(move |_, _, cx| cx.open_url(&compare))
                             .child(t!("{range} ↗", range = range))
                             .into_any_element()
                     }
@@ -828,8 +825,8 @@ fn waiting(
     };
     let keep = match news.confirming {
         true => action("whats-new-keep-waiting", t!("Keep waiting").into(), false)
-            .on_click(confirm(false)),
-        false => action("whats-new-not-now", t!("Not now").into(), false).on_click(not_now),
+            .clicks(confirm(false)),
+        false => action("whats-new-not-now", t!("Not now").into(), false).clicks(not_now),
     };
     let go = match news.confirming {
         true => action(
@@ -840,9 +837,9 @@ fn waiting(
             },
             true,
         )
-        .on_click(force),
+        .clicks(force),
         false => {
-            action("whats-new-ask-force", t!("Force update").into(), true).on_click(confirm(true))
+            action("whats-new-ask-force", t!("Force update").into(), true).clicks(confirm(true))
         }
     };
     div()

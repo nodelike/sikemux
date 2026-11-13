@@ -1,3 +1,4 @@
+use gpui_clicks::Clicks;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Range;
@@ -967,8 +968,7 @@ impl Draw<'_> {
                 div()
                     .id(self.id("picture"))
                     .max_w_full()
-                    .cursor_pointer()
-                    .on_click(move |_, window, cx| match &on_link {
+                    .clicks(move |_, window, cx| match &on_link {
                         Some(on_link) => on_link(&href, window, cx),
                         None => cx.open_url(&href),
                     })
@@ -1350,8 +1350,7 @@ impl Draw<'_> {
                             Some(on_task) => {
                                 let (done, words) = (!*checked, task_words(item));
                                 tick.id(("task", place))
-                                    .cursor_pointer()
-                                    .on_click(move |_, window, cx| {
+                                    .clicks(move |_, window, cx| {
                                         on_task(place, &words, done, window, cx)
                                     })
                                     .into_any_element()
@@ -1444,7 +1443,7 @@ impl Draw<'_> {
         let wrap_id = self.id("wrap");
         let toggle = self
             .button(wrap_id, style.card.wrap.clone(), wrapped)
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 wrap.update(cx, |wrapped, cx| {
                     *wrapped = !*wrapped;
                     cx.notify();
@@ -1616,7 +1615,7 @@ impl Draw<'_> {
         let id = self.id("copy");
         let copied = window.use_keyed_state(id.clone(), cx, |_, _| false);
         let shown = *copied.read(cx);
-        button(self, id, shown).on_click(move |_, _, cx| {
+        button(self, id, shown).clicks(move |_, _, cx| {
             cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
             copied.update(cx, |shown, cx| {
                 *shown = true;
@@ -1837,11 +1836,10 @@ impl Draw<'_> {
             .id(self.id("details"))
             .flex()
             .gap(px(6.))
-            .cursor_pointer()
             .text_color(self.on.style.ink_dim)
             .child(if open { "▾" } else { "▸" })
             .child(summary)
-            .on_click(move |_, window, _| {
+            .clicks(move |_, window, _| {
                 let mut turned = turned.borrow_mut();
                 if !turned.remove(&key) {
                     turned.insert(key);

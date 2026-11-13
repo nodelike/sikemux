@@ -1,4 +1,5 @@
 disallowed-methods = [
     { path = "std::process::Command::new", reason = "use sikemux_process::user_environment::command, so the child gets the user's PATH" },
     { path = "tokio::process::Command::new", reason = "wrap sikemux_process::user_environment::command, so the child gets the user's PATH" },
+    { path = "gpui::StatefulInteractiveElement::on_click", reason = "use gpui_clicks::Clicks (crate::ui::Clicks): `clicks` shows the pointing hand, `clicks_keep_cursor` keeps the arrow" },
 ]

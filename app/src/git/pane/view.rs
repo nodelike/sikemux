@@ -1,6 +1,7 @@
 //! How the pane draws.
 
 use super::*;
+use crate::ui::Clicks;
 
 /// The side column: the branch with its sync actions, then the changes and the commit box.
 pub(crate) fn side(
@@ -1213,7 +1214,7 @@ pub(crate) fn entry_row(
                 .when(!chosen, |row| {
                     row.hover(move |row| row.bg(t.surface_hover).text_color(t.text_primary))
                 })
-                .on_click(move |_, window, cx| {
+                .clicks(move |_, window, cx| {
                     selecting.update(cx, |pane, cx| {
                         window.focus(&pane.focus, cx);
                         pane.select(index, cx);
@@ -1338,8 +1339,7 @@ pub(crate) fn group_row(
                         .px(SPACE_1)
                         .items_center()
                         .gap(SPACE_1)
-                        .cursor_pointer()
-                        .on_click(move |_, _, cx| {
+                        .clicks(move |_, _, cx| {
                             folding.update(cx, |pane, cx| {
                                 if !pane.folded.remove(&side) {
                                     pane.folded.insert(side);

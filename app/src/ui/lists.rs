@@ -1,3 +1,4 @@
+use crate::ui::Clicks;
 use gpui_kit::ListState;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -266,8 +267,7 @@ impl RenderOnce for Row {
             .bg(tint)
             .on_hover(keep_over)
             .when_some(on_click, |row, handler| {
-                row.cursor_pointer()
-                    .on_click(move |event, window, cx| handler(event, window, cx))
+                row.on_click(move |event, window, cx| handler(event, window, cx))
             })
             .children(
                 self.mark.map(|mark| {
@@ -438,9 +438,8 @@ impl RenderOnce for Group {
             .children(self.actions)
             .when_some(self.fold, |heading, (folded, toggle)| {
                 heading
-                    .cursor_pointer()
                     .hover(move |style| style.bg(t.surface_hover))
-                    .on_click(move |event, window, cx| toggle(event, window, cx))
+                    .clicks(move |event, window, cx| toggle(event, window, cx))
                     .child(motion::turn(
                         format!("group-fold-{}", self.label),
                         motion::fold_angle(!folded),
@@ -629,8 +628,7 @@ impl RenderOnce for Tab {
                     .justify_start()
                     .gap(SPACE_2)
                     .when_some(on_click, |tab, handler| {
-                        tab.cursor_pointer()
-                            .on_click(move |event, window, cx| handler(event, window, cx))
+                        tab.on_click(move |event, window, cx| handler(event, window, cx))
                     })
                     .children(self.mark.map(|mark| mark_box(22., mark)))
                     .child(

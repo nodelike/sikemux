@@ -2,6 +2,7 @@
 //! runs, why the last turn failed and what can be done about it, and a session that
 //! dropped.
 
+use crate::ui::Clicks;
 use sikemux_view::chat::{ChatCapabilities, PlanEntry, PlanStatus, SignInMethod};
 use std::time::Instant;
 
@@ -1027,7 +1028,7 @@ pub(super) fn plan(
         ))
         .child(t!("Plan"))
         .child(t!("{done} of {total}", done = done, total = plan.len()))
-        .on_click({
+        .clicks({
             let agent = agent.clone();
             move |_, _, cx| {
                 this.update(cx, |bench, cx| {

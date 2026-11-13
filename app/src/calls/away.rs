@@ -2,6 +2,7 @@
 //! calls that wait on the person as a queue, what agents decided for them and what landed.
 
 use super::*;
+use crate::ui::Clicks;
 use sikemux_view::chat::{AwayDecision, AwayLanded, ChiefAway};
 use sikemux_view::turn::TurnStep;
 
@@ -253,12 +254,11 @@ fn decided_row(
                     .id(SharedString::from(id))
                     .flex_none()
                     .pr(SPACE_2)
-                    .cursor_pointer()
                     .text_size(theme::ui_text(12.))
                     .text_color(t.text_secondary)
                     .hover(|word| word.text_color(t.text_primary))
                     .child(t!("Overrule"))
-                    .on_click(move |_, _, cx| {
+                    .clicks(move |_, _, cx| {
                         let _ = bench.update(cx, |bench, cx| {
                             crate::playbook::overrule(bench, &target, &overruled, cx)
                         });

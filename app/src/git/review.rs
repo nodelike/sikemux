@@ -2,6 +2,7 @@
 //! under it while open, every card's rows in one virtualised list.
 
 use crate::git::WhoWrote;
+use crate::ui::Clicks;
 use sikemux_calls::git::call as git_call;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -630,7 +631,7 @@ fn header(view: &Entity<GitPane>, pane: &GitPane, card: usize, cx: &App) -> AnyE
         .child(
             ui::file_head(format!("card-{path}"), path, open, Some(opens), cx)
                 .on_hover(super::pane::hover(view, key.clone()))
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     toggling.update(cx, |pane, cx| {
                         pane.review.toggle(card);
                         cx.notify();

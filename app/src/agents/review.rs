@@ -1,13 +1,13 @@
 //! What an agent did in its worktree, opened from its card in the rail: its branch, what it
 //! said it did, the files it changed, its tests and the server it runs, as the core reads them.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, App, AppContext, Context, FocusHandle, FontWeight, InteractiveElement, IntoElement,
-    KeyDownEvent, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    WeakEntity, Window,
+    KeyDownEvent, ParentElement, Render, SharedString, Styled, WeakEntity, Window,
 };
 
 use crate::core::Target;
@@ -177,12 +177,11 @@ impl Render for AgentReview {
                             .id(("review-file", index))
                             .pl(px(72.))
                             .truncate()
-                            .cursor_pointer()
                             .font_family(theme::MONO)
                             .text_size(crate::theme::ui_text(TEXT_2XS))
                             .text_color(t.accent)
                             .hover(|style| style.underline())
-                            .on_click(cx.listener(move |review, _, window, cx| {
+                            .clicks(cx.listener(move |review, _, window, cx| {
                                 let at = OpenAt {
                                     path: path.clone(),
                                     line: 1,

@@ -2,12 +2,13 @@
 //! how busy it has been, what its agents run and use, what happened on it lately, and what
 //! it is.
 
+use crate::ui::Clicks;
 use std::collections::BTreeMap;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    ParentElement, SharedString, Styled,
 };
 use sikemux_view::host_stats::{
     AgentUse, AlertLevel, ClearedFor, HostAlert, HostAlertKind, HostEventKind, HostStats,
@@ -978,10 +979,9 @@ fn resources(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .cursor_pointer()
         .text_color(t.text_tertiary)
         .hover(|row| row.text_color(t.text_secondary))
-        .on_click(cx.listener(|bench, _, _, cx| {
+        .clicks(cx.listener(|bench, _, _, cx| {
             bench.hosts_page.history_open = !bench.hosts_page.history_open;
             bench.parts.redraw_stage(cx);
         }))
@@ -1500,9 +1500,8 @@ fn person_row(
         .px(SPACE_3)
         .py(px(9.))
         .bg(ink(t, 0.02))
-        .cursor_pointer()
         .hover(|row| row.bg(t.surface_hover))
-        .on_click(cx.listener(move |bench, _, _, cx| {
+        .clicks(cx.listener(move |bench, _, _, cx| {
             let folded = &mut bench.hosts_page.folded;
             if !folded.remove(&key) {
                 folded.insert(key.clone());
@@ -1552,8 +1551,7 @@ fn top(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .cursor_pointer()
-        .on_click(cx.listener(|bench, _, _, cx| {
+        .clicks(cx.listener(|bench, _, _, cx| {
             bench.hosts_page.top_open = !bench.hosts_page.top_open;
             bench.parts.redraw_stage(cx);
         }))

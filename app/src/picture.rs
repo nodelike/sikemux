@@ -1,6 +1,7 @@
 //! A picture shown properly: over the whole window, as large as the window lets it
 //! be, with a way to keep a copy in Downloads.
 
+use crate::ui::Clicks;
 use sikemux_calls::account::AccountPictureParams;
 use sikemux_calls::remote_image::ImageParams;
 use sikemux_calls::remote_image::PictureData;
@@ -14,10 +15,10 @@ use std::sync::Arc;
 use base64::Engine;
 use gpui_kit::component::WindowExt;
 use gpui_kit::{
-    div, img, px, size, App, Asset, Context, CursorStyle, Div, ElementId, FontWeight, Hsla, Image,
+    div, img, px, size, App, Asset, Context, Div, ElementId, FontWeight, Hsla, Image,
     ImageCacheError, ImageFormat, ImageSource, ImgResourceLoader, InteractiveElement, IntoElement,
-    ObjectFit, ParentElement, Pixels, RenderImage, SharedString, Size, StatefulInteractiveElement,
-    Styled, StyledImage, WeakEntity, Window,
+    ObjectFit, ParentElement, Pixels, RenderImage, SharedString, Size, Styled, StyledImage,
+    WeakEntity, Window,
 };
 use tokio::sync::mpsc;
 
@@ -431,8 +432,7 @@ pub fn thumb(
         .max_w(width)
         .rounded(theme::RADIUS_2)
         .overflow_hidden()
-        .cursor(CursorStyle::PointingHand)
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             bench
                 .update(cx, |bench, cx| {
                     bench.show_picture(picture.clone(), window, cx)

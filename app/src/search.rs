@@ -2,6 +2,7 @@
 //! listed as they arrive, the chosen one previewed in place, and every match replaced
 //! once the person has seen how many.
 
+use crate::ui::Clicks;
 use crate::workbench::actions;
 use gpui_kit::component::input::AnyInputState;
 use sikemux_calls::call;
@@ -1121,7 +1122,7 @@ fn file_header(
         } else {
             t!("Collapse file")
         }))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             folding.update(cx, |pane, cx| {
                 if !pane.collapsed.remove(&path) {
                     pane.collapsed.insert(path.clone());
@@ -1229,7 +1230,7 @@ fn hit_row(
                 row.hover(move |row| row.bg(t.surface_hover).text_color(t.text_primary))
             }
         })
-        .on_click(move |event, window, cx| {
+        .clicks(move |event, window, cx| {
             let path = path.clone();
             choosing.update(cx, |pane, cx| {
                 window.focus(&pane.focus, cx);

@@ -1,6 +1,7 @@
 //! The dialog that picks one agent's face, as the Mac's buddy picker does: a pack, a shape in
 //! it and a colour, or back to the default the face style in Settings gives every agent.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -159,7 +160,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 26.,
             )
             .child(drawn(pack, &head_shape, index, 20.))
-            .on_click(cx.listener(move |bench, _, _, _| {
+            .clicks(cx.listener(move |bench, _, _, _| {
                 let buddy = match &own_pack {
                     Some(own_pack) => AgentBuddy {
                         pack: Some(own_pack.clone()),
@@ -248,7 +249,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     .when(candidate.id == face.pack, |row| {
                         row.child(ui::icon(Icon::Check, 12.).text_color(t.text_secondary))
                     })
-                    .on_click(cx.listener(move |bench, _, _, cx| {
+                    .clicks(cx.listener(move |bench, _, _, cx| {
                         if let Some(picking) = bench.overlays.buddy_picker.as_mut() {
                             picking.pack = picked.clone();
                         }
@@ -275,7 +276,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             )
             .tooltip(ui::tooltip(shape.name.clone()))
             .child(drawn(pack, &shape.id, color, 40.))
-            .on_click(cx.listener(move |bench, _, _, _| {
+            .clicks(cx.listener(move |bench, _, _, _| {
                 bench.set_buddy(
                     &agent_id,
                     Some(AgentBuddy {

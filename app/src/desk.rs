@@ -7,6 +7,7 @@ mod snip;
 mod width;
 
 use crate::desk::downloads::downloaded;
+use crate::ui::Clicks;
 use gpui_kit::Task;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1923,7 +1924,7 @@ pub fn pane(
                 cx,
             )
             .children(ui::spot(|| format!("desk-page-{agent}-{}", page.title)))
-            .on_click(cx.listener(move |bench, _, _, cx| {
+            .clicks(cx.listener(move |bench, _, _, cx| {
                 bench.desks.update(cx, |desks, cx| {
                     desks.front.remove(&switch_agent);
                     cx.notify();
@@ -1985,7 +1986,7 @@ pub fn pane(
                 cx,
             )
             .children(ui::spot(|| format!("desk-item-{agent}-{label}")))
-            .on_click(cx.listener(move |bench, _, _, cx| {
+            .clicks(cx.listener(move |bench, _, _, cx| {
                 bench.desks.update(cx, |desks, cx| {
                     desks.bring_front(&pick_agent, pick_item.clone(), cx)
                 });

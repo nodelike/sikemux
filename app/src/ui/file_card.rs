@@ -2,10 +2,11 @@
 //! it: a chevron that folds the diff under it, the file's icon, its folder quiet before its
 //! name, then whatever the caller adds at the end.
 
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, App, Div, InteractiveElement, ParentElement, Pixels, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Window,
+    div, px, App, Div, InteractiveElement, ParentElement, Pixels, SharedString, Stateful, Styled,
+    Window,
 };
 
 use crate::icons::Icon;
@@ -49,7 +50,7 @@ pub fn file_head(
         .child(div().text_color(t.text_primary).child(base.clone()))
         .when_some(open_file, |name, open_file| {
             name.hover(|name| name.underline())
-                .on_click(move |_, window, cx| {
+                .clicks(move |_, window, cx| {
                     cx.stop_propagation();
                     open_file(window, cx);
                 })

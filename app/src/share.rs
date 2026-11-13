@@ -1,6 +1,7 @@
 //! Sharing a chat read-only: a link anyone signed in to Sikemux can read it from, as it
 //! happens. The core opens and keeps the share; the window lists them and asks.
 
+use crate::ui::Clicks;
 use sikemux_calls::share::StopShareParams;
 use std::rc::Rc;
 
@@ -8,7 +9,7 @@ use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, ClipboardItem, Context, Div, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, StatefulInteractiveElement, Styled, Window,
+    ParentElement, Styled, Window,
 };
 use sikemux_calls::share::ShareState;
 use sikemux_calls::share::ShareView;
@@ -245,7 +246,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                                             .border_color(t.border_strong)
                                     }),
                             })
-                            .on_click(cx.listener(move |bench, _, _, cx| {
+                            .clicks(cx.listener(move |bench, _, _, cx| {
                                 if let Some(sharing) = bench.overlays.sharing.as_mut() {
                                     sharing.lifetime = at;
                                 }

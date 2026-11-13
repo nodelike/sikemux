@@ -2,6 +2,7 @@
 //! column in the middle, the service's mark raised in a tile, what signing in gives, the form,
 //! and the quieter ways round below it.
 
+use crate::ui::Clicks;
 use std::time::Duration;
 
 use gpui_kit::component::input::{Input, InputState};
@@ -266,7 +267,7 @@ pub fn waiting(
         .child(
             link(SharedString::from(format!("{id}-cancel")), t!("Cancel"), cx)
                 .ml(SPACE_1)
-                .on_click(cancel),
+                .clicks(cancel),
         )
 }
 

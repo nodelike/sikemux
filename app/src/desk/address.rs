@@ -1,14 +1,15 @@
 //! ⌘L's address: a field floating over the middle of a desk's page, which finishes a
 //! remembered site as it is typed and lists the pages that match below it.
 
+use crate::ui::Clicks;
 use std::ops::Range;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     deferred, div, px, relative, AnyElement, App, AppContext, Context, Entity, FontWeight,
-    HighlightStyle, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, StyledText, Subscription, Task, Window,
+    HighlightStyle, InteractiveElement, IntoElement, MouseButton, ParentElement, Styled,
+    StyledText, Subscription, Task, Window,
 };
 use sikemux_browser::history::{AddressSuggestions, Suggestion};
 
@@ -363,7 +364,7 @@ pub(super) fn overlay(
                         true => line.bg(t.surface_chosen),
                         false => line.hover(|line| line.bg(t.surface_hover)),
                     })
-                    .on_click(cx.listener(move |bench, _, window, cx| {
+                    .clicks(cx.listener(move |bench, _, window, cx| {
                         bench.go_address(Some(at), window, cx)
                     }))
                     .child(

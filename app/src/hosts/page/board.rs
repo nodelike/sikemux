@@ -1,10 +1,11 @@
 //! The page under its detail: how many hosts are up and agents running, a search, filters,
 //! every host as a card or a table row, then the devices.
 
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, relative, AnyElement, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    ParentElement, SharedString, Styled,
 };
 use sikemux_view::host_stats::{AlertLevel, HostAlertKind};
 use sikemux_wire::protocol::RemoteStatus;
@@ -323,7 +324,7 @@ fn host_card(
                 .border_color(t.accent.opacity(0.35))
         })
         .when(!chosen, |card| card.hover(|card| card.bg(lifted(t, 0.03))))
-        .on_click(chooses(&host.key, cx))
+        .clicks(chooses(&host.key, cx))
         .child(
             div()
                 .flex()
@@ -687,11 +688,10 @@ fn table(
                 .px(SPACE_4)
                 .flex()
                 .items_center()
-                .cursor_pointer()
                 .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
                 .when(picked, |row| row.bg(ink(t, 0.05)))
                 .when(!picked, |row| row.hover(|row| row.bg(ink(t, 0.03))))
-                .on_click(chooses(&host.key, cx))
+                .clicks(chooses(&host.key, cx))
                 .child(
                     column(0).child(
                         div()

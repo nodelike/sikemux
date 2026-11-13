@@ -2,6 +2,7 @@
 //! draws a call wherever it shows: as the last thing in its asker's chat, and open in the title
 //! bar's popover over the calls of the project in front.
 
+use crate::ui::Clicks;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -11,8 +12,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, img, px, relative, Anchor, AnyElement, App, AppContext, ClickEvent, Context, Entity,
     EventEmitter, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ObjectFit,
-    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
-    Subscription, WeakEntity, Window,
+    ParentElement, Render, SharedString, Styled, StyledImage, Subscription, WeakEntity, Window,
 };
 use sikemux_calls::call;
 use sikemux_calls::questions::AnswerParams;
@@ -1089,7 +1089,7 @@ fn picture(
             }
             .object_fit(ObjectFit::Cover),
         })
-        .on_click(move |_, window, cx| {
+        .clicks(move |_, window, cx| {
             cx.stop_propagation();
             bench
                 .update(cx, |bench, cx| {
@@ -1151,7 +1151,7 @@ fn strip(
             .flex_1()
             .w_full()
             .opacity(0.72)
-            .on_click(move |_, _, cx| {
+            .clicks(move |_, _, cx| {
                 cx.stop_propagation();
                 cards.update(cx, |cards, cx| cards.choose(&call, &option, cx));
             })

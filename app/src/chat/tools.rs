@@ -1,6 +1,7 @@
 //! A run of tool calls in a chat: each call's row as the core worked it out,
 //! and what the call changed or printed once the reader opens it.
 
+use crate::ui::Clicks;
 use sikemux_view::chat::ToolStatus;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -428,7 +429,7 @@ pub fn run(
             open,
             looks.quiet,
         )))
-        .on_click({
+        .clicks({
             let key = key.clone();
             move |_, _, cx| {
                 reader.update(cx, |reading, cx| {
@@ -664,7 +665,7 @@ fn row(
         .flex_col()
         .child(spine(last, looks))
         .child(line)
-        .when(opens, |node| node.cursor_pointer().on_click(toggle));
+        .when(opens, |node| node.clicks(toggle));
     let node = node.children(opened_detail(call, open, looks, window, cx));
     node.into_any_element()
 }
@@ -729,9 +730,8 @@ fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Di
                     .id(SharedString::from(format!("target:{id}")))
                     .flex_none()
                     .text_color(looks.accent)
-                    .cursor_pointer()
                     .hover(|link| link.underline())
-                    .on_click({
+                    .clicks({
                         let open = open.clone();
                         move |event, window, cx| {
                             cx.stop_propagation();
@@ -912,9 +912,8 @@ fn terminal(
             .items_center()
             .gap(px(5.))
             .text_color(quiet)
-            .cursor_pointer()
             .hover(move |more| more.text_color(ink))
-            .on_click(move |_, _, cx| {
+            .clicks(move |_, _, cx| {
                 cx.stop_propagation();
                 reader.update(cx, |reading, cx| {
                     if !reading.tools.whole.remove(&id) {
@@ -1150,9 +1149,8 @@ fn diff_gap(id: &str, gap: usize, looks: &Drawn) -> AnyElement {
         .gap(px(6.))
         .font_family(theme::UI)
         .text_color(quiet)
-        .cursor_pointer()
         .hover(move |gap| gap.text_color(ink))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             cx.stop_propagation();
             reader.update(cx, |reading, cx| {
                 reading.tools.whole.insert(id.clone());

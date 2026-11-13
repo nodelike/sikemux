@@ -1,6 +1,7 @@
 //! ⌃`: holding ⌃ and pressing ` steps through the projects and the SSH hosts
 //! open beside them; letting go of ⌃ opens the one reached, and Esc stays put.
 
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
@@ -195,7 +196,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
             .px(SPACE_2)
             .rounded(theme::RADIUS_2)
             .when(chosen, |row| row.bg(t.surface_chosen))
-            .on_click(cx.listener(move |bench, _, _, cx| {
+            .clicks(cx.listener(move |bench, _, _, cx| {
                 if let Some(switcher) = bench.overlays.switcher.as_mut() {
                     switcher.at = place;
                 }

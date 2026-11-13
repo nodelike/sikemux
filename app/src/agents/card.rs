@@ -2,6 +2,7 @@
 //! its project, its worktree's branch and folder, and that branch's pull requests. A closed
 //! chat in Recent whose triggers wait for it shows them in the same card.
 
+use crate::ui::Clicks;
 use sikemux_calls::call;
 use sikemux_calls::codehost::PullsParams;
 use std::time::Duration;
@@ -293,10 +294,9 @@ pub fn view(
                 ui::mono(branch, TEXT_2XS, cx)
                     .id("card-branch")
                     .text_color(t.text_primary)
-                    .cursor_pointer()
                     .hover(|link| link.underline())
                     .tooltip(ui::tooltip(t!("Review its work")))
-                    .on_click(cx.listener(move |bench, _, _, cx| {
+                    .clicks(cx.listener(move |bench, _, _, cx| {
                         bench.close_card(cx);
                         crate::agents::review::open(bench, &reviewed, cx);
                     }))
@@ -325,10 +325,9 @@ pub fn view(
                 ui::mono(format!("#{}", pull.number), TEXT_2XS, cx)
                     .id(SharedString::from(format!("card-pull-{}", pull.number)))
                     .text_color(t.text_primary)
-                    .cursor_pointer()
                     .hover(|link| link.underline())
                     .tooltip(ui::tooltip(pull.title.clone()))
-                    .on_click(cx.listener(move |bench, _, _, cx| {
+                    .clicks(cx.listener(move |bench, _, _, cx| {
                         bench.open_on_desk(&agent, &url, cx);
                         bench.close_card(cx);
                     }))

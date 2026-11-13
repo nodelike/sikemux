@@ -1,6 +1,7 @@
 //! The editor's tab: a file read and saved through the core, edited on Kit's
 //! code editor, and opened from anywhere at a line.
 
+use crate::ui::Clicks;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::{HashMap, HashSet};
@@ -793,9 +794,8 @@ fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoEleme
                 .h(px(24.))
                 .items_center()
                 .px(SPACE_3)
-                .cursor_pointer()
                 .hover(move |style| style.bg(t.surface_hover))
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     let at = at.clone();
                     this.update(cx, |bench, cx| {
                         close_peeks(bench, cx);

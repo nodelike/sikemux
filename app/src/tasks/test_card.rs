@@ -1,6 +1,7 @@
 //! The Run chip's cards: the tests the task's last run failed, or why it stopped, each with
 //! its output and an agent one click away, as the Mac's run button shows them.
 
+use crate::ui::Clicks;
 use sikemux_view::layout::PaneKind;
 use std::path::{Path, PathBuf};
 
@@ -268,12 +269,11 @@ fn tests_card(
                             };
                             div()
                                 .id(("run-card-file", ix))
-                                .cursor_pointer()
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .text_color(t.text_secondary)
                                 .underline()
                                 .child(shown)
-                                .on_click(cx.listener(move |bench, _, _, cx| {
+                                .clicks(cx.listener(move |bench, _, _, cx| {
                                     bench.close_run_card();
                                     let at = OpenAt {
                                         path: file.clone(),

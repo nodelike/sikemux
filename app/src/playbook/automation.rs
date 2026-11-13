@@ -1,12 +1,13 @@
 //! The Automation page: what runs in the project with nobody asking, one sentence each, with
 //! Pause or Resume and Remove. Auto's line unfolds in place to the agents it starts and how many.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled,
+    Styled,
 };
 use sikemux_calls::board::BoardReviewerParams;
 use sikemux_calls::board::BoardSettingsParams;
@@ -316,9 +317,8 @@ fn auto_rows(
     let t = Tokens::get(cx).clone();
     let head = rows::row_parts(Some(bolt(cx)), label, Some(under), pause, cx)
         .id("playbook-auto-line")
-        .cursor_pointer()
         .hover(move |row| row.bg(t.surface_hover))
-        .on_click(toggle)
+        .clicks(toggle)
         .into_any_element();
     if !open {
         return vec![head];

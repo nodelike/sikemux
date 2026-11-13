@@ -3,6 +3,7 @@
 //! each names the file and opens or reveals it. Another host's pictures and documents
 //! are shown from a read-only copy brought over to this disk.
 
+use crate::ui::Clicks;
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -14,8 +15,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     canvas, div, img, point, px, size, uniform_list, AnyElement, App, Bounds, Context, Entity,
     FontWeight, ImgResourceLoader, InteractiveElement, IntoElement, ObjectFit, ParentElement,
-    Pixels, Point, RenderOnce, Resource, SharedString, Size, StatefulInteractiveElement, Styled,
-    StyledImage, Window,
+    Pixels, Point, RenderOnce, Resource, SharedString, Size, Styled, StyledImage, Window,
 };
 
 use super::{copies, Editors, FileKey};
@@ -680,12 +680,9 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
         div()
             .id(id)
             .px(SPACE_1H)
-            .cursor_pointer()
             .text_color(t.text_secondary)
             .hover(move |style| style.text_color(t.text_primary))
-            .on_click(move |_, _, cx| {
-                this.update(cx, |bench, cx| rescale(bench, &key, to, None, cx))
-            })
+            .clicks(move |_, _, cx| this.update(cx, |bench, cx| rescale(bench, &key, to, None, cx)))
             .child(label)
     };
     let image = about.is_some_and(|about| kind_of(&about.mime) == Kind::Image);

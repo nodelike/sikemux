@@ -1,12 +1,13 @@
 //! The line under each of the Playbook's rows: who said it and where, with Open, which jumps to
 //! that moment in the chat, and Undo.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, AnyElement, App, Context, Entity, InteractiveElement, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window,
+    SharedString, Styled, Window,
 };
 use sikemux_view::memory::Learned;
 
@@ -124,11 +125,10 @@ pub(super) fn line(
             .child(
                 div()
                     .id(SharedString::from(format!("{id}-{at}")))
-                    .cursor_pointer()
                     .text_color(t.text_secondary)
                     .hover(|word| word.text_color(t.text_primary))
                     .child(action.label)
-                    .on_click(move |_, _: &mut Window, cx| {
+                    .clicks(move |_, _: &mut Window, cx| {
                         this.update(cx, |bench, cx| act(bench, cx));
                     }),
             )

@@ -3,6 +3,7 @@
 //! the page; its view keeps no storage and never navigates, and a link the person clicks in
 //! it opens on the agent's desk.
 
+use crate::ui::Clicks;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -263,9 +264,8 @@ fn tab_row(
         .pl(px(8.))
         .pr(px(14.))
         .when(below_another, |row| row.border_t_1().border_color(t.border))
-        .cursor_pointer()
         .hover(|row| row.bg(t.surface_hover))
-        .on_click(opens_tab(page, looks))
+        .clicks(opens_tab(page, looks))
         .child(thumb)
         .child(
             div()

@@ -1,5 +1,6 @@
 //! The ports the project's terminals, tasks and agents listen on, as the Run menu lists them.
 
+use crate::ui::Clicks;
 use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::{
     div, px, App, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, WeakEntity,
@@ -119,7 +120,7 @@ impl PortRow {
                     .rounded(crate::theme::RADIUS_2)
                     .hover(move |style| style.bg(t.surface_hover))
                     .tooltip(ui::tooltip(t!("Stop what listens on {port}", port = port)))
-                    .on_click(move |_, _, cx| {
+                    .clicks(move |_, _, cx| {
                         cx.stop_propagation();
                         let _ = bench.update(cx, |bench, _| bench.stop_run(&execution));
                     })

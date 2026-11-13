@@ -1,4 +1,5 @@
 use crate::ui::keyed::{self, KeyedRows};
+use crate::ui::Clicks;
 use crate::workbench::actions;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
@@ -1271,7 +1272,7 @@ fn surfaces(
                 keymap::hint(command, cx),
                 cx,
             )
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 if let Some(page) = crate::pane_kind::page_of(kind) {
                     let _ = bench.update(cx, |bench, cx| {
                         if bench.rails.tab_open {
@@ -1298,7 +1299,7 @@ fn surfaces(
         keymap::hint(playbook, cx),
         cx,
     )
-    .on_click(move |_, window, cx| keymap::dispatch(playbook, window, cx));
+    .clicks(move |_, window, cx| keymap::dispatch(playbook, window, cx));
     let playbook = keyed.row("surface-playbook", t!("Playbook"), playbook, cx);
     div()
         .flex()
@@ -1422,7 +1423,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                     .text_ellipsis()
                     .child(name),
             )
-            .on_click({
+            .clicks({
                 let id = id.clone();
                 cx.listener(move |bench, event: &ClickEvent, _, cx| {
                     match (event.click_count(), &id) {
@@ -1926,7 +1927,7 @@ impl Workbench {
             .cursor_col_resize()
             .key_context("RailResizer")
             .track_focus(&self.rails.resizers[edge as usize])
-            .on_click(cx.listener(move |bench, _, window, cx| {
+            .clicks_keep_cursor(cx.listener(move |bench, _, window, cx| {
                 bench.rails.resizers[edge as usize].focus(window, cx)
             }))
             .on_action(cx.listener(move |bench, _: &EdgeLeft, window, cx| {

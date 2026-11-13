@@ -2,12 +2,12 @@
 //! questions the agent waits on, its subagents at work, its background tasks,
 //! the messages waiting their turn, and those share viewers wrote.
 
+use crate::ui::Clicks;
 use gpui_kit::base::Button as BaseButton;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, linear_color_stop, linear_gradient, px, AnyElement, Context, Div, FontWeight, Hsla,
-    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Styled,
 };
 use sikemux_calls::call;
 use sikemux_calls::chat::QueuedParams;
@@ -78,14 +78,12 @@ impl Label {
             .text_size(crate::theme::ui_text(TEXT_3XS))
             .text_color(t.text_disabled)
             .when(self.folds, |label| {
-                label
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |bench, _, _, cx| {
-                        if let Some(chat) = bench.chats.open.get_mut(&agent) {
-                            chat.toggle_group(&key);
-                        }
-                        cx.notify();
-                    }))
+                label.clicks(cx.listener(move |bench, _, _, cx| {
+                    if let Some(chat) = bench.chats.open.get_mut(&agent) {
+                        chat.toggle_group(&key);
+                    }
+                    cx.notify();
+                }))
             })
             .when(self.folded, |label| label.child(self.icon))
             .child(div().child(self.word.to_uppercase()))
@@ -400,10 +398,9 @@ fn header(
         .items_center()
         .gap(SPACE_2)
         .rounded(theme::RADIUS_2)
-        .cursor_pointer()
         .text_size(theme::ui_text(TEXT_XS))
         .text_color(t.text_tertiary)
-        .on_click(cx.listener(move |bench, _, _, cx| {
+        .clicks(cx.listener(move |bench, _, _, cx| {
             if let Some(chat) = bench.chats.open.get_mut(&agent) {
                 match &fold {
                     Fold::One(key) => chat.toggle_group(key),

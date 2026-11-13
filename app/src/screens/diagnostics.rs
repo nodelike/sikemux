@@ -2,6 +2,7 @@
 //! agent detection manifests the core runs on, and why the core reads an agent's terminal
 //! as it does. Nothing it shows is a terminal's text, an environment value or a credential.
 
+use crate::ui::Clicks;
 use std::collections::BTreeMap;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -240,8 +241,7 @@ pub fn render(
                     agent.id
                 )))
                 .w(relative(0.195))
-                .cursor_pointer()
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     let id = id.clone();
                     this.update(cx, |bench, cx| ask(bench, Detection::Explain(id), cx))
                 })
@@ -297,8 +297,7 @@ pub fn render(
                         .font_family(theme::MONO)
                         .text_size(crate::theme::ui_text(TEXT_3XS))
                         .text_color(t.text_tertiary)
-                        .cursor_pointer()
-                        .on_click(move |_, _, cx| this.update(cx, experience::close))
+                        .clicks(move |_, _, cx| this.update(cx, experience::close))
                         .child("esc")
                 }),
         )

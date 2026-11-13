@@ -1,12 +1,12 @@
 //! A native text view in a GPUI window, under a popover, beside a GPUI field.
 //! Click or type into either; the line at the bottom names who has the keyboard.
-
 #[cfg(target_os = "macos")]
 fn main() {
     use gpui::{
         anchored, deferred, div, prelude::*, px, rgb, size, App, Bounds, Context, FocusHandle,
         KeyDownEvent, MouseButton, Window, WindowBounds, WindowOptions,
     };
+    use gpui_clicks::Clicks;
     use gpui_native_view::{native_view, NativeSurface, OwnedView, Retained};
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSTextView, NSView};
@@ -66,7 +66,7 @@ fn main() {
                                 } else {
                                     rgb(0x44444f)
                                 })
-                                .on_click(cx.listener(|demo, _, window, cx| {
+                                .clicks_keep_cursor(cx.listener(|demo, _, window, cx| {
                                     demo.field_focus.focus(window, cx)
                                 }))
                                 .on_key_down(cx.listener(|demo, event: &KeyDownEvent, _, cx| {
@@ -86,14 +86,14 @@ fn main() {
                                 "shown",
                                 if self.shown { "Hide page" } else { "Show page" }.into(),
                             )
-                            .on_click(cx.listener(|demo, _, _, cx| {
+                            .clicks(cx.listener(|demo, _, _, cx| {
                                 demo.shown = !demo.shown;
                                 cx.notify();
                             })),
                         )
                         .child(
                             button("menu", "Menu".into())
-                                .on_click(cx.listener(|demo, _, _, cx| {
+                                .clicks(cx.listener(|demo, _, _, cx| {
                                     demo.menu = !demo.menu;
                                     cx.notify();
                                 }))

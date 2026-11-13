@@ -2,14 +2,14 @@
 //! and under each connector the sign-ins the vault holds, with the hosts that may use each,
 //! which projects their agents may use it in, and its latest uses.
 
+use crate::ui::Clicks;
 use std::collections::{BTreeSet, HashMap};
 
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
-    Styled, Window,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Window,
 };
 use sikemux_calls::call;
 use sikemux_calls::params::NoParams;
@@ -620,11 +620,10 @@ fn last_use(
                 .child(
                     div()
                         .id(SharedString::from(format!("vault-log-{}", sign_in.id)))
-                        .cursor_pointer()
                         .text_color(t.accent)
                         .font_weight(FontWeight::MEDIUM)
                         .child(t!("Use log"))
-                        .on_click(move |_, _, cx| {
+                        .clicks(move |_, _, cx| {
                             opening.update(cx, |bench, cx| toggle_log(bench, &id, cx))
                         }),
                 ),

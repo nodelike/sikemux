@@ -10,6 +10,7 @@ mod rules;
 pub(crate) mod said;
 mod setup;
 
+use crate::ui::Clicks;
 pub(crate) use decisions::{overrule, undo_overrule};
 pub(crate) use rules::{restore as restore_rule, retire as undo_rule};
 
@@ -514,7 +515,7 @@ pub fn pane(
             .when(page == Page::Config && invalid, |row| {
                 row.child(div().text_color(t.danger).child("!"))
             })
-            .on_click(move |_, _, cx| {
+            .clicks(move |_, _, cx| {
                 this.update(cx, |bench, cx| {
                     if let Some(settings) = bench.settings_of(&folder) {
                         settings.page = page;
@@ -875,7 +876,7 @@ fn tasks(
                     cwd.clone()
                 }))
                 .child(ui::meta(group.len().to_string(), cx))
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     toggle.update(cx, |bench, cx| {
                         if let Some(settings) = bench.settings_of(&folder_owned) {
                             if !settings.opened.remove(&cwd_owned) {
@@ -1047,7 +1048,7 @@ fn git(
                     .when(changes > 0, |row| {
                         row.child(ui::meta(t!("{changes} changed", changes = changes), cx))
                     })
-                    .on_click(move |_, _, cx| {
+                    .clicks(move |_, _, cx| {
                         let (repos, pick) = (repos.clone(), pick.clone());
                         this.update(cx, |bench, _| {
                             bench.set_project_map(

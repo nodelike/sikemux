@@ -2,6 +2,7 @@
 //! and what it holds once opened.
 
 use super::*;
+use crate::ui::Clicks;
 
 use crate::theme::{SPACE_0, SPACE_1, SPACE_1H, TEXT_2XS, TEXT_XS_H};
 
@@ -123,9 +124,8 @@ pub(super) fn head(
             .gap(SPACE_1H)
             .rounded(theme::RADIUS_2)
             .text_size(crate::theme::ui_text(TEXT_XS_H))
-            .cursor_pointer()
             .hover(move |row| row.bg(hover))
-            .on_click(move |_, _, cx| {
+            .clicks(move |_, _, cx| {
                 let id = toggled.clone();
                 toggle(cx, &move |reading| {
                     if reading.teams.remove(&id).is_none() {
@@ -192,9 +192,8 @@ pub(super) fn head(
             .rounded(theme::RADIUS_2)
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(looks.quiet)
-            .cursor_pointer()
             .hover(move |row| row.bg(hover))
-            .on_click(move |_, _, cx| {
+            .clicks(move |_, _, cx| {
                 let id = toggled.clone();
                 toggle(cx, &move |reading| {
                     reading.teams.insert(id.clone(), true);

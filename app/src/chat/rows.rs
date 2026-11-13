@@ -2,6 +2,7 @@
 //! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
 use super::*;
+use crate::ui::Clicks;
 use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice};
 use sikemux_view::slice::SliceState;
 
@@ -514,9 +515,8 @@ pub(super) fn fired_request(
         .items_center()
         .gap(SPACE_1H)
         .rounded(theme::RADIUS_2)
-        .cursor_pointer()
         .hover(move |line| line.bg(hover))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&toggled);
                 cx.notify();
@@ -629,10 +629,9 @@ pub(super) fn letters(
                             .id(SharedString::from(format!("{id}:from")))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(looks.ink)
-                            .cursor_pointer()
                             .hover(|name| name.underline())
                             .child(format!("@{}", letter.name))
-                            .on_click(move |_, _, cx| {
+                            .clicks(move |_, _, cx| {
                                 bench
                                     .update(cx, |bench, cx| {
                                         let from = bench.chat_target(&chat);
@@ -848,7 +847,7 @@ pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyE
             motion::DETAIL_FOLD,
             ui::icon(Icon::Chevron, 10.).text_color(looks.quiet),
         ))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&id);
                 cx.notify();
@@ -886,10 +885,9 @@ fn left_out(row: &ChatRow, looks: &Drawn, cx: &App) -> Option<AnyElement> {
     let (reader, ink) = (looks.reader.clone(), looks.ink);
     let toggle = div()
         .id(SharedString::from(key.clone()))
-        .cursor_pointer()
         .hover(move |toggle| toggle.text_color(ink))
         .child(if open { t!("Hide") } else { t!("Show") })
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&key);
                 cx.notify();
@@ -996,10 +994,9 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
         .child(
             div()
                 .id(SharedString::from(format!("kept-rule-{}", rule.id)))
-                .cursor_pointer()
                 .text_color(looks.ink)
                 .child(t!("Undo"))
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     let rule = rule.clone();
                     let _ = bench.update(cx, |bench, cx| {
                         crate::playbook::undo_rule(bench, &rule.project, rule.id, cx)
@@ -1055,10 +1052,9 @@ fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
                 div()
                     .id(SharedString::from(id))
                     .flex_none()
-                    .cursor_pointer()
                     .text_color(looks.ink)
                     .child(t!("Undo"))
-                    .on_click(move |_, _, cx| {
+                    .clicks(move |_, _, cx| {
                         let overruled = overruled.clone();
                         let _ = bench.update(cx, |bench, cx| {
                             let target = bench.chat_target(&agent);
@@ -1112,10 +1108,9 @@ fn rule_change(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
                 div()
                     .id(SharedString::from(format!("rule-change-{}", line.rule)))
                     .flex_none()
-                    .cursor_pointer()
                     .text_color(looks.ink)
                     .child(t!("Undo"))
-                    .on_click(move |_, _, cx| {
+                    .clicks(move |_, _, cx| {
                         let line = line.clone();
                         let _ = bench.update(cx, |bench, cx| {
                             let target = bench.chat_target(&agent);
@@ -1318,9 +1313,8 @@ pub(super) fn subagent(
         .gap(SPACE_2)
         .rounded(theme::RADIUS_3)
         .text_size(crate::theme::ui_text(TEXT_XS_H))
-        .cursor_pointer()
         .hover(move |summary| summary.bg(hover))
-        .on_click(move |_, _, cx| {
+        .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
                 reading.toggle(&toggled);
                 cx.notify();

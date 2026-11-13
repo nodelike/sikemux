@@ -1,3 +1,4 @@
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -175,7 +176,7 @@ impl RenderOnce for PaneHeader {
                         .text_ellipsis()
                         .text_color(primary)
                         .when_some(double_click, |title, handler| {
-                            title.on_click(move |event, window, cx| {
+                            title.clicks_keep_cursor(move |event, window, cx| {
                                 if event.click_count() == 2 {
                                     handler(event, window, cx)
                                 }

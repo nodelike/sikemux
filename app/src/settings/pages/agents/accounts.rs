@@ -1,6 +1,7 @@
 //! Each agent's accounts: who each is signed in as, which one is in use, and
 //! the dialog that adds one through the agent's own login.
 
+use crate::ui::Clicks;
 use std::rc::Rc;
 
 use gpui_kit::component::menu::PopupMenuItem;
@@ -8,7 +9,7 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, Anchor, AnyElement, App, ClickEvent, Context, Entity, IntoElement, ParentElement,
-    SharedString, StatefulInteractiveElement, Styled, Window,
+    SharedString, Styled, Window,
 };
 use sikemux_agents::agent_accounts::Profile;
 
@@ -425,7 +426,7 @@ pub fn dialog(
     let cancel = || {
         sign_in::links().child(
             sign_in::link("account-dialog-cancel", t!("Cancel"), cx)
-                .on_click(on(this, |bench, _, cx| accounts::close_dialog(bench, cx))),
+                .clicks(on(this, |bench, _, cx| accounts::close_dialog(bench, cx))),
         )
     };
     let mark = ui::mark(&open.provider, 34.);
@@ -463,7 +464,7 @@ pub fn dialog(
                                 t!("Signed out"),
                                 cx,
                             )
-                            .on_click(again),
+                            .clicks(again),
                         )
                         .when(!profile.id.starts_with(BUILT_IN), |row| {
                             let remove = {
@@ -477,7 +478,7 @@ pub fn dialog(
                                     t!("Remove {name}", name = profile.name),
                                     cx,
                                 )
-                                .on_click(remove),
+                                .clicks(remove),
                             )
                         })
                 }))
@@ -538,11 +539,11 @@ pub fn dialog(
                 None => sign_in::links()
                     .child(
                         sign_in::link("sign-in-page", t!("Open the page again"), cx)
-                            .on_click(move |_, _, cx| cx.open_url(&url)),
+                            .clicks(move |_, _, cx| cx.open_url(&url)),
                     )
                     .child(
                         sign_in::link("sign-in-code", t!("Paste a code"), cx)
-                            .on_click(on(this, move |bench, window, cx| {
+                            .clicks(on(this, move |bench, window, cx| {
                                 accounts::ask_code(bench, &id, window, cx)
                             })),
                     ),

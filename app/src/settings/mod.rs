@@ -3,6 +3,7 @@
 //! goes to the core as it is made.
 
 use crate::core::Target;
+use crate::ui::Clicks;
 use crate::workbench::actions;
 use sikemux_calls::call;
 use sikemux_view::prefs::PreferenceChange;
@@ -350,9 +351,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             })
             .when(chosen, |row| row.bg(t.surface_chosen))
             .when(!chosen, |row| row.hover(|style| style.bg(t.surface_hover)))
-            .on_click(move |_, window, cx| {
-                this.update(cx, |bench, cx| open(bench, page, window, cx))
-            })
+            .clicks(move |_, window, cx| this.update(cx, |bench, cx| open(bench, page, window, cx)))
             .child(ui::icon(page.icon(), 14.).text_color(if chosen {
                 t.text_secondary
             } else {
@@ -437,7 +436,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             })
             .when(chosen, |row| row.bg(t.surface_chosen))
             .when(!chosen, |row| row.hover(|style| style.bg(t.surface_hover)))
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 this.update(cx, |bench, cx| open(bench, Page::Account, window, cx))
             })
             .child(div().w(px(14.)).flex().justify_center().child(mark))
@@ -598,10 +597,9 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                     .px(SPACE_3)
                     .py(px(7.))
                     .rounded(theme::RADIUS_2)
-                    .cursor_pointer()
                     .when(chosen, |row| row.bg(t.surface_chosen))
                     .when(!chosen, |row| row.hover(|style| style.bg(t.surface_hover)))
-                    .on_click(move |_, window, cx| {
+                    .clicks(move |_, window, cx| {
                         this.update(cx, |bench, cx| go_to(bench, entry, window, cx))
                     })
                     .child(

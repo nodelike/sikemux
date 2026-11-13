@@ -3,6 +3,7 @@
 
 mod dbml;
 
+use crate::ui::Clicks;
 use sikemux_calls::call;
 use sikemux_calls::diagrams::DiagramParams;
 use std::cell::{Cell, RefCell};
@@ -798,10 +799,9 @@ impl Render for Diagram {
                             .items_center()
                             .justify_center()
                             .rounded(theme::RADIUS_2)
-                            .cursor_pointer()
                             .hover(|reset| reset.bg(t.surface_hover))
                             .tooltip(crate::ui::tooltip(t!("Actual size")))
-                            .on_click(cx.listener(|diagram, _, _, cx| {
+                            .clicks(cx.listener(|diagram, _, _, cx| {
                                 let factor = 1. / diagram.zoom;
                                 diagram.zoom_centre(factor, cx)
                             }))
@@ -817,7 +817,7 @@ impl Render for Diagram {
                     .child(div().w(px(1.)).h(px(14.)).mx(px(3.)).bg(t.border))
                     .child(
                         text_button("diagram-fit", t!("Fit"), t!("Show every table"), &t)
-                            .on_click(cx.listener(|diagram, _, _, cx| diagram.fit(cx))),
+                            .clicks(cx.listener(|diagram, _, _, cx| diagram.fit(cx))),
                     )
                     .child(
                         text_button(
@@ -826,7 +826,7 @@ impl Render for Diagram {
                             t!("Lay the tables out again"),
                             &t,
                         )
-                        .on_click(cx.listener(|diagram, _, _, cx| diagram.rearrange(cx))),
+                        .clicks(cx.listener(|diagram, _, _, cx| diagram.rearrange(cx))),
                     ),
             )
             .into_any_element()

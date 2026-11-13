@@ -1,10 +1,11 @@
 //! The mode agents start in, and how chats behave while they run and after.
 
 use crate::core::Target;
+use crate::ui::Clicks;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, AnyElement, App, Context, Entity, InteractiveElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, Window,
+    div, AnyElement, App, Context, Entity, InteractiveElement, ParentElement, SharedString, Styled,
+    Window,
 };
 use sikemux_calls::names::NameTheme;
 use sikemux_calls::names::NameThemeParams;
@@ -307,7 +308,7 @@ pub fn boundary(
                         .text_color(t.text_tertiary)
                         .child(crate::i18n::tr(detail)),
                 )
-                .on_click(move |_, _, cx| {
+                .clicks(move |_, _, cx| {
                     this.update(cx, |bench, _| {
                         Target::here(&bench.asks).call_typed::<call::SetAgentDefaults>(
                             DefaultsParams {

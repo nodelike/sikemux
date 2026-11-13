@@ -5,14 +5,14 @@
 //! already on the account, as the Mac does.
 
 use crate::reads::Read;
+use crate::ui::Clicks;
 use std::collections::HashSet;
 use std::time::Duration;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, AnyElement, App, Context, FocusHandle, FontWeight, InteractiveElement,
-    IntoElement, KeyBinding, ParentElement, SharedString, StatefulInteractiveElement, Styled,
-    Window,
+    IntoElement, KeyBinding, ParentElement, SharedString, Styled, Window,
 };
 use serde_json::Value;
 use sikemux_calls::call;
@@ -463,7 +463,7 @@ pub fn overlay(
                             .text_color(t.text_tertiary),
                     ),
             )
-            .on_click(cx.listener(move |bench, _, _, cx| {
+            .clicks(cx.listener(move |bench, _, _, cx| {
                 bench.pairing.access = access;
                 bench.parts.redraw(&bench.parts.over, cx);
             }))

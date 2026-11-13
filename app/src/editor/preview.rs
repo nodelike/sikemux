@@ -2,6 +2,7 @@
 //! links open, a web address in the browser and a file in its editor.
 
 use crate::reading::reading_style;
+use crate::ui::Clicks;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -109,7 +110,7 @@ pub(super) fn toolbar(
                 t.text_tertiary
             })
             .when(chosen, |choice| choice.bg(t.surface_chosen))
-            .on_click(move |_, window, cx| {
+            .clicks(move |_, window, cx| {
                 this.update(cx, |bench, cx| {
                     super::show_mode(bench, &key, shows, window, cx)
                 })

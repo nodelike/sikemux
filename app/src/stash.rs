@@ -4,6 +4,7 @@
 //! items are new, or with `&` in the draft. The chat's core puts it there.
 
 use crate::chat::{AGENT, FILE, TRACKED};
+use crate::ui::Clicks;
 use crate::updates::bytes;
 use sikemux_view::layout::OpenTab;
 use std::cell::Cell;
@@ -453,14 +454,14 @@ pub fn tray(
             "stash-tray-add-new",
             t!("Add {count} new", count = ids.len()),
         )
-        .on_click(cx.listener(move |bench, _, _, cx| {
+        .clicks(cx.listener(move |bench, _, _, cx| {
             bench.add_from_stash(&agent, ids.clone(), cx);
             bench.dismiss_menu(&agent, cx);
         }))
     });
     let open = {
         let agent = agent.to_owned();
-        link("stash-tray-open", t!("Open Stash ↗").to_owned()).on_click(cx.listener(
+        link("stash-tray-open", t!("Open Stash ↗").to_owned()).clicks(cx.listener(
             move |bench, _, _, cx| {
                 bench.dismiss_menu(&agent, cx);
                 bench.open_stash();
@@ -541,11 +542,10 @@ pub fn tray(
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .cursor_pointer()
             .text_size(theme::ui_text(TEXT_XS))
             .text_color(t.text_secondary)
             .hover(move |row| row.text_color(t.text_primary))
-            .on_click(cx.listener(move |bench, _, _, cx| {
+            .clicks(cx.listener(move |bench, _, _, cx| {
                 bench.dismiss_menu(&agent, cx);
                 bench.stash_prompt(&agent, cx);
             }))
@@ -808,10 +808,9 @@ fn tray_row(
         .gap(SPACE_3)
         .p(SPACE_2)
         .rounded(theme::RADIUS_2)
-        .cursor_pointer()
         .when(selected, |row| row.bg(t.surface_chosen))
         .hover(move |row| row.bg(t.surface_chosen))
-        .on_click(cx.listener(move |bench, _, window, cx| {
+        .clicks(cx.listener(move |bench, _, window, cx| {
             bench.take_choice(&agent, Some(index), window, cx)
         }))
         .child(square(bench, item, &said, &t, cx))
