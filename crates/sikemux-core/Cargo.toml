@@ -48,6 +48,7 @@ sikemux-client = { path = "../sikemux-client" }
 sikemux-git = { path = "../sikemux-git" }
 sikemux-kernel = { path = "../sikemux-kernel" }
 sikemux-serve = { path = "../sikemux-serve" }
+sikemux-workspace = { path = "../sikemux-workspace" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-loopback = { path = "../sikemux-loopback" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }

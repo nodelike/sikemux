@@ -1,0 +1,287 @@
+//! Carries over a workspace saved before the core kept agents: the projects
+//! devices added, how sleeping chats ran, and the projects, agents, spaces and
+//! pinned chats the app kept in its own state then. Agents kept before the
+//! core chose buddy colours, or before chats named their account, get theirs.
+
+use std::collections::{BTreeMap, HashMap};
+
+use serde::Deserialize;
+use serde_json::Value;
+
+use sikemux_wire::protocol::PermissionMode;
+
+use super::{check_agent, dress, is_chat_provider, Kept, ListPlace, Saved};
+use sikemux_view::workspace::{CodeHostChoice, PinnedChat, ProjectInfo, SpaceInfo, WorkspaceAgent};
+use sikemux_wire::protocol::ChatAccount;
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Earlier {
+    #[serde(default)]
+    added: Vec<ProjectInfo>,
+    chats: Option<Vec<EarlierChat>>,
+    #[serde(default)]
+    asleep: Vec<EarlierAsleep>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EarlierChat {
+    agent_id: String,
+    asleep: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EarlierAsleep {
+    agent_id: String,
+    resume_id: Option<String>,
+    model: Option<String>,
+    effort: Option<String>,
+    account: Option<ChatAccount>,
+    #[serde(default)]
+    fallbacks: Vec<ChatAccount>,
+}
+
+pub fn carry_over(saved: &mut Saved, read: &Value, app: Option<Value>) {
+    let earlier: Earlier = serde_json::from_value(read.clone()).unwrap_or_default();
+    if let Some(app) = &app {
+        from_app(saved, app, &earlier);
+    }
+    for project in earlier.added {
+        if !saved
+            .projects
+            .iter()
+            .any(|known| known.path == project.path)
+        {
+            saved.projects.push(project);
+        }
+    }
+}
+
+/// Gives every agent kept before the core chose buddy colours one of its own.
+pub fn dress_agents(saved: &mut Saved) {
+    for index in 0..saved.agents.len() {
+        let mut agent = saved.agents[index].agent.clone();
+        dress(&mut agent, &saved.agents);
+        saved.agents[index].agent = agent;
+    }
+}
+
+/// Marks the agents that ran in a terminal before the workspace kept which view each runs in.
+pub fn mark_terminals(saved: &mut Saved) {
+    for kept in &mut saved.agents {
+        let agent = &mut kept.agent;
+        agent.terminal = agent.pty_id.is_some() || !is_chat_provider(&agent.provider);
+    }
+}
+
+/// Names the account each chat kept before chats named theirs ran on: the one its agent was
+/// set to then.
+pub fn name_accounts(saved: &mut Saved) {
+    let book = saved.accounts.clone().unwrap_or_default();
+    for kept in &mut saved.agents {
+        let agent = &mut kept.agent;
+        let keeps_accounts =
+            crate::agent_catalog::agent(&agent.provider).is_some_and(|entry| entry.accounts);
+        if agent.profile_id.is_none() && keeps_accounts {
+            agent.profile_id = Some(book.chosen(&agent.provider));
+        }
+    }
+}
+
+fn text(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+}
+
+fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
+    let prefs = &app["prefs"];
+    saved.spaces = prefs["spaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|space| {
+            Some(SpaceInfo {
+                id: text(space, "id")?,
+                name: text(space, "name").unwrap_or_default(),
+                icon: text(space, "icon").unwrap_or_default(),
+            })
+        })
+        .collect();
+    let space_of = |cwd: &str| {
+        prefs["projectSpaces"]
+            .get(cwd)
+            .and_then(Value::as_str)
+            .filter(|space| saved.spaces.iter().any(|known| known.id == *space))
+            .map(str::to_owned)
+    };
+    let code_hosts_of = |cwd: &str| -> BTreeMap<String, CodeHostChoice> {
+        prefs["pluginSettings"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(plugin, settings)| {
+                let repo = text(&settings["repoByProject"], cwd);
+                let account = text(&settings["accountByProject"], cwd);
+                (repo.is_some() || account.is_some())
+                    .then(|| (plugin.clone(), CodeHostChoice { repo, account }))
+            })
+            .collect()
+    };
+    let sessions = app["sessions"].as_array().cloned().unwrap_or_default();
+    let projects: Vec<ProjectInfo> = sessions
+        .iter()
+        .filter(|session| session["kind"] == "project")
+        .filter_map(|session| {
+            let cwd = text(session, "cwd")?;
+            Some(ProjectInfo {
+                id: text(session, "id")?,
+                name: text(session, "name").unwrap_or_else(|| cwd.clone()),
+                space: space_of(&cwd),
+                code_hosts: code_hosts_of(&cwd),
+                path: cwd.into(),
+                pinned: session["pinned"].as_bool().unwrap_or(false),
+                added_at: 0,
+                identity: None,
+                copies: Vec::new(),
+                git: None,
+                launcher: None,
+                code_host: None,
+                worktree_default: false,
+                saved_chats: BTreeMap::new(),
+                chief: None,
+                agents: 0,
+                standing: Default::default(),
+                calls: 0,
+                cloning: None,
+            })
+        })
+        .filter(|project| project.path.is_absolute())
+        .collect();
+    let earlier_projects = std::mem::replace(&mut saved.projects, projects);
+    for project in earlier_projects {
+        if !saved
+            .projects
+            .iter()
+            .any(|known| known.path == project.path)
+        {
+            saved.projects.push(project);
+        }
+    }
+
+    let mut project_of_agent = HashMap::new();
+    for (session, windows) in app["windowsBySession"].as_object().into_iter().flatten() {
+        for window in windows.as_array().into_iter().flatten() {
+            let mut pending = vec![&window["root"]];
+            while let Some(node) = pending.pop() {
+                if let Some(children) = node["children"].as_array() {
+                    pending.extend(children);
+                } else if node["kind"] == "agent" {
+                    if let Some(id) = node["id"].as_str() {
+                        project_of_agent.insert(id.to_owned(), session.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    for agent in app["agents"].as_array().into_iter().flatten() {
+        let Some(id) = text(agent, "id") else {
+            continue;
+        };
+        let Some(project) = project_of_agent
+            .get(&id)
+            .and_then(|session| saved.project(session))
+        else {
+            continue;
+        };
+        let provider = text(agent, "type").unwrap_or_default();
+        let permission_mode = text(agent, "permissionMode")
+            .and_then(|mode| PermissionMode::parse(&mode).ok())
+            .unwrap_or(match agent["skipPermissions"].as_bool() {
+                Some(true) => PermissionMode::Bypass,
+                _ => PermissionMode::WorkspaceWrite,
+            });
+        let pty_id = agent["ptyId"].as_u64();
+        let asleep = earlier
+            .chats
+            .iter()
+            .flatten()
+            .find(|chat| chat.agent_id == id)
+            .map(|chat| chat.asleep)
+            .unwrap_or(is_chat_provider(&provider) && pty_id.is_none());
+        let stopped = earlier.asleep.iter().find(|asleep| asleep.agent_id == id);
+        let mut record = WorkspaceAgent {
+            name: None,
+            cwd: text(agent, "cwd")
+                .map(Into::into)
+                .unwrap_or_else(|| project.path.clone()),
+            project: project.id.clone(),
+            title: text(agent, "title").unwrap_or_else(|| provider.clone()),
+            renamed: agent["renamed"].as_bool().unwrap_or(false),
+            titled: false,
+            lead: text(agent, "lead"),
+            side_of: None,
+            resume_id: text(agent, "resumeId"),
+            permission_mode,
+            profile_id: text(agent, "profileId"),
+            model: text(agent, "model"),
+            model_provider: text(agent, "modelProvider"),
+            effort: text(agent, "effort"),
+            tags: Vec::new(),
+            keep_alive: agent["keepAlive"].as_bool().unwrap_or(false),
+            asleep,
+            worktree: agent
+                .get("worktree")
+                .and_then(|tree| serde_json::from_value(tree.clone()).ok()),
+            buddy: agent
+                .get("buddy")
+                .and_then(|buddy| serde_json::from_value(buddy.clone()).ok()),
+            face: None,
+            pty_id,
+            terminal: false,
+            created_at: 0,
+            provider,
+            id,
+        };
+        if let Some(stopped) = stopped {
+            record.resume_id = record.resume_id.or(stopped.resume_id.clone());
+            record.model = record.model.or(stopped.model.clone());
+            record.effort = record.effort.or(stopped.effort.clone());
+        }
+        if check_agent(&record, saved).is_ok() {
+            saved.agents.push(Kept {
+                agent: record,
+                account: stopped.and_then(|stopped| stopped.account.clone()),
+                fallbacks: stopped
+                    .map(|stopped| stopped.fallbacks.clone())
+                    .unwrap_or_default(),
+                program: None,
+                held: false,
+                place: ListPlace::default(),
+            });
+        }
+    }
+
+    saved.pinned = prefs["pinnedChats"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|chat| {
+            Some(PinnedChat {
+                provider: text(chat, "agent")?,
+                session_id: text(chat, "id")?,
+                title: text(chat, "title").unwrap_or_default(),
+                project: text(chat, "project")?.into(),
+            })
+        })
+        .collect();
+    if saved.permission_mode.is_none() {
+        saved.permission_mode = text(prefs, "defaultAgentPermissionMode")
+            .and_then(|mode| PermissionMode::parse(&mode).ok());
+    }
+}

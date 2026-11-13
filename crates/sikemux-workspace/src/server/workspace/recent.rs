@@ -1,0 +1,686 @@
+//! The saved chats devices can take up again: the recent ones read from each agent's own
+//! history, and those the person pinned.
+
+use super::*;
+use crate::server::changed::ChangedCore;
+use crate::server::changed::What;
+use crate::server::names::RanSession;
+use serde::{Deserialize, Serialize};
+pub use sikemux_calls::workspace::{PinChatParams, SessionChoice};
+pub use sikemux_calls::workspace::{PinnedParams, RecentChats, RecentChatsParams};
+use sikemux_view::chat::ChatTrigger;
+
+/// A closed chat whose triggers wait for it to be taken up again, so Recent keeps it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeldChat {
+    pub provider: String,
+    pub session_id: String,
+    pub title: String,
+    pub project: PathBuf,
+    pub cwd: PathBuf,
+    pub closed_at: u64,
+}
+
+impl HeldChat {
+    pub fn id(&self) -> String {
+        chat_id(&self.provider, &self.session_id)
+    }
+
+    fn recent(&self) -> Recent {
+        Recent {
+            launcher: String::new(),
+            provider: self.provider.clone(),
+            session_id: self.session_id.clone(),
+            title: self.title.clone(),
+            project: self.project.clone(),
+            cwd: self.cwd.clone(),
+            active_at: self.closed_at,
+        }
+    }
+}
+
+/// The closed chats paused triggers wait for, each with those triggers.
+pub type Held = Vec<(HeldChat, Vec<ChatTrigger>)>;
+
+/// What a device asked of a recent chat it takes up again.
+pub struct ResumeChoice {
+    pub recent: String,
+    pub permission_mode: Option<PermissionMode>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+/// The recent chat named `recent`, or the pinned one when it left the recent ones.
+pub fn recent_or_pinned(published: &Published, recent: &str, held: &Held) -> Option<Recent> {
+    let held = held
+        .iter()
+        .find(|(chat, _)| chat.id() == recent)
+        .map(|(chat, _)| chat.recent());
+    let pinned = published
+        .saved
+        .pinned
+        .iter()
+        .map(|pin| pinned_chat(published, pin))
+        .find(|chat| recent_id(chat) == recent);
+    listed(published, recent).cloned().or(pinned).or(held)
+}
+
+/// The recent chat named `recent`, or one a device paged or searched to.
+pub fn listed<'a>(published: &'a Published, recent: &str) -> Option<&'a Recent> {
+    published
+        .recent
+        .iter()
+        .chain(&published.found)
+        .find(|chat| recent_id(chat) == recent)
+}
+
+/// A pinned chat as a recent one that keeps no launcher.
+pub fn pinned_chat(published: &Published, pin: &PinnedChat) -> Recent {
+    Recent {
+        launcher: String::new(),
+        provider: pin.provider.clone(),
+        session_id: pin.session_id.clone(),
+        title: pin.title.clone(),
+        project: published
+            .pin_homes
+            .get(&pin.project)
+            .unwrap_or(&pin.project)
+            .clone(),
+        cwd: pin.project.clone(),
+        active_at: 0,
+    }
+}
+
+/// A saved chat the core no longer lists, from its id and the folder it ran in.
+pub fn unlisted(recent: &str, cwd: PathBuf) -> Option<Recent> {
+    let (provider, session_id) = recent.split_once(':')?;
+    Some(Recent {
+        launcher: String::new(),
+        provider: provider.to_owned(),
+        session_id: session_id.to_owned(),
+        title: String::new(),
+        project: cwd.clone(),
+        cwd,
+        active_at: 0,
+    })
+}
+
+pub fn recent_id(chat: &Recent) -> String {
+    chat_id(&chat.provider, &chat.session_id)
+}
+
+pub fn chat_id(provider: &str, session: &str) -> String {
+    format!("{provider}:{session}")
+}
+
+/// Whether the agent of `provider` on `session` holds the recent chat.
+pub fn holds(chat: &Recent, provider: &str, session: Option<&str>) -> bool {
+    provider == chat.provider && session == Some(chat.session_id.as_str())
+}
+
+/// The open chat that is the recent one.
+pub fn running_now<'a>(chat: &Recent, open: &'a [ChatInfo]) -> Option<&'a ChatInfo> {
+    open.iter()
+        .find(|live| holds(chat, &live.provider, live.session_id.as_deref()))
+}
+
+pub fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<()> {
+    core.workspaces().set_pinned(params.chats)
+}
+
+pub fn pin_chat(core: &Core, params: PinChatParams) -> CoreResult<()> {
+    core.workspaces().pin_chat(&params.recent, params.pinned)
+}
+
+/// The saved chats `chats` as a device sees them: those in a project on this host, each
+/// with the agent holding it, whether the person pinned it and the triggers paused on it.
+pub fn shown<'a>(
+    published: &Published,
+    chats: impl Iterator<Item = &'a Recent>,
+    open: &[ChatInfo],
+    held: &Held,
+) -> Vec<RecentInfo> {
+    let saved = &published.saved;
+    let holder = |chat: &Recent| {
+        running_now(chat, open)
+            .map(|live| live.agent_id.clone())
+            .or_else(|| {
+                saved
+                    .agents
+                    .iter()
+                    .find(|kept| holds(chat, &kept.agent.provider, kept.agent.resume_id.as_deref()))
+                    .map(|kept| kept.agent.id.clone())
+            })
+    };
+    let pinned = |chat: &Recent| {
+        saved
+            .pinned
+            .iter()
+            .any(|pin| pin.provider == chat.provider && pin.session_id == chat.session_id)
+    };
+    chats
+        .filter_map(|chat| {
+            let project = saved
+                .projects
+                .iter()
+                .find(|project| project.path == chat.project)?;
+            Some(RecentInfo {
+                id: recent_id(chat),
+                provider: chat.provider.clone(),
+                title: chat.title.clone(),
+                project: project.id.clone(),
+                cwd: chat.cwd.clone(),
+                active_at: chat.active_at,
+                agent_id: holder(chat),
+                pinned: pinned(chat),
+                triggers: held
+                    .iter()
+                    .find(|(held, _)| held.id() == recent_id(chat))
+                    .map(|(_, triggers)| triggers.clone())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+pub fn recent_projects(saved: &Saved) -> Vec<String> {
+    saved
+        .projects
+        .iter()
+        .take(saved_chats::MAX_PROJECTS)
+        .map(|project| project.path.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// Each agent's saved chats are looked for once, on the account the person chose for it,
+/// with the launcher that starts it there.
+pub fn recent_providers<'a>(
+    launchers: impl Iterator<Item = &'a Launcher>,
+    saved: &Saved,
+) -> Vec<(String, RecentProvider)> {
+    let selected = saved.accounts.as_ref().map(|book| &book.selected);
+    let mut providers: Vec<(String, RecentProvider)> = Vec::new();
+    for launcher in launchers {
+        let Some(agent) = AgentKind::from_name(&launcher.agent.provider) else {
+            continue;
+        };
+        let chosen = selected
+            .and_then(|selected| selected.get(&launcher.agent.provider))
+            .is_none_or(|profile| launcher.id.ends_with(&format!(":{profile}")));
+        let taken = providers
+            .iter()
+            .any(|(_, provider)| provider.agent == agent);
+        if chosen && !taken {
+            let provider = RecentProvider {
+                agent,
+                config_path: launcher.agent.config_path.clone(),
+            };
+            providers.push((launcher.id.clone(), provider));
+        }
+    }
+    providers
+}
+
+pub fn saved_chat(launcher: String, session: saved_chats::RecentSession) -> Recent {
+    Recent {
+        launcher,
+        provider: session.agent.to_owned(),
+        session_id: session.id,
+        title: session.title.chars().take(MAX_TITLE_CHARS).collect(),
+        cwd: session
+            .cwd
+            .unwrap_or_else(|| session.project.clone())
+            .into(),
+        project: session.project.into(),
+        active_at: session.mtime * 1000,
+    }
+}
+
+/// A page of a project's saved chats, or every project's, newest first, those matching
+/// `query` when it has one. A device may take up any of them again as it does a recent one.
+pub async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreResult<RecentChats> {
+    let (launchers, request) = core.workspaces().page_request(asked)?;
+    let mut page = blocking(move || Ok(saved_chats::recent_page(request)?)).await?;
+    let said = (page.sessions.iter_mut())
+        .filter_map(|session| Some((chat_id(session.agent, &session.id), session.said.take()?)))
+        .collect();
+    let found = page
+        .sessions
+        .into_iter()
+        .filter_map(|session| {
+            let launcher = launchers
+                .iter()
+                .find(|launcher| LauncherId::parse(launcher).kind == session.agent)?;
+            Some(saved_chat(launcher.clone(), session))
+        })
+        .collect();
+    let chats = core.workspaces().note_found(
+        found,
+        &(core.workspace_above().open_chats)(core),
+        &(core.workspace_above().held_chats)(core),
+    );
+    Ok(RecentChats {
+        chats,
+        next: page.next,
+        said,
+    })
+}
+
+/// Looks for the newest saved chats whenever they may have changed, for
+/// devices to take up again.
+pub async fn recents(core: Arc<Core>) {
+    loop {
+        tokio::time::sleep(RECENT_SETTLE).await;
+        let requests = core.workspaces().recent_requests();
+        crate::sessions::said::heed(core.workspaces().chat_accounts());
+        let pins = core.workspaces().pinned_away();
+        let projects = core.workspaces().project_paths();
+        let found = blocking(move || {
+            let homes = pins
+                .into_iter()
+                .filter_map(|pin| Some((pin.clone(), home_of(&pin, &projects)?)))
+                .collect();
+            Ok((newest(requests), homes))
+        })
+        .await;
+        if let Ok(((found, saved), homes)) = found {
+            if core.workspaces().set_recent(found, saved, homes) {
+                core.changed(What::View);
+            }
+        }
+        core.workspaces().recent_stale.notified().await;
+    }
+}
+
+/// The newest saved chats across every request, and every saved chat's id by its project.
+pub fn newest(
+    requests: Vec<(String, RecentRequest)>,
+) -> (Vec<Recent>, HashMap<PathBuf, Vec<String>>) {
+    let mut found = Vec::new();
+    let mut saved: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    for (launcher, request) in requests {
+        let Ok(page) = saved_chats::recent_page(request) else {
+            continue;
+        };
+        for chat in page.every {
+            let id = chat_id(chat.agent, &chat.id);
+            saved.entry(chat.project.into()).or_default().push(id);
+        }
+        found.extend(
+            page.sessions
+                .into_iter()
+                .map(|session| saved_chat(launcher.clone(), session)),
+        );
+    }
+    found.sort_by_key(|chat| std::cmp::Reverse(chat.active_at));
+    found.truncate(RECENT_LIMIT);
+    (found, saved)
+}
+
+/// How many of the project's saved chats no agent holds, by the agent that saved them.
+pub fn unheld_chats(published: &Published, project: &Path) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    let Some(saved) = published.saved_chats.get(project) else {
+        return counts;
+    };
+    let held: HashSet<String> = (published.saved.agents.iter())
+        .filter_map(|kept| {
+            Some(chat_id(
+                &kept.agent.provider,
+                kept.agent.resume_id.as_deref()?,
+            ))
+        })
+        .collect();
+    for id in saved.iter().filter(|id| !held.contains(*id)) {
+        if let Some((provider, _)) = id.split_once(':') {
+            *counts.entry(provider.to_owned()).or_default() += 1;
+        }
+    }
+    counts
+}
+
+impl Workspaces {
+    /// The agent's chat as Recent keeps it once the agent closes, when it has one to take up.
+    pub fn held_chat(&self, agent: &WorkspaceAgent) -> Option<HeldChat> {
+        let session_id = agent.resume_id.clone()?;
+        let project = self
+            .published
+            .locked()
+            .saved
+            .project(&agent.project)?
+            .path
+            .clone();
+        Some(HeldChat {
+            provider: agent.provider.clone(),
+            session_id,
+            title: agent.title.clone(),
+            project,
+            cwd: agent.cwd.clone(),
+            closed_at: epoch_ms(),
+        })
+    }
+
+    /// Each open agent's chat, by its id in Recent, with the agent holding it.
+    pub fn holders(&self) -> HashMap<String, String> {
+        let published = self.published.locked();
+        (published.saved.agents.iter())
+            .filter_map(|kept| {
+                let session = kept.agent.resume_id.as_deref()?;
+                Some((
+                    chat_id(&kept.agent.provider, session),
+                    kept.agent.id.clone(),
+                ))
+            })
+            .collect()
+    }
+
+    /// The saved chats may have changed, so the recent ones are looked for again.
+    pub fn recent_stale(&self) {
+        self.recent_stale.notify_one();
+    }
+
+    pub fn set_pinned(&self, pinned: Vec<PinnedChat>) -> CoreResult<()> {
+        let oversized = pinned.iter().any(|chat| {
+            too_long(&chat.provider, 64)
+                || too_long(&chat.session_id, MAX_FIELD_CHARS)
+                || too_long(&chat.title, MAX_TITLE_CHARS)
+        });
+        if pinned.len() > MAX_PINNED || oversized {
+            return Err("more pinned chats than the core keeps".into());
+        }
+        self.change(|saved| {
+            saved.pinned = pinned;
+            Ok(())
+        })?;
+        self.recent_stale();
+        Ok(())
+    }
+
+    /// Pins or unpins the recent chat named `recent`, as `recent` lists it.
+    pub fn pin_chat(&self, recent: &str, pinned: bool) -> CoreResult<()> {
+        let mut pins = self.published.locked().saved.pinned.clone();
+        pins.retain(|pin| chat_id(&pin.provider, &pin.session_id) != recent);
+        if pinned {
+            let chat = listed(&self.published.locked(), recent)
+                .map(|chat| PinnedChat {
+                    provider: chat.provider.clone(),
+                    session_id: chat.session_id.clone(),
+                    title: chat.title.clone(),
+                    project: chat.cwd.clone(),
+                })
+                .ok_or("that chat is not among the recent ones")?;
+            pins.push(chat);
+        }
+        self.set_pinned(pins)
+    }
+
+    /// The saved session of the recent chat named `recent`, with the program and sign-in of
+    /// the launcher that found it.
+    pub fn recent_session(
+        &self,
+        recent: &str,
+        cwd: Option<PathBuf>,
+    ) -> CoreResult<crate::sessions::SavedRef> {
+        let published = self.published.locked();
+        let chat = listed(&published, recent)
+            .cloned()
+            .or_else(|| unlisted(recent, cwd?))
+            .ok_or("that chat is not among the recent ones")?;
+        let agent = AgentKind::from_name(&chat.provider)
+            .ok_or_else(|| CoreError::from(format!("{} keeps no saved chats", chat.provider)))?;
+        let launcher = chat_launcher(&published, &chat);
+        Ok(crate::sessions::SavedRef {
+            agent,
+            cwd: chat.cwd.to_string_lossy().into_owned(),
+            session_id: chat.session_id.clone(),
+            executable_path: launcher
+                .and_then(|launcher| launcher.program.as_ref())
+                .map(|program| program.to_string_lossy().into_owned()),
+            config_path: launcher.and_then(|launcher| launcher.agent.config_path.clone()),
+        })
+    }
+
+    /// The recent chats a device may take up again: those in a project on
+    /// this host, leaving out any running now, with the closed ones triggers wait for.
+    pub fn recent(&self, open: &[ChatInfo], held: &Held) -> Vec<RecentInfo> {
+        let published = self.published.locked();
+        let aged_out: Vec<Recent> = published
+            .saved
+            .pinned
+            .iter()
+            .filter(|pin| {
+                !published
+                    .recent
+                    .iter()
+                    .any(|chat| chat.provider == pin.provider && chat.session_id == pin.session_id)
+            })
+            .map(|pin| pinned_chat(&published, pin))
+            .collect();
+        let waiting: Vec<Recent> = held
+            .iter()
+            .map(|(chat, _)| chat.recent())
+            .filter(|chat| {
+                !published
+                    .recent
+                    .iter()
+                    .chain(&aged_out)
+                    .any(|listed| recent_id(listed) == recent_id(chat))
+            })
+            .collect();
+        let chats = published.recent.iter().chain(&aged_out).chain(&waiting);
+        shown(&published, chats, open, held)
+    }
+
+    /// How to look for a page of saved chats in the project `asked` names, or in every
+    /// project, with the launcher that finds each agent's, terminal agents' too.
+    pub fn page_request(
+        &self,
+        asked: RecentChatsParams,
+    ) -> CoreResult<(Vec<String>, RecentRequest)> {
+        let published = self.published.locked();
+        let saved = &published.saved;
+        let projects = match &asked.project {
+            Some(id) => vec![saved
+                .project(id)
+                .ok_or("that project is not on this host")?
+                .path
+                .to_string_lossy()
+                .into_owned()],
+            None => recent_projects(saved),
+        };
+        let (launchers, providers) = recent_providers(published.every_launcher(), &published.saved)
+            .into_iter()
+            .unzip();
+        let request = RecentRequest {
+            providers,
+            projects,
+            limit: asked.limit.unwrap_or(RECENT_PAGE),
+            cursor: asked.cursor,
+            query: asked.query,
+            exclude: Vec::new(),
+            count: false,
+        };
+        Ok((launchers, request))
+    }
+
+    /// Remembers the chats a device paged or searched to, so it may take them up again,
+    /// and answers them as the device shows them.
+    pub fn note_found(
+        &self,
+        found: Vec<Recent>,
+        open: &[ChatInfo],
+        held: &Held,
+    ) -> Vec<RecentInfo> {
+        let mut published = self.published.locked();
+        published
+            .found
+            .retain(|kept| !found.iter().any(|chat| recent_id(chat) == recent_id(kept)));
+        published.found.splice(0..0, found.iter().cloned());
+        published.found.truncate(MAX_FOUND);
+        shown(&published, found.iter(), open, held)
+    }
+
+    /// What to look for recent chats with: each chat agent's account once, in every project.
+    /// Phones read these, and they start only chats.
+    pub fn recent_requests(&self) -> Vec<(String, RecentRequest)> {
+        let published = self.published.locked();
+        let projects = recent_projects(&published.saved);
+        recent_providers(published.launchers.iter(), &published.saved)
+            .into_iter()
+            .map(|(launcher, provider)| {
+                let request = RecentRequest {
+                    providers: vec![provider],
+                    projects: projects.clone(),
+                    limit: RECENT_LIMIT,
+                    cursor: None,
+                    query: None,
+                    exclude: Vec::new(),
+                    count: true,
+                };
+                (launcher, request)
+            })
+            .collect()
+    }
+
+    /// Each chat agent's chosen account, whose saved chats say which folders were worked in.
+    pub fn chat_accounts(&self) -> Vec<RecentProvider> {
+        let published = self.published.locked();
+        recent_providers(published.launchers.iter(), &published.saved)
+            .into_iter()
+            .map(|(_, provider)| provider)
+            .collect()
+    }
+
+    pub fn set_recent(
+        &self,
+        recent: Vec<Recent>,
+        saved_chats: HashMap<PathBuf, Vec<String>>,
+        pin_homes: HashMap<PathBuf, PathBuf>,
+    ) -> bool {
+        let mut published = self.published.locked();
+        let changed = published.recent != recent
+            || published.saved_chats != saved_chats
+            || published.pin_homes != pin_homes;
+        published.recent = recent;
+        published.saved_chats = saved_chats;
+        published.pin_homes = pin_homes;
+        changed
+    }
+
+    /// The folders of pinned chats that are not a project's own, such as worktrees.
+    pub fn pinned_away(&self) -> Vec<PathBuf> {
+        let published = self.published.locked();
+        let saved = &published.saved;
+        saved
+            .pinned
+            .iter()
+            .map(|pin| &pin.project)
+            .filter(|folder| {
+                !saved
+                    .projects
+                    .iter()
+                    .any(|project| &project.path == *folder)
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// How to start the recent chat a device chose, the way it would start a new one.
+    pub fn resume_choice(
+        &self,
+        choice: ResumeChoice,
+        open: &[ChatInfo],
+        held: &Held,
+    ) -> CoreResult<ChatChoice> {
+        let published = self.published.locked();
+        let chat = recent_or_pinned(&published, &choice.recent, held).ok_or_else(|| {
+            CoreError::from("that chat is no longer among the recent ones on this host")
+        })?;
+        choice_of(&published, &chat, choice, open)
+    }
+
+    /// How to take up `provider`'s session again in the project at `project`, as a recent
+    /// chat when it still is one.
+    pub fn session_choice(
+        &self,
+        session: SessionChoice,
+        open: &[ChatInfo],
+        held: &Held,
+    ) -> CoreResult<ChatChoice> {
+        let published = self.published.locked();
+        let recent = format!("{}:{}", session.provider, session.session_id);
+        let chat = recent_or_pinned(&published, &recent, held).unwrap_or(Recent {
+            launcher: String::new(),
+            provider: session.provider,
+            session_id: session.session_id,
+            title: session.title.unwrap_or_default(),
+            cwd: session.cwd.unwrap_or_else(|| session.project.clone()),
+            project: session.project,
+            active_at: 0,
+        });
+        let choice = ResumeChoice {
+            recent,
+            permission_mode: None,
+            model: None,
+            effort: None,
+        };
+        choice_of(&published, &chat, choice, open)
+    }
+
+    /// The id and folder of this host's project whose folder is `path` once both are resolved,
+    /// which a symlink can tell apart.
+    pub fn project_holding(&self, path: &str) -> CoreResult<(String, PathBuf)> {
+        let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
+        let wanted = canonical(Path::new(path));
+        let projects: Vec<(String, PathBuf)> = (self.published.locked().saved.projects.iter())
+            .map(|project| (project.id.clone(), project.path.clone()))
+            .collect();
+        projects
+            .into_iter()
+            .find(|(_, path)| canonical(path) == wanted)
+            .ok_or_else(|| CoreError::from("that chat's project is not on this host"))
+    }
+
+    /// How to take a closed agent's session up again: as Recent would while it lists the chat,
+    /// else on the account it ran on, in the project whose folder it ran in, with what `saved`
+    /// found of it when the session was found.
+    pub fn ran_choice(
+        &self,
+        ran: &RanSession,
+        saved: Option<(&str, &Path)>,
+        open: &[ChatInfo],
+        held: &Held,
+    ) -> CoreResult<ChatChoice> {
+        let (_, project) = self.project_holding(&ran.project)?;
+        let published = self.published.locked();
+        let recent = format!("{}:{}", ran.provider, ran.session_id);
+        let chat = recent_or_pinned(&published, &recent, held).unwrap_or_else(|| {
+            let ran_on = LauncherId {
+                kind: &ran.provider,
+                account: ran.profile.as_deref(),
+            }
+            .to_string();
+            let kept = published
+                .every_launcher()
+                .any(|launcher| launcher.id == ran_on);
+            Recent {
+                launcher: if kept { ran_on } else { String::new() },
+                provider: ran.provider.clone(),
+                session_id: ran.session_id.clone(),
+                title: saved.map(|(title, _)| title.to_owned()).unwrap_or_default(),
+                cwd: saved.map_or_else(|| project.clone(), |(_, folder)| folder.to_owned()),
+                project,
+                active_at: 0,
+            }
+        });
+        let choice = ResumeChoice {
+            recent,
+            permission_mode: None,
+            model: None,
+            effort: None,
+        };
+        let terminal = ran.terminal;
+        choice_of(&published, &chat, choice, open).map(|chosen| ChatChoice { terminal, ..chosen })
+    }
+}

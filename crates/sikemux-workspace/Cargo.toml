@@ -1,0 +1,44 @@
+[package]
+name = "sikemux-workspace"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[target.'cfg(unix)'.dependencies]
+sikemux-agents = { path = "../sikemux-agents" }
+sikemux-base = { path = "../sikemux-base" }
+sikemux-calls = { path = "../sikemux-calls" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-kernel = { path = "../sikemux-kernel" }
+sikemux-keychain = { path = "../sikemux-keychain" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-pty = { path = "../sikemux-pty" }
+sikemux-serve = { path = "../sikemux-serve" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+regex = "1"
+ignore = "0.4"
+uuid = { version = "1", features = ["v4", "v7"] }
+grep-regex = "0.1"
+reqwest = { version = "0.13", default-features = false, features = ["form", "gzip", "json", "query", "rustls-no-provider", "stream"] }
+notify = "8"
+tempfile = "3"
+sikemux-fold = { path = "../sikemux-fold" }
+rayon = "1"
+hex = "0.4"
+base64 = "0.22"
+url = "2"
+sha2 = "0.11"
+grep-searcher = "0.1"
+grep-matcher = "0.1"
+globset = "0.4"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
