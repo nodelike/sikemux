@@ -3746,6 +3746,8 @@ struct AwayLanded: Codable, Hashable, Sendable {
     var name: String?
     var title: String
     var at: Int
+    /// What its commit says it changed, in one sentence.
+    var change: String?
     /// Its turn offers Try it.
     var tryIt: Bool?
 }

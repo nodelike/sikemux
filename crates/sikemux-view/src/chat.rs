@@ -1866,6 +1866,9 @@ pub struct AwayLanded {
     pub name: Option<String>,
     pub title: String,
     pub at: u64,
+    /// What its commit says it changed, in one sentence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub change: Option<String>,
     /// Its turn offers Try it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub try_it: bool,

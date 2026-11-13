@@ -110,8 +110,9 @@ struct Seat {
     wrote: Vec<String>,
     /// What Sikemux has to tell it with its next turn, and when.
     notes: Vec<(u64, String)>,
-    /// Which agent landed work in its project, and when, newest last.
-    landed: Vec<(String, u64)>,
+    /// Which agent landed work in its project, when, and what its commit says it changed, newest
+    /// last.
+    landed: Vec<(String, u64, String)>,
     /// What happened while the person was away, shown until it is done with.
     away: Option<Away>,
     /// Lines of its chat the core keeps until the person has seen them or they are done with,
@@ -500,14 +501,15 @@ pub(crate) fn chat_rested(core: &Core, agent_id: &str, feed: &str) {
     }
 }
 
-/// `agent` landed work in the project at `path`.
-pub(crate) fn landed(core: &Core, path: &str, agent: &str) {
+/// `agent` landed work in the project at `path` with a commit whose message is `message`.
+pub(crate) fn landed(core: &Core, path: &str, agent: &str, message: &str) {
     let Some(chief) = chief_at(core, path) else {
         return;
     };
     let now = epoch_ms();
     core.chiefs().seat(&chief, |seat| {
-        seat.landed.push((agent.to_owned(), now));
+        seat.landed
+            .push((agent.to_owned(), now, change_of(message)));
         if seat.landed.len() > MOST_LANDED {
             seat.landed.remove(0);
         }
@@ -950,16 +952,17 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
         .chiefs()
         .read(chief, |seat| seat.landed.clone())
         .unwrap_or_default();
-    let mut last_landed: HashMap<String, u64> = HashMap::new();
-    for (agent, at) in landings.into_iter().filter(|(_, at)| *at >= since) {
-        last_landed.insert(agent, at);
+    let mut last_landed: HashMap<String, (u64, String)> = HashMap::new();
+    for (agent, at, change) in landings.into_iter().filter(|(_, at, _)| *at >= since) {
+        last_landed.insert(agent, (at, change));
     }
     let turns = super::turn_state::all(core);
     let mut landed: Vec<AwayLanded> = (last_landed.into_iter())
-        .map(|(agent_id, at)| AwayLanded {
+        .map(|(agent_id, (at, change))| AwayLanded {
             name: core.names().name(&agent_id),
             title: core.workspaces().title(&agent_id).unwrap_or_default(),
             at,
+            change: (!change.is_empty()).then_some(change),
             try_it: (turns.get(&agent_id))
                 .and_then(|turn| turn.done.as_ref())
                 .is_some_and(|done| done.next.iter().any(|next| next.step == TurnStep::TryIt)),
@@ -1033,6 +1036,22 @@ pub(crate) fn refresh_away(core: &Core, calls: &[PersonCall]) {
 /// line, cut, in quotes.
 fn first_sentence(text: &str) -> String {
     quoted(&sentence(text))
+}
+
+/// What a commit's message says it changed: the first sentence of its subject, without a
+/// leading "type(scope): ".
+fn change_of(message: &str) -> String {
+    let subject = message.lines().next().unwrap_or_default();
+    let said = match subject.split_once(": ") {
+        Some((kind, said))
+            if !kind.contains(' ')
+                && kind.chars().next().is_some_and(|c| c.is_ascii_lowercase()) =>
+        {
+            said
+        }
+        _ => subject,
+    };
+    sentence(said)
 }
 
 /// The first sentence of `text`, on one line, cut.

@@ -288,6 +288,14 @@ fn landed_row(landed: &AwayLanded, bench: &Entity<Workbench>, t: &Tokens, cx: &A
                 .text_color(t.text_tertiary)
                 .child(format!("· @{name}"))
         }))
+        .children(landed.change.as_ref().map(|change| {
+            div()
+                .min_w_0()
+                .flex_shrink(1000.)
+                .truncate()
+                .text_color(t.text_tertiary)
+                .child(format!("· {change}"))
+        }))
         .child(div().flex_1().min_w(SPACE_2))
         .when(landed.try_it, |row| {
             let label = crate::turn_line::step_label(TurnStep::TryIt).unwrap_or_default();

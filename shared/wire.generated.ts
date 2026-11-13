@@ -2422,6 +2422,8 @@ export interface AwayLanded {
     name?: string;
     title: string;
     at: number;
+    /** What its commit says it changed, in one sentence. */
+    change?: string;
     /** Its turn offers Try it. */
     tryIt?: boolean;
 }
