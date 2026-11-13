@@ -279,6 +279,8 @@ pub(super) fn chat_above() -> ChatAbove {
         agent_accounts_chat_refused: agent_accounts::chat_refused,
         board_subagent_started: board::chat_goal::subagent_started,
         board_take_note: board::chat_goal::take_note,
+        memory_take_removed: memory::take_removed_note,
+        memory_chat_ready: memory::chat_ready,
         board_resumed_session: board::lease::resumed_session,
         board_stopped_waiting: board::recover::stopped_waiting,
         chief_brief: chief::brief,

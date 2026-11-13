@@ -2976,6 +2976,8 @@ export type GoalMoment = "started" | "step" | "done" | "stopped";
 export interface KeptRule {
     id: number;
     project: string;
+    /** The person removed the rule again, from the line's Undo or the Playbook. */
+    undone?: boolean;
 }
 
 /**

@@ -369,7 +369,11 @@ pub fn rule_change_notice(title: &str, rule_change: RuleChange) -> Value {
 
 /// The line in a chat that says a rule was kept from what the person said there.
 pub fn rule_notice(rule: KeptRule) -> Value {
-    let mut update = notice("info", "Kept as a rule", None);
+    let title = match rule.undone {
+        true => "Kept as a rule, then undone",
+        false => "Kept as a rule",
+    };
+    let mut update = notice("info", title, None);
     update["rule"] = json!(rule);
     update
 }

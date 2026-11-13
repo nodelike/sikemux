@@ -36,11 +36,12 @@ use sikemux_wire::protocol::PermissionMode;
 use sikemux_view::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
-    ChiefAway, Compactions, ContentBlock, ContextUsage, FailureKind, GuestMessage, LetterKind,
-    MoveReason, NoticeSeverity, NoticeState, OverruledDecision, PermissionAsk, PermissionKind,
-    PermissionOption, PlanEntry, QueuedMessage, RestoredPart, Retrying, RuleChange, SentContext,
-    SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage,
-    ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkflowAgent, WHY_URI,
+    ChiefAway, Compactions, ContentBlock, ContextUsage, FailureKind, GuestMessage, KeptRule,
+    LetterKind, MoveReason, NoticeSeverity, NoticeState, OverruledDecision, PermissionAsk,
+    PermissionKind, PermissionOption, PlanEntry, QueuedMessage, RestoredPart, Retrying, RuleChange,
+    SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState,
+    TaskUsage, ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkflowAgent,
+    WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -2492,6 +2493,11 @@ impl Fold {
                 return;
             }
         }
+        if let Some(undone) = notice.rule.as_ref().filter(|rule| rule.undone) {
+            if self.kept_rule_undone(undone, &notice.title) {
+                return;
+            }
+        }
         if let Some(back) = notice
             .rule_change
             .as_ref()
@@ -2521,6 +2527,7 @@ impl Fold {
         // the turn before keeps its fold and line.
         let own_line = notice.goal.is_some()
             || notice.overruled.is_some()
+            || notice.rule.as_ref().is_some_and(|rule| rule.undone)
             || notice.week.is_some()
             || notice.rule_change.is_some();
         if own_line && !self.head.running {
@@ -2557,6 +2564,34 @@ impl Fold {
                 line.restored = true;
                 line.back_by = back.back_by.clone();
                 notice.title = "Rule back".to_owned();
+            }
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
+    }
+
+    /// The person removed a rule kept from their words: its line in the chat says so, rather
+    /// than a new line. Answers whether the chat held that line.
+    fn kept_rule_undone(&mut self, undone: &KeptRule, title: &str) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.rule.as_ref().is_some_and(|rule| {
+                    (&rule.project, rule.id) == (&undone.project, undone.id) && !rule.undone
+                }))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            if let Some(rule) = notice.rule.as_mut() {
+                rule.undone = true;
+                notice.title = title.to_owned();
             }
         }
         held.touch_part(part);

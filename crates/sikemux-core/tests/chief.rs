@@ -920,6 +920,110 @@ async fn a_persons_rule_the_agent_added_examples_to_is_kept_as_theirs_once_kept_
         .await;
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_kept_rule_the_person_removes_reads_undone_in_its_chat_and_its_agent_hears_it() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "pi", "name": "pi", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "pi".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    let keep = |text: &str| json!({ "kind": "rule", "person": true, "text": text });
+    let kept_as = |answer: String| number_after(&answer, "Kept as #").expect("its id");
+    let lines = |chat: &folded::Folded| -> Vec<(u64, bool, String)> {
+        chat.parts()
+            .filter_map(|part| match part {
+                ChatPart::AgentNotice { notice, .. } => {
+                    (notice.rule.as_ref()).map(|rule| (rule.id, rule.undone, notice.title.clone()))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let remove = |id: u64| json!({ "project": project, "id": id, "retire": true });
+
+    let tests = kept_as(
+        worker
+            .tool("memory.add", keep("Always run the tests before landing"))
+            .await,
+    );
+    worker
+        .chat
+        .until(|chat| lines(chat) == [(tests, false, "Kept as a rule".into())])
+        .await;
+    app.call("memoryUpdate", remove(tests))
+        .await
+        .expect("the person's Undo");
+    let undone = (tests, true, "Kept as a rule, then undone".to_owned());
+    let changed = tokio::time::timeout(
+        Duration::from_secs(20),
+        worker.chat.until(|chat| lines(chat) == [undone.clone()]),
+    )
+    .await;
+    assert!(changed.is_ok(), "{:?}", lines(&worker.chat));
+    let heard = worker.says("context", "context").await;
+    assert!(
+        heard.contains(&format!("The person removed rule #{tests}")),
+        "{heard}"
+    );
+    let again = worker.says("context", "context").await;
+    assert!(!again.contains("The person removed rule"), "{again}");
+
+    let push = kept_as(
+        worker
+            .tool("memory.add", keep("Never push without a review first"))
+            .await,
+    );
+    app.call("stopChatIfIdle", json!({ "agentId": worker_id }))
+        .await
+        .expect("the worker sleeps");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    drop((worker, app, core));
+
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect again");
+    let deadline = Instant::now() + WAIT;
+    while app.call("memoryUpdate", remove(push)).await.is_err() {
+        assert!(Instant::now() < deadline, "the rule was never removed");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    let shown = tokio::time::timeout(
+        Duration::from_secs(20),
+        worker.chat.until(|chat| {
+            lines(chat).contains(&(push, true, "Kept as a rule, then undone".into()))
+        }),
+    )
+    .await;
+    assert!(shown.is_ok(), "{:?}", lines(&worker.chat));
+}
+
 const UNWRAP: &str = "Never call unwrap outside tests";
 const PUSH: &str = "Never push to main without a review";
 

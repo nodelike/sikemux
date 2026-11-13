@@ -1899,6 +1899,9 @@ pub struct LinesChanged {
 pub struct KeptRule {
     pub id: u64,
     pub project: String,
+    /// The person removed the rule again, from the line's Undo or the Playbook.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub undone: bool,
 }
 
 /// Where a goal began, passed a step or ended in a chat, and how it stood then.

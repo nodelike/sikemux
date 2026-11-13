@@ -4655,6 +4655,8 @@ enum GoalMoment: String, Codable, Hashable, Sendable {
 struct KeptRule: Codable, Hashable, Sendable {
     var id: Int
     var project: String
+    /// The person removed the rule again, from the line's Undo or the Playbook.
+    var undone: Bool?
 }
 
 /// A decision the person overruled, with the rule that now brings its kind to them, when one

@@ -248,6 +248,7 @@ pub fn prompt(
     }
     let chat = core.chats().running(agent_id)?;
     context.extend((core.chat_above().board_take_note)(core, agent_id));
+    context.extend((core.chat_above().memory_take_removed)(core, agent_id));
     context.extend(
         (core.chat_above().turn_state_now)(core, agent_id)
             .and_then(|turn| (core.chat_above().turn_told)(&turn)),

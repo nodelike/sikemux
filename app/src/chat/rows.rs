@@ -981,28 +981,34 @@ fn task_ended(notice: &TaskNotice, looks: &Drawn, cx: &App) -> AnyElement {
 
 /// The line something said beside the reply sits on: a background task that ended, a notice
 /// from the agent, or a move to another account.
-/// The quiet line that says a rule was kept from what the person said, with Undo.
+/// The quiet line that says a rule was kept from what the person said, with Undo until the person
+/// removes it again.
 fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
     let Some(rule) = notice.rule.clone() else {
         return div().into_any_element();
     };
+    let head = match rule.undone {
+        true => t!("Kept as a rule, then undone"),
+        false => t!("Kept as a rule"),
+    };
     let bench = looks.bench.clone();
     notice_box(looks)
         .child(ui::icon(Icon::Book, 12.).text_color(looks.quiet))
-        .child(div().flex_none().child(notice.title.clone()))
-        .child("·")
-        .child(
-            div()
-                .id(SharedString::from(format!("kept-rule-{}", rule.id)))
-                .text_color(looks.ink)
-                .child(t!("Undo"))
-                .clicks(move |_, _, cx| {
-                    let rule = rule.clone();
-                    let _ = bench.update(cx, |bench, cx| {
-                        crate::playbook::undo_rule(bench, &rule.project, rule.id, cx)
-                    });
-                }),
-        )
+        .child(div().flex_none().child(head))
+        .when(!rule.undone, |line| {
+            line.child("·").child(
+                div()
+                    .id(SharedString::from(format!("kept-rule-{}", rule.id)))
+                    .text_color(looks.ink)
+                    .child(t!("Undo"))
+                    .clicks(move |_, _, cx| {
+                        let rule = rule.clone();
+                        let _ = bench.update(cx, |bench, cx| {
+                            crate::playbook::undo_rule(bench, &rule.project, rule.id, cx)
+                        });
+                    }),
+            )
+        })
         .into_any_element()
 }
 

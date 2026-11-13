@@ -42,12 +42,14 @@ mod brief;
 mod check;
 mod now_check;
 mod promote;
+mod removed;
 mod seed;
 
 pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
 pub(crate) use promote::promote;
+pub(crate) use removed::{chat_ready, take_note as take_removed_note};
 pub(crate) use seed::{again as seed_again, keep as keep_seeded};
 
 const FOLDER: &str = "memory";
@@ -73,6 +75,9 @@ struct Held {
     /// Rules of the person's that left the list as a check or by an agent, kept to bring back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     set_aside: Vec<now_check::SetAside>,
+    /// Rules kept from a chat's words that the person removed, until that chat's agent hears it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    removed: Vec<removed::Removed>,
 }
 
 impl Held {
@@ -285,6 +290,7 @@ fn holding<'a>(state: &'a mut State, folder: &str) -> Result<&'a mut Held, Strin
         knowledge: Vec::new(),
         seeding: None,
         set_aside: Vec::new(),
+        removed: Vec::new(),
     }))
 }
 
@@ -480,7 +486,7 @@ fn change(
         .get_mut(&folder)
         .ok_or("the folder went while it was being changed")?;
     let mut stale_moved = false;
-    let (mut line, mut back, mut undone_already) = (None, None, None);
+    let (mut line, mut back, mut undone_already, mut removed_from) = (None, None, None, None);
     if let Some(rule) = held.rules.iter_mut().find(|rule| rule.id == id) {
         let rule_change =
             wrong.is_none() && about.is_none() && check.is_none() && !update.drop_check;
@@ -543,6 +549,9 @@ fn change(
                 let at = (held.rules.iter().position(|rule| rule.id == id))
                     .ok_or("the rule went while it was being changed")?;
                 let rule = held.rules.remove(at);
+                let kept_in_chat = (rule.learned.with.as_ref())
+                    .filter(|_| by.agent.is_none() && rule.was.is_none())
+                    .map(|with| with.agent.clone());
                 if let Some(agent) = agent {
                     line = Some((
                         now_check::line(core, project, &rule, &agent, None, None),
@@ -554,6 +563,10 @@ fn change(
                         at: sikemux_process::clock::epoch_ms(),
                         by: agent,
                     });
+                } else if let Some(agent) = kept_in_chat {
+                    held.removed
+                        .push(removed::Removed::of(&agent, project, &rule));
+                    removed_from = Some(agent);
                 }
             }
         }
@@ -595,6 +608,9 @@ fn change(
     tell_clients(core, stale_moved);
     if let Some((line, agent)) = line {
         crate::server::chief::rule_changed(core, line, &agent);
+    }
+    if let Some(agent) = removed_from {
+        removed::show(core, &agent);
     }
     if let Some(agent) = back {
         let rule = (core.memory().state.locked().held.get(&folder))
@@ -930,6 +946,7 @@ fn say_kept(core: &Core, agent: &str, project: &str, id: u64) {
     let rule = sikemux_view::chat::KeptRule {
         id,
         project: project.to_owned(),
+        undone: false,
     };
     chat.emit(
         sikemux_fold::ChatEventKind::SessionUpdate,

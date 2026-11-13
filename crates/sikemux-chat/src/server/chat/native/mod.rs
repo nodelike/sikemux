@@ -116,6 +116,7 @@ pub fn show_saved(chat: &Arc<Chat>) {
         chat.saved_reading.send_replace(false);
         if let Some(core) = chat.core.upgrade() {
             (core.chat_above().chief_chat_ready)(&core, &chat);
+            (core.chat_above().memory_chat_ready)(&core, &chat);
         }
     });
 }

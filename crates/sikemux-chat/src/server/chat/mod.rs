@@ -1110,6 +1110,7 @@ impl Chat {
         self.readiness.send_replace(Readiness::Ready(start));
         if let Some(core) = self.core.upgrade() {
             (core.chat_above().chief_chat_ready)(&core, self);
+            (core.chat_above().memory_chat_ready)(&core, self);
             core.changed(What::Agents);
         }
     }
