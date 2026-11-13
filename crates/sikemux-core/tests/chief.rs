@@ -14,7 +14,7 @@ use folded::Chat;
 use serde_json::{json, Value};
 use sikemux_client::client::{ClientEvent, CoreClient};
 use sikemux_core::client::probe;
-use sikemux_view::chat::{ChatMessage, ChatRole};
+use sikemux_view::chat::{ChatMessage, ChatPart, ChatRole};
 use sikemux_wire::protocol::ask;
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");
@@ -657,6 +657,91 @@ async fn why_answers_a_broad_question_with_the_newest_decisions_and_a_specific_m
         .await;
     assert!(!missed.contains("newest decisions"), "{missed}");
     assert!(!missed.contains("Shared links land in Inbox"), "{missed}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_overrule_undone_while_the_chief_sleeps_after_a_restart_shows_undone_in_its_chat() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let opened = app
+        .call("openChief", json!({ "project": "widget" }))
+        .await
+        .expect("the chief");
+    let chief = opened["agentId"].as_str().expect("its id").to_owned();
+    let mut boss = Agent::open(&socket, &chief).await;
+    boss.chat.until(|chat| chat.turns_ended() >= 1).await;
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    worker
+        .tool("board.add", json!({ "title": "Totals", "claim": true }))
+        .await;
+    for text in ["Use the old path", "Use the staging database"] {
+        let decided = worker
+            .tool("board.decide", json!({ "text": text, "why": "faster" }))
+            .await;
+        assert!(decided.contains("Decision #"), "{decided}");
+    }
+    let decision = json!({ "project": project, "goal": 1, "decision": 2 });
+    app.call("overruleDecision", decision.clone())
+        .await
+        .expect("the person overrules");
+    let overruled = |chat: &folded::Folded, undone: bool| {
+        chat.parts().any(|part| {
+            matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.overruled.as_ref().is_some_and(|line| line.decision == 2 && line.undone == undone))
+        })
+    };
+    boss.chat.until(|chat| overruled(chat, false)).await;
+    app.call("stopChatIfIdle", json!({ "agentId": chief }))
+        .await
+        .expect("the chief sleeps");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    drop((boss, worker, app, core));
+
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect again");
+    app.ask(ask::WatchView).await.expect("watch");
+    let deadline = Instant::now() + WAIT;
+    while app.call("undoOverrule", decision.clone()).await.is_err() {
+        assert!(Instant::now() < deadline, "the Overrule was never undone");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let mut boss = Agent::open(&socket, &chief).await;
+    let shown = tokio::time::timeout(
+        Duration::from_secs(20),
+        boss.chat.until(|chat| overruled(chat, true)),
+    )
+    .await;
+    assert!(shown.is_ok(), "{:?}", boss.chat.notices());
+    assert!(!overruled(&boss.chat, false), "{:?}", boss.chat.notices());
 }
 
 const UNWRAP: &str = "Never call unwrap outside tests";

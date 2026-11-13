@@ -573,12 +573,6 @@ fn put_row(core: &Core, chief: &str, key: String, update: Value) {
     }
 }
 
-/// The chief's line kept under `key` is done with.
-fn drop_row(core: &Core, chief: &str, key: &str) {
-    core.chiefs()
-        .seat(chief, |seat| seat.rows.retain(|row| row.key != key));
-}
-
 /// The chief's chat is ready and its saved history shown: the lines it keeps that this feed has
 /// not had go at its end, each under the time it was first made.
 pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
@@ -1450,25 +1444,22 @@ pub(crate) async fn overrule_undone(
         }
     }
     if let Some(chief) = chief_at(core, project) {
-        drop_row(
+        mark_away(core, &chief, goal, id, false);
+        let undone = OverruledDecision {
+            project: project.to_owned(),
+            goal,
+            decision: id,
+            text: sentence(text),
+            rule: overrule.rule,
+            undone: true,
+            stopped_auto: false,
+        };
+        put_row(
             core,
             &chief,
-            &format!("overrule|{}", overrule_key(project, goal, id)),
+            format!("overrule|{}", overrule_key(project, goal, id)),
+            sikemux_fold::update::overruled_notice("Overrule undone", undone),
         );
-        mark_away(core, &chief, goal, id, false);
-        if let Some(feed) = core.chats().heard(&chief) {
-            let undone = OverruledDecision {
-                project: project.to_owned(),
-                goal,
-                decision: id,
-                text: sentence(text),
-                rule: overrule.rule,
-                undone: true,
-                stopped_auto: false,
-            };
-            let update = sikemux_fold::update::overruled_notice("Overrule undone", undone);
-            emit_row(&feed, &chief, update, epoch_ms());
-        }
         let named = match goal {
             Some(goal) => format!("decision {id} of goal #{goal}"),
             None => format!("decision {id} of the project"),

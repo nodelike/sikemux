@@ -2488,8 +2488,9 @@ impl Fold {
             .as_ref()
             .filter(|overruled| overruled.undone)
         {
-            self.overrule_undone(undone);
-            return;
+            if self.overrule_undone(undone) {
+                return;
+            }
         }
         if let Some(back) = notice
             .rule_change
@@ -2565,7 +2566,8 @@ impl Fold {
     }
 
     /// The person undid an Overrule: its line in the chat says so, rather than a new line.
-    fn overrule_undone(&mut self, undone: &OverruledDecision) {
+    /// Answers whether the chat held that line.
+    fn overrule_undone(&mut self, undone: &OverruledDecision) -> bool {
         let same = |overruled: &OverruledDecision| {
             (&overruled.project, overruled.goal, overruled.decision)
                 == (&undone.project, undone.goal, undone.decision)
@@ -2578,7 +2580,7 @@ impl Fold {
             Some((position, part))
         });
         let Some((position, part)) = found else {
-            return;
+            return false;
         };
         let held = &mut self.main.rows[position];
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
@@ -2589,6 +2591,7 @@ impl Fold {
         held.touch_part(part);
         self.main.touch(position);
         self.note_main_change(&None, position);
+        true
     }
 
     /// A cancelled turn stops only the subagents it was waiting on, and the
