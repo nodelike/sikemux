@@ -50,6 +50,7 @@ sikemux-kernel = { path = "../sikemux-kernel" }
 sikemux-serve = { path = "../sikemux-serve" }
 sikemux-workspace = { path = "../sikemux-workspace" }
 sikemux-chat = { path = "../sikemux-chat" }
+sikemux-remote = { path = "../sikemux-remote" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-loopback = { path = "../sikemux-loopback" }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
@@ -76,6 +77,7 @@ webpki-roots = "1"
 [dev-dependencies]
 sikemux-corekit = { path = "../sikemux-corekit", features = ["testing"] }
 sikemux-chat = { path = "../sikemux-chat", features = ["testing"] }
+sikemux-remote = { path = "../sikemux-remote", features = ["testing"] }
 sikemux-serve = { path = "../sikemux-serve", features = ["testing"] }
 tempfile = "3"
 

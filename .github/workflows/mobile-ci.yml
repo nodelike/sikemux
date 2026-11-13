@@ -18,6 +18,7 @@ on:
       - "crates/sikemux-serve/**"
       - "crates/sikemux-workspace/**"
       - "crates/sikemux-chat/**"
+      - "crates/sikemux-remote/**"
       - "crates/sikemux-drivers/**"
       - "crates/sikemux-client/**"
       - "crates/sikemux-wire/**"

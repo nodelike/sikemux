@@ -1,7 +1,7 @@
 pub mod about;
+pub use sikemux_remote::server::account;
 pub(crate) use sikemux_serve::server::above;
 pub(crate) use sikemux_serve::server::access;
-pub mod account;
 mod activity;
 pub(crate) use sikemux_serve::server::agent;
 pub use sikemux_workspace::server::activity_log;
@@ -21,6 +21,8 @@ pub use sikemux_chat::server::chat;
 pub(crate) use sikemux_chat::server::chat_above;
 #[cfg(test)]
 mod chat_feed_tests;
+#[cfg(test)]
+mod remote_tests;
 pub(crate) use sikemux_chat::server::chat_state;
 pub(crate) use sikemux_serve::server::catalog;
 pub(crate) use sikemux_serve::server::changed;
@@ -50,12 +52,11 @@ mod goals;
 mod handover;
 pub mod harness;
 mod hooks;
-pub mod host;
-pub(crate) use sikemux_serve::server::host_key;
+pub use sikemux_remote::server::host;
 pub mod host_stats;
 pub mod hosts;
 pub mod inbox;
-mod join;
+pub(crate) use sikemux_remote::server::join;
 pub(crate) use sikemux_serve::server::kept;
 pub mod landing;
 pub mod launching;
@@ -73,11 +74,11 @@ pub(crate) use sikemux_chat::server::model_proxy;
 pub use sikemux_workspace::server::model_providers;
 pub mod mods;
 pub mod move_agent;
+pub(crate) use sikemux_remote::server::network_watch;
 pub use sikemux_workspace::server::names;
-mod network_watch;
 pub use sikemux_workspace::server::new_project;
 mod notch;
-mod notify;
+pub(crate) use sikemux_remote::server::notify;
 pub use sikemux_workspace::server::open_files;
 pub mod outside;
 mod overlap;
@@ -95,15 +96,15 @@ pub use sikemux_workspace::server::preferences;
 pub use sikemux_workspace::server::project_files;
 pub use sikemux_workspace::server::project_roots;
 pub mod questions;
+pub use sikemux_remote::server::remote;
+pub(crate) use sikemux_remote::server::remote_above;
+pub use sikemux_remote::server::remote_image;
+pub(crate) use sikemux_remote::server::remote_state;
 pub(crate) use sikemux_serve::server::reaper;
-pub mod remote;
-mod remote_above;
-pub mod remote_image;
-mod remote_state;
 mod repo_events;
 mod requests;
 mod roster;
-mod runtime_file;
+pub(crate) use sikemux_remote::server::runtime_file;
 pub mod saved;
 pub(crate) use sikemux_serve::server::serving;
 pub use sikemux_serve::server::session;
@@ -113,7 +114,7 @@ pub(crate) use sikemux_workspace::server::seen;
 mod session_watch;
 pub mod settling;
 pub mod setup_check;
-pub mod share;
+pub use sikemux_remote::server::share;
 pub mod ship;
 mod shown_cache;
 pub mod skill_library;
@@ -134,7 +135,7 @@ pub mod updates;
 pub(crate) use sikemux_serve::server::updating;
 mod upgrade;
 pub mod usage;
-pub mod vault;
+pub use sikemux_remote::server::vault;
 mod wait_for;
 pub(crate) use sikemux_serve::server::waits;
 pub(crate) use sikemux_serve::server::wake;
@@ -831,7 +832,14 @@ pub(crate) async fn run_core(
     local_peer::settle();
     listener.set_nonblocking(true)?;
     let listener = tokio::net::UnixListener::from_std(listener)?;
-    remote::start(&core, &config).await;
+    remote::start(
+        &core,
+        &config.socket,
+        config.remote_direct_only,
+        config.secret_store,
+        config.accounts_api.clone(),
+    )
+    .await;
     runtime_file::write(
         &remote::file_path(&config.socket),
         core.remote().owner(),
