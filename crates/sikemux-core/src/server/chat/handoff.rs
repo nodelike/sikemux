@@ -12,7 +12,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::Handoff;
-use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
+use sikemux_wire::protocol::ChatContext;
 
 use super::feed::HandedOver;
 use crate::agent_catalog::AgentKind;
@@ -276,12 +276,8 @@ fn build(said: HandedOver, from: &str, source: &str, forked: bool) -> Option<Pen
         left_out: left_out as u32,
         commands: commands.len().min(COMMANDS) as u32,
     };
-    let context = ChatContext {
-        uri: format!("{FOR_AGENT_URI}handoff"),
-        title: format!("This chat so far, with {label}"),
-        // A line that would close the block early is kept as text.
-        text: text.replace("</context", "&lt;/context"),
-    };
+    let title = format!("This chat so far, with {label}");
+    let context = crate::sessions::for_agent::sikemux_context("handoff", &title, &text);
     Some(Pending {
         context,
         shown: Some(shown),
