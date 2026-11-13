@@ -69,7 +69,7 @@ struct ChatSearch: View {
                             ForEach(agents, id: \.agentId) { agent in
                                 let line = chatOf[agent.agentId].flatMap { said[$0] }
                                 Row(
-                                    title: agent.title, name: agent.name,
+                                    title: agent.title, name: agent.name, model: agent.model,
                                     underText: line.map { FoundLineText.of($0, palette) },
                                     onPress: { open(agent.agentId, line) },
                                     mark: { AgentMark(provider: agent.cli, size: 20) }, end: { EmptyView() })

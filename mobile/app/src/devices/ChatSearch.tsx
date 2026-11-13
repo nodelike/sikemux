@@ -156,6 +156,7 @@ export function ChatSearch({
                   mark={<AgentIcon provider={agent.cli} size={20} />}
                   title={agent.title}
                   name={agent.name}
+                  model={agent.model}
                   under={line ? <FoundLineText line={line} /> : undefined}
                   onPress={() => open(agent.agentId, line)}
                 />

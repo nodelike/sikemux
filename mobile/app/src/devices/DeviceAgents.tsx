@@ -237,6 +237,7 @@ const ChatRow = memo(function ChatRow({
         </Faded>
       }
       name={away ? undefined : shown.name}
+      model={shown.model}
       title={shown.title}
       detail={shown.settledAt != null ? formatAgo(Number(shown.settledAt), minute * 60_000, t) : undefined}
       dim={away}
@@ -343,6 +344,7 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
         </Faded>
       }
       name={away ? undefined : shown.name}
+      model={shown.model}
       title={shown.title}
       dim={away}
       end={
