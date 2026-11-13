@@ -71,7 +71,8 @@ pub async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
     match driver(&launch.provider) {
         Some(ChatDriver::Claude) => claude::read_options(command).await,
         Some(ChatDriver::Codex) => codex::read_options(command).await,
-        Some(ChatDriver::Muse | ChatDriver::Pi | ChatDriver::Acp { .. }) | None => Err(format!(
+        Some(ChatDriver::Pi) => pi::read_options(command).await,
+        Some(ChatDriver::Muse | ChatDriver::Acp { .. }) | None => Err(format!(
             "{} offers its options only in a session",
             launch.provider
         )),

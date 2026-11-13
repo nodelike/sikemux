@@ -553,7 +553,7 @@ pub(super) fn composer(
     let label = bench.agent_name(&agent.provider).to_owned();
     let reads_models = matches!(
         kind.and_then(|kind| kind.chat),
-        Some(ChatDriver::Claude | ChatDriver::Codex)
+        Some(ChatDriver::Claude | ChatDriver::Codex | ChatDriver::Pi)
     );
     let this = cx.weak_entity();
     let on_send: Act = {

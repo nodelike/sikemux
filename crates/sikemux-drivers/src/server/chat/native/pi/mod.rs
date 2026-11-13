@@ -52,6 +52,72 @@ const MAX_IMAGE_BYTES: u64 = 20 * 1024 * 1024;
 /// moment to before it is killed.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 
+/// The models Pi offers and the one it runs, from its `get_state` and `get_available_models` answers.
+struct Offered<'a> {
+    listed: Vec<config::Listed>,
+    models: Models,
+    model: String,
+    level: Option<&'a str>,
+}
+
+fn offered<'a>(state: &'a Value, answer: &Value) -> Offered<'a> {
+    let listed: Vec<config::Listed> =
+        serde_json::from_value(answer["models"].clone()).unwrap_or_default();
+    let current = state["model"].is_object().then(|| {
+        format!(
+            "{}/{}",
+            state["model"]["provider"].as_str().unwrap_or(""),
+            state["model"]["id"].as_str().unwrap_or("")
+        )
+    });
+    let level = text(state, "thinkingLevel");
+    let models = config::models(&listed, current.as_deref(), level);
+    let model = current
+        .or_else(|| models.default_model())
+        .unwrap_or_default();
+    Offered {
+        listed,
+        models,
+        model,
+        level,
+    }
+}
+
+/// Asks Pi, with no session, which models it can run, as the pickers of a chat not yet started.
+pub async fn read_options(command: tokio::process::Command) -> Result<Value, String> {
+    let asked = format!(
+        "{}\n{}\n",
+        json!({ "type": "get_state", "id": "state" }),
+        json!({ "type": "get_available_models", "id": "models" }),
+    );
+    let said = crate::agent_accounts::usage::ask(
+        "pi",
+        command,
+        &["--mode", "rpc", "--no-session"],
+        &asked,
+    )
+    .await?;
+    let answer = |id: &str| {
+        said.lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .find(|line| line["type"] == "response" && line["id"] == id && line["success"] == true)
+            .map(|line| line["data"].clone())
+    };
+    let state = answer("state").unwrap_or(Value::Null);
+    let listed = answer("models").ok_or("Pi named no models")?;
+    let Offered {
+        models,
+        model,
+        level,
+        ..
+    } = offered(&state, &listed);
+    if models.listed.is_empty() {
+        return Err("Pi has no models it can run".to_owned());
+    }
+    let effort = models.effort_for(&model, level);
+    Ok(models.options("Pi", &model, effort.as_deref()))
+}
+
 #[derive(Clone)]
 struct Driver {
     wire: Wire,
@@ -683,25 +749,16 @@ impl Backend for Pi {
             .request(json!({ "type": "get_available_models" }))
             .await
             .unwrap_or(Value::Null);
-        let listed: Vec<config::Listed> =
-            serde_json::from_value(answer["models"].clone()).unwrap_or_default();
-        let current = state["model"].is_object().then(|| {
-            format!(
-                "{}/{}",
-                state["model"]["provider"].as_str().unwrap_or(""),
-                state["model"]["id"].as_str().unwrap_or("")
-            )
-        });
-        let level = text(&state, "thinkingLevel");
-        let models = config::models(&listed, current.as_deref(), level);
+        let Offered {
+            listed,
+            models,
+            model,
+            level,
+        } = offered(&state, &answer);
         let context_windows = listed
             .iter()
             .map(|model| (model.slug(), model.context_window))
             .collect();
-        let model = current
-            .clone()
-            .or_else(|| models.default_model())
-            .unwrap_or_default();
         let window = state["model"]["contextWindow"].as_u64().unwrap_or(0);
         driver.session.locked().context_window = window;
 
