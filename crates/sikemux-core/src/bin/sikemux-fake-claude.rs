@@ -33,6 +33,11 @@
 //! pauses follow that time rather than the real one, so a recording that
 //! draws slower than real time still sees the reply arrive at a steady pace.
 //!
+//! Sikemux's ask for a handoff note is echoed like any prompt, but held like `hold` with
+//! `FAKE_CLAUDE_NOTE=hold`, and never answered, even on an interrupt, with
+//! `FAKE_CLAUDE_NOTE=deaf`. `FAKE_CLAUDE_REFUSE_MODE` names a permission mode it refuses to
+//! go to, and `FAKE_CLAUDE_CONTEXT` how many tokens each of its model calls reads (10).
+//!
 //! With `FAKE_CLAUDE_OUT_OF_USAGE=1` every prompt fails as `limit` does. A
 //! message under an id the transcript already has is dropped, as Claude Code
 //! drops it.
@@ -96,6 +101,13 @@ struct Claude {
     transcript: PathBuf,
     /// The newest record of the conversation, which the next one follows.
     leaf: Mutex<Option<String>>,
+}
+
+fn context() -> u64 {
+    std::env::var("FAKE_CLAUDE_CONTEXT")
+        .ok()
+        .and_then(|tokens| tokens.parse().ok())
+        .unwrap_or(10)
 }
 
 fn flag(args: &[String], name: &str) -> Option<String> {
@@ -169,7 +181,7 @@ impl Claude {
         self.send(json!({
             "type": "stream_event",
             "parent_tool_use_id": null,
-            "event": { "type": "message_start", "message": { "id": message_id, "model": model(), "usage": { "input_tokens": 10, "output_tokens": 1 } } },
+            "event": { "type": "message_start", "message": { "id": message_id, "model": model(), "usage": { "input_tokens": context(), "output_tokens": 1 } } },
         }));
         self.send(json!({
             "type": "stream_event",
@@ -225,6 +237,15 @@ impl Claude {
 
     fn turn(&self, uuid: &str, text: &str) {
         self.interrupted.store(false, Ordering::Release);
+        let text = match std::env::var("FAKE_CLAUDE_NOTE").as_deref() {
+            Ok(held) if text.starts_with("Sikemux is about to carry this chat on") => match held {
+                "deaf" => loop {
+                    std::thread::sleep(Duration::from_secs(60));
+                },
+                _ => "hold 600000",
+            },
+            _ => text,
+        };
         self.send(json!({ "type": "command_lifecycle", "command_uuid": uuid, "state": "started" }));
         let message_id = format!("msg-{uuid}");
         if let Some(steps) = scripted_reply(text) {
@@ -562,6 +583,16 @@ impl Claude {
                     ])),
                 "commands": [{ "name": "review", "description": "Review the change", "argumentHint": "" }],
             }),
+            Some("set_permission_mode")
+                if std::env::var("FAKE_CLAUDE_REFUSE_MODE").ok().as_deref()
+                    == request["mode"].as_str() =>
+            {
+                self.send(json!({
+                    "type": "control_response",
+                    "response": { "subtype": "error", "request_id": request_id, "error": "Cannot set permission mode" },
+                }));
+                return;
+            }
             Some("interrupt") => {
                 self.interrupted.store(true, Ordering::Release);
                 json!({ "still_queued": [] })

@@ -318,6 +318,10 @@ impl SinkPort for ChatSink {
         self.chat.error(error_message(message));
     }
 
+    fn broke(&self, reason: String) {
+        let _ = self.broken.send(reason);
+    }
+
     fn approves(&self) -> bool {
         self.chat.approves()
     }

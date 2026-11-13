@@ -206,6 +206,12 @@ pub trait Backend: Sized + Send {
         async { Err("This agent writes no handoff note".to_owned()) }
     }
 
+    /// Stops a handoff note still being written, and has the agent started again on its
+    /// session when the note's turn does not end soon after.
+    fn end_handoff(&mut self) -> impl std::future::Future<Output = ()> + Send {
+        async {}
+    }
+
     /// Passes a request an MCP app made on to its server, answering with what the server said.
     fn mcp_app(
         &mut self,
@@ -399,6 +405,9 @@ pub trait SinkPort: Send + Sync {
 
     /// Says `message` in the chat as an error.
     fn error_text(&self, message: String);
+
+    /// The agent can no longer run as the chat shows it, so it is started again on its session.
+    fn broke(&self, reason: String);
 
     /// Whether the chat answers what it may for the person, as under YOLO.
     fn approves(&self) -> bool;

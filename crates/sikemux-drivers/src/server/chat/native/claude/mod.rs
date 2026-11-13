@@ -96,6 +96,7 @@ pub struct Claude {
     running: Running,
     shared: Arc<Mutex<Shared>>,
     kept: Kept,
+    sink: Sink,
 }
 
 /// The transcript Claude keeps of `session_id` for the account `launch` runs on.
@@ -362,6 +363,8 @@ impl Claude {
         .collect();
         args.extend(["--permission-mode".to_owned(), mode.to_owned()]);
         let capped = sink.capped();
+        let rotates = sink.rotates();
+        shared.locked().tool_hook = rotates;
         if capped {
             args.extend([
                 "--autocompact".to_owned(),
@@ -432,7 +435,7 @@ impl Claude {
         let initialized = tokio::select! {
             answer = control.request(json!({
                 "subtype": "initialize",
-                "hooks": cap::claude_hooks(capped, sink.rotates()),
+                "hooks": cap::claude_hooks(capped, rotates),
                 "forwardSubagentText": true,
                 "perTaskStopAffordance": true,
             })) => answer,
@@ -657,6 +660,7 @@ impl Backend for Claude {
             launch: launch.clone(),
             running,
             shared,
+            sink: sink.clone(),
             kept: Kept {
                 session_id: session_id.clone(),
                 models,
@@ -741,17 +745,11 @@ impl Backend for Claude {
     }
 
     async fn cancel(&mut self) -> Result<(), String> {
-        let (hidden, restore) = {
+        // A handoff note's turn stays hushed until it has stopped; its end puts the mode back.
+        let hidden = {
             let mut shared = self.shared.locked();
-            let hidden = shared.quiet.take().is_some();
-            (
-                hidden,
-                std::mem::take(&mut shared.hushed).then(|| shared.mode.clone()),
-            )
+            shared.hushed || shared.quiet.take().is_some()
         };
-        if let Some(mode) = restore {
-            self.running.control.restore_mode(&mode, 0)?;
-        }
         let running = match self.shared.locked().turn.as_mut() {
             Some(turn) => {
                 turn.cancelled = true;
@@ -845,6 +843,9 @@ impl Backend for Claude {
         let uuid = Uuid::new_v4().to_string();
         {
             let mut shared = self.shared.locked();
+            if !shared.tool_hook {
+                return Err("Claude started before rotation was on, so its tools would run".into());
+            }
             if shared.turn.is_some() || shared.quiet.is_some() {
                 return Err("Claude is at work".to_owned());
             }
@@ -867,6 +868,8 @@ impl Backend for Claude {
             .await;
         if let Err(error) = refusing {
             unhush(&self.shared);
+            let mode = self.shared.locked().mode.clone();
+            let _ = self.running.control.restore_mode(&mode, 0);
             return Err(error);
         }
         let ask = json!({ "type": "text", "text": super::super::rotation::HANDOFF_ASK });
@@ -876,8 +879,7 @@ impl Backend for Claude {
             let _ = self.running.control.restore_mode(&mode, 0);
             return Err(error);
         }
-        // Past the wait the turn stays hushed: whatever it says late never reaches the chat.
-        tokio::time::timeout(WAIT, async {
+        let written = tokio::time::timeout(WAIT, async {
             loop {
                 if let Some(note) = self.shared.locked().handed.take() {
                     return note;
@@ -885,8 +887,35 @@ impl Backend for Claude {
                 tokio::time::sleep(LOOK).await;
             }
         })
-        .await
-        .map_err(|_| "Claude wrote no handoff note in time".to_owned())
+        .await;
+        if written.is_err() {
+            self.end_handoff().await;
+        }
+        written.map_err(|_| "Claude wrote no handoff note in time".to_owned())
+    }
+
+    async fn end_handoff(&mut self) {
+        const GRACE: std::time::Duration = std::time::Duration::from_secs(15);
+        const LOOK: std::time::Duration = std::time::Duration::from_millis(200);
+        if !self.shared.locked().hushed {
+            return;
+        }
+        // Still hushed, so what the stopped turn says late never reaches the chat.
+        let control = self.running.control.clone();
+        tokio::spawn(async move {
+            let interrupt = json!({ "subtype": "interrupt", "cancel_queued": true });
+            let _ = control.request(interrupt).await;
+        });
+        let ended = tokio::time::timeout(GRACE, async {
+            while self.shared.locked().hushed {
+                tokio::time::sleep(LOOK).await;
+            }
+        })
+        .await;
+        if ended.is_err() {
+            self.sink
+                .broke("Claude did not stop writing its handoff note".to_owned());
+        }
     }
 
     async fn stop_task(&mut self, task_id: &str) -> Result<(), String> {
@@ -966,6 +995,7 @@ impl Backend for Claude {
             running,
             shared: _,
             kept,
+            sink: _,
         } = self;
         let Running {
             process,
@@ -1000,7 +1030,7 @@ impl Backend for Claude {
         let shared = Arc::new(Mutex::new(state.shared));
         let apps = apps::Apps::default();
         let reader = Reader::restored(
-            sink,
+            sink.clone(),
             control.clone(),
             shared.clone(),
             apps.clone(),
@@ -1021,6 +1051,7 @@ impl Backend for Claude {
             },
             shared,
             kept: state.kept,
+            sink,
         })
     }
 

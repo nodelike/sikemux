@@ -85,6 +85,9 @@ pub struct Shared {
     pub hushed: bool,
     /// The handoff note it wrote, once its turn ended.
     pub handed: Option<String>,
+    /// Claude was started with the hook that refuses tools while hushed.
+    #[serde(default)]
+    pub tool_hook: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -729,6 +732,10 @@ impl Reader {
                 "sikemux core: Claude kept refusing to go back to its permission mode {mode} after a handoff note: {}",
                 error_text(error)
             );
+            self.sink.broke(format!(
+                "Claude would not go back to its permission mode after a handoff note: {}",
+                error_text(error)
+            ));
             return;
         }
         if *purpose == Purpose::Title {
