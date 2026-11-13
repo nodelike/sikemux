@@ -785,6 +785,13 @@ impl Questions {
             .any(|open| open == id)
     }
 
+    /// Whether `id` is a card of an agent's reply that holds its answer already, which goes to
+    /// the agent with the last of its cards.
+    pub(crate) fn holds_answer(&self, id: &str) -> bool {
+        (self.state.locked().reply_questions.iter())
+            .any(|question| question.id == id && !question.waits())
+    }
+
     pub(crate) fn blocks_on_person(&self, agent_id: &str) -> bool {
         self.state.locked().open.iter().any(|question| {
             question.agent_id == agent_id && question.blocked && question.asks_person()

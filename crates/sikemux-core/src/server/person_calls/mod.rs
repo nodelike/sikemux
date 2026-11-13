@@ -1676,6 +1676,10 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
             core.person_calls().settle(id, CallResult::Heard);
             return;
         }
+        if (questions.iter()).all(|question| core.harness().questions.holds_answer(question)) {
+            core.person_calls().settle(id, CallResult::Heard);
+            return;
+        }
         if !picked && typed.is_none() {
             core.person_calls().reopen(id);
             return;
