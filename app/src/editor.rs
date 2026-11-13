@@ -14,9 +14,8 @@ use gpui_kit::component::input::{
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, AnyElement, AnyWindowHandle, App, AppContext, Context, Entity, FocusHandle,
-    Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, ParentElement,
-    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
-    Window,
+    Focusable, InteractiveElement, IntoElement, KeyBinding, ParentElement, ScrollHandle,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
 use sikemux_view::layout::{Pane, PaneKind};
 
@@ -1028,25 +1027,7 @@ fn notice_bar(
         Notice::Trust(_) => t.text_primary,
         _ => t.warn,
     };
-    div()
-        .flex()
-        .items_center()
-        .gap(SPACE_2H)
-        .px(SPACE_3)
-        .py(SPACE_1H)
-        .border_b_1()
-        .border_color(t.border)
-        .bg(t.surface_sunken)
-        .text_size(crate::theme::ui_text(TEXT_XS))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_color(tone)
-                .font_weight(FontWeight::MEDIUM)
-                .child(text),
-        )
-        .children(answers)
+    ui::notice_bar(text, tone, answers, cx)
 }
 
 /// Makes the editor for the file `key` and reads the file into it.
