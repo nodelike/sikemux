@@ -79,6 +79,8 @@ pub struct Strip {
     /// The project's folder, which its name's tooltip gives.
     pub path: SharedString,
     pub branch: Option<SharedString>,
+    /// The chip of an own checkout's ports, beside its branch.
+    pub ports: Option<AnyElement>,
     /// The switcher the project's name opens, until the first message says where the work is.
     pub moves: Option<ChipMenu>,
     pub worktree: Option<AnyElement>,
@@ -762,6 +764,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
                         .whitespace_nowrap(),
                 )
         }))
+        .children(strip.ports)
         .children(strip.worktree)
         .children(strip.pull)
         .child(div().flex_1())

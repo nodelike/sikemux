@@ -568,6 +568,8 @@ mod tests {
             branch: "sikemux/work".into(),
             base: Some("main".into()),
             start_sha,
+            name: String::new(),
+            first_port: None,
         };
         let signing = Signing {
             key: None,
@@ -641,6 +643,8 @@ mod tests {
             branch: "sikemux/work".into(),
             base: Some("main".into()),
             start_sha,
+            name: String::new(),
+            first_port: None,
         };
         let signing = Signing {
             key: None,
@@ -701,6 +705,8 @@ mod tests {
             branch: "sikemux/work".into(),
             base: Some("main".into()),
             start_sha,
+            name: String::new(),
+            first_port: None,
         };
         let signing = Signing {
             key: None,

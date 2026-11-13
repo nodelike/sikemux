@@ -4,6 +4,8 @@
 //! while something runs and a client that asked is still connected. Clients
 //! hear a `ports` change when what it found differs.
 
+pub(crate) mod blocks;
+pub mod checkout;
 #[cfg(target_os = "macos")]
 mod darwin;
 #[cfg(target_os = "linux")]
@@ -117,6 +119,9 @@ pub struct ProjectPort {
     pub url: String,
     /// What `sikemux.json`'s preview points at.
     pub preview: bool,
+    /// The checkout whose own port it is, by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout: Option<String>,
 }
 
 #[derive(Default)]
@@ -126,13 +131,21 @@ struct State {
     watchers: HashSet<ClientId>,
 }
 
-#[derive(Default)]
 pub(crate) struct Ports {
     state: Mutex<State>,
     pub(crate) wake: Wake,
+    pub(crate) blocks: blocks::Blocks,
 }
 
 impl Ports {
+    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        Self {
+            state: Mutex::default(),
+            wake: Wake::default(),
+            blocks: blocks::Blocks::new(data_dir),
+        }
+    }
+
     /// A session started or ended: look now, and again once a server it
     /// started has had time to bind.
     pub(crate) fn changed(&self) {
@@ -368,14 +381,19 @@ pub(crate) fn preview_port(url: &str) -> Option<u16> {
     parsed.port_or_known_default()
 }
 
-pub(crate) fn for_project(found: Vec<ListeningPort>, project: &Path) -> Vec<ProjectPort> {
+pub(crate) fn for_project(
+    core: &Core,
+    found: Vec<ListeningPort>,
+    project: &Path,
+) -> Vec<ProjectPort> {
     let project_text = project.to_string_lossy();
     let preview_url = match config::load(project) {
         ConfigLoad::Valid { config, .. } => config
             .preview
             .as_ref()
             .and_then(Stated::given)
-            .and_then(|preview| preview.url.clone()),
+            .and_then(|preview| preview.url.as_deref())
+            .map(|url| checkout::filled(core, project, url)),
         _ => None,
     };
     let preview = preview_url.as_deref().and_then(preview_port);
@@ -389,6 +407,7 @@ pub(crate) fn for_project(found: Vec<ListeningPort>, project: &Path) -> Vec<Proj
                 _ => format!("http://localhost:{}/", listening.port),
             };
             ProjectPort {
+                checkout: core.ports().blocks.holding(listening.port),
                 listening,
                 url,
                 preview: is_preview,
@@ -415,11 +434,12 @@ pub(crate) async fn project_ports(
     blocking(move || {
         let found = look(&core);
         Ok(match project {
-            Some(project) => for_project(found, Path::new(&project)),
+            Some(project) => for_project(&core, found, Path::new(&project)),
             None => found
                 .into_iter()
                 .map(|listening| ProjectPort {
                     url: format!("http://localhost:{}/", listening.port),
+                    checkout: core.ports().blocks.holding(listening.port),
                     listening,
                     preview: false,
                 })

@@ -960,15 +960,19 @@ async fn set_going(
         true,
     )
     .map_err(|error| error.to_string())?;
-    let _ = core.workspaces().edit_agent(agent, |agent| {
-        agent.worktree = Some(AgentWorktree {
-            repo: tree.repo,
-            path: tree.path,
-            branch: tree.branch,
-            base: Some(tree.base),
-            start_sha: tree.start_sha,
-        })
-    });
+    let mut kept = AgentWorktree {
+        repo: tree.repo,
+        path: tree.path,
+        branch: tree.branch,
+        base: Some(tree.base),
+        start_sha: tree.start_sha,
+        name: String::new(),
+        first_port: None,
+    };
+    crate::server::ports::checkout::claim(core, &mut kept);
+    let _ = core
+        .workspaces()
+        .edit_agent(agent, |agent| agent.worktree = Some(kept));
     core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
     core.changed(What::View);
     chat::until_started(core, chat)

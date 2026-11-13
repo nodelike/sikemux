@@ -4,6 +4,7 @@
 
 pub mod build_errors;
 pub mod check;
+pub mod checkout;
 pub mod config;
 pub mod detect;
 pub mod java;

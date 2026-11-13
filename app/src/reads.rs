@@ -73,6 +73,8 @@ pub enum Read {
     /// The worktree in front's pull requests, and whether its branch is merged.
     WorktreePulls,
     WorktreeMerged,
+    /// The name, ports and environment of the checkout in front.
+    Checkout,
     SignIn,
     SignInFinished,
     ProjectFiles,
@@ -106,7 +108,7 @@ impl Read {
 
     /// What the core in front is watched for while its project is in front. A feed's `leave`
     /// lets go of what they answered.
-    pub const OF_THE_PROJECT_IN_FRONT: [Read; 11] = [
+    pub const OF_THE_PROJECT_IN_FRONT: [Read; 12] = [
         Read::Activity,
         Read::Mods,
         Read::Tasks,
@@ -118,6 +120,7 @@ impl Read {
         Read::GitDraft,
         Read::WorktreePulls,
         Read::WorktreeMerged,
+        Read::Checkout,
     ];
 
     /// What an account host is watched for only while it is in front; this host's are always.
@@ -157,6 +160,7 @@ impl Read {
             Read::GitDraft | Read::Drafts => (call::Drafts::METHOD, &[Topic::Drafts]),
             Read::WorktreePulls => (call::CodeHostPulls::METHOD, &[Topic::CodeHost]),
             Read::WorktreeMerged => (call::WorktreeMerged::METHOD, &[Topic::Git]),
+            Read::Checkout => (call::Checkout::METHOD, &[Topic::Ports, Topic::Tasks]),
             Read::SignIn => (call::AccountSignIn::METHOD, &[]),
             Read::SignInFinished => (call::AccountSignInFinish::METHOD, &[]),
             Read::ProjectFiles => (call::ProjectFiles::METHOD, &[]),
@@ -588,6 +592,9 @@ impl Workbench {
             }
             Read::WorktreeMerged => {
                 self.feeds.at_mut(&place).worktree_merged = decoded(value, "worktree merged");
+            }
+            Read::Checkout => {
+                self.feeds.at_mut(&place).checkout = decoded(value, "checkout").flatten();
             }
             Read::Outside => {
                 if !keep_decoded(&mut self.reads.outside, value, "outside access") {

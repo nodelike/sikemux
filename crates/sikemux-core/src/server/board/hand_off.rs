@@ -236,9 +236,11 @@ async fn start_worker(
             launch.agent_id = agent.clone();
             let chat = chat::begin(&core, launch, None, Some(launcher), false, false)
                 .inspect_err(|_| core.names().forget(&agent))?;
+            let mut kept = checkout.clone();
+            crate::server::ports::checkout::claim(&core, &mut kept);
             let placed = core
                 .workspaces()
-                .edit_agent(&agent, |worker| worker.worktree = Some(checkout.clone()))
+                .edit_agent(&agent, |worker| worker.worktree = Some(kept))
                 .map_err(|error| error.to_string())
                 .and_then(|_| place(&core, &project, &agent));
             let card = match placed {

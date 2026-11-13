@@ -10,7 +10,7 @@ use crate::server::ServerCore;
 use serde::{Deserialize, Serialize};
 use sikemux_view::prefs::PreferenceChange;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::agent_accounts::allocate::Aim;
@@ -742,7 +742,8 @@ pub(crate) async fn start_new(
     };
     let started = start(core, client, chosen).await?;
     super::workspace::retitle(core, &agent_id, choice.title, false);
-    if let Some(worktree) = worktree {
+    if let Some(mut worktree) = worktree {
+        super::ports::checkout::claim(core, &mut worktree);
         core.workspaces()
             .edit_agent(&agent_id, |agent| agent.worktree = Some(worktree))?;
     }
@@ -855,6 +856,7 @@ pub(crate) async fn spawn(
                 });
                 if let Some(folder) = &folder {
                     give_agent_environment(&core, folder, &mut spawn.env);
+                    super::ports::checkout::give(&core, Path::new(folder), &mut spawn.env);
                 }
                 let resumed = super::activity_log::resumed_by(&spawn);
                 let prepared = prepare_terminal(&launch, spawn)?;
@@ -874,6 +876,7 @@ pub(crate) async fn spawn(
             }
             SpawnTarget::Task { mut request } => {
                 give_agent_environment(&core, &request.cwd, &mut request.env);
+                super::ports::checkout::give(&core, Path::new(&request.cwd), &mut request.env);
                 prepare_task(&launch, request)?
             }
         };

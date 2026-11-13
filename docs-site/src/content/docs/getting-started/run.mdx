@@ -63,9 +63,39 @@ On a macOS host, a new worktree also starts warm: Cargo's `target` and each `nod
 
 A worktree's build drifts from your checkout's, so its `target` comes to take disk of its own, which comes back only when the whole folder goes. Sikemux removes a worktree's Cargo output once nothing needs it: after its agent closes, and after its agent has landed everything and gone to sleep, once the agent's own processes have ended, looking again for up to 43 seconds. When free space falls under 15 GB, or a tenth of a smaller disk, it also removes the output of worktrees on that disk whose agents are asleep or closed, least recently built first, until 25 GB, or 15% of the disk, is free. Your own checkout's `target` is never removed, nor one you opened as a project, nor a worktree's while an agent is at work in it, Cargo is building in it, or anything runs from it, such as a server, a test run, a program in its `target` or a script it holds; the core's log says when one was kept for that, and once when free space is low and nothing could go. Windows hosts keep every worktree's output, as Sikemux cannot see there what runs from it. When that agent works again, its `target` is cloned from yours again, warm. Each removal shows under **Activity** on the [host's page](/getting-started/hosts/#activity-and-about), and as a mark on its disk chart.
 
-A project can run its own commands at both ends of a worktree's life, in `sikemux.json` under `worktree`: `onCreate` in each new agent worktree, before its agent starts, and `onSettle` once the worktree settles, at the same moments its Cargo output goes, such as to stop the containers it started or delete other build output. Each is a list of `{ "id", "label", "command" }`, run one after another in the worktree until one fails. `onSettle` runs only once you trust the file, since no one is there to ask, and never in your own checkout. When one of its commands fails, the host's **Activity** says which, in which worktree, with the last line it printed.
+A project can run its own commands at both ends of a worktree's life, in `sikemux.json` under `worktree`: `onCreate` in each new agent worktree, before its agent starts, `onRemove` before a checkout is deleted, such as to drop its database, and `onSettle` once the worktree settles, at the same moments its Cargo output goes, such as to stop the containers it started or delete other build output. Each is a list of `{ "id", "label", "command" }`, run one after another in the worktree until one fails. `onSettle` and `onRemove` run only once you trust the file, since no one is there to ask, and `onSettle` never in your own checkout. When one of its commands fails, the host's **Activity** says which, in which worktree, with the last line it printed.
 
 When an agent starts a Spring Boot, Next.js, FastAPI or Flask app and its port is taken, often by another agent's copy, Sikemux runs it on the next free port and tells the agent where.
+
+## Each checkout's own ports
+
+Every checkout Sikemux cuts gets a short name, taken from its branch, and ten ports of its own between 21000 and 30999, kept until the checkout is removed, across restarts. Your project's own folder is called `main` and keeps the ports your project already uses, so bookmarks and sign-in redirects keep working there. Name your ports in `sikemux.json` and every agent, process, terminal and setup step in a checkout gets its own:
+
+```json
+{
+  "version": 1,
+  "ports": { "db": 5432 },
+  "env": {
+    "DATABASE_URL": "postgres://localhost:{port.db}/shop_{checkout}",
+    "VITE_API_URL": "http://localhost:{port.api}"
+  },
+  "tasks": [
+    { "id": "web", "label": "Web", "command": "pnpm dev --port $PORT", "port": 5173 },
+    { "id": "api", "label": "API", "command": "uv run uvicorn app:app --port $PORT", "port": 8000 }
+  ],
+  "preview": { "url": "http://localhost:{port.web}" },
+  "worktree": {
+    "onRemove": [{ "id": "db", "label": "Drop the database", "command": "dropdb --if-exists shop_$SIKEMUX_CHECKOUT" }]
+  }
+}
+```
+
+- `ports` names the ports your own folder uses, and a process with a `port` adds its id as one more name, up to ten. In another checkout the names take its ports in order, `ports` first, then the processes.
+- `{port.<name>}`, `{checkout}` and `{root}` are filled in `env`, a process's `env` and `preview.url`. A name no port has is an error in the file.
+- Everything started in a checkout gets `SIKEMUX_CHECKOUT`, `SIKEMUX_ROOT`, `SIKEMUX_PORT` (the first of its ten), `SIKEMUX_PORT_WEB` and the like, and `env`. Only a process with a `port` gets `PORT`, and in a checkout it always runs on that checkout's port; if something else holds it, the process does not start and says what holds it.
+- `env` is part of what you trust when Sikemux asks about the file.
+
+Beside the branch under the composer, a chat in a checkout of its own shows a plug and its ports, such as `21040–49`. Click it to see the checkout's name, which of its ports something listens on (click one to open it in the browser) and the environment it gets. Agents read the same from `workspace_inspect`.
 
 ## Heavy commands take turns
 

@@ -8,6 +8,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::codehost::PullsParams;
+use sikemux_core::server::ports::checkout::CheckoutParams;
 use sikemux_core::server::worktree::removal::WorktreeParams;
 use sikemux_plugin_api::codehost::{Pull, PullState};
 
@@ -37,11 +38,12 @@ impl Workbench {
         }
         if let Some((_, _, was)) = &self.watched.worktree {
             let left = Target::new(&self.asks, was.clone());
-            for read in [Read::WorktreePulls, Read::WorktreeMerged] {
+            for read in [Read::WorktreePulls, Read::WorktreeMerged, Read::Checkout] {
                 left.unwatch(read);
             }
             let feed = self.feeds.at_mut(was);
             (feed.worktree_pulls, feed.worktree_merged) = (None, None);
+            feed.checkout = None;
         }
         let target = self.target();
         if let Some((agent, folder, _)) = &watched {
@@ -51,6 +53,11 @@ impl Workbench {
                     project: folder.clone(),
                     state: Some("all".to_owned()),
                 },
+                folder.clone(),
+            );
+            target.watch_folder::<call::Checkout>(
+                Read::Checkout,
+                CheckoutParams { cwd: folder.into() },
                 folder.clone(),
             );
             let merged = WorktreeParams {

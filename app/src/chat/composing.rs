@@ -805,6 +805,7 @@ pub(super) fn strip(
         branch: project
             .filter(|_| !elsewhere)
             .and_then(|project| Some(project.git.as_ref()?.branch.clone().into())),
+        ports: crate::worktrees::ports::chip(bench, &agent.id, cx),
         moves: fresh.then(|| {
             let (agent, cwd, this) = (
                 agent.id.clone(),

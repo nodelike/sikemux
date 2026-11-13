@@ -17006,6 +17006,7 @@
         }
       }
     },
+    "Checkout": {},
     "Checkout branch": {
       "localizations": {
         "es": {
@@ -23714,6 +23715,7 @@
         }
       }
     },
+    "Copy the name": {},
     "Copy to": {
       "localizations": {
         "es": {
@@ -31930,6 +31932,7 @@
         }
       }
     },
+    "Env": {},
     "Esc / {keys}": {
       "localizations": {
         "es": {
@@ -69580,6 +69583,7 @@
         }
       }
     },
+    "Ports": {},
     "Powered by KLIPY": {
       "localizations": {
         "es": {
@@ -73740,6 +73744,7 @@
         }
       }
     },
+    "Reading this checkout…": {},
     "Reading your agents' history…": {
       "localizations": {
         "es": {
@@ -103693,6 +103698,7 @@
         }
       }
     },
+    "The project folder keeps {ports}.": {},
     "The project preview did not start": {
       "localizations": {
         "es": {
@@ -115861,6 +115867,7 @@
         }
       }
     },
+    "Worked out from sikemux.json. Every agent and process in this checkout gets them.": {},
     "Working": {
       "localizations": {
         "es": {
@@ -133957,6 +133964,7 @@
         }
       }
     },
+    "not listening": {},
     "not null": {
       "localizations": {
         "es": {
@@ -154289,6 +154297,7 @@
         }
       }
     },
+    "{from}–{to} are free for this checkout.": {},
     "{gap} more lines": {
       "localizations": {
         "es": {

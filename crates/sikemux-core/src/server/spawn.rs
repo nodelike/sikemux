@@ -486,9 +486,11 @@ fn start(
     })?;
     let own_tree = (checkout.0.as_ref()).or_else(|| resumed.as_ref()?.worktree.as_ref());
     if let Some(checkout) = own_tree {
+        let mut checkout = checkout.clone();
+        super::ports::checkout::claim(core, &mut checkout);
         let kept = core
             .workspaces()
-            .edit_agent(&agent_id, |agent| agent.worktree = Some(checkout.clone()));
+            .edit_agent(&agent_id, |agent| agent.worktree = Some(checkout));
         if let Err(error) = kept {
             eprintln!("sikemux core: a worker's own checkout was not kept on its record: {error}");
         }

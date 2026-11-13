@@ -496,7 +496,7 @@ impl ServerCore for Core {
                 model_proxy: model_proxy::ModelProxy::default(),
                 waits: waits::Waits::new(data_dir),
                 changes: changed::Changes::default(),
-                ports: ports::Ports::default(),
+                ports: ports::Ports::new(data_dir),
                 usage_wake: Notify::new(),
                 rail_numbers: Mutex::default(),
                 ssh_watch: OnceLock::new(),

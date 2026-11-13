@@ -951,6 +951,10 @@ struct AgentWorktree: Codable, Hashable, Sendable {
     /// The branch the project was on when the worktree was cut, if any.
     var base: String?
     var startSha: String
+    /// Its short name, which everything started in it is given as `SIKEMUX_CHECKOUT`.
+    var name: String?
+    /// The first of its own ten ports.
+    var firstPort: Int?
 }
 
 /// The character an agent wears: a pack and shape when the person picked one,

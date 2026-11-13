@@ -184,6 +184,7 @@ async fn clear(core: &Arc<Core>, dropped: Dropped) {
         PathBuf::from(&run.worktree),
         run.branch,
     );
+    crate::server::ports::checkout::removing(core, &tree).await;
     let _ = blocking(move || {
         worktree::remove_with_remote(&repo, &tree, &branch, remote);
         Ok(())
@@ -1149,6 +1150,7 @@ pub(super) async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
         step.tree(),
         step.run.branch.clone(),
     );
+    crate::server::ports::checkout::removing(core, &tree).await;
     let _ = blocking(move || {
         worktree::remove_with_remote(&repo, &tree, &branch, true);
         Ok(())

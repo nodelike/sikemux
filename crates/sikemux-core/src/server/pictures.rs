@@ -341,10 +341,11 @@ pub(crate) fn served_at(core: &Core, dir: &Path) -> Option<String> {
     }
     let previewed = (preview.as_ref())
         .and_then(Stated::given)
-        .and_then(|preview| preview.url.clone())
+        .and_then(|preview| preview.url.as_deref())
+        .map(|url| ports::checkout::filled(core, dir, url))
         .and_then(|url| Some((ports::preview_port(&url)?, url::Url::parse(&url).ok()?)));
     let serving = serving_task(dir);
-    let ports = ports::for_project(ports::listening_now(core), dir);
+    let ports = ports::for_project(core, ports::listening_now(core), dir);
     let port = (ports.iter()).find_map(|port| {
         let held = port.listening.port;
         let runs = matches!(&port.listening.owner, PortOwner::Task { task_id, .. }

@@ -415,6 +415,10 @@ export interface AgentWorktree {
     /** The branch the project was on when the worktree was cut, if any. */
     base?: string;
     startSha: string;
+    /** Its short name, which everything started in it is given as `SIKEMUX_CHECKOUT`. */
+    name?: string;
+    /** The first of its own ten ports. */
+    firstPort?: number;
 }
 
 /**

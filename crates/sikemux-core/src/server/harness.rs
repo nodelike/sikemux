@@ -768,18 +768,20 @@ async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
         if request.agent_id.is_none() {
             return Err("Opening a preview requires a Sikemux agent session".into());
         }
-        let project = PathBuf::from(&request.project);
-        let config = blocking(move || Ok(crate::tasks::config::load(&project)))
-            .await
-            .map_err(|error| error.to_string())?;
-        let url = match config {
-            crate::tasks::config::ConfigLoad::Valid { config, .. } => config
-                .preview
-                .as_ref()
-                .and_then(crate::tasks::config::Stated::given)
-                .and_then(|preview| preview.url.clone()),
-            _ => None,
-        };
+        let (project, filling) = (PathBuf::from(&request.project), core.clone());
+        let url = blocking(move || {
+            Ok(match crate::tasks::config::load(&project) {
+                crate::tasks::config::ConfigLoad::Valid { config, .. } => config
+                    .preview
+                    .as_ref()
+                    .and_then(crate::tasks::config::Stated::given)
+                    .and_then(|preview| preview.url.as_deref())
+                    .map(|url| super::ports::checkout::filled(&filling, &project, url)),
+                _ => None,
+            })
+        })
+        .await
+        .map_err(|error| error.to_string())?;
         let url = url.ok_or("No preview URL is configured in sikemux.json")?;
         request.params["url"] = url.into();
     }

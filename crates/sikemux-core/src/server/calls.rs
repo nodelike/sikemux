@@ -247,6 +247,7 @@ calls! { core, client, method, params;
     "worktreeMerged" WorktreeMerged (super::worktree::removal::WorktreeParams) -> bool: Watch => super::worktree::removal::merged(&core, params).await?,
     "worktreeRemoval" WorktreeRemoval (super::worktree::removal::WorktreeParams) -> super::worktree::removal::WorktreeRemovalInfo: Owner => super::worktree::removal::removal(&core, params).await?,
     "removeAgentWorktree" RemoveAgentWorktree (super::worktree::removal::RemoveWorktreeParams) -> super::worktree::removal::WorktreeRemoved: Owner, counted => super::worktree::removal::remove(&core, params).await?,
+    "checkout" Checkout (super::ports::checkout::CheckoutParams) -> Option<super::ports::checkout::CheckoutAbout>: Watch => super::ports::checkout::checkout(&core, params).await?,
     "agentWorktreeAt": Full => answer(super::worktree::agent::at(parse(params)?).await?),
     "savedSessions": Full, any_program => answer(saved_sessions::list(parse(params)?).await?),
     "recentSessions": Full, any_program => answer(saved_sessions::recent(parse(params)?).await?),

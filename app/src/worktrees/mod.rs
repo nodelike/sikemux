@@ -2,6 +2,7 @@
 //! one.
 
 pub(crate) mod head;
+pub(crate) mod ports;
 pub mod switch;
 
 use gpui_kit::component::WindowExt;

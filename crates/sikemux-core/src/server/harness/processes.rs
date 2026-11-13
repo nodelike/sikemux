@@ -503,19 +503,20 @@ pub(super) async fn port_holders(core: &Arc<Core>, run: &FailedRun) -> Option<St
             .await
             .ok()?
     };
-    let held: Vec<String> = super::super::ports::for_project(listening, Path::new(&run.project))
-        .into_iter()
-        .filter_map(|port| {
-            let holder = match &port.listening.owner {
-                super::super::ports::PortOwner::Task { label, .. } => {
-                    format!("process \"{label}\"")
-                }
-                super::super::ports::PortOwner::Agent { label, .. } => format!("agent {label}"),
-                super::super::ports::PortOwner::Terminal { .. } => return None,
-            };
-            Some(format!("{} is held by {holder}", port.listening.port))
-        })
-        .collect();
+    let held: Vec<String> =
+        super::super::ports::for_project(core, listening, Path::new(&run.project))
+            .into_iter()
+            .filter_map(|port| {
+                let holder = match &port.listening.owner {
+                    super::super::ports::PortOwner::Task { label, .. } => {
+                        format!("process \"{label}\"")
+                    }
+                    super::super::ports::PortOwner::Agent { label, .. } => format!("agent {label}"),
+                    super::super::ports::PortOwner::Terminal { .. } => return None,
+                };
+                Some(format!("{} is held by {holder}", port.listening.port))
+            })
+            .collect();
     Some(match held.as_slice() {
         [] => "Its port is taken by a program outside this project's processes and agents; workspace_inspect lists the ports in use.".to_owned(),
         _ => format!(

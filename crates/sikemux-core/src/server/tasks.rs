@@ -620,7 +620,10 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
             entry
         })
         .collect();
-    let ports: Vec<Value> = ports::for_project(ports::listening_now(core), project)
+    let listening = ports::listening_now(core);
+    let checkout =
+        ports::checkout::here(core, project).map(|here| ports::checkout::about(&here, &listening));
+    let ports: Vec<Value> = ports::for_project(core, listening, project)
         .into_iter()
         .map(|port| {
             let (kind, label) = match &port.listening.owner {
@@ -633,6 +636,7 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
                 "address": port.listening.address,
                 "process": port.listening.process,
                 "owner": { "kind": kind, "label": label },
+                "checkout": port.checkout,
             })
         })
         .collect();
@@ -650,6 +654,12 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
             object.insert(
                 "configErrors".into(),
                 serde_json::to_value(errors).unwrap_or_default(),
+            );
+        }
+        if let Some(checkout) = checkout {
+            object.insert(
+                "checkout".into(),
+                serde_json::to_value(checkout).unwrap_or_default(),
             );
         }
         let found = test_results(project, &tasks);
@@ -815,15 +825,44 @@ pub(crate) async fn launch(
     if let Some(agent_id) = &run.agent_id {
         super::ship::check_process(core, agent_id, &task.command, &task.env, &task.cwd).await?;
     }
+    let here = {
+        let (core, cwd) = (core.clone(), task.cwd.clone());
+        blocking(move || Ok(ports::checkout::here(&core, &cwd)))
+            .await
+            .map_err(|error| error.to_string())?
+    };
     let mut preview_url = match &config {
         ConfigLoad::Valid { config, .. } if task.source == Source::Project => config
             .preview
             .as_ref()
             .and_then(Stated::given)
             .filter(|preview| preview.command.as_deref() == Some(task.command.as_str()))
-            .and_then(|preview| preview.url.clone()),
+            .and_then(|preview| preview.url.as_deref())
+            .map(|url| {
+                here.as_ref()
+                    .map_or_else(|| url.to_owned(), |here| here.fill(url))
+            }),
         _ => None,
     };
+    if let Some(here) = here.as_ref().filter(|_| task.source == Source::Project) {
+        task.env = here.task_environment(&task.id);
+    }
+    let own_port = (here.as_ref())
+        .filter(|here| here.first_port.is_some() && task.source == Source::Project)
+        .and_then(|here| here.task_port(&task.id));
+    if let Some(port) = own_port {
+        let (core, task_id) = (core.clone(), task.id.clone());
+        let held = blocking(move || Ok(listening(&ports::listening_now(&core), &task_id, port)))
+            .await
+            .map_err(|error| error.to_string())?;
+        if let Listening::Held(by) = held {
+            return Err(format!(
+                "{} can't start: this checkout's port {port} is taken by {by}",
+                task.label
+            ));
+        }
+    }
+    let in_own_checkout = here.as_ref().is_some_and(|here| here.first_port.is_some());
     if !checked && task.source != Source::Command {
         let found = {
             let (core, task) = (core.clone(), task.clone());
@@ -840,17 +879,17 @@ pub(crate) async fn launch(
             } => Some((variable.clone(), *port)),
             _ => None,
         });
+        let moved = moved.filter(|_| !in_own_checkout);
         let rest: Vec<Check> = found
             .into_iter()
-            .filter(|check| {
-                !matches!(
-                    check.item,
-                    CheckItem::Port {
-                        free_port: Some(_),
-                        env_var: Some(_),
-                        ..
-                    }
-                )
+            .filter(|check| match check.item {
+                CheckItem::Port { .. } if in_own_checkout => false,
+                CheckItem::Port {
+                    free_port: Some(_),
+                    env_var: Some(_),
+                    ..
+                } => false,
+                _ => true,
             })
             .collect();
         if let Some(problems) = check::problems(&rest) {

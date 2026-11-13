@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
+use super::checkout;
+
 pub const CONFIG_FILE: &str = "sikemux.json";
 pub const CONFIG_VERSION: u64 = 1;
 
@@ -30,6 +32,8 @@ const ROOT_FIELDS: &[&str] = &[
     "planFirst",
     "ship",
     "heavy",
+    "ports",
+    "env",
 ];
 const ACTION_FIELDS: &[&str] = &[
     "id",
@@ -45,9 +49,9 @@ const MAX_ROLES: usize = 16;
 const MAX_ROLE_NAME_CHARS: usize = 64;
 const MAX_ROLE_CHARTER_CHARS: usize = 4000;
 const MAX_ROLE_EVERY: u64 = 100_000;
-const TASK_FIELDS: &[&str] = &["id", "label", "command", "cwd", "env"];
+const TASK_FIELDS: &[&str] = &["id", "label", "command", "cwd", "env", "port"];
 const PREVIEW_FIELDS: &[&str] = &["url", "command"];
-const WORKTREE_FIELDS: &[&str] = &["onCreate", "onSettle"];
+const WORKTREE_FIELDS: &[&str] = &["onCreate", "onSettle", "onRemove"];
 const HOOK_FIELDS: &[&str] = &["id", "label", "command"];
 const GENERATE_FIELDS: &[&str] = &["command", "outputs"];
 const MAX_OUTPUTS: usize = 50;
@@ -164,6 +168,10 @@ pub struct ProjectTask {
     pub cwd: String,
     #[serde(with = "env_map")]
     pub env: Vec<(String, String)>,
+    /// The port it listens on in the project's own folder; it gets `PORT`, and its id names a
+    /// port of each checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -190,6 +198,9 @@ pub struct WorktreeConfig {
     /// Run in an agent's worktree once nothing works there any more, such as to remove its
     /// build output.
     pub on_settle: Vec<WorktreeHook>,
+    /// Run in a checkout before its folder is deleted, such as to drop its database.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_remove: Vec<WorktreeHook>,
 }
 
 /// What makes the files a project commits but builds from its other files,
@@ -311,6 +322,24 @@ pub struct ProjectConfig {
     /// ones. An empty list turns the line off for the project.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heavy: Option<Vec<HeavyCommand>>,
+    /// Names to the port each has in the project's own folder; every other checkout gets one
+    /// of its own ten per name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<(String, u16)>,
+    /// What everything started in a checkout gets, with `{port.<name>}`, `{checkout}` and
+    /// `{root}` filled in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", with = "env_map")]
+    pub env: Vec<(String, String)>,
+}
+
+impl ProjectConfig {
+    /// Each port name with the port it has in the project's own folder: `ports` first, then
+    /// each process with a port, as listed.
+    pub fn port_names(&self) -> Vec<(&str, u16)> {
+        let named = self.ports.iter().map(|(name, port)| (name.as_str(), *port));
+        let tasks = (self.tasks.iter()).filter_map(|task| Some((task.id.as_str(), task.port?)));
+        named.chain(tasks).collect()
+    }
 }
 
 /// A command that waits its turn on the host: the program and its first words.
@@ -540,10 +569,12 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let heavy = root
         .get("heavy")
         .map(|value| parse_heavy(value, &mut errors));
+    let ports = checkout::parse_ports(root.get("ports"), &mut errors);
+    let env = parse_task_env(root.get("env"), "$.env", &mut errors);
     if !errors.is_empty() {
         return Err(errors);
     }
-    Ok(ProjectConfig {
+    let config = ProjectConfig {
         version: CONFIG_VERSION,
         schema,
         icon,
@@ -559,7 +590,14 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         plan_first,
         ship,
         heavy,
-    })
+        ports,
+        env,
+    };
+    checkout::check_names(root, &config, &mut errors);
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok(config)
 }
 
 /// The `heavy` list of the nearest `sikemux.json` at or above `dir`, read alone so a command
@@ -579,7 +617,7 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     let tasks = config.tasks.len();
     let previews = usize::from(preview_command(config).is_some());
     let hooks = config.worktree.as_ref().map_or(0, |worktree| {
-        worktree.on_create.len() + worktree.on_settle.len()
+        worktree.on_create.len() + worktree.on_settle.len() + worktree.on_remove.len()
     });
     let mut reasons = Vec::new();
     if actions > 0 {
@@ -625,8 +663,12 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
             if roles == 1 { "role" } else { "roles" }
         ));
     }
+    let environments = usize::from(!config.env.is_empty());
+    if environments > 0 {
+        reasons.push("an environment for everything started in it".to_owned());
+    }
     let executable_entries =
-        actions + tasks + previews + hooks + generates + checks + reservoirs + roles;
+        actions + tasks + previews + hooks + generates + checks + reservoirs + roles + environments;
     TrustSummary {
         requires_approval: executable_entries > 0,
         executable_entries,
@@ -686,10 +728,21 @@ pub fn trust_commands(config: &ProjectConfig) -> Vec<TrustCommand> {
     let hooks = config.worktree.iter().flat_map(|worktree| {
         let created = (worktree.on_create.iter()).map(|hook| ("New worktree", hook));
         let settled = (worktree.on_settle.iter()).map(|hook| ("Worktree settles", hook));
-        created.chain(settled).map(|(when, hook)| TrustCommand {
-            label: format!("{when} · {}", hook.label),
-            command: hook.command.clone(),
-        })
+        let removed = (worktree.on_remove.iter()).map(|hook| ("Checkout removed", hook));
+        created
+            .chain(settled)
+            .chain(removed)
+            .map(|(when, hook)| TrustCommand {
+                label: format!("{when} · {}", hook.label),
+                command: hook.command.clone(),
+            })
+    });
+    let environment = (!config.env.is_empty()).then(|| TrustCommand {
+        label: "Environment".to_owned(),
+        command: (config.env.iter())
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join(" "),
     });
     let reservoir = config.reservoir.iter().map(|command| TrustCommand {
         label: "Reservoir".to_owned(),
@@ -700,6 +753,7 @@ pub fn trust_commands(config: &ProjectConfig) -> Vec<TrustCommand> {
         command: role.charter.clone(),
     });
     (actions.chain(tasks).chain(preview).chain(hooks))
+        .chain(environment)
         .chain(reservoir)
         .chain(roles)
         .collect()
@@ -1117,6 +1171,7 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
         let command = parse_command(candidate.get("command"), &format!("{path}.command"), errors);
         let cwd = parse_task_cwd(candidate.get("cwd"), &format!("{path}.cwd"), errors);
         let env = parse_task_env(candidate.get("env"), &format!("{path}.env"), errors);
+        let port = checkout::parse_port(candidate.get("port"), &format!("{path}.port"), errors);
         note_id(&mut ids, id.as_ref(), &path, "Process", errors);
         if let (Some(id), Some(label), Some(command)) = (id, label, command) {
             tasks.push(ProjectTask {
@@ -1125,6 +1180,7 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
                 command,
                 cwd,
                 env,
+                port,
             });
         }
     }
@@ -1171,7 +1227,7 @@ fn parse_preview(
         return None;
     }
     if let Some(url) = &url {
-        match url::Url::parse(url) {
+        match url::Url::parse(&checkout::sample(url)) {
             Ok(parsed) => {
                 if parsed.scheme() != "http" && parsed.scheme() != "https" {
                     errors.push(issue(
@@ -1217,6 +1273,7 @@ fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Optio
     Some(WorktreeConfig {
         on_create: parse_hooks(record, "onCreate", errors),
         on_settle: parse_hooks(record, "onSettle", errors),
+        on_remove: parse_hooks(record, "onRemove", errors),
     })
 }
 

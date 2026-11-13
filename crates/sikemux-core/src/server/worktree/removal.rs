@@ -291,7 +291,7 @@ fn outside(worktree: &AgentWorktree, cwd: &Path) -> PathBuf {
 }
 
 pub(crate) async fn remove(
-    core: &Core,
+    core: &Arc<Core>,
     params: RemoveWorktreeParams,
 ) -> CoreResult<WorktreeRemoved> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
@@ -302,7 +302,7 @@ pub(crate) async fn remove(
         return Err("another agent or project still uses this worktree".into());
     }
     let (discard, delete) = (params.discard_changes, params.delete_branch);
-    let deleted = {
+    let unmerged = {
         let worktree = worktree.clone();
         blocking(move || {
             let (dirty, unmerged) = costs(&worktree);
@@ -312,6 +312,14 @@ pub(crate) async fn remove(
                     if dirty == 1 { "" } else { "s" }
                 )));
             }
+            Ok(unmerged)
+        })
+        .await?
+    };
+    ports::checkout::removing(core, &worktree.path).await;
+    let deleted = {
+        let worktree = worktree.clone();
+        blocking(move || {
             let path = worktree.path.to_string_lossy().into_owned();
             let mut args = vec!["worktree", "remove"];
             if discard {

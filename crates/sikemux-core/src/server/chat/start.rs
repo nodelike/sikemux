@@ -243,6 +243,10 @@ pub(super) fn start(
     for (key, value) in crate::server::plugins::agent_environment(core, &launch_spec.cwd) {
         launch_spec.env.entry(key).or_insert(value);
     }
+    let here = crate::server::ports::checkout::here(core, &launch_spec.cwd);
+    for (key, value) in here.map(|here| here.environment()).unwrap_or_default() {
+        launch_spec.env.entry(key).or_insert(value);
+    }
     validate(&launch_spec)?;
     let resume_id = launch_spec.resume_id.clone();
     let waking = core.workspaces().agent(&launch_spec.agent_id).is_some();

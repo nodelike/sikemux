@@ -20,6 +20,7 @@ use crate::git::{main_checkout, Git};
 use crate::server::changed::What;
 use crate::server::connection::blocking;
 use crate::server::custom_command::{self, CommandParams};
+use crate::server::ports::checkout;
 use crate::server::{launching, tasks, Core, CoreResult};
 use crate::tasks::config::{self, ConfigLoad, WorktreeHook};
 
@@ -80,6 +81,8 @@ pub(crate) fn cut_for(
             branch,
             base,
             start_sha,
+            name: String::new(),
+            first_port: None,
         },
         path.join(inside),
     ))
@@ -153,7 +156,10 @@ pub(crate) async fn restore(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> 
         return Ok(());
     }
     let (cwd, branch) = (agent.cwd, agent.worktree.map(|tree| tree.branch));
-    let resumed = blocking(move || Ok(resumed_in(&cwd, branch.as_deref())?)).await?;
+    let mut resumed = blocking(move || Ok(resumed_in(&cwd, branch.as_deref())?)).await?;
+    if let Some(tree) = resumed.worktree.as_mut() {
+        checkout::claim(core, tree);
+    }
     core.workspaces()
         .edit_agent(agent_id, |agent| agent.worktree = resumed.worktree.clone())?;
     set_up_made_again(core, agent_id, &resumed);
@@ -214,6 +220,8 @@ fn make_again(cwd: &Path, branch: Option<&str>) -> Result<AgentWorktree, String>
         branch,
         base,
         start_sha,
+        name: String::new(),
+        first_port: None,
     })
 }
 
@@ -270,6 +278,8 @@ fn read_back(cwd: &Path) -> Option<AgentWorktree> {
         branch,
         base,
         start_sha,
+        name: String::new(),
+        first_port: None,
     })
 }
 
@@ -292,7 +302,8 @@ pub(crate) async fn for_agent(
     let cwd = agent.cwd.clone();
     let checkout = params.repo.unwrap_or_else(|| cwd.clone());
     let branch = branch_for(&params.message);
-    let (worktree, tree_cwd) = blocking(move || Ok(cut_for(&checkout, &cwd, &branch)?)).await?;
+    let (mut worktree, tree_cwd) = blocking(move || Ok(cut_for(&checkout, &cwd, &branch)?)).await?;
+    checkout::claim(core, &mut worktree);
     let project = core
         .workspaces()
         .view()
@@ -441,7 +452,7 @@ pub(crate) async fn set_up(
             "The worktree setup in sikemux.json was not trusted, so it did not run".into(),
         );
     }
-    run_hooks(hooks, cwd)
+    run_hooks(hooks, cwd, environment(core, cwd).await)
         .await
         .map(|failed| format!("{} failed: {}", failed.label, failed.output))
 }
@@ -470,7 +481,8 @@ pub(crate) async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
     if hooks.is_empty() || !tree.is_dir() {
         return;
     }
-    let Some(failed) = run_hooks(hooks, &tree).await else {
+    let env = environment(&core, &tree).await;
+    let Some(failed) = run_hooks(hooks, &tree, env).await else {
         return;
     };
     let worktree = tree.file_name().map_or_else(
@@ -486,21 +498,37 @@ pub(crate) async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
 }
 
 /// A hook that failed: its label, and the end of what it printed or why it could not run.
-struct Failed {
-    label: String,
-    output: String,
+pub(crate) struct Failed {
+    pub label: String,
+    pub output: String,
+}
+
+/// What the checkout at `cwd` gives the steps run in it.
+async fn environment(core: &Arc<Core>, cwd: &Path) -> Vec<(String, String)> {
+    let (core, cwd) = (core.clone(), cwd.to_owned());
+    blocking(move || Ok(checkout::here(&core, &cwd).map(|here| here.environment())))
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default()
 }
 
 /// How much of the end of a failed hook's output is kept.
 const FAILED_LINES: usize = 3;
 
-/// Runs `hooks` in `cwd` one after another, stopping at the first that fails.
-async fn run_hooks(hooks: Vec<WorktreeHook>, cwd: &Path) -> Option<Failed> {
+/// Runs `hooks` in `cwd` with `env` one after another, stopping at the first that fails.
+pub(crate) async fn run_hooks(
+    hooks: Vec<WorktreeHook>,
+    cwd: &Path,
+    env: Vec<(String, String)>,
+) -> Option<Failed> {
+    let mut env: HashMap<String, String> = env.into_iter().collect();
+    env.insert(vars::PROJECT.to_owned(), cwd.to_string_lossy().into_owned());
     for hook in hooks {
         let ran = custom_command::run(CommandParams {
             command: hook.command,
             cwd: Some(cwd.to_path_buf()),
-            env: HashMap::from([(vars::PROJECT.to_owned(), cwd.to_string_lossy().into_owned())]),
+            env: env.clone(),
         })
         .await;
         let output = match ran {

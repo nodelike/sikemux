@@ -108,6 +108,32 @@ much memory or time. `final` marks a check run before a commit, which goes
 first. `{ "command": "jest", "light": true }` keeps one out, and `"heavy": []`
 turns the line off. Never list a dev server or a watcher.
 
+Every checkout Sikemux cuts gets a short name and ten ports of its own, kept
+until it is removed. Give the project's ports names so each checkout runs
+apart from the others:
+
+```json
+{
+  "version": 1,
+  "ports": { "db": 5432 },
+  "env": { "DATABASE_URL": "postgres://localhost:{port.db}/shop_{checkout}" },
+  "tasks": [{ "id": "web", "label": "Web", "command": "pnpm dev --port $PORT", "port": 5173 }],
+  "preview": { "url": "http://localhost:{port.web}" },
+  "worktree": { "onRemove": [{ "id": "db", "label": "Drop the database", "command": "dropdb --if-exists shop_$SIKEMUX_CHECKOUT" }] }
+}
+```
+
+`ports` names the ports the project's own folder uses, and a process with
+`port` adds its id as a name; at most ten. In the project's own folder each
+name keeps its port; in another checkout the names take its ports in order,
+`ports` first. `{port.<name>}`, `{checkout}` and `{root}` are filled in
+`env`, a process's `env` and `preview.url`. Everything Sikemux starts in a
+checkout gets `SIKEMUX_CHECKOUT` (`main` in the project's own folder),
+`SIKEMUX_ROOT`, `SIKEMUX_PORT` (the first of its ten), `SIKEMUX_PORT_<NAME>`
+and `env`; only a process with `port` gets `PORT`. `worktree.onRemove` runs
+before a checkout is deleted. `workspace_inspect` shows them under
+`checkout`.
+
 ## processes: Starting and stopping processes
 
 A process is a named command that runs in a terminal; each start of it is a

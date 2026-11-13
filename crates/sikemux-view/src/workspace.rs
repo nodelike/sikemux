@@ -414,6 +414,12 @@ pub struct AgentWorktree {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
     pub start_sha: String,
+    /// Its short name, which everything started in it is given as `SIKEMUX_CHECKOUT`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// The first of its own ten ports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_port: Option<u16>,
 }
 
 /// The character an agent wears: a pack and shape when the person picked one,
