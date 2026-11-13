@@ -1025,6 +1025,12 @@ For anything else, run the `aws` CLI yourself, read-only.
 
 ## connectors: Pull requests, CI logs and SigNoz logs
 
+- A picture in a GitHub pull request or issue must show in it: a local path
+  reaches nobody. `gh` cannot upload one, so commit it with a temporary index
+  to a side branch, such as `pr-assets` with a folder per pull request, never
+  the pull request's own branch, push, and link
+  `https://raw.githubusercontent.com/<owner>/<repo>/<commit>/<path>`. In a
+  private repository link `https://github.com/<owner>/<repo>/blob/<commit>/<path>?raw=true`.
 - Bitbucket's tools name a repository by `owner`, its workspace, and `name`,
   its slug. Left out, they default to the project's Bitbucket remote, and
   `repo: "owner/name"` works too.
