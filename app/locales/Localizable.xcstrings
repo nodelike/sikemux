@@ -87132,6 +87132,7 @@
         }
       }
     },
+    "Sharp": {},
     "Shell commands that sit beside the built-in ones.": {
       "localizations": {
         "es": {
@@ -93374,6 +93375,7 @@
         }
       }
     },
+    "Soft": {},
     "Soft reset to {hash}?": {
       "localizations": {
         "es": {
@@ -93426,6 +93428,7 @@
         }
       }
     },
+    "Soft rounds panels and floats them apart. Sharp squares every corner and sets the rails and stage flush, parted by hairlines.": {},
     "Solid at 1.00, translucent below it.": {
       "localizations": {
         "es": {
@@ -98782,6 +98785,8 @@
         }
       }
     },
+    "Style": {},
+    "Style, text size, what shows behind each pane, and the window": {},
     "Subscriptions agents sign in with": {
       "localizations": {
         "es": {
@@ -100703,58 +100708,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Tamanho do texto"
-          }
-        }
-      }
-    },
-    "Text size, what shows behind each pane, and the window": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tamaño del texto, lo que se ve detrás de cada panel y la ventana"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "文字大小、各窗格背后显示的内容以及窗口"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Textgröße, was hinter jedem Bereich zu sehen ist, und das Fenster"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Taille du texte, ce qui apparaît derrière chaque panneau, et la fenêtre"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "文字サイズ、各ペインの背景、ウインドウ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "텍스트 크기, 각 패널 뒤에 보이는 것, 창"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Размер текста, фон за каждой панелью и окно"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tamanho do texto, o que aparece atrás de cada painel e a janela"
           }
         }
       }
