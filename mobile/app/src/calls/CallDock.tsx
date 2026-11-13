@@ -13,6 +13,7 @@ import {
   GO_WITH_THIS,
   hidden,
   kept,
+  keepsWordsPrivate,
   NOT_MINE,
   OWN_WORDS,
   PICK,
@@ -78,8 +79,8 @@ export const CallDock = memo(function CallDock({
   const typed = draft.typed.trim().length > 0;
   const [focused, setFocused] = useState(false);
   const lit = focused || typed;
-  const secret = !!call.secret;
-  const pictured = !secret && call.options.some((option) => option.picture);
+  const secret = keepsWordsPrivate(call);
+  const pictured = !call.secret && call.options.some((option) => option.picture);
   const runs = call.kind === 'production' ? call.action : undefined;
   const at = queue.findIndex((each) => each.id === call.id);
   const context = contextOf(call);
@@ -155,7 +156,7 @@ export const CallDock = memo(function CallDock({
               <TextInput
                 value={draft.typed}
                 onChangeText={(text) => edit(store, { typed: text })}
-                placeholder={t(SECRET_FIELD)}
+                placeholder={chosen.length ? t(ADD_NOTE) : t(SECRET_FIELD)}
                 placeholderTextColor={colors.tertiary}
                 // Its words never show, and the keyboard neither suggests nor remembers them. A hidden secure field
                 // cannot hold the line breaks of a pasted key, so the text is drawn clear; paste still works.

@@ -5,6 +5,7 @@ import type { AnswerCallParams, PersonCall, ProjectInfo } from '@shared/wire.gen
 import type { Snapshot } from '@/core/protocol';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
+import { keepsWordsPrivate } from '@shared/calls/words';
 import { liveOf } from '@/devices/hub';
 
 /** What the person has done on a call's card while it waits: the options chosen, the note or their words, What runs. */
@@ -86,7 +87,7 @@ export function waitingCall(queue: PersonCall[], held: Kept, agentId: string): P
  */
 export function composingCall(call: PersonCall | undefined, held: Kept): PersonCall | undefined {
   if (!call || call.kind === 'production') return undefined;
-  if (!call.secret && held.composingOff.has(call.id)) return undefined;
+  if (!keepsWordsPrivate(call) && held.composingOff.has(call.id)) return undefined;
   return call;
 }
 
@@ -181,7 +182,7 @@ export async function answer(
   change(core, (now) => ({ ...now, failed: withoutKey(now.failed, call.id) }));
   try {
     await callHost(connection, 'answerCall', params);
-    if (call.secret) {
+    if (keepsWordsPrivate(call)) {
       edit(draft, { typed: '' });
       drafts.delete(call.id);
     }

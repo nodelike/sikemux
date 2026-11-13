@@ -70,7 +70,7 @@ export type ComposerQuestion = {
   cli: string;
   /** Said, before anything uploads, when the answer cannot carry the context chips on the draft. */
   chipsRefused?: string;
-  /** It asks for a secret: only the words go, kept private, and its chip never comes off. */
+  /** It keeps its words private, as a secret's or an access call's: only the words go, and its chip never comes off. */
   secret?: boolean;
   onRemove?: () => void;
   onAnswer: (written: WrittenAnswer) => Promise<boolean>;

@@ -31,7 +31,15 @@ import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { answerWritten, composingCall, queueOf, stopComposing, useKept, waitingCall } from '@/calls/hostCalls';
-import { NO_CHIPS, SECRET_COMPOSER, TELL_CHIEF, answering as answeringWords, sendToTold, typeYourAnswer } from '@shared/calls/words';
+import {
+  NO_CHIPS,
+  SECRET_COMPOSER,
+  TELL_CHIEF,
+  keepsWordsPrivate,
+  answering as answeringWords,
+  sendToTold,
+  typeYourAnswer,
+} from '@shared/calls/words';
 import { AwayCard } from '@/calls/AwayCard';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
@@ -239,7 +247,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const docked = waitingCall(queue, keptCalls, agentId);
   // Typed words answer the oldest call open here that asks for a secret, whichever call is docked, so they never reach
   // an agent as a message or another call's answer.
-  const secret = watchOnly ? undefined : oldest(queue.filter((call) => call.secret));
+  const secret = watchOnly ? undefined : oldest(queue.filter(keepsWordsPrivate));
   // Change on an assumption wins over a call docked in the same chat, until it is sent or taken off.
   const changing = watchOnly || secret ? null : assumptions.changing;
   // In the chief's chat, typed words answer a docked call only when it is the chief's own and the only one open.
@@ -658,7 +666,7 @@ function answeringIn(call: PersonCall | undefined, t: Translate) {
       cli: call.asker.cli,
       chip: answeringWords(call.asker.name, call.question, t),
       asker: call.asker.name,
-      secret: !!call.secret,
+      secret: keepsWordsPrivate(call),
     }
   );
 }
