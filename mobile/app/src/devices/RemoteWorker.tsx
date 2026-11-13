@@ -31,7 +31,6 @@ export const WorkerRow = memo(function WorkerRow({ worker }: { worker: RemoteAge
       }
       title={worker.titled ? worker.title : undefined}
       name={worker.name}
-      model={worker.model}
       host={reachable ? worker.host : `${worker.host} · ${t('Out of reach').toLowerCase()}`}
       end={
         reachable ? (

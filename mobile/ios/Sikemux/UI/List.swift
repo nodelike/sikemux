@@ -52,8 +52,6 @@ struct Row<Mark: View, End: View, After: View>: View {
     var title: String?
     /// The agent's name, small and dim at the row's end.
     var name: String?
-    /// The model the agent's chat runs on, beside its name while the title fits uncut beside both.
-    var model: String?
     /// The linked host the agent runs on, tagged before its name as the Mac's rail tags it.
     var host: String?
     /// Quiet words after the title on its line, such as what a chief's chat is on.
@@ -111,19 +109,7 @@ struct Row<Mark: View, End: View, After: View>: View {
         place == nil && detail == nil && detailText == nil && under == nil && underText == nil
     }
 
-    /// The model shows only while the title still fits beside it; the title is what the row is about.
-    @ViewBuilder private var content: some View {
-        if let model, title != nil, name != nil {
-            ViewThatFits(in: .horizontal) {
-                layout(model: model)
-                layout(model: nil)
-            }
-        } else {
-            layout(model: nil)
-        }
-    }
-
-    private func layout(model: String?) -> some View {
+    private var content: some View {
         let handle = name.map { "@\($0)" }
         let label = title ?? handle ?? ""
         let named = title != nil ? handle : nil
@@ -153,17 +139,14 @@ struct Row<Mark: View, End: View, After: View>: View {
                             .foregroundStyle(palette.tertiary)
                             .lineLimit(1)
                     }
-                    .frame(idealWidth: 0, alignment: .leading)
                 } else if let detail = detailText ?? detail.map({ Text($0) }) {
                     detail
                         .font(Theme.ui(12))
                         .foregroundStyle(palette.tertiary)
                         .lineLimit(detailLines)
-                        .frame(idealWidth: 0, alignment: .leading)
                 }
                 if let under = underText ?? under.map({ Text($0) }) {
                     under.font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
-                        .frame(idealWidth: 0, alignment: .leading)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -179,15 +162,11 @@ struct Row<Mark: View, End: View, After: View>: View {
                         .frame(maxWidth: 150, alignment: .trailing)
                     }
                     if let named {
-                        HStack(spacing: 0) {
-                            Text(named).frame(maxWidth: 110, alignment: .trailing).layoutPriority(1)
-                            if let model {
-                                Text(" · \(model)").frame(maxWidth: 110, alignment: .trailing)
-                            }
-                        }
-                        .font(Theme.ui(11.5))
-                        .foregroundStyle(palette.tertiary)
-                        .lineLimit(1)
+                        Text(named)
+                            .font(Theme.ui(11.5))
+                            .foregroundStyle(palette.tertiary)
+                            .lineLimit(1)
+                            .frame(maxWidth: 110, alignment: .trailing)
                     }
                     end
                 }
@@ -203,15 +182,13 @@ struct Row<Mark: View, End: View, After: View>: View {
 
 extension Row where After == EmptyView {
     init(
-        title: String? = nil, name: String? = nil, model: String? = nil, host: String? = nil, aside: String? = nil,
-        detail: String? = nil,
+        title: String? = nil, name: String? = nil, host: String? = nil, aside: String? = nil, detail: String? = nil,
         detailText: Text? = nil, place: String? = nil, under: String? = nil, underText: Text? = nil, dim: Bool = false,
         detailLines: Int = 1, onPress: (() -> Void)? = nil, onLongPress: (() -> Void)? = nil,
         @ViewBuilder mark: () -> Mark, @ViewBuilder end: () -> End
     ) {
         self.init(
-            title: title, name: name, model: model, host: host, aside: aside, detail: detail, detailText: detailText,
-            place: place,
+            title: title, name: name, host: host, aside: aside, detail: detail, detailText: detailText, place: place,
             under: under,
             underText: underText, dim: dim,
             detailLines: detailLines, onPress: onPress, onLongPress: onLongPress, mark: mark, end: end,

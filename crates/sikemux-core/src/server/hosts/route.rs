@@ -1294,7 +1294,6 @@ mod tests {
             chief: true,
             name: Some("Otter".into()),
             cli: "claude".into(),
-            model: Some("Opus 5.5".into()),
             title: "Fix the login flake".into(),
             titled: true,
             session: Some(7),

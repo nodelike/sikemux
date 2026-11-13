@@ -151,7 +151,7 @@ private struct ChatRow: View {
     var body: some View {
         let away = shown.snoozedUntil != nil || shown.settledAt != nil
         Row(
-            title: shown.title, name: away ? nil : shown.name, model: shown.model,
+            title: shown.title, name: away ? nil : shown.name,
             detail: shown.settledAt.map { Format.ago(Format.date(millis: $0), now: now) },
             dim: away,
             onPress: { Router.shared.push(.chat(core: core, agent: shown.agentId)) },
@@ -191,7 +191,7 @@ private struct TerminalAgentRow: View {
         let snoozed = shown.snoozedUntil != nil && shown.settledAt == nil
         let away = snoozed || shown.settledAt != nil
         Row(
-            title: shown.title, name: away ? nil : shown.name, model: shown.model, dim: away,
+            title: shown.title, name: away ? nil : shown.name, dim: away,
             onPress: onOpen, onLongPress: onHold,
             mark: {
                 AskerMark(
@@ -335,7 +335,7 @@ struct WorkerRow: View {
         let reachable = worker.reachable
         let paired = Hub.shared.device(worker.hostId) != nil
         Row(
-            title: worker.titled == true ? worker.title : nil, name: worker.name, model: worker.model,
+            title: worker.titled == true ? worker.title : nil, name: worker.name,
             host: reachable ? worker.host : "\(worker.host) · \(String(localized: "Out of reach").lowercased())",
             dim: !reachable,
             onPress: paired ? { Router.shared.push(.chat(core: worker.hostId, agent: worker.agentId)) } : nil,
