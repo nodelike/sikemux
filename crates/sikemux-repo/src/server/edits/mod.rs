@@ -251,9 +251,13 @@ impl Edits {
         });
         let (jobs, queue) = mpsc::channel();
         let writer = store.clone();
+        let runtime = tokio::runtime::Handle::try_current().ok();
         let spawned = std::thread::Builder::new()
             .name("sikemux-edits".into())
-            .spawn(move || writer.write(&queue, &core));
+            .spawn(move || {
+                let _runtime = runtime.as_ref().map(tokio::runtime::Handle::enter);
+                writer.write(&queue, &core)
+            });
         if let Err(error) = spawned {
             eprintln!("sikemux core: edits will not be kept: {error}");
         }

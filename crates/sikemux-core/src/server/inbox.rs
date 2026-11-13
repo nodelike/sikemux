@@ -321,6 +321,12 @@ struct Turn {
     staged: Option<String>,
     /// Where git said the chat's work was, read when this turn ended and on each commit since.
     work: Option<turn_state::Work>,
+    /// How many times what it left was let go, so a handoff worked out before that is not kept.
+    #[serde(skip)]
+    let_go: u64,
+    /// Where its work is will be read again, for a file it wrote that came to light late.
+    #[serde(skip)]
+    rereading: bool,
 }
 
 pub(crate) struct Turns {
@@ -447,9 +453,39 @@ impl Turns {
         self.change(|turns| {
             if let Some(turn) = turns.get_mut(agent_id) {
                 turn.handoff = None;
+                turn.let_go += 1;
                 turn.committed = true;
             }
         });
+    }
+
+    /// A file the agent wrote came to light after its latest turn ended by itself, so what that
+    /// turn left is worked out again. Whether where its work is should be read again: not while a
+    /// read is waiting to start already, nor once it reads uncommitted, which more files keep.
+    pub(crate) fn wrote_after(&self, agent_id: &str) -> bool {
+        self.change(|turns| {
+            let Some(turn) = turns
+                .get_mut(agent_id)
+                .filter(|turn| turn.ended_at.is_some())
+            else {
+                return false;
+            };
+            turn.handoff = None;
+            turn.let_go += 1;
+            let uncommitted =
+                (turn.work.as_ref()).is_some_and(|work| work.changes == WorkAt::Uncommitted);
+            let read = !turn.rereading && !uncommitted;
+            turn.rereading |= read;
+            read
+        })
+    }
+
+    /// The read [`Self::wrote_after`] asked for starts, so a file that comes to light from now on
+    /// asks for another.
+    pub(crate) fn rereading(&self, agent_id: &str) {
+        if let Some(turn) = self.turns.locked().get_mut(agent_id) {
+            turn.rereading = false;
+        }
     }
 
     /// How the agent's latest turn ended, as its turn state reads it; none while it runs and
@@ -585,15 +621,15 @@ pub(crate) fn recorded(core: &Arc<Core>, agent_id: &str, answer: &Value) {
 
 /// What the agent left when its last turn ended, worked out once.
 pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
-    if let Some(handoff) = core
-        .inbox()
-        .turns
-        .locked()
-        .get(agent_id)
-        .and_then(|turn| turn.handoff.clone())
-    {
-        return handoff;
-    }
+    let kept = |turn: Option<&Turn>| turn.map(|turn| (turn.ended_at, turn.let_go));
+    let before = {
+        let turns = core.inbox().turns.locked();
+        let turn = turns.get(agent_id);
+        if let Some(handoff) = turn.and_then(|turn| turn.handoff.clone()) {
+            return handoff;
+        }
+        kept(turn)
+    };
     let mut handoff = InboxHandoff::default();
     if let Some(chat) = core.chats().get(agent_id) {
         let reply = chat.feed.last_answer();
@@ -617,7 +653,10 @@ pub(crate) fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
             handoff.uncommitted = uncommitted(core, &project, agent_id, &chat.launch.cwd);
         }
     }
-    turn(&mut core.inbox().turns.locked(), agent_id).handoff = Some(handoff.clone());
+    let mut turns = core.inbox().turns.locked();
+    if kept(turns.get(agent_id)) == before {
+        turn(&mut turns, agent_id).handoff = Some(handoff.clone());
+    }
     handoff
 }
 

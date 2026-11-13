@@ -477,24 +477,43 @@ pub(crate) fn read_work(core: &Core, agent_id: &str) {
         return;
     };
     let agent_id = agent_id.to_owned();
-    tokio::task::spawn_blocking(move || {
-        let Some(work) = work_of(&core, &agent_id) else {
-            return;
-        };
-        let shows = (work.can_try).then(|| (work.project.clone(), work.changes, work.head.clone()));
-        if core.inbox().keep_work(&agent_id, work) {
-            core.changed(What::View);
-        }
-        let Some((project, changes, head)) = shows else {
-            return;
-        };
-        let unchecked = changes == WorkAt::Uncommitted
-            || super::checks::project_check(&core, &project).is_err();
-        let started = core.inbox().ending(&agent_id).map(|ended| ended.started_at);
-        if let (true, Some(turn)) = (unchecked, started) {
-            super::pictures::take(&core, &agent_id, &project, turn, head);
-        }
+    tokio::task::spawn_blocking(move || keep_work(&core, &agent_id));
+}
+
+/// The watch credited the agent with files a command of its wrote: once its turn has ended, where
+/// its work is is read again off the watch's thread, since that credit lands only after the write
+/// settles.
+pub(crate) fn wrote(core: &Core, agent_id: &str) {
+    let (Some(core), Ok(runtime)) = (core.arc(), tokio::runtime::Handle::try_current()) else {
+        return;
+    };
+    if core.agent_now(agent_id).mid_turn() || !core.inbox().wrote_after(agent_id) {
+        return;
+    }
+    let agent_id = agent_id.to_owned();
+    runtime.spawn_blocking(move || {
+        core.inbox().rereading(&agent_id);
+        keep_work(&core, &agent_id);
     });
+}
+
+fn keep_work(core: &Arc<Core>, agent_id: &str) {
+    let Some(work) = work_of(core, agent_id) else {
+        return;
+    };
+    let shows = (work.can_try).then(|| (work.project.clone(), work.changes, work.head.clone()));
+    if core.inbox().keep_work(agent_id, work) {
+        core.changed(What::View);
+    }
+    let Some((project, changes, head)) = shows else {
+        return;
+    };
+    let unchecked =
+        changes == WorkAt::Uncommitted || super::checks::project_check(core, &project).is_err();
+    let started = core.inbox().ending(agent_id).map(|ended| ended.started_at);
+    if let (true, Some(turn)) = (unchecked, started) {
+        super::pictures::take(core, agent_id, &project, turn, head);
+    }
 }
 
 fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {

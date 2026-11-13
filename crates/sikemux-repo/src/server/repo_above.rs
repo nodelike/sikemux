@@ -74,6 +74,9 @@ pub struct RepoAbove {
     pub messages_reachable: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, bool>,
     /// The status of an agent that runs on a linked host, as that host last said it.
     pub foreign_status: fn(&Core, &str) -> Option<AgentStatus>,
+    /// The watch credited the agent with files it wrote outside an edit tool, which can come to
+    /// light after its turn ended.
+    pub turn_state_wrote: fn(&Core, &str),
     /// Whether the agent waits on the answer to a question it asked.
     pub questions_waits_on_answer: fn(&Core, &str) -> bool,
     /// Whether a message is on its way to the agent.

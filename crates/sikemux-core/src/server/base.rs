@@ -359,6 +359,7 @@ pub(super) fn repo_above() -> RepoAbove {
         },
         messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
         foreign_status: |core, agent| core.hosts().team.get(agent).map(|foreign| foreign.status),
+        turn_state_wrote: turn_state::wrote,
         questions_waits_on_answer: |core, agent| core.harness().questions.waits_on_answer(agent),
         mail_waiting: |core, agent| core.harness().mailbox.has_waiting(agent),
         board_agent_result: |core, agent| {

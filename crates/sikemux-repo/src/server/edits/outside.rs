@@ -705,6 +705,7 @@ fn record(
     agents: &mut Option<Vec<Listed>>,
 ) {
     let mut edits = Vec::with_capacity(changes.len());
+    let mut writers = BTreeSet::new();
     for (mut edit, writer) in changes {
         match writer {
             Writer::Person
@@ -715,8 +716,12 @@ fn record(
                 continue
             }
             Writer::Person => {}
-            Writer::Shared(agents) => edit.shared = agents,
+            Writer::Shared(agents) => {
+                writers.extend(agents.iter().cloned());
+                edit.shared = agents;
+            }
             Writer::Agent(agent_id) => {
+                writers.insert(agent_id.clone());
                 edit.name = core.names().name(&agent_id);
                 match core.chats().get(&agent_id) {
                     Some(chat) => {
@@ -740,6 +745,9 @@ fn record(
     }
     if !edits.is_empty() {
         store.append(project, &edits);
+    }
+    for agent_id in writers {
+        (core.repo_above().turn_state_wrote)(core, &agent_id);
     }
 }
 
