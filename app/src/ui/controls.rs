@@ -14,7 +14,7 @@ use super::{icon, kbd, text};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_SM,
+    radius_2, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_SM,
     TEXT_XS,
 };
 
@@ -180,7 +180,7 @@ impl RenderOnce for IconButton {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_color(ink)
             .bg(wash)
             .on_hover(keep_over)
@@ -363,7 +363,7 @@ impl RenderOnce for Button {
             .items_center()
             .justify_start()
             .gap(SPACE_2)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .whitespace_nowrap();
         let base = match self.variant {
             Variant::Outline | Variant::Ghost => base
@@ -678,7 +678,7 @@ impl RenderOnce for Segmented {
             })
             .h(px(TOOLBAR_HEIGHT))
             .p(px(2.))
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .border_1()
             .border_color(t.border)
             .children(
@@ -843,7 +843,7 @@ impl RenderOnce for Field {
                 .px(px(if self.small { 8. } else { 10. }))
                 .border_1()
                 .border_color(t.line)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(Hsla {
                     a: 0.62,
                     ..t.line_soft

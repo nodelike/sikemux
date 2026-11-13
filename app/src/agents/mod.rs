@@ -488,7 +488,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .flex()
             .items_center()
             .gap(px(7.))
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .hover(move |style| style.bg(t.surface_hover))
             .child(mark)
             .child(name)
@@ -954,7 +954,7 @@ fn team_rows(
     let mut glide = bench.rails.glide.borrow_mut();
     glide.set_order(order);
     let chosen = Tokens::get(cx).surface_chosen;
-    let copy = glide.copy(move |copy| copy.rounded(theme::RADIUS_2).bg(chosen));
+    let copy = glide.copy(move |copy| copy.rounded(theme::radius_2()).bg(chosen));
     (copy, rows)
 }
 
@@ -1403,7 +1403,7 @@ pub fn called(agent: &AgentRow, cx: &App) -> Option<AnyElement> {
                 div()
                     .absolute()
                     .inset_0()
-                    .rounded(theme::RADIUS_2)
+                    .rounded(theme::radius_2())
                     .overflow_hidden()
                     .when(through > 0. && through < 1., |light| {
                         light.child(

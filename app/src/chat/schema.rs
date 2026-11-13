@@ -231,7 +231,7 @@ fn chip(id: &'static str) -> Stateful<Div> {
         .h(px(17.))
         .flex()
         .items_center()
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .cursor_pointer()
 }
 

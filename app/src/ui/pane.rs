@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 
 use super::{mark_box, meta, text};
 use crate::theme::{
-    Tokens, RADIUS_3, RADIUS_4, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_SM,
+    radius_3, radius_4, Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_SM,
     TEXT_XS,
 };
 
@@ -32,7 +32,7 @@ pub fn pane_frame(cx: &App) -> Div {
         .overflow_hidden()
         .border_1()
         .border_color(Tokens::get(cx).border)
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
 }
 
 /// A bar across the top of a pane saying something about what it shows, in `tone`, with the
@@ -80,7 +80,7 @@ pub fn floating_panel(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
         .max_w(px(540.))
         .occlude()
         .overflow_y_scroll()
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .border_1()
         .border_color(t.border_strong)
         .bg(t.surface_sunken)

@@ -5372,6 +5372,8 @@ struct Preferences: Codable, Hashable, Sendable {
     var chiefRotation: Bool
     /// One of 1, 1.1 and 1.25.
     var uiTextScale: Double
+    /// When scroll bars show, whatever the theme.
+    var scrollbars: Scrollbars
     var terminalFontSize: Int
     var chatTextScale: Double
     /// How wide a chat's messages and composer grow on a wide window.
@@ -5510,6 +5512,19 @@ enum MidTurnSend: String, Codable, Hashable, Sendable {
     }
 }
 
+enum Scrollbars: String, Codable, Hashable, Sendable {
+    /// While a list moves, fading after.
+    case scrolling
+    case hover
+    case always
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
 /// How wide a chat's column grows: a reading width, a wider one, or the whole pane.
 enum ChatWidth: String, Codable, Hashable, Sendable {
     case comfortable
@@ -5531,6 +5546,7 @@ struct WireTheme: Codable, Hashable, Sendable {
     var editor: ThemeEditor
     var highlight: ThemeHighlight
     var terminal: ThemeTerminal
+    var style: ThemeStyle?
 }
 
 struct ThemeChrome: Codable, Hashable, Sendable {
@@ -5599,6 +5615,12 @@ struct ThemeTerminal: Codable, Hashable, Sendable {
     var brightMagenta: String
     var brightCyan: String
     var brightWhite: String
+}
+
+/// How a theme draws beside its colours.
+struct ThemeStyle: Codable, Hashable, Sendable {
+    /// How round corners are, from square at 0 through the default at 1 to twice as round at 2.
+    var corners: Double
 }
 
 /// A folder the person keeps projects in.
@@ -5792,6 +5814,7 @@ enum WindowView: String, Codable, Hashable, Sendable {
 struct WirePalette: Codable, Hashable, Sendable {
     var theme: WireTheme
     var tokens: UiTokens
+    var style: UiStyle
 }
 
 /// DESIGN.md's colours for one theme, each `#rrggbb`, or `rgba(r, g, b, a)`
@@ -5855,6 +5878,16 @@ struct UiTokens: Codable, Hashable, Sendable {
     var toolMcp: String
     /// The dots of the pane grain behind a phone's panes.
     var shaderDot: String
+}
+
+/// DESIGN.md's corner radii for one theme, in points.
+struct UiStyle: Codable, Hashable, Sendable {
+    /// The theme's corners, clamped.
+    var corners: Double
+    var radius1: Double
+    var radius2: Double
+    var radius3: Double
+    var radius4: Double
 }
 
 struct ProjectBoard: Codable, Hashable, Sendable {

@@ -17,7 +17,7 @@ use sikemux_view::device::HostLoad;
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, RADIUS_2, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_XS,
+    self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_XS,
 };
 use crate::turn_line;
 use crate::ui::{self, Button, Group, Variant};
@@ -95,7 +95,7 @@ pub(crate) fn chip(
                     .flex()
                     .items_center()
                     .gap(SPACE_1H)
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .cursor_pointer()
                     .when(!open, |chip| chip.tooltip(ui::tooltip(tip.clone())));
                 match waiting {
@@ -189,7 +189,7 @@ fn popover(
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.border)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .shadow(t.shadow_float())
         .child(
             div()
@@ -298,7 +298,7 @@ fn row(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .hover(|row| row.bg(t.surface_hover))
         .child(mark)
         .child(
@@ -341,7 +341,7 @@ fn row(
                                 ui::text(t!("before commit"), TEXT_2XS, FontWeight::MEDIUM)
                                     .flex_none()
                                     .px(px(5.))
-                                    .rounded(RADIUS_2)
+                                    .rounded(radius_2())
                                     .bg(Hsla {
                                         a: 0.14,
                                         ..t.accent

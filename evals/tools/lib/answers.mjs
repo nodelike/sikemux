@@ -298,6 +298,10 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
       };
     case 'app_console':
       return { value: { recorded: 0, matched: 0, messages: [] } };
+    case 'theme_read':
+      return { value: themesRead() };
+    case 'theme_set':
+      return { value: { wearing: args.save?.name ? 'custom-saved' : (args.theme ?? 'aura-noir'), clamped: [], undo: { theme: 'aura-noir', adjust: { scrollbars: 'scrolling' } } } };
     case 'workspace_inspect':
       return { value: { project, roots: [project], processes: [] } };
     case 'ui_open':
@@ -327,6 +331,35 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
     default:
       return { value: { ok: true } };
   }
+}
+
+// What the core's theme_read answers on a person wearing the default theme, with the guide's theme topic.
+function themesRead() {
+  const guide = readRepo('tools/SIKEMUX_GUIDE.md');
+  const start = guide.indexOf('## theme:');
+  const end = guide.indexOf('\n## ', start + 1);
+  const theme = JSON.parse(readRepo('crates/sikemux-corekit/src/themes/curated.json')).find((theme) => theme.id === 'aura-noir');
+  return {
+    wearing: 'aura-noir',
+    adjust: { scrollbars: 'scrolling' },
+    themes: [
+      { id: 'aura', name: 'Aura', dark: true, yours: false },
+      { id: 'umbra', name: 'Umbra', dark: true, yours: false },
+      { id: 'aura-noir', name: 'Aura Noir', dark: true, yours: false },
+      { id: 'ayu-dark', name: 'Ayu Dark', dark: true, yours: false },
+      { id: 'tokyo-night', name: 'Tokyo Night', dark: true, yours: false },
+      { id: 'catppuccin-mocha', name: 'Catppuccin Mocha', dark: true, yours: false },
+      { id: 'dracula', name: 'Dracula', dark: true, yours: false },
+      { id: 'gruvbox-dark', name: 'Gruvbox Dark', dark: true, yours: false },
+      { id: 'nord', name: 'Nord', dark: true, yours: false },
+      { id: 'one-dark', name: 'One Dark', dark: true, yours: false },
+      { id: 'solarized-dark', name: 'Solarized Dark', dark: true, yours: false },
+      { id: 'aura-day', name: 'Aura Day', dark: false, yours: false },
+    ],
+    ghostty: '463 more from Ghostty\'s catalogue, each with the id ghostty- and its name in kebab case',
+    theme,
+    guide: guide.slice(start, end < 0 ? undefined : end).trim(),
+  };
 }
 
 // Commits for real in the case's repo, so an agent that checks the result finds the commit it was told about.

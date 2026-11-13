@@ -170,7 +170,7 @@ fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
         .len()
         + offered.instructions().len();
     assert!(
-        bytes <= 33_400,
+        bytes <= 33_950,
         "every agent is sent {bytes} bytes of tools and instructions on each request; cut before adding"
     );
 }

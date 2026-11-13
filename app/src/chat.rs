@@ -1612,8 +1612,10 @@ pub fn pane(
     };
     let list = chat.transcript.read(cx).list().clone();
     // The scrollbar shows whenever its list moves, and a list following the latest rows moves
-    // with every streamed line; only a reader who scrolled up has a thumb, as on the Mac.
-    let scrollbar = chat.transcript.read(cx).away().then(|| {
+    // with every streamed line; only a reader who scrolled up has a thumb, as on the Mac, unless
+    // the person keeps scroll bars always shown.
+    let shown = chat.transcript.read(cx).away() || crate::theme::scrollbars_always(cx);
+    let scrollbar = shown.then(|| {
         div()
             .absolute()
             .top_0()
@@ -1668,7 +1670,7 @@ pub fn pane(
                         .child(
                             div()
                                 .block_mouse_except_scroll()
-                                .rounded(theme::RADIUS_2)
+                                .rounded(theme::radius_2())
                                 .border_1()
                                 .border_color(line)
                                 .bg(ground)

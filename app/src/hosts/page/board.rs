@@ -15,7 +15,7 @@ use super::{hair, ink};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::theme::{
-    self, Tokens, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
+    self, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
     SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_XL, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, Field, Segmented, Toggle, Variant};
@@ -233,7 +233,7 @@ fn empty(t: &Tokens, none_at_all: bool) -> Div {
         .border_1()
         .border_dashed()
         .border_color(t.border)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .text_color(t.text_tertiary)
         .child(ui::text(
             match none_at_all {
@@ -313,7 +313,7 @@ fn host_card(
         .min_w_0()
         .flex()
         .flex_col()
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .border_1()
         .border_color(hair(t))
         .overflow_hidden()
@@ -646,7 +646,7 @@ fn table(
         (t!("Agents"), Some(Icon::Agents)),
     ];
     div()
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .border_1()
         .border_color(hair(t))
         .bg(lifted(t, 0.))

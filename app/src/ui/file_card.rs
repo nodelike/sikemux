@@ -11,7 +11,7 @@ use gpui_kit::{
 
 use crate::icons::Icon;
 use crate::motion;
-use crate::theme::{self, Tokens, RADIUS_2, SPACE_2, TEXT_SM};
+use crate::theme::{self, radius_2, Tokens, SPACE_2, TEXT_SM};
 
 const FILE_HEAD_HEIGHT: Pixels = px(32.);
 
@@ -66,9 +66,9 @@ pub fn file_head(
         .border_color(t.border)
         .map(|head| {
             if open {
-                head.rounded_t(RADIUS_2).border_b_0()
+                head.rounded_t(radius_2()).border_b_0()
             } else {
-                head.rounded(RADIUS_2)
+                head.rounded(radius_2())
             }
         })
         .bg(t.surface)

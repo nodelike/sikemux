@@ -236,7 +236,7 @@ fn keycap(
         .items_center()
         .justify_center()
         .border_1()
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .font_family(theme::MONO)
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .cursor_pointer()

@@ -440,7 +440,7 @@ fn frame(
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.border)
-        .rounded(crate::theme::RADIUS_3)
+        .rounded(crate::theme::radius_3())
         .shadow(t.shadow_float())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)

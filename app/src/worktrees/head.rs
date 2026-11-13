@@ -124,7 +124,7 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             .flex_none()
             .items_center()
             .gap(px(5.))
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .border_1()
             .cursor_pointer()
             .text_size(crate::theme::ui_text(TEXT_2XS))

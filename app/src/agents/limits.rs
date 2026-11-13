@@ -31,7 +31,7 @@ use crate::core::Target;
 use crate::icons::Icon;
 use crate::rail::Edge;
 use crate::theme::{
-    Tokens, RADIUS_1, RADIUS_2, RADIUS_3, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS,
+    radius_1, radius_2, radius_3, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS,
     TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H,
 };
 use crate::ui::IconButton;
@@ -411,7 +411,7 @@ fn floating(cx: &App) -> Div {
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.border)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .shadow(t.shadow_float())
 }
 
@@ -466,7 +466,7 @@ fn resets_badge(view: &View, agents: &[Agent], cx: &App) -> Option<Stateful<Div>
             .flex()
             .items_center()
             .gap(px(3.))
-            .rounded(RADIUS_1)
+            .rounded(radius_1())
             .bg(t.surface_hover)
             .text_color(t.text_secondary)
             .tooltip(ui::tooltip(says))
@@ -639,7 +639,7 @@ fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) ->
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .child(crate::accounts::face(
             shown.avatar.clone(),
             agent.provider,
@@ -904,7 +904,7 @@ fn account_line(
             .py(px(ACCOUNT_PAD))
             .flex()
             .flex_col()
-            .when(last, |account| account.rounded_b(RADIUS_4))
+            .when(last, |account| account.rounded_b(radius_4()))
     };
     if one_line(view, shown) {
         let short = line(ACCOUNT_LINE);
@@ -1016,7 +1016,7 @@ fn tier_pill(tier: &str, cx: &App) -> Div {
         .px(px(5.))
         .flex()
         .items_center()
-        .rounded(RADIUS_1)
+        .rounded(radius_1())
         .border_1()
         .border_color(t.border)
         .bg(t.surface_hover)
@@ -1215,7 +1215,7 @@ fn reset_row(
         .flex()
         .flex_col()
         .gap(px(4.))
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
         .bg(Hsla {
             a: 0.08,
             ..t.accent
@@ -1487,7 +1487,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                     .flex()
                     .items_center()
                     .gap(SPACE_2)
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .cursor_pointer()
                     .when(open, |chip| chip.bg(t.surface_chosen))
                     .when(!open, |chip| chip.hover(|chip| chip.bg(t.surface_hover)))

@@ -186,7 +186,7 @@ pub(crate) fn pill(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                     .gap(SPACE_1H)
                     .px(SPACE_1H)
                     .py(px(2.))
-                    .rounded(theme::RADIUS_1)
+                    .rounded(theme::radius_1())
                     .bg(t.surface_chosen)
                     .hover(move |style| style.bg(t.surface_active))
                     .child(ui::caps(&tag, cx).text_color(t.text_primary))

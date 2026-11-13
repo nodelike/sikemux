@@ -713,7 +713,7 @@ pub fn drop_hint(words: &'static str, agent: &str, bench: &Workbench, cx: &App) 
         .border_1()
         .border_dashed()
         .border_color(t.border_selected)
-        .rounded(theme::RADIUS_4)
+        .rounded(theme::radius_4())
         .bg(Hsla {
             a: 0.86,
             ..t.surface_sunken
@@ -785,7 +785,7 @@ fn chip_face(
         .flex()
         .items_center()
         .gap(px(5.))
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .bg(if selected {
             Hsla {
                 a: 0.2,
@@ -1553,7 +1553,7 @@ fn quote_card(
         .gap(SPACE_1H)
         .px(SPACE_2)
         .py(SPACE_1H)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .bg(Hsla {
             a: 0.6,
             ..t.surface_sunken

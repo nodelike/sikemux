@@ -10,7 +10,7 @@ use sikemux_view::host_stats::{DiagnosisStep, HostDiagnosis, ReachStep, StepStat
 
 use super::model::Listed;
 use crate::hosts::install_pane::Words;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_SM};
+use crate::theme::{radius_2, Tokens, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_SM};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
@@ -268,7 +268,7 @@ pub(super) fn evidence(text: &str, t: &Tokens, cx: &mut Context<Workbench>) -> A
         .mt(SPACE_2H)
         .px(SPACE_2H)
         .py(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .bg(t.surface_sunken)
         .border_1()
         .border_color(t.border)

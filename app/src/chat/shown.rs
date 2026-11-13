@@ -271,7 +271,7 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .bg(t.surface_raised)
         .text_size(theme::ui_text(TEXT_XS_H))
         .child(div().flex_none().child(mark))
@@ -315,7 +315,7 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .hover(move |chevron| chevron.bg(t.surface_active))
                 .child(ui::icon(Icon::Chevron, 12.).text_color(looks.quiet))
                 .clicks(move |_, _, cx| {

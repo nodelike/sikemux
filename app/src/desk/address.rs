@@ -15,7 +15,7 @@ use sikemux_browser::history::{AddressSuggestions, Suggestion};
 
 use crate::icons::Icon;
 use crate::theme::{
-    ui_text, Tokens, RADIUS_2, SPACE_0, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XL, TEXT_XS,
+    radius_2, ui_text, Tokens, SPACE_0, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XL, TEXT_XS,
 };
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Next, Previous};
@@ -357,7 +357,7 @@ pub(super) fn overlay(
                     .flex()
                     .items_center()
                     .gap(SPACE_2)
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .text_size(ui_text(TEXT_XS))
                     .text_color(t.text_primary)
                     .map(|line| match selected {

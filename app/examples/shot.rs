@@ -31,7 +31,10 @@
 //!                                 "toast success|info|error|undo text" shows a toast saying the text;
 //!                                 "star" shows the ask for a GitHub star;
 //!                                 "settings <page>" opens settings at the page of that name;
-//!                                 "language es" draws the app in that language, as its picker does
+//!                                 "language es" draws the app in that language, as its picker does;
+//!                                 "theme <id> [corners]" draws in that theme, its corners set if given,
+//!                                 and "scrollbars scrolling|hover|always" shows scroll bars so, without
+//!                                 changing the person's preferences
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -298,6 +301,26 @@ fn main() -> anyhow::Result<()> {
                 "language" => {
                     sikemux_gpui::i18n::speak(Some(rest.trim()).filter(|code| !code.is_empty()));
                     cx.refresh_windows();
+                    window.draw(cx).clear(cx);
+                }
+                "theme" => {
+                    let mut words = rest.split_whitespace();
+                    let preferences = sikemux_view::prefs::Preferences {
+                        theme_id: words.next().unwrap_or_default().to_owned(),
+                        ..Default::default()
+                    };
+                    let mut worn = sikemux_corekit::themes::resolve(&preferences, None);
+                    if let Some(corners) = words.next().and_then(|corners| corners.parse().ok()) {
+                        worn.style.corners = corners;
+                    }
+                    theme::apply(&sikemux_corekit::themes::palette_of(worn), cx);
+                    cx.refresh_windows();
+                    window.draw(cx).clear(cx);
+                }
+                "scrollbars" => {
+                    let shown = serde_json::from_value(json!(rest.trim()))
+                        .map_err(|_| anyhow::anyhow!("scrollbars scrolling|hover|always"))?;
+                    theme::set_scrollbars(shown, cx);
                     window.draw(cx).clear(cx);
                 }
                 "settings" => {

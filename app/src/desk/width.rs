@@ -17,7 +17,7 @@ use sikemux_browser::viewport::Viewport;
 use sikemux_browser::BrowserTab;
 
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_XS};
+use crate::theme::{radius_2, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_XS};
 use crate::ui::{self, MenuRow};
 use crate::workbench::Workbench;
 
@@ -133,7 +133,7 @@ pub(super) fn chip(
         .flex()
         .items_center()
         .gap(px(5.))
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .bg(t.surface_chosen)
         .hover(move |chip| chip.bg(t.surface_active))
         .cursor_pointer()
