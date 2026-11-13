@@ -319,7 +319,7 @@ struct RowLine: View {
                     }
                     if entry.subagents > 0 { SubagentCount(count: entry.subagents) }
                     if entry.tasks > 0 { ShellCount(count: entry.tasks) }
-                    if let place = entry.inLine { LinePlace(place: place) }
+                    if let line = entry.inLine { LinePlace(line: line) }
                     TurnMark(mark: entry.mark, turn: entry.agent?.turn)
                 }
             }

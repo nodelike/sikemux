@@ -180,6 +180,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .shells svg { width: 11px; height: 11px; color: var(--warn); }
 .in-line { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .in-line svg { width: 11px; height: 11px; color: var(--warn); }
+.in-line .thing { max-width: 56px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trigger { display: inline-flex; align-items: center; gap: 3px; flex: 0 0 auto; font-size: 11px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .trigger svg { width: 11px; height: 11px; color: var(--cmd); }
 .row:hover { background: rgba(255, 255, 255, 0.07); }
@@ -760,7 +761,7 @@ function rowLine(a) {
         return `<span class="head"><span class="title">@Chief</span><span class="word">${a.title}</span></span><span class="proj">${GLYPH.folderSmall}${a.project}</span><span class="end">${end}</span>`;
     }
     const since = a.reconnecting != null ? `<span class="word">Reconnecting…${a.reconnecting ? ` ${a.reconnecting}` : ""}</span>` : a.time ? `<span class="time">${a.time}</span>` : "";
-    const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${a.line ? `<span class="in-line">${GLYPH.hourglass}${inLine(a.line)}</span>` : ""}${a.clock ? `<span class="clock ${a.state}">${a.clock}</span>` : ""}${stateMark(a.state, false, a.through)}`;
+    const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${a.line ? `<span class="in-line">${GLYPH.hourglass}${typeof a.line === "string" ? `<span class="thing">${a.line}</span>` : inLine(a.line)}</span>` : ""}${a.clock ? `<span class="clock ${a.state}">${a.clock}</span>` : ""}${stateMark(a.state, false, a.through)}`;
     return `<span class="head"><span class="title">${a.title}</span>${since}</span><span class="proj">${GLYPH.folderSmall}${a.project}</span>${end ? `<span class="end">${end}</span>` : ""}`;
 }
 
@@ -1520,8 +1521,8 @@ const SECTIONS = [
               shows: "Above the agents, a row for each alert: the server in amber, or red once it is serious, what is wrong with how long ago, then the host's name. Clicking it opens the Hosts page in Sikemux on that host.",
               opts: { agents: () => only(["a2", "a4", "a11"]), alerts: [{ host: "mini", what: "Memory 92% used", time: "2:04", level: "danger" }, { host: "forge", what: "CPU 97% busy", time: "20:31", level: "warn" }], mode: "open" } },
             { id: "O7", name: "Mac busy", when: "Opened while this Mac is overloaded: more threads want to run than its cores take, so agents' simulators and builds wait their turn.",
-              shows: "At the top, one amber row: the server, Mac busy, then the load against the cores and how many of agents' builds run or wait. Clicking it brings Sikemux forward, whose title bar lists them with Stop on each. An agent whose heavy command waits its turn says where it stands, after its counts: an amber hourglass and 2nd in line, beside the pink timer of its wait.",
-              opts: { agents: () => only(["a2", "a11", "a4"]).map((a) => a.id === "a11" ? { ...a, tier: "progress", state: "timer", time: "15:03", line: 2 } : a), busy: "load 180 on 10 cores · 3 builds", mode: "open" } },
+              shows: "At the top, one amber row: the server, Mac busy, then the load against the cores and how many of agents' builds run or wait. Clicking it brings Sikemux forward, whose title bar lists them with Stop on each. An agent whose heavy command waits its turn says where it stands, after its counts: an amber hourglass and 2nd in line, beside the pink timer of its wait. One waiting for a thing another agent holds names the thing instead, cut short with an ellipsis so the task keeps its room.",
+              opts: { agents: () => only(["a2", "a11", "a4"]).map((a) => a.id === "a11" ? { ...a, tier: "progress", state: "timer", time: "15:03", line: 2 } : a.id === "a4" ? { ...a, tier: "progress", state: "timer", time: "2:10", called: false, line: "Stripe webhook listener" } : a), busy: "load 180 on 10 cores · 3 builds", mode: "open" } },
         ],
     },
     {

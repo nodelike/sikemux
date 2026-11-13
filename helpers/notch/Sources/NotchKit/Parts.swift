@@ -133,18 +133,22 @@ struct ShellCount: View {
     }
 }
 
-/// Where a heavy command the agent started stands in the host's line: "2nd in line".
+/// Where a heavy command the agent started stands in the host's line: "2nd in line", or the thing it waits for while
+/// another agent holds it, cut short so the task keeps its room.
 struct LinePlace: View {
-    let place: Int
+    let line: InLine
 
     var body: some View {
+        let words = line.by == nil ? Self.words(line.place) : line.what
         HStack(spacing: 3) {
             IconView(icon: Icons.hourglass, size: 11).foregroundStyle(Theme.warn)
-            Text(Self.words(place)).font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.ink)
+            Text(words).font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.ink)
+                .lineLimit(1).truncationMode(.tail).frame(maxWidth: 56, alignment: .leading)
         }
         .fixedSize()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Self.words(place))
+        .accessibilityLabel(words)
+        .help(words)
     }
 
     static func words(_ place: Int) -> String {

@@ -811,8 +811,12 @@ enum Remedy: String, Codable, Hashable {
 
 /// Where an agent's heavy command stands in the host's line.
 struct InLine: Codable, Hashable {
+    /// The command, such as `cargo test`.
+    let what: String
     /// Its place, 1 for next.
     let place: Int
+    /// Who holds the thing it waits for, by name, when it waits for a thing rather than its turn.
+    let by: String?
 }
 
 /// The face an agent wears, drawn by each client from the same art.
