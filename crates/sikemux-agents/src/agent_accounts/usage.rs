@@ -358,6 +358,19 @@ fn note_reading(key: &str, usage: &Usage) {
         .by_account
         .insert(key.to_owned(), Reading { read_at, usage });
     save(&readings);
+    drop(readings);
+    landed().send_modify(|count| *count += 1);
+}
+
+fn landed() -> &'static tokio::sync::watch::Sender<u64> {
+    static LANDED: OnceLock<tokio::sync::watch::Sender<u64>> = OnceLock::new();
+    LANDED.get_or_init(|| tokio::sync::watch::channel(0).0)
+}
+
+/// Changes each time a reading of any account lands, read from its CLI or reported by a chat's
+/// agent as it works.
+pub fn readings_landed() -> tokio::sync::watch::Receiver<u64> {
+    landed().subscribe()
 }
 
 fn save(readings: &Readings) {
@@ -429,6 +442,7 @@ pub fn note_live(provider: &str, config_path: Option<&str>, live: Vec<UsageWindo
     usage_cache()
         .locked()
         .insert(key, (Instant::now(), USAGE_TTL, Ok(usage)));
+    landed().send_modify(|count| *count += 1);
     changed
 }
 

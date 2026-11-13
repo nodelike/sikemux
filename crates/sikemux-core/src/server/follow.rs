@@ -21,6 +21,7 @@ use super::connection::blocking;
 use super::messages;
 use super::roster::{self, Listed, Reach};
 use super::Core;
+use crate::acp::failure::{out_of_usage, PAUSED_FOR_AGENTS};
 use crate::agent_catalog::AgentKind;
 use crate::sessions::transcript::{self, Said};
 
@@ -324,6 +325,10 @@ impl Turn {
 fn build(said: Vec<(u64, bool, Said)>) -> Vec<Turn> {
     let mut turns: Vec<Turn> = Vec::new();
     for (index, starts, said) in said {
+        let said = match said {
+            Said::Message(text) if out_of_usage(&text) => Said::Failed(PAUSED_FOR_AGENTS.into()),
+            said => said,
+        };
         let ended = turns.last().is_none_or(|turn| turn.ended.is_some());
         if starts || ended {
             turns.push(Turn::new(index));
@@ -356,6 +361,9 @@ fn build(said: Vec<(u64, bool, Said)>) -> Vec<Turn> {
             Said::TurnStarted => {}
             Said::TurnEnded { cancelled } => {
                 turn.ended = Some(if cancelled { "stopped" } else { "finished" }.into());
+            }
+            Said::Failed(message) if message == PAUSED_FOR_AGENTS => {
+                turn.ended = Some(format!("paused: {message}").into());
             }
             Said::Failed(message) => {
                 turn.ended = Some(format!("failed: {}", cut_chars(&message, 400)).into());

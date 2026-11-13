@@ -34,7 +34,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
-use sikemux_view::chat::StopReason;
+use sikemux_view::chat::{FailureKind, StopReason};
 use sikemux_view::questions::QuestionChoice;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -48,6 +48,7 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ErrorKind;
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::acp::failure::PAUSED_FOR_AGENTS;
 use crate::acp::pickers::{self, current_choice};
 use crate::launch::PermissionMode;
 pub use native::Steered;
@@ -768,7 +769,11 @@ impl Chat {
         if let Some(core) = self.core.upgrade() {
             (core.chat_above().inbox_failed)(&core, self.agent_id(), message, fault, kind);
         }
-        self.turn.locked().failure = Some(message.to_owned());
+        let for_lead = match kind {
+            Some(FailureKind::Limit) => PAUSED_FOR_AGENTS,
+            _ => message,
+        };
+        self.turn.locked().failure = Some(for_lead.to_owned());
     }
 
     fn take_failure(&self) -> Option<String> {

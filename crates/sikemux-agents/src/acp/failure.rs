@@ -28,6 +28,37 @@ pub fn sounds_offline(said: &str) -> bool {
     CONNECTION_WORDS.iter().any(|words| said.contains(words))
 }
 
+/// Text Claude Code shows instead of an answer when the account is out of
+/// usage, taken from the Agent SDK.
+const USAGE_LIMIT_PREFIXES: [&str; 12] = [
+    "You've hit your",
+    "You've reached your",
+    "You're out of usage credits",
+    "Your org is out of usage · add funds to continue",
+    "Your org is out of usage · contact your admin",
+    "Your seat type doesn't include usage credits",
+    "Your seat type doesn't include usage",
+    "Your usage allocation has been disabled by your admin",
+    "Your group's usage limit is set to $0",
+    "Fable 5 requires usage credits",
+    "You're out of extra usage",
+    "Your seat type doesn't include extra usage",
+];
+
+/// Whether `said` is the text Claude Code writes in place of an answer when the account is out
+/// of usage.
+pub fn out_of_usage(said: &str) -> bool {
+    let said = said.trim_start();
+    USAGE_LIMIT_PREFIXES
+        .iter()
+        .any(|prefix| said.starts_with(prefix))
+}
+
+/// What another agent is told of one a usage limit stopped. Agents never see limits, reset times
+/// or accounts, so they do not plan around them.
+pub const PAUSED_FOR_AGENTS: &str =
+    "Sikemux paused it and resumes it by itself. There is nothing to do.";
+
 /// What a failed turn needs from the person, or from the chat on their behalf.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

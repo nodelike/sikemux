@@ -586,8 +586,9 @@ pub(super) async fn start_here(
 }
 
 /// The launcher a worker of `cli` starts on here: the account a new chat of it would go to.
-/// Refuses only for what is known: no account signed in, or every one at its limit. An account
-/// whose sign-in or usage was not read yet counts as able to start.
+/// Refuses only when no account is signed in. When every one is at its limit it starts on the
+/// one free soonest, where it waits for the reset as any chat does, which its lead never hears
+/// of. An account whose sign-in or usage was not read yet counts as able to start.
 fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
     let of_cli: Vec<_> = (core.workspaces().chat_launchers().into_iter())
         .filter(|launcher| launcher.agent.provider == cli)
@@ -626,14 +627,8 @@ fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
         .map(|launcher| (launcher, limit_ends(launcher.agent.config_path.as_deref())))
         .partition(|(_, ends)| ends.is_some());
     if room.is_empty() {
-        let soonest = (full.iter()).filter_map(|(_, ends)| ends.flatten()).min();
-        return Err(match soonest {
-            Some(at) => format!(
-                "every {cli} account there is at its limit, the first free again in {}",
-                in_words(at.saturating_sub(now))
-            ),
-            None => format!("every {cli} account there is at its limit"),
-        });
+        let soonest = (full.iter()).min_by_key(|(_, ends)| ends.flatten().unwrap_or(u64::MAX));
+        return Ok(soonest.map(|(launcher, _)| launcher.id.clone()));
     }
     let room: Vec<&str> = (room.iter())
         .map(|(launcher, _)| launcher.id.as_str())
@@ -664,15 +659,6 @@ fn can_start_here(core: &Core, cli: &str) -> String {
     match others.is_empty() {
         true => "it can start no other cli".to_owned(),
         false => format!("it can start {} instead", others.join(", ")),
-    }
-}
-
-fn in_words(ms: u64) -> String {
-    let minutes = ms.div_ceil(60_000);
-    match minutes {
-        0..=89 => format!("{minutes} min"),
-        90..=2879 => format!("{} h", minutes / 60),
-        _ => format!("{} days", minutes / 1440),
     }
 }
 

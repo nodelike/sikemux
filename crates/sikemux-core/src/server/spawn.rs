@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_view::workspace::WorkspaceAgent;
 
+use crate::acp::failure::{out_of_usage, PAUSED_FOR_AGENTS};
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::PermissionMode;
 use sikemux_wire::protocol::Event;
@@ -1074,6 +1075,13 @@ pub(crate) fn terminal_turn_ended(core: &Core, agent_id: &str, ending: Ending) {
 }
 
 fn report(core: &Core, worker: &str, ending: Ending, answer: Option<TerminalAnswer>) -> String {
+    let at_limit = |answer: &Option<TerminalAnswer>| matches!(answer, Some(TerminalAnswer::Said(said)) if out_of_usage(said));
+    let paused = match &ending {
+        Ending::Failed(reason) => reason == PAUSED_FOR_AGENTS || at_limit(&answer),
+        Ending::Finished => at_limit(&answer),
+        _ => false,
+    };
+    let answer = answer.filter(|_| !paused);
     let because = |reason: Option<String>| match reason.filter(|reason| !reason.trim().is_empty()) {
         Some(reason) => format!(": {reason}"),
         None => ".".to_owned(),
@@ -1086,6 +1094,7 @@ fn report(core: &Core, worker: &str, ending: Ending, answer: Option<TerminalAnsw
         ),
     };
     let (what, last) = match ending {
+        _ if paused => (PAUSED_FOR_AGENTS.to_owned(), None),
         Ending::Finished => match answer {
             Some(answer) => (
                 format!("Finished its turn. {}", wrote(answer, "Its final answer:")),

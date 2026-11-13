@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sikemux_fold::{ChatEvent, ChatEventKind, UpdateKind};
 
+use crate::acp::failure::PAUSED_FOR_AGENTS;
 use crate::agent_catalog::AgentKind;
 
 const MAX_SESSION_ID_CHARS: usize = 200;
@@ -72,7 +73,10 @@ impl Said {
             ChatEventKind::TurnCompleted => Some(Said::TurnEnded {
                 cancelled: text("/stopReason").as_deref() == Some("cancelled"),
             }),
-            ChatEventKind::Error => Some(Said::Failed(text("/message").unwrap_or_default())),
+            ChatEventKind::Error => Some(Said::Failed(match text("/failure/kind").as_deref() {
+                Some("limit") => PAUSED_FOR_AGENTS.to_owned(),
+                _ => text("/message").unwrap_or_default(),
+            })),
             ChatEventKind::SessionUpdate => match UpdateKind::within(&event.payload)? {
                 UpdateKind::AgentMessageChunk => text("/update/content/text").map(Said::Message),
                 UpdateKind::UserMessageChunk => text("/update/content/text").map(Said::Asked),

@@ -7,7 +7,7 @@ use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_fold::update::notice;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -30,6 +30,9 @@ use sikemux_process::clock::epoch_ms;
 
 const FILE: &str = "limit-resumes.json";
 const MAX_WAITING: usize = 256;
+/// How long a chat woken early by a reading waits before another can wake it early again, so a
+/// reading that shows room the account does not have cannot keep waking it.
+const EARLY_AGAIN_AFTER_MS: u64 = 15 * 60 * 1000;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +41,10 @@ struct Waiting {
     /// When the limit resets, in Unix milliseconds.
     at: u64,
     prompt: Replay,
+    /// When it began waiting, or this core started: only a reading taken after it can wake it
+    /// before the reset.
+    #[serde(skip, default = "epoch_ms")]
+    since: u64,
 }
 
 enum Slot {
@@ -55,6 +62,8 @@ pub struct LimitResumes {
     path: Option<PathBuf>,
     slots: Mutex<HashMap<String, Slot>>,
     tickets: AtomicU64,
+    /// When each chat a reading woke early was woken.
+    woken_early: Mutex<HashMap<String, u64>>,
 }
 
 impl LimitResumes {
@@ -74,6 +83,7 @@ impl LimitResumes {
             path,
             slots: Mutex::new(slots),
             tickets: AtomicU64::new(0),
+            woken_early: Mutex::default(),
         }
     }
 
@@ -127,6 +137,47 @@ impl LimitResumes {
         }
         self.save(&slots);
         true
+    }
+
+    /// The chats a reading shows room for, each made due at once.
+    fn due_with_room(&self, core: &Core) -> Vec<String> {
+        let now = epoch_ms();
+        let waiting: Vec<(String, u64)> = (self.slots.locked().values())
+            .filter_map(|slot| match slot {
+                Slot::Waiting { waiting, .. } if waiting.at > now => {
+                    Some((waiting.agent_id.clone(), waiting.since))
+                }
+                _ => None,
+            })
+            .collect();
+        if waiting.is_empty() {
+            return Vec::new();
+        }
+        let mut early = self.woken_early.locked();
+        early.retain(|_, woken| now.saturating_sub(*woken) < EARLY_AGAIN_AFTER_MS);
+        let roomy: Vec<String> = (waiting.into_iter())
+            .filter(|(agent_id, _)| !early.contains_key(agent_id))
+            .filter(|(agent_id, since)| has_room(core, agent_id, *since, now))
+            .map(|(agent_id, _)| agent_id)
+            .collect();
+        let mut slots = self.slots.locked();
+        let due: Vec<String> = (roomy.into_iter())
+            .filter(|agent_id| match slots.get_mut(agent_id) {
+                Some(Slot::Waiting { waiting, timer }) => {
+                    waiting.at = now;
+                    if let Some(timer) = timer.take() {
+                        timer.abort();
+                    }
+                    true
+                }
+                _ => false,
+            })
+            .collect();
+        if !due.is_empty() {
+            self.save(&slots);
+        }
+        early.extend(due.iter().map(|agent_id| (agent_id.clone(), now)));
+        due
     }
 
     /// The chat's stopped prompt, once its limit has reset.
@@ -233,6 +284,7 @@ pub fn schedule(chat: &Arc<Chat>, launch: &ChatLaunch, prompt: Replay, resets_at
             agent_id: chat.agent_id().to_owned(),
             at,
             prompt,
+            since: epoch_ms(),
         };
         let timer = Some(arm(&core, &waiting));
         slots.insert(chat.agent_id().to_owned(), Slot::Waiting { waiting, timer });
@@ -278,6 +330,55 @@ pub fn cancel_by_person(core: &Core, agent_id: &str) {
             say(&chat, update);
         }
     }
+}
+
+/// Resumes each waiting chat as soon as a reading shows room on an account it may run on, rather
+/// than at the reset. One whose own account is still full moves at its next limit, as a chat at
+/// work does.
+pub fn wake_on_readings(core: &Arc<Core>) -> tokio::task::JoinHandle<()> {
+    let mut landed = usage::readings_landed();
+    let core = Arc::downgrade(core);
+    tokio::spawn(async move {
+        while landed.changed().await.is_ok() {
+            let Some(core) = core.upgrade() else {
+                return;
+            };
+            for agent_id in core.chats().resets.due_with_room(&core) {
+                let core = core.clone();
+                tokio::spawn(async move { resume(&core, agent_id).await });
+            }
+        }
+    })
+}
+
+/// Whether a reading taken after `since` shows room on the chat's own account, or with smart
+/// accounts on, on another it may move to.
+fn has_room(core: &Core, agent_id: &str, since: u64, now: u64) -> bool {
+    let (Some(agent), Ok(takers)) = (
+        core.workspaces().agent(agent_id),
+        super::accounts(core, agent_id),
+    ) else {
+        return false;
+    };
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let roomy = |env: &BTreeMap<String, String>| {
+        let folder = crate::launch::named_account(&agent.provider, env);
+        usage::last_reading(&agent.provider, folder).is_some_and(|reading| {
+            let windows = &reading.usage.windows;
+            reading.read_at > since
+                && !windows.is_empty()
+                && windows.iter().all(|window| window.used_at(now) < 100.0)
+        })
+    };
+    let own = takers
+        .current
+        .as_ref()
+        .map_or_else(BTreeMap::new, |account| account.env.clone());
+    roomy(&own)
+        || (book.smart
+            && (takers.others.iter())
+                .filter(|other| book.allowed_in(&agent.cwd, &other.id))
+                .any(|other| roomy(&other.env)))
 }
 
 fn arm(core: &Arc<Core>, waiting: &Waiting) -> tokio::task::AbortHandle {

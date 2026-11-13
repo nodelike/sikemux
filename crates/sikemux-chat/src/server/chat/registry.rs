@@ -454,7 +454,7 @@ impl Chats {
 impl crate::server::part::Part for Chats {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         self.resets.arm_saved(core);
-        Vec::new()
+        vec![super::reset::wake_on_readings(core)]
     }
 
     fn client_gone(&self, _core: &Arc<Core>, client: ClientId) {
