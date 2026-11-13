@@ -99,8 +99,11 @@ enum CallWords {
         case .line: return [wait.place.map(inLine), wait.expectedMs.map(about)].compactMap { $0 }
         case .inUse:
             let gone = max(0, nowMs - wait.startedAt) / 60_000
-            return [wait.by.map { String(localized: "in use by @\($0)") }, gone > 0 ? String(localized: "\(gone) min") : nil]
-                .compactMap { $0 }
+            return [
+                wait.by.map { String(localized: "in use by @\($0)") },
+                gone > 0 ? String(localized: "\(gone) min") : nil,
+            ]
+            .compactMap { $0 }
         default:
             let gone = max(0, nowMs - wait.startedAt) / 60_000
             guard let expected = wait.expectedMs else { return [String(localized: "\(gone) min")] }

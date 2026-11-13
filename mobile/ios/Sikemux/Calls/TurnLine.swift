@@ -62,7 +62,8 @@ struct TurnLine: View {
         HStack(spacing: 6) {
             if said.phase == .waiting {
                 // A wait's place, holder and minutes matter more than its long name, which gives way first.
-                Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).lineLimit(1).layoutPriority(-1)
+                Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).lineLimit(1)
+                    .layoutPriority(-1)
             } else {
                 Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).fixedSize()
             }
