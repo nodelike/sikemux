@@ -618,7 +618,7 @@ fn tab_hint(suggestion: SharedString, text_size: gpui_kit::Pixels, cx: &App) -> 
 }
 
 /// How solid the box is, letting a little of what lies behind it show through.
-const COMPOSER_SOLID: f32 = 0.9;
+const COMPOSER_SOLID: f32 = 0.8;
 
 /// How strongly the accent edges the box while YOLO is on.
 const YOLO_EDGE: f32 = 0.5;
