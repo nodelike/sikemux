@@ -13,15 +13,10 @@ fn light(at: vec2<f32>, source: vec2<f32>, strength: f32, size: vec2<f32>) -> f3
     return strength * max(0.0, 1.0 - length(apart) / REACH);
 }
 
-// The light kept to an hourglass along the line between the two lit corners: pinched thin in
-// the middle, widening toward each lit corner, and gone toward the other two.
-fn hourglass(at: vec2<f32>) -> f32 {
-    let from_middle = at - 0.5;
-    let along = abs(from_middle.x + from_middle.y) * 0.7071;
-    let across = abs(from_middle.x - from_middle.y) * 0.7071;
-    let width = 0.04 + 0.55 * along;
-    let inside = 1.0 - smoothstep(0.45 * width, width, across);
-    return inside * smoothstep(0.05, 0.3, along);
+// The light a little fainter toward the middle of the pane, where the welcome sits.
+fn dim_middle(at: vec2<f32>, size: vec2<f32>) -> f32 {
+    let from_middle = (at - 0.5) * size / max(size.x, size.y);
+    return mix(0.55, 1.0, smoothstep(0.05, 0.35, length(from_middle)));
 }
 
 fn ramp(level: f32, accent: vec3<f32>) -> vec3<f32> {
@@ -57,7 +52,7 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
 
     let breath = 1.0 + 0.08 * sin(0.6 * t);
     let energy = breath * (light(at, vec2<f32>(1.05, 1.05), 1.05, size)
-        + light(at, vec2<f32>(-0.05, -0.05), 0.65, size)) * hourglass(at);
+        + light(at, vec2<f32>(-0.05, -0.05), 0.65, size)) * dim_middle(at, size);
     if (energy <= 0.0) {
         discard;
     }
