@@ -2,6 +2,7 @@
 //! asks for in it.
 
 use crate::server::changed::ChangedCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::worktree::{AgentWorktreeParams, MadeAgentWorktree};

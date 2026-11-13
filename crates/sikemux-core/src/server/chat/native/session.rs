@@ -2,7 +2,7 @@
 //! its own protocol: turns, permission requests, accounts and starting the
 //! agent again under the chat.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::ops::ControlFlow;
 use std::os::fd::OwnedFd;

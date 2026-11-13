@@ -13,6 +13,7 @@ mod linux;
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;

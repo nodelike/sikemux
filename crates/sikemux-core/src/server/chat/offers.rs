@@ -1,6 +1,6 @@
 //! What a chat offers to pick before its agent starts.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace::{launcher_of, ModelPick};
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_view::workspace::ConfigPicker;

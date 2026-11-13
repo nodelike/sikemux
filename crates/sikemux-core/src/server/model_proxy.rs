@@ -2,6 +2,7 @@
 //! token that works only while its process runs; the core puts the provider's key on each
 //! request here, so the key never enters an agent's environment.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
@@ -143,7 +144,7 @@ impl ModelProxy {
             .serving(core)
             .map_err(|error| format!("Sikemux could not reach the model provider: {error}"))?
             .port;
-        let token = super::tools::new_token();
+        let token = (core.chat_above().new_token)();
         self.grants.locked().insert(digest(&token), scope.clone());
         let origin = format!("http://{}:{port}", Ipv4Addr::LOCALHOST);
         let filled = |value: &str| {

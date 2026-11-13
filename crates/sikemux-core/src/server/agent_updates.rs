@@ -2,7 +2,7 @@
 //! out, and the agent's own updater, run at the person's asking one agent at a time.
 
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 pub use sikemux_calls::agent_updates::UpdateAgents;
 pub use sikemux_calls::agent_updates::Updating;
 pub use sikemux_calls::agent_updates::{is_newer, newer_first};

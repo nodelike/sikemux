@@ -1,6 +1,7 @@
 //! Pages an agent shows: writing one down, where it shows, and reading it back.
 
 use super::*;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeParts;
 pub use sikemux_calls::harness::{PageHtml, PageParams};

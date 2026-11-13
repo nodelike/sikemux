@@ -2,7 +2,7 @@
 
 use super::offers::offer_options;
 use super::*;
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 

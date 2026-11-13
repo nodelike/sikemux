@@ -5,6 +5,7 @@
 //! agent is handed reviewers' comments and its replies are posted for it.
 
 use crate::server::activity::ActivityCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;

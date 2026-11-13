@@ -6,6 +6,7 @@
 //! leaves a line with Undo in the chief's chat, or the acting agent's where there is no chief, and
 //! a rule that leaves is kept apart, with who and when, until the person brings it back.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;
 

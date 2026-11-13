@@ -3,6 +3,7 @@
 //! is journaled beside the project's task events, so a wait from a cursor
 //! misses nothing that happened between two waits.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;

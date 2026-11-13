@@ -21,6 +21,7 @@ pub(crate) use sikemux_serve::server::catalog;
 pub(crate) use sikemux_serve::server::changed;
 pub mod chat;
 mod chat_above;
+mod chat_state;
 mod checks;
 pub mod chief;
 pub use sikemux_workspace::server::cli_install;
@@ -147,6 +148,7 @@ pub use entry::main;
 pub use turn_state::TakeStepParams;
 
 use crate::server::changed::ChangedCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
@@ -448,10 +450,16 @@ impl ServerCore for Core {
                     attachment_dir: config.attachment_dir.clone(),
                     data_dir: config.data_dir.clone(),
                 }) as sikemux_kernel::Parts,
+                Box::new(chat_state::ChatFields {
+                    chats: chat::Chats::new(data_dir),
+                    mcp_apps: mcp_apps::McpApps::new(data_dir),
+                    model_proxy: model_proxy::ModelProxy::default(),
+                    chat_above: base::chat_above(),
+                    restart_wait: config.restart_wait,
+                }) as sikemux_kernel::Parts,
                 Box::new(parts::Fields {
                     config,
                     manifest_folder: Mutex::new(None),
-                    model_proxy: model_proxy::ModelProxy::default(),
                     ports: ports::Ports::new(data_dir),
                     usage_wake: Notify::new(),
                     ssh_watch: OnceLock::new(),
@@ -459,7 +467,6 @@ impl ServerCore for Core {
                     look: themes::Look::default(),
                     harness,
                     tools: Mutex::new(None),
-                    chats: chat::Chats::new(data_dir),
                     remote: remote::Remote::default(),
                     outside: outside::Outside::new(data_dir),
                     shares: share::Shares::default(),
@@ -503,9 +510,7 @@ impl ServerCore for Core {
                     joins: Default::default(),
                     hosts,
                     mods: mods::Mods::new(data_dir),
-                    mcp_apps: mcp_apps::McpApps::new(data_dir),
                     chiefs: chief::Chiefs::new(data_dir),
-                    chat_above: base::chat_above(),
                 }) as sikemux_kernel::Parts,
             ]
         });

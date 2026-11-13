@@ -4,7 +4,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 

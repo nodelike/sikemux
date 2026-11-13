@@ -1,6 +1,6 @@
 //! What the chat's own methods take, and what they do with more than one part of a chat.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::{
     ChatLeftOutParams, ChatPageParams, EditParams, PromptChatParams, QueuedParams, ToolDetailParams,

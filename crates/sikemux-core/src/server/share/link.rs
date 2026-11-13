@@ -3,6 +3,7 @@
 //! reconnects when it drops, opening each share again and sending a fresh
 //! snapshot, since the server may have lost what it held.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use std::sync::{Arc, Weak};
 use std::time::Duration;

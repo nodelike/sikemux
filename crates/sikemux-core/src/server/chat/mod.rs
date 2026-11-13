@@ -23,6 +23,7 @@ pub(crate) mod reset;
 pub mod rotation;
 pub mod side;
 mod start;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_drivers::server::chat::states;
 mod turn;
@@ -31,7 +32,6 @@ mod usage;
 use crate::server::access::Peer;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
 use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
 use sikemux_view::chat::StopReason;
@@ -75,6 +75,19 @@ pub(crate) use actions::*;
 pub(crate) use offers::{models_of, AgentModelsParams};
 pub(crate) use registry::Chats;
 pub(crate) use start::*;
+
+/// A saved session an agent takes up again.
+#[derive(Clone)]
+pub(crate) struct Saved {
+    pub session_id: String,
+    pub cli: String,
+    pub project: PathBuf,
+    pub title: String,
+    /// The account folder of the CLI that saved it, when not the default one.
+    pub config_path: Option<String>,
+    /// The agent running it now, and its name.
+    pub open: Option<(String, Option<String>)>,
+}
 
 /// What an agent just did, which everything that follows it hears.
 pub(crate) enum Activity<'a> {
@@ -826,7 +839,7 @@ impl Chat {
         let first = self
             .core
             .upgrade()
-            .map_or(RESTART_WAIT, |core| core.config().restart_wait);
+            .map_or(RESTART_WAIT, |core| *core.restart_wait());
         let wait = first * (1 << restarts.len());
         restarts.push_back(now);
         Some(wait)

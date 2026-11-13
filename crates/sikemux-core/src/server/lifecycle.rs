@@ -6,6 +6,7 @@
 //! its saved session below its last screen, unless it crashes again at once.
 
 use crate::server::activity::ActivityCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;

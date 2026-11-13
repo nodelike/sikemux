@@ -3,7 +3,7 @@
 //! page in place of the call, also when the chat is read again later. The page talks only to
 //! its own server, through the agent that called it.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 pub use sikemux_calls::mcp_apps::{McpApp, McpAppParams, McpAppRequestParams};
 pub(crate) use sikemux_drivers::server::mcp_apps::{Record, ServerRequest};
 use std::collections::HashSet;

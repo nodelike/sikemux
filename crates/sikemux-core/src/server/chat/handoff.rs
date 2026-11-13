@@ -3,7 +3,7 @@
 //! person, chosen to fit a budget rather than written up by an agent: the first request, the
 //! latest exchanges word for word, and how the commands run went. Every app shows it before then.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::{ChatHandedOff, DropHandoffParams, HandOffParams};
 use std::collections::HashMap;

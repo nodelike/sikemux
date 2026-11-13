@@ -5,7 +5,7 @@
 
 mod session;
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use sikemux_drivers::server::chat::native::{acp, claude, codex, muse, pi, process};
 
 use std::sync::Arc;

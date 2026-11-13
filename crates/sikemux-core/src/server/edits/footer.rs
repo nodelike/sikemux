@@ -2,6 +2,7 @@
 //! way a commit is made here: the git panel, `git_commit`, Auto, and an
 //! agent's own `git commit` through the git shim.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;

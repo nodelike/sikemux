@@ -2,7 +2,7 @@
 //! chat's feed, where every app sees them, and go out together once the turn
 //! ends, unless the person steers them in sooner or takes one back.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::QueuedMessageParams;
 use std::collections::HashSet;

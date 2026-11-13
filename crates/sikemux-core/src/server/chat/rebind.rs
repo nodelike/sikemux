@@ -2,7 +2,7 @@
 //! own ran out of usage, or after a sign-in, with the prompt that failed sent
 //! again once the agent is back.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

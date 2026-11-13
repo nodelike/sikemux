@@ -5,7 +5,7 @@
 //! message, which carries the brief, so it never sits without one. The old session stays the
 //! chat's session until the fresh one has answered, and carries on if the fresh one fails.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::{RotationBriefParams, RotationBriefRead};
 use std::path::PathBuf;
@@ -489,8 +489,7 @@ pub(crate) fn shown(whole: &RotationBrief) -> RotationBrief {
 fn briefs_folder(core: &Core, agent_id: &str) -> Option<PathBuf> {
     let file = crate::server::kept::file_for(agent_id);
     Some(
-        core.config()
-            .data_dir
+        core.data_dir()
             .as_ref()?
             .join("rotations")
             .join(file.trim_end_matches(".json")),

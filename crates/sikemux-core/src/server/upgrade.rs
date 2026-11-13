@@ -2,6 +2,7 @@
 //! with a newer binary in the same process, restarting it from its own, and
 //! stopping everything.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;

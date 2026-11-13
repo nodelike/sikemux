@@ -20,8 +20,7 @@ use crate::agent_accounts::Book;
 
 use super::chat::feed::Feed;
 use super::chat::rotation::KeptSession;
-use super::chat::{Activity, Answered, Chat, Ending, Fault};
-use super::saved::Saved;
+use super::chat::{Activity, Answered, Chat, Ending, Fault, Saved};
 use super::workspace::ChatChoice;
 use super::{Core, CoreResult};
 
@@ -177,4 +176,6 @@ pub(crate) struct ChatAbove {
     pub tool_updated: fn(&Core, &Chat, &Value),
     /// What a new chat keeps of its tool calls' edits that have not finished, for `tool_updated`.
     pub new_edits: fn() -> Box<dyn Any + Send + Sync>,
+    /// A new secret for an agent to name itself by.
+    pub new_token: fn() -> String,
 }

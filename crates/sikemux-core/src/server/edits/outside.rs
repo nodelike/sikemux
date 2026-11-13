@@ -5,6 +5,7 @@
 //! person's when none was. A file's lines are told against what it held
 //! after its last change, kept in [`Priors`].
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;

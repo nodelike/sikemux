@@ -1,7 +1,8 @@
 //! Sessions the agent CLIs saved, found from a vague memory of them for
 //! `agent_sessions` and the composer, and which of them are open now.
 
-use crate::server::parts::Parts;
+pub(crate) use super::chat::Saved;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::saved::SessionSearchParams;
 use std::collections::{HashMap, HashSet};
@@ -338,19 +339,6 @@ pub(crate) fn same_account(
         "\"{}\" was saved on another {provider} account than the one you run on, which keeps its sessions apart, so it cannot be reopened from here; ask the person to open it from Recent",
         saved.title
     ))
-}
-
-/// A saved session `agent_spawn` resumes.
-#[derive(Clone)]
-pub(crate) struct Saved {
-    pub session_id: String,
-    pub cli: String,
-    pub project: PathBuf,
-    pub title: String,
-    /// The account folder of the CLI that saved it, when not the default one.
-    pub config_path: Option<String>,
-    /// The agent running it now, and its name.
-    pub open: Option<(String, Option<String>)>,
 }
 
 /// Finds the session `session_id`, of `cli` when given, among every project's.

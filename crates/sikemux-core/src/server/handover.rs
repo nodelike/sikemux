@@ -11,6 +11,7 @@
 //! pid stays this process's child, so the new core reads on where the old
 //! one stopped while the agent works on.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;

@@ -4,7 +4,7 @@
 //! to it later does not read it all again uncached. The chat the person sees is the core's
 //! record, so none of this changes it.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 pub use sikemux_calls::chat::KeepHistoryParams;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 

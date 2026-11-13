@@ -5,6 +5,7 @@
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeParts;

@@ -1,6 +1,7 @@
 //! What the core gives the modules it stands on to call: each thing they ask of the features
 //! built over them, as those features do it.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_wire::protocol::{AgentState, Event, SessionId};
@@ -33,6 +34,7 @@ use sikemux_wire::protocol::ChatLaunch;
 
 use super::chat::Chat;
 use super::edits;
+use super::tools;
 
 use super::{
     agent_accounts, memory, person_calls, plugins, ports, questions, saved, team_told, turn_state,
@@ -219,6 +221,7 @@ pub(super) fn chat_above() -> ChatAbove {
         },
         letter_returned: |core, agent_id, text| core.harness().mailbox.returned(agent_id, text),
         tool_updated,
+        new_token: tools::new_token,
         new_edits: || Box::<edits::Open>::default(),
         account_with_room,
         other_agent_with_room: agent_accounts::other_agent_with_room,

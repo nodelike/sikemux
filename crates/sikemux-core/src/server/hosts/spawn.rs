@@ -4,6 +4,7 @@
 //! in its own checkout. Each time the worker's turn ends, its new commits come
 //! back before its report.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;

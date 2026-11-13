@@ -17,6 +17,7 @@ impl crate::server::part::Part for Notifier {
 #[cfg(test)]
 mod tests;
 
+use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;

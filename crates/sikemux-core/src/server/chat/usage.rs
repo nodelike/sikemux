@@ -1,7 +1,7 @@
 //! A resumed chat says nothing of its context window until it runs a turn, so
 //! the transcript its CLI saved tells every app how full the window was.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use serde_json::json;
 
 use crate::agent_catalog::AgentKind;

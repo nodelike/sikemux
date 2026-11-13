@@ -1,7 +1,7 @@
 //! Every chat this core runs, and the feeds of those at rest.
 
 use super::*;
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 
 /// A chat the core cannot hand over to its replacement now.
 #[derive(Clone, Debug)]

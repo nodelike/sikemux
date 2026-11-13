@@ -7,6 +7,7 @@
 //! Open with a line naming who left it, as nobody is asked to bring a plain card's owner back.
 
 use crate::server::agent_now::AgentNowCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceCore;

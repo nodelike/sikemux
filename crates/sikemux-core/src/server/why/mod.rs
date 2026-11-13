@@ -6,7 +6,7 @@
 //! only the person's words and the core's own facts, never another agent's tool output or
 //! thinking.
 
-use crate::server::parts::Parts;
+use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

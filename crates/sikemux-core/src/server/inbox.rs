@@ -4,6 +4,7 @@
 //! core already keeps; only how each agent's latest turn went is kept here.
 
 pub(crate) use super::chat::Fault;
+use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;

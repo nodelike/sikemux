@@ -5,6 +5,7 @@
 //! the whole pin after a change, the last one counting, and their pictures by id beside it.
 
 use crate::server::changed::ChangedCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};

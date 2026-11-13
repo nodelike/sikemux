@@ -3,6 +3,7 @@
 
 use super::connection::ClientId as GoneClient;
 use super::part::Part;
+use crate::server::chat_state::ChatParts;
 use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::PathBuf;
@@ -11,20 +12,19 @@ use tokio::task::JoinHandle;
 
 use tokio::sync::Notify;
 
-use super::{model_proxy, ports, streams, themes, ServerConfig};
+use super::{ports, streams, themes, ServerConfig};
 
 use super::{
-    account, board, chat, checks, chief, codehost, collisions, device_view, edits, git,
-    goal_summary, goals, harness, hooks, host_stats, hosts, inbox, join, landing, layout,
-    lifecycle, line, mcp_apps, memory, mods, notify, outside, person_calls, pictures, pins, places,
-    remote, remote_image, repo_events, session_watch, settling, share, ship, spare, stalls, tasks,
-    tools, triggers, updates, vault, worktree, Core,
+    account, board, checks, chief, codehost, collisions, device_view, edits, git, goal_summary,
+    goals, harness, hooks, host_stats, hosts, inbox, join, landing, layout, lifecycle, line,
+    memory, mods, notify, outside, person_calls, pictures, pins, places, remote, remote_image,
+    repo_events, session_watch, settling, share, ship, spare, stalls, tasks, tools, triggers,
+    updates, vault, worktree, Core,
 };
 
 pub(crate) struct Fields {
     pub(super) config: ServerConfig,
     pub(super) manifest_folder: Mutex<Option<PathBuf>>,
-    pub(super) model_proxy: model_proxy::ModelProxy,
     pub(super) ports: ports::Ports,
     /// Rings when a window opens, so the day's usage counts it at once.
     pub(super) usage_wake: Notify,
@@ -35,7 +35,6 @@ pub(crate) struct Fields {
     pub(super) look: themes::Look,
     pub(super) harness: harness::Harness,
     pub(super) tools: Mutex<Option<tools::ToolEndpoint>>,
-    pub(super) chats: chat::Chats,
     pub(super) remote: remote::Remote,
     /// Programs Sikemux did not start that the person lets drive its chats.
     pub(super) outside: outside::Outside,
@@ -87,15 +86,12 @@ pub(crate) struct Fields {
     /// Hosts linked with this one, and the agents of teams shared with them.
     pub(super) hosts: hosts::Hosts,
     pub(super) mods: mods::Mods,
-    pub(super) mcp_apps: mcp_apps::McpApps,
     pub(super) chiefs: chief::Chiefs,
-    pub(super) chat_above: super::chat_above::ChatAbove,
 }
 
 pub(crate) trait Parts {
     fn config(&self) -> &ServerConfig;
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
-    fn model_proxy(&self) -> &model_proxy::ModelProxy;
     fn ports(&self) -> &ports::Ports;
     fn usage_wake(&self) -> &Notify;
     fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>>;
@@ -103,7 +99,6 @@ pub(crate) trait Parts {
     fn look(&self) -> &themes::Look;
     fn harness(&self) -> &harness::Harness;
     fn tools(&self) -> &Mutex<Option<tools::ToolEndpoint>>;
-    fn chats(&self) -> &chat::Chats;
     fn remote(&self) -> &remote::Remote;
     fn outside(&self) -> &outside::Outside;
     fn shares(&self) -> &share::Shares;
@@ -147,9 +142,7 @@ pub(crate) trait Parts {
     fn joins(&self) -> &join::Joins;
     fn hosts(&self) -> &hosts::Hosts;
     fn mods(&self) -> &mods::Mods;
-    fn mcp_apps(&self) -> &mcp_apps::McpApps;
     fn chiefs(&self) -> &chief::Chiefs;
-    fn chat_above(&self) -> &super::chat_above::ChatAbove;
 }
 
 impl Parts for Core {
@@ -159,10 +152,6 @@ impl Parts for Core {
 
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>> {
         &self.kept::<Fields>().manifest_folder
-    }
-
-    fn model_proxy(&self) -> &model_proxy::ModelProxy {
-        &self.kept::<Fields>().model_proxy
     }
 
     fn ports(&self) -> &ports::Ports {
@@ -191,10 +180,6 @@ impl Parts for Core {
 
     fn tools(&self) -> &Mutex<Option<tools::ToolEndpoint>> {
         &self.kept::<Fields>().tools
-    }
-
-    fn chats(&self) -> &chat::Chats {
-        &self.kept::<Fields>().chats
     }
 
     fn remote(&self) -> &remote::Remote {
@@ -369,16 +354,8 @@ impl Parts for Core {
         &self.kept::<Fields>().mods
     }
 
-    fn mcp_apps(&self) -> &mcp_apps::McpApps {
-        &self.kept::<Fields>().mcp_apps
-    }
-
     fn chiefs(&self) -> &chief::Chiefs {
         &self.kept::<Fields>().chiefs
-    }
-
-    fn chat_above(&self) -> &super::chat_above::ChatAbove {
-        &self.kept::<Fields>().chat_above
     }
 }
 

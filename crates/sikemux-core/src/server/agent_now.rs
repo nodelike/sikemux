@@ -1,6 +1,7 @@
 //! Whether an agent is at work, at rest or waiting on something, asked one way however it runs:
 //! a chat here, a terminal here, or on a linked host.
 
+use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceCore;
