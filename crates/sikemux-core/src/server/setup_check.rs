@@ -91,7 +91,7 @@ pub(crate) fn state_of(core: &Core, project: &str) -> SetupState {
         config,
         last,
         stale,
-        checking: setups.checking.locked().iter().any(|known| *known == key),
+        checking: setups.checking.locked().contains(&key),
     }
 }
 
@@ -197,7 +197,7 @@ fn run(
                 scope.spawn(move || {
                     let _ = std::fs::create_dir_all(&logs);
                     let steps = in_checkout(core, config, &cwd, &logs);
-                    let gone = remove(core, &repo, path, branch);
+                    let gone = remove(core, repo, path, branch);
                     let mut steps = steps;
                     steps.push(gone);
                     steps
@@ -533,7 +533,7 @@ fn checked(
 
 /// The command lines of what still runs in the process group `group`.
 fn left_in_group(group: u32) -> Vec<String> {
-    let listed = Command::new("pgrep")
+    let listed = sikemux_process::user_environment::command("pgrep")
         .args(["-g", &group.to_string()])
         .output()
         .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
