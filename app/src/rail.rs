@@ -1056,12 +1056,8 @@ fn project_tree(
         .child(row)
         .children(close);
     let row = (bench.rails.keyed(Edge::Start)).row(format!("project-{key}"), name, row, cx);
-    let copies = (folded.copies.len() > 1)
-        .then(|| crate::copies::copy_row(bench, folded, cx))
-        .flatten();
     div().flex().flex_col().child(row).when(active, |tree| {
         tree.pb(SPACE_1)
-            .children(copies.map(|copies| div().ml(px(13.5)).pt(SPACE_0).child(copies)))
             .child(surfaces(bench, lit_surface(bench), cx))
     })
 }
