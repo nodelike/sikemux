@@ -54,7 +54,12 @@ pub fn run() -> i32 {
     watch_parent();
     let simulator = simulator_offered(&agent_id);
     let reviewer = std::env::var(TOOLS_OFFER_ENV).is_ok_and(|offer| offer == REVIEWER_OFFER);
-    serve(Arc::new(Offer::new(simulator, reviewer)), agent_id);
+    let resources = std::env::current_dir()
+        .is_ok_and(|cwd| sikemux_core::tasks::config::names_resources_near(&cwd));
+    serve(
+        Arc::new(Offer::new(simulator, reviewer, resources)),
+        agent_id,
+    );
     0
 }
 
@@ -113,6 +118,8 @@ fn watch_parent() {}
 struct Offer {
     simulator: bool,
     reviewer: bool,
+    /// The agent's project names things only one agent uses at a time.
+    resources: bool,
     built: Arc<Manifest>,
     served: Mutex<Option<Arc<Manifest>>>,
     plugins: Mutex<Option<Arc<Vec<Tool>>>>,
@@ -128,11 +135,12 @@ struct Offer {
 }
 
 impl Offer {
-    fn new(simulator: bool, reviewer: bool) -> Self {
-        let built = Manifest::load().offering(simulator, reviewer);
+    fn new(simulator: bool, reviewer: bool, resources: bool) -> Self {
+        let built = (Manifest::load().with_resources(resources)).offering(simulator, reviewer);
         Self {
             simulator,
             reviewer,
+            resources,
             told_guide: Mutex::default(),
             built: Arc::new(built),
             served: Mutex::default(),
@@ -148,6 +156,7 @@ impl Offer {
         Self {
             simulator: true,
             reviewer: false,
+            resources: false,
             built: Arc::new(Manifest::load()),
             told_guide: Mutex::new(Some(manifest.guide_source().to_owned())),
             served: Mutex::new(Some(Arc::new(manifest))),
@@ -172,7 +181,8 @@ impl Offer {
 
     fn ask_manifest(&self, relay: &Relay<'_>) -> Option<Manifest> {
         let answer = relay(TOOLS_MANIFEST_METHOD, &json!({})).ok()?;
-        Some(Manifest::served(&answer)?.offering(self.simulator, self.reviewer))
+        let served = Manifest::served(&answer)?.with_resources(self.resources);
+        Some(served.offering(self.simulator, self.reviewer))
     }
 
     /// Holds what the app serves, noting the parts of its guide that changed

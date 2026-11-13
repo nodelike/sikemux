@@ -469,6 +469,9 @@ pub struct InLine {
     /// How long it usually waits from here, once that is known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_ms: Option<u64>,
+    /// Who holds the thing it waits for, by name, when it waits for a thing rather than its turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 /// Where an agent sits on its team: the lead heads it, the last worker ends it.

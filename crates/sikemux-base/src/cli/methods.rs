@@ -51,6 +51,7 @@ pub const HARNESS_METHODS: &[&str] = &[
     "process.restart",
     "process.read",
     "process.stop",
+    "line.hold",
     "ui.open",
     "page.show",
     "events.wait",

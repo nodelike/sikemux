@@ -1611,6 +1611,7 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
     for agent_id in agent_ids {
         super::chat::rotation::forget(core, agent_id);
         super::chief::closed(core, agent_id);
+        core.line().agent_closed(core, agent_id);
     }
     agents_closed(core, before);
     super::worktree::build_output::closed(core, agent_ids, trees);

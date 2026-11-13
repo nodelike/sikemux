@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::sizes::Size;
-use super::{Held, Run, State};
+use super::{Held, Kind, Need, Run, State};
 
 const FILE: &str = "line-runs.json";
 
@@ -31,6 +31,8 @@ struct Kept {
     in_line: bool,
     /// It waits for its agent, sent away until its turn comes; else it runs.
     comes_back: bool,
+    #[serde(default)]
+    needs: Vec<Need>,
 }
 
 impl Saved {
@@ -45,10 +47,11 @@ impl Saved {
             return;
         };
         let running = (state.running.iter())
+            .filter(|run| run.kind == Kind::Command)
             .filter(|run| run.pid.is_some() && run.started.is_some() && !run.released)
             .map(|run| kept(run, false));
         let away = (state.waiting.iter())
-            .filter(|run| run.held == Held::ComesBack)
+            .filter(|run| run.held == Held::ComesBack && run.kind == Kind::Command)
             .map(|run| kept(run, true));
         let runs: Vec<Kept> = running.chain(away).collect();
         let written = serde_json::to_vec(&runs)
@@ -100,6 +103,10 @@ impl Saved {
                 peak: 0,
                 holds: 0,
                 measured_once: false,
+                needs: run.needs,
+                kind: Kind::Command,
+                wants: None,
+                told_long: false,
             })
             .collect()
     }
@@ -120,5 +127,6 @@ fn kept(run: &Run, comes_back: bool) -> Kept {
         before_commit: run.before_commit,
         in_line: run.in_line,
         comes_back,
+        needs: run.needs.clone(),
     }
 }

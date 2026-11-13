@@ -230,6 +230,7 @@ pub(crate) fn load(core: &Core) -> HostLoad {
             .map(|average| average.round() as u32),
         cores: cores as u32,
         builds: core.line().shown(),
+        in_use: core.line().in_use(),
     }
 }
 

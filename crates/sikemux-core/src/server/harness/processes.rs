@@ -127,13 +127,18 @@ pub(super) fn launch_target(
                     command: command.to_owned(),
                     cwd,
                     label: label.map_or_else(|| command_label(command), str::to_owned),
+                    needs: needs_of(params)?,
                 }),
             ))
         }
         Some(task_id) => {
-            if params.get("cwd").is_some() || params.get("label").is_some() {
+            if params.get("cwd").is_some()
+                || params.get("label").is_some()
+                || params.get("needs").is_some()
+            {
                 return Err(
-                    "cwd and label go with command; a sikemux.json process sets its own".into(),
+                    "cwd, label and needs go with command; a sikemux.json process sets its own"
+                        .into(),
                 );
             }
             Ok((task_id.to_owned(), None))
@@ -354,8 +359,30 @@ pub(super) async fn process_start(
     Ok(answer)
 }
 
-/// What the run's heavy command says of its place in the host's line, when it waits there.
+/// The names of the project's things `process_start` was asked to hold while the command runs.
+fn needs_of(params: &Value) -> Result<Vec<String>, String> {
+    match params.get("needs") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(names)) => names
+            .iter()
+            .map(|name| {
+                name.as_str().map(str::to_owned).ok_or_else(|| {
+                    "needs must list the names of the project's resources".to_owned()
+                })
+            })
+            .collect(),
+        Some(_) => Err("needs must list the names of the project's resources".into()),
+    }
+}
+
+/// What the run's heavy command says of its place in the host's line, or what it waits for of
+/// what it needs, when it waits.
 async fn in_line(core: &Core, execution_id: &str) -> Option<String> {
+    if let Some(wants) = core.line().wanted_by_run(core, execution_id) {
+        return Some(format!(
+            "It waits to start: {wants}. It starts by itself once it may have everything it needs; park on its exit with trigger_add rather than polling."
+        ));
+    }
     let run = core.harness().run_of(execution_id)?;
     let (command, cwd) = (run.command?, run.cwd.unwrap_or(run.project));
     if !crate::git_guard::waits_in_line(&command, Path::new(&cwd)) {
@@ -394,15 +421,17 @@ pub(super) async fn answer_start(
             Launch::Done => break,
             Launch::Pending => {}
         }
+        let waits_for_a_thing = core.line().wanted_by_run(core, execution_id).is_some();
         if run.status == RunStatus::AwaitingTrust
             || !run.status.is_active()
+            || waits_for_a_thing
             || Instant::now() >= until
         {
             break;
         }
         tokio::select! {
             _ = changed.changed() => {}
-            _ = tokio::time::sleep_until(until) => {}
+            _ = tokio::time::sleep_until(until.min(Instant::now() + LINE_LOOK_EVERY)) => {}
         }
     }
     let run = harness.read(|state| state.run(project, execution_id))?;

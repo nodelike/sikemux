@@ -189,6 +189,10 @@ pub struct BuildRequest {
     /// The `process_start` run it belongs to.
     #[serde(default)]
     pub execution_id: Option<String>,
+    /// The things only so many use at once that it holds while it runs, by the names its
+    /// project's `sikemux.json` gives them.
+    #[serde(default)]
+    pub needs: Vec<String>,
 }
 
 /// What a heavy command tells the core once it has its turn.
@@ -317,6 +321,9 @@ pub const TOOLS_OFFER_ENV: &str = "SIKEMUX_TOOLS_OFFER";
 pub const REVIEWER_OFFER: &str = "reviewer";
 /// A tool listed for an agent only once it has read the guide's setup topic.
 pub const SETUP_OFFER: &str = "setup";
+/// What a tool is offered for that acts on things only one agent uses at a time, such as `hold`:
+/// only agents whose project's `sikemux.json` names some.
+pub const RESOURCES_OFFER: &str = "resources";
 
 /// The tools server asks this as it starts: whether its agent gets the simulator tools.
 pub const SIM_OFFERED_METHOD: &str = "sim.offered";

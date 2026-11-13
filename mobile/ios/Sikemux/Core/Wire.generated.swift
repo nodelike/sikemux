@@ -2103,6 +2103,8 @@ struct TurnWait: Codable, Hashable, Sendable {
     var until: Int?
     /// Its place in line, 1 for next, while it waits its turn on the host.
     var place: Int?
+    /// Who holds what it waits for, by name, while it waits for a thing in use.
+    var by: String?
 }
 
 enum TurnWaitKind: String, Codable, Hashable, Sendable {
@@ -2254,6 +2256,8 @@ struct InLine: Codable, Hashable, Sendable {
     var place: Int
     /// How long it usually waits from here, once that is known.
     var expectedMs: Int?
+    /// Who holds the thing it waits for, by name, when it waits for a thing rather than its turn.
+    var by: String?
 }
 
 /// Where an agent sits on its team: the lead heads it, the last worker ends it.
@@ -2853,6 +2857,8 @@ struct HostLoad: Codable, Hashable, Sendable {
     var cores: Int?
     /// The builds agents run or wait to run, oldest first, while it is overloaded.
     var builds: [AgentBuild]?
+    /// What only so many use at once that agents and their runs hold, oldest first.
+    var inUse: [InUse]?
 }
 
 /// A heavy command an agent started, such as `cargo build` or `pnpm test`, running or waiting its turn.
@@ -2870,6 +2876,20 @@ struct AgentBuild: Codable, Hashable, Sendable {
     var final: Bool?
     /// The other agents whose same command this one run answers, by id.
     var joined: [String]?
+}
+
+/// A thing only so many use at once, such as the app on port 3000, and who holds it.
+struct InUse: Codable, Hashable, Sendable {
+    /// What `stopBuild` takes to let it go.
+    var id: Int
+    var label: String
+    var agentId: String?
+    /// When it was taken, in Unix milliseconds.
+    var since: Int
+    /// How many wait for it.
+    var waiting: Int?
+    /// Held for its agent's turn, rather than while a process runs.
+    var untilTurnEnds: Bool?
 }
 
 /// An alert about this host, or about the linked host `host` names.

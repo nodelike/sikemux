@@ -254,6 +254,7 @@ impl Triggers {
                 expected_ms: expected(&ci.waits_on()),
                 until: None,
                 place: None,
+                by: None,
             });
         }
         if let Some((trigger, park)) =
@@ -266,6 +267,7 @@ impl Triggers {
                 expected_ms: park.waits_on().and_then(|on| expected(&on)),
                 until: None,
                 place: None,
+                by: None,
             });
         }
         let soonest = mine()
@@ -280,6 +282,7 @@ impl Triggers {
             expected_ms: None,
             until: Some(at),
             place: None,
+            by: None,
         })
     }
 
@@ -1037,6 +1040,78 @@ pub(crate) fn park_in_line(
         trigger
     });
     show(core, &trigger);
+}
+
+/// Parks `agent_id` until the thing `name` of `project`, shown as `label`, is free for it,
+/// replacing a park on the same thing it had.
+pub(crate) fn park_for_thing(
+    core: &Arc<Core>,
+    agent_id: &str,
+    project: &str,
+    name: &str,
+    label: &str,
+) {
+    let mine = |trigger: &Trigger| {
+        trigger.agent_id == agent_id
+            && (trigger.park.as_ref()).is_some_and(|park| park.is_thing(project, name))
+    };
+    remove_where(core, mine);
+    let at = epoch_ms() + park::DEFAULT_TIMEOUT_SECONDS * 1000;
+    let park = park::Park::for_thing(core, project, name);
+    let trigger = core.triggers().change(|state| {
+        state.next_id += 1;
+        let trigger = Trigger {
+            id: state.next_id,
+            agent_id: agent_id.to_owned(),
+            board: None,
+            title: label.to_owned(),
+            prompt: format!("{label} is free for you now."),
+            when: TriggerWhen::Once { at },
+            next_at: Some(at),
+            hook_id: None,
+            paused: None,
+            ci: None,
+            park: Some(park),
+            check: None,
+            stopped: None,
+            set: Some(learned(core, Some(agent_id))),
+            held: Vec::new(),
+            dropped: 0,
+        };
+        state.triggers.push(trigger.clone());
+        trigger
+    });
+    show(core, &trigger);
+}
+
+/// Wakes `agent_id`, parked on the thing `name` of `project`, now that it is free for it.
+pub(crate) fn in_use_freed(
+    core: &Arc<Core>,
+    agent_id: &str,
+    project: &str,
+    name: &str,
+    label: &str,
+) {
+    let parked = |trigger: &Trigger| {
+        trigger.agent_id == agent_id
+            && (trigger.park.as_ref()).is_some_and(|park| park.is_thing(project, name))
+    };
+    let Some(mut trigger) = remove_where(core, parked) else {
+        return;
+    };
+    trigger.prompt = format!(
+        "{label} is free for you now. Call hold with \"{name}\" to take it: Sikemux keeps it for you {} s, then hands it to the next in line.",
+        super::line::ROOM_KEPT_MS / 1000
+    );
+    tokio::spawn(fire(
+        core.clone(),
+        Firing {
+            trigger,
+            late: None,
+            last: true,
+            request: None,
+        },
+    ));
 }
 
 /// Wakes `agent_id`, parked on its heavy command `command` run in `cwd`, now that its turn came.

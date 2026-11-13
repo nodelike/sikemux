@@ -142,6 +142,7 @@ impl ActivityCore for Core {
 
     fn came_to_rest(&self, agent_id: &str) {
         self.ship().turn_ended(agent_id);
+        self.line().turn_ended(self, agent_id);
         if let Some(place) = super::activity_log::place(self, agent_id) {
             self.activity_log().turn_ended(agent_id, place);
         }

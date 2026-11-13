@@ -146,7 +146,7 @@ calls! { core, client, method, params;
     "agentNameTheme" = AgentNameTheme: Full => names::name_theme(&core),
     "setAgentNameTheme" = SetAgentNameTheme: Owner, counted => names::set_name_theme(&core, params),
     "hostLoad": Watch, any_program => answer(super::host_stats::load(&core)),
-    "stopBuild" = StopBuild: Owner => core.line().stop(params.id).map_err(CoreError::from)?,
+    "stopBuild" = StopBuild: Owner => core.line().stop(&core, params.id).map_err(CoreError::from)?,
     "goFirst" = GoFirst: Owner => core.line().go_first(&core, params.id).map_err(CoreError::from)?,
     "stopChatIfIdle": NoDevice => answer(json!({ "stopped": super::lifecycle::sleep(&core, &parse::<AgentParams>(params)?.agent_id) })),
     "switchAgentView" = SwitchAgentView: Owner => super::agent_view::switch(&core, params).await?,

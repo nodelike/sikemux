@@ -46,6 +46,9 @@ pub struct CommandLaunch {
     /// Relative to the project; empty for the project root.
     pub cwd: String,
     pub label: String,
+    /// The project's things only so many use at once that it holds while it runs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<String>,
 }
 
 /// Where the window got to with launching a run.
@@ -464,6 +467,7 @@ mod tests {
             command: "pnpm dev".into(),
             cwd: String::new(),
             label: "pnpm dev".into(),
+            needs: Vec::new(),
         });
         runs.insert(first).unwrap();
         runs.insert(run("b", "sh:dev-123456")).unwrap();

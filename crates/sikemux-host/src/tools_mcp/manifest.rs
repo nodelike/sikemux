@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_core::cli::manifest::{GUIDE, TOOLS};
-use sikemux_core::cli::protocol::{REVIEWER_OFFER, SETUP_OFFER};
+use sikemux_core::cli::protocol::{RESOURCES_OFFER, REVIEWER_OFFER, SETUP_OFFER};
 
 use super::family::{self, Chosen, Family};
 
@@ -129,6 +129,20 @@ impl Manifest {
             Some(REVIEWER_OFFER) => reviewer,
             Some(SETUP_OFFER) => true,
             Some(_) => false,
+        });
+        self
+    }
+
+    /// Offers the tools for things only one agent uses at a time, such as `hold`, as any other
+    /// when `resources`, and leaves them out otherwise; call it before [`Self::offering`].
+    pub fn with_resources(mut self, resources: bool) -> Self {
+        self.tools.retain_mut(|tool| match tool.offered.as_deref() {
+            Some(RESOURCES_OFFER) if resources => {
+                tool.offered = None;
+                true
+            }
+            Some(RESOURCES_OFFER) => false,
+            _ => true,
         });
         self
     }

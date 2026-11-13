@@ -92,6 +92,7 @@ pub(super) fn run(
         copies_output: unsafe { libc::isatty(libc::STDOUT_FILENO) } == 0,
         asked_at: Some(sikemux_process::clock::epoch_ms()),
         execution_id: task,
+        needs: heavy.needs.clone(),
     };
     let turn = match std::env::var_os(vars::BUILD_TURN) {
         Some(_) => Turn::Go {

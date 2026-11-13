@@ -233,6 +233,8 @@ pub(crate) struct Definition {
     env: Vec<(String, String)>,
     source: Source,
     java: Option<JavaChoice>,
+    /// The project's things only so many use at once that it holds while it runs.
+    needs: Vec<String>,
 }
 
 impl Definition {
@@ -269,6 +271,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
                 env: task.env.clone(),
                 source: Source::Project,
                 java: None,
+                needs: task.needs.clone(),
             })
             .collect(),
         _ => Vec::new(),
@@ -311,6 +314,7 @@ fn offered(core: &Core, project: &Path) -> Offered {
                 env,
                 source,
                 java,
+                needs: Vec::new(),
             }
         })
         .chain(
@@ -622,6 +626,7 @@ fn resolve(
             env: Vec::new(),
             source: Source::Command,
             java: None,
+            needs: spec.needs.clone(),
         };
         return Ok((
             definition,
@@ -795,6 +800,20 @@ pub(crate) async fn launch(
     }
     if let Some(previous) = previous {
         let _ = super::harness::stop_run(core, &previous).await;
+    }
+    if !task.needs.is_empty() {
+        let needs = super::line::resolve(&run.project, &task.cwd, &task.needs)?;
+        let agent_id = run.agent_id.clone();
+        (core.line())
+            .wait_for_needs(
+                core,
+                execution_id,
+                agent_id,
+                &run.project,
+                &task.label,
+                needs,
+            )
+            .await?;
     }
     let source = match task.source {
         Source::Project | Source::Command => TaskSource::Project,

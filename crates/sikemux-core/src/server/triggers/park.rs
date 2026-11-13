@@ -56,6 +56,8 @@ enum On {
     },
     /// Its heavy command's turn on the host, which the line itself says has come.
     Line { cwd: String, command: String },
+    /// A thing only one agent uses at a time, `name` in `project`, which the line says is free.
+    InUse { project: String, name: String },
 }
 
 /// What setting a park found: it already happened, or what to wait on and how to show it.
@@ -70,6 +72,7 @@ impl Park {
             On::Process { .. } => TurnWaitKind::Process,
             On::Agent { .. } => TurnWaitKind::Agent,
             On::Line { .. } => TurnWaitKind::Line,
+            On::InUse { .. } => TurnWaitKind::InUse,
         }
     }
 
@@ -96,6 +99,7 @@ impl Park {
             } => format!("{shown} had not printed {text:?}"),
             On::Agent { name, until, .. } => format!("@{name} had not reached {until}"),
             On::Line { command, .. } => format!("`{command}` was still in line"),
+            On::InUse { name, .. } => format!("{name} was still in use"),
         };
         format!("Timed out: after {minutes} min {what}. Look with process_read or agent_read, then park again or carry on.")
     }
@@ -216,9 +220,27 @@ impl Park {
         }
     }
 
-    /// Whether it waits on a heavy command's turn in line.
+    /// A park on the thing `name` of `project`, which another holds.
+    pub(super) fn for_thing(core: &Core, project: &str, name: &str) -> Self {
+        Park {
+            project: project.to_owned(),
+            on: On::InUse {
+                project: project.to_owned(),
+                name: name.to_owned(),
+            },
+            since: epoch_ms(),
+            after: core.harness().journal_cursor(project),
+        }
+    }
+
+    /// Whether it waits on the line: a heavy command's turn, or a thing in use.
     pub(super) fn waits_in_line(&self) -> bool {
-        matches!(self.on, On::Line { .. })
+        matches!(self.on, On::Line { .. } | On::InUse { .. })
+    }
+
+    /// Whether it waits on the thing `name` of `project`.
+    pub(super) fn is_thing(&self, at: &str, thing: &str) -> bool {
+        matches!(&self.on, On::InUse { project, name } if project == at && name == thing)
     }
 
     /// Whether it waits on `command`'s turn in line, run in `cwd`.
@@ -230,7 +252,7 @@ impl Park {
 /// What happened, once what the park waits on has.
 async fn met(core: &Core, park: &Park) -> Option<String> {
     match &park.on {
-        On::Line { .. } => None,
+        On::Line { .. } | On::InUse { .. } => None,
         On::Process {
             execution_id,
             shown,

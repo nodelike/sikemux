@@ -521,6 +521,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "hold",
+        Spec {
+            verb: "hold",
+            kind: "move",
+            icon: "link",
+            target: &["{name}"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "ui_open",
         Spec {
             verb: "show",

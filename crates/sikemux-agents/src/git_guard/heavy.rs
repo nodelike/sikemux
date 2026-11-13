@@ -173,6 +173,8 @@ pub(super) struct Heavy {
     pub(super) before_commit: bool,
     pub(super) watched: bool,
     pub(super) then_runs: bool,
+    /// What it holds while it runs, of the project's resources.
+    pub(super) needs: Vec<String>,
 }
 
 /// Whether `program words`, run in `cwd`, is heavy: in the project's `heavy` list there, or in
@@ -216,6 +218,7 @@ pub(super) fn of_program(program: &str, words: &[String], cwd: &Path) -> Option<
         before_commit,
         watched: entry.is_none() && built_in.is_some_and(|built_in| built_in.kind == Kind::Watched),
         then_runs: built_in.is_some_and(|built_in| built_in.then_runs),
+        needs: entry.map(|entry| entry.needs.clone()).unwrap_or_default(),
     })
 }
 

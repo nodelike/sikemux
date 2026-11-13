@@ -319,10 +319,15 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
         .triggers()
         .wait_of(agent_id, rested_at, |on| core.waits().expected(on))
         .map(|mut wait| {
-            if let (TurnWaitKind::Line, Some(line)) = (wait.kind, core.line().waiting(agent_id)) {
+            let in_line = matches!(wait.kind, TurnWaitKind::Line | TurnWaitKind::InUse);
+            if let Some(line) = in_line
+                .then(|| core.line().waiting(core, agent_id))
+                .flatten()
+            {
                 wait.what = line.what;
                 wait.place = Some(line.place);
                 wait.expected_ms = line.expected_ms;
+                wait.by = line.by;
             }
             wait
         });
@@ -340,6 +345,7 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
             expected_ms: None,
             until: None,
             place: None,
+            by: None,
         });
     }
     if let Some((since, took)) = gathered.on_check.get(agent_id) {
@@ -350,6 +356,7 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
             expected_ms: *took,
             until: None,
             place: None,
+            by: None,
         });
     }
     set

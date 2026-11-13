@@ -115,6 +115,12 @@ Whenever something waits its turn, the top bar shows an hourglass and how many w
 
 While more runs on your Mac than its cores take (a load average past one and a half per core) and nothing waits, the top bar shows **Mac overloaded** in amber instead, and the same list. The notch's list starts with a **Mac busy** row then, with the load and how many builds.
 
+### Things used one at a time
+
+Some things only one agent can use at a time, such as the app on a fixed port or a Stripe webhook listener. Name them under `resources` in [`sikemux.json`](/getting-started/projects/#project-config), and a process or heavy command that `needs` one holds it while it runs. It takes everything it needs at once or waits holding none of it, and a run that needs only what is free goes ahead of one waiting for something else. With a `port`, Sikemux also checks nothing outside it listens there, and names the program that does. An agent can hold one for its turn with its `hold` tool. It lets go when its turn ends, when you close it, or when it has made no tool call for ten minutes; Sikemux never stops it for taking long, but after half an hour with someone waiting it tells the agent's lead, or you when it has none.
+
+An agent waiting for a thing is sent away and woken when it is free, as for a long wait in line. Two agents that would each wait for what the other holds are refused.
+
 The builds that run share one pool of jobs, one fewer than the host has cores, instead of each starting a job per core. Cargo, rustc and the C compilers that build scripts start draw from it. When the host runs short of memory, the pool shrinks to half, or to a single job, until memory frees up.
 
 Agents' Cargo runs rustup's toolchain when the project pins one in `rust-toolchain.toml`, even if another Rust comes first on `PATH`. When [kache](https://github.com/kunobi-ninja/kache) or sccache is installed, rustc goes through it, so a worktree reuses what another already compiled instead of building every crate again.

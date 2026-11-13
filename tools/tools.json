@@ -1340,6 +1340,9 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
+        },
+        "needs": {
+          "type": "array"
         }
       },
       "required": [
@@ -1419,6 +1422,24 @@
         }
       },
       "required": []
+    },
+    {
+      "name": "hold",
+      "row": {"verb": "hold", "kind": "move", "icon": "link", "target": ["{name}"]},
+      "method": "line.hold",
+      "offered": "resources",
+      "description": "Hold a resource from sikemux.json for your turn.",
+      "properties": {
+        "name": {
+          "description": "A resources name from sikemux.json",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "name"
+      ]
     },
     {
       "name": "ui_open",

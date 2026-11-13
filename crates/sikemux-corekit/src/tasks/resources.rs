@@ -11,7 +11,7 @@ const MAX_RESOURCES: usize = 32;
 const MAX_COUNT: u64 = 64;
 const MAX_NEEDS: usize = 8;
 const MAX_LABEL_CHARS: usize = 120;
-/// What every project has without naming it.
+/// Kept for the front of the person's screen, which no agent can hold yet.
 pub const SCREEN: &str = "screen";
 /// Held through the simulator tools, never named in `needs`.
 pub const SIMULATOR: &str = "simulator";
@@ -27,16 +27,6 @@ pub struct Resource {
     /// The port it listens on, which must be free before it is handed out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
-}
-
-/// The built-in `screen`: the front of the person's screen.
-pub fn screen() -> Resource {
-    Resource {
-        name: SCREEN.to_owned(),
-        label: "Your screen".to_owned(),
-        count: 1,
-        port: None,
-    }
 }
 
 pub(super) fn parse(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Resource> {
@@ -81,7 +71,9 @@ fn one(name: &str, entry: &Value, errors: &mut Vec<ConfigError>) -> Option<Resou
         errors.push(issue(
             &path,
             ConfigErrorCode::InvalidValue,
-            format!("{name} is built in; name it in needs without listing it here."),
+            format!(
+                "{name} is kept for Sikemux's own use, so a project cannot name a resource so."
+            ),
         ));
         return None;
     }
@@ -163,15 +155,15 @@ pub(super) fn parse_needs(
             ));
             continue;
         };
-        if name == SIMULATOR {
+        if name == SIMULATOR || name == SCREEN {
             errors.push(issue(
                 at,
                 ConfigErrorCode::InvalidValue,
-                "simulator is held through the simulator tools, so it is not named in needs.",
+                format!("{name} is not one of the project's resources: simulators are held through the simulator tools, and no agent can hold the screen yet."),
             ));
             continue;
         }
-        if name != SCREEN && !resources.iter().any(|resource| resource.name == name) {
+        if !resources.iter().any(|resource| resource.name == name) {
             errors.push(issue(
                 at,
                 ConfigErrorCode::InvalidValue,

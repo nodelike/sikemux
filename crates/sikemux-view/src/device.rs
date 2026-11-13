@@ -62,6 +62,32 @@ pub struct HostLoad {
     /// The builds agents run or wait to run, oldest first, while it is overloaded.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub builds: Vec<AgentBuild>,
+    /// What only so many use at once that agents and their runs hold, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub in_use: Vec<InUse>,
+}
+
+/// A thing only so many use at once, such as the app on port 3000, and who holds it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InUse {
+    /// What `stopBuild` takes to let it go.
+    pub id: u64,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// When it was taken, in Unix milliseconds.
+    pub since: u64,
+    /// How many wait for it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub waiting: u32,
+    /// Held for its agent's turn, rather than while a process runs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub until_turn_ends: bool,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 /// A heavy command an agent started, such as `cargo build` or `pnpm test`, running or waiting its turn.

@@ -1317,6 +1317,7 @@ mod tests {
                 what: "cargo test".into(),
                 place: 2,
                 expected_ms: Some(13),
+                by: None,
             }),
             called_at: Some(14),
             face: Some(AgentFace {

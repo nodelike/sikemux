@@ -46,10 +46,14 @@ pub(super) fn access_of(method: &str) -> (Needs, Program) {
 }
 
 fn task_ended(core: &Core, id: SessionId, code: Option<u32>, signal: Option<String>) {
+    let run = core.harness().run_on(id).map(|run| run.execution_id);
     if let Some(failed) = core.harness().session_exited(id, code, signal) {
         harness::tell_agent_run_failed(core, failed);
     }
     tasks::ended(core, id);
+    if let Some(execution_id) = run {
+        core.line().run_ended(core, &execution_id);
+    }
 }
 
 fn agent_exited(

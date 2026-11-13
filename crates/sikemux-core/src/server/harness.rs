@@ -531,6 +531,9 @@ pub(crate) async fn call(
         ));
     }
     let tool = tool_name(&request);
+    if let Some(agent_id) = &request.agent_id {
+        core.line().called(agent_id);
+    }
     let result = dispatch(core, request, grant).await;
     if let (Some(tool), Some(path)) = (tool, core.harness().tool_calls.clone()) {
         let succeeded = result.is_ok();
@@ -604,6 +607,7 @@ async fn dispatch(
         "trigger.add" => super::triggers::add(core, &request).await,
         "trigger.list" => super::triggers::list(core, &request),
         "trigger.remove" => super::triggers::remove_by_agent(core, &request),
+        "line.hold" => super::line::hold_tool(core, &request),
         "git.commit" => super::edits::commit::call(core, &request).await,
         COMMIT_FOOTER_METHOD => super::edits::footer::call(core, &request, grant).await,
         COMMIT_MADE_METHOD => super::edits::footer::made(core, &request).await,

@@ -109,6 +109,13 @@ much memory or time. `final` marks a check run before a commit, which goes
 first. `{ "command": "jest", "light": true }` keeps one out, and `"heavy": []`
 turns the line off. Never list a dev server or a watcher.
 
+`resources` names what only so many agents use at once, such as
+`"port-3000": { "label": "The app on port 3000", "port": 3000 }` or
+`"test-phones": { "label": "Test phones", "count": 2 }`; `count` is one unless
+given, and with `port` Sikemux also checks nothing else listens there before
+handing it out. A process or `heavy` entry lists what it holds while it runs
+in `needs`, such as `"needs": ["port-3000"]`.
+
 Every checkout Sikemux cuts gets a short name and ten ports of its own, kept
 until it is removed. Give the project's ports names so each checkout runs
 apart from the others:
@@ -172,6 +179,17 @@ turn comes; do other work or end your turn meanwhile, and never loop on it. The
 same command run again in the same checkout shows the output of the run
 already going. Started with `process_start`, it waits in line, its answer has
 `inLine`, and you park on its exit with `trigger_add`.
+
+Some things only one agent can use at a time, such as the app on a fixed port.
+`sikemux.json` names them under `resources`, and a process or heavy command
+whose entry `needs` one holds it while it runs, starting only once everything
+it needs is free; pass `needs` with a `command` to `process_start` for the
+same. To hold one for your turn, call `hold` with its name. What you hold goes
+when your turn ends, when you close, or after ten minutes without a tool call;
+nothing else takes it from you. When another holds it, `hold` answers that it
+is not yet yours, who holds it and your place; Sikemux messages you when it is
+free, and you call `hold` again within 90 seconds. Two agents that would each
+wait for what the other holds are refused.
 
 The key is what makes a retry safe. Reusing a key returns the original
 execution rather than starting a second one, and it keeps doing so after that
@@ -797,8 +815,9 @@ and `sim attach` says it is still booting, so call it again. How many
 simulators run at once follows this Mac's cores, memory and load, counting
 every simulator running, whoever started it. With no room, `sim attach` waits
 in line and says your place; call it again within a minute to keep it, for up
-to five minutes. Never boot a simulator with `simctl` or Xcode to get around
-the line. A device you have not used for ten minutes goes to an agent waiting;
+to five minutes, by the same rules as the project's other things one agent uses
+at a time (see processes). Never boot a simulator with `simctl` or Xcode to get
+around the line. A device you have not used for ten minutes goes to an agent waiting;
 `sim detach` one you no longer need. Every other `sim`
 action acts on the device you hold, and fails until you attach one. When the
 person picks another device on your desk you move to it.

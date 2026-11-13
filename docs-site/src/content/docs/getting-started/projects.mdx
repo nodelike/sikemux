@@ -89,6 +89,8 @@ Processes go in its `tasks` list. Agents can start, read and stop them too. They
 
 `heavy` lists the project's heavy commands, by the program and its first words, such as `{ "command": "pnpm test", "final": true }`. `pnpm test` then matches `pnpm test --run` and not `pnpm install`. An agent running one [waits its turn](/getting-started/run/#heavy-commands-take-turns) on the host with the built-in ones, such as `cargo build`; `"final": true` marks a check run before a commit, which goes ahead of the others. `{ "command": "jest", "light": true }` keeps a command out of the line, and `"heavy": []` turns the line off for the project. Never list a dev server or a watcher, which would hold its turn until stopped. A command run by its path, such as `./gradlew`, does not wait.
 
+`resources` names what only so many agents can use at once, such as `"resources": { "port-3000": { "label": "The app on port 3000", "port": 3000 } }`. Each takes a `label`, a `count` (one unless you say), and an optional `port`, which Sikemux checks nothing else listens on before handing it out. A process or `heavy` entry lists what it holds while it runs in `needs`, such as `"needs": ["port-3000"]`: it starts once everything it needs is free, and lets go when it ends. Agents can also hold one for their turn; see [Things used one at a time](/getting-started/run/#things-used-one-at-a-time).
+
 `planFirst` lists paths, such as `"planFirst": ["server/**", "db/schema.sql"]`, whose change Sikemux suggests planning before it starts, when what you type names one. Migrations folders, `.proto` and OpenAPI files, a top-level `server/` or `api/`, and UI folders such as `components/` count in every project without it.
 
 ### The project's check

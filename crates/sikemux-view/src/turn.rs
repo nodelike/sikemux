@@ -61,6 +61,9 @@ pub struct TurnWait {
     /// Its place in line, 1 for next, while it waits its turn on the host.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub place: Option<u32>,
+    /// Who holds what it waits for, by name, while it waits for a thing in use.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

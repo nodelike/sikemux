@@ -1276,6 +1276,8 @@ export interface TurnWait {
     until?: number;
     /** Its place in line, 1 for next, while it waits its turn on the host. */
     place?: number;
+    /** Who holds what it waits for, by name, while it waits for a thing in use. */
+    by?: string;
 }
 
 export type TurnWaitKind = "ci" | "deploy" | "agent" | "timer" | "process" | "check" | "line" | "inUse";
@@ -1343,6 +1345,8 @@ export interface InLine {
     place: number;
     /** How long it usually waits from here, once that is known. */
     expectedMs?: number;
+    /** Who holds the thing it waits for, by name, when it waits for a thing rather than its turn. */
+    by?: string;
 }
 
 /** Where an agent sits on its team: the lead heads it, the last worker ends it. */
@@ -1775,6 +1779,8 @@ export interface HostLoad {
     cores?: number;
     /** The builds agents run or wait to run, oldest first, while it is overloaded. */
     builds?: AgentBuild[];
+    /** What only so many use at once that agents and their runs hold, oldest first. */
+    inUse?: InUse[];
 }
 
 /** A heavy command an agent started, such as `cargo build` or `pnpm test`, running or waiting its turn. */
@@ -1792,6 +1798,20 @@ export interface AgentBuild {
     final?: boolean;
     /** The other agents whose same command this one run answers, by id. */
     joined?: string[];
+}
+
+/** A thing only so many use at once, such as the app on port 3000, and who holds it. */
+export interface InUse {
+    /** What `stopBuild` takes to let it go. */
+    id: number;
+    label: string;
+    agentId?: string;
+    /** When it was taken, in Unix milliseconds. */
+    since: number;
+    /** How many wait for it. */
+    waiting?: number;
+    /** Held for its agent's turn, rather than while a process runs. */
+    untilTurnEnds?: boolean;
 }
 
 /** An alert about this host, or about the linked host `host` names. */

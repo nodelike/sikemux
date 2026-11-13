@@ -1,11 +1,14 @@
 //! Heavy commands agents run take turns on the host. The first in line starts once free memory
 //! holds what it took the last times it ran, and checks before a commit go ahead of the rest.
 //! The same command asked again in one checkout is one run, whose output each caller gets.
-//! An agent that would wait long is sent away and woken when its turn comes.
+//! An agent that would wait long is sent away and woken when its turn comes. A run also holds
+//! the things it needs that only so many use at once, and an agent can hold one for its turn.
 
 mod saved;
 mod sizes;
+mod things;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,12 +21,14 @@ use tokio::sync::Notify;
 use crate::cli::protocol::BuildRequest;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
-use sikemux_view::device::AgentBuild;
+use sikemux_view::device::{AgentBuild, InUse};
 use sikemux_view::inbox::InLine;
 
 use super::changed::What;
 use super::Core;
 use sizes::{Size, Sizes};
+pub(crate) use things::{resolve, Need};
+use things::{Around, Wanted};
 
 /// The most heavy commands the person can let run at once.
 pub(crate) const MOST_RUNS: u32 = 64;
@@ -70,6 +75,10 @@ struct State {
     finished: Vec<(u64, Option<i32>, Option<PathBuf>, u64)>,
     /// Why the first in line did not start at the last look.
     why: String,
+    /// When each agent last called a tool, in Unix milliseconds, so a turn's hold it forgot ends.
+    called: HashMap<String, u64>,
+    /// Programs outside Sikemux listening on the ports of things runs wait for.
+    outside: HashMap<u16, String>,
 }
 
 struct Run {
@@ -107,6 +116,24 @@ struct Run {
     peak: u64,
     holds: u64,
     measured_once: bool,
+    /// The things only so many use at once that it holds while it runs.
+    needs: Vec<Need>,
+    kind: Kind,
+    /// What it waits for of its needs, while it does.
+    wants: Option<Wanted>,
+    /// Its holder's lead, or the person, heard it held a thing long while others wait.
+    told_long: bool,
+}
+
+/// What a run in line is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    /// A heavy command, through the shim.
+    Command,
+    /// A process run, which the core starts once what it needs is free.
+    Process,
+    /// An agent holding a thing for its turn.
+    Hold,
 }
 
 #[derive(Clone)]
@@ -129,6 +156,10 @@ enum Held {
     RoomUntil(u64),
     /// It ran when the core restarted, and is counted until its process ends.
     Taken,
+    /// An agent holds it for its turn.
+    Turn,
+    /// The core holds it for a process run until the run ends.
+    Core,
 }
 
 impl Run {
@@ -182,15 +213,17 @@ struct Room {
     chosen: usize,
     short_of_memory: bool,
     free: Option<u64>,
+    around: Around,
 }
 
 impl Room {
-    fn now(core: &Core) -> Self {
+    fn now(core: &Core, outside: HashMap<u16, String>) -> Self {
         let memory = sikemux_process::machine::memory();
         Room {
             chosen: core.preferences().get().build_runs as usize,
             short_of_memory: core.host_watch().short_of_memory(),
             free: memory.map(|memory| memory.total.saturating_sub(memory.used)),
+            around: Around { outside },
         }
     }
 }
@@ -200,6 +233,19 @@ struct Woken {
     agent_id: String,
     cwd: String,
     command: String,
+    /// What it held for its turn, when it was a thing rather than a command.
+    thing: Option<String>,
+}
+
+/// A number of milliseconds a debug build reads from the environment variable `name`, so a
+/// throwaway core can show what happens after a wait too long to sit through.
+fn debug_ms(name: &str) -> Option<u64> {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var(name).ok().and_then(|ms| ms.parse().ok()) {
+        return Some(ms);
+    }
+    let _ = name;
+    None
 }
 
 impl Line {
@@ -224,14 +270,25 @@ impl Line {
         }
     }
 
-    /// Where the heavy command `agent_id` started stands in line, while it waits.
-    pub(crate) fn waiting(&self, agent_id: &str) -> Option<InLine> {
+    /// Where the heavy command `agent_id` started stands in line, or what it waits for that
+    /// another holds, while it waits.
+    pub(crate) fn waiting(&self, core: &Core, agent_id: &str) -> Option<InLine> {
         let state = self.state.locked();
         let at = (state.waiting.iter()).position(|run| run.is_for(agent_id))?;
+        let run = &state.waiting[at];
+        let by = (run.wants.as_ref())
+            .and_then(Wanted::holder)
+            .map(|holder| name_of(core, holder));
+        let what = match (&run.wants, run.kind) {
+            (Some(Wanted::InUse { label, .. }), _) => label.clone(),
+            (_, Kind::Hold) => things::labels(run),
+            _ => run.command.clone(),
+        };
         Some(InLine {
-            what: state.waiting[at].command.clone(),
+            what,
             place: at as u32 + 1,
             expected_ms: expected_wait(&state, at),
+            by,
         })
     }
 
@@ -244,15 +301,43 @@ impl Line {
             what: state.waiting[at].command.clone(),
             place: at as u32 + 1,
             expected_ms: expected_wait(&state, at),
+            by: None,
         })
+    }
+
+    /// Why the `process_start` run `execution_id` waits, in words, while it waits for a thing.
+    pub(crate) fn wanted_by_run(&self, core: &Core, execution_id: &str) -> Option<String> {
+        let state = self.state.locked();
+        let run =
+            (state.waiting.iter()).find(|run| run.execution_id.as_deref() == Some(execution_id))?;
+        Some(run.wants.as_ref()?.words(&|agent| name_of(core, agent)))
+    }
+
+    /// What is held of the things only so many use at once, oldest first, as clients show it.
+    pub(crate) fn in_use(&self) -> Vec<InUse> {
+        let state = self.state.locked();
+        let mut held: Vec<InUse> = (state.running.iter())
+            .filter(|run| !run.needs.is_empty())
+            .map(|run| InUse {
+                id: run.id,
+                label: things::labels(run),
+                agent_id: run.agent_id.clone(),
+                since: run.since,
+                waiting: things::waiting_for(&state, run),
+                until_turn_ends: run.held == Held::Turn,
+            })
+            .collect();
+        held.sort_by_key(|held| held.since);
+        held
     }
 
     /// Every heavy command running, then every one waiting in line, as clients show them.
     pub(crate) fn shown(&self) -> Vec<AgentBuild> {
         let state = self.state.locked();
-        let running = state.running.iter().map(|run| (run, None));
-        let waiting =
-            (state.waiting.iter().enumerate()).map(|(ahead, run)| (run, Some(ahead as u32)));
+        let commands = |run: &&Run| run.kind == Kind::Command;
+        let running = state.running.iter().filter(commands).map(|run| (run, None));
+        let waiting = (state.waiting.iter().filter(commands).enumerate())
+            .map(|(ahead, run)| (run, Some(ahead as u32)));
         running
             .chain(waiting)
             .take(SHOWN_ROWS)
@@ -291,16 +376,44 @@ impl Line {
     }
 
     /// Stops the heavy command `id`: what it started and the command itself, or its place in line.
-    pub(crate) fn stop(&self, id: u64) -> Result<(), String> {
+    /// A thing an agent holds for its turn goes to the next in line, and a process run holding
+    /// one stops.
+    pub(crate) fn stop(&self, core: &Core, id: u64) -> Result<(), String> {
         let mut state = self.state.locked();
         if let Some(at) = state.waiting.iter().position(|run| run.id == id) {
             let run = &state.waiting[at];
-            if run.callers.is_empty() {
+            if run.callers.is_empty() && run.kind != Kind::Process {
                 state.waiting.remove(at);
                 drop(state);
                 self.turned.notify_waiters();
                 return Ok(());
             }
+        }
+        let process = (state.running.iter().chain(&state.waiting))
+            .find(|run| run.id == id && run.kind == Kind::Process)
+            .and_then(|run| run.execution_id.clone());
+        if let Some(execution_id) = process {
+            drop(state);
+            let core = core.arc().ok_or("the core is stopping")?;
+            tokio::spawn(async move {
+                let _ = super::harness::stop_run(&core, &execution_id).await;
+            });
+            return Ok(());
+        }
+        if let Some(at) =
+            (state.running.iter()).position(|run| run.id == id && run.kind == Kind::Hold)
+        {
+            let run = state.running.remove(at);
+            drop(state);
+            if let Some(core) = core.arc() {
+                let words = format!(
+                    "The person stopped your hold on {}, so it went to whoever waits for it next.",
+                    things::labels(&run)
+                );
+                tell(&core, run.agent_id, words);
+                tidy(&core);
+            }
+            return Ok(());
         }
         let run = (state.running.iter().chain(&state.waiting))
             .find(|run| run.id == id)
@@ -354,52 +467,258 @@ impl Line {
             },
         );
         let mut woken = Vec::new();
-        let running: Vec<u64> = state.running.iter().map(|run| run.id).collect();
-        let (at_once, waiting): (Vec<Run>, Vec<Run>) = std::mem::take(&mut state.waiting)
-            .into_iter()
-            .partition(|run| {
-                !run.in_line && run.after.is_none_or(|after| !running.contains(&after))
-            });
-        state.waiting = waiting;
-        for mut run in at_once {
-            run.since = now;
-            if run.copies_output {
-                run.log = self.new_log(run.id);
-            }
-            state.running.push(run);
-        }
-        loop {
+        let mut blocked = false;
+        let mut at = 0;
+        while at < state.waiting.len() {
             let running: Vec<u64> = state.running.iter().map(|run| run.id).collect();
-            let Some(at) = state.waiting.iter().position(|run| {
-                !matches!(run.held, Held::PlaceUntil(_))
-                    && run.after.is_none_or(|after| !running.contains(&after))
-            }) else {
-                state.why.clear();
-                break;
-            };
-            if let Some(why) = why_not_yet(state, &state.waiting[at], room) {
-                state.why = why;
-                break;
+            let run = &state.waiting[at];
+            let set_aside = matches!(run.held, Held::PlaceUntil(_))
+                || run.after.is_some_and(|after| running.contains(&after));
+            if set_aside {
+                at += 1;
+                continue;
+            }
+            let wants = things::unfree(state, run, &room.around);
+            let waits_for_thing = wants.is_some();
+            state.waiting[at].wants = wants;
+            if waits_for_thing {
+                at += 1;
+                continue;
+            }
+            if state.waiting[at].in_line {
+                if blocked {
+                    at += 1;
+                    continue;
+                }
+                if let Some(why) = why_not_yet(state, &state.waiting[at], room) {
+                    state.why = why;
+                    blocked = true;
+                    at += 1;
+                    continue;
+                }
             }
             let mut run = state.waiting.remove(at);
             run.since = now;
             run.after = None;
-            if run.held == Held::ComesBack {
-                run.held = Held::RoomUntil(now + ROOM_KEPT_MS);
-                if let Some(agent_id) = &run.agent_id {
-                    woken.push(Woken {
-                        agent_id: agent_id.clone(),
-                        cwd: run.cwd.clone(),
-                        command: run.command.clone(),
-                    });
+            run.held = match (run.held, run.kind) {
+                (Held::ComesBack, _) => {
+                    if let Some(agent_id) = &run.agent_id {
+                        woken.push(Woken {
+                            agent_id: agent_id.clone(),
+                            cwd: run.cwd.clone(),
+                            command: run.command.clone(),
+                            thing: (run.kind == Kind::Hold).then(|| things::labels(&run)),
+                        });
+                    }
+                    Held::RoomUntil(now + ROOM_KEPT_MS)
                 }
-            }
+                (held, _) => held,
+            };
             if run.copies_output && run.log.is_none() {
                 run.log = self.new_log(run.id);
             }
             state.running.push(run);
         }
+        if !blocked {
+            state.why.clear();
+        }
         woken
+    }
+
+    /// `agent_id` holds the thing `name` of `project` for its turn, now when it is free, or once it
+    /// is: it is sent away, woken when the thing is free, and holds it on asking again. Answers
+    /// what the agent is told.
+    pub(crate) fn hold(
+        &self,
+        core: &Arc<Core>,
+        agent_id: &str,
+        project: &str,
+        name: &str,
+    ) -> Result<(bool, String), String> {
+        let need = things::resolve(project, Path::new(project), &[name.to_owned()])?
+            .pop()
+            .ok_or("hold needs the name of one of the project's resources")?;
+        let label = need.label.clone();
+        let key = need.key.clone();
+        let mut state = self.state.locked();
+        let mine = |run: &Run| {
+            run.kind == Kind::Hold
+                && run.is_for(agent_id)
+                && run.needs.iter().any(|held| held.key == key)
+        };
+        if let Some(run) = state.running.iter_mut().find(|run| mine(run)) {
+            run.held = Held::Turn;
+            run.since = epoch_ms();
+            drop(state);
+            tidy(core);
+            return Ok((true, format!("You hold {label} until your turn ends. Nobody else gets it meanwhile; it goes to whoever waits next once your turn ends, you close, or you make no tool call for ten minutes.")));
+        }
+        if !state.waiting.iter().any(|run| mine(run)) {
+            if let Some(other) = things::would_deadlock(&state, agent_id, &key) {
+                let other = name_of(core, &other);
+                return Err(format!(
+                    "Refused: @{other} holds {label} for its turn and waits for something you hold for yours, so each of you would wait on the other. End your turn, or finish with what you hold, before asking for {label}."
+                ));
+            }
+            state.next += 1;
+            let id = state.next;
+            state
+                .waiting
+                .push(things::turn_hold(id, agent_id, project, need));
+        }
+        let room = Room::now(core, state.outside.clone());
+        let woken = self.admit(&mut state, &room);
+        self.tend(core);
+        let granted = state.running.iter_mut().find(|run| mine(run));
+        let answer = match granted {
+            Some(run) => {
+                run.held = Held::Turn;
+                Ok((true, format!("You hold {label} until your turn ends. Nobody else gets it meanwhile; it goes to whoever waits next once your turn ends, you close, or you make no tool call for ten minutes.")))
+            }
+            None => {
+                let at = (state.waiting.iter())
+                    .position(|run| mine(run))
+                    .unwrap_or_default();
+                let wants = (state.waiting.get(at))
+                    .and_then(|run| run.wants.clone())
+                    .map(|wants| wants.words(&|agent| name_of(core, agent)))
+                    .unwrap_or_else(|| format!("{label} is in use"));
+                if let Some(run) = state.waiting.get_mut(at) {
+                    run.held = Held::ComesBack;
+                }
+                Ok((false, format!(
+                    "Not yet: {wants}. You are {} in line for it. Sikemux tells you when it is free; call hold again then, within {} s. Do other work or end your turn meanwhile.",
+                    ordinal(at + 1),
+                    ROOM_KEPT_MS / 1000
+                )))
+            }
+        };
+        let waiting = matches!(answer, Ok((false, _)));
+        self.changed(core, state);
+        for woken in woken.into_iter().filter(|woken| woken.agent_id != agent_id) {
+            match woken.thing {
+                Some(thing) => super::triggers::in_use_freed(
+                    core,
+                    &woken.agent_id,
+                    &woken.cwd,
+                    &woken.command,
+                    &thing,
+                ),
+                None => super::triggers::line_turn_came(
+                    core,
+                    &woken.agent_id,
+                    &woken.cwd,
+                    &woken.command,
+                ),
+            }
+        }
+        if waiting {
+            super::triggers::park_for_thing(core, agent_id, project, name, &label);
+        }
+        answer
+    }
+
+    /// `agent_id` called a tool, so a thing it holds for its turn stays held.
+    pub(crate) fn called(&self, agent_id: &str) {
+        self.state
+            .locked()
+            .called
+            .insert(agent_id.to_owned(), epoch_ms());
+    }
+
+    /// `agent_id`'s turn ended, and with it what it held for the turn.
+    pub(crate) fn turn_ended(&self, core: &Core, agent_id: &str) {
+        let mut state = self.state.locked();
+        let before = state.running.len();
+        state.running.retain(|run| {
+            !(run.kind == Kind::Hold && run.held == Held::Turn && run.is_for(agent_id))
+        });
+        if state.running.len() != before {
+            drop(state);
+            tidy_soon(core);
+        }
+    }
+
+    /// `agent_id` closed: what it holds goes, and its places in line with it.
+    pub(crate) fn agent_closed(&self, core: &Core, agent_id: &str) {
+        let mut state = self.state.locked();
+        let theirs =
+            |run: &Run| run.is_for(agent_id) && run.callers.is_empty() && run.kind != Kind::Process;
+        let before = state.running.len() + state.waiting.len();
+        state.running.retain(|run| !theirs(run));
+        state.waiting.retain(|run| !theirs(run));
+        state.called.remove(agent_id);
+        if state.running.len() + state.waiting.len() != before {
+            drop(state);
+            tidy_soon(core);
+        }
+    }
+
+    /// Waits until the `process_start` run `execution_id` of `agent_id`, running `label` in `cwd`,
+    /// may have everything in `needs`, which it then holds until it ends. Err when the run was
+    /// stopped meanwhile.
+    pub(crate) async fn wait_for_needs(
+        &self,
+        core: &Arc<Core>,
+        execution_id: &str,
+        agent_id: Option<String>,
+        cwd: &str,
+        label: &str,
+        needs: Vec<Need>,
+    ) -> Result<(), String> {
+        let ports: Vec<u16> = needs.iter().filter_map(|need| need.port).collect();
+        let outside = super::connection::blocking(move || Ok(things::outside_holders(&ports)))
+            .await
+            .unwrap_or_default();
+        let id = {
+            let mut state = self.state.locked();
+            state.outside.extend(outside);
+            state.next += 1;
+            let id = state.next;
+            let first = needs.first().cloned().ok_or("no needs")?;
+            let mut run =
+                things::turn_hold(id, agent_id.as_deref().unwrap_or_default(), cwd, first);
+            run.needs = needs;
+            run.agent_id = agent_id;
+            run.kind = Kind::Process;
+            run.held = Held::Core;
+            run.command = label.to_owned();
+            run.execution_id = Some(execution_id.to_owned());
+            state.waiting.push(run);
+            id
+        };
+        self.tend(core);
+        tidy(core);
+        loop {
+            if self.state.locked().running.iter().any(|run| run.id == id) {
+                return Ok(());
+            }
+            let stopped = core
+                .harness()
+                .run_of(execution_id)
+                .is_none_or(|run| !run.status.is_active());
+            if stopped {
+                self.state.locked().waiting.retain(|run| run.id != id);
+                tidy(core);
+                return Err("it was stopped while it waited for what it needs".to_owned());
+            }
+            let _ = tokio::time::timeout(LOOK_EVERY, self.turned.notified()).await;
+        }
+    }
+
+    /// The process run `execution_id` ended, and with it what it held.
+    pub(crate) fn run_ended(&self, core: &Core, execution_id: &str) {
+        let mut state = self.state.locked();
+        let before = state.running.len() + state.waiting.len();
+        let ended = |run: &Run| {
+            run.kind == Kind::Process && run.execution_id.as_deref() == Some(execution_id)
+        };
+        state.running.retain(|run| !ended(run));
+        state.waiting.retain(|run| !ended(run));
+        if state.running.len() + state.waiting.len() != before {
+            drop(state);
+            tidy_soon(core);
+        }
     }
 
     fn new_log(&self, id: u64) -> Option<PathBuf> {
@@ -453,16 +772,114 @@ impl super::part::Part for Line {
     }
 }
 
-/// Starts what may start, wakes the agents whose turn came, and tells callers the line moved.
+/// Starts what may start, wakes the agents whose turn came, lets go of turn holds whose agent
+/// went quiet, and tells callers the line moved.
 fn tidy(core: &Arc<Core>) {
     let line = core.line();
-    let room = Room::now(core);
+    let outside = line.state.locked().outside.clone();
+    let room = Room::now(core, outside);
     let mut state = line.state.locked();
+    let now = epoch_ms();
+    let idle = things::idle_holds(&state, &state.called, now);
+    let mut quiet = Vec::new();
+    state.running.retain(|run| match idle.contains(&run.id) {
+        true => {
+            quiet.push((run.agent_id.clone(), things::labels(run)));
+            false
+        }
+        false => true,
+    });
+    let long_ids = things::held_long(&state, now);
+    let long: Vec<(Option<String>, String, u32)> = (state.running.iter())
+        .filter(|run| long_ids.contains(&run.id))
+        .map(|run| {
+            (
+                run.agent_id.clone(),
+                things::labels(run),
+                things::waiting_for(&state, run),
+            )
+        })
+        .collect();
+    for run in (state.running.iter_mut()).filter(|run| long_ids.contains(&run.id)) {
+        run.told_long = true;
+    }
     let woken = line.admit(&mut state, &room);
     line.changed(core, state);
     for woken in woken {
-        super::triggers::line_turn_came(core, &woken.agent_id, &woken.cwd, &woken.command);
+        match woken.thing {
+            Some(thing) => super::triggers::in_use_freed(
+                core,
+                &woken.agent_id,
+                &woken.cwd,
+                &woken.command,
+                &thing,
+            ),
+            None => {
+                super::triggers::line_turn_came(core, &woken.agent_id, &woken.cwd, &woken.command)
+            }
+        }
     }
+    for (agent, thing) in quiet {
+        let words = format!("You held {thing} for your turn but made no tool call for a while, so it went to whoever waits for it next. Call hold again when you need it.");
+        tell(core, agent, words);
+    }
+    for (agent, thing, waiting) in long {
+        held_long(core, agent, &thing, waiting);
+    }
+}
+
+/// Looks at the line again, from where only the core itself is at hand.
+fn tidy_soon(core: &Core) {
+    if let Some(core) = core.arc() {
+        tidy(&core);
+    }
+}
+
+/// Hands `words` to `agent`, from Sikemux, when there is an agent.
+fn tell(core: &Arc<Core>, agent: Option<String>, words: String) {
+    let Some(agent) = agent else {
+        return;
+    };
+    let core = core.clone();
+    tokio::spawn(async move {
+        let why = "about something it holds that only one agent uses at a time";
+        let _ = super::messages::work_from_sikemux(&core, agent, words, why).await;
+    });
+}
+
+/// Tells the lead of `agent`, or the person when it has none, that it has held `thing` long
+/// while others wait. The holder is never stopped for it.
+fn held_long(core: &Arc<Core>, agent: Option<String>, thing: &str, waiting: u32) {
+    let who = agent
+        .as_deref()
+        .map(|agent| format!("@{}", name_of(core, agent)));
+    let words = format!(
+        "{} has held {thing} for over half an hour while {waiting} {} for it. Nothing stops it for taking long; ask it to finish, or stop it from the host's list of what is in use.",
+        who.as_deref().unwrap_or("A process"),
+        if waiting == 1 { "waits" } else { "wait" },
+    );
+    let lead = agent.as_deref().and_then(|agent| lead_of(core, agent));
+    match (lead, agent) {
+        (Some(lead), _) => tell(core, Some(lead), words),
+        (None, Some(agent)) => core.notify().send(super::notify::Signal::Problem {
+            agent_id: agent,
+            message: words,
+        }),
+        (None, None) => {}
+    }
+}
+
+/// The agent that started `agent_id`, on this host or a linked one.
+fn lead_of(core: &Core, agent_id: &str) -> Option<String> {
+    let started_by = (core.chats().get(agent_id)).and_then(|chat| chat.origin.started_by.clone());
+    started_by.or_else(|| core.hosts().team.get(agent_id)?.parent)
+}
+
+/// What the person calls `agent_id`.
+fn name_of(core: &Core, agent_id: &str) -> String {
+    core.names()
+        .get(agent_id)
+        .map_or_else(|| agent_id.to_owned(), |named| named.name)
 }
 
 /// About how long the run waiting at `at` waits from now: what the ones ahead of it take, once
@@ -489,7 +906,9 @@ fn expected_wait(state: &State, at: usize) -> Option<u64> {
 
 /// Why the run `first` may not start yet, if it may not.
 fn why_not_yet(state: &State, first: &Run, room: &Room) -> Option<String> {
-    let busy: Vec<&Run> = state.running.iter().filter(|run| !run.released).collect();
+    let busy: Vec<&Run> = (state.running.iter())
+        .filter(|run| !run.released && run.kind == Kind::Command)
+        .collect();
     if busy.is_empty() {
         return None;
     }
@@ -532,8 +951,13 @@ fn why_not_yet(state: &State, first: &Run, room: &Room) -> Option<String> {
 /// memory. False once nothing runs or waits, and the tending stops.
 fn measure(core: &Arc<Core>) -> bool {
     let line = core.line();
+    let ports: Vec<u16> = (line.state.locked().waiting.iter())
+        .flat_map(|run| run.needs.iter().filter_map(|need| need.port))
+        .collect();
+    let outside = things::outside_holders(&ports);
     let pids: Vec<(u64, u32)> = {
-        let state = line.state.locked();
+        let mut state = line.state.locked();
+        state.outside = outside;
         if state.running.is_empty() && state.waiting.is_empty() && state.finished.is_empty() {
             line.tending.store(false, Ordering::Release);
             return false;
@@ -637,6 +1061,12 @@ impl Turn {
             .map(|key| (core.workspaces().project_of(Path::new(&cwd)), key));
         let expected = (measured.as_ref()).and_then(|(project, key)| line.sizes.of(project, key));
         let agent = request.agent_id.clone();
+        let needs = match &measured {
+            Some((project, _)) => {
+                things::resolve(project, Path::new(&cwd), &request.needs).unwrap_or_default()
+            }
+            None => Vec::new(),
+        };
         let same_since = {
             let state = line.state.locked();
             (state.running.iter())
@@ -690,6 +1120,10 @@ impl Turn {
                         peak: 0,
                         holds: 0,
                         measured_once: false,
+                        needs: needs.clone(),
+                        kind: Kind::Command,
+                        wants: None,
+                        told_long: false,
                     };
                     let at = state
                         .waiting
@@ -740,7 +1174,10 @@ impl Turn {
         }
         if let Some(at) = state.waiting.iter().position(|run| run.id == self.run) {
             let after = state.waiting[at].after;
+            let wants = (state.waiting[at].wants.as_ref())
+                .map(|wants| wants.words(&|agent| name_of(&self.core, agent)));
             let why = match at {
+                _ if wants.is_some() => wants.unwrap_or_default(),
                 _ if after.is_some_and(|after| state.running.iter().any(|run| run.id == after)) => {
                     "the same command runs here already, started before a file changed, so this one runs once it ends".to_owned()
                 }
@@ -960,4 +1397,18 @@ fn ordinal(place: usize) -> String {
 /// Rounded up to whole minutes, as the apps word the same wait.
 fn about(ms: u64) -> String {
     format!("about {} min", ms.div_ceil(60_000).max(1))
+}
+
+/// The `hold` tool: the calling agent holds one of its project's things for its turn.
+pub(crate) fn hold_tool(
+    core: &Arc<Core>,
+    request: &crate::cli::protocol::HarnessRequest,
+) -> Result<serde_json::Value, String> {
+    let agent_id = super::caller::agent_of(request, "hold")?;
+    let name = (request.params.get("name"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or("hold needs name: one of the resources in sikemux.json")?;
+    let project = super::caller::project_of(core, request);
+    let (held, note) = core.line().hold(core, &agent_id, &project, name)?;
+    Ok(serde_json::json!({ "held": held, "note": note }))
 }
