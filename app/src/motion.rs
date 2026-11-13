@@ -127,6 +127,8 @@ pub const TEXT_SWAP: Ease = Ease::new(140, Curve::OUT);
 /// A small control coming up over what it floats on, and going again, as the way back to a
 /// chat's latest message.
 pub const POP_UP: Ease = Ease::new(150, Curve::OUT);
+/// A new chat's glow handing over to the pane field once its first message is sent.
+pub const GROUND_SWAP: Ease = Ease::new(500, Curve::CSS);
 
 /// The angle of a fold's chevron, open or shut.
 pub fn fold_angle(open: bool) -> f32 {

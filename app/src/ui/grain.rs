@@ -12,8 +12,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use gpui::{
-    canvas, relative, App, AppContext, Context, Global, Hsla, IntoElement, RawShaderProgram,
-    RenderImage, Rgba, Styled, Task, Window,
+    canvas, div, relative, AnyElement, App, AppContext, Context, Global, Hsla, IntoElement,
+    ParentElement, RawShaderProgram, RenderImage, Rgba, Styled, Task, Window,
 };
 use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern, Preferences};
 
@@ -34,6 +34,7 @@ static PICTURE: RawShaderProgram = program!("picture");
 static SKY: RawShaderProgram = program!("sky");
 static POSTER_MARK: RawShaderProgram = program!("poster_mark");
 static TILE: RawShaderProgram = program!("tile");
+static GLOW: RawShaderProgram = program!("glow");
 
 static MARK_PNG: &[u8] = include_bytes!("../../../brand/mark/mark-white-256.png");
 /// How much of the distance between dots each dot fills, and how solid they are.
@@ -47,6 +48,7 @@ const FRAMES_PER_SECOND: u64 = 30;
 const BATTERY_FRAMES_PER_SECOND: u64 = 20;
 const FIELD_SPEED: f32 = 0.5;
 const SKY_SPEED: f32 = 0.35;
+const GLOW_SPEED: f32 = 1.;
 const TILE_SPEED: f32 = 1.2;
 /// The setup's tiles and mark move in seconds.
 const BREATHE_SPEED: f32 = 1.;
@@ -77,6 +79,7 @@ pub struct Grain {
     picture: Option<(Baked, Arc<RenderImage>)>,
     reading: Option<Baked>,
     skies: usize,
+    glowing: bool,
 }
 
 impl Global for Grain {}
@@ -167,7 +170,9 @@ impl Grain {
     /// Only the grain moves: a picture holds still, and one still being read or a grain at no
     /// strength paints nothing.
     fn moving(&self) -> bool {
-        self.skies > 0 || (self.shown && self.strength > 0. && self.wanted.is_none())
+        self.skies > 0
+            || self.glowing
+            || (self.shown && self.strength > 0. && self.wanted.is_none())
     }
 }
 
@@ -200,6 +205,7 @@ pub fn set(preferences: &Preferences, cx: &mut App) {
         picture,
         reading,
         skies: old.skies,
+        glowing: old.glowing,
     };
     let changed = cx.try_global::<Grain>().is_none()
         || grain.shown != old.shown
@@ -292,25 +298,75 @@ fn bake(path: &Path, glow_size: f32) -> Option<Arc<RenderImage>> {
 }
 
 /// What fills a pane's frame behind everything the pane shows.
-pub fn field(cx: &App) -> Option<impl IntoElement> {
+pub fn field(cx: &App) -> Option<AnyElement> {
+    field_at(cx).map(|draw| draw(1.))
+}
+
+/// What fills an agent pane's frame: its usual field, crossing over to a new chat's glow as
+/// `glow` runs from 0 to 1.
+pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
+    let field = field_at(cx);
+    let accent = Tokens::get(cx).accent.to_rgb();
+    let (start, speed) = clock(GLOW_SPEED, cx);
+    move |glow| {
+        div()
+            .absolute()
+            .inset_0()
+            .children(
+                field
+                    .as_ref()
+                    .filter(|_| glow < 1.)
+                    .map(|draw| draw(1. - glow)),
+            )
+            .children((glow > 0.).then(|| {
+                canvas(
+                    |_, _, _| {},
+                    move |bounds, (), window, _| {
+                        let mut params = [0.; gpui::RAW_SHADER_PARAMS];
+                        params[..4].copy_from_slice(&[
+                            start,
+                            speed,
+                            window.ground_scale(),
+                            inner_radius(),
+                        ]);
+                        params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, glow]);
+                        let _ = window.paint_ground_shader(bounds, &GLOW, params, None);
+                    },
+                )
+                .absolute()
+                .inset_0()
+            }))
+            .into_any_element()
+    }
+}
+
+fn inner_radius() -> f32 {
+    f32::from(RADIUS_3) - 1.
+}
+
+/// The pane's field drawn as solid as the number it is given, from 0 to 1.
+fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
     let grain = cx
         .try_global::<Grain>()
         .filter(|grain| grain.shown && grain.strength > 0.)?;
-    let inner_radius = f32::from(RADIUS_3) - 1.;
     if let Some((_, picture)) = &grain.picture {
         let band = match grain.look.full {
             true => relative(1.),
             false => relative(PICTURE_BAND),
         };
-        return Some(
-            picture_canvas(grain, picture.clone(), inner_radius, true, cx)
+        let params = picture_params(grain, cx);
+        let picture = picture.clone();
+        return Some(Rc::new(move |solid| {
+            let mut params = params;
+            params[2] *= solid;
+            picture_canvas(params, picture.clone(), inner_radius(), true)
                 .absolute()
                 .top_0()
                 .left_0()
                 .w_full()
                 .h(band)
-                .into_any_element(),
-        );
+                .into_any_element()
+        }));
     }
     if grain.wanted.is_some() {
         return None;
@@ -318,7 +374,7 @@ pub fn field(cx: &App) -> Option<impl IntoElement> {
     let dot = Tokens::get(cx).shader_dot.to_rgb();
     let (start, speed) = clock(FIELD_SPEED, cx);
     let alpha = (dot.a * FIELD_OPACITY * grain.strength).min(1.);
-    Some(
+    Some(Rc::new(move |solid| {
         canvas(
             |_, _, _| {},
             move |bounds, (), window, _| {
@@ -327,19 +383,28 @@ pub fn field(cx: &App) -> Option<impl IntoElement> {
                     start,
                     speed,
                     window.ground_scale(),
-                    inner_radius,
+                    inner_radius(),
                     dot.r,
                     dot.g,
                     dot.b,
-                    alpha,
+                    alpha * solid,
                 ]);
                 let _ = window.paint_ground_shader(bounds, &FIELD, params, None);
             },
         )
         .absolute()
         .inset_0()
-        .into_any_element(),
-    )
+        .into_any_element()
+    }))
+}
+
+/// Keeps the ground moving while a new chat's glow is on screen.
+pub fn glow_shown(shown: bool, cx: &mut App) {
+    let mut grain = cx.try_global::<Grain>().cloned().unwrap_or_default();
+    if grain.glowing != shown {
+        grain.glowing = shown;
+        cx.set_global(grain);
+    }
 }
 
 /// The pane picture as the preferences draw it now, for Settings to show beside its controls,
@@ -348,23 +413,25 @@ pub fn picture_preview(cx: &App) -> Option<impl IntoElement + Styled> {
     let grain = cx.try_global::<Grain>()?;
     let (_, picture) = grain.picture.as_ref()?;
     Some(picture_canvas(
-        grain,
+        picture_params(grain, cx),
         picture.clone(),
         f32::from(RADIUS_3),
         false,
-        cx,
     ))
 }
 
+fn picture_params(grain: &Grain, cx: &App) -> [f32; gpui::RAW_SHADER_PARAMS] {
+    let mut params = grain.look.params(cx);
+    params[2] = (PICTURE_OPACITY * grain.strength).min(1.);
+    params
+}
+
 fn picture_canvas(
-    grain: &Grain,
+    params: [f32; gpui::RAW_SHADER_PARAMS],
     picture: Arc<RenderImage>,
     radius: f32,
     ground: bool,
-    cx: &App,
 ) -> impl IntoElement + Styled {
-    let mut params = grain.look.params(cx);
-    params[2] = (PICTURE_OPACITY * grain.strength).min(1.);
     canvas(
         |_, _, _| {},
         move |bounds, (), window, _| {

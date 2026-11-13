@@ -16,8 +16,14 @@ use crate::theme::{
 /// How far an agent pane's contents sit inside its frame, as on the Mac.
 pub const AGENT_INSET: f32 = 6.;
 
-/// A pane's frame. Panes paint no ground of their own: the shell's shows through.
+/// A pane's frame over the pane field. Panes paint no ground of their own: the shell's shows
+/// through.
 pub fn pane(cx: &App) -> Div {
+    pane_frame(cx).children(super::grain::field(cx))
+}
+
+/// A pane's frame with nothing behind what it shows.
+pub fn pane_frame(cx: &App) -> Div {
     div()
         .relative()
         .size_full()
@@ -25,7 +31,6 @@ pub fn pane(cx: &App) -> Div {
         .border_1()
         .border_color(Tokens::get(cx).border)
         .rounded(RADIUS_3)
-        .children(super::grain::field(cx))
 }
 
 /// A detail panel that floats over the right of a page, which stays in view behind it.

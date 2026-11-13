@@ -36,6 +36,18 @@ pub const METRICS: [(Metric, &str); 5] = [
 /// The stage: the tab in front, its views side by side, or what a project with nothing
 /// open says.
 pub fn stage(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
+    GLOWING.set(false);
+    let stage = stage_shown(bench, window, cx);
+    crate::ui::grain::glow_shown(GLOWING.get(), cx);
+    stage
+}
+
+thread_local! {
+    /// Whether a view drawn in this pass of the stage shows a new chat's glow.
+    static GLOWING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn stage_shown(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
     if bench.settings.read(cx).is_open() {
         return crate::settings::view(bench, window, cx);
     }
@@ -81,8 +93,24 @@ pub fn agent_view(
         .as_ref()
         .filter(|_| project.is_some())
         .map(|agent| pane_header(bench, agent, tab, view, cx));
+    let glowing = welcoming(bench, agent.as_ref(), cx);
     let shown = agent_shown(bench, agent.as_ref(), cx);
-    under_header(header, shown, cx)
+    under_header(header, shown, (view, glowing), cx)
+}
+
+/// Whether an agent's view opens on the welcome: a chat with nothing said in it yet.
+fn welcoming(bench: &Workbench, agent: Option<&AgentRow>, cx: &App) -> bool {
+    let Some(agent) = agent else {
+        return true;
+    };
+    if bench.in_terminal(&agent.id) {
+        return false;
+    }
+    bench
+        .chats
+        .open
+        .get(&agent.id)
+        .is_none_or(|chat| chat.is_new(cx))
 }
 
 /// What an agent's view shows under its header.
@@ -122,15 +150,27 @@ fn agent_shown(
         .into_any_element()
 }
 
-/// An agent pane: its header across the top, and what it shows below it.
+/// An agent pane: its header across the top, and what it shows below it, over the glow of a
+/// new chat while the view, by its id, is `glowing`, and the pane field once it is not.
 fn under_header(
     header: Option<impl IntoElement>,
     shown: impl IntoElement,
+    (view, glowing): (&str, bool),
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    ui::pane(cx)
+    if glowing {
+        GLOWING.set(true);
+    }
+    let ground = crate::ui::grain::pane_ground(cx);
+    ui::pane_frame(cx)
         .flex()
         .flex_col()
+        .child(crate::motion::animated(
+            SharedString::from(format!("pane-ground:{view}")),
+            if glowing { 1. } else { 0. },
+            crate::motion::GROUND_SWAP,
+            ground,
+        ))
         .children(header)
         .child(div().flex_1().min_h_0().p(px(ui::AGENT_INSET)).child(shown))
         .into_any_element()
