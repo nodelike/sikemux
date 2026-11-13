@@ -536,7 +536,7 @@ fn opened_detail(
         cx,
     );
     (shown > 0.).then(|| {
-        let detail = detail(call, looks);
+        let detail = detail(call, looks, cx);
         motion::folded(
             ElementId::Name(format!("call-body:{id}").into()),
             shown,
@@ -824,7 +824,7 @@ pub(super) fn spine(last: bool, looks: &Drawn) -> Div {
 }
 
 /// What an opened call did: its change, the command and what it printed, or why it failed.
-fn detail(call: &Call, looks: &Drawn) -> AnyElement {
+fn detail(call: &Call, looks: &Drawn, cx: &mut App) -> AnyElement {
     let id = &call.tool.tool_call_id;
     let asked = looks.reading.tools.details.get(id);
     let held = asked.and_then(|asked| asked.detail.as_ref());
@@ -833,7 +833,7 @@ fn detail(call: &Call, looks: &Drawn) -> AnyElement {
             .map(|diff| diff_body(id, &diff.lines, looks).into_any_element())
     } else if call.command().is_some() || call.output.is_some() {
         let picture = asked.and_then(|asked| asked.picture.clone());
-        Some(terminal(call, held, picture, looks).into_any_element())
+        Some(terminal(call, held, picture, looks, cx).into_any_element())
     } else {
         call.failure.map(|failure| {
             div()
@@ -867,6 +867,7 @@ fn terminal(
     held: Option<&ToolDetail>,
     picture: Option<Picture>,
     looks: &Drawn,
+    cx: &mut App,
 ) -> Div {
     let id = call.tool.tool_call_id.clone();
     let output = held.and_then(|held| held.output.as_ref());
@@ -954,6 +955,7 @@ fn terminal(
             px(440.),
             looks.bench.clone(),
             looks.quiet,
+            cx,
         ))
     });
     let printed = output.filter(|_| !shown.is_empty()).map(|_| {

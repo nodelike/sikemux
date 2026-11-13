@@ -328,17 +328,8 @@ impl Picture {
     /// The picture as `img` draws it no larger than `longest` points: from a copy decoded at
     /// twice that, for a sharp screen, where it would otherwise be decoded whole.
     pub fn source_at(&self, longest: Pixels) -> ImageSource {
-        let picture = match self {
-            Picture::File(path) if format_of(path).is_some_and(shrinks) => {
-                Shrunk::File(path.clone())
-            }
-            Picture::Sent { image, .. } if shrinks(image.format) => Shrunk::Sent(image.clone()),
-            Picture::Remote(remote) => Shrunk::Remote(remote.clone()),
-            _ => return self.source(),
-        };
-        let thumb = Thumb {
-            picture,
-            longest: (f32::from(longest) * 2.).ceil() as u32,
+        let Some(thumb) = self.thumb(longest) else {
+            return self.source();
         };
         ImageSource::Custom(Arc::new(move |window, cx| {
             let image = window.use_asset::<Thumbnail>(&thumb, cx);
@@ -347,6 +338,33 @@ impl Picture {
             }
             image
         }))
+    }
+
+    fn thumb(&self, longest: Pixels) -> Option<Thumb> {
+        let picture = match self {
+            Picture::File(path) if format_of(path).is_some_and(shrinks) => {
+                Shrunk::File(path.clone())
+            }
+            Picture::Sent { image, .. } if shrinks(image.format) => Shrunk::Sent(image.clone()),
+            Picture::Remote(remote) => Shrunk::Remote(remote.clone()),
+            _ => return None,
+        };
+        Some(Thumb {
+            picture,
+            longest: (f32::from(longest) * 2.).ceil() as u32,
+        })
+    }
+
+    /// The size its thumbnail draws at inside `room`, once that thumbnail has loaded.
+    fn fitted(&self, room: Size<Pixels>, cx: &mut App) -> Option<Size<Pixels>> {
+        let thumb = self.thumb(room.width.max(room.height))?;
+        let loaded = cx.fetch_asset::<Thumbnail>(&thumb)?.ok()?;
+        let pixels = loaded.size(0);
+        let natural = size(px(pixels.width.0 as f32), px(pixels.height.0 as f32));
+        let scale = (room.width / natural.width)
+            .min(room.height / natural.height)
+            .min(1.);
+        Some(size(natural.width * scale, natural.height * scale))
     }
 
     /// The picture's own size, once it has loaded.
@@ -399,8 +417,13 @@ pub fn thumb(
     height: Pixels,
     bench: WeakEntity<Workbench>,
     quiet: Hsla,
+    cx: &mut App,
 ) -> Div {
     let source = picture.source_at(width.max(height));
+    let shown = match picture.fitted(size(width, height), cx) {
+        Some(fitted) => img(source).w(fitted.width).h(fitted.height),
+        None => img(source).max_w(width).max_h(height),
+    };
     let clickable = div()
         .id(id)
         .max_w(width)
@@ -414,17 +437,11 @@ pub fn thumb(
                 })
                 .ok();
         })
-        .child(
-            img(source)
-                .max_w(width)
-                .max_h(height)
-                .object_fit(ObjectFit::Contain)
-                .with_fallback(move || {
-                    ui::text(t!("Couldn't load the picture"), TEXT_XS, FontWeight::NORMAL)
-                        .text_color(quiet)
-                        .into_any_element()
-                }),
-        );
+        .child(shown.object_fit(ObjectFit::Contain).with_fallback(move || {
+            ui::text(t!("Couldn't load the picture"), TEXT_XS, FontWeight::NORMAL)
+                .text_color(quiet)
+                .into_any_element()
+        }));
     div().flex().child(clickable)
 }
 

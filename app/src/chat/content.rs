@@ -28,6 +28,7 @@ pub fn image(
     bench: &WeakEntity<Workbench>,
     asks: &UnboundedSender<Ask>,
     quiet: Hsla,
+    cx: &mut App,
 ) -> AnyElement {
     let picture = match link::local_path(src) {
         Some(path) => Picture::File(path),
@@ -40,6 +41,7 @@ pub fn image(
         px(HEIGHT),
         bench.clone(),
         quiet,
+        cx,
     )
     .into_any_element()
 }
@@ -87,6 +89,7 @@ pub fn content(
                 px(HEIGHT),
                 looks.bench.clone(),
                 looks.quiet,
+                cx,
             ))
             .into_any_element();
     }

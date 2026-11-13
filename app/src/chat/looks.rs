@@ -252,8 +252,8 @@ impl Looks {
             })),
             image: Some(Rc::new({
                 let (bench, quiet) = (bench.clone(), t.text_tertiary);
-                move |src: &str, _: &str, _: &mut Window, _: &mut App| {
-                    content::image(src, &bench, &asks, quiet)
+                move |src: &str, _: &str, _: &mut Window, cx: &mut App| {
+                    content::image(src, &bench, &asks, quiet, cx)
                 }
             })),
             ..Style::default()
