@@ -430,6 +430,7 @@ struct InboxItem: Codable, Hashable {
     let agentId: String?
     let name: String?
     let cli: String?
+    let project: String?
     /// What to call `project`.
     let projectName: String?
     /// What is needed or what happened, in a line.
@@ -595,6 +596,8 @@ struct AgentShown: Codable, Hashable {
     /// The face it wears, as the workspace's agent does; none while it shows
     /// its CLI's logo.
     let face: AgentFace?
+    /// The workspace project it is in, by id; none for one outside every project.
+    let project: String?
     /// What to call where it works: its project, else its folder.
     let projectName: String?
     /// The attempt it is retrying a failed request on, 0 when it did not say.

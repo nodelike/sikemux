@@ -378,8 +378,8 @@ final class NotchStore {
     /// The project shown first when starting an agent: the one most of the inbox is in.
     var defaultProject: ProjectInfo? {
         let projects = view.workspace.projects
-        let counts = Dictionary(grouping: entries, by: \.project).mapValues(\.count)
-        return projects.max { (counts[$0.name] ?? 0) < (counts[$1.name] ?? 0) } ?? projects.first
+        let counts = Dictionary(grouping: entries, by: \.projectId).mapValues(\.count)
+        return projects.max { (counts[$0.id] ?? 0) < (counts[$1.id] ?? 0) } ?? projects.first
     }
 
     /// How many calls wait on you, or with none how many items need you, how many agents work, how many subagents and shells run across every agent, and

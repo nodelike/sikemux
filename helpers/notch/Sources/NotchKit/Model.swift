@@ -85,6 +85,8 @@ struct Entry: Identifiable, Equatable {
     var name: String? { item?.name ?? agent?.name }
     var provider: String { item?.cli ?? agent?.cli ?? "" }
     var project: String { item?.projectName ?? agent?.projectName ?? "" }
+    /// The workspace project it is in, by id, which tells apart two projects of one name.
+    var projectId: String? { agent?.project ?? item?.project }
     /// What the core says its row leads with; an agent the inbox has nothing about goes by its title.
     var title: String { item?.heading ?? agent?.title ?? "" }
     /// The attempt its agent is retrying a failed request on, 0 when it did not say.
@@ -172,7 +174,7 @@ extension DeviceView {
     /// follow, as they were.
     func byProject(_ entries: [Entry]) -> [Entry] {
         let projects = workspace.projects
-        func belongs(_ entry: Entry, _ project: ProjectInfo) -> Bool { entry.project == project.name }
+        func belongs(_ entry: Entry, _ project: ProjectInfo) -> Bool { entry.projectId == project.id }
         func rank(_ project: ProjectInfo) -> Int {
             switch project.standing {
             case .needsYou: 0

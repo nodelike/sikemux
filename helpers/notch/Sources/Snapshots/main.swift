@@ -47,36 +47,36 @@ let fixture = #"""
   ],
   "faceStyle": {"motion": true},
   "inbox": {"working": 2, "rollup": {"subagents": 3, "tasks": 2}, "agents": [
-    {"agentId": "c1", "chief": true, "name": "Chief", "cli": "claude", "projectName": "sikemux", "title": "Friendlier welcome screen", "turn": {"state": "working", "since": AGO(40)}, "group": "working", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a1", "name": "Otter", "cli": "claude", "projectName": "sikemux", "title": "Fix the login flake", "turn": {"state": "needsYou", "since": AGO(134), "call": {"id": "p1", "question": "Run pnpm test?", "waitingSince": AGO(134), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a9", "name": "Maple", "cli": "codex", "projectName": "server", "title": "Move the ledger import", "turn": {"state": "needsYou", "since": AGO(60), "call": {"id": "q1", "question": "Cents or decimals?", "waitingSince": AGO(60), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front", "title": "Bump Astro to 6", "turn": {"state": "done", "since": AGO(70), "done": {"changes": "landed", "checks": "pass"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(1080)},
-    {"agentId": "a10", "name": "Pine", "cli": "claude", "projectName": "server", "title": "Rotate the signing keys", "turn": {"state": "failed", "since": AGO(300), "failed": {"why": "other", "said": "The keychain refused the new key"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a11", "name": "Moss", "cli": "claude", "projectName": "sikemux", "title": "Tidy the changelog", "turn": {"state": "stopped", "since": AGO(900), "stopped": {"left": "Tidy the 0.6 section"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a20", "name": "Moss", "cli": "claude", "projectName": "sikemux", "title": "Tidy the changelog", "turn": {"state": "waiting", "since": AGO(903), "wait": {"kind": "line", "what": "cargo test", "startedAt": AGO(90), "place": 2, "expectedMs": 240000}}, "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "line": {"what": "cargo test", "place": 2, "expectedMs": 240000}},
-    {"agentId": "a2", "name": "Flint", "cli": "codex", "projectName": "server", "title": "Refactor the auth middleware", "turn": {"state": "working", "since": AGO(252)}, "group": "working", "failed": false, "subagents": 3, "tasks": 0},
-    {"agentId": "a3", "name": "Wren", "cli": "opencode", "projectName": "sikemux", "reconnecting": 3, "title": "Draft the notch spec", "turn": {"state": "working", "since": AGO(48)}, "group": "working", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a5", "name": "Heron", "cli": "claude", "projectName": "sikemux", "title": "Profile the terminal flood", "turn": {"state": "waiting", "since": AGO(180), "wait": {"kind": "ci", "what": "CI on the flood fix", "startedAt": AGO(180), "expectedMs": 420000}}, "group": "idle", "failed": false, "subagents": 0, "tasks": 2},
-    {"agentId": "a12", "name": "Kite", "cli": "claude", "projectName": "storefront", "title": "Ship the new welcome screen", "turn": {"state": "needsYou", "since": AGO(720), "call": {"id": "7", "question": "Ship the new welcome screen?", "waitingSince": AGO(720), "count": 2}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a13", "name": "Yuki", "cli": "claude", "projectName": "server", "title": "Add bank transfer to invoices", "turn": {"state": "needsYou", "since": AGO(120), "call": {"id": "w1", "question": "Ship bank transfer?", "waitingSince": AGO(120), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "t1", "name": "Cedar", "cli": "claude", "projectName": "sikemux-front", "session": 7, "title": "Tighten the rail spacing", "turn": {"state": "waiting", "since": AGO(60), "wait": {"kind": "timer", "what": "Check the rail again", "startedAt": AGO(60), "until": IN(10800)}}, "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(10800)}
+    {"agentId": "c1", "chief": true, "name": "Chief", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux", "title": "Friendlier welcome screen", "turn": {"state": "working", "since": AGO(40)}, "group": "working", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a1", "name": "Otter", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux", "title": "Fix the login flake", "turn": {"state": "needsYou", "since": AGO(134), "call": {"id": "p1", "question": "Run pnpm test?", "waitingSince": AGO(134), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a9", "name": "Maple", "cli": "codex", "project": "p-server", "projectName": "server", "title": "Move the ledger import", "turn": {"state": "needsYou", "since": AGO(60), "call": {"id": "q1", "question": "Cents or decimals?", "waitingSince": AGO(60), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a4", "name": "Birch", "cli": "grok", "project": "p-front", "projectName": "sikemux-front", "title": "Bump Astro to 6", "turn": {"state": "done", "since": AGO(70), "done": {"changes": "landed", "checks": "pass"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(1080)},
+    {"agentId": "a10", "name": "Pine", "cli": "claude", "project": "p-server", "projectName": "server", "title": "Rotate the signing keys", "turn": {"state": "failed", "since": AGO(300), "failed": {"why": "other", "said": "The keychain refused the new key"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a11", "name": "Moss", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux", "title": "Tidy the changelog", "turn": {"state": "stopped", "since": AGO(900), "stopped": {"left": "Tidy the 0.6 section"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a20", "name": "Moss", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux", "title": "Tidy the changelog", "turn": {"state": "waiting", "since": AGO(903), "wait": {"kind": "line", "what": "cargo test", "startedAt": AGO(90), "place": 2, "expectedMs": 240000}}, "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "line": {"what": "cargo test", "place": 2, "expectedMs": 240000}},
+    {"agentId": "a2", "name": "Flint", "cli": "codex", "project": "p-server", "projectName": "server", "title": "Refactor the auth middleware", "turn": {"state": "working", "since": AGO(252)}, "group": "working", "failed": false, "subagents": 3, "tasks": 0},
+    {"agentId": "a3", "name": "Wren", "cli": "opencode", "project": "p-sikemux", "projectName": "sikemux", "reconnecting": 3, "title": "Draft the notch spec", "turn": {"state": "working", "since": AGO(48)}, "group": "working", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a5", "name": "Heron", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux", "title": "Profile the terminal flood", "turn": {"state": "waiting", "since": AGO(180), "wait": {"kind": "ci", "what": "CI on the flood fix", "startedAt": AGO(180), "expectedMs": 420000}}, "group": "idle", "failed": false, "subagents": 0, "tasks": 2},
+    {"agentId": "a12", "name": "Kite", "cli": "claude", "project": "p-storefront", "projectName": "storefront", "title": "Ship the new welcome screen", "turn": {"state": "needsYou", "since": AGO(720), "call": {"id": "7", "question": "Ship the new welcome screen?", "waitingSince": AGO(720), "count": 2}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a13", "name": "Yuki", "cli": "claude", "project": "p-server", "projectName": "server", "title": "Add bank transfer to invoices", "turn": {"state": "needsYou", "since": AGO(120), "call": {"id": "w1", "question": "Ship bank transfer?", "waitingSince": AGO(120), "count": 1}}, "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "t1", "name": "Cedar", "cli": "claude", "project": "p-front", "projectName": "sikemux-front", "session": 7, "title": "Tighten the rail spacing", "turn": {"state": "waiting", "since": AGO(60), "wait": {"kind": "timer", "what": "Check the rail again", "startedAt": AGO(60), "until": IN(10800)}}, "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(10800)}
   ], "items": [
-    {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "heading": "Fix the login flake", "about": "Fix the login flake", "agentId": "a1", "name": "Otter", "cli": "claude", "projectName": "sikemux",
+    {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "heading": "Fix the login flake", "about": "Fix the login flake", "agentId": "a1", "name": "Otter", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux",
      "title": "Fix the login flake", "what": "Needs your permission", "detail": "pnpm test --filter core -- --runInBand", "at": AGO(134), "requestId": "p1"},
-    {"id": "question:q1", "tier": "needs", "kind": "question", "heading": "Move the ledger import", "about": "Move the ledger import", "agentId": "a9", "name": "Maple", "cli": "codex", "projectName": "server",
+    {"id": "question:q1", "tier": "needs", "kind": "question", "heading": "Move the ledger import", "about": "Move the ledger import", "agentId": "a9", "name": "Maple", "cli": "codex", "project": "p-server", "projectName": "server",
      "title": "Move the ledger import", "what": "Asks you", "detail": "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
      "at": AGO(1), "questionId": "q1"},
-    {"id": "ship:7", "tier": "needs", "kind": "ship", "heading": "Ship the new welcome screen", "about": "Ship the new welcome screen", "agentId": "a12", "name": "Kite", "cli": "claude", "projectName": "storefront",
+    {"id": "ship:7", "tier": "needs", "kind": "ship", "heading": "Ship the new welcome screen", "about": "Ship the new welcome screen", "agentId": "a12", "name": "Kite", "cli": "claude", "project": "p-storefront", "projectName": "storefront",
      "title": "Ship the new welcome screen", "what": "Needs you", "detail": "Ship the new welcome screen to everyone?", "at": AGO(12)},
-    {"id": "agent:a4", "tier": "review", "kind": "changes", "heading": "Bump Astro to 6", "about": "Bump Astro to 6", "agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front",
+    {"id": "agent:a4", "tier": "review", "kind": "changes", "heading": "Bump Astro to 6", "about": "Bump Astro to 6", "agentId": "a4", "name": "Birch", "cli": "grok", "project": "p-front", "projectName": "sikemux-front",
      "title": "Bump Astro to 6", "what": "Finished, changed 3 files", "at": AGO(70)},
-    {"id": "agent:a10", "tier": "finished", "kind": "failed", "heading": "Rotate the signing keys", "about": "Rotate the signing keys", "agentId": "a10", "name": "Pine", "cli": "claude", "projectName": "server",
+    {"id": "agent:a10", "tier": "finished", "kind": "failed", "heading": "Rotate the signing keys", "about": "Rotate the signing keys", "agentId": "a10", "name": "Pine", "cli": "claude", "project": "p-server", "projectName": "server",
      "title": "Rotate the signing keys", "what": "Ran into a problem", "detail": "The keychain refused the new key", "at": AGO(300)},
-    {"id": "agent:a11", "tier": "finished", "kind": "finished", "heading": "Tidy the changelog", "about": "Tidy the changelog", "agentId": "a11", "name": "Moss", "cli": "claude", "projectName": "sikemux",
+    {"id": "agent:a11", "tier": "finished", "kind": "finished", "heading": "Tidy the changelog", "about": "Tidy the changelog", "agentId": "a11", "name": "Moss", "cli": "claude", "project": "p-sikemux", "projectName": "sikemux",
      "title": "Tidy the changelog", "what": "Finished", "at": AGO(900)},
-    {"id": "agent:a2", "tier": "progress", "kind": "working", "heading": "Refactor the auth middleware", "about": "Refactor the auth middleware", "agentId": "a2", "name": "Flint", "cli": "codex", "projectName": "server",
+    {"id": "agent:a2", "tier": "progress", "kind": "working", "heading": "Refactor the auth middleware", "about": "Refactor the auth middleware", "agentId": "a2", "name": "Flint", "cli": "codex", "project": "p-server", "projectName": "server",
      "title": "Refactor the auth middleware", "what": "Working", "at": AGO(252)},
-    {"id": "agent:a3", "tier": "progress", "kind": "working", "heading": "Draft the notch spec", "about": "Draft the notch spec", "agentId": "a3", "name": "Wren", "cli": "opencode", "projectName": "sikemux",
+    {"id": "agent:a3", "tier": "progress", "kind": "working", "heading": "Draft the notch spec", "about": "Draft the notch spec", "agentId": "a3", "name": "Wren", "cli": "opencode", "project": "p-sikemux", "projectName": "sikemux",
      "title": "Draft the notch spec", "what": "Working", "at": AGO(48)},
     {"id": "host-alert:here:memory", "tier": "needs", "kind": "hostAlert", "heading": "mini", "what": "Memory 92% used", "at": AGO(124),
      "hostAlert": {"kind": "memory", "level": "danger", "since": AGO(124), "percent": 92}},
@@ -135,7 +135,7 @@ func catalogueFaces() -> [AgentFace] {
 let faces = arguments.contains("--faces") ? catalogueFaces() : []
 let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumerated().map { index, agent in
     AgentShown(agentId: agent.agentId, chief: agent.chief, name: agent.name, cli: agent.cli, title: agent.title, session: agent.session, group: agent.group, turn: agent.turn, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, line: agent.line, calledAt: agent.calledAt,
-               face: faces[index % faces.count], projectName: agent.projectName, reconnecting: agent.reconnecting,
+               face: faces[index % faces.count], project: agent.project, projectName: agent.projectName, reconnecting: agent.reconnecting,
                snoozedUntil: nil, settledAt: nil)
 }
 /// The new welcome screen as staging shows it, drawn to a file for a call's evidence.
@@ -308,7 +308,7 @@ let chiefCalls = [
 func standing(_ workspace: Workspace, agents: [AgentShown], calls: [PersonCall]) -> Workspace {
     let projects = workspace.projects.map { project in
         let open = calls.filter { $0.project == project.path && $0.state == .open }.count
-        let states = agents.filter { $0.projectName == project.name }.compactMap { $0.turn?.state }
+        let states = agents.filter { $0.project == project.id }.compactMap { $0.turn?.state }
         let standing: ProjectStanding =
             open > 0 || states.contains(.needsYou) ? .needsYou
             : states.contains(where: { $0 == .working || $0 == .waiting }) ? .atWork
