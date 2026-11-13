@@ -540,7 +540,7 @@ pub(crate) fn branch_switch(
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_color(t.text_primary)
             .hover(move |style| style.bg(t.surface_hover))
             .child(ui::icon(Icon::Git, 13.).text_color(t.text_tertiary))
@@ -613,7 +613,7 @@ pub(crate) fn away_note(host: &str, cx: &App) -> Div {
     div()
         .px(SPACE_3)
         .py(SPACE_2)
-        .rounded(crate::theme::RADIUS_2)
+        .rounded(crate::theme::radius_2())
         .border_1()
         .border_color(t.warn.opacity(0.4))
         .bg(t.warn.opacity(0.08))
@@ -1202,7 +1202,7 @@ pub(crate) fn entry_row(
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .text_size(crate::theme::ui_text(TEXT_SM))
                 .text_color(if chosen {
                     t.text_primary
@@ -1327,7 +1327,7 @@ pub(crate) fn group_row(
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .hover(move |row| row.bg(t.surface_hover))
                 .child(
                     div()

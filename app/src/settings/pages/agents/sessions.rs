@@ -280,7 +280,7 @@ pub fn boundary(
                 .flex_col()
                 .gap(SPACE_1)
                 .p(SPACE_3)
-                .rounded(theme::RADIUS_3)
+                .rounded(theme::radius_3())
                 .border_1()
                 .cursor_pointer()
                 .border_color(match (chosen, danger) {

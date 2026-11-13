@@ -141,7 +141,7 @@ fn ended(task: &EndedTask, looks: &Drawn, t: &Tokens) -> AnyElement {
         .items_center()
         .gap(px(10.))
         .min_w_0()
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS_H))
         .text_color(ink)
         .hover(move |row| row.bg(hover))

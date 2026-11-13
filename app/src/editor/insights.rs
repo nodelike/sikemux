@@ -262,7 +262,7 @@ pub(super) fn bar(
             .h(px(22.))
             .flex()
             .items_center()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_color(if chosen {
                 t.text_primary

@@ -12,6 +12,7 @@ use std::sync::Mutex;
 
 use serde_json::{Map, Value};
 use sikemux_process::sync::Locked;
+use sikemux_view::theme::Theme;
 
 use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};
@@ -133,6 +134,7 @@ fn within_limits(mut preferences: Preferences) -> Preferences {
         root.depth = root.depth.min(MAX_PROJECT_DEPTH);
     }
     preferences.custom_commands = commands_within_limits(preferences.custom_commands);
+    preferences.custom_themes = themes_within_limits(preferences.custom_themes);
     preferences.pane_strength = ((preferences.pane_strength * 20.0).round() / 20.0).clamp(0.0, 2.0);
     let hundredths = |value: f64, low: f64| ((value * 100.0).round() / 100.0).clamp(low, 1.0);
     preferences.pane_dot_size =
@@ -187,6 +189,19 @@ const REMEMBERED_COMMANDS: usize = 20;
 
 const MAX_CUSTOM_COMMANDS: usize = 100;
 const MAX_KEYBINDING_OVERRIDES: usize = 1_000;
+
+/// Keeps the themes that are themes, once each by id, with every colour written again by the
+/// core and their style in range, so nothing a theme says reaches a page unparsed.
+fn themes_within_limits(themes: Vec<Theme>) -> Vec<Theme> {
+    let mut seen = HashSet::new();
+    themes
+        .into_iter()
+        .filter_map(|theme| sikemux_corekit::themes::checked(theme).ok())
+        .map(|(theme, _)| theme)
+        .filter(|theme| seen.insert(theme.id.clone()))
+        .take(sikemux_corekit::themes::MOST_CUSTOM_THEMES)
+        .collect()
+}
 
 /// Keeps commands with an id, a title and a command, once each by id, each
 /// field cut to what the palette shows.

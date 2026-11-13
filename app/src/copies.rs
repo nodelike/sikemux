@@ -22,7 +22,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::core::Target;
 use crate::hosts::{HostChoice, Place};
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_1, SPACE_1H, TEXT_2XS};
+use crate::theme::{radius_1, Tokens, SPACE_1H, TEXT_2XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -486,7 +486,7 @@ pub fn copy_chip(
         .gap(px(4.))
         .h(px(18.))
         .px(SPACE_1H)
-        .rounded(RADIUS_1)
+        .rounded(radius_1())
         .bg(t.surface_hover)
         .text_color(t.host)
         .hover(move |style| style.bg(t.surface_active))

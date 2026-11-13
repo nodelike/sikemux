@@ -519,7 +519,7 @@ fn preview(side: Side, cx: &App) -> impl IntoElement {
         .when(side == Side::Bottom, |half| half.bottom_0())
         .when(across, |half| half.w(gpui_kit::relative(0.5)).h_full())
         .when(!across, |half| half.h(gpui_kit::relative(0.5)).w_full())
-        .rounded(crate::theme::RADIUS_3)
+        .rounded(crate::theme::radius_3())
         .bg(Hsla {
             a: 0.14,
             ..t.accent

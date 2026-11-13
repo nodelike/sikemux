@@ -1,14 +1,17 @@
 //! DESIGN.md's tokens for the theme the core resolves, as GPUI colours.
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::collections::BTreeMap;
 
+use gpui_kit::base::ScrollbarMode;
 use gpui_kit::component::theme::{Theme as KitTheme, ThemeTokens};
 use gpui_kit::{
     px, rems, Anchor, App, BoxShadow, FontFeatures, Global, Hsla, Pixels, Rems, Rgba, SharedString,
 };
 use sikemux_grid::TerminalColors;
-use sikemux_view::theme::{Palette, ThemeEditor, ThemeHighlight};
+use sikemux_view::prefs::Scrollbars;
+use sikemux_view::theme::{Palette, ThemeEditor, ThemeHighlight, UiStyle};
 
 pub const UI: &str = "Figtree";
 pub const UI_REGULAR: &[u8] = include_bytes!("../../helpers/notch/Fonts/Figtree_400Regular.ttf");
@@ -33,6 +36,22 @@ impl Global for TextScale {}
 /// shrinks with the person's choice in Appearance.
 pub fn ui_text(size: f32) -> Rems {
     rems(size / REM)
+}
+
+/// Shows scroll bars as the person chose, in every window and whatever the theme.
+pub fn set_scrollbars(scrollbars: Scrollbars, cx: &mut App) {
+    let mode = match scrollbars {
+        Scrollbars::Scrolling => ScrollbarMode::Scrolling,
+        Scrollbars::Hover => ScrollbarMode::Hover,
+        Scrollbars::Always => ScrollbarMode::Always,
+    };
+    if KitTheme::global(cx).scrollbar_mode != mode {
+        KitTheme::set_scrollbar_mode(mode, cx);
+    }
+}
+
+pub fn scrollbars_always(cx: &App) -> bool {
+    KitTheme::global(cx).scrollbar_mode == ScrollbarMode::Always
 }
 
 /// Sizes the interface's text by `scale` from the next frame, in every window.
@@ -83,10 +102,39 @@ pub const TEXT_MD: f32 = 14.;
 pub const TEXT_LG: f32 = 16.;
 pub const TEXT_XL: f32 = 20.;
 
-pub const RADIUS_1: Pixels = px(4.);
-pub const RADIUS_2: Pixels = px(5.);
-pub const RADIUS_3: Pixels = px(10.);
-pub const RADIUS_4: Pixels = px(14.);
+thread_local! {
+    /// The worn theme's corner radii, which [`apply`] sets.
+    static RADII: Cell<[f32; 4]> = const { Cell::new([4., 5., 10., 14.]) };
+    /// The worn theme's corners, as a share of the default roundness.
+    static CORNERS: Cell<f32> = const { Cell::new(1.) };
+}
+
+fn radius(step: usize) -> Pixels {
+    px(RADII.with(|radii| radii.get()[step]))
+}
+
+pub fn radius_1() -> Pixels {
+    radius(0)
+}
+
+pub fn radius_2() -> Pixels {
+    radius(1)
+}
+
+pub fn radius_3() -> Pixels {
+    radius(2)
+}
+
+pub fn radius_4() -> Pixels {
+    radius(3)
+}
+
+fn wear_style(style: &UiStyle) {
+    RADII.with(|radii| {
+        radii.set([style.radius1, style.radius2, style.radius3, style.radius4].map(|r| r as f32))
+    });
+    CORNERS.with(|corners| corners.set(style.corners as f32));
+}
 
 /// What a find in a terminal tints its matches with, the current one brighter, in every theme.
 const FIND_MATCH: u32 = 0x433866;
@@ -329,6 +377,7 @@ pub fn text_scale(cx: &App) -> f32 {
 
 /// Draws with `palette` from the next frame, GPUI Kit's widgets too.
 pub fn apply(palette: &Palette, cx: &mut App) {
+    wear_style(&palette.style);
     let tokens = Tokens::new(palette);
     let scale = text_scale(cx);
     let kit = KitTheme::global_mut(cx);
@@ -336,8 +385,8 @@ pub fn apply(palette: &Palette, cx: &mut App) {
     kit.mono_font_family = SharedString::new_static(MONO);
     kit.font_size = px(REM * scale);
     kit.mono_font_size = px(11.);
-    kit.radius = RADIUS_2;
-    kit.radius_lg = RADIUS_4;
+    kit.radius = radius_2();
+    kit.radius_lg = radius_4();
     kit.background = tokens.surface;
     kit.foreground = tokens.text_primary;
     kit.muted_foreground = tokens.text_tertiary;
@@ -542,15 +591,18 @@ pub fn page_rule(t: &Tokens, ground: Option<Hsla>) -> String {
         ("--success".to_owned(), ansi(2)),
         ("--warning".to_owned(), ansi(3)),
         ("--info".to_owned(), ansi(4)),
-        ("--code-background".to_owned(), t.editor.bg.clone()),
-        ("--code-foreground".to_owned(), t.editor.fg.clone()),
+        ("--code-background".to_owned(), css(color(&t.editor.bg))),
+        ("--code-foreground".to_owned(), css(color(&t.editor.fg))),
         ("--chart-1".to_owned(), css(t.accent)),
         ("--chart-2".to_owned(), ansi(4)),
         ("--chart-3".to_owned(), ansi(2)),
         ("--chart-4".to_owned(), ansi(3)),
         ("--chart-5".to_owned(), ansi(5)),
         ("--chart-6".to_owned(), ansi(6)),
-        ("--radius".to_owned(), "8px".to_owned()),
+        (
+            "--radius".to_owned(),
+            format!("{}px", 8. * CORNERS.with(Cell::get)),
+        ),
         ("--font-sans".to_owned(), format!("{UI}, system-ui")),
         ("--font-mono".to_owned(), format!("{MONO}, ui-monospace")),
     ]);

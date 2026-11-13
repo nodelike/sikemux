@@ -71,7 +71,7 @@ pub(super) fn card(
             let bench_handle = cx.weak_entity();
             let rows = body(bench, now, &bench_handle, chat, cx);
             face.w(px(WIDTH))
-                .rounded(theme::RADIUS_4)
+                .rounded(theme::radius_4())
                 .overflow_hidden()
                 .flex()
                 .flex_col()
@@ -336,7 +336,7 @@ fn line(id: SharedString, cx: &App) -> gpui_kit::Stateful<Div> {
         .id(id)
         .h(px(ROW))
         .px(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .flex()
         .items_center()
         .gap(px(9.))
@@ -418,7 +418,7 @@ fn marks(agents: &[AgentRow], cx: &App) -> Div {
             div()
                 .size(px(18.))
                 .when(at > 0, |mark| mark.ml(px(-4.)))
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .bg(t.surface_active)
                 .border_2()
                 .border_color(t.surface_raised)

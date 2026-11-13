@@ -3710,6 +3710,8 @@ export interface Preferences {
     chiefRotation: boolean;
     /** One of 1, 1.1 and 1.25. */
     uiTextScale: number;
+    /** When scroll bars show, whatever the theme. */
+    scrollbars: Scrollbars;
     terminalFontSize: number;
     chatTextScale: number;
     /** How wide a chat's messages and composer grow on a wide window. */
@@ -3853,6 +3855,8 @@ export interface Preferences {
 
 export type MidTurnSend = "steer" | "queue";
 
+export type Scrollbars = "scrolling" | "hover" | "always";
+
 /** How wide a chat's column grows: a reading width, a wider one, or the whole pane. */
 export type ChatWidth = "comfortable" | "wide" | "full";
 
@@ -3864,6 +3868,7 @@ export interface Theme {
     editor: ThemeEditor;
     highlight: ThemeHighlight;
     terminal: ThemeTerminal;
+    style?: ThemeStyle;
 }
 
 export interface ThemeChrome {
@@ -3932,6 +3937,12 @@ export interface ThemeTerminal {
     brightMagenta: string;
     brightCyan: string;
     brightWhite: string;
+}
+
+/** How a theme draws beside its colours. */
+export interface ThemeStyle {
+    /** How round corners are, from square at 0 through the default at 1 to twice as round at 2. */
+    corners: number;
 }
 
 /** A folder the person keeps projects in. */
@@ -4006,6 +4017,7 @@ export type WindowView = "workbench" | "goals";
 export interface Palette {
     theme: Theme;
     tokens: UiTokens;
+    style: UiStyle;
 }
 
 /**
@@ -4071,6 +4083,16 @@ export interface UiTokens {
     toolMcp: string;
     /** The dots of the pane grain behind a phone's panes. */
     shaderDot: string;
+}
+
+/** DESIGN.md's corner radii for one theme, in points. */
+export interface UiStyle {
+    /** The theme's corners, clamped. */
+    corners: number;
+    radius1: number;
+    radius2: number;
+    radius3: number;
+    radius4: number;
 }
 
 export interface ProjectBoard {

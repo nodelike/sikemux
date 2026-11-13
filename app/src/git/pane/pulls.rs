@@ -16,7 +16,7 @@ use sikemux_plugin_api::codehost::{ListedPull, PullList};
 use super::{GitPane, Pick};
 use crate::code_host_marks::pull_look;
 use crate::theme::{
-    Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, TEXT_3XS, TEXT_XS,
+    radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, TEXT_3XS, TEXT_XS,
 };
 use crate::toast;
 use crate::ui;
@@ -206,7 +206,7 @@ fn pull_row(
         .flex_none()
         .px(SPACE_1H)
         .py(SPACE_0)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .border_1()
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_3XS))
@@ -221,7 +221,7 @@ fn pull_row(
         .gap(SPACE_2)
         .px(SPACE_1H)
         .py(SPACE_1H)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .cursor_pointer()
         .map(|row| {
             if chosen {

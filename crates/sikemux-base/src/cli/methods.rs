@@ -82,4 +82,6 @@ pub const HARNESS_METHODS: &[&str] = &[
     "git.commit",
     "skills.manage",
     "app.console",
+    "theme.read",
+    "theme.set",
 ];

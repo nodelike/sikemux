@@ -63,6 +63,7 @@
     "7 days": {},
     ":{port}": {},
     "@Chief did not open: {error}": {},
+    "@{agent} changed the theme to {theme}": {},
     "@{name} asks: {text}": {},
     "@{name} failed": {},
     "@{name} failed: {text}": {},

@@ -115,5 +115,12 @@
     "toolRun": "#de77b5",
     "toolMcp": "#83bf9f",
     "shaderDot": "#19191e"
+  },
+  "style": {
+    "corners": 1.0,
+    "radius1": 4.0,
+    "radius2": 5.0,
+    "radius3": 10.0,
+    "radius4": 14.0
   }
 }

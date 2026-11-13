@@ -26,7 +26,7 @@ use super::{card, hair, ink, wash};
 use crate::hosts::{HostChoice, Place, Sending};
 use crate::icons::Icon;
 use crate::theme::{
-    Tokens, RADIUS_1, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
+    radius_1, radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
     SPACE_3H, SPACE_4, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM,
     TEXT_XL, TEXT_XS,
 };
@@ -194,7 +194,7 @@ fn menu_button(
         .child(ui::icon(Icon::More, 13.).text_color(t.text_secondary));
     let trigger = {
         use gpui_kit::component::button::ButtonVariants;
-        trigger.ghost().compact().rounded(RADIUS_2)
+        trigger.ghost().compact().rounded(radius_2())
     };
     use gpui_kit::component::menu::DropdownMenu;
     match &host.place {
@@ -677,7 +677,7 @@ fn alert_card(
         .pl(SPACE_4)
         .pr(px(18.))
         .py(SPACE_4)
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
         .border_1()
         .border_color(crate::theme::mix(tint, t.border, 0.26))
         .bg(wash(tint, t, 0.06))
@@ -885,7 +885,7 @@ fn resources(
                 .pb(SPACE_3H)
                 .flex()
                 .flex_col()
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .border_1()
                 .border_color(hair(t))
                 .bg(card(t))
@@ -1013,7 +1013,7 @@ fn resources(
             section.child(
                 div()
                     .mt(SPACE_2)
-                    .rounded(RADIUS_3)
+                    .rounded(radius_3())
                     .border_1()
                     .border_color(hair(t))
                     .bg(card(t))
@@ -1072,7 +1072,7 @@ fn disk_parts(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Opt
                 div()
                     .px(SPACE_4)
                     .py(SPACE_1)
-                    .rounded(RADIUS_3)
+                    .rounded(radius_3())
                     .border_1()
                     .border_color(hair(t))
                     .bg(card(t))
@@ -1233,7 +1233,7 @@ fn list(t: &Tokens) -> Div {
     div()
         .flex()
         .flex_col()
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
         .border_1()
         .border_color(hair(t))
         .bg(card(t))
@@ -1435,7 +1435,7 @@ fn agent_menu(
         )))
         .ghost()
         .compact()
-        .rounded(RADIUS_1)
+        .rounded(radius_1())
         .child(ui::icon(Icon::More, 12.).text_color(t.text_secondary))
     };
     use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
@@ -1801,7 +1801,7 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                 .relative()
                 .px(SPACE_4)
                 .py(SPACE_1H)
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .border_1()
                 .border_color(hair(t))
                 .bg(card(t))
@@ -1863,7 +1863,7 @@ fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbenc
             div()
                 .px(SPACE_4)
                 .py(SPACE_1)
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .border_1()
                 .border_color(hair(t))
                 .bg(card(t))

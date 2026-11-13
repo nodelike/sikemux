@@ -442,7 +442,7 @@ fn agent_pills(
         .id(SharedString::from(format!("waiting-more:{}", agents[0])))
         .flex_none()
         .px(SPACE_1H)
-        .rounded(crate::theme::RADIUS_2)
+        .rounded(crate::theme::radius_2())
         .bg(t.surface_raised)
         .text_color(t.text_secondary)
         .text_size(crate::theme::ui_text(size))
