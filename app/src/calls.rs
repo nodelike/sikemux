@@ -1220,7 +1220,12 @@ fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
     match (&answer.by, picked.is_empty(), call.secret) {
         (_, _, true) => t!("You answered, kept private").to_owned(),
         _ if handed_back(call) => t!("handed back to @{name}", name = call.asker.name),
-        (_, true, _) if said_nothing && call.assumption.is_some() => {
+        (by, true, _)
+            if said_nothing
+                && call.assumption.is_some()
+                && call.kind != CallKind::Access
+                && *by != CallClient::Chat =>
+        {
             t!("You let @{name} go on assuming it", name = call.asker.name)
         }
         (CallClient::Chat, ..) => t!("You answered in the chat").to_owned(),
