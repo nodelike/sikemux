@@ -4,10 +4,10 @@
 
 pub(crate) use super::AutoPull;
 use crate::server::agent_now::AgentNowCore;
+use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{

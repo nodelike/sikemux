@@ -1,6 +1,7 @@
 //! What the core gives the modules it stands on to call: each thing they ask of the features
 //! built over them, as those features do it.
 
+use crate::server::board_state::BoardParts;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
 use crate::server::remote_state::RemoteParts;

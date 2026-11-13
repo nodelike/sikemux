@@ -2,7 +2,7 @@
 //! board moves its oldest ones there at once, so a large reservoir keeps taking cards without
 //! the person clearing any.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use std::io::Write;
 
 use super::*;

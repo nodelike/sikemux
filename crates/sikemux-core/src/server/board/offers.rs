@@ -2,7 +2,7 @@
 //! the offer from one worth reporting.
 
 use crate::server::agent_now::AgentNowCore;
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use std::sync::Arc;
 
 use super::*;

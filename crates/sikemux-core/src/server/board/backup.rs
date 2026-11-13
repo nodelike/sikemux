@@ -2,7 +2,7 @@
 //! again. They go to a ref of the card's own, outside branches and tags, where code hosts start
 //! no checks; the card's branch is only pushed when its work ships.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

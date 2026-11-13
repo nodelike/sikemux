@@ -7,8 +7,8 @@
 //! person accepted, which waits for them to answer: a plain path in the command
 //! is all this can see, so what the command calls can still change.
 
+use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

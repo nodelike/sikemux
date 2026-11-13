@@ -5,7 +5,7 @@
 //! code host go one at a time: put on the latest base, pushed, and waited for.
 //! An approval moves to the rebased commit only when the patch is the same.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use crate::server::repo_state::RepoParts;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};

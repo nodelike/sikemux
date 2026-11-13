@@ -3,7 +3,7 @@
 //! draws, so nobody has to ask its lead for status. The person hears of a report only when it
 //! says something the one before did not.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 pub use sikemux_calls::board::GoalReportsParams;
 pub use sikemux_calls::board::ReportEveryParams;
 use std::sync::Arc;

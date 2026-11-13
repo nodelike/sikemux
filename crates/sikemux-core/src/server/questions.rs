@@ -10,6 +10,7 @@ pub(crate) use super::board::proof::ProofAsk;
 pub(crate) use super::person_calls::{attached, without_attached};
 use crate::server::activity::ActivityCore;
 use crate::server::agent_now::AgentNowCore;
+use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;

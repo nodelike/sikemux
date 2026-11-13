@@ -5,7 +5,7 @@
 //! acceptance criteria and can never weaken or replace them, and nobody is
 //! asked about it.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{CardContract, ContractState, ContractTerm};

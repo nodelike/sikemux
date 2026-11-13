@@ -3,7 +3,7 @@
 //! test, so the open card that holds one takes it again, and what one commit
 //! broke goes on one card.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use crate::server::repo_state::RepoParts;
 use std::sync::Arc;
 

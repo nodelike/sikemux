@@ -16,6 +16,7 @@ mod backdrop;
 mod base;
 pub mod board;
 mod board_above;
+mod board_state;
 pub(crate) use sikemux_workspace::server::caller;
 pub mod calls;
 pub use sikemux_chat::server::chat;
@@ -159,6 +160,7 @@ pub use calls::call;
 pub use entry::main;
 pub use turn_state::TakeStepParams;
 
+use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
@@ -496,8 +498,11 @@ impl ServerCore for Core {
                     ports: ports::Ports::new(data_dir),
                     build_outputs: Default::default(),
                 }) as sikemux_kernel::Parts,
-                Box::new(parts::Fields {
+                Box::new(board_state::BoardFields {
                     board_above: base::board_above(),
+                    boards: board::Boards::new(data_dir),
+                }) as sikemux_kernel::Parts,
+                Box::new(parts::Fields {
                     config,
                     manifest_folder: Mutex::new(None),
                     usage_wake: Notify::new(),
@@ -516,7 +521,6 @@ impl ServerCore for Core {
                     session_watch: session_watch::SessionWatch::default(),
                     device_view: device_view::DeviceViews::default(),
                     host_watch: host_stats::HostWatch::default(),
-                    boards: board::Boards::new(data_dir),
                     goal_summaries: goal_summary::Summaries::new(data_dir),
                     goals: goals::Goals::default(),
                     pictures: pictures::Pictures::new(data_dir),

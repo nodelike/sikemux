@@ -2,7 +2,7 @@
 //! JSON item per line. The board holds only a limited number of them as cards, so a list of tens
 //! of thousands costs it no more than a short one, and each landing tops the cards up.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use crate::server::repo_state::RepoParts;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};

@@ -3,8 +3,8 @@
 //! card stands with the person's notes on it. A teammate works toward its lead's goal until it
 //! holds a card of its own.
 
+use crate::server::board_state::BoardParts;
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
 use sikemux_process::sync::Locked;
 use sikemux_view::slice::{Gate, GateState, SliceView};
 

@@ -2,7 +2,7 @@
 //! it, so a run with a switch can be compared with one without.
 
 use super::CheckRan;
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};

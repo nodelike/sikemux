@@ -3,7 +3,7 @@
 //! time the builder's turn ends its commits come back into it, and shipping, the reviewer and
 //! the merge queue read that worktree as they do for an agent here.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;

@@ -1,6 +1,6 @@
 //! The screenshots a slice keeps as evidence: when one is wanted, and its files.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use serde_json::json;
 
 use super::*;

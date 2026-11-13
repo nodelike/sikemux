@@ -5,7 +5,7 @@
 //! for a slice the person lands that has not landed, which waits for them.
 
 use crate::server::board::BoardTicketParamsExt;
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use std::sync::Arc;
 
 use serde_json::{json, Value};

@@ -3,7 +3,7 @@
 //! commit, as the project's CI check does, and keeps the verdict as each such
 //! assertion's evidence. Runs moving in the project's repository wake it.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;

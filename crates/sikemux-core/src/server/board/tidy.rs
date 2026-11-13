@@ -3,7 +3,7 @@
 //! has touched for a week moves to Later until someone takes it up again.
 
 use super::*;
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 
 /// How long an open card nobody holds sits untouched before it moves to Later.
 const UNTOUCHED_MS: u64 = 7 * 24 * 60 * 60 * 1000;

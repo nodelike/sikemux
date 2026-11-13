@@ -2,6 +2,7 @@
 //! the phones' notifications, for chats and agents in terminals alike.
 
 pub(crate) use super::chat::Activity;
+use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;

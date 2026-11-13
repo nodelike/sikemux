@@ -2,7 +2,7 @@
 //! commits must land between its runs. A run is an ordinary card, so Auto takes it through its
 //! usual contract, review and queue, and it waits for a slot like any other.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use crate::server::repo_state::RepoParts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};

@@ -4,8 +4,8 @@
 //! findings sit on the board where anyone, Auto too, can take them up. That card, its findings
 //! and the earlier findings done since make the project's health digest.
 
+use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{AuditEveryParams, AuditNowParams};

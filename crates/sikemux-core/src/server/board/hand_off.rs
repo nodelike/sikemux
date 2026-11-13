@@ -3,10 +3,10 @@
 //! board whose promise is what they typed. Its Built gate needs the project's
 //! check to pass on its work, run by the core.
 
+use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{BoardHandOffParams, HandOnParams, HandedOff};

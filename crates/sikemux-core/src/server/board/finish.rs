@@ -4,8 +4,8 @@
 //! anything more goes back to the person. While it waits for review, its
 //! agent is handed reviewers' comments and its replies are posted for it.
 
+use crate::server::board_state::BoardParts;
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;

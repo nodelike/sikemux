@@ -3,7 +3,7 @@
 //! slice is matched to an open pull request by its latest commit, or is the one Auto opened.
 //! The first write to each pull request waits for the person to post the exact block.
 
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};

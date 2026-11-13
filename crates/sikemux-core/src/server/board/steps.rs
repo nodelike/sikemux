@@ -3,6 +3,8 @@
 //! there went well, after the project's check where its step says so; a production place's
 //! step is the person's while its level is `mine`.
 
+#[cfg(test)]
+use crate::server::board_state::BoardParts;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub use sikemux_calls::board::{BoardProposalParams, PlacesProposal};
@@ -160,7 +162,7 @@ pub(super) fn settle_cards(core: &Core, state: &mut State, project: &str) -> Set
 
 #[cfg(test)]
 mod tests {
-    use crate::server::parts::Parts;
+
     use crate::server::ServerCore;
     use serde_json::json;
     use sikemux_process::sync::Locked;

@@ -5,8 +5,8 @@
 //! due sits on the run, so a core that restarts carries on from the card.
 
 use crate::server::agent_now::AgentNowCore;
+use crate::server::board_state::BoardParts;
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;

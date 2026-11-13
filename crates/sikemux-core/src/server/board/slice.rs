@@ -24,7 +24,7 @@ pub(crate) use words::*;
 
 use super::DeployRan;
 use crate::server::agent_now::AgentNowCore;
-use crate::server::parts::Parts;
+use crate::server::board_state::BoardParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{BoardNoteParams, BoardPassParams};

@@ -3,6 +3,7 @@
 
 use super::connection::ClientId as GoneClient;
 use super::part::Part;
+use crate::server::board_state::BoardParts;
 use crate::server::chat_state::ChatParts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
@@ -17,13 +18,12 @@ use tokio::sync::Notify;
 use super::{streams, themes, ServerConfig};
 
 use super::{
-    board, chief, device_view, git, goal_summary, goals, harness, hooks, host_stats, hosts, inbox,
-    layout, lifecycle, line, memory, mods, outside, pictures, pins, remote_image, session_watch,
-    settling, spare, stalls, tasks, tools, triggers, updates, Core,
+    chief, device_view, git, goal_summary, goals, harness, hooks, host_stats, hosts, inbox, layout,
+    lifecycle, line, memory, mods, outside, pictures, pins, remote_image, session_watch, settling,
+    spare, stalls, tasks, tools, triggers, updates, Core,
 };
 
 pub(crate) struct Fields {
-    pub(super) board_above: super::board_above::BoardAbove,
     pub(super) config: ServerConfig,
     pub(super) manifest_folder: Mutex<Option<PathBuf>>,
     /// Rings when a window opens, so the day's usage counts it at once.
@@ -47,7 +47,6 @@ pub(crate) struct Fields {
     pub(super) session_watch: session_watch::SessionWatch,
     pub(super) device_view: device_view::DeviceViews,
     pub(super) host_watch: host_stats::HostWatch,
-    pub(super) boards: board::Boards,
     pub(super) goal_summaries: goal_summary::Summaries,
     pub(super) goals: goals::Goals,
     pub(super) memory: memory::Memory,
@@ -67,7 +66,6 @@ pub(crate) struct Fields {
 }
 
 pub(crate) trait Parts {
-    fn board_above(&self) -> &super::board_above::BoardAbove;
     fn config(&self) -> &ServerConfig;
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
     fn usage_wake(&self) -> &Notify;
@@ -86,7 +84,6 @@ pub(crate) trait Parts {
     fn session_watch(&self) -> &session_watch::SessionWatch;
     fn device_view(&self) -> &device_view::DeviceViews;
     fn host_watch(&self) -> &host_stats::HostWatch;
-    fn boards(&self) -> &board::Boards;
     fn goal_summaries(&self) -> &goal_summary::Summaries;
     fn goals(&self) -> &goals::Goals;
     fn memory(&self) -> &memory::Memory;
@@ -105,10 +102,6 @@ pub(crate) trait Parts {
 }
 
 impl Parts for Core {
-    fn board_above(&self) -> &super::board_above::BoardAbove {
-        &self.kept::<Fields>().board_above
-    }
-
     fn config(&self) -> &ServerConfig {
         &self.kept::<Fields>().config
     }
@@ -179,10 +172,6 @@ impl Parts for Core {
 
     fn host_watch(&self) -> &host_stats::HostWatch {
         &self.kept::<Fields>().host_watch
-    }
-
-    fn boards(&self) -> &board::Boards {
-        &self.kept::<Fields>().boards
     }
 
     fn goal_summaries(&self) -> &goal_summary::Summaries {
