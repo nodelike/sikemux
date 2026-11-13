@@ -363,7 +363,8 @@ fn closed_here(core: &Core, step: &Step) -> bool {
 
 fn stop_agent(core: &Core, agent: &str) {
     if let Some(chat) = core.chats().get(agent) {
-        core.workspaces().note_stopping(&chat);
+        core.workspaces()
+            .note_stopping(chat.agent_id(), chat.current_now());
     }
     if core.chats().stop(agent) {
         core.note_agent_gone(agent);

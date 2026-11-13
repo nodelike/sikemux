@@ -76,17 +76,8 @@ pub(crate) struct Transcript {
 /// Where the agent `agent_id` works and the transcript its CLI writes, for a
 /// chat or an agent in a terminal.
 pub(crate) fn place(core: &Core, agent_id: &str) -> Option<Place> {
-    if let Some(chat) = core.chats().get(agent_id) {
-        let launch = chat.current_launch();
-        let home = named_account(&launch.provider, &launch.env).map(PathBuf::from);
-        let session = chat.feed.start().map(|start| start.session_id);
-        return Some(Place {
-            transcript: transcript_of(&launch.provider, session, home.as_deref()),
-            cwd: launch.cwd.to_string_lossy().into_owned(),
-            agent: launch.provider,
-            chat: agent_id.to_owned(),
-            account: launch.account.map(|account| account.id).unwrap_or_default(),
-        });
+    if let Some(place) = (core.workspace_above().chat_place)(core, agent_id) {
+        return Some(place);
     }
     let session = core.agent_session(agent_id)?;
     let owner = session.owner();

@@ -4,7 +4,6 @@
 //! core chose buddy colours, or before chats named their account, get theirs.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -44,9 +43,8 @@ struct EarlierAsleep {
     fallbacks: Vec<ChatAccount>,
 }
 
-pub(super) fn carry_over(saved: &mut Saved, read: &Value, data_dir: Option<&Path>) {
+pub(super) fn carry_over(saved: &mut Saved, read: &Value, app: Option<Value>) {
     let earlier: Earlier = serde_json::from_value(read.clone()).unwrap_or_default();
-    let app = super::super::from_app::app_state(data_dir);
     if let Some(app) = &app {
         from_app(saved, app, &earlier);
     }

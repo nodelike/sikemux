@@ -37,7 +37,8 @@ pub(crate) async fn switch(core: &Arc<Core>, params: AgentViewParams) -> CoreRes
 
 async fn to_terminal(core: &Arc<Core>, agent_id: &str) -> CoreResult<Value> {
     if let Some(chat) = core.chats().get(agent_id) {
-        core.workspaces().note_stopping(&chat);
+        core.workspaces()
+            .note_stopping(chat.agent_id(), chat.current_now());
         if !core.chats().stop_if_idle(agent_id) {
             return Err(AT_WORK.into());
         }

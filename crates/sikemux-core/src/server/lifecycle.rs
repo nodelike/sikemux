@@ -122,7 +122,8 @@ pub(crate) async fn ensure_running(
 pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
     let chat = core.chats().get(agent_id);
     if let Some(chat) = &chat {
-        core.workspaces().note_stopping(chat);
+        core.workspaces()
+            .note_stopping(chat.agent_id(), chat.current_now());
     }
     let stopped = core.chats().stop_if_idle(agent_id);
     if let Some(chat) = chat.filter(|_| stopped) {
@@ -142,7 +143,8 @@ pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
 pub(crate) fn sleep_all(core: &Core) {
     core.workspaces().hold_all();
     for chat in core.chats().stop_all() {
-        core.workspaces().note_stopping(&chat);
+        core.workspaces()
+            .note_stopping(chat.agent_id(), chat.current_now());
         core.chats().rest(&chat);
         super::chief::chat_rested(core, chat.agent_id(), chat.feed.id());
         core.workspaces().set_asleep(chat.agent_id(), true);

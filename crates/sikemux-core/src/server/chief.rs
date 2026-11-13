@@ -51,9 +51,6 @@ const MOST_LANDED: usize = 40;
 const MOST_FEEDS: usize = 40;
 const MOST_ROWS: usize = 20;
 
-/// What every project's chief is called, which no other agent may be.
-pub(crate) const NAME: &str = "Chief";
-
 /// How the chief works, ahead of the project's rules in its instructions.
 pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. The person talks to you; every other agent in the project works under you. Your job is to decide and route, not to do the work yourself.
 

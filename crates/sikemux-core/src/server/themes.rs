@@ -5,10 +5,7 @@
 
 mod omarchy;
 
-pub(crate) use omarchy::{
-    follow_background as follow_omarchy_background, here as on_omarchy,
-    THEME_ID as OMARCHY_THEME_ID,
-};
+pub(crate) use omarchy::{follow_background as follow_omarchy_background, here as on_omarchy};
 
 use super::{Core, CoreResult};
 use crate::server::parts::Parts;

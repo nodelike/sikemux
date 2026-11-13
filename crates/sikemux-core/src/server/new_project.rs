@@ -208,7 +208,7 @@ async fn run(core: Arc<Core>, project: String, url: String, dir: PathBuf) {
     match said {
         Ok(()) => {
             core.clones().0.locked().remove(&project);
-            super::git::follow_projects(&core);
+            (core.workspace_above().projects_changed)(&core);
             let folder = dir.to_string_lossy();
             core.changed(What::ReadIn(Topic::Git, Some(&folder), None));
         }

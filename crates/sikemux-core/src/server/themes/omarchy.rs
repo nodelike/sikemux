@@ -21,7 +21,7 @@ use crate::server::changed::{Topic, What};
 use crate::server::connection::blocking;
 use crate::server::Core;
 
-pub(crate) const THEME_ID: &str = "omarchy";
+pub(crate) const THEME_ID: &str = crate::server::preferences::OMARCHY_THEME;
 /// A switch replaces the folder and then stamps it, several writes in a row.
 const SETTLE: Duration = Duration::from_millis(300);
 /// The folder under the core's data that holds its copy of Omarchy's background.

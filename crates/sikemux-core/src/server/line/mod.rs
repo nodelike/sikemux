@@ -30,8 +30,6 @@ use sizes::{Size, Sizes};
 pub(crate) use things::{resolve, Need};
 use things::{Around, Wanted};
 
-/// The most heavy commands the person can let run at once.
-pub(crate) const MOST_RUNS: u32 = 64;
 /// An agent's own command that would wait longer than this is sent away, to be woken when its
 /// turn comes, rather than wait where it is.
 pub(crate) const COME_BACK_AFTER_MS: u64 = 45_000;

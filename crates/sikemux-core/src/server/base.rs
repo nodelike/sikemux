@@ -12,7 +12,21 @@ use super::notify::Signal;
 use super::parts::Parts;
 use super::session::Session;
 use super::spawn::{self, Ending};
-use super::{calls, harness, hosts, lifecycle, messages, requests, ssh, tasks, upgrade, Core};
+use std::path::PathBuf;
+
+use sikemux_view::prefs::PreferenceChange;
+
+use super::activity_log::{transcript_of, Place};
+use super::launching;
+use super::notch;
+use super::workspace_above::WorkspaceAbove;
+use super::ServerCore;
+use super::{
+    about, backdrop, board, calls, chat, chief, codehost, git, goal_summary, harness, hosts,
+    lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
+    worktree, Core, CoreResult,
+};
+use crate::launch::named_account;
 
 pub(super) fn above() -> Above {
     Above {
@@ -41,6 +55,105 @@ pub(super) fn above() -> Above {
         task_output_noticed: harness::note_output,
         admit: requests::admit,
         write_to_program: requests::write_to_program,
+    }
+}
+
+pub(super) fn workspace_above() -> WorkspaceAbove {
+    WorkspaceAbove {
+        projects_changed: git::follow_projects,
+        project_removed: pins::project_removed,
+        code_hosts_picked: |core, path| {
+            git::read_hosts(core, vec![path.to_owned()]);
+            codehost::picked(core, path);
+        },
+        agent_closing: |core, agent| {
+            triggers::pause(core, &agent.id, core.workspaces().held_chat(agent));
+            core.chats().handoffs.forget(&agent.id);
+        },
+        agent_closed: |core, agent_id| {
+            chat::rotation::forget(core, agent_id);
+            chief::closed(core, agent_id);
+            core.line().agent_closed(core, agent_id);
+        },
+        worktrees_closed: worktree::build_output::closed,
+        title_moved: hosts::route::rows_moved,
+        chat_titled: goal_summary::chat_titled,
+        agents_gone,
+        settled: |core| {
+            triggers::resume(core);
+            session_watch::follow(core);
+        },
+        foreign_agents: |core| core.hosts().team.ids(),
+        chat_draft_changed: |core, agent| {
+            if let Some(feed) = core.chats().heard(agent) {
+                feed.set_draft(core.drafts().chat_draft(agent));
+            }
+        },
+        session_deleted: board::lease::session_deleted,
+        question_keeps_picture: |core, path| core.harness().questions.keeps_picture(path),
+        open_chats: |core| core.chats().list(),
+        held_chats: |core| core.triggers().held(),
+        workspace_view: |core| core.workspace_view(),
+        agents_shown: |core, agent_ids, focused, draws_terminals| {
+            if draws_terminals {
+                launching::show_terminals(core, agent_ids);
+            }
+            chief::on_screen(core, agent_ids, focused);
+        },
+        chat_place,
+        preference_changed,
+        shown_preferences: |core| core.shown_preferences(),
+    }
+}
+
+fn chat_place(core: &Core, agent_id: &str) -> Option<Place> {
+    let chat = core.chats().get(agent_id)?;
+    let launch = chat.current_launch();
+    let home = named_account(&launch.provider, &launch.env).map(PathBuf::from);
+    let session = chat.feed.start().map(|start| start.session_id);
+    Some(Place {
+        transcript: transcript_of(&launch.provider, session, home.as_deref()),
+        cwd: launch.cwd.to_string_lossy().into_owned(),
+        agent: launch.provider,
+        chat: agent_id.to_owned(),
+        account: launch.account.map(|account| account.id).unwrap_or_default(),
+    })
+}
+
+fn preference_changed(core: &Core, change: &PreferenceChange) -> CoreResult<()> {
+    match change {
+        PreferenceChange::Notch(_) => notch::follow(core),
+        PreferenceChange::UpdateChannel(_) => core.updates().check_soon(),
+        PreferenceChange::PaneShader(_) | PreferenceChange::PaneImage(_) => backdrop::follow(core),
+        PreferenceChange::PaneImageFollowsOmarchy(_) => {
+            themes::follow_omarchy_background(core);
+            backdrop::follow(core);
+        }
+        PreferenceChange::OnboardingComplete(_) => about::introduced(core)?,
+        _ => {}
+    }
+    core.theme_changed();
+    Ok(())
+}
+
+fn agents_gone(core: &Core, gone: &[&String]) {
+    for agent_id in gone {
+        core.chats().stop(agent_id);
+        core.chats().forget_rest(agent_id);
+    }
+    hosts::route::closed(core, gone);
+    pins::agents_closed(core, gone);
+    if let (Some(core), Ok(runtime), false) = (
+        core.arc(),
+        tokio::runtime::Handle::try_current(),
+        gone.is_empty(),
+    ) {
+        let gone: Vec<String> = gone.iter().map(|agent_id| (*agent_id).clone()).collect();
+        runtime.spawn(async move {
+            for agent_id in gone {
+                harness::stop_runs(&core, harness::RunSelector::of_agent(&agent_id)).await;
+            }
+        });
     }
 }
 

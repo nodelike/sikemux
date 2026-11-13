@@ -256,9 +256,11 @@ pub(crate) async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreR
             Some(saved_chat(launcher.clone(), session))
         })
         .collect();
-    let chats = core
-        .workspaces()
-        .note_found(found, &core.chats().list(), &core.triggers().held());
+    let chats = core.workspaces().note_found(
+        found,
+        &(core.workspace_above().open_chats)(core),
+        &(core.workspace_above().held_chats)(core),
+    );
     Ok(RecentChats {
         chats,
         next: page.next,
@@ -647,7 +649,7 @@ impl Workspaces {
     pub(crate) fn ran_choice(
         &self,
         ran: &RanSession,
-        saved: Option<&crate::server::saved::Saved>,
+        saved: Option<(&str, &Path)>,
         open: &[ChatInfo],
         held: &Held,
     ) -> CoreResult<ChatChoice> {
@@ -667,8 +669,8 @@ impl Workspaces {
                 launcher: if kept { ran_on } else { String::new() },
                 provider: ran.provider.clone(),
                 session_id: ran.session_id.clone(),
-                title: saved.map(|saved| saved.title.clone()).unwrap_or_default(),
-                cwd: saved.map_or_else(|| project.clone(), |saved| saved.project.clone()),
+                title: saved.map(|(title, _)| title.to_owned()).unwrap_or_default(),
+                cwd: saved.map_or_else(|| project.clone(), |(_, folder)| folder.to_owned()),
                 project,
                 active_at: 0,
             }

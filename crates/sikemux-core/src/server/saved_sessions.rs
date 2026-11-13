@@ -67,7 +67,7 @@ pub(super) async fn rename(renamed: Renamed) -> CoreResult<()> {
 pub(super) async fn delete(core: &Arc<Core>, saved: SavedRef) -> CoreResult<()> {
     let session_id = saved.session_id.clone();
     sessions::delete::delete(saved).await?;
-    super::board::lease::session_deleted(core, &session_id);
+    (core.workspace_above().session_deleted)(core, &session_id);
     Ok(())
 }
 

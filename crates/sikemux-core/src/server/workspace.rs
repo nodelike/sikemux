@@ -7,7 +7,6 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
 pub use sikemux_calls::workspace::AddProjectParams;
@@ -43,7 +42,6 @@ use sikemux_view::workspace::{
 use sikemux_wire::protocol::{ChatAccount, ChatInfo, ChatLaunch, ChatState, SessionInfo};
 
 use super::changed::Topic;
-use super::chat;
 use super::connection::blocking;
 use super::kept;
 use super::model_providers::checks::Checks;
@@ -479,7 +477,9 @@ fn home_of(folder: &Path, projects: &[PathBuf]) -> Option<PathBuf> {
 }
 
 impl Workspaces {
-    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+    /// The workspace kept in `data_dir`, taking over what the earlier app last saved, `app`,
+    /// the first time.
+    pub(crate) fn new(data_dir: Option<&Path>, app: Option<Value>) -> Self {
         let file = kept::Kept::new(data_dir, "workspace.json");
         let read: Value = file.load();
         let mut saved = if read.is_null() {
@@ -492,7 +492,7 @@ impl Workspaces {
         };
         let upgraded = saved.version < VERSION;
         if saved.version < 1 {
-            migrate::carry_over(&mut saved, &read, data_dir);
+            migrate::carry_over(&mut saved, &read, app);
         }
         if saved.version < 2 {
             migrate::dress_agents(&mut saved);
@@ -1021,9 +1021,13 @@ impl Workspaces {
 
     /// Keeps a chat that just started among the agents, so every client
     /// lists it whoever started it: a device, an agent, Auto or the app.
-    pub(crate) fn note_begun(&self, chat: &chat::Chat) {
-        let launch = &chat.launch;
-        if let Some(known) = self.agent(chat.agent_id()) {
+    pub(crate) fn note_begun(
+        &self,
+        launch: &ChatLaunch,
+        started_by: Option<&str>,
+        launcher: Option<&str>,
+    ) {
+        if let Some(known) = self.agent(&launch.agent_id) {
             let unnamed = known.profile_id.is_none() && launch.account.is_some();
             if known.asleep || known.terminal || unnamed {
                 let _ = self.change(|saved| {
@@ -1038,13 +1042,9 @@ impl Workspaces {
                 });
             }
             self.woke(&known.id);
-            return self.note_program(chat);
+            return self.note_program(launch, launcher);
         }
-        let lead = chat
-            .origin
-            .started_by
-            .as_deref()
-            .and_then(|lead| self.agent(lead));
+        let lead = started_by.and_then(|lead| self.agent(lead));
         let project = match &lead {
             Some(lead) if launch.cwd.starts_with(&lead.cwd) => lead.project.clone(),
             _ => match self.project_for(&launch.cwd) {
@@ -1055,7 +1055,7 @@ impl Workspaces {
                 }
             },
         };
-        let profile_id = (chat.origin.launcher.as_deref())
+        let profile_id = launcher
             .map(LauncherId::parse)
             .filter(|launcher| launcher.kind == launch.provider)
             .and_then(|launcher| launcher.account)
@@ -1074,7 +1074,7 @@ impl Workspaces {
                 .then(|| worktree.clone())
         });
         let agent = WorkspaceAgent {
-            id: chat.agent_id().to_owned(),
+            id: launch.agent_id.clone(),
             name: None,
             provider: launch.provider.clone(),
             project,
@@ -1103,19 +1103,15 @@ impl Workspaces {
         if let Err(error) = self.put_agent(agent) {
             eprintln!("sikemux core: a chat that started was not kept: {error}");
         }
-        self.note_program(chat);
+        self.note_program(launch, launcher);
     }
 
     /// Keeps the program a chat runs when a client chose it rather than a launcher, so a wake
     /// starts that same program and never one found on its own.
-    fn note_program(&self, chat: &chat::Chat) {
-        let program = chat
-            .origin
-            .launcher
-            .is_none()
-            .then(|| chat.launch.program.clone());
+    fn note_program(&self, launch: &ChatLaunch, launcher: Option<&str>) {
+        let program = launcher.is_none().then(|| launch.program.clone());
         let _ = self.change(|saved| {
-            if let Some(kept) = saved.kept_mut(chat.agent_id()) {
+            if let Some(kept) = saved.kept_mut(&launch.agent_id) {
                 kept.program = program;
             }
             Ok(())
@@ -1124,10 +1120,9 @@ impl Workspaces {
 
     /// Keeps how the agent's chat runs as it stops, so it can be woken on its
     /// saved conversation with no app there.
-    pub(crate) fn note_stopping(&self, chat: &chat::Chat) {
-        let launch = chat.current_now();
+    pub(crate) fn note_stopping(&self, agent_id: &str, launch: ChatLaunch) {
         let _ = self.change(|saved| {
-            if let Some(kept) = saved.kept_mut(chat.agent_id()) {
+            if let Some(kept) = saved.kept_mut(agent_id) {
                 let agent = &mut kept.agent;
                 agent.resume_id = launch.resume_id.or(agent.resume_id.take());
                 agent.permission_mode = launch.permission_mode;
@@ -1433,7 +1428,7 @@ pub(crate) async fn add_project(
     let project = core
         .workspaces()
         .add_project(path, params.name, params.id)?;
-    super::git::follow_projects(core);
+    (core.workspace_above().projects_changed)(core);
     Ok(project)
 }
 
@@ -1443,8 +1438,8 @@ pub(crate) fn remove_project(core: &Core, params: RemoveProjectParams) -> CoreRe
     let id = core.workspaces().remove_project(&params.path)?;
     super::new_project::forget(core, &id, &params.path);
     agents_closed(core, before);
-    super::pins::project_removed(core, &params.path.to_string_lossy());
-    super::git::follow_projects(core);
+    (core.workspace_above().project_removed)(core, &params.path.to_string_lossy());
+    (core.workspace_above().projects_changed)(core);
     Ok(())
 }
 
@@ -1453,8 +1448,7 @@ pub(crate) fn update_project(core: &Core, params: UpdateProjectParams) -> CoreRe
     let picks_changed = params.patch.contains_key("codeHosts");
     let project = core.workspaces().update_project(&params.id, params.patch)?;
     if let (true, Some(core)) = (picks_changed, core.arc()) {
-        super::git::read_hosts(&core, vec![project.path.to_string_lossy().into_owned()]);
-        super::codehost::picked(&core, &project.path.to_string_lossy());
+        (core.workspace_above().code_hosts_picked)(&core, &project.path.to_string_lossy());
     }
     Ok(project)
 }
@@ -1463,9 +1457,11 @@ pub(crate) fn update_project(core: &Core, params: UpdateProjectParams) -> CoreRe
 /// when projects were added becomes the order the person drags from then on.
 pub(crate) fn move_project(core: &Core, params: MoveProjectParams) -> CoreResult<()> {
     if core.preferences().get().project_sort != ProjectSort::Manual {
-        let shown: Vec<String> = (core.workspace_view().projects.into_iter())
-            .map(|project| project.id)
-            .collect();
+        let shown: Vec<String> = ((core.workspace_above().workspace_view)(core)
+            .projects
+            .into_iter())
+        .map(|project| project.id)
+        .collect();
         core.workspaces().order_projects(&shown)?;
         super::preferences::set(core, PreferenceChange::ProjectSort(ProjectSort::Manual))?;
     }
@@ -1600,8 +1596,7 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
     {
         core.names()
             .note_look(&agent.id, agent.buddy.clone(), named(&agent));
-        super::triggers::pause(core, &agent.id, core.workspaces().held_chat(&agent));
-        core.chats().handoffs.forget(&agent.id);
+        (core.workspace_above().agent_closing)(core, &agent);
     }
     let trees: Vec<_> = (agent_ids.iter())
         .filter_map(|id| core.workspaces().agent(id)?.worktree)
@@ -1609,12 +1604,10 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
     let before = core.workspaces().agent_ids();
     core.workspaces().close_agents(agent_ids)?;
     for agent_id in agent_ids {
-        super::chat::rotation::forget(core, agent_id);
-        super::chief::closed(core, agent_id);
-        core.line().agent_closed(core, agent_id);
+        (core.workspace_above().agent_closed)(core, agent_id);
     }
     agents_closed(core, before);
-    super::worktree::build_output::closed(core, agent_ids, trees);
+    (core.workspace_above().worktrees_closed)(core, agent_ids, trees);
     Ok(())
 }
 
@@ -1637,10 +1630,10 @@ fn untitled(saved: &Saved, agent: &WorkspaceAgent) -> bool {
 pub(crate) fn retitle(core: &Core, agent_id: &str, title: Option<String>, stand_in: bool) {
     if let Some(title) = title {
         if core.workspaces().note_title(agent_id, &title, stand_in) {
-            super::hosts::route::rows_moved(core);
+            (core.workspace_above().title_moved)(core);
         }
         if let Some(own) = core.workspaces().own_title(agent_id).filter(|_| !stand_in) {
-            super::goal_summary::chat_titled(core, agent_id, &own);
+            (core.workspace_above().chat_titled)(core, agent_id, &own);
         }
     }
 }
@@ -1655,25 +1648,7 @@ pub(crate) fn close_gone(core: &Core, agent_ids: &[String]) {
 fn agents_closed(core: &Core, before: HashSet<String>) {
     let kept = core.workspaces().agent_ids();
     let gone: Vec<&String> = before.difference(&kept).collect();
-    for agent_id in &gone {
-        core.chats().stop(agent_id);
-        core.chats().forget_rest(agent_id);
-    }
-    super::hosts::route::closed(core, &gone);
-    super::pins::agents_closed(core, &gone);
-    if let (Some(core), Ok(runtime), false) = (
-        core.arc(),
-        tokio::runtime::Handle::try_current(),
-        gone.is_empty(),
-    ) {
-        let gone: Vec<String> = gone.iter().map(|agent_id| (*agent_id).clone()).collect();
-        runtime.spawn(async move {
-            for agent_id in gone {
-                super::harness::stop_runs(&core, super::harness::RunSelector::of_agent(&agent_id))
-                    .await;
-            }
-        });
-    }
+    (core.workspace_above().agents_gone)(core, &gone);
     let forgotten = core.drafts().forget(
         gone.iter()
             .map(|agent_id| sikemux_view::chat::chat_draft_key(agent_id)),
@@ -1695,8 +1670,7 @@ fn settle_names(core: &Core) {
 /// nothing of them runs.
 pub(crate) fn settle(core: &Arc<Core>) {
     settle_names(core);
-    super::triggers::resume(core);
-    super::session_watch::follow(core);
+    (core.workspace_above().settled)(core);
     core.changed(What::Agents);
 }
 
@@ -1810,7 +1784,7 @@ mod tests {
 
     #[test]
     fn a_device_sees_launchers_without_their_program_or_environment() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         let shown = serde_json::to_string(&workspaces.view()).unwrap();
         assert!(shown.contains("Claude Code (work)"));
@@ -1820,7 +1794,7 @@ mod tests {
 
     #[test]
     fn a_device_sees_whether_each_launcher_is_signed_in() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         let signed_out = Launcher {
             status: Some(AgentStatus::SignedOut),
             ..launcher()
@@ -1835,7 +1809,7 @@ mod tests {
 
     #[test]
     fn a_chat_starts_in_the_project_with_the_launcher_and_its_account() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         let launch = launch(&workspaces, choice()).unwrap();
         assert_eq!(launch.cwd, PathBuf::from("/Users/me/sikemux"));
@@ -1850,7 +1824,7 @@ mod tests {
 
     #[test]
     fn an_unknown_launcher_or_project_is_refused() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         let mut wrong = choice();
         wrong.project = "elsewhere".into();
@@ -1862,7 +1836,7 @@ mod tests {
 
     #[test]
     fn a_device_sees_recent_chats_in_open_projects_with_the_agent_holding_each() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         workspaces.set_recent(
             vec![
@@ -1924,7 +1898,7 @@ mod tests {
 
     #[test]
     fn a_recent_chat_resumes_with_its_launcher_in_its_project() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         workspaces.set_recent(
             vec![recent("s1", "/Users/me/sikemux")],
@@ -1943,7 +1917,7 @@ mod tests {
 
     #[test]
     fn only_a_published_recent_chat_resumes() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         workspaces.set_recent(
             vec![recent("s1", "/Users/me/sikemux")],
@@ -1970,7 +1944,7 @@ mod tests {
 
     #[test]
     fn a_relative_project_path_is_refused() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         assert!(workspaces
             .add_project("sikemux".into(), None, None)
             .is_err());
@@ -1978,7 +1952,7 @@ mod tests {
 
     #[test]
     fn a_first_prompt_names_an_agent_until_its_chat_titles_it_and_never_one_the_person_named() {
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         let project = project();
         workspaces
             .add_project(
@@ -2035,7 +2009,7 @@ mod tests {
             config_path: None,
             environment_keys: Vec::new(),
         };
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         workspaces
             .set_accounts(Book {
                 profiles: vec![builtin],
@@ -2071,7 +2045,7 @@ mod tests {
             config_path: Some(format!("~/.{id}")),
             environment_keys: Vec::new(),
         };
-        let workspaces = Workspaces::new(None);
+        let workspaces = Workspaces::new(None, None);
         let profiles = vec![
             profile("work", "Work", "claude"),
             profile("home", "Home", "claude"),

@@ -29,6 +29,9 @@ use super::{Core, CoreResult};
 use sikemux_view::workspace::AgentBuddy;
 use words::{ANIME, NATURE};
 
+/// What every project's chief is called, which no other agent may be.
+pub(crate) const CHIEF: &str = "Chief";
+
 const FILE: &str = "agent-names.json";
 
 pub(crate) fn new_agent_id() -> String {
@@ -293,7 +296,7 @@ impl Names {
                 && same(&entry.name, adopted.name)
         });
         let name = match valid_name(adopted.name) {
-            Ok(name) if !taken && !same(&name, crate::server::chief::NAME) => name,
+            Ok(name) if !taken && !same(&name, CHIEF) => name,
             _ => book.fresh(&adopted.project, adopted.agent_id, &open),
         };
         book.remove(|entry| {
@@ -334,12 +337,12 @@ impl Names {
     pub(crate) fn name_chief(&self, agent_id: &str, project: &str) {
         let mut book = self.book.locked();
         if let Some(entry) = book.entry_mut(agent_id) {
-            entry.name = crate::server::chief::NAME.to_owned();
+            entry.name = CHIEF.to_owned();
             entry.chosen = true;
         } else {
             book.agents.push(Entry {
                 agent_id: agent_id.to_owned(),
-                name: crate::server::chief::NAME.to_owned(),
+                name: CHIEF.to_owned(),
                 project: project.to_owned(),
                 parent: None,
                 quiet: false,
@@ -775,7 +778,7 @@ impl Names {
         open: HashSet<String>,
     ) -> Result<AgentName, String> {
         let name = valid_name(name)?;
-        if same(&name, crate::server::chief::NAME) {
+        if same(&name, CHIEF) {
             return Err(format!("{name} is the name of the project's chief"));
         }
         let mut book = self.book.locked();
@@ -1346,7 +1349,7 @@ pub(crate) async fn rename_agent(
     core: &Arc<Core>,
     params: RenameAgentParams,
 ) -> CoreResult<AgentName> {
-    if crate::server::chief::is_chief(core, &params.agent_id) {
+    if core.workspaces().is_chief(&params.agent_id) {
         return Err("@Chief keeps its name".into());
     }
     let core = core.clone();
@@ -1367,7 +1370,7 @@ pub(crate) async fn agent_names(core: &Arc<Core>) -> CoreResult<Vec<AgentName>> 
     let core = core.clone();
     blocking(move || {
         let mut agents = core.running_agents();
-        agents.extend(core.hosts().team.ids());
+        agents.extend((core.workspace_above().foreign_agents)(&core));
         Ok(core.names().of(&agents))
     })
     .await

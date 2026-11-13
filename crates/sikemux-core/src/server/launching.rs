@@ -611,7 +611,7 @@ pub(crate) async fn reopen_agent(core: &Arc<Core>, agent_id: String) -> CoreResu
     }
     let mut choice = (core.workspaces()).ran_choice(
         &ran,
-        saved.as_ref(),
+        (saved.as_ref()).map(|saved| (saved.title.as_str(), saved.project.as_path())),
         &core.chats().list(),
         &core.triggers().held(),
     )?;

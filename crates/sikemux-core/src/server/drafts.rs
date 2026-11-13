@@ -83,9 +83,7 @@ impl Delivery {
 /// draft with the chat.
 pub(crate) fn changed(core: &Core, keys: Vec<String>) {
     for agent in keys.iter().filter_map(|key| key.strip_prefix(CHAT_DRAFT)) {
-        if let Some(feed) = core.chats().heard(agent) {
-            feed.set_draft(core.drafts().chat_draft(agent));
-        }
+        (core.workspace_above().chat_draft_changed)(core, agent);
     }
     core.changed(What::ReadIn(Topic::Drafts, None, Some(keys)));
 }

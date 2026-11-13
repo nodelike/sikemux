@@ -444,7 +444,8 @@ pub(super) async fn run(
             }
             Request::AcpStop(ask::AcpStop { agent_id }) => {
                 if let Some(chat) = core.chats().get(&agent_id) {
-                    core.workspaces().note_stopping(&chat);
+                    core.workspaces()
+                        .note_stopping(chat.agent_id(), chat.current_now());
                 }
                 if core.chats().stop(&agent_id) {
                     core.note_agent_gone(&agent_id);

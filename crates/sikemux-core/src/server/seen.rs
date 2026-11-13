@@ -200,10 +200,7 @@ pub(crate) fn on_screen(
     focused: bool,
     draws_terminals: bool,
 ) {
-    if draws_terminals {
-        super::launching::show_terminals(core, &agent_ids);
-    }
-    super::chief::on_screen(core, &agent_ids, focused);
+    (core.workspace_above().agents_shown)(core, &agent_ids, focused, draws_terminals);
     core.seen().show(client, agent_ids, focused);
     core.changed(super::changed::What::View);
 }

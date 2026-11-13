@@ -136,6 +136,7 @@ mod who_wrote;
 mod why;
 pub(crate) use sikemux_serve::server::window;
 pub mod workspace;
+mod workspace_above;
 pub mod worktree;
 
 pub use calls::call;
@@ -452,7 +453,7 @@ impl ServerCore for Core {
                     ports: ports::Ports::new(data_dir),
                     usage_wake: Notify::new(),
                     ssh_watch: OnceLock::new(),
-                    preferences: preferences::Prefs::new(data_dir),
+                    preferences: preferences::Prefs::new(data_dir, themes::on_omarchy()),
                     streams: streams::Streams::default(),
                     look: themes::Look::default(),
                     harness,
@@ -462,7 +463,7 @@ impl ServerCore for Core {
                     outside: outside::Outside::new(data_dir),
                     shares: share::Shares::default(),
                     hooks: hooks::Hooks::default(),
-                    workspaces: workspace::Workspaces::new(data_dir),
+                    workspaces: workspace::Workspaces::new(data_dir, from_app::app_state(data_dir)),
                     seen: seen::Seen::default(),
                     settling: settling::Settling::default(),
                     stalls: stalls::Stalls::default(),
@@ -512,6 +513,7 @@ impl ServerCore for Core {
                     mcp_apps: mcp_apps::McpApps::new(data_dir),
                     clones: new_project::Clones::default(),
                     chiefs: chief::Chiefs::new(data_dir),
+                    workspace_above: base::workspace_above(),
                 }) as sikemux_kernel::Parts,
             ]
         });

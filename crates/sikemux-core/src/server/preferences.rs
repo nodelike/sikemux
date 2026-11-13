@@ -5,7 +5,6 @@ use super::changed::Topic;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
 pub use sikemux_calls::preferences::WorktreeDefaultParams;
 use std::collections::HashSet;
 use std::path::Path;
@@ -21,6 +20,11 @@ use sikemux_view::prefs::{
     MAX_TEXT_SCALE, MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE, UI_TEXT_SCALES,
 };
 
+/// The id of the theme an Omarchy desktop sets.
+pub(crate) const OMARCHY_THEME: &str = "omarchy";
+/// The most heavy commands the person can let run at once.
+pub(crate) const MOST_BUILD_RUNS: u32 = 64;
+
 const FILE: &str = "preferences.json";
 
 pub(crate) struct Prefs {
@@ -29,9 +33,10 @@ pub(crate) struct Prefs {
 }
 
 impl Prefs {
-    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+    /// The preferences kept in `data_dir`; on an Omarchy desktop they start out wearing its theme.
+    pub(crate) fn new(data_dir: Option<&Path>, omarchy: bool) -> Self {
         let kept = Kept::new(data_dir, FILE);
-        let mut values = defaults();
+        let mut values = defaults(omarchy);
         let saved: Value = kept.load();
         for (key, value) in saved.as_object().into_iter().flatten() {
             let _ = put(&mut values, key, value.clone());
@@ -75,10 +80,10 @@ impl super::part::Part for Prefs {
 
 /// What a preference is until the person sets it. An Omarchy desktop starts out wearing its
 /// theme and background.
-fn defaults() -> Map<String, Value> {
+fn defaults(omarchy: bool) -> Map<String, Value> {
     let mut preferences = Preferences::default();
-    if super::themes::on_omarchy() {
-        preferences.theme_id = super::themes::OMARCHY_THEME_ID.to_owned();
+    if omarchy {
+        preferences.theme_id = OMARCHY_THEME.to_owned();
         preferences.pane_image_follows_omarchy = true;
     }
     match serde_json::to_value(preferences) {
@@ -131,7 +136,7 @@ fn within_limits(mut preferences: Preferences) -> Preferences {
     preferences.pane_strength = ((preferences.pane_strength * 20.0).round() / 20.0).clamp(0.0, 2.0);
     let hundredths = |value: f64, low: f64| ((value * 100.0).round() / 100.0).clamp(low, 1.0);
     preferences.pane_dot_size = preferences.pane_dot_size.clamp(1, 6);
-    preferences.build_runs = preferences.build_runs.min(super::line::MOST_RUNS);
+    preferences.build_runs = preferences.build_runs.min(MOST_BUILD_RUNS);
     preferences.pane_contrast = hundredths(preferences.pane_contrast, -1.0);
     preferences.pane_brightness = hundredths(preferences.pane_brightness, -1.0);
     preferences.pane_glow = hundredths(preferences.pane_glow, 0.0);
@@ -209,23 +214,12 @@ fn commands_within_limits(commands: Vec<CustomCommand>) -> Vec<CustomCommand> {
 /// The only way a running core changes a preference: sets it and does what follows from it.
 pub(crate) fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferences> {
     core.preferences().change(change.clone());
-    match change {
-        PreferenceChange::Notch(_) => super::notch::follow(core),
-        PreferenceChange::UpdateChannel(_) => core.updates().check_soon(),
-        PreferenceChange::PaneShader(_) | PreferenceChange::PaneImage(_) => {
-            super::backdrop::follow(core)
-        }
-        PreferenceChange::PaneImageFollowsOmarchy(_) => {
-            super::themes::follow_omarchy_background(core);
-            super::backdrop::follow(core);
-        }
-        PreferenceChange::OnboardingComplete(_) => super::about::introduced(core)?,
-        PreferenceChange::ProjectSort(_) => core.changed(What::ViewNow),
-        _ => {}
+    if let PreferenceChange::ProjectSort(_) = change {
+        core.changed(What::ViewNow);
     }
-    core.theme_changed();
+    (core.workspace_above().preference_changed)(core, &change)?;
     core.changed(What::Read(Topic::Preferences));
-    Ok(core.shown_preferences())
+    Ok((core.workspace_above().shown_preferences)(core))
 }
 
 pub(crate) fn set_worktree_default(core: &Core, params: WorktreeDefaultParams) -> CoreResult<()> {
