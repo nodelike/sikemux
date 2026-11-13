@@ -58,6 +58,9 @@ pub struct TurnWait {
     /// When a timer fires, in Unix milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub until: Option<u64>,
+    /// Its place in line, 1 for next, while it waits its turn on the host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -69,6 +72,10 @@ pub enum TurnWaitKind {
     Timer,
     Process,
     Check,
+    /// Its heavy command waits its turn on the host.
+    Line,
+    /// Something used one at a time is in use by another.
+    InUse,
     /// A value a newer core sends.
     #[serde(other)]
     Unknown,

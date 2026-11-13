@@ -226,7 +226,10 @@ fn waiting_on(wait: &TurnWait) -> String {
             Some(until) => t!("Waiting until {when}", when = moment(until)),
             None => t!("Waiting").into(),
         },
-        TurnWaitKind::Process | TurnWaitKind::Unknown => t!("Waiting on {what}", what = wait.what),
+        TurnWaitKind::Process
+        | TurnWaitKind::Line
+        | TurnWaitKind::InUse
+        | TurnWaitKind::Unknown => t!("Waiting on {what}", what = wait.what),
     }
 }
 

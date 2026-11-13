@@ -83,6 +83,9 @@ pub struct AgentBuild {
     /// A check before a commit, which goes ahead of the others waiting.
     #[serde(rename = "final", default, skip_serializing_if = "std::ops::Not::not")]
     pub before_commit: bool,
+    /// The other agents whose same command this one run answers, by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub joined: Vec<String>,
 }
 
 /// An alert about this host, or about the linked host `host` names.

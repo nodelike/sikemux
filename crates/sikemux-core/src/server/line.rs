@@ -16,6 +16,7 @@ use crate::cli::protocol::BuildRequest;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use sikemux_view::device::AgentBuild;
+use sikemux_view::inbox::InLine;
 
 use super::changed::What;
 use super::Core;
@@ -34,6 +35,8 @@ const WATCHED_HEAVY_BYTES: u64 = 1 << 30;
 const CORES_PER_RUN: usize = 6;
 const LOOK_EVERY: Duration = Duration::from_secs(2);
 const SIZES_FILE: &str = "line-sizes.json";
+/// The most rows clients are sent of what runs and waits.
+const SHOWN_ROWS: usize = 32;
 /// How many of a command's latest runs its size is judged by.
 const RUNS_KEPT: usize = 5;
 
@@ -73,9 +76,15 @@ struct Run {
     holds: u64,
     /// Whether its processes were measured since it started.
     measured_once: bool,
+    /// The other agents whose same command it answers.
+    joined: Vec<String>,
 }
 
 impl Run {
+    fn is_for(&self, agent_id: &str) -> bool {
+        self.agent_id.as_deref() == Some(agent_id) || self.joined.iter().any(|id| id == agent_id)
+    }
+
     fn expected_peak(&self) -> u64 {
         match (self.expected, self.in_line) {
             (Some(size), _) => size.peak,
@@ -126,15 +135,15 @@ impl Line {
         }
     }
 
-    /// When the heavy command `agent_id` started began to wait for its turn, in Unix
-    /// milliseconds, while it still waits.
-    pub(crate) fn waiting_since(&self, agent_id: &str) -> Option<u64> {
+    /// Where the heavy command `agent_id` started stands in line, while it waits.
+    pub(crate) fn waiting(&self, agent_id: &str) -> Option<InLine> {
         let state = self.state.locked();
-        state
-            .waiting
-            .iter()
-            .find(|waiting| waiting.agent_id.as_deref() == Some(agent_id))
-            .map(|waiting| waiting.since)
+        let at = (state.waiting.iter()).position(|run| run.is_for(agent_id))?;
+        Some(InLine {
+            what: state.waiting[at].command.clone(),
+            place: at as u32 + 1,
+            expected_ms: expected_wait(&state, at),
+        })
     }
 
     /// Every heavy command running, then every one waiting in line, as clients show them.
@@ -145,6 +154,7 @@ impl Line {
             (state.waiting.iter().enumerate()).map(|(ahead, run)| (run, Some(ahead as u32)));
         running
             .chain(waiting)
+            .take(SHOWN_ROWS)
             .map(|(run, ahead)| AgentBuild {
                 id: run.id,
                 agent_id: run.agent_id.clone(),
@@ -153,8 +163,26 @@ impl Line {
                 ahead,
                 expected_ms: run.expected.map(|size| size.took_ms),
                 before_commit: run.before_commit,
+                joined: run.joined.clone(),
             })
             .collect()
+    }
+
+    /// Moves the waiting heavy command `id` to the front of the line.
+    pub(crate) fn go_first(&self, core: &Core, id: u64) -> Result<(), String> {
+        let mut state = self.state.locked();
+        let at = (state.waiting.iter())
+            .position(|run| run.id == id)
+            .ok_or("that command is not waiting")?;
+        let mut run = state.waiting.remove(at);
+        run.order = state.waiting.first().map_or(run.order, |first| {
+            first.order.min(run.order).saturating_sub(1)
+        });
+        state.waiting.insert(0, run);
+        drop(state);
+        self.turned.notify_waiters();
+        core.changed(What::View);
+        Ok(())
     }
 
     /// Stops the heavy command `id`, running or waiting: what it started, then the command itself.
@@ -228,6 +256,25 @@ impl Line {
             }
         });
     }
+}
+
+/// About how long the run waiting at `at` waits from now: what the ones ahead of it take, once
+/// every one of them was measured.
+fn expected_wait(state: &State, at: usize) -> Option<u64> {
+    let now = epoch_ms();
+    let ahead = (state.waiting[..at].iter())
+        .map(|run| run.expected.map(|size| size.took_ms))
+        .sum::<Option<u64>>()?;
+    let soonest_free = (state.running.iter().filter(|run| run.in_line))
+        .map(|run| {
+            let size = run.expected?;
+            Some(size.took_ms.saturating_sub(now.saturating_sub(run.since)))
+        })
+        .collect::<Option<Vec<u64>>>()?
+        .into_iter()
+        .min()
+        .unwrap_or(0);
+    Some(ahead + soonest_free)
 }
 
 /// Why the first in line may not start yet, if it may not.
@@ -312,8 +359,6 @@ fn tree_footprint(root: u32) -> u64 {
 pub(crate) struct Turn {
     core: Arc<Core>,
     id: u64,
-    agent: bool,
-    shown: AtomicBool,
 }
 
 impl Turn {
@@ -349,6 +394,7 @@ impl Turn {
             peak: 0,
             holds: 0,
             measured_once: false,
+            joined: Vec::new(),
         };
         match in_line {
             true => {
@@ -360,12 +406,10 @@ impl Turn {
             false => state.running.push(run),
         }
         drop(state);
-        show_while_overloaded(core);
+        core.changed(What::View);
         Turn {
             core: core.clone(),
             id,
-            agent,
-            shown: AtomicBool::new(false),
         }
     }
 
@@ -380,7 +424,7 @@ impl Turn {
         let place = self.core.line().place(self.id, &room);
         if matches!(place, Place::Running) {
             self.core.line().look_while_running(&self.core);
-            show_while_overloaded(&self.core);
+            self.core.changed(What::View);
         }
         place
     }
@@ -388,14 +432,6 @@ impl Turn {
     /// Waits until a heavy command ends or a little while passes, as memory frees up too.
     pub(crate) async fn changed(&self) {
         let _ = tokio::time::timeout(LOOK_EVERY, self.core.line().turned.notified()).await;
-    }
-
-    /// Lists it as waiting on its agent's row, or no longer once it was.
-    pub(crate) fn show(&self) {
-        if self.agent {
-            self.shown.store(true, Ordering::Relaxed);
-            self.core.changed(What::View);
-        }
     }
 }
 
@@ -413,19 +449,7 @@ impl Drop for Turn {
                 .record(&project, &key, peak, epoch_ms().saturating_sub(since));
         }
         line.turned.notify_waiters();
-        if self.shown.load(Ordering::Relaxed) {
-            self.core.changed(What::View);
-        } else {
-            show_while_overloaded(&self.core);
-        }
-    }
-}
-
-/// Tells clients the line moved, while the host is overloaded and they list it.
-fn show_while_overloaded(core: &Core) {
-    let cores = std::thread::available_parallelism().map_or(1, |cores| cores.get());
-    if sikemux_process::machine::overloaded(sikemux_process::machine::load_average(), cores) {
-        core.changed(What::View);
+        self.core.changed(What::View);
     }
 }
 

@@ -1313,7 +1313,11 @@ mod tests {
             active_at: Some(11),
             next_trigger: Some(12),
             triggers: 4,
-            build_queued_at: Some(13),
+            line: Some(sikemux_view::inbox::InLine {
+                what: "cargo test".into(),
+                place: 2,
+                expected_ms: Some(13),
+            }),
             called_at: Some(14),
             face: Some(AgentFace {
                 pack: "buddies".into(),

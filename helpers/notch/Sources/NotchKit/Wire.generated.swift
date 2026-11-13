@@ -673,6 +673,10 @@ enum TurnWaitKind: String, Codable, Hashable {
     case timer
     case process
     case check
+    /// Its heavy command waits its turn on the host.
+    case line
+    /// Something used one at a time is in use by another.
+    case inUse
     /// One added after this build.
     case unknown
 

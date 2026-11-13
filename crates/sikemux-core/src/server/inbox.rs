@@ -211,7 +211,7 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         active_at: None,
         next_trigger: None,
         triggers: 0,
-        build_queued_at: None,
+        line: None,
         called_at: None,
         face: None,
         team: None,
@@ -1737,7 +1737,7 @@ fn shown(
             shown.active_at = chat.active_at;
             shown.next_trigger = chat.next_trigger;
             shown.triggers = core.triggers().count(&chat.agent_id);
-            shown.build_queued_at = core.line().waiting_since(&chat.agent_id);
+            shown.line = core.line().waiting(&chat.agent_id);
             shown.called_at = chat.called_at;
             (chat.attention_rank, shown)
         })
@@ -1757,7 +1757,7 @@ fn shown(
             shown.active_at = session.active_at;
             shown.next_trigger = session.next_trigger;
             shown.triggers = core.triggers().count(agent_id);
-            shown.build_queued_at = core.line().waiting_since(agent_id);
+            shown.line = core.line().waiting(agent_id);
             shown.called_at = session.called_at;
             Some((session.attention_rank.unwrap_or(u32::MAX), shown))
         }),

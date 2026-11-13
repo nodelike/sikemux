@@ -247,6 +247,7 @@ impl Triggers {
                 started_at: ci.since(),
                 expected_ms: expected(&ci.waits_on()),
                 until: None,
+                place: None,
             });
         }
         if let Some((trigger, park)) =
@@ -258,6 +259,7 @@ impl Triggers {
                 started_at: park.since,
                 expected_ms: park.waits_on().and_then(|on| expected(&on)),
                 until: None,
+                place: None,
             });
         }
         let soonest = mine()
@@ -271,6 +273,7 @@ impl Triggers {
             started_at: rested_at.min(at),
             expected_ms: None,
             until: Some(at),
+            place: None,
         })
     }
 

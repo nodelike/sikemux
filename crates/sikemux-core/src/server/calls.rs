@@ -154,6 +154,7 @@ calls! { core, client, method, params;
     "setAgentNameTheme" SetAgentNameTheme (names::NameThemeParams) -> names::NameThemeParams: Owner, counted => names::set_name_theme(&core, params),
     "hostLoad": Watch, any_program => answer(super::host_stats::load(&core)),
     "stopBuild" StopBuild (StopBuildParams) -> (): Owner => core.line().stop(params.id).map_err(CoreError::from)?,
+    "goFirst" GoFirst (GoFirstParams) -> (): Owner => core.line().go_first(&core, params.id).map_err(CoreError::from)?,
     "stopChatIfIdle": NoDevice => answer(json!({ "stopped": super::lifecycle::sleep(&core, &parse::<AgentParams>(params)?.agent_id) })),
     "switchAgentView" SwitchAgentView (super::agent_view::AgentViewParams) -> Value: Owner => super::agent_view::switch(&core, params).await?,
     "sleepAgent" SleepAgent (AgentParams) -> (): Owner, counted => super::lifecycle::sleep_agent(&core, &params.agent_id)?,
@@ -718,6 +719,12 @@ struct ManifestFolder {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StopBuildParams {
+    pub id: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoFirstParams {
     pub id: u64,
 }
 

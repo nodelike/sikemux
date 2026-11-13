@@ -369,7 +369,6 @@ async fn build(
                 why,
             } if !told => {
                 told = true;
-                turn.show();
                 let queued = CliServerResponse::Queued {
                     ahead,
                     building: running,
@@ -385,9 +384,6 @@ async fn build(
             () = turn.changed() => {}
             () = closed(reader) => return,
         }
-    }
-    if told {
-        turn.show();
     }
     if write(writer, &CliServerResponse::Building).await {
         closed(reader).await;

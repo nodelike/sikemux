@@ -330,6 +330,7 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
             started_at: *since,
             expected_ms: None,
             until: None,
+            place: None,
         });
     }
     if let Some((since, took)) = gathered.on_check.get(agent_id) {
@@ -339,6 +340,7 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
             started_at: *since,
             expected_ms: *took,
             until: None,
+            place: None,
         });
     }
     set
@@ -599,6 +601,8 @@ pub(crate) fn line(turn: &TurnState) -> Option<String> {
                 TurnWaitKind::Agent => return Some(format!("waiting on @{}", wait.what)),
                 TurnWaitKind::Timer => "a timer",
                 TurnWaitKind::Process => "a process",
+                TurnWaitKind::Line => "its turn on the host",
+                TurnWaitKind::InUse => "something in use",
                 TurnWaitKind::Check | TurnWaitKind::Unknown => "the project's check",
             };
             match wait.what.is_empty() {

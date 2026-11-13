@@ -2025,9 +2025,8 @@ struct RemoteAgent: Codable, Hashable, Sendable {
     var nextTrigger: Int?
     /// How many triggers it set on its own chat, which pause when it closes.
     var triggers: Int?
-    /// When a build it started began to wait for its turn on the host, while it waits, in
-    /// Unix milliseconds.
-    var buildQueuedAt: Int?
+    /// The heavy command it started that waits for its turn on the host, while it waits.
+    var line: InLine?
     /// When the agent was last named with `@` or messaged by another agent.
     var calledAt: Int?
     /// The face it wears, as the workspace's agent does; none while it shows
@@ -2102,6 +2101,8 @@ struct TurnWait: Codable, Hashable, Sendable {
     var expectedMs: Int?
     /// When a timer fires, in Unix milliseconds.
     var until: Int?
+    /// Its place in line, 1 for next, while it waits its turn on the host.
+    var place: Int?
 }
 
 enum TurnWaitKind: String, Codable, Hashable, Sendable {
@@ -2111,6 +2112,10 @@ enum TurnWaitKind: String, Codable, Hashable, Sendable {
     case timer
     case process
     case check
+    /// Its heavy command waits its turn on the host.
+    case line
+    /// Something used one at a time is in use by another.
+    case inUse
     /// One added after this build.
     case unknown
 
@@ -2241,6 +2246,16 @@ enum Remedy: String, Codable, Hashable, Sendable {
     }
 }
 
+/// Where an agent's heavy command stands in the host's line.
+struct InLine: Codable, Hashable, Sendable {
+    /// The command, such as `cargo test`.
+    var what: String
+    /// Its place, 1 for next.
+    var place: Int
+    /// How long it usually waits from here, once that is known.
+    var expectedMs: Int?
+}
+
 /// Where an agent sits on its team: the lead heads it, the last worker ends it.
 enum TeamLink: String, Codable, Hashable, Sendable {
     case head
@@ -2291,9 +2306,8 @@ struct AgentShown: Codable, Hashable, Sendable {
     var nextTrigger: Int?
     /// How many triggers it set on its own chat, which pause when it closes.
     var triggers: Int?
-    /// When a build it started began to wait for its turn on the host, while it waits, in
-    /// Unix milliseconds.
-    var buildQueuedAt: Int?
+    /// The heavy command it started that waits for its turn on the host, while it waits.
+    var line: InLine?
     /// When the agent was last named with `@` or messaged by another agent.
     var calledAt: Int?
     /// The face it wears, as the workspace's agent does; none while it shows
@@ -2854,6 +2868,8 @@ struct AgentBuild: Codable, Hashable, Sendable {
     var expectedMs: Int?
     /// A check before a commit, which goes ahead of the others waiting.
     var final: Bool?
+    /// The other agents whose same command this one run answers, by id.
+    var joined: [String]?
 }
 
 /// An alert about this host, or about the linked host `host` names.

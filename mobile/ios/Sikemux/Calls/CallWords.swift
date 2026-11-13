@@ -85,7 +85,7 @@ enum CallWords {
                 ? String(localized: "Waiting on \(wait.what)") : String(localized: "Waiting on @\(wait.what)")
         case .timer:
             wait.until.map { String(localized: "Waiting until \(ChatWords.clock($0))") } ?? String(localized: "Waiting")
-        case .process, .unknown: String(localized: "Waiting on \(wait.what)")
+        case .process, .line, .inUse, .unknown: String(localized: "Waiting on \(wait.what)")
         }
     }
 

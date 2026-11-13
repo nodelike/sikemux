@@ -229,10 +229,7 @@ pub(crate) fn load(core: &Core) -> HostLoad {
             .filter(|_| overloaded)
             .map(|average| average.round() as u32),
         cores: cores as u32,
-        builds: match overloaded {
-            true => core.line().shown(),
-            false => Vec::new(),
-        },
+        builds: core.line().shown(),
     }
 }
 

@@ -1208,11 +1208,8 @@ export interface RemoteAgent {
     nextTrigger?: number;
     /** How many triggers it set on its own chat, which pause when it closes. */
     triggers?: number;
-    /**
-     * When a build it started began to wait for its turn on the host, while it waits, in
-     * Unix milliseconds.
-     */
-    buildQueuedAt?: number;
+    /** The heavy command it started that waits for its turn on the host, while it waits. */
+    line?: InLine;
     /** When the agent was last named with `@` or messaged by another agent. */
     calledAt?: number;
     /**
@@ -1277,9 +1274,11 @@ export interface TurnWait {
     expectedMs?: number;
     /** When a timer fires, in Unix milliseconds. */
     until?: number;
+    /** Its place in line, 1 for next, while it waits its turn on the host. */
+    place?: number;
 }
 
-export type TurnWaitKind = "ci" | "deploy" | "agent" | "timer" | "process" | "check";
+export type TurnWaitKind = "ci" | "deploy" | "agent" | "timer" | "process" | "check" | "line" | "inUse";
 
 /** What the agent waits on the person for. */
 export interface TurnCall {
@@ -1336,6 +1335,16 @@ export type FailureKind = "signIn" | "limit" | "network" | "other";
 /** What the person can do about a failed turn. */
 export type Remedy = "otherAccount" | "retry" | "reconnect" | "signIn";
 
+/** Where an agent's heavy command stands in the host's line. */
+export interface InLine {
+    /** The command, such as `cargo test`. */
+    what: string;
+    /** Its place, 1 for next. */
+    place: number;
+    /** How long it usually waits from here, once that is known. */
+    expectedMs?: number;
+}
+
 /** Where an agent sits on its team: the lead heads it, the last worker ends it. */
 export type TeamLink = "head" | "member" | "last";
 
@@ -1380,11 +1389,8 @@ export interface AgentShown {
     nextTrigger?: number;
     /** How many triggers it set on its own chat, which pause when it closes. */
     triggers?: number;
-    /**
-     * When a build it started began to wait for its turn on the host, while it waits, in
-     * Unix milliseconds.
-     */
-    buildQueuedAt?: number;
+    /** The heavy command it started that waits for its turn on the host, while it waits. */
+    line?: InLine;
     /** When the agent was last named with `@` or messaged by another agent. */
     calledAt?: number;
     /**
@@ -1784,6 +1790,8 @@ export interface AgentBuild {
     expectedMs?: number;
     /** A check before a commit, which goes ahead of the others waiting. */
     final?: boolean;
+    /** The other agents whose same command this one run answers, by id. */
+    joined?: string[];
 }
 
 /** An alert about this host, or about the linked host `host` names. */

@@ -306,6 +306,8 @@ fn waited(wait: &TurnWait, now: u64) -> String {
         TurnWaitKind::Timer => "a timer",
         TurnWaitKind::Process => "a process",
         TurnWaitKind::Check => "a check",
+        TurnWaitKind::Line => "its turn on the host",
+        TurnWaitKind::InUse => "something in use",
         TurnWaitKind::Unknown => "something",
     };
     format!("{kind}, {}, since {}", wait.what, ago(now, wait.started_at))

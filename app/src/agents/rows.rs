@@ -316,7 +316,7 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         active_at: row.active_at.unwrap_or(0),
         next_trigger: row.next_trigger,
         triggers: row.triggers,
-        build_queued: row.build_queued_at.is_some(),
+        build_queued: row.line.is_some(),
         called_at: row.called_at,
         team: row.team,
         place: place.clone(),

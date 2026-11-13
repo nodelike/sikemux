@@ -421,10 +421,9 @@ pub struct AgentShown {
     /// How many triggers it set on its own chat, which pause when it closes.
     #[serde(default)]
     pub triggers: u32,
-    /// When a build it started began to wait for its turn on the host, while it waits, in
-    /// Unix milliseconds.
+    /// The heavy command it started that waits for its turn on the host, while it waits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub build_queued_at: Option<u64>,
+    pub line: Option<InLine>,
     /// When the agent was last named with `@` or messaged by another agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub called_at: Option<u64>,
@@ -457,6 +456,19 @@ pub struct AgentShown {
     /// The person's labels for it, lower case.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+}
+
+/// Where an agent's heavy command stands in the host's line.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InLine {
+    /// The command, such as `cargo test`.
+    pub what: String,
+    /// Its place, 1 for next.
+    pub place: u32,
+    /// How long it usually waits from here, once that is known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_ms: Option<u64>,
 }
 
 /// Where an agent sits on its team: the lead heads it, the last worker ends it.
