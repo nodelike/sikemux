@@ -270,6 +270,28 @@ impl Cards {
     }
 }
 
+/// Where words typed in an agent's chat go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Typed {
+    /// To the agent, as a message.
+    Message,
+    /// To the call waiting there, as the person's answer, with any files.
+    Answer,
+    /// To the call waiting there, which asks for a secret: the words alone, never drawn in the
+    /// chat or kept as its draft.
+    Secret,
+}
+
+/// Where words typed in a chat go while `waiting` is the call it answers. A change to production
+/// passes only by its button, so words typed beside it go to the agent.
+pub(crate) fn typed_goes(waiting: Option<&PersonCall>) -> Typed {
+    match waiting {
+        Some(call) if call.secret => Typed::Secret,
+        Some(call) if call.kind != CallKind::Production => Typed::Answer,
+        _ => Typed::Message,
+    }
+}
+
 impl Workbench {
     /// Each core's view this window holds, with where it is.
     fn views(&self) -> impl Iterator<Item = (Place, &DeviceView)> {
@@ -319,7 +341,7 @@ impl Workbench {
     /// The call agent `agent`'s chat answers when the person types or presses a key there, on the
     /// host at `place`: the one chosen in the title bar's list while it waits on the agent, else the
     /// oldest, drawn nearest the composer. While the chat shows a chief's away card, only the card
-    /// drawn open in it, and only when that call is the agent's own.
+    /// drawn open in it, and only when that call is the agent's own or asks for a secret.
     pub(crate) fn waiting_call(&self, place: &Place, agent: &str, cx: &App) -> Option<&PersonCall> {
         let away = (self.chats.open.get(agent))
             .and_then(|chat| chat.state.as_ref())
@@ -329,7 +351,7 @@ impl Workbench {
             return away::open_of(&away.calls, opened.as_deref(), |id| {
                 (self.view_at(place)?.calls.iter()).find(|call| call.id == id)
             })
-            .filter(|call| waits(call, agent));
+            .filter(|call| call.secret || waits(call, agent));
         }
         let opened = self.calls.read(cx).opened.clone();
         let open = (self.view_at(place)?.calls.iter())
@@ -337,9 +359,34 @@ impl Workbench {
         answered_in_chat(open, opened.as_deref())
     }
 
+    /// The call words typed in agent `agent`'s chat answer, on the host at `place`: a call for a
+    /// secret open there, whichever card is chosen, so a token never answers another call; else
+    /// the one its keys answer.
+    pub(crate) fn typed_call(&self, place: &Place, agent: &str, cx: &App) -> Option<&PersonCall> {
+        let away = (self.chats.open.get(agent))
+            .and_then(|chat| chat.state.as_ref())
+            .and_then(|head| head.away.as_ref());
+        let secrets = (self.view_at(place)?.calls.iter())
+            .filter(|call| call.state == CallState::Open && call.secret);
+        let secret = match away {
+            Some(away) => secrets
+                .filter(|call| away.calls.contains(&call.id))
+                .min_by_key(|call| call.raised_at),
+            None => secrets
+                .filter(|call| waits(call, agent))
+                .min_by_key(|call| call.raised_at),
+        };
+        secret.or_else(|| self.waiting_call(place, agent, cx))
+    }
+
+    /// Where words typed in agent `agent`'s chat go now.
+    pub(crate) fn typed_goes(&self, agent: &str, cx: &App) -> Typed {
+        let target = self.chat_target(agent);
+        typed_goes(self.typed_call(target.place(), agent, cx))
+    }
+
     /// Answers the call agent `agent` waits on with what the person typed in its chat, with the
-    /// files they sent. A production call passes only by its button, so the words go to the
-    /// agent instead, as does anything typed while no call waits. Says whether it answered one.
+    /// files they sent; a secret takes the words alone. Says whether it answered one.
     pub(crate) fn answer_in_chat(
         &mut self,
         agent: &str,
@@ -348,11 +395,13 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) -> bool {
         let target = self.chat_target(agent);
-        let Some(call) = self
-            .waiting_call(target.place(), agent, cx)
-            .filter(|call| call.kind != CallKind::Production && !call.secret)
-        else {
+        let Some(call) = self.typed_call(target.place(), agent, cx) else {
             return false;
+        };
+        let (paths, context) = match typed_goes(Some(call)) {
+            Typed::Message => return false,
+            Typed::Answer => (paths, context),
+            Typed::Secret => (Vec::new(), Vec::new()),
         };
         let asked_by_question = self
             .feeds

@@ -240,11 +240,18 @@ impl Workbench {
         });
     }
 
+    /// Keeps `agent`'s draft with the core, without its words while they answer a secret.
     pub fn keep_draft(&mut self, agent: &str, cx: &mut Context<Self>) {
+        let secret = self.typed_goes(agent, cx) == crate::calls::Typed::Secret;
         let Some(composing) = self.composing_mut(agent) else {
             return;
         };
-        let draft = kept(composing, cx);
+        let mut draft = kept(composing, cx);
+        if secret {
+            draft.text.clear();
+            draft.extra.tokens.clear();
+            draft.extra.tracked.clear();
+        }
         if draft == composing.synced {
             return;
         }

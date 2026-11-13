@@ -20,6 +20,7 @@ use sikemux_view::prefs::MidTurnSend;
 use sikemux_wire::protocol::PermissionMode;
 
 use super::*;
+use crate::calls::{typed_goes, Typed};
 use crate::chat::{Answering, Chat, Question};
 use crate::core::ChatAsk;
 use crate::ui::list_picker::{Choose, Close, Next, Previous};
@@ -89,6 +90,9 @@ pub struct Composing {
     pub view: Entity<ComposerView>,
     pub secret: Entity<TextareaState>,
     pub secret_focused: bool,
+    /// The draft's words answer a call for a secret, so once that call closes they are dropped,
+    /// never sent to the agent or kept.
+    pub answering_secret: bool,
     pub hint: SharedString,
     /// What the agent predicts the person sends next, while the empty draft offers it.
     pub suggested: Option<SharedString>,
@@ -1190,6 +1194,7 @@ impl Workbench {
             view,
             secret,
             secret_focused: false,
+            answering_secret: false,
             mic,
             hint: SharedString::default(),
             suggested: None,
@@ -1324,10 +1329,8 @@ impl Workbench {
         let waiting = (self.chats.open.get(&agent))
             .and_then(|chat| self.waiting_call(chat.target.place(), &agent, cx));
         let call_waits = waiting.is_some();
-        // Typed words answer the call only when it takes them; a production call or a secret
-        // is answered on its card.
-        let words_answer = waiting.is_some_and(|call| {
-            call.kind != sikemux_view::calls::CallKind::Production && !call.secret
+        let typed = (self.chats.open.get(&agent)).map_or(Typed::Message, |chat| {
+            typed_goes(self.typed_call(chat.target.place(), &agent, cx))
         });
         let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
@@ -1336,9 +1339,10 @@ impl Workbench {
             .then(|| chat.suggestion(&agent, self.feeds.questions_outside_calls()))
             .flatten()
             .map(SharedString::new);
-        let hint = SharedString::from(match words_answer {
-            true => t!("Or answer in your own words").to_owned(),
-            false => chat.hint(
+        let hint = SharedString::from(match typed {
+            Typed::Secret => t!("Type or paste it · kept private").to_owned(),
+            Typed::Answer => t!("Or answer in your own words").to_owned(),
+            Typed::Message => chat.hint(
                 &agent,
                 self.feeds.questions_outside_calls(),
                 steer_first,
@@ -1348,6 +1352,12 @@ impl Workbench {
         let Some(composing) = chat.composer.as_mut() else {
             return;
         };
+        let answered_secret =
+            std::mem::replace(&mut composing.answering_secret, typed == Typed::Secret)
+                && typed != Typed::Secret;
+        if answered_secret {
+            (composing.draft).update(cx, |draft, cx| draft.set_value("", window, cx));
+        }
         let suggested = suggested.filter(|suggested| {
             composing.attachments.is_empty()
                 && composing.context.is_empty()
@@ -1445,14 +1455,24 @@ impl Workbench {
             .map(|composing| (composing.draft.clone(), composing.outgoing(cx)));
         if let Some((draft, outgoing)) = typed {
             let text = draft.read(cx).value().trim().to_owned();
+            let secret = self.typed_goes(agent, cx) == Typed::Secret;
+            let answered_secret = (self.composing(agent))
+                .is_some_and(|composing| composing.answering_secret && !secret);
+            if answered_secret {
+                draft.update(cx, |draft, cx| draft.set_value("", window, cx));
+                self.keep_draft(agent, cx);
+                return cx.notify();
+            }
             if !text.is_empty() && self.answer_in_chat(agent, &text, outgoing, cx) {
                 let composing =
                     (self.chats.open.get_mut(agent)).and_then(|chat| chat.composer.as_mut());
                 if let Some(composing) = composing {
                     composing.refusal = None;
-                    composing.attachments.clear();
-                    composing.context.clear();
-                    composing.tracked_context.clear();
+                    if !secret {
+                        composing.attachments.clear();
+                        composing.context.clear();
+                        composing.tracked_context.clear();
+                    }
                 }
                 draft.update(cx, |draft, cx| draft.set_value("", window, cx));
                 self.keep_draft(agent, cx);
