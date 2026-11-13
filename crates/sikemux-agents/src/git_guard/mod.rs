@@ -5,6 +5,7 @@
 mod footer;
 mod heavy;
 pub mod homes;
+mod in_line;
 pub mod shim;
 
 use std::path::{Path, PathBuf};
@@ -22,6 +23,17 @@ const COMMIT_INSTEAD: &str = "Commit with the git_commit tool: it takes the line
 struct Sweep {
     does: &'static str,
     instead: &'static str,
+}
+
+/// Whether `command`, a shell command line run in `cwd`, runs a heavy command, which waits
+/// for its turn on the host.
+pub fn waits_in_line(command: &str, cwd: &Path) -> bool {
+    segments(command).iter().any(|words| {
+        let Some((first, args)) = command_words(words).and_then(<[String]>::split_first) else {
+            return false;
+        };
+        heavy::of_program(base_name(first), args, cwd).is_some()
+    })
 }
 
 /// Why `command`, a shell command line run in `cwd`, may not run, if it may not.

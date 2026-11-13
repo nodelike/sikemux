@@ -307,6 +307,10 @@ pub(crate) fn start_for_person(
     Ok(execution_id)
 }
 
+/// How long a heavy command a run starts takes to ask the host for its turn.
+const LINE_ASKS_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
+const LINE_LOOK_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+
 pub(super) async fn process_start(
     core: &Arc<Core>,
     request: &HarnessRequest,
@@ -343,7 +347,35 @@ pub(super) async fn process_start(
             execution_id
         }
     };
-    answer_start(core, &request.project, &execution_id, until, ready_when).await
+    let mut answer = answer_start(core, &request.project, &execution_id, until, ready_when).await?;
+    if let Some(said) = in_line(core, &execution_id).await {
+        answer["inLine"] = said.into();
+    }
+    Ok(answer)
+}
+
+/// What the run's heavy command says of its place in the host's line, when it waits there.
+async fn in_line(core: &Core, execution_id: &str) -> Option<String> {
+    let run = core.harness().run_of(execution_id)?;
+    let (command, cwd) = (run.command?, run.cwd.unwrap_or(run.project));
+    if !crate::git_guard::waits_in_line(&command, Path::new(&cwd)) {
+        return None;
+    }
+    let until = Instant::now() + LINE_ASKS_WITHIN;
+    while Instant::now() < until {
+        if let Some(line) = core.line().waiting_for_run(execution_id) {
+            let wait = match line.expected_ms {
+                Some(ms) => format!(", about {} min", (ms / 60_000).max(1)),
+                None => String::new(),
+            };
+            return Some(format!(
+                "`{}` waits in line for its turn on the host: place {}{wait}. It starts by itself; park on its exit with trigger_add rather than polling.",
+                line.what, line.place
+            ));
+        }
+        tokio::time::sleep(LINE_LOOK_EVERY).await;
+    }
+    None
 }
 
 pub(super) async fn answer_start(

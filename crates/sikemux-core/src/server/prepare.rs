@@ -257,6 +257,7 @@ pub(crate) fn prepare_task(
         rows,
         agent_id,
     } = request;
+    let in_line = agent_id.clone().map(|agent| (agent, cwd.clone()));
     let task = TaskSessionInfo {
         execution_id: execution_id.clone(),
         terminal_key: terminal_key.clone(),
@@ -301,7 +302,13 @@ pub(crate) fn prepare_task(
     task_command.env(vars::TASK_TERMINAL_KEY, terminal_key);
     task_command.env(vars::TASK_ID, task_id);
     task_command.env(vars::TASK_SOURCE, source.as_str());
-    for (key, value) in env {
+    let in_line = in_line.map(|(agent, cwd)| {
+        shim::stand_in_for_heavy(std::path::Path::new(&cwd));
+        let mut given = shim::environment(env.get("PATH").map(String::as_str));
+        given.push((vars::AGENT_ID.to_owned(), agent));
+        given
+    });
+    for (key, value) in env.into_iter().chain(in_line.into_iter().flatten()) {
         task_command.env(key, value);
     }
     task_command.cwd(paths.cwd);
