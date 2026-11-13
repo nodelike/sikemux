@@ -27,8 +27,7 @@ export function said(turn: TurnState, maker: string, now = Date.now(), say: Say 
             return { word: say("Working"), phase: "working", parts: [lowered(turn.on), elapsed(Math.floor((now - turn.since) / 1000), say)] };
         case "waiting": {
             if (!turn.wait) return undefined;
-            const gone = waited(turn.wait, now, say);
-            return { word: waitingOn(turn.wait, say), phase: "waiting", parts: gone ? [gone] : [] };
+            return { word: waitingOn(turn.wait, say), phase: "waiting", parts: waited(turn.wait, now, say) };
         }
         case "needsYou": {
             const call = turn.call;
@@ -93,17 +92,59 @@ export function waitingOn(wait: TurnWait, say: Say = english): string {
             return say("Waiting on {what}", { what: wait.what.startsWith("@") ? wait.what : `@${wait.what}` });
         case "timer":
             return wait.until != null ? say("Waiting until {when}", { when: clockLabel(wait.until, undefined, undefined, say) }) : say("Waiting");
+        case "line":
+            return say("In line for {what}", { what: wait.what });
+        case "inUse":
+            return say("Waiting for {what}", { what: wait.what });
         default:
             return say("Waiting on {what}", { what: wait.what });
     }
 }
 
-/** How long a wait has gone, against how long it usually takes once that is known. */
-export function waited(wait: TurnWait, now = Date.now(), say: Say = english): string | undefined {
-    if (wait.kind === "timer") return undefined;
+/**
+ * How long a wait has gone, against how long it usually takes once that is known; for a command in line, its place and
+ * about how long it has left.
+ */
+export function waited(wait: TurnWait, now = Date.now(), say: Say = english): string[] {
+    if (wait.kind === "timer") return [];
+    if (wait.kind === "line") {
+        return [
+            ...(wait.place != null ? [placeInLine(wait.place, say)] : []),
+            ...(wait.expectedMs != null ? [about(wait.expectedMs, say)] : []),
+        ];
+    }
     const gone = Math.floor(Math.max(0, now - wait.startedAt) / MINUTE);
-    if (wait.expectedMs == null) return say("{minutes} min", { minutes: gone });
-    return say("{minutes} of ~{expected} min", { minutes: gone, expected: Math.ceil(wait.expectedMs / MINUTE) });
+    if (wait.expectedMs == null) return [say("{minutes} min", { minutes: gone })];
+    return [say("{minutes} of ~{expected} min", { minutes: gone, expected: Math.ceil(wait.expectedMs / MINUTE) })];
+}
+
+/** A place in the host's line as a list of them says it: "next", "2nd". */
+export function placeInLine(at: number, say: Say = english): string {
+    return at > 1 ? ordinal(at, say) : say("next");
+}
+
+/** A place in the host's line on its own: "next in line", "2nd in line". */
+export function inLine(at: number, say: Say = english): string {
+    return at > 1 ? say("{place} in line", { place: ordinal(at, say) }) : say("next in line");
+}
+
+function ordinal(at: number, say: Say): string {
+    if ([11, 12, 13].includes(at % 100)) return say("{place}th", { place: at });
+    switch (at % 10) {
+        case 1:
+            return say("{place}st", { place: at });
+        case 2:
+            return say("{place}nd", { place: at });
+        case 3:
+            return say("{place}rd", { place: at });
+        default:
+            return say("{place}th", { place: at });
+    }
+}
+
+/** How long a wait has left, roughly: "about 4 min". */
+export function about(ms: number, say: Say = english): string {
+    return say("about {minutes} min", { minutes: Math.max(1, Math.ceil(ms / MINUTE)) });
 }
 
 export function changed(changes: WorkAt, say: Say = english): string {

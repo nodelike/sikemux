@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { AgentFace } from '@/devices/Buddy';
 import { useDevices } from '@/devices/hub';
 import { Row } from '@/ui/list';
-import { ShellCount, SubagentCount, TurnMark } from '@/devices/AgentMarks';
+import { LinePlace, ShellCount, SubagentCount, TurnMark } from '@/devices/AgentMarks';
 import { useMinute } from '@/ui/motion';
 import { useT } from '@/i18n';
 
@@ -37,6 +37,7 @@ export const WorkerRow = memo(function WorkerRow({ worker }: { worker: RemoteAge
           <>
             {worker.subagents ? <SubagentCount count={worker.subagents} /> : null}
             {worker.tasks ? <ShellCount count={worker.tasks} /> : null}
+            {worker.line ? <LinePlace place={worker.line.place} /> : null}
             <TurnMark turn={worker.turn} now={minute * 60_000} />
           </>
         ) : undefined

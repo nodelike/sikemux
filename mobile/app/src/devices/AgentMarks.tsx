@@ -4,7 +4,7 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import type { TurnState } from '@shared/wire.generated';
-import { ringShare, rowLabel, rowMinutes } from '@shared/calls/words';
+import { inLine, ringShare, rowLabel, rowMinutes } from '@shared/calls/words';
 import { useT } from '@/i18n';
 
 import { Icon } from '@/ui/Icon';
@@ -104,6 +104,20 @@ export function SubagentCount({ count }: { count: number }) {
       accessibilityLabel={count === 1 ? t('1 subagent running') : t('{count} subagents running', { count })}>
       <Icon name="IconAgent" size={11} color={colors.live} filled />
       <Text style={styles.countText}>{count}</Text>
+    </View>
+  );
+}
+
+/** Where a heavy command the agent started stands in the host's line, as the Mac's rail says it: "2nd in line". */
+export function LinePlace({ place }: { place: number }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  const words = inLine(place, t);
+  return (
+    <View style={styles.count} accessible accessibilityLabel={words}>
+      <Icon name="IconHourglass" size={11} color={colors.warn} />
+      <Text style={styles.countText}>{words}</Text>
     </View>
   );
 }

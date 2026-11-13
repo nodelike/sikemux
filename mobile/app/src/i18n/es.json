@@ -795,5 +795,14 @@
   "said {day}": "dicho el {day}",
   "decided": "decidido",
   "source": "origen",
-  "today": "hoy"
+  "today": "hoy",
+  "In line for {what}": "En la fila para {what}",
+  "next": "el siguiente",
+  "next in line": "el siguiente en la fila",
+  "{place} in line": "{place} en la fila",
+  "{place}st": "{place}.º",
+  "{place}nd": "{place}.º",
+  "{place}rd": "{place}.º",
+  "{place}th": "{place}.º",
+  "about {minutes} min": "unos {minutes} min"
 }

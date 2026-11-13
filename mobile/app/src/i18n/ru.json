@@ -795,5 +795,14 @@
   "said {day}": "сказано {day}",
   "decided": "решено",
   "source": "источник",
-  "today": "сегодня"
+  "today": "сегодня",
+  "In line for {what}": "В очереди на {what}",
+  "next": "следующий",
+  "next in line": "следующий",
+  "{place} in line": "{place} в очереди",
+  "{place}st": "{place}-й",
+  "{place}nd": "{place}-й",
+  "{place}rd": "{place}-й",
+  "{place}th": "{place}-й",
+  "about {minutes} min": "около {minutes} мин"
 }

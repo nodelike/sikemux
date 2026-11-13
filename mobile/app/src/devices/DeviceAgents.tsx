@@ -15,7 +15,7 @@ import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { EmptyState } from '@/ui/prompt';
-import { ShellCount, SubagentCount, TurnMark, WakeTime } from '@/devices/AgentMarks';
+import { LinePlace, ShellCount, SubagentCount, TurnMark, WakeTime } from '@/devices/AgentMarks';
 import { ChiefRow } from '@/calls/ChiefRow';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { listed, Recent } from '@/devices/DeviceRecent';
@@ -247,6 +247,7 @@ const ChatRow = memo(function ChatRow({
           <>
             {shown.subagents ? <SubagentCount count={shown.subagents} /> : null}
             {shown.tasks ? <ShellCount count={shown.tasks} /> : null}
+            {shown.line ? <LinePlace place={shown.line.place} /> : null}
             <TurnMark turn={shown.turn} now={minute * 60_000} />
           </>
         )

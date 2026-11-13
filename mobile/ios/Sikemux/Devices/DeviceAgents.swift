@@ -170,6 +170,7 @@ private struct ChatRow: View {
                 } else {
                     if shown.subagents > 0 { SubagentCount(count: shown.subagents) }
                     if shown.tasks > 0 { ShellCount(count: shown.tasks) }
+                    if let line = shown.line { LinePlace(place: line.place) }
                     TurnMark(turn: shown.turn, now: now)
                 }
             },
@@ -346,6 +347,7 @@ struct WorkerRow: View {
                 if reachable {
                     if worker.subagents > 0 { SubagentCount(count: worker.subagents) }
                     if worker.tasks > 0 { ShellCount(count: worker.tasks) }
+                    if let line = worker.line { LinePlace(place: line.place) }
                     TurnMark(turn: worker.turn, now: now)
                 }
             }

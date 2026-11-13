@@ -107,6 +107,17 @@ struct ShellCount: View {
     }
 }
 
+/// Where a heavy command the agent started stands in the host's line, as the Mac's rail says it: "2nd in line".
+struct LinePlace: View {
+    @Environment(\.palette) private var palette
+    let place: Int
+
+    var body: some View {
+        MarkCount(icon: Icons.hourglass, tint: palette.warn, text: CallWords.inLine(place))
+            .accessibilityLabel(CallWords.inLine(place))
+    }
+}
+
 /// How soon a snoozed agent wakes, as the Mac rail says it: minutes, hours, then the weekday.
 struct WakeTime: View {
     @Environment(\.palette) private var palette

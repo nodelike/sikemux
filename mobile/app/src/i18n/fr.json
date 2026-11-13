@@ -795,5 +795,14 @@
   "said {day}": "dit {day}",
   "decided": "tranché",
   "source": "source",
-  "today": "aujourd'hui"
+  "today": "aujourd'hui",
+  "In line for {what}": "En file pour {what}",
+  "next": "le suivant",
+  "next in line": "le suivant dans la file",
+  "{place} in line": "{place} dans la file",
+  "{place}st": "{place}e",
+  "{place}nd": "{place}e",
+  "{place}rd": "{place}e",
+  "{place}th": "{place}e",
+  "about {minutes} min": "environ {minutes} min"
 }

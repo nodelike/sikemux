@@ -25,7 +25,7 @@ enum CallWords {
                 parts: [lowered(on), elapsed((nowMs - turn.since) / 1000)])
         case .waiting:
             guard let wait = turn.wait else { return nil }
-            return Said(word: waitingOn(wait), phase: .waiting, parts: waited(wait, nowMs: nowMs).map { [$0] } ?? [])
+            return Said(word: waitingOn(wait), phase: .waiting, parts: waited(wait, nowMs: nowMs))
         case .needsYou:
             guard let call = turn.call else { return nil }
             let more = call.count > 1 ? String(localized: " and \(call.count - 1) more") : ""
@@ -85,17 +85,49 @@ enum CallWords {
                 ? String(localized: "Waiting on \(wait.what)") : String(localized: "Waiting on @\(wait.what)")
         case .timer:
             wait.until.map { String(localized: "Waiting until \(ChatWords.clock($0))") } ?? String(localized: "Waiting")
-        case .process, .line, .inUse, .unknown: String(localized: "Waiting on \(wait.what)")
+        case .line: String(localized: "In line for \(wait.what)")
+        case .inUse: String(localized: "Waiting for \(wait.what)")
+        case .process, .unknown: String(localized: "Waiting on \(wait.what)")
         }
     }
 
-    /// How long a wait has gone, against how long it usually takes once that is known.
-    static func waited(_ wait: TurnWait, nowMs: Int) -> String? {
-        guard wait.kind != .timer else { return nil }
-        let gone = max(0, nowMs - wait.startedAt) / 60_000
-        guard let expected = wait.expectedMs else { return String(localized: "\(gone) min") }
-        let usual = (expected + 59_999) / 60_000
-        return String(localized: "\(gone) of ~\(usual) min")
+    /// How long a wait has gone, against how long it usually takes once that is known; for a command in line, its
+    /// place and about how long it has left.
+    static func waited(_ wait: TurnWait, nowMs: Int) -> [String] {
+        switch wait.kind {
+        case .timer: return []
+        case .line: return [wait.place.map(place), wait.expectedMs.map(about)].compactMap { $0 }
+        default:
+            let gone = max(0, nowMs - wait.startedAt) / 60_000
+            guard let expected = wait.expectedMs else { return [String(localized: "\(gone) min")] }
+            let usual = (expected + 59_999) / 60_000
+            return [String(localized: "\(gone) of ~\(usual) min")]
+        }
+    }
+
+    /// A place in the host's line as a list of them says it: "next", "2nd".
+    static func place(_ place: Int) -> String {
+        place > 1 ? ordinal(place) : String(localized: "next")
+    }
+
+    /// A place in the host's line on its own: "next in line", "2nd in line".
+    static func inLine(_ place: Int) -> String {
+        place > 1 ? String(localized: "\(ordinal(place)) in line") : String(localized: "next in line")
+    }
+
+    private static func ordinal(_ place: Int) -> String {
+        switch (place % 100, place % 10) {
+        case (11...13, _): String(localized: "\(place)th")
+        case (_, 1): String(localized: "\(place)st")
+        case (_, 2): String(localized: "\(place)nd")
+        case (_, 3): String(localized: "\(place)rd")
+        default: String(localized: "\(place)th")
+        }
+    }
+
+    /// How long a wait has left, roughly: "about 4 min".
+    static func about(_ ms: Int) -> String {
+        String(localized: "about \(max(1, (ms + 59_999) / 60_000)) min")
     }
 
     static func changed(_ changes: WorkAt) -> String {
