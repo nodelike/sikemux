@@ -685,7 +685,7 @@ function goingOn() {
 
 /** The sikemux project's chief asking a call of its own, which wears Sikemux's S as its row does. */
 function chiefAsking() {
-    return { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", project: "sikemux", tier: "needs", state: "blocked", clock: "3m",
+    return { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", titled: true, project: "sikemux", tier: "needs", state: "blocked", clock: "3m",
         what: "Needs you",
         calls: [{ id: "c1q", age: "3m", question: "Should the welcome screen say hello by name?", context: "Sign-up already has the name; the screen greets everyone the same today.",
                 options: ["Greet them by name", "Keep one greeting"], pick: 0, handBack: true,
@@ -694,7 +694,7 @@ function chiefAsking() {
 
 function freshAgents() {
     return [
-        { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", project: "sikemux", tier: "progress", state: "working" },
+        { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", titled: true, project: "sikemux", tier: "progress", state: "working" },
         { id: "a1", name: "Otter", type: "claude", title: "Fix the login flake", project: "sikemux", tier: "needs", state: "blocked", time: "2:14", clock: "2m",
           what: "Needs your permission", ask: { tool: "Bash", cmd: "pnpm test --filter core -- --runInBand" } },
         { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01", clock: "1m",
@@ -758,7 +758,7 @@ function agentName(a) {
 function rowLine(a) {
     if (a.chief) {
         const end = `${a.clock ? `<span class="clock ${a.state}">${a.clock}</span>` : ""}${stateMark(a.state, false, a.through)}`;
-        return `<span class="head"><span class="title">@Chief</span><span class="word">${a.titled === false ? "Chief of staff" : a.title}</span></span><span class="proj">${GLYPH.folderSmall}${a.project}</span><span class="end">${end}</span>`;
+        return `<span class="head"><span class="title">@Chief</span><span class="word">${a.titled ? a.title : "Chief of staff"}</span></span><span class="proj">${GLYPH.folderSmall}${a.project}</span><span class="end">${end}</span>`;
     }
     const since = a.reconnecting != null ? `<span class="word">Reconnecting…${a.reconnecting ? ` ${a.reconnecting}` : ""}</span>` : a.time ? `<span class="time">${a.time}</span>` : "";
     const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${a.line ? `<span class="in-line">${GLYPH.hourglass}${typeof a.line === "string" ? `<span class="thing">${a.line}</span>` : inLine(a.line)}</span>` : ""}${a.clock ? `<span class="clock ${a.state}">${a.clock}</span>` : ""}${stateMark(a.state, false, a.through)}`;
