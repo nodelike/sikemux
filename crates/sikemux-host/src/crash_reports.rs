@@ -769,7 +769,8 @@ mod tests {
     }
 
     fn test_process(role: &str) -> Command {
-        let mut command = Command::new(std::env::current_exe().unwrap());
+        let mut command =
+            sikemux_process::user_environment::command(std::env::current_exe().unwrap());
         command
             .args([TEST, "--exact", "--nocapture", "--test-threads=1"])
             .env_clear()
