@@ -828,6 +828,7 @@ fn team_rows(
             .collect()
     };
     let mut folded = false;
+    let mut in_team = false;
     let mut team_members: Vec<&AgentRow> = Vec::new();
     let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(agents.len());
     // For each row drawn, the project of the chief it reports to and whether it reports to the
@@ -851,7 +852,18 @@ fn team_rows(
         if teams && under_lead(agent) {
             continue;
         }
-        let team = agent.team.filter(|_| teams);
+        // A lead's workers follow its row; workers with no lead listed are the chief's own.
+        let team = match agent.team.filter(|_| teams) {
+            Some(TeamLink::Head) => {
+                in_team = true;
+                Some(TeamLink::Head)
+            }
+            Some(link) if in_team => Some(link),
+            _ => {
+                in_team = false;
+                None
+            }
+        };
         let continues = |at: usize| {
             agents
                 .get(at)
