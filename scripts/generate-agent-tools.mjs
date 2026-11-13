@@ -96,7 +96,7 @@ compare(
 // Limits the core enforces itself, which the tools' schemas must state alike.
 const coreLimits = [
   {
-    file: "crates/sikemux-core/src/server/board/slice.rs",
+    file: "crates/sikemux-board/src/server/board/slice.rs",
     constant: "MAX_PROMISE_CHARS",
     tools: ["board_add", "board_update"],
     property: "promise",

@@ -14,13 +14,15 @@ mod approvals;
 pub use sikemux_workspace::server::attachments;
 mod backdrop;
 mod base;
-pub mod board;
-mod board_above;
-mod board_state;
+pub use sikemux_board::server::board;
+pub(crate) use sikemux_board::server::board_above;
+pub(crate) use sikemux_board::server::board_state;
 pub(crate) use sikemux_workspace::server::caller;
 pub mod calls;
 pub use sikemux_chat::server::chat;
 pub(crate) use sikemux_chat::server::chat_above;
+#[cfg(test)]
+mod board_tests;
 #[cfg(test)]
 mod chat_feed_tests;
 #[cfg(test)]
@@ -73,7 +75,6 @@ pub use sikemux_repo::server::lsp;
 pub(crate) use sikemux_serve::server::local_peer;
 pub(crate) use sikemux_serve::server::log_times;
 pub mod memory;
-pub(crate) use sikemux_repo::server::merge_queue;
 pub mod messages;
 pub(crate) use sikemux_chat::server::model_proxy;
 pub use sikemux_workspace::server::model_providers;

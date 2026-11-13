@@ -1904,7 +1904,7 @@ async function emit(path, contents) {
 
 // A gate's id in the core's gate table is the name the wire gives it.
 const gateTable = await readFile(
-  resolve(root, `${CORE}/server/board/slice/ladder.rs`),
+  resolve(root, "crates/sikemux-board/src/server/board/slice/ladder.rs"),
   "utf8",
 );
 const gateKeys = [

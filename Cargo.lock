@@ -9799,6 +9799,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "sikemux-board"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures-util",
+ "git2",
+ "globset",
+ "hex",
+ "ignore",
+ "iroh",
+ "libc",
+ "notify",
+ "rayon",
+ "regex",
+ "reqwest",
+ "rustix",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-base",
+ "sikemux-calls",
+ "sikemux-chat",
+ "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-git",
+ "sikemux-kernel",
+ "sikemux-keychain",
+ "sikemux-markdown",
+ "sikemux-plugin-api",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-remote",
+ "sikemux-repo",
+ "sikemux-serve",
+ "sikemux-view",
+ "sikemux-wire",
+ "sikemux-workspace",
+ "tempfile",
+ "thiserror 1.0.69",
+ "time",
+ "tokio",
+ "toml 1.1.6+spec-1.1.0",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "sikemux-browser"
 version = "0.1.0"
 dependencies = [
@@ -9953,6 +10004,7 @@ dependencies = [
  "sha2 0.11.0",
  "sikemux-agents",
  "sikemux-base",
+ "sikemux-board",
  "sikemux-calls",
  "sikemux-chat",
  "sikemux-client",
