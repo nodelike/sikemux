@@ -97,6 +97,8 @@ pub struct Claude {
     shared: Arc<Mutex<Shared>>,
     kept: Kept,
     sink: Sink,
+    /// The hushed turn's ask for a handoff note went to Claude, so it has a turn to stop.
+    note_asked: bool,
 }
 
 /// The transcript Claude keeps of `session_id` for the account `launch` runs on.
@@ -661,6 +663,7 @@ impl Backend for Claude {
             running,
             shared,
             sink: sink.clone(),
+            note_asked: false,
             kept: Kept {
                 session_id: session_id.clone(),
                 models,
@@ -854,6 +857,7 @@ impl Backend for Claude {
             shared.hushed = true;
             shared.handed = None;
         }
+        self.note_asked = false;
         let unhush = |shared: &Arc<Mutex<Shared>>| {
             let mut shared = shared.locked();
             shared.quiet = None;
@@ -881,6 +885,7 @@ impl Backend for Claude {
             (self.running.control).restore_mode(mode, self.sink.clone());
             return Err(error);
         }
+        self.note_asked = true;
         let written = tokio::time::timeout(WAIT, async {
             loop {
                 if let Some(note) = self.shared.locked().handed.take() {
@@ -900,6 +905,16 @@ impl Backend for Claude {
         const GRACE: std::time::Duration = std::time::Duration::from_secs(15);
         const LOOK: std::time::Duration = std::time::Duration::from_millis(200);
         if !self.shared.locked().hushed {
+            return;
+        }
+        if !self.note_asked {
+            let mode = {
+                let mut shared = self.shared.locked();
+                shared.quiet = None;
+                shared.hushed = false;
+                shared.mode.clone()
+            };
+            (self.running.control).restore_mode(mode, self.sink.clone());
             return;
         }
         // Still hushed, so what the stopped turn says late never reaches the chat.
@@ -998,6 +1013,7 @@ impl Backend for Claude {
             shared: _,
             kept,
             sink: _,
+            note_asked: _,
         } = self;
         let Running {
             process,
@@ -1054,6 +1070,7 @@ impl Backend for Claude {
             shared,
             kept: state.kept,
             sink,
+            note_asked: false,
         })
     }
 
