@@ -375,6 +375,7 @@ pub(crate) fn carry_on_prompt(what: &str) -> rebind::Replay {
         context: Vec::new(),
         person: false,
         answered: None,
+        brief_for: None,
     }
 }
 

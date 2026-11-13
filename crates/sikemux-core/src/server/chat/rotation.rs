@@ -111,11 +111,6 @@ impl State {
         self.inner.locked().fresh.is_some()
     }
 
-    /// `session` is a fresh session started under the chat that has not answered yet.
-    pub(crate) fn awaits_fresh_on(&self, session: &str) -> bool {
-        (self.inner.locked().fresh.as_ref()).is_some_and(|fresh| fresh.footing.session == session)
-    }
-
     /// Once the fresh session has answered, the chat goes on in it and what readied it is
     /// spent. Answers the session it moved from.
     pub(crate) fn moved_on(&self) -> Option<String> {

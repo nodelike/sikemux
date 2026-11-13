@@ -840,11 +840,12 @@ impl<B: Backend> Running<'_, B> {
                     self.chat.feed.set_handoff(None);
                 }
                 // A message sent again keeps the brief it carries only on its way back to the
-                // fresh session that brief was built for, which has not answered yet.
+                // fresh session that brief was built for.
+                let session = &self.state.session_id;
                 let new_brief = handoff.as_ref().is_some_and(rotation::is_brief);
-                let own_session =
-                    !new_brief && (self.chat.rotation).awaits_fresh_on(&self.state.session_id);
+                let own_session = !new_brief && replay.brief_for.as_ref() == Some(session);
                 (replay.context).retain(|context| own_session || !rotation::is_brief(context));
+                replay.brief_for = (own_session || new_brief).then(|| session.clone());
                 replay.context.extend(handoff);
                 replay
                     .context
@@ -1175,6 +1176,7 @@ impl<B: Backend> Running<'_, B> {
             context,
             person: whose.person,
             answered: whose.answered,
+            brief_for: None,
         };
         // A sign-in made elsewhere since the agent started is only
         // read by a new agent process.
@@ -1252,6 +1254,7 @@ impl<B: Backend> Running<'_, B> {
             context,
             person: true,
             answered,
+            brief_for: None,
         };
         self.show(&replay);
         self.chat.start_prompted();

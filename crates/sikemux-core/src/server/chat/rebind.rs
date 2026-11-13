@@ -41,6 +41,9 @@ pub(crate) struct Replay {
     /// It answered a call to the person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answered: Option<super::Answered>,
+    /// The fresh session the brief in its context was built for, the only one it goes to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brief_for: Option<String>,
 }
 
 impl Replay {
