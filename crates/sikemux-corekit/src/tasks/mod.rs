@@ -8,6 +8,7 @@ pub mod checkout;
 pub mod config;
 pub mod detect;
 pub mod java;
+pub mod resources;
 pub mod results;
 pub mod tools;
 

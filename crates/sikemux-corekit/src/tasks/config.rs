@@ -34,6 +34,7 @@ const ROOT_FIELDS: &[&str] = &[
     "heavy",
     "ports",
     "env",
+    "resources",
 ];
 const ACTION_FIELDS: &[&str] = &[
     "id",
@@ -49,7 +50,7 @@ const MAX_ROLES: usize = 16;
 const MAX_ROLE_NAME_CHARS: usize = 64;
 const MAX_ROLE_CHARTER_CHARS: usize = 4000;
 const MAX_ROLE_EVERY: u64 = 100_000;
-const TASK_FIELDS: &[&str] = &["id", "label", "command", "cwd", "env", "port"];
+const TASK_FIELDS: &[&str] = &["id", "label", "command", "cwd", "env", "port", "needs"];
 const PREVIEW_FIELDS: &[&str] = &["url", "command"];
 const WORKTREE_FIELDS: &[&str] = &["onCreate", "onSettle", "onRemove"];
 const HOOK_FIELDS: &[&str] = &["id", "label", "command"];
@@ -57,7 +58,7 @@ const GENERATE_FIELDS: &[&str] = &["command", "outputs"];
 const MAX_OUTPUTS: usize = 50;
 const MAX_PLAN_FIRST: usize = 50;
 const MAX_SHIP: usize = 50;
-const HEAVY_FIELDS: &[&str] = &["command", "final", "light"];
+const HEAVY_FIELDS: &[&str] = &["command", "final", "light", "needs"];
 const MAX_HEAVY: usize = 50;
 const CHECK_FIELDS: &[&str] = &["ci"];
 const MAX_WORKFLOWS: usize = 20;
@@ -172,6 +173,9 @@ pub struct ProjectTask {
     /// port of each checkout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    /// What it holds while it runs, of the project's resources, waiting until all are free.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -330,6 +334,9 @@ pub struct ProjectConfig {
     /// `{root}` filled in.
     #[serde(default, skip_serializing_if = "Vec::is_empty", with = "env_map")]
     pub env: Vec<(String, String)>,
+    /// What only so many agents use at once, by name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resources: Vec<super::resources::Resource>,
 }
 
 impl ProjectConfig {
@@ -352,6 +359,9 @@ pub struct HeavyCommand {
     /// Kept out of the line, even when the built-in list has it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub light: bool,
+    /// What it holds while it runs, of the project's resources.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub needs: Vec<String>,
 }
 
 /// A standing job in a project: what its agent keeps up, and how many commits land between runs.
@@ -554,7 +564,8 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     );
     let icon = parse_icon(root.get("icon"), &mut errors);
     let actions = parse_actions(root.get("actions"), &mut errors);
-    let tasks = parse_tasks(root.get("tasks"), &mut errors);
+    let resources = super::resources::parse(root.get("resources"), &mut errors);
+    let tasks = parse_tasks(root.get("tasks"), &resources, &mut errors);
     let preview = parse_preview(root.get("preview"), &mut errors);
     let worktree = parse_worktree(root.get("worktree"), &mut errors);
     let generate = parse_generate(root.get("generate"), &mut errors);
@@ -568,7 +579,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let ship = parse_ship(root.get("ship"), &mut errors);
     let heavy = root
         .get("heavy")
-        .map(|value| parse_heavy(value, &mut errors));
+        .map(|value| parse_heavy(value, &resources, &mut errors));
     let ports = checkout::parse_ports(root.get("ports"), &mut errors);
     let env = parse_task_env(root.get("env"), "$.env", &mut errors);
     if !errors.is_empty() {
@@ -592,12 +603,33 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         heavy,
         ports,
         env,
+        resources,
     };
     checkout::check_names(root, &config, &mut errors);
     if !errors.is_empty() {
         return Err(errors);
     }
     Ok(config)
+}
+
+/// Whether the nearest `sikemux.json` at or above `dir` names `resources`, read alone so a tool
+/// list is quick to make.
+pub fn names_resources_near(dir: &Path) -> bool {
+    let Some(source) = dir
+        .ancestors()
+        .find_map(|dir| std::fs::read(dir.join(CONFIG_FILE)).ok())
+    else {
+        return false;
+    };
+    serde_json::from_slice::<Value>(&source)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("resources")?
+                .as_object()
+                .map(|named| !named.is_empty())
+        })
+        .unwrap_or(false)
 }
 
 /// The `heavy` list of the nearest `sikemux.json` at or above `dir`, read alone so a command
@@ -608,7 +640,8 @@ pub fn heavy_near(dir: &Path) -> Option<Vec<HeavyCommand>> {
         .find_map(|dir| std::fs::read(dir.join(CONFIG_FILE)).ok())?;
     let value: Value = serde_json::from_slice(&source).ok()?;
     let mut errors = Vec::new();
-    let heavy = parse_heavy(value.get("heavy")?, &mut errors);
+    let resources = super::resources::parse(value.get("resources"), &mut errors);
+    let heavy = parse_heavy(value.get("heavy")?, &resources, &mut errors);
     errors.is_empty().then_some(heavy)
 }
 
@@ -1128,7 +1161,11 @@ fn parse_task_env(
     env
 }
 
-fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<ProjectTask> {
+fn parse_tasks(
+    value: Option<&Value>,
+    resources: &[super::resources::Resource],
+    errors: &mut Vec<ConfigError>,
+) -> Vec<ProjectTask> {
     let Some(value) = value else {
         return Vec::new();
     };
@@ -1172,6 +1209,12 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
         let cwd = parse_task_cwd(candidate.get("cwd"), &format!("{path}.cwd"), errors);
         let env = parse_task_env(candidate.get("env"), &format!("{path}.env"), errors);
         let port = checkout::parse_port(candidate.get("port"), &format!("{path}.port"), errors);
+        let needs = super::resources::parse_needs(
+            candidate.get("needs"),
+            &format!("{path}.needs"),
+            resources,
+            errors,
+        );
         note_id(&mut ids, id.as_ref(), &path, "Process", errors);
         if let (Some(id), Some(label), Some(command)) = (id, label, command) {
             tasks.push(ProjectTask {
@@ -1181,6 +1224,7 @@ fn parse_tasks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Proj
                 cwd,
                 env,
                 port,
+                needs,
             });
         }
     }
@@ -1538,7 +1582,11 @@ fn parse_role(
     })
 }
 
-fn parse_heavy(value: &Value, errors: &mut Vec<ConfigError>) -> Vec<HeavyCommand> {
+fn parse_heavy(
+    value: &Value,
+    resources: &[super::resources::Resource],
+    errors: &mut Vec<ConfigError>,
+) -> Vec<HeavyCommand> {
     let listed = match value {
         Value::Array(listed) if listed.len() <= MAX_HEAVY => listed,
         _ => {
@@ -1576,6 +1624,12 @@ fn parse_heavy(value: &Value, errors: &mut Vec<ConfigError>) -> Vec<HeavyCommand
             };
             let before_commit = flag("final", errors);
             let light = flag("light", errors);
+            let needs = super::resources::parse_needs(
+                entry.get("needs"),
+                &format!("{path}.needs"),
+                resources,
+                errors,
+            );
             let command = bounded_required(
                 entry.get("command"),
                 &format!("{path}.command"),
@@ -1587,6 +1641,7 @@ fn parse_heavy(value: &Value, errors: &mut Vec<ConfigError>) -> Vec<HeavyCommand
                 command,
                 before_commit,
                 light,
+                needs,
             })
         })
         .collect()
