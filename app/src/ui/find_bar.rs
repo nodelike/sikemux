@@ -107,6 +107,7 @@ impl RenderOnce for FindBar {
             .on_action(move |_: &FindPrevious, window, cx| previous(false, window, cx))
             .on_action(move |_: &CloseFind, window, cx| closing(window, cx))
             .absolute()
+            .block_mouse_except_scroll()
             .top(px(7.))
             .right(px(12.))
             .flex()

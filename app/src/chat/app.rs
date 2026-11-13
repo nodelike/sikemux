@@ -419,6 +419,7 @@ pub(super) fn expanded(agent: &str, cx: &mut App) -> Option<AnyElement> {
             })
             .absolute()
             .inset_0()
+            .occlude()
             .flex()
             .flex_col()
             .bg(theme::page_ground(t))
