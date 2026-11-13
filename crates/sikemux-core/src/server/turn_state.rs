@@ -649,17 +649,22 @@ pub(crate) fn landed(
     head: &str,
 ) -> bool {
     let repo = worktree.map_or(Path::new(project), |worktree| worktree.repo.as_path());
-    let Some(branch) = super::landing::project_branch(repo) else {
-        return false;
-    };
+    landing_tip(core, project, repo).is_some_and(|tip| {
+        Git::quick(repo)
+            .output(&["merge-base", "--is-ancestor", head, &tip])
+            .is_ok_and(|output| output.status.success())
+    })
+}
+
+/// What a commit in `repo` must be on to have landed in `project`, as the project counts
+/// landing: its branch once committed, else that branch's remote. None without a branch.
+pub(crate) fn landing_tip(core: &Core, project: &str, repo: &Path) -> Option<String> {
+    let branch = super::landing::project_branch(repo)?;
     let local = format!("refs/heads/{branch}");
-    let tip = match super::landing::means_now(core, project).means {
+    Some(match super::landing::means_now(core, project).means {
         Landed::Committed => local,
         _ => super::landing::remote_of(repo, &branch).unwrap_or(local),
-    };
-    Git::quick(repo)
-        .output(&["merge-base", "--is-ancestor", head, &tip])
-        .is_ok_and(|output| output.status.success())
+    })
 }
 
 /// What the agent's plan leaves open as its turn ends by itself.

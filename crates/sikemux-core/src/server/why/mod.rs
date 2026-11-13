@@ -875,6 +875,7 @@ fn source(core: &Core, agent: &str, asked_at: u64) {
         deadline: Instant::now() + MAX_TIME,
         calls: None,
         prompts: HashMap::new(),
+        landing: None,
     };
     let mut checked = Vec::new();
     let mut chips = Vec::new();
@@ -907,6 +908,9 @@ struct Checking<'a> {
     /// Each history file read, by its name: the first index its read stretch holds, and the
     /// indexes of the person's prompts in it.
     prompts: HashMap<String, Option<(u64, Vec<u64>)>>,
+    /// What a commit must be on to have landed by the project's Landing, read once when first
+    /// wanted; `None` within when the project has no branch.
+    landing: Option<Option<String>>,
 }
 
 /// What checking one of an answer's links found.
@@ -919,6 +923,17 @@ enum Checked {
 }
 
 impl Checking<'_> {
+    /// Whether the commit `sha` has landed, as the project's Landing counts it.
+    fn landed(&mut self, sha: &str) -> bool {
+        let project = Path::new(&self.project);
+        let tip = (self.landing).get_or_insert_with(|| {
+            super::turn_state::landing_tip(self.core, &self.project, project)
+        });
+        tip.as_deref().is_some_and(|tip| {
+            git_line(project, &["merge-base", "--is-ancestor", sha, tip]).is_some()
+        })
+    }
+
     /// What `href` names, when it is in the project: a commit its checkout has, a prompt the
     /// person sent to one of its agents, one of the person's rules there, a decision kept there,
     /// or one of its calls.
@@ -958,11 +973,7 @@ impl Checking<'_> {
                     return Checked::Unknown;
                 };
                 let at = at.parse::<u64>().ok().map(|at| at * 1000);
-                let landed = git_line(
-                    Path::new(project),
-                    &["merge-base", "--is-ancestor", sha, "HEAD"],
-                )
-                .is_some();
+                let landed = self.landed(sha);
                 let open = WhyOpen::Commit {
                     sha: sha.to_owned(),
                 };
@@ -1095,4 +1106,50 @@ fn links(text: &str) -> Vec<String> {
         rest = &href[end..];
     }
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::ServerCore;
+
+    #[tokio::test]
+    async fn a_commit_only_on_a_work_branch_the_project_has_checked_out_has_not_landed() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let project = std::fs::canonicalize(dir.path()).unwrap();
+        let git = |args: &[&str]| {
+            let mut all = vec!["-c", "user.name=Test", "-c", "user.email=test@example.com"];
+            all.extend_from_slice(args);
+            super::super::edits::git(&project, &all).unwrap();
+        };
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(project.join("app.txt"), "one\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "one"]);
+        git(&["checkout", "-qb", "qa/2026-11-13"]);
+        std::fs::write(project.join("app.txt"), "two\n").unwrap();
+        git(&["commit", "-qam", "two"]);
+        let work = git_line(&project, &["rev-parse", "HEAD"]).unwrap();
+
+        let mut checking = Checking {
+            core: &core,
+            project: project.to_string_lossy().into_owned(),
+            checkout: project.clone(),
+            deadline: Instant::now() + MAX_TIME,
+            calls: None,
+            prompts: HashMap::new(),
+            landing: None,
+        };
+        let Checked::Found(chip) = checking.check(&format!("{WHY_URI}commit/{work}")) else {
+            panic!("the commit is in the project");
+        };
+        assert!(!chip.landed);
+        git(&["checkout", "-q", "main"]);
+        git(&["merge", "-q", "--ff-only", &work]);
+        let Checked::Found(chip) = checking.check(&format!("{WHY_URI}commit/{work}")) else {
+            panic!("the commit is in the project");
+        };
+        assert!(chip.landed);
+    }
 }
