@@ -392,16 +392,31 @@ impl Chat {
     /// `launch` as its agent starts on it, holding the model proxy's address and a token
     /// of its own in place of the slots. The token of any agent before it stops working.
     pub(super) fn with_model_token(&self, launch: &ChatLaunch) -> Result<ChatLaunch, String> {
+        let (grant, resolved) = self.model_token(launch)?;
+        self.keep_model_grant(grant);
+        Ok(resolved)
+    }
+
+    /// `launch` with the model proxy's address and a new token in place of the slots, and the
+    /// grant that keeps the token working, while the chat's agent keeps its own.
+    pub(super) fn model_token(
+        &self,
+        launch: &ChatLaunch,
+    ) -> Result<(Option<ModelGrant>, ChatLaunch), String> {
         let granted = match self.core.upgrade() {
             Some(core) => core.model_proxy().grant_chat(&core, launch)?,
             None => None,
         };
-        let (grant, resolved) = match granted {
+        Ok(match granted {
             Some((grant, resolved)) => (Some(grant), resolved),
             None => (None, launch.clone()),
-        };
+        })
+    }
+
+    /// The chat's agent now runs on `grant`'s token, and the token of any agent before it stops
+    /// working.
+    pub(super) fn keep_model_grant(&self, grant: Option<ModelGrant>) {
         *self.model_grant.locked() = grant;
-        Ok(resolved)
     }
 
     pub(super) fn drop_model_grant(&self) {

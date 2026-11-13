@@ -733,17 +733,21 @@ impl<B: Backend> Running<'_, B> {
             return;
         };
         launch.resume_id = None;
-        let started = match self.chat.with_model_token(&launch) {
-            Ok(launch) => tokio::time::timeout(
+        let started = match self.chat.model_token(&launch) {
+            Ok((grant, launch)) => tokio::time::timeout(
                 STARTING,
                 B::start(&launch, Some(&brief.instructions), self.sink.clone()),
             )
             .await
-            .unwrap_or_else(|_| Err("it took too long to start".to_owned())),
+            .unwrap_or_else(|_| Err("it took too long to start".to_owned()))
+            .map(|started| (grant, started)),
             Err(error) => Err(error),
         };
         let (backend, opened) = match started {
-            Ok(started) => started,
+            Ok((grant, started)) => {
+                self.chat.keep_model_grant(grant);
+                started
+            }
             Err(error) => {
                 eprintln!("sikemux core: the chat goes on in its old session, as a fresh one did not start: {error}");
                 self.chat.rotation.failed();
