@@ -914,6 +914,48 @@ jobs:
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/publish-release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
 
+  # The cask downloads the DMG from the release, so it moves only once that is out.
+  homebrew:
+    name: Update the Homebrew cask
+    needs: [plan, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.plan.outputs.channel == 'stable' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - name: Look for the tap token
+        id: token
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [[ -n "$HOMEBREW_TAP_TOKEN" ]]; then
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "No HOMEBREW_TAP_TOKEN in the release environment, so the cask keeps its last version" >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout
+        if: steps.token.outputs.configured == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the published DMG
+        if: steps.token.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: gh release download "v$VERSION" -R "$GITHUB_REPOSITORY" -p "Sikemux_${VERSION}_aarch64.dmg" -D "$RUNNER_TEMP"
+
+      - name: Push the cask to nodelike/homebrew-tap
+        if: steps.token.outputs.configured == 'true'
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: packaging/homebrew/push-cask.sh "$VERSION" "$RUNNER_TEMP/Sikemux_${VERSION}_aarch64.dmg"
+
   # The AUR's PKGBUILD downloads the tarball from the release, so it moves only once that is out.
   aur:
     name: Update the AUR package

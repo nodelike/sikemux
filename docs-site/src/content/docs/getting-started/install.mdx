@@ -19,6 +19,16 @@ curl -fsSL https://sikemux.com/install | SIKEMUX_CHANNEL=nightly sh
 
 Without it, the line installs the stable release, so on a Mac running a nightly it asks before replacing it.
 
+## Homebrew
+
+On a Mac with [Homebrew](https://brew.sh):
+
+```bash
+brew install --cask nodelike/tap/sikemux
+```
+
+The cask follows stable releases. Sikemux then updates itself, as [Updates](/getting-started/updates/) describes, so `brew upgrade` leaves it alone unless you add `--greedy`. `brew uninstall --zap sikemux` also removes its settings, data and the core's launch agent.
+
 ## On a server
 
 A Linux machine with no screen, such as a VPS or a spare box, can run just the core, which keeps agents working with nobody watching. If you already reach it over SSH, open an SSH terminal on it in Sikemux (`⌘⇧S`), then choose **Install Sikemux here** from the **⋯** beside it under **Hosts** in the side rail, or, with that host chosen, **Install Sikemux on** it in the top bar or ⌘N, which is all a host without Sikemux offers besides its terminal: the installer runs over your SSH in a new terminal tab, where you type `sudo`'s password if the server asks for one, and the server signs in to your account by itself. Otherwise, run the same line there and pick the core, or skip the question:

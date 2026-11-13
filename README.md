@@ -21,6 +21,12 @@ Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, lo
 curl -fsSL https://sikemux.com/install | sh
 ```
 
+Or on a Mac with Homebrew:
+
+```bash
+brew install --cask nodelike/tap/sikemux
+```
+
 On a headless server, install just the core:
 
 ```bash

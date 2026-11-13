@@ -7,7 +7,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/sign-mac.sh scripts/mac-entitlements.sh scripts/verify-release.sh scripts/publish-release.sh scripts/sign-host.sh scripts/icons.sh scripts/check-release.sh scripts/check-rust.sh scripts/sentry-release.sh scripts/keep-linux-symbols.sh
-bash -n packaging/arch/PKGBUILD packaging/arch/prepare.sh packaging/arch/build-release.sh packaging/arch/push-aur.sh
+bash -n packaging/arch/PKGBUILD packaging/arch/prepare.sh packaging/arch/build-release.sh packaging/arch/push-aur.sh packaging/homebrew/push-cask.sh
 node --check scripts/verify-updater-signature.mjs
 node --check scripts/app-metadata.mjs
 node --check scripts/release-credits.mjs
