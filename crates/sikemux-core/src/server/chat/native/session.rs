@@ -835,6 +835,12 @@ impl<B: Backend> Running<'_, B> {
                 if handoff.is_some() {
                     self.chat.feed.set_handoff(None);
                 }
+                // A message sent again keeps the brief it carries only on its way back to the
+                // fresh session that brief was built for, which has not answered yet.
+                let new_brief = handoff.as_ref().is_some_and(rotation::is_brief);
+                let own_session =
+                    !new_brief && (self.chat.rotation).awaits_fresh_on(&self.state.session_id);
+                (replay.context).retain(|context| own_session || !rotation::is_brief(context));
                 replay.context.extend(handoff);
                 replay
                     .context

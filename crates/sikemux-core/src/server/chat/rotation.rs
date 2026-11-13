@@ -15,7 +15,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::chat::{
     BriefCounts, BriefSection, BriefSectionKind, RotationBrief, RotationReason,
 };
-use sikemux_wire::protocol::ChatContext;
+use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
 
 use super::{cap, Chat};
 use crate::server::{Core, CoreResult};
@@ -109,6 +109,11 @@ impl State {
     /// A fresh session started under the chat and has not answered yet.
     pub(crate) fn awaits_fresh(&self) -> bool {
         self.inner.locked().fresh.is_some()
+    }
+
+    /// `session` is a fresh session started under the chat that has not answered yet.
+    pub(crate) fn awaits_fresh_on(&self, session: &str) -> bool {
+        (self.inner.locked().fresh.as_ref()).is_some_and(|fresh| fresh.footing.session == session)
     }
 
     /// Once the fresh session has answered, the chat goes on in it and what readied it is
@@ -282,6 +287,14 @@ pub(crate) fn stays(chat: &Chat, now: Footing) {
     chat.rotation.inner.locked().footing = Some(now);
 }
 
+/// The name of the context a fresh session's brief goes in.
+const BRIEF_CONTEXT: &str = "rotation";
+
+/// Whether `context` is a fresh session's brief.
+pub(crate) fn is_brief(context: &ChatContext) -> bool {
+    context.uri.strip_prefix(FOR_AGENT_URI) == Some(BRIEF_CONTEXT)
+}
+
 /// What a fresh session starts from: its instructions, the message that goes with the next
 /// prompt, and the brief whole, which the chat's line reads again on demand.
 pub(crate) struct Brief {
@@ -445,7 +458,7 @@ pub(crate) fn brief(core: &Core, chat: &Chat) -> Brief {
     Brief {
         instructions,
         message: crate::sessions::for_agent::sikemux_context(
-            "rotation",
+            BRIEF_CONTEXT,
             "Where this chat stands",
             &message,
         ),
