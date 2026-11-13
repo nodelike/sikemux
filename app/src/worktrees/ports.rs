@@ -213,12 +213,9 @@ fn card(
         (None, None) => None,
     };
     let env = about.env.iter().map(|(key, value)| {
-        div()
-            .flex()
-            .flex_wrap()
-            .child(mono(key.clone(), t.text_primary))
-            .child(mono("=".to_owned(), t.text_tertiary))
-            .child(mono(value.clone(), t.text_secondary))
+        mono(format!("{key}={value}"), t.text_secondary)
+            .w_full()
+            .whitespace_normal()
     });
     frame
         .child(heading(t!("Checkout"), cx))
@@ -227,7 +224,12 @@ fn card(
         .child(heading(t!("Ports"), cx))
         .children(rows)
         .when_some(note, |card, note| {
-            card.child(ui::text(note, TEXT_2XS, FontWeight::NORMAL).text_color(t.text_tertiary))
+            card.child(
+                ui::text(note, TEXT_2XS, FontWeight::NORMAL)
+                    .w_full()
+                    .whitespace_normal()
+                    .text_color(t.text_tertiary),
+            )
         })
         .child(heading(t!("Env"), cx))
         .child(div().flex().flex_col().gap(px(3.)).children(env))
@@ -238,6 +240,8 @@ fn card(
                 FontWeight::NORMAL,
             )
             .pt(SPACE_1)
+            .w_full()
+            .whitespace_normal()
             .text_color(t.text_tertiary),
         )
         .into_any_element()

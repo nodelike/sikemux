@@ -764,8 +764,8 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
                         .whitespace_nowrap(),
                 )
         }))
-        .children(strip.ports)
         .children(strip.worktree)
+        .children(strip.ports)
         .children(strip.pull)
         .child(div().flex_1())
         .children(
