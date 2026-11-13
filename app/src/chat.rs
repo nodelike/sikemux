@@ -1583,6 +1583,7 @@ pub fn pane(
                 .into_any_element(),
         ),
     };
+    let welcoming = welcome.is_some();
     let list = chat.transcript.read(cx).list().clone();
     // The scrollbar shows whenever its list moves, and a list following the latest rows moves
     // with every streamed line; only a reader who scrolled up has a thumb, as on the Mac.
@@ -1659,7 +1660,7 @@ pub fn pane(
                 },
             )
         })
-        .children(welcome.map(|welcome| crate::home::centred(welcome).absolute().inset_0()))
+        .children(welcome.map(|welcome| crate::home::over_composer(welcome).absolute().inset_0()))
         .children(app::expanded(&agent.id, cx))
         .children(app::scrolls(cx));
     let open: Vec<&Question> = bench
@@ -1831,6 +1832,7 @@ pub fn pane(
             });
             composing.view.clone().into_element().isolated()
         }))
+        .when(welcoming, |pane| pane.child(div().flex_1()))
         .when(composing && cx.has_active_drag(), |pane| {
             let hint =
                 attach::drop_hint(t!("Drop files or folders into this session"), id, bench, cx);

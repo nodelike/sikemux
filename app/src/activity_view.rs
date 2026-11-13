@@ -8,9 +8,9 @@ use std::rc::Rc;
 use chrono::{Datelike, NaiveDate};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, point, px, quad, relative, size, AnyElement, App, BorderStyle, Bounds, Div,
-    Entity, FontWeight, Hsla, InteractiveElement, IntoElement, MouseMoveEvent, ParentElement,
-    Pixels, Point, StatefulInteractiveElement, Styled,
+    canvas, div, point, px, quad, relative, size, App, BorderStyle, Bounds, Div, Entity,
+    FontWeight, Hsla, InteractiveElement, IntoElement, MouseMoveEvent, ParentElement, Pixels,
+    Point, StatefulInteractiveElement, Styled,
 };
 use sikemux_core::server::activity_log::{
     ActivityDay, ActivityLevels, ActivityShare, ActivityStreaks, ActivitySummary, ActivityTotals,
@@ -188,20 +188,15 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
     ))
 }
 
-/// The calendar of a year's days, coloured by the measure picked above it. With a `footer`, as
-/// under a chat's welcome, it shows only tokens, has no readout or measure choice, and the
-/// footer leads the legend's row.
+/// The calendar of a year's days, coloured by the measure picked above it.
 pub(crate) fn calendar(
     summary: &ActivitySummary,
     bench: &Workbench,
     this: &Entity<Workbench>,
-    footer: Option<AnyElement>,
     cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let metric = bench.calendar.metric;
-    let welcome = footer.is_some();
-    let measure = if welcome { Metric::Tokens } else { metric };
+    let measure = bench.calendar.metric;
     let today = (chrono::Local::now().date_naive() - epoch()).num_days();
     let start = today - (today + 3).rem_euclid(7) - (WEEKS - 1) * 7;
     let days: HashMap<i64, &ActivityDay> =
@@ -270,7 +265,7 @@ pub(crate) fn calendar(
                 this.update(cx, |bench, cx| {
                     if bench.calendar.day != day {
                         bench.calendar.day = day;
-                        bench.parts.redraw_activity(cx);
+                        bench.parts.redraw_stage(cx);
                     }
                 })
             }
@@ -280,7 +275,7 @@ pub(crate) fn calendar(
             move |over: &bool, _, cx| {
                 this.update(cx, |bench, cx| {
                     if !*over && bench.calendar.day.take().is_some() {
-                        bench.parts.redraw_activity(cx);
+                        bench.parts.redraw_stage(cx);
                     }
                 })
             }
@@ -313,11 +308,11 @@ pub(crate) fn calendar(
         .enumerate()
         .map(|(index, (shown, label))| {
             let (this, shown) = (this.clone(), *shown);
-            Toggle::new(("metric", index), crate::i18n::tr(label), shown == metric).on_click(
+            Toggle::new(("metric", index), crate::i18n::tr(label), shown == measure).on_click(
                 move |_, _, cx| {
                     this.update(cx, |bench, cx| {
                         bench.calendar.metric = shown;
-                        bench.parts.redraw_activity(cx);
+                        bench.parts.redraw_stage(cx);
                     })
                 },
             )
@@ -327,36 +322,34 @@ pub(crate) fn calendar(
         .flex()
         .flex_col()
         .gap(SPACE_3)
-        .when(!welcome, |calendar| {
-            calendar.child(
-                div()
-                    .min_h(px(24.))
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .justify_between()
-                    .gap(SPACE_3)
-                    .child(
-                        ui::text(
-                            match hovered {
-                                Some(day) => format!(
-                                    "{} · {}",
-                                    long_date(day),
-                                    metric_text(
-                                        measure,
-                                        days.get(&day).map_or(0., |day| measure.of_day(day))
-                                    )
-                                ),
-                                None => readout(streaks),
-                            },
-                            TEXT_XS,
-                            FontWeight::NORMAL,
-                        )
-                        .text_color(t.text_secondary),
+        .child(
+            div()
+                .min_h(px(24.))
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap(SPACE_3)
+                .child(
+                    ui::text(
+                        match hovered {
+                            Some(day) => format!(
+                                "{} · {}",
+                                long_date(day),
+                                metric_text(
+                                    measure,
+                                    days.get(&day).map_or(0., |day| measure.of_day(day))
+                                )
+                            ),
+                            None => readout(streaks),
+                        },
+                        TEXT_XS,
+                        FontWeight::NORMAL,
                     )
-                    .child(div().flex().gap(SPACE_1).children(toggles)),
-            )
-        })
+                    .text_color(t.text_secondary),
+                )
+                .child(div().flex().gap(SPACE_1).children(toggles)),
+        )
         .child(
             div()
                 .flex()
@@ -399,7 +392,6 @@ pub(crate) fn calendar(
                 .items_center()
                 .justify_end()
                 .gap(px(CELL_GAP))
-                .children(footer.map(|footer| div().flex_1().flex().child(footer)))
                 .child(small(t!("Less").into(), &t).mr(SPACE_1))
                 .children((0..5).map(|level| div().size(px(10.)).rounded(px(2.)).bg(colour(level))))
                 .child(small(t!("More").into(), &t).ml(SPACE_1)),

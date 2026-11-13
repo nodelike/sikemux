@@ -729,8 +729,6 @@ pub struct Parts {
     pub finder: Entity<Part>,
     /// The welcome or the release notes over the whole window.
     pub over: Entity<Part>,
-    /// The calendar of tokens burnt, under a chat's welcome.
-    pub activity: Entity<crate::home::Activity>,
 }
 
 impl Parts {
@@ -807,13 +805,7 @@ impl Parts {
                 },
                 true,
             ),
-            activity: cx.new(|cx| crate::home::Activity::new(&bench, cx)),
         }
-    }
-
-    /// Draws the welcome's activity again, as when the pointer moves to another day.
-    pub fn redraw_activity(&self, cx: &mut App) {
-        cx.notify(self.activity.entity_id());
     }
 
     /// Notifies without updating the part, since a part drawing itself can ask to be drawn

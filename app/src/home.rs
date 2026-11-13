@@ -1,4 +1,3 @@
-use crate::activity_view::calendar;
 use crate::activity_view::Metric;
 use crate::workbench::actions;
 use crate::workbench::actions::CommandId;
@@ -8,16 +7,15 @@ use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, App, Context, Div, Entity, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
-    Subscription, WeakEntity, Window,
+    div, px, Anchor, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_2XS,
-    TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H,
+    self, Tokens, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_2XS, TEXT_SM, TEXT_XL, TEXT_XS,
+    TEXT_XS_H,
 };
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Variant};
 
@@ -211,8 +209,7 @@ fn asleep_in_terminal(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Work
 }
 
 /// What a chat opens on before its first message: the agent's face asking what is being made in
-/// the project, over the calendar of the tokens burnt in it and the account smart accounts
-/// `placed` it on.
+/// the project, over the account smart accounts `placed` it on.
 pub fn welcome(
     bench: &Workbench,
     agent: Option<&AgentRow>,
@@ -227,10 +224,6 @@ pub fn welcome(
     let provider = agent.map_or("claude", |agent| agent.provider.as_str());
     let under = div()
         .w_full()
-        .flex()
-        .flex_col()
-        .gap(SPACE_4)
-        .child(bench.parts.activity.clone())
         .children(placed.map(|placed| smart_pick(bench, placed, provider, cx)));
     welcome_over(mark, project.unwrap_or_default(), under, cx)
         .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
@@ -279,8 +272,8 @@ fn smart_pick(
         }))
 }
 
-/// An agent's face, by `mark`, asking what is being made in `project`, over `under`, as wide as
-/// it is given.
+/// Sikemux's logo over an agent's face, by `mark`, asking what is being made in `project`, over
+/// `under`, as wide as it is given.
 pub fn welcome_over(
     mark: AnyElement,
     project: impl Into<SharedString>,
@@ -291,7 +284,9 @@ pub fn welcome_over(
         .w_full()
         .flex()
         .flex_col()
+        .items_center()
         .gap(SPACE_6)
+        .child(ui::icon(Icon::Logo, 88.).text_color(Tokens::get(cx).accent))
         .child(greeting(mark, project.into(), cx))
         .child(div().w_full().child(under))
 }
@@ -346,63 +341,10 @@ pub fn centred(welcome: impl IntoElement) -> Div {
         .child(div().w_full().flex().justify_center().child(welcome))
 }
 
-/// The welcome's calendar of the tokens burnt each day: a view of its own, drawn again when the
-/// workbench changes but not when a key is typed in the composer below it.
-pub struct Activity {
-    bench: WeakEntity<Workbench>,
-    _bench: Subscription,
-}
-
-impl Activity {
-    pub fn new(bench: &Entity<Workbench>, cx: &mut Context<Self>) -> Self {
-        Self {
-            bench: bench.downgrade(),
-            _bench: cx.observe(bench, |_, _, cx| cx.notify()),
-        }
-    }
-}
-
-impl Render for Activity {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.bench
-            .update(cx, |bench, cx| welcome_calendar(bench, cx))
-            .unwrap_or_else(|_| div().into_any_element())
-    }
-}
-
-fn welcome_calendar(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
-    let Some(summary) = bench.feeds.in_front().activity.as_ref() else {
-        return div().into_any_element();
-    };
-    let t = Tokens::get(cx).clone();
-    let more = div()
-        .id("welcome-more")
-        .group("welcome-more")
-        .py(SPACE_0)
-        .flex()
-        .items_center()
-        .gap(SPACE_1)
-        .cursor_pointer()
-        .text_size(theme::ui_text(TEXT_2XS))
-        .text_color(t.ink_faint)
-        .hover(|more| more.text_color(t.text_primary))
-        .child(t!("View activity"))
-        .child(
-            ui::icon(Icon::Chevron, 10.)
-                .text_color(t.ink_faint)
-                .group_hover("welcome-more", move |icon| icon.text_color(t.text_primary)),
-        )
-        .on_click(cx.listener(|bench, _, window, cx| {
-            bench.open_settings(crate::settings::Page::Usage, window, cx)
-        }));
-    calendar(
-        summary,
-        bench,
-        &cx.entity(),
-        Some(more.into_any_element()),
-        cx,
-    )
-    .into_any_element()
+/// The welcome across the middle and resting on the bottom of the space it is given, so it sits
+/// just over a composer drawn below it.
+pub fn over_composer(welcome: impl IntoElement) -> Div {
+    centred(welcome).justify_end().pb(SPACE_6)
 }
 
 fn pane_header(

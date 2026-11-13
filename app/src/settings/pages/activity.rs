@@ -646,7 +646,7 @@ pub fn render(
     let calendar = match summary {
         Some(summary) => div()
             .p(SPACE_4)
-            .child(activity_view::calendar(summary, bench, this, None, cx))
+            .child(activity_view::calendar(summary, bench, this, cx))
             .into_any_element(),
         None => div().into_any_element(),
     };
