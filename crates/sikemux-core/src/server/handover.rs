@@ -541,7 +541,13 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                 }
                 state["format"] = Value::from(9);
             }
-            9 => return Ok(state),
+            9 => {
+                // Format 9 cores carried what the person typed while a secret or an access
+                // call waited, marked as hidden; now such words are never kept.
+                data_format::scrub_carried(&mut state);
+                state["format"] = Value::from(10);
+            }
+            10 => return Ok(state),
             other => return Err(format!("it is in format {other}, not {RESUME_FORMAT}")),
         }
     }
@@ -1128,15 +1134,45 @@ mod tests {
     #[test]
     fn current_state_is_left_as_it_is_and_unknown_formats_are_refused() {
         let current = json!({
-            "format": 9,
+            "format": 10,
             "chats": [{ "launch": {}, "startedBy": "phone", "launcher": "claude", "notice": null }],
             "liveChats": [],
             "harness": { "mailbox": { "waiting": {} }, "questions": { "open": [] } },
         });
         assert_eq!(migrate(current.clone()).expect("migrate"), current);
         assert!(migrate(json!({ "format": 3 })).is_err());
-        assert!(migrate(json!({ "format": 10 })).is_err());
+        assert!(migrate(json!({ "format": 11 })).is_err());
         assert!(migrate(json!({})).is_err());
+    }
+
+    /// Read in #228: a chat a core hands over carried the words the person typed while a secret or
+    /// an access call waited, marked hidden, in its replay and in a prompt kept to send again.
+    #[test]
+    fn words_typed_for_a_private_call_do_not_cross_a_hand_over() {
+        let older = json!({
+            "format": 9,
+            "chats": [],
+            "liveChats": [{
+                "feed": { "replay": { "events": [
+                    { "kind": "prompt", "payload": { "text": "the passphrase is correct horse battery staple", "person": true, "answered": "hiddenCall" } },
+                    { "kind": "prompt", "payload": { "text": "run the vault tests", "person": true } },
+                ] } },
+                "session": {
+                    "lastPrompt": { "announce": false, "text": "the key is swordfish", "person": true, "answered": "hiddenCall" },
+                    "failedPrompt": { "announce": false, "text": "run the vault tests", "person": true },
+                },
+            }],
+        });
+        let state = migrate(older).expect("migrate");
+        let carried = state.to_string();
+        assert!(
+            !carried.contains("correct horse") && !carried.contains("swordfish"),
+            "{carried}"
+        );
+        assert!(!carried.contains("hiddenCall"), "{carried}");
+        assert!(carried.contains("run the vault tests"), "{carried}");
+        assert_eq!(state["liveChats"][0]["session"]["lastPrompt"], json!(null));
+        assert_eq!(state["format"], json!(10));
     }
 
     /// A terminal setting a host up must come back locked: a record that cannot

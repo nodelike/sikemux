@@ -990,6 +990,99 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     assert_eq!(children(core.pid()), agents);
 }
 
+/// Read in #228: an update scrubs the words an earlier core kept, marked hidden, of what the
+/// person typed while a secret or an access call waited. It does so in a running chat's record
+/// in place, so the core taking the chat over reads on from where the last one stopped.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_scrubs_words_kept_as_hidden_and_the_chat_reads_on() {
+    let core = CoreProcess::start("first");
+    let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let agent_id = "opencode-words".to_owned();
+    client
+        .acp_start(agent_launch(&core, "opencode", &agent_id))
+        .await
+        .unwrap_or_else(|error| panic!("start: {error}\n{}", core.log()));
+    let words = "the passphrase is correct horse battery staple, and the vault is staging";
+    let mut chats: HashMap<String, Folded> = [(agent_id.clone(), Folded::default())].into();
+    client
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: words.into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt");
+    until_chats(&mut events, &mut chats, |_, chat| chat.turns_ended() >= 1).await;
+
+    let history = core.dir.path().join("data").join("chat-history");
+    let record = (std::fs::read_dir(&history).expect("the records").flatten())
+        .map(|entry| entry.path())
+        .find(|path| std::fs::read_to_string(path).is_ok_and(|text| text.contains(words)))
+        .expect("the record holding the words");
+    let kept = std::fs::read_to_string(&record).expect("the record");
+    let mark = "\"answered\":\"hiddenCall\",";
+    let marked = kept.replacen(
+        &format!("\"text\":\"{words}\""),
+        &format!("{mark}\"text\":\"{}\"", &words[..words.len() - mark.len()]),
+        1,
+    );
+    assert_eq!(marked.len(), kept.len());
+    std::fs::write(&record, &marked).expect("marked as an earlier core did");
+    std::fs::write(
+        core.dir.path().join("data").join("data-format.json"),
+        json!({ "format": 3 }).to_string(),
+    )
+    .expect("the earlier format");
+    drop(client);
+    drop(events);
+
+    let binary = core.binary("second-build", "second", "");
+    core.upgrade(&binary, "first").await;
+    let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let mut chats: HashMap<String, Folded> = [(
+        agent_id.clone(),
+        attached(&client, &agent_id, None)
+            .await
+            .unwrap_or_else(|| panic!("the chat was not carried over\n{}", core.log())),
+    )]
+    .into();
+    client
+        .ask(ask::AcpPrompt {
+            agent_id: agent_id.clone(),
+            message_id: None,
+            text: "read on".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt");
+    until_chats(&mut events, &mut chats, |_, chat| {
+        chat.text().contains("echo: read on")
+    })
+    .await;
+
+    let scrubbed = std::fs::read_to_string(&record).expect("the record");
+    assert!(scrubbed.starts_with(&marked[..marked.find(mark).expect("the mark")]));
+    assert!(!scrubbed.contains("hiddenCall"), "{scrubbed}");
+    let lines: Vec<Value> = (scrubbed.lines())
+        .map(|line| serde_json::from_str(line).unwrap_or_else(|error| panic!("{error}: {line}")))
+        .collect();
+    let prompts: Vec<&Value> = (lines.iter())
+        .filter(|line| line["event"]["kind"] == "prompt")
+        .map(|line| &line["event"]["payload"]["text"])
+        .collect();
+    assert_eq!(prompts, [&json!(""), &json!("read on")], "{scrubbed}");
+    let indexes: Vec<u64> = (lines.iter())
+        .filter_map(|line| line["index"].as_u64())
+        .collect();
+    assert!(
+        indexes.windows(2).all(|pair| pair[1] == pair[0] + 1),
+        "{scrubbed}"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again() {
     let mut core = CoreProcess::start("first");
