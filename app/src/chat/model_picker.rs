@@ -761,7 +761,9 @@ impl Render for Menu {
                         let provider = going.provider.clone();
                         match (installed, installing) {
                             (true, _) if !pressed => {
-                                close(window, cx);
+                                if menu.read(cx).picked.locked {
+                                    close(window, cx);
+                                }
                                 moving(going.clone(), window, cx);
                             }
                             (true, _) => {}
