@@ -1,7 +1,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 use serde::Deserialize;
 use serde_json::{json, Value};
 pub use sikemux_calls::session::SessionParams;

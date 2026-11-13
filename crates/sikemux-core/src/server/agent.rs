@@ -1,7 +1,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};

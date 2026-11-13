@@ -2,7 +2,6 @@
 //! and a client leaving walk one list and a new feature joins them by being on it. `run_core`
 //! starts what keeps no state of its own.
 
-use crate::server::parts::Parts;
 use std::sync::Arc;
 
 use tokio::task::JoinHandle;
@@ -31,78 +30,4 @@ pub(crate) fn on_wake(
     work: fn(&Arc<Core>),
 ) -> JoinHandle<()> {
     tokio::spawn(wake::serve(core.clone(), of, work))
-}
-
-/// Walking every part of the core.
-pub(crate) trait PartCore {
-    fn parts(&self) -> [&dyn Part; 35];
-
-    /// Every feature's tasks, to end when the core stops.
-    fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
-
-    /// Waits until everything every feature changed is on disk.
-    fn flush_parts(&self);
-
-    fn tell_parts_client_gone(self: &Arc<Self>, client: ClientId);
-}
-
-impl PartCore for Core {
-    fn parts(&self) -> [&dyn Part; 35] {
-        [
-            self.harness(),
-            self.outside(),
-            self.person_calls(),
-            self.layouts(),
-            self.boards(),
-            self.memory(),
-            self.triggers(),
-            self.collisions(),
-            self.checks(),
-            self.workspaces(),
-            self.hosts(),
-            self.ports(),
-            self.spares(),
-            self.device_view(),
-            self.host_watch(),
-            self.line(),
-            self.lifecycle(),
-            self.updates(),
-            self.changes(),
-            self.tasks(),
-            self.notify(),
-            self.window(),
-            self.chats(),
-            self.seen(),
-            self.settling(),
-            self.open_files(),
-            self.mods(),
-            self.diagrams(),
-            self.preferences(),
-            self.drafts(),
-            self.code_host_lists(),
-            self.look(),
-            self.chiefs(),
-            &super::lsp::Lsp,
-            &super::fast_forward::FastForward,
-        ]
-    }
-
-    fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>> {
-        self.parts()
-            .iter()
-            .flat_map(|part| part.start(self))
-            .collect()
-    }
-
-    fn flush_parts(&self) {
-        for part in self.parts() {
-            part.flush();
-        }
-    }
-
-    fn tell_parts_client_gone(self: &Arc<Self>, client: ClientId) {
-        for part in self.parts() {
-            part.client_gone(self, client);
-        }
-    }
 }

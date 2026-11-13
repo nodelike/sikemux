@@ -4,6 +4,7 @@
 //! hold a turn open for; a timeout fires them through the trigger's own time.
 
 use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};

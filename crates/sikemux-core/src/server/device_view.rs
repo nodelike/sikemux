@@ -4,7 +4,8 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

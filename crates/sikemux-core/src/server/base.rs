@@ -1,6 +1,7 @@
 //! What the core gives the modules it stands on to call: each thing they ask of the features
 //! built over them, as those features do it.
 
+use crate::server::parts::PartCore;
 use sikemux_wire::protocol::{AgentState, Event, SessionId};
 
 use super::above::Above;
@@ -35,6 +36,9 @@ pub(super) fn above() -> Above {
         },
         send_device_view: |core, client| core.send_device_view(client),
         run_requests: |core, client, queue| Box::pin(requests::run(core, client, queue)),
+        client_joined: |core| core.view_watched(),
+        client_gone: |core, client| core.tell_parts_client_gone(client),
+        task_output_noticed: harness::note_output,
         admit: requests::admit,
         write_to_program: requests::write_to_program,
     }

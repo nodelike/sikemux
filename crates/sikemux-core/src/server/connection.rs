@@ -1,5 +1,5 @@
-use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -262,7 +262,7 @@ async fn handshake(
                     protocol: PROTOCOL.into(),
                     version: agreed,
                     pid,
-                    build: core.config().build.clone(),
+                    build: core.build().clone(),
                 },
                 None => ServerMessage::HelloRejected {
                     protocol: PROTOCOL.into(),

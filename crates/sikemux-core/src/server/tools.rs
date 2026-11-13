@@ -4,6 +4,7 @@
 //! core prove it holds the same one.
 
 use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::os::fd::{AsRawFd, RawFd};
 use std::path::PathBuf;

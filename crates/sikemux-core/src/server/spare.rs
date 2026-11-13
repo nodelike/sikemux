@@ -5,6 +5,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::serving::ServeCore;
 use crate::server::ServerCore;
 pub use sikemux_calls::spare::{NewTerminal, SshParams};
 use std::sync::{Arc, Mutex};

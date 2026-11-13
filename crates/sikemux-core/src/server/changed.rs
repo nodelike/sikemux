@@ -2,8 +2,8 @@
 //! read it through a `Call`, the device view, the agents' wakes and the notifier. A burst of
 //! changes to one topic and project goes out as one notice.
 
-use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

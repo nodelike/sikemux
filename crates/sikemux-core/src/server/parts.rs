@@ -1,21 +1,16 @@
 //! What each feature of the core keeps for as long as the core runs, and how the rest reads it:
 //! `core.boards()`, never a field.
 
-use std::collections::{BTreeSet, HashMap};
+use super::connection::ClientId as GoneClient;
+use super::part::Part;
+use crate::server::serving::ServeParts;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock};
+use tokio::task::JoinHandle;
 
-use sikemux_pty::agent_detection::ManifestRegistry;
-use sikemux_wire::protocol::SessionId;
 use tokio::sync::Notify;
 
-use super::connection::{ClientConn, ClientId};
-use super::session::Session;
-use super::{
-    changed, model_proxy, ports, preferences, streams, themes, waits, window, Capacity,
-    ServerConfig,
-};
+use super::{model_proxy, ports, preferences, streams, themes, ServerConfig};
 
 use super::{
     account, activity_log, board, chat, checks, chief, codehost, collisions, device_view, diagrams,
@@ -23,27 +18,16 @@ use super::{
     landing, layout, lifecycle, line, mcp_apps, memory, mods, names, new_project, notify,
     open_files, outside, person_calls, pictures, pins, places, remote, remote_image, repo_events,
     seen, session_watch, settling, share, ship, spare, stalls, tasks, tools, triggers, updates,
-    upgrade, vault, workspace, worktree, Core,
+    vault, workspace, worktree, Core,
 };
 
 pub(crate) struct Fields {
     pub(super) config: ServerConfig,
-    pub(super) sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
-    pub(super) next_session_id: AtomicU64,
-    pub(super) capacity: Arc<Capacity>,
-    pub(super) connections: Mutex<HashMap<ClientId, Arc<ClientConn>>>,
-    pub(super) next_client_id: AtomicU64,
-    pub(super) detection: RwLock<ManifestRegistry>,
     pub(super) manifest_folder: Mutex<Option<PathBuf>>,
-    pub(super) window: window::Window,
     pub(super) model_proxy: model_proxy::ModelProxy,
-    pub(super) waits: waits::Waits,
-    pub(super) changes: changed::Changes,
     pub(super) ports: ports::Ports,
     /// Rings when a window opens, so the day's usage counts it at once.
     pub(super) usage_wake: Notify,
-    /// The rail numbers running loose terminals have.
-    pub(super) rail_numbers: Mutex<BTreeSet<u32>>,
     /// Watches the SSH config once a client has listed its hosts.
     pub(super) ssh_watch: OnceLock<Option<::notify::RecommendedWatcher>>,
     pub(super) preferences: preferences::Prefs,
@@ -51,7 +35,6 @@ pub(crate) struct Fields {
     pub(super) streams: streams::Streams,
     pub(super) look: themes::Look,
     pub(super) harness: harness::Harness,
-    pub(super) updating: upgrade::Updating,
     pub(super) tools: Mutex<Option<tools::ToolEndpoint>>,
     pub(super) chats: chat::Chats,
     pub(super) remote: remote::Remote,
@@ -121,31 +104,19 @@ pub(crate) struct Fields {
     /// The repositories coming down into new projects.
     pub(super) clones: new_project::Clones,
     pub(super) chiefs: chief::Chiefs,
-    pub(super) above: super::above::Above,
 }
 
 pub(crate) trait Parts {
     fn config(&self) -> &ServerConfig;
-    fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>>;
-    fn next_session_id(&self) -> &AtomicU64;
-    fn capacity(&self) -> &Arc<Capacity>;
-    fn connections(&self) -> &Mutex<HashMap<ClientId, Arc<ClientConn>>>;
-    fn next_client_id(&self) -> &AtomicU64;
-    fn detection(&self) -> &RwLock<ManifestRegistry>;
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
-    fn window(&self) -> &window::Window;
     fn model_proxy(&self) -> &model_proxy::ModelProxy;
-    fn waits(&self) -> &waits::Waits;
-    fn changes(&self) -> &changed::Changes;
     fn ports(&self) -> &ports::Ports;
     fn usage_wake(&self) -> &Notify;
-    fn rail_numbers(&self) -> &Mutex<BTreeSet<u32>>;
     fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>>;
     fn preferences(&self) -> &preferences::Prefs;
     fn streams(&self) -> &streams::Streams;
     fn look(&self) -> &themes::Look;
     fn harness(&self) -> &harness::Harness;
-    fn updating(&self) -> &upgrade::Updating;
     fn tools(&self) -> &Mutex<Option<tools::ToolEndpoint>>;
     fn chats(&self) -> &chat::Chats;
     fn remote(&self) -> &remote::Remote;
@@ -202,7 +173,6 @@ pub(crate) trait Parts {
     fn mcp_apps(&self) -> &mcp_apps::McpApps;
     fn clones(&self) -> &new_project::Clones;
     fn chiefs(&self) -> &chief::Chiefs;
-    fn above(&self) -> &super::above::Above;
 }
 
 impl Parts for Core {
@@ -210,48 +180,12 @@ impl Parts for Core {
         &self.kept::<Fields>().config
     }
 
-    fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>> {
-        &self.kept::<Fields>().sessions
-    }
-
-    fn next_session_id(&self) -> &AtomicU64 {
-        &self.kept::<Fields>().next_session_id
-    }
-
-    fn capacity(&self) -> &Arc<Capacity> {
-        &self.kept::<Fields>().capacity
-    }
-
-    fn connections(&self) -> &Mutex<HashMap<ClientId, Arc<ClientConn>>> {
-        &self.kept::<Fields>().connections
-    }
-
-    fn next_client_id(&self) -> &AtomicU64 {
-        &self.kept::<Fields>().next_client_id
-    }
-
-    fn detection(&self) -> &RwLock<ManifestRegistry> {
-        &self.kept::<Fields>().detection
-    }
-
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>> {
         &self.kept::<Fields>().manifest_folder
     }
 
-    fn window(&self) -> &window::Window {
-        &self.kept::<Fields>().window
-    }
-
     fn model_proxy(&self) -> &model_proxy::ModelProxy {
         &self.kept::<Fields>().model_proxy
-    }
-
-    fn waits(&self) -> &waits::Waits {
-        &self.kept::<Fields>().waits
-    }
-
-    fn changes(&self) -> &changed::Changes {
-        &self.kept::<Fields>().changes
     }
 
     fn ports(&self) -> &ports::Ports {
@@ -260,10 +194,6 @@ impl Parts for Core {
 
     fn usage_wake(&self) -> &Notify {
         &self.kept::<Fields>().usage_wake
-    }
-
-    fn rail_numbers(&self) -> &Mutex<BTreeSet<u32>> {
-        &self.kept::<Fields>().rail_numbers
     }
 
     fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>> {
@@ -284,10 +214,6 @@ impl Parts for Core {
 
     fn harness(&self) -> &harness::Harness {
         &self.kept::<Fields>().harness
-    }
-
-    fn updating(&self) -> &upgrade::Updating {
-        &self.kept::<Fields>().updating
     }
 
     fn tools(&self) -> &Mutex<Option<tools::ToolEndpoint>> {
@@ -513,8 +439,78 @@ impl Parts for Core {
     fn chiefs(&self) -> &chief::Chiefs {
         &self.kept::<Fields>().chiefs
     }
+}
 
-    fn above(&self) -> &super::above::Above {
-        &self.kept::<Fields>().above
+/// Walking every part of the core.
+pub(crate) trait PartCore {
+    fn parts(&self) -> [&dyn Part; 35];
+
+    /// Every feature's tasks, to end when the core stops.
+    fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
+
+    /// Waits until everything every feature changed is on disk.
+    fn flush_parts(&self);
+
+    fn tell_parts_client_gone(self: &Arc<Self>, client: GoneClient);
+}
+
+impl PartCore for Core {
+    fn parts(&self) -> [&dyn Part; 35] {
+        [
+            self.harness(),
+            self.outside(),
+            self.person_calls(),
+            self.layouts(),
+            self.boards(),
+            self.memory(),
+            self.triggers(),
+            self.collisions(),
+            self.checks(),
+            self.workspaces(),
+            self.hosts(),
+            self.ports(),
+            self.spares(),
+            self.device_view(),
+            self.host_watch(),
+            self.line(),
+            self.lifecycle(),
+            self.updates(),
+            self.changes(),
+            self.tasks(),
+            self.notify(),
+            self.window(),
+            self.chats(),
+            self.seen(),
+            self.settling(),
+            self.open_files(),
+            self.mods(),
+            self.diagrams(),
+            self.preferences(),
+            self.drafts(),
+            self.code_host_lists(),
+            self.look(),
+            self.chiefs(),
+            &super::lsp::Lsp,
+            &super::fast_forward::FastForward,
+        ]
+    }
+
+    fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>> {
+        self.parts()
+            .iter()
+            .flat_map(|part| part.start(self))
+            .collect()
+    }
+
+    fn flush_parts(&self) {
+        for part in self.parts() {
+            part.flush();
+        }
+    }
+
+    fn tell_parts_client_gone(self: &Arc<Self>, client: GoneClient) {
+        for part in self.parts() {
+            part.client_gone(self, client);
+        }
     }
 }

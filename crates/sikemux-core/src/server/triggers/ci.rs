@@ -3,6 +3,7 @@
 //! says when its runs move; a trigger also looks on its own now and then, in case a move was missed.
 
 use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
 use std::path::Path;
 use std::sync::Arc;
 

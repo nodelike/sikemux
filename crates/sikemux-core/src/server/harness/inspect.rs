@@ -3,7 +3,8 @@
 use super::*;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
-use crate::server::ServerCore;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 
 const LISTED_FINISHED_RUNS: usize = 8;
 const FINISHED_COMMAND_CHARS: usize = 160;

@@ -10,7 +10,7 @@ use sikemux_wire::protocol::{AgentState, Event, Request, RequestId, SessionId};
 use tokio::sync::mpsc;
 
 use super::access::{Peer, Rule};
-use super::connection::{ClientConn, FrameWriter};
+use super::connection::{ClientConn, ClientId, FrameWriter};
 use super::session::Session;
 use super::{Core, CoreResult};
 
@@ -49,6 +49,12 @@ pub(crate) struct Above {
     pub send_device_view: fn(&Core, &ClientConn),
     /// Runs a client's requests as they come.
     pub run_requests: for<'a> fn(&'a Arc<Core>, &'a Arc<ClientConn>, Asked) -> Running<'a>,
+    /// A client connected.
+    pub client_joined: fn(&Core),
+    /// A client's connection has gone.
+    pub client_gone: fn(&Arc<Core>, ClientId),
+    /// A task's output has been quiet long enough to say so.
+    pub task_output_noticed: fn(&Arc<Core>, SessionId),
     /// Whether this client may do what `rule` guards.
     pub admit: fn(&Core, &ClientConn, &Rule) -> CoreResult<()>,
     /// Types a client's bytes into a terminal's program.

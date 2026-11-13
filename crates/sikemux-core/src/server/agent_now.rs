@@ -2,6 +2,7 @@
 //! a chat here, a terminal here, or on a linked host.
 
 use crate::server::parts::Parts;
+use crate::server::serving::ServeCore;
 use crate::server::ServerCore;
 use std::sync::Arc;
 

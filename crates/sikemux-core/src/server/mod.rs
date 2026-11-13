@@ -104,6 +104,7 @@ pub mod saved;
 pub mod saved_sessions;
 pub mod search;
 mod seen;
+mod serving;
 pub mod session;
 mod session_watch;
 pub mod settling;
@@ -145,8 +146,9 @@ pub use entry::main;
 pub use turn_state::TakeStepParams;
 
 use crate::server::changed::ChangedCore;
-use crate::server::device_view::DeviceViewCore;
-use crate::server::part::PartCore;
+use crate::server::parts::PartCore;
+use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 pub use sikemux_corekit::lock::lock_holder;
 use sikemux_corekit::lock::lock_path;
 use std::collections::{HashMap, HashSet};
@@ -154,7 +156,7 @@ use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
@@ -163,9 +165,6 @@ use sikemux_pty::agent_detection::ManifestRegistry;
 pub use sikemux_pty::agent_detection::{ManifestReloadReport, ManifestSourceKind};
 
 use sikemux_pty::process::DRAIN_GRACE;
-use sikemux_pty::task::{
-    task_reclamation_plan, TaskRetentionCandidate, MAX_RETAINED_EXITED_TASK_PTYS,
-};
 use tokio::sync::Notify;
 
 use crate::client::{probe, ProbeError};
@@ -176,7 +175,6 @@ pub(crate) use sikemux_agents::callers;
 pub(crate) use sikemux_kernel::{Core, CoreError, CoreResult, Listening};
 
 use changed::What;
-use connection::{ClientConn, ClientId};
 use parts::Parts;
 use session::Session;
 
@@ -325,8 +323,6 @@ pub(crate) trait ServerCore {
 
     fn manifest_dir(&self) -> Option<PathBuf>;
 
-    fn clients(&self) -> Vec<Arc<ClientConn>>;
-
     fn manifest_report(&self) -> ManifestReloadReport;
 
     /// Rebuilds the detection rules from the bundled ones and the person's
@@ -355,41 +351,11 @@ pub(crate) trait ServerCore {
     /// Each ssh terminal's config host and how it reaches it.
     fn ssh_links(&self) -> Vec<(String, Option<sikemux_pty::shell_protocol::SshLink>)>;
 
-    fn agent_session(&self, agent_id: &str) -> Option<Arc<Session>>;
-
-    fn session(&self, id: SessionId) -> Option<Arc<Session>>;
-
-    fn all_sessions(&self) -> Vec<Arc<Session>>;
-
-    /// The lowest rail number no running loose terminal has, taken now.
-    fn take_rail_number(&self) -> u32;
-
-    fn insert_session(&self, session: Arc<Session>);
-
-    fn remove_session(&self, session: &Arc<Session>) -> bool;
-
-    fn take_session_for_kill(&self, id: SessionId) -> Option<Arc<Session>>;
-
     fn running_sessions(&self) -> usize;
 
     fn is_idle(&self) -> bool;
 
-    fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>>;
-
-    fn register_client(&self, client: Arc<ClientConn>);
-
-    fn unregister_client(self: &Arc<Self>, client: &ClientConn);
-
-    /// Ends the connections of one paired device, or of every one.
-    fn close_device_clients(&self, id: Option<&str>);
-
     fn permit(&self, peer: &access::Peer, needs: access::Needs) -> CoreResult<()>;
-
-    fn schedule_task_output_notice(self: &Arc<Self>, id: SessionId, delay: Duration);
-
-    /// Drops the oldest exited sessions nobody is watching once there are too
-    /// many or they have been kept long enough.
-    fn reclaim_exited_sessions(&self, now: u64);
 
     /// Puts every chat to sleep and stops every session. Only reaping a killed process can
     /// hang, so each session is reaped on a thread of its own within `STOP_STEP_LIMIT`, and one
@@ -463,89 +429,94 @@ impl ServerCore for Core {
             harness.questions.is_open(id)
         });
         let core = Core::build(started, listening, |me| {
-            vec![Box::new(parts::Fields {
-                config,
-                sessions: Mutex::new(HashMap::new()),
-                next_session_id: AtomicU64::new(first_session_id()),
-                capacity: Arc::new(Capacity {
-                    active: AtomicUsize::new(0),
-                    limit: MAX_ACTIVE_SESSIONS,
-                }),
-                connections: Mutex::new(HashMap::new()),
-                next_client_id: AtomicU64::new(1),
-                detection: RwLock::new(detection),
-                manifest_folder: Mutex::new(None),
-                window: window::Window::new(first_session_id()),
-                model_proxy: model_proxy::ModelProxy::default(),
-                waits: waits::Waits::new(data_dir),
-                changes: changed::Changes::default(),
-                ports: ports::Ports::new(data_dir),
-                usage_wake: Notify::new(),
-                rail_numbers: Mutex::default(),
-                ssh_watch: OnceLock::new(),
-                preferences: preferences::Prefs::new(data_dir),
-                streams: streams::Streams::default(),
-                look: themes::Look::default(),
-                harness,
-                updating: upgrade::Updating::default(),
-                tools: Mutex::new(None),
-                chats: chat::Chats::new(data_dir),
-                remote: remote::Remote::default(),
-                outside: outside::Outside::new(data_dir),
-                shares: share::Shares::default(),
-                hooks: hooks::Hooks::default(),
-                workspaces: workspace::Workspaces::new(data_dir),
-                seen: seen::Seen::default(),
-                settling: settling::Settling::default(),
-                stalls: stalls::Stalls::default(),
-                lifecycle: lifecycle::Lifecycle::default(),
-                ship: ship::Ships::default(),
-                person_calls,
-                pins: pins::Pins::new(data_dir),
-                build_outputs: Default::default(),
-                line: line::Line::new(data_dir),
-                session_watch: session_watch::SessionWatch::default(),
-                activity_log,
-                device_view: device_view::DeviceViews::default(),
-                host_watch: host_stats::HostWatch::default(),
-                names,
-                boards: board::Boards::new(data_dir),
-                places: places::store::Store::new(data_dir),
-                goal_summaries: goal_summary::Summaries::new(data_dir),
-                goals: goals::Goals::default(),
-                repo_events: repo_events::RepoEvents::default(),
-                landing: landing::Histories::default(),
-                land_queue: Default::default(),
-                pictures: pictures::Pictures::new(data_dir),
-                memory: memory::Memory::new(data_dir),
-                triggers: triggers::Triggers::new(data_dir),
-                spares: spare::Spares::default(),
-                updates: updates::Updates::default(),
-                remote_images: remote_image::RemoteImages::default(),
-                tasks: tasks::Tasks::new(data_dir),
-                git: git::Projects::default(),
-                code_host_lists: Default::default(),
-                open_files: Default::default(),
-                layouts: layout::Layouts::new(data_dir),
-                account: Default::default(),
-                vault: vault::Vault::default(),
-                ci: Default::default(),
-                edits: edits::Edits::new(data_dir, me.clone()),
-                collisions: collisions::Collisions::new(me.clone()),
-                checks: Default::default(),
-                notify: notify::Notifier::default(),
-                inbox: inbox::Turns::new(data_dir),
-                joins: Default::default(),
-                hosts,
-                faces: faces::Faces::new(data_dir),
-                drafts: drafts::Drafts::new(data_dir),
-                diagrams: diagrams::Diagrams::new(data_dir),
-                mods: mods::Mods::new(data_dir),
-                mcp_apps: mcp_apps::McpApps::new(data_dir),
-                clones: new_project::Clones::default(),
-                chiefs: chief::Chiefs::new(data_dir),
-                above: base::above(),
-            }) as sikemux_kernel::Parts]
+            vec![
+                Box::new(serving::ServeFields {
+                    sessions: Mutex::new(HashMap::new()),
+                    next_session_id: AtomicU64::new(first_session_id()),
+                    capacity: Arc::new(Capacity {
+                        active: AtomicUsize::new(0),
+                        limit: MAX_ACTIVE_SESSIONS,
+                    }),
+                    connections: Mutex::new(HashMap::new()),
+                    next_client_id: AtomicU64::new(1),
+                    detection: RwLock::new(detection),
+                    window: window::Window::new(first_session_id()),
+                    waits: waits::Waits::new(data_dir),
+                    changes: changed::Changes::default(),
+                    updating: upgrade::Updating::default(),
+                    rail_numbers: Mutex::default(),
+                    above: base::above(),
+                    build: config.build.clone(),
+                }) as sikemux_kernel::Parts,
+                Box::new(parts::Fields {
+                    config,
+                    manifest_folder: Mutex::new(None),
+                    model_proxy: model_proxy::ModelProxy::default(),
+                    ports: ports::Ports::new(data_dir),
+                    usage_wake: Notify::new(),
+                    ssh_watch: OnceLock::new(),
+                    preferences: preferences::Prefs::new(data_dir),
+                    streams: streams::Streams::default(),
+                    look: themes::Look::default(),
+                    harness,
+                    tools: Mutex::new(None),
+                    chats: chat::Chats::new(data_dir),
+                    remote: remote::Remote::default(),
+                    outside: outside::Outside::new(data_dir),
+                    shares: share::Shares::default(),
+                    hooks: hooks::Hooks::default(),
+                    workspaces: workspace::Workspaces::new(data_dir),
+                    seen: seen::Seen::default(),
+                    settling: settling::Settling::default(),
+                    stalls: stalls::Stalls::default(),
+                    lifecycle: lifecycle::Lifecycle::default(),
+                    ship: ship::Ships::default(),
+                    person_calls,
+                    pins: pins::Pins::new(data_dir),
+                    build_outputs: Default::default(),
+                    line: line::Line::new(data_dir),
+                    session_watch: session_watch::SessionWatch::default(),
+                    activity_log,
+                    device_view: device_view::DeviceViews::default(),
+                    host_watch: host_stats::HostWatch::default(),
+                    names,
+                    boards: board::Boards::new(data_dir),
+                    places: places::store::Store::new(data_dir),
+                    goal_summaries: goal_summary::Summaries::new(data_dir),
+                    goals: goals::Goals::default(),
+                    repo_events: repo_events::RepoEvents::default(),
+                    landing: landing::Histories::default(),
+                    land_queue: Default::default(),
+                    pictures: pictures::Pictures::new(data_dir),
+                    memory: memory::Memory::new(data_dir),
+                    triggers: triggers::Triggers::new(data_dir),
+                    spares: spare::Spares::default(),
+                    updates: updates::Updates::default(),
+                    remote_images: remote_image::RemoteImages::default(),
+                    tasks: tasks::Tasks::new(data_dir),
+                    git: git::Projects::default(),
+                    code_host_lists: Default::default(),
+                    open_files: Default::default(),
+                    layouts: layout::Layouts::new(data_dir),
+                    account: Default::default(),
+                    vault: vault::Vault::default(),
+                    ci: Default::default(),
+                    edits: edits::Edits::new(data_dir, me.clone()),
+                    collisions: collisions::Collisions::new(me.clone()),
+                    checks: Default::default(),
+                    notify: notify::Notifier::default(),
+                    inbox: inbox::Turns::new(data_dir),
+                    joins: Default::default(),
+                    hosts,
+                    faces: faces::Faces::new(data_dir),
+                    drafts: drafts::Drafts::new(data_dir),
+                    diagrams: diagrams::Diagrams::new(data_dir),
+                    mods: mods::Mods::new(data_dir),
+                    mcp_apps: mcp_apps::McpApps::new(data_dir),
+                    clones: new_project::Clones::default(),
+                    chiefs: chief::Chiefs::new(data_dir),
+                }) as sikemux_kernel::Parts,
+            ]
         });
         from_app::carry(&core, data_dir);
         pictures::tidy(&core, false);
@@ -572,10 +543,6 @@ impl ServerCore for Core {
 
     fn manifest_dir(&self) -> Option<PathBuf> {
         self.manifest_folder().locked().clone()
-    }
-
-    fn clients(&self) -> Vec<Arc<ClientConn>> {
-        self.connections().locked().values().cloned().collect()
     }
 
     fn manifest_report(&self) -> ManifestReloadReport {
@@ -662,70 +629,6 @@ impl ServerCore for Core {
             .collect()
     }
 
-    fn agent_session(&self, agent_id: &str) -> Option<Arc<Session>> {
-        self.all_sessions().into_iter().find(|session| {
-            session
-                .agent
-                .as_ref()
-                .is_some_and(|agent| agent.agent_id() == agent_id)
-        })
-    }
-
-    fn session(&self, id: SessionId) -> Option<Arc<Session>> {
-        self.sessions().locked().get(&id).cloned()
-    }
-
-    fn all_sessions(&self) -> Vec<Arc<Session>> {
-        self.sessions().locked().values().cloned().collect()
-    }
-
-    fn take_rail_number(&self) -> u32 {
-        let mut taken = self.rail_numbers().locked();
-        let number = (1..).find(|number| !taken.contains(number)).unwrap_or(0);
-        taken.insert(number);
-        number
-    }
-
-    fn insert_session(&self, session: Arc<Session>) {
-        if let Some(number) = session.rail_number() {
-            self.rail_numbers().locked().insert(number);
-        }
-        let ssh = session.ssh_link().is_some();
-        self.sessions().locked().insert(session.id, session);
-        if ssh {
-            ssh::moved(self);
-        }
-    }
-
-    fn remove_session(&self, session: &Arc<Session>) -> bool {
-        let removed = {
-            let mut sessions = self.sessions().locked();
-            let current = sessions
-                .get(&session.id)
-                .is_some_and(|current| Arc::ptr_eq(current, session));
-            if current {
-                sessions.remove(&session.id);
-            }
-            current
-        };
-        if removed {
-            session::detach_all(session);
-        }
-        removed
-    }
-
-    fn take_session_for_kill(&self, id: SessionId) -> Option<Arc<Session>> {
-        let mut sessions = self.sessions().locked();
-        let session = sessions.get(&id)?.clone();
-        // A killed task keeps its snapshot and output log for later reads.
-        if !session.is_task() {
-            sessions.remove(&id);
-            drop(sessions);
-            session::detach_all(&session);
-        }
-        Some(session)
-    }
-
     fn running_sessions(&self) -> usize {
         self.sessions()
             .locked()
@@ -742,77 +645,12 @@ impl ServerCore for Core {
             && !board::auto::has_work(self.boards())
     }
 
-    fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>> {
-        self.connections().locked().get(&id).cloned()
-    }
-
-    fn register_client(&self, client: Arc<ClientConn>) {
-        self.connections().locked().insert(client.id, client);
-        self.view_watched();
-    }
-
-    fn unregister_client(self: &Arc<Self>, client: &ClientConn) {
-        client.close();
-        self.tell_parts_client_gone(client.id);
-        self.connections().locked().remove(&client.id);
-        for (stream, id) in client.take_streams() {
-            if let Some(session) = self.session(id) {
-                session::detach(&session, stream);
-            }
-        }
-        self.changed(What::View);
-    }
-
-    fn close_device_clients(&self, id: Option<&str>) {
-        for client in self.clients() {
-            let closing = match id {
-                Some(id) => client.peer.is_device(id),
-                None => !client.peer.is_local(),
-            };
-            if closing {
-                client.close();
-            }
-        }
-    }
-
     fn permit(&self, peer: &access::Peer, needs: access::Needs) -> CoreResult<()> {
         let standing = match peer {
             access::Peer::App | access::Peer::Local | access::Peer::Share { .. } => None,
             access::Peer::Device { id } => self.remote().standing_of(id),
         };
         access::permit(peer, standing, needs)
-    }
-
-    fn schedule_task_output_notice(self: &Arc<Self>, id: SessionId, delay: Duration) {
-        let core = self.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            if let Some(session) = core.session(id) {
-                session::mark_task_output_noticed(&session);
-            }
-            harness::note_output(&core, id);
-        });
-    }
-
-    fn reclaim_exited_sessions(&self, now: u64) {
-        let sessions = self.all_sessions();
-        let candidates = sessions
-            .iter()
-            .enumerate()
-            .map(|(index, session)| TaskRetentionCandidate {
-                id: index as u32,
-                exited_at_ms: session.exited_at_ms.load(Ordering::Acquire),
-                has_subscribers: session.has_subscribers(),
-            })
-            .collect();
-        for index in task_reclamation_plan(candidates, now, MAX_RETAINED_EXITED_TASK_PTYS) {
-            let Some(session) = sessions.get(index as usize) else {
-                continue;
-            };
-            if session.exited_at_ms.load(Ordering::Acquire) != 0 && !session.has_subscribers() {
-                self.remove_session(session);
-            }
-        }
     }
 
     fn drain(self: &Arc<Self>) {
