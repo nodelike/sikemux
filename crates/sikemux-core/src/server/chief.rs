@@ -645,27 +645,24 @@ pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Vec<ChatContext> {
     .unwrap_or_default()
 }
 
-/// What the chief can start workers on here, with each turn: the agents signed in, the models
-/// each last offered, and how much each account has left. Read from memory, with no model asked.
+/// What the chief can start workers on here, with each turn: the agents signed in and the models
+/// each last offered. Read from memory, with no model asked. Accounts and their limits stay out:
+/// the core picks the account, moves chats off a full one and resumes them by itself.
 pub(crate) fn can_start(core: &Core) -> Option<ChatContext> {
-    let now = epoch_ms();
-    let mut agents: Vec<StartsOn> = Vec::new();
+    let mut kinds: Vec<String> = Vec::new();
     for launcher in core.workspaces().chat_launchers() {
-        if !matches!(launcher.status, Some(AgentStatus::Ready { .. })) {
-            continue;
-        }
-        let kind = launcher.agent.provider.clone();
-        let given = (launcher.label.split_once(" · ")).map(|(_, name)| name.to_owned());
-        let room = room_left(&kind, launcher.agent.config_path.as_deref(), now);
-        match agents.iter_mut().find(|agent| agent.kind == kind) {
-            Some(agent) => agent.accounts.push((given, room)),
-            None => agents.push(StartsOn {
-                models: offered_models(core, &kind),
-                kind,
-                accounts: vec![(given, room)],
-            }),
+        if matches!(launcher.status, Some(AgentStatus::Ready { .. }))
+            && !kinds.contains(&launcher.agent.provider)
+        {
+            kinds.push(launcher.agent.provider.clone());
         }
     }
+    let agents: Vec<(String, Vec<String>)> = (kinds.into_iter())
+        .map(|kind| {
+            let models = offered_models(core, &kind);
+            (kind, models)
+        })
+        .collect();
     let text = can_start_text(&agents)?;
     Some(crate::sessions::for_agent::sikemux_context(
         "can-start",
@@ -677,14 +674,6 @@ pub(crate) fn can_start(core: &Core) -> Option<ChatContext> {
 const CAN_START_CHARS: usize = 600;
 const CAN_START_SHOWN: usize = 3;
 
-/// An agent the chief can start workers on: the models it offers, and each account's name the
-/// person gave it, if any, with what it has left.
-struct StartsOn {
-    kind: String,
-    models: Vec<String>,
-    accounts: Vec<(Option<String>, String)>,
-}
-
 fn offered_models(core: &Core, kind: &str) -> Vec<String> {
     (super::chat::models_of(core, kind).into_iter())
         .flat_map(|picker| picker.choices)
@@ -693,71 +682,23 @@ fn offered_models(core: &Core, kind: &str) -> Vec<String> {
         .collect()
 }
 
-/// How much the account's tightest limit has left, as its last reading said.
-fn room_left(kind: &str, config_path: Option<&str>, now: u64) -> String {
-    use crate::agent_accounts::usage::{last_reading, UsageResetAt};
-    let Some(reading) = last_reading(kind, config_path) else {
-        return "no plan reading".to_owned();
-    };
-    let tightest = (reading.usage.windows.iter())
-        .max_by(|one, other| one.used_percent.total_cmp(&other.used_percent));
-    let Some(window) = tightest else {
-        return "no plan reading".to_owned();
-    };
-    let left = (100.0 - window.used_percent).clamp(0.0, 100.0).round();
-    let over = match window.window_minutes {
-        Some(minutes) if minutes >= 7 * 24 * 60 => "this week".to_owned(),
-        Some(minutes) if minutes >= 60 => format!("of this {}h window", minutes / 60),
-        _ => format!("of {}", window.label.to_lowercase()),
-    };
-    let mut room = format!("{left}% left {over}");
-    if let (true, Some(UsageResetAt::Unix(at))) = (left < 15.0, &window.resets_at) {
-        let hours = (at * 1000).saturating_sub(now) / 3_600_000;
-        room.push_str(&match hours {
-            0 => " (resets within the hour)".to_owned(),
-            1..=47 => format!(" (resets in {hours}h)"),
-            _ => format!(" (resets in {}d)", hours / 24),
-        });
-    }
-    if now.saturating_sub(reading.read_at) >= 15 * 60 * 1000 {
-        room.push_str(" (reading old)");
-    }
-    room
-}
-
-/// The line itself, within [`CAN_START_CHARS`]: models past the first few go first, then
-/// accounts past the first few, then the last agents. An account is called by the name the
-/// person gave it in Sikemux, or by its place among the agent's accounts, never by an address.
-fn can_start_text(agents: &[StartsOn]) -> Option<String> {
+/// The line itself, within [`CAN_START_CHARS`]: models past the first few go first, then the
+/// last agents.
+fn can_start_text(agents: &[(String, Vec<String>)]) -> Option<String> {
     if agents.is_empty() {
         return None;
     }
-    let line = |models: usize, accounts: usize, kept: usize| {
+    let line = |models: usize, kept: usize| {
         let mut parts: Vec<String> = (agents.iter().take(kept))
-            .map(|agent| {
-                let called = |at: usize, given: &Option<String>| match given {
-                    Some(name) if !name.contains('@') => name.clone(),
-                    _ => format!("account {}", at + 1),
-                };
-                let mut rooms: Vec<String> = match agent.accounts.as_slice() {
-                    [(None, room)] => vec![room.clone()],
-                    all => (all.iter().enumerate().take(accounts))
-                        .map(|(at, (given, room))| format!("{} {room}", called(at, given)))
-                        .collect(),
-                };
-                if agent.accounts.len() > accounts {
-                    rooms.push(format!("+{} more", agent.accounts.len() - accounts));
+            .map(|(kind, offered)| {
+                if offered.is_empty() {
+                    return kind.clone();
                 }
-                let mut said = format!("{}: {}", agent.kind, rooms.join(", "));
-                if !agent.models.is_empty() {
-                    let shown = agent.models.iter().take(models).cloned();
-                    let mut named: Vec<String> = shown.collect();
-                    if agent.models.len() > models {
-                        named.push(format!("+{} more", agent.models.len() - models));
-                    }
-                    said.push_str(&format!("; models {}", named.join(", ")));
+                let mut named: Vec<String> = offered.iter().take(models).cloned().collect();
+                if offered.len() > models {
+                    named.push(format!("+{} more", offered.len() - models));
                 }
-                said
+                format!("{kind}; models {}", named.join(", "))
             })
             .collect();
         if agents.len() > kept {
@@ -768,19 +709,15 @@ fn can_start_text(agents: &[StartsOn]) -> Option<String> {
             parts.join(" · ")
         )
     };
-    let most = usize::MAX;
     let fits = |text: &String| text.chars().count() <= CAN_START_CHARS;
-    let mut text = line(most, most, agents.len());
-    for (models, accounts) in [(CAN_START_SHOWN, most), (CAN_START_SHOWN, CAN_START_SHOWN)] {
-        if fits(&text) {
-            return Some(text);
-        }
-        text = line(models, accounts, agents.len());
+    let mut text = line(usize::MAX, agents.len());
+    if !fits(&text) {
+        text = line(CAN_START_SHOWN, agents.len());
     }
     let mut kept = agents.len();
     while !fits(&text) && kept > 1 {
         kept -= 1;
-        text = line(CAN_START_SHOWN, CAN_START_SHOWN, kept);
+        text = line(CAN_START_SHOWN, kept);
     }
     Some(text.chars().take(CAN_START_CHARS).collect())
 }
@@ -1658,7 +1595,7 @@ fn prune(core: &Core) {
 
 #[cfg(test)]
 mod tests {
-    use super::{can_start_text, week_before, StartsOn};
+    use super::week_before;
 
     #[test]
     fn the_week_before_a_clock_change_begins_at_nine_on_its_monday() {
@@ -1694,22 +1631,5 @@ mod tests {
         let monday_nine_pdt = 1_793_030_400_000;
         let next_monday_nine_pst = 1_793_638_800_000;
         assert_eq!(week_before(next_monday_nine_pst), Some(monday_nine_pdt));
-    }
-
-    #[test]
-    fn an_account_named_by_an_address_is_called_by_its_place() {
-        let claude = StartsOn {
-            kind: "claude".into(),
-            models: vec!["Opus 5.5".into(), "Haiku 5.5".into()],
-            accounts: vec![
-                (Some("Work".into()), "62% left this week".into()),
-                (Some("ada@example.com".into()), "8% left this week".into()),
-            ],
-        };
-        let text = can_start_text(&[claude]).expect("a line");
-        assert_eq!(
-            text,
-            "Agents you can start workers on here: claude: Work 62% left this week, account 2 8% left this week; models Opus 5.5, Haiku 5.5"
-        );
     }
 }
