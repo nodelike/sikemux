@@ -169,7 +169,9 @@ The first time you open a project's chief, it writes to you first: who it is, th
 
 When you come back to the chief after an hour or more, a **While you were away** card sits at the end of its chat. It holds the calls that wait on you, one open and the rest folded under it, and each one you answer there folds to a line saying how you answered, with how many are left; what agents decided for you, each with **Overrule**; and what landed, with who landed it, what its commit says it changed, how many lines it removed and added (**−120 +40**), and **Try it** where there is something to try. It stays until every call in it is answered, or, with none, until you next write to the chief.
 
-**Overrule** sends the decision back to the agent that made it and leaves one line in the chief's chat. When Sikemux kept a rule from it, the line says decisions like that come to you from now on. **Undo** on that line puts the decision back. An Overrule that stopped Auto's run can't be put back: its line says so and offers no Undo.
+When an agent decides something itself, such as recording a decision on its goal or going on with what it assumed when nobody answered its question, a quiet line under its reply in its own chat says so: **✓ Decided · "Inbox for shared links" · they land untriaged · Overrule**. Each decision gets its own line, under the reply of the turn that made it. A decision that may hold a password or a key gets no line. After the chat sleeps and wakes, its lines come back at the end of the chat.
+
+**Overrule**, there or in the card, sends the decision back to the agent that made it and leaves one line in the chief's chat; in the agent's own chat its decided line becomes that line. When Sikemux kept a rule from it, the line says decisions like that come to you from now on. **Undo** on that line puts the decision back. An Overrule that stopped Auto's run can't be put back: its line says so and offers no Undo.
 
 On Monday mornings, the chief's chat shows a count of last week when anything was decided or answered: **Last week I decided 212 things, and you overruled 3. You answered 12 of 14 calls as I picked.**
 

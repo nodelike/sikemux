@@ -260,7 +260,12 @@ fn decided_row(
                     .child(t!("Overrule"))
                     .clicks(move |_, _, cx| {
                         let _ = bench.update(cx, |bench, cx| {
-                            crate::playbook::overrule(bench, &target, &overruled, cx)
+                            let decided = (
+                                overruled.project.clone(),
+                                overruled.goal,
+                                overruled.decision,
+                            );
+                            crate::playbook::overrule(bench, &target, decided, cx)
                         });
                     }),
             )

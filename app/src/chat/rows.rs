@@ -1012,6 +1012,55 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
         .into_any_element()
 }
 
+/// The quiet line under an agent's reply that says it recorded a decision itself: what it
+/// decided, what that rests on, and Overrule. The reason gives way first on a narrow pane.
+fn decided(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(decided) = notice.decided.clone() else {
+        return div().into_any_element();
+    };
+    let quoted = t!("“{text}”", text = decided.text.clone());
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
+    let id = format!(
+        "decided-{}-{}",
+        decided.goal.unwrap_or_default(),
+        decided.decision
+    );
+    notice_box(looks)
+        .child(ui::icon(Icon::Check, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(t!("Decided")))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.ink)
+                .child(format!("· {quoted}")),
+        )
+        .children(decided.why.clone().map(|why| {
+            div()
+                .min_w_0()
+                .flex_shrink(1000.)
+                .truncate()
+                .child(format!("· {why}"))
+        }))
+        .child(div().flex_none().child("·"))
+        .child(
+            div()
+                .id(SharedString::from(id))
+                .flex_none()
+                .text_color(looks.ink)
+                .child(t!("Overrule"))
+                .clicks(move |_, _, cx| {
+                    let decided = decided.clone();
+                    let _ = bench.update(cx, |bench, cx| {
+                        let target = bench.chat_target(&agent);
+                        let decision = (decided.project, decided.goal, decided.decision);
+                        crate::playbook::overrule(bench, &target, decision, cx)
+                    });
+                }),
+        )
+        .into_any_element()
+}
+
 /// The quiet line an Overrule leaves in the chief's chat, with Undo until it is undone.
 fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
     let Some(overruled) = notice.overruled.clone() else {
@@ -1521,6 +1570,7 @@ pub(super) fn part(
         ChatPart::AgentNotice { notice, .. } if notice.overruled.is_some() => {
             overruled(notice, looks)
         }
+        ChatPart::AgentNotice { notice, .. } if notice.decided.is_some() => decided(notice, looks),
         ChatPart::AgentNotice { notice, .. } if notice.rule_change.is_some() => {
             rule_change(notice, looks)
         }
