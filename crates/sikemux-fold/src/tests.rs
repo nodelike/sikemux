@@ -1,7 +1,8 @@
 use serde_json::json;
 use sikemux_view::chat::{
-    ChatActivity, ChatChange, ChatView, DiffLine, DiffSummary, OutputImage, OutputSummary, PageRef,
-    PlanEntry, PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall, ToolOutput, ToolStatus,
+    ChatActivity, ChatChange, ChatView, DecidedLine, DiffLine, DiffSummary, OutputImage,
+    OutputSummary, PageRef, PlanEntry, PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall,
+    ToolOutput, ToolStatus,
 };
 
 use super::*;
@@ -1366,6 +1367,7 @@ mod reducer {
                     overruled: None,
                     week: None,
                     rule_change: None,
+                    decided: None,
                 }
             ),
             other => panic!("expected an agent notice, got {other:?}"),
@@ -3097,4 +3099,65 @@ fn a_command_is_counted_by_what_it_does() {
     assert_eq!(intent("pnpm typecheck:android").0, ToolIntent::Build);
     assert_eq!(intent("git status --short").0, ToolIntent::Git);
     assert_eq!(intent("python page.py").0, ToolIntent::Run);
+}
+
+fn decided_line(decision: u64) -> DecidedLine {
+    DecidedLine {
+        project: "/p".into(),
+        goal: Some(1),
+        decision,
+        text: "Inbox for shared links".into(),
+        why: Some("they land untriaged".into()),
+    }
+}
+
+fn decision_lines(chat: &mut Chat) -> Vec<AgentNotice> {
+    (chat.rows().into_iter())
+        .flat_map(|row| row.parts)
+        .filter_map(|part| match part {
+            ChatPart::AgentNotice { notice, .. }
+                if notice.decided.is_some() || notice.overruled.is_some() =>
+            {
+                Some(notice)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_decision_overruled_before_its_turn_ends_shows_once_as_overruled() {
+    let mut chat = Chat::running();
+    chat.update(update::decided_notice(decided_line(1)));
+    chat.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "I chose Inbox." } }));
+    let overruled = OverruledDecision {
+        project: "/p".into(),
+        goal: Some(1),
+        decision: 1,
+        text: "Inbox for shared links".into(),
+        rule: None,
+        undone: false,
+        stopped_auto: false,
+    };
+    chat.update(update::overruled_notice("Overruled", overruled.clone()));
+    chat.turn_completed(Some("end_turn"));
+    let lines = decision_lines(&mut chat);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0].decided, None);
+    assert_eq!(lines[0].overruled, Some(overruled));
+}
+
+#[test]
+fn a_decision_held_for_a_turn_that_fails_goes_under_its_reply() {
+    let mut chat = Chat::running();
+    chat.update(json!({ "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "I chose Inbox." } }));
+    chat.update(update::decided_notice(decided_line(1)));
+    chat.error(json!({ "message": "Usage limit reached" }));
+    let rows = chat.rows();
+    let last = rows.last().expect("the reply");
+    assert!(
+        matches!(last.parts.last(), Some(ChatPart::AgentNotice { notice, .. }) if notice.decided == Some(decided_line(1))),
+        "{:?}",
+        last.parts
+    );
 }

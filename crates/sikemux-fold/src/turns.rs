@@ -18,11 +18,11 @@ fn is_reply(part: &ChatPart) -> bool {
     matches!(
         part,
         ChatPart::Text { .. } | ChatPart::Content { .. } | ChatPart::Tool { gif: Some(_), .. }
-    ) || matches!(part, ChatPart::AgentNotice { notice, .. } if notice.goal.is_some())
+    ) || matches!(part, ChatPart::AgentNotice { notice, .. } if notice.goal.is_some() || notice.decided.is_some())
 }
 
 /// A page the agent showed, an MCP app a call opened, a GIF it sent, where a goal began or ended, a rule kept from the
-/// person's words, an Overrule, a week's count and a subagent still at work stay in view when
+/// person's words, a decision or its Overrule, a week's count and a subagent still at work stay in view when
 /// the turn around them folds.
 fn outlives(part: &ChatPart) -> bool {
     match part {
@@ -32,6 +32,7 @@ fn outlives(part: &ChatPart) -> bool {
             notice.goal.is_some()
                 || notice.rule.is_some()
                 || notice.overruled.is_some()
+                || notice.decided.is_some()
                 || notice.week.is_some()
                 || notice.rule_change.is_some()
         }

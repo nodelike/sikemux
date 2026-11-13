@@ -18,15 +18,17 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::agent_accounts::status::AgentStatus;
+use crate::sessions::asked::may_hold_secret;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::calls::{CallState, PersonCall};
 use sikemux_view::chat::{
-    AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, LinesChanged, OverruledDecision,
-    RuleChange,
+    AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, DecidedLine, LinesChanged,
+    OverruledDecision, RuleChange,
 };
+use sikemux_view::slice::Decision;
 use sikemux_view::turn::{TurnPhase, TurnStep};
 use sikemux_view::workspace::ProjectInfo;
 use sikemux_wire::protocol::ChatContext;
@@ -89,6 +91,10 @@ pub(crate) struct Chiefs {
 struct Saved {
     seats: HashMap<String, Seat>,
     overrules: HashMap<String, Overrule>,
+    /// Lines the core keeps in agents' own chats, by agent: each decision it recorded itself,
+    /// as decided or as overruled.
+    #[serde(default)]
+    lines: HashMap<String, Vec<Row>>,
 }
 
 /// What the core keeps for one chief.
@@ -582,10 +588,11 @@ pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
     let id = chat.feed.id().to_owned();
     let missing: Vec<(Value, u64)> = {
         let mut saved = core.chiefs().state.locked();
-        let Some(seat) = saved.seats.get_mut(chat.agent_id()) else {
-            return;
-        };
-        let missing: Vec<(Value, u64)> = (seat.rows.iter_mut())
+        let saved = &mut *saved;
+        let seat_rows = (saved.seats.get_mut(chat.agent_id())).map(|seat| &mut seat.rows);
+        let lines = saved.lines.get_mut(chat.agent_id());
+        let missing: Vec<(Value, u64)> = (seat_rows.into_iter().chain(lines))
+            .flat_map(|rows| rows.iter_mut())
             .filter(|row| row.feed.as_deref() != Some(id.as_str()))
             .map(|row| {
                 row.feed = Some(id.clone());
@@ -602,9 +609,9 @@ pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
     }
 }
 
-fn emit_row(feed: &Arc<Feed>, chief: &str, mut update: Value, at: u64) {
+fn emit_row(feed: &Arc<Feed>, agent: &str, mut update: Value, at: u64) {
     sikemux_fold::update::stamp_replayed(&mut update, Some(at), false);
-    let session = (feed.start()).map_or_else(|| chief.to_owned(), |start| start.session_id);
+    let session = (feed.start()).map_or_else(|| agent.to_owned(), |start| start.session_id);
     feed.emit(
         sikemux_fold::ChatEventKind::SessionUpdate,
         json!({ "sessionId": session, "update": update }),
@@ -1271,9 +1278,6 @@ pub(crate) fn overruled(
             .overrules
             .insert(overrule_key(project, goal, id), overrule);
     });
-    let Some(chief) = chief_at(core, project) else {
-        return;
-    };
     let title = match rule {
         Some(_) => "Overruled. Decisions like this come to you from now on",
         None => "Overruled",
@@ -1287,12 +1291,17 @@ pub(crate) fn overruled(
         undone: false,
         stopped_auto,
     };
+    let update = sikemux_fold::update::overruled_notice(title, shown);
+    decided_line_moved(core, project, goal, id, &update);
+    let Some(chief) = chief_at(core, project) else {
+        return;
+    };
     mark_away(core, &chief, goal, id, true);
     put_row(
         core,
         &chief,
         format!("overrule|{}", overrule_key(project, goal, id)),
-        sikemux_fold::update::overruled_notice(title, shown),
+        update,
     );
     let from_now_on = match rule {
         Some(_) => " Decisions like it are theirs from now on: raise them as a call.",
@@ -1303,6 +1312,67 @@ pub(crate) fn overruled(
         &chief,
         format!("The person overruled {named}, which an agent wrote as {said}.{from_now_on}"),
     );
+}
+
+/// An agent recorded `decision` of `project` (a path) itself: a line under its reply in its own
+/// chat says so, with Overrule, kept until the line is pushed out by later ones. A decision whose
+/// words may hold a secret gets no line.
+pub(crate) fn decided(core: &Core, project: &str, goal: Option<u64>, decision: &Decision) {
+    let Some(agent) = decision.learned.agent.as_deref() else {
+        return;
+    };
+    let said = std::iter::once(&decision.text).chain(&decision.why);
+    if decision.holder.is_none() || said.into_iter().any(|words| may_hold_secret(words)) {
+        return;
+    }
+    let line = DecidedLine {
+        project: project.to_owned(),
+        goal,
+        decision: decision.id,
+        text: sentence(&decision.text),
+        why: decision.why.as_deref().map(sentence),
+    };
+    let feed = core.chats().heard(agent);
+    let row = Row {
+        key: decided_key(project, goal, decision.id),
+        update: sikemux_fold::update::decided_notice(line),
+        at: epoch_ms(),
+        feed: feed.as_ref().map(|feed| feed.id().to_owned()),
+    };
+    core.chiefs().change(|saved| {
+        let lines = saved.lines.entry(agent.to_owned()).or_default();
+        lines.push(row.clone());
+        if lines.len() > MOST_ROWS {
+            lines.remove(0);
+        }
+    });
+    if let Some(feed) = feed {
+        emit_row(&feed, agent, row.update, row.at);
+    }
+}
+
+/// The decided line of decision `id` of `project`, in the chat of the agent that recorded it,
+/// says what `update` does now: overruled, or that Undo put it back.
+fn decided_line_moved(core: &Core, project: &str, goal: Option<u64>, id: u64, update: &Value) {
+    let key = decided_key(project, goal, id);
+    let moved: Vec<(String, u64)> = core.chiefs().change(|saved| {
+        (saved.lines.iter_mut())
+            .filter_map(|(agent, lines)| {
+                let line = lines.iter_mut().find(|line| line.key == key)?;
+                line.update = update.clone();
+                Some((agent.clone(), line.at))
+            })
+            .collect()
+    });
+    for (agent, at) in moved {
+        if let Some(feed) = core.chats().heard(&agent) {
+            emit_row(&feed, &agent, update.clone(), at);
+        }
+    }
+}
+
+fn decided_key(project: &str, goal: Option<u64>, decision: u64) -> String {
+    format!("decided|{}", overrule_key(project, goal, decision))
 }
 
 fn overrule_key(project: &str, goal: Option<u64>, decision: u64) -> String {
@@ -1437,22 +1507,24 @@ pub(crate) async fn overrule_undone(
             eprintln!("sikemux core: an agent did not hear an Overrule was undone: {error}");
         }
     }
+    let undone = OverruledDecision {
+        project: project.to_owned(),
+        goal,
+        decision: id,
+        text: sentence(text),
+        rule: overrule.rule,
+        undone: true,
+        stopped_auto: false,
+    };
+    let update = sikemux_fold::update::overruled_notice("Overrule undone", undone);
+    decided_line_moved(core, project, goal, id, &update);
     if let Some(chief) = chief_at(core, project) {
         mark_away(core, &chief, goal, id, false);
-        let undone = OverruledDecision {
-            project: project.to_owned(),
-            goal,
-            decision: id,
-            text: sentence(text),
-            rule: overrule.rule,
-            undone: true,
-            stopped_auto: false,
-        };
         put_row(
             core,
             &chief,
             format!("overrule|{}", overrule_key(project, goal, id)),
-            sikemux_fold::update::overruled_notice("Overrule undone", undone),
+            update,
         );
         let named = match goal {
             Some(goal) => format!("decision {id} of goal #{goal}"),
@@ -1556,29 +1628,30 @@ fn count_week(core: &Core, chief: &str, project: &str, from: u64, began: u64) {
     );
 }
 
-/// Lets go of what is kept for a chief that is no longer one, and of Overrules in projects gone.
+/// Lets go of what is kept for a chief that is no longer one, of Overrules in projects gone, and of
+/// the lines kept for agents the workspace no longer keeps.
 fn prune(core: &Core) {
     let chiefs = core.workspaces().chiefs();
+    let agents = core.workspaces().agent_ids();
     let paths: HashSet<String> = (core.workspaces().projects().into_iter())
         .map(|project| project.path.to_string_lossy().into_owned())
         .collect();
+    let in_project = |key: &String| {
+        key.split('|')
+            .next()
+            .is_some_and(|path| paths.contains(path))
+    };
     let stale = {
         let saved = core.chiefs().state.locked();
         saved.seats.keys().any(|chief| !chiefs.contains(chief))
-            || (saved.overrules.keys()).any(|key| {
-                !key.split('|')
-                    .next()
-                    .is_some_and(|path| paths.contains(path))
-            })
+            || saved.overrules.keys().any(|key| !in_project(key))
+            || saved.lines.keys().any(|agent| !agents.contains(agent))
     };
     if stale {
         core.chiefs().change(|saved| {
             saved.seats.retain(|chief, _| chiefs.contains(chief));
-            (saved.overrules).retain(|key, _| {
-                key.split('|')
-                    .next()
-                    .is_some_and(|path| paths.contains(path))
-            });
+            saved.overrules.retain(|key, _| in_project(key));
+            saved.lines.retain(|agent, _| agents.contains(agent));
         });
     }
 }

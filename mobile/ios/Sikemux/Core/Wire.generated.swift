@@ -4608,6 +4608,8 @@ struct AgentNotice: Codable, Hashable, Sendable {
     var week: ChiefWeek?
     /// A rule of the person's that left the list or was reworded by an agent, with Undo.
     var ruleChange: RuleChange?
+    /// A decision the agent recorded itself, which Overrule (`overruleDecision`) retires.
+    var decided: DecidedLine?
 }
 
 enum NoticeSeverity: String, Codable, Hashable, Sendable {
@@ -4710,6 +4712,19 @@ struct RuleChange: Codable, Hashable, Sendable {
     var restored: Bool?
     /// The agent that brought it back, by name, as the person asked; none when the person did.
     var backBy: String?
+}
+
+/// A decision an agent recorded itself, shown under its reply in its own chat until the person
+/// overrules it, when the line becomes the [`OverruledDecision`] line.
+struct DecidedLine: Codable, Hashable, Sendable {
+    var project: String
+    /// The goal whose log keeps it; none for the project's own log.
+    var goal: Int?
+    var decision: Int
+    /// What was decided, as the agent wrote it: its first sentence, on one line.
+    var text: String
+    /// What it rests on, as the agent wrote it, on one line.
+    var why: String?
 }
 
 /// The core started a fresh session under the chat, from a brief it built from what it keeps.

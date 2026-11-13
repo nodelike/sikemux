@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_view::chat::{
-    ChiefWeek, GoalMarker, KeptRule, OverruledDecision, RuleChange, StopReason,
+    ChiefWeek, DecidedLine, GoalMarker, KeptRule, OverruledDecision, RuleChange, StopReason,
 };
 
 use crate::ChatEventKind;
@@ -350,6 +350,13 @@ pub fn goal_notice(title: &str, marker: GoalMarker) -> Value {
 pub fn overruled_notice(title: &str, overruled: OverruledDecision) -> Value {
     let mut update = notice("info", title, None);
     update["overruled"] = json!(overruled);
+    update
+}
+
+/// The line under an agent's reply that says it recorded a decision itself.
+pub fn decided_notice(decided: DecidedLine) -> Value {
+    let mut update = notice("info", "Decided", None);
+    update["decided"] = json!(decided);
     update
 }
 

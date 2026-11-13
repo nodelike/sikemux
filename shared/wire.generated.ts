@@ -2952,6 +2952,8 @@ export interface AgentNotice {
     week?: ChiefWeek;
     /** A rule of the person's that left the list or was reworded by an agent, with Undo. */
     ruleChange?: RuleChange;
+    /** A decision the agent recorded itself, which Overrule (`overruleDecision`) retires. */
+    decided?: DecidedLine;
 }
 
 export type NoticeSeverity = "info" | "warning" | "error";
@@ -3039,6 +3041,21 @@ export interface RuleChange {
     restored?: boolean;
     /** The agent that brought it back, by name, as the person asked; none when the person did. */
     backBy?: string;
+}
+
+/**
+ * A decision an agent recorded itself, shown under its reply in its own chat until the person
+ * overrules it, when the line becomes the [`OverruledDecision`] line.
+ */
+export interface DecidedLine {
+    project: string;
+    /** The goal whose log keeps it; none for the project's own log. */
+    goal?: number;
+    decision: number;
+    /** What was decided, as the agent wrote it: its first sentence, on one line. */
+    text: string;
+    /** What it rests on, as the agent wrote it, on one line. */
+    why?: string;
 }
 
 /**

@@ -1745,6 +1745,26 @@ pub struct AgentNotice {
     /// A rule of the person's that left the list or was reworded by an agent, with Undo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rule_change: Option<RuleChange>,
+    /// A decision the agent recorded itself, which Overrule (`overruleDecision`) retires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided: Option<DecidedLine>,
+}
+
+/// A decision an agent recorded itself, shown under its reply in its own chat until the person
+/// overrules it, when the line becomes the [`OverruledDecision`] line.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecidedLine {
+    pub project: String,
+    /// The goal whose log keeps it; none for the project's own log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<u64>,
+    pub decision: u64,
+    /// What was decided, as the agent wrote it: its first sentence, on one line.
+    pub text: String,
+    /// What it rests on, as the agent wrote it, on one line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub why: Option<String>,
 }
 
 /// A rule of the person's that an agent took off the list or reworded: now a check when a

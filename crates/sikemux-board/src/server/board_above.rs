@@ -143,6 +143,8 @@ pub struct BoardAbove {
     pub triggers_next_after: fn(&TriggerWhen, u64, u64) -> Option<u64>,
     /// The triggers that add cards to the project's board.
     pub triggers_on_board: fn(&Core, &str) -> Vec<ChatTrigger>,
+    /// An agent recorded a decision itself: its chat shows it, with Overrule.
+    pub chief_decided: fn(&Core, &str, Option<u64>, &sikemux_view::slice::Decision),
     /// The person overruled a decision: the chief keeps what that undid.
     pub chief_overruled: fn(&Core, &str, Option<u64>, Decision<'_>, bool, Vec<String>),
     /// What overruling the decision kept, when it can be undone.

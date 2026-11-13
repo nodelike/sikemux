@@ -369,6 +369,9 @@ pub struct Fold {
     /// How many bytes each row's JSON is as a client opening the chat is sent it, by row id,
     /// with the change it was measured at.
     sent_bytes: RefCell<HashMap<String, (u64, usize)>>,
+    /// Decisions the agent recorded during the running turn, which go under its reply when the
+    /// turn ends, as part of it, by the event that brought each and when it came.
+    decided_in_turn: Vec<(u64, Option<u64>, AgentNotice)>,
 }
 
 /// A call's row worked out afresh, still counting the calls it stands for.
@@ -654,6 +657,7 @@ impl Fold {
             place: None,
             runs: HashMap::new(),
             sent_bytes: RefCell::default(),
+            decided_in_turn: Vec::new(),
         }
     }
 
@@ -724,6 +728,9 @@ impl Fold {
 
     pub fn set_running(&mut self, running: bool) {
         if self.head.running != running {
+            if !running {
+                self.place_decided();
+            }
             self.head.running = running;
             self.set_head("running");
             self.settle_last_run();
@@ -1031,6 +1038,7 @@ impl Fold {
                 if self.head.connection != ChatConnection::Ready {
                     self.head.connection = ChatConnection::Error;
                 }
+                self.place_decided();
                 self.head.running = false;
                 self.head.retrying = None;
                 self.head.permissions.clear();
@@ -1067,6 +1075,7 @@ impl Fold {
         let ended = matches!(state, ChatConnection::Stopped | ChatConnection::Error);
         if ended {
             self.settle_transcript(&None, at, false);
+            self.place_decided();
             self.head.running = false;
             self.head.permissions.clear();
             self.head.tasks.clear();
@@ -2483,15 +2492,18 @@ impl Fold {
             rule_change: update
                 .get("ruleChange")
                 .and_then(|rule_change| serde_json::from_value(rule_change.clone()).ok()),
+            decided: update
+                .get("decided")
+                .and_then(|decided| serde_json::from_value(decided.clone()).ok()),
         };
-        if let Some(undone) = notice
-            .overruled
-            .as_ref()
-            .filter(|overruled| overruled.undone)
-        {
-            if self.overrule_undone(undone) {
+        if let Some(overruled) = notice.overruled.as_ref() {
+            if self.decision_line_moved(overruled, &notice.title) {
                 return;
             }
+        }
+        if notice.decided.is_some() && self.head.running {
+            (self.decided_in_turn).push((index, stamped_at(update), notice));
+            return;
         }
         if let Some(undone) = notice.rule.as_ref().filter(|rule| rule.undone) {
             if self.kept_rule_undone(undone, &notice.title) {
@@ -2523,10 +2535,11 @@ impl Fold {
                 self.head_dirty.insert("failure");
             }
         }
-        // Between turns a goal's line, an Overrule's and a week's count stand on their own, so
+        // Between turns a goal's line, a decision's, an Overrule's and a week's count stand on their own, so
         // the turn before keeps its fold and line.
         let own_line = notice.goal.is_some()
             || notice.overruled.is_some()
+            || notice.decided.is_some()
             || notice.rule.as_ref().is_some_and(|rule| rule.undone)
             || notice.week.is_some()
             || notice.rule_change.is_some();
@@ -2600,18 +2613,30 @@ impl Fold {
         true
     }
 
-    /// The person undid an Overrule: its line in the chat says so, rather than a new line.
-    /// Answers whether the chat held that line.
-    fn overrule_undone(&mut self, undone: &OverruledDecision) -> bool {
-        let same = |overruled: &OverruledDecision| {
-            (&overruled.project, overruled.goal, overruled.decision)
-                == (&undone.project, undone.goal, undone.decision)
+    /// The person overruled a decision, or undid that: the chat's line for it, decided or
+    /// overruled, says so in its place rather than as a new line. Answers whether the chat held
+    /// that line.
+    fn decision_line_moved(&mut self, now: &OverruledDecision, title: &str) -> bool {
+        let key = (&now.project, now.goal, now.decision);
+        let holds = |notice: &AgentNotice| {
+            let decided = (notice.decided.as_ref())
+                .is_some_and(|decided| (&decided.project, decided.goal, decided.decision) == key);
+            let overruled = (notice.overruled.as_ref()).is_some_and(|overruled| {
+                (&overruled.project, overruled.goal, overruled.decision) == key
+            });
+            decided || overruled
         };
+        let waiting = (self.decided_in_turn.iter_mut()).find(|(_, _, notice)| holds(notice));
+        if let Some((_, _, notice)) = waiting {
+            notice.decided = None;
+            notice.overruled = Some(now.clone());
+            notice.title = title.to_owned();
+            return true;
+        }
         let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
-            let part = held.msg.parts.iter().position(|part| {
-                matches!(part, ChatPart::AgentNotice { notice, .. }
-                    if notice.overruled.as_ref().is_some_and(|overruled| same(overruled) && !overruled.undone))
-            })?;
+            let part = held.msg.parts.iter().position(
+                |part| matches!(part, ChatPart::AgentNotice { notice, .. } if holds(notice)),
+            )?;
             Some((position, part))
         });
         let Some((position, part)) = found else {
@@ -2619,9 +2644,9 @@ impl Fold {
         };
         let held = &mut self.main.rows[position];
         if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
-            if let Some(overruled) = notice.overruled.as_mut() {
-                overruled.undone = true;
-            }
+            notice.decided = None;
+            notice.overruled = Some(now.clone());
+            notice.title = title.to_owned();
         }
         held.touch_part(part);
         self.main.touch(position);
@@ -2629,11 +2654,32 @@ impl Fold {
         true
     }
 
+    /// The decisions held for the turn that stopped go under its reply, as part of it, or on a
+    /// line of their own when it left no reply.
+    fn place_decided(&mut self) {
+        for (index, at, notice) in std::mem::take(&mut self.decided_in_turn) {
+            let answered =
+                (self.main.rows.last()).is_some_and(|last| last.msg.role == ChatRole::Assistant);
+            match answered {
+                true => {
+                    self.append_part(
+                        index,
+                        &None,
+                        |id| ChatPart::AgentNotice { id, notice },
+                        false,
+                    );
+                }
+                false => self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice }),
+            }
+        }
+    }
+
     /// A cancelled turn stops only the subagents it was waiting on, and the
     /// agent says which. Background ones run on and report their own end.
     fn end_turn(&mut self, stop_reason: Option<StopReason>, at: u64) {
         let was_running = self.head.running;
         self.settle_transcript(&None, at, false);
+        self.place_decided();
         if was_running {
             if let Some(last) = self
                 .main

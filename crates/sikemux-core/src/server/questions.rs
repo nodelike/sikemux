@@ -882,6 +882,7 @@ pub(crate) fn lead_answered(
     super::board::goal::keep_settled(
         core,
         super::board::goal::Settled {
+            hides_answer: question.hides_answer(),
             project: question.project,
             by: lead.to_owned(),
             holder: question.agent_id,
@@ -895,6 +896,7 @@ pub(crate) fn lead_answered(
 /// An assumption stands: its asker goes on with it, and it goes on the record, where the person
 /// can overrule it.
 fn stood(core: &Core, question: Question) {
+    let hides_answer = question.hides_answer();
     let Some(assumption) = question.assumption else {
         return;
     };
@@ -911,6 +913,7 @@ fn stood(core: &Core, question: Question) {
     super::board::goal::keep_settled(
         core,
         super::board::goal::Settled {
+            hides_answer,
             project: question.project,
             by: question.agent_id.clone(),
             holder: question.agent_id,

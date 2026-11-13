@@ -566,12 +566,13 @@ fn keep_change(
         ));
     }
     let kept = &mut card.goal;
+    let mut decided = None;
     let said = match (list, change) {
         (List::Decisions, Change::New { text, why, .. }) => {
             let dropped = make_room(&mut kept.decisions, goal, &[])?;
             kept.last += 1;
             let id = kept.last;
-            kept.decisions.push(Decision {
+            let decision = Decision {
                 id,
                 text,
                 why,
@@ -580,7 +581,9 @@ fn keep_change(
                 was: None,
                 retired: None,
                 asked: None,
-            });
+            };
+            decided = decision.holder.is_some().then(|| decision.clone());
+            kept.decisions.push(decision);
             format!("Decision #{id} is kept on goal #{goal}.{dropped}")
         }
         (List::Rules, Change::New { text, .. }) => {
@@ -672,6 +675,9 @@ fn keep_change(
     drop(state);
     if asserting {
         core.changed(What::View);
+    }
+    if let Some(decision) = decided {
+        (core.board_above().chief_decided)(core, project, Some(goal), &decision);
     }
     Ok(said)
 }
@@ -866,12 +872,15 @@ pub struct Settled {
     pub asked: String,
     pub text: String,
     pub why: Option<String>,
+    /// It settles a question whose answer is never shown again, so no chat shows it as decided.
+    pub hides_answer: bool,
 }
 
 /// Keeps what agents settled, on the goal its holder works on, or else on its project's board.
 pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)> {
     let goal = goal_of(core, &settled.holder);
     let learned = learned(core, Some(&settled.by));
+    let shown = !settled.hides_answer;
     let project = goal
         .as_ref()
         .map_or(settled.project, |goal| goal.project.clone());
@@ -899,9 +908,13 @@ pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)>
         asked: Some(clipped(&settled.asked, MAX_TEXT_CHARS)),
         holder: Some(settled.holder),
     });
-    let decision = kept.last;
+    let decision = kept.decisions.last().cloned()?;
     core.boards().save(&mut state, &project);
-    Some((goal, decision))
+    drop(state);
+    if shown {
+        (core.board_above().chief_decided)(core, &project, goal, &decision);
+    }
+    Some((goal, decision.id))
 }
 
 /// What agents decided that nobody overruled, oldest first, in `project` or in every project: on a

@@ -518,6 +518,7 @@ pub(super) fn board_above() -> BoardAbove {
         goal_name_new: goal_summary::name_new,
         triggers_next_after: triggers::next_after,
         triggers_on_board: |core, project| core.triggers().on_board(project),
+        chief_decided: chief::decided,
         chief_overruled: chief::overruled,
         chief_undoable: chief::undoable,
         chief_overrule_undone: |core, project, goal, decision, overrule| {

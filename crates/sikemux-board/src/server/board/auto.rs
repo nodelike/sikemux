@@ -883,6 +883,7 @@ fn note_takeover(
         asked: format!("Who carries on {label}, now @{} has stalled?", stalled.name),
         text: "Auto took it on, as its owner lost the lease".to_owned(),
         why: Some(stalled.why.words()),
+        hides_answer: false,
     };
     let Some((goal, decision)) = goal::keep_settled(core, settled) else {
         return;

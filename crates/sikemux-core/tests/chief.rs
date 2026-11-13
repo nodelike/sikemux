@@ -854,6 +854,109 @@ async fn an_overrule_undone_while_the_chief_sleeps_after_a_restart_shows_undone_
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undone() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    worker
+        .tool("board.add", json!({ "title": "Totals", "claim": true }))
+        .await;
+    let secret = "Deploy with API_KEY=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6";
+    for (text, why) in [
+        (secret, "it was in the env file"),
+        (
+            "Inbox for shared links",
+            "they land untriaged, so not Saved or Stash",
+        ),
+    ] {
+        let decided = worker
+            .tool("board.decide", json!({ "text": text, "why": why }))
+            .await;
+        assert!(decided.contains("Decision #"), "{decided}");
+    }
+    let line = |chat: &folded::Folded, decision: u64| {
+        chat.parts().find_map(|part| match part {
+            ChatPart::AgentNotice { notice, .. }
+                if notice
+                    .decided
+                    .as_ref()
+                    .is_some_and(|line| line.decision == decision)
+                    || notice
+                        .overruled
+                        .as_ref()
+                        .is_some_and(|line| line.decision == decision) =>
+            {
+                Some(notice.clone())
+            }
+            _ => None,
+        })
+    };
+    worker.chat.until(|chat| line(chat, 2).is_some()).await;
+    let decided = line(&worker.chat, 2).and_then(|notice| notice.decided);
+    assert_eq!(
+        decided.map(|line| (line.text, line.why)),
+        Some((
+            "Inbox for shared links".to_owned(),
+            Some("they land untriaged, so not Saved or Stash".to_owned())
+        ))
+    );
+    assert!(
+        line(&worker.chat, 1).is_none(),
+        "{:?}",
+        worker.chat.notices()
+    );
+
+    let decision = json!({ "project": project, "goal": 1, "decision": 2 });
+    app.call("overruleDecision", decision.clone())
+        .await
+        .expect("the person overrules");
+    let overruled = |chat: &folded::Folded, undone: bool| {
+        line(chat, 2).is_some_and(|notice| {
+            notice.decided.is_none() && notice.overruled.is_some_and(|line| line.undone == undone)
+        })
+    };
+    worker.chat.until(|chat| overruled(chat, false)).await;
+    app.call("undoOverrule", decision)
+        .await
+        .expect("the person undoes it");
+    worker.chat.until(|chat| overruled(chat, true)).await;
+    let lines = worker.chat.parts().filter(|part| {
+        matches!(part, ChatPart::AgentNotice { notice, .. }
+            if notice.decided.is_some() || notice.overruled.is_some())
+    });
+    assert_eq!(lines.count(), 1, "{:?}", worker.chat.notices());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
     let root = tempfile::Builder::new()
         .prefix("chief")
