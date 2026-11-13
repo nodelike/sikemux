@@ -1,4 +1,5 @@
 pub mod about;
+mod above;
 mod access;
 pub mod account;
 mod activity;
@@ -12,6 +13,7 @@ pub mod agent_view;
 mod approvals;
 pub mod attachments;
 mod backdrop;
+mod base;
 pub mod board;
 mod caller;
 pub mod calls;
@@ -483,7 +485,7 @@ impl ServerCore for Core {
             harness.questions.is_open(id)
         });
         let core = Core::build(started, listening, |me| {
-            Box::new(parts::Fields {
+            vec![Box::new(parts::Fields {
                 config,
                 sessions: Mutex::new(HashMap::new()),
                 next_session_id: AtomicU64::new(first_session_id()),
@@ -564,7 +566,8 @@ impl ServerCore for Core {
                 mcp_apps: mcp_apps::McpApps::new(data_dir),
                 clones: new_project::Clones::default(),
                 chiefs: chief::Chiefs::new(data_dir),
-            })
+                above: base::above(),
+            }) as sikemux_kernel::Parts]
         });
         from_app::carry(&core, data_dir);
         pictures::tidy(&core, false);

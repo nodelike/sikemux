@@ -1,4 +1,3 @@
-use crate::server::activity::ActivityCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
@@ -403,7 +402,7 @@ impl PendingStart {
             self.session.frames.clone(),
         ));
         tokio::spawn(read_output(core.clone(), self.session));
-        core.ports().changed();
+        (core.above().ports_changed)(core);
     }
 }
 
@@ -520,7 +519,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
     );
     let mut screen = Screen::new(rows, cols, shell_metadata_enabled);
     if let Some(carried) = carried.as_ref() {
-        screen.process(&carried.prelude, &core.look().terminal_colors());
+        screen.process(&carried.prelude, &(core.above().terminal_colors)(core));
     }
     let (session, input_jobs) = Session::assemble(
         SessionParts {
@@ -576,8 +575,8 @@ fn carried_screen(core: &Core, continuation: &Continuation) -> Option<CarriedScr
         return None;
     }
     let mut screen = from.screen.locked();
-    screen.process(RESET_MODES, &core.look().terminal_colors());
-    screen.process(b"\x1b[r", &core.look().terminal_colors());
+    screen.process(RESET_MODES, &(core.above().terminal_colors)(core));
+    screen.process(b"\x1b[r", &(core.above().terminal_colors)(core));
     let (rows, cols) = screen.terminal.size();
     let cursor_row = screen.terminal.cursor().0;
     let last_written = screen.terminal.last_written_row();
@@ -867,54 +866,20 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
         killed: session.killed.load(Ordering::Acquire),
     }));
     drop(screen);
-    core.ports().changed();
+    (core.above().ports_changed)(core);
     if let Some(number) = session.owner.rail_number {
         core.rail_numbers().locked().remove(&number);
     }
     if session.owner.ssh_host.is_some() {
-        super::ssh::moved(core);
+        (core.above().ssh_moved)(core);
     }
-    let failed = match (&code, &signal) {
-        (_, Some(signal)) => Some(format!("It stopped from signal {signal}.")),
-        (Some(code), None) if *code != 0 => Some(format!("It exited with code {code}.")),
-        _ => None,
-    };
     if session.is_task() {
-        if let Some(failed) = core
-            .harness()
-            .session_exited(session.id, code, signal.clone())
-        {
-            super::harness::tell_agent_run_failed(core, failed);
-        }
-        super::tasks::ended(core, session.id);
+        (core.above().task_ended)(core, session.id, code, signal.clone());
     }
     if let Some(agent) = session.agent.as_ref() {
         let mid_turn = agent.busy();
         agent::note_exit(core, agent, status);
-        super::lifecycle::terminal_exited(
-            core,
-            session.id,
-            agent.agent_id(),
-            code,
-            signal.as_deref(),
-            session.is_killed(),
-        );
-        let failed = failed.filter(|_| !session.is_killed());
-        if let Some(reason) = &failed {
-            core.note_activity(agent.agent_id(), super::activity::Activity::Problem(reason));
-        }
-        core.note_agent_gone(agent.agent_id());
-        if mid_turn || !session.is_killed() {
-            super::spawn::terminal_turn_ended(
-                core,
-                agent.agent_id(),
-                super::spawn::Ending::Gone {
-                    reason: failed,
-                    mid_turn,
-                    asked: session.is_killed(),
-                },
-            );
-        }
+        (core.above().agent_exited)(core, session, code, signal.as_deref(), mid_turn);
     }
     if let Some(exited_at) = exited_at {
         core.reclaim_exited_sessions(exited_at);
@@ -944,7 +909,7 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
         .as_mut()
         .map(|shell| shell.process_for_events(bytes, output_now_ms))
         .unwrap_or_default();
-    let replies = screen.process(bytes, &core.look().terminal_colors());
+    let replies = screen.process(bytes, &(core.above().terminal_colors)(core));
     if let Some(agent) = session.agent.as_ref() {
         agent.note_parsed();
     }
@@ -980,9 +945,9 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
             link,
         }));
         if let Some(alias) = &session.owner.ssh_host {
-            super::ssh::moved(core);
+            (core.above().ssh_moved)(core);
             if link == sikemux_pty::shell_protocol::SshLink::Connected {
-                super::hosts::probe::ask(core, alias, super::hosts::probe::Why::Connected);
+                (core.above().ssh_connected)(core, alias);
             }
         }
     }
@@ -1002,7 +967,7 @@ pub(crate) fn reset_modes(core: &Core, session: &Session) -> CoreResult<()> {
     session
         .screen
         .locked()
-        .process(RESET_MODES, &core.look().terminal_colors());
+        .process(RESET_MODES, &(core.above().terminal_colors)(core));
     session.frames.notify.notify_one();
     Ok(())
 }
@@ -1012,7 +977,7 @@ pub(crate) fn clear(core: &Core, session: &Session) {
         .screen
         .locked()
         .terminal
-        .clear(&core.look().terminal_colors());
+        .clear(&(core.above().terminal_colors)(core));
     session.frames.notify.notify_one();
 }
 
@@ -1200,7 +1165,7 @@ fn send_frames(core: &Core, session: &Session) -> Option<Instant> {
     let mut screen = session.screen.locked();
     if let Some(deadline) = screen.terminal.sync_deadline() {
         if deadline <= now {
-            let replies = screen.end_sync(&core.look().terminal_colors());
+            let replies = screen.end_sync(&(core.above().terminal_colors)(core));
             reply_to_program(session, replies);
         } else {
             next = Some(deadline);

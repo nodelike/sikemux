@@ -1,4 +1,3 @@
-use crate::server::activity::ActivityCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
@@ -18,11 +17,8 @@ use sikemux_pty::agent_detection::{
 
 use sikemux_wire::protocol::{AgentState, AgentStateEvent, Event};
 
-use super::activity::Activity;
 use super::connection::blocking;
-use super::messages;
 use super::session::Session;
-use super::spawn::{self, Ending};
 use super::{Core, CoreResult};
 
 const ACTIVITY_SETTLE: Duration = Duration::from_secs(2);
@@ -235,31 +231,14 @@ impl AgentActivity {
             previous
         };
         let busy = previous.busy();
-        let activity = match next {
-            AgentState::Working if busy => Some(Activity::Working),
-            AgentState::Working => Some(Activity::Started),
-            AgentState::Blocked => Some(Activity::NeedsYou),
-            AgentState::Idle if busy => Some(Activity::Finished { cancelled: false }),
-            _ => None,
-        };
-        if let Some(activity) = activity {
-            core.note_activity(&self.agent_id, activity);
-        }
-        match next {
-            AgentState::Working if source != "activity" => {
-                messages::prompt_taken(core, &self.agent_id)
-            }
-            AgentState::Blocked => messages::prompt_taken(core, &self.agent_id),
-            AgentState::Idle | AgentState::Stopped if busy => messages::prompt_settled(
-                core,
-                &self.agent_id,
-                self.last_output_ms.load(Ordering::Acquire),
-            ),
-            _ => {}
-        }
-        if next == AgentState::Idle && busy {
-            spawn::terminal_turn_ended(core, &self.agent_id, Ending::Finished);
-        }
+        (core.above().agent_moved)(
+            core,
+            &self.agent_id,
+            next,
+            busy,
+            source != "activity",
+            self.last_output_ms.load(Ordering::Acquire),
+        );
         if next != previous {
             core.changed(What::Agents);
         }

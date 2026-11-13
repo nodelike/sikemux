@@ -121,6 +121,7 @@ pub(crate) struct Fields {
     /// The repositories coming down into new projects.
     pub(super) clones: new_project::Clones,
     pub(super) chiefs: chief::Chiefs,
+    pub(super) above: super::above::Above,
 }
 
 pub(crate) trait Parts {
@@ -201,6 +202,7 @@ pub(crate) trait Parts {
     fn mcp_apps(&self) -> &mcp_apps::McpApps;
     fn clones(&self) -> &new_project::Clones;
     fn chiefs(&self) -> &chief::Chiefs;
+    fn above(&self) -> &super::above::Above;
 }
 
 impl Parts for Core {
@@ -510,5 +512,9 @@ impl Parts for Core {
 
     fn chiefs(&self) -> &chief::Chiefs {
         &self.kept::<Fields>().chiefs
+    }
+
+    fn above(&self) -> &super::above::Above {
+        &self.kept::<Fields>().above
     }
 }

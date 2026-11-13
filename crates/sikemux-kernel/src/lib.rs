@@ -130,7 +130,7 @@ pub struct Listening {
     pub lock_fd: std::os::fd::RawFd,
 }
 
-/// What the features keep on a core, as the crate that builds the core made it.
+/// What one crate's features keep on a core, as the crate that builds the core made it.
 pub type Parts = Box<dyn Any + Send + Sync>;
 
 pub struct Core {
@@ -139,16 +139,17 @@ pub struct Core {
     started: Instant,
     shutdown: watch::Sender<bool>,
     pub listening: Listening,
-    parts: Parts,
+    parts: Vec<Parts>,
 }
 
 impl Core {
-    /// A core whose clock read zero at `started`, keeping the parts `parts` makes; `parts` is
-    /// handed the core it will be part of, for parts that reach back to it.
+    /// A core whose clock read zero at `started`, keeping the parts `parts` makes, one for
+    /// each crate that keeps some; `parts` is handed the core it will be part of, for parts
+    /// that reach back to it.
     pub fn build(
         started: Instant,
         listening: Listening,
-        parts: impl FnOnce(&Weak<Core>) -> Parts,
+        parts: impl FnOnce(&Weak<Core>) -> Vec<Parts>,
     ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             me: me.clone(),
@@ -159,11 +160,12 @@ impl Core {
         })
     }
 
-    /// The parts this core was built with, which are a `T`.
+    /// The parts of this core that are a `T`.
     pub fn kept<T: 'static>(&self) -> &T {
         self.parts
-            .downcast_ref()
-            .expect("a core is read as the parts it was built with")
+            .iter()
+            .find_map(|parts| parts.downcast_ref())
+            .expect("a core is read as parts it was built with")
     }
 
     /// This core, for work that outlives the call it starts in.

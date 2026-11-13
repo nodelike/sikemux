@@ -1,4 +1,3 @@
-use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
 use std::collections::HashMap;
@@ -19,7 +18,7 @@ use sikemux_wire::protocol::{
 
 use super::access::{self, Peer};
 use super::session;
-use super::{local_peer, requests, upgrade, Core, CoreError, CoreResult};
+use super::{local_peer, Core, CoreError, CoreResult};
 
 pub(crate) type ClientId = u64;
 pub(crate) type FrameReader = BufReader<Box<dyn AsyncRead + Send + Unpin>>;
@@ -237,7 +236,7 @@ async fn handshake(
     let frame = match tokio::time::timeout(HANDSHAKE_TIMEOUT, read_frame(reader)).await {
         Ok(Ok(Some(frame))) if frame.kind == FrameKind::Control => frame,
         Ok(Ok(Some(frame))) if frame.kind == FrameKind::Frozen && peer.is_local() => {
-            upgrade::answer(core, peer, &frame.payload, writer).await;
+            (core.above().frozen_request)(core, peer, &frame.payload, writer).await;
             return false;
         }
         _ => return false,
@@ -316,13 +315,13 @@ pub(crate) async fn serve_client(
     let client = ClientConn::new(&core, peer, pid, frames);
     core.register_client(client.clone());
     if !client.peer.is_local() {
-        core.send_device_view(&client);
+        (core.above().send_device_view)(&core, &client);
     }
     let (work, work_queue) = mpsc::unbounded_channel();
     tokio::select! {
         _ = read_requests(&core, &client, &mut reader, work) => {}
         _ = write_frames(&mut writer, queue, &client) => {}
-        _ = requests::run(&core, &client, work_queue) => {}
+        _ = (core.above().run_requests)(&core, &client, work_queue) => {}
         _ = client.kick.notified() => {}
     }
     core.unregister_client(&client);
@@ -394,7 +393,9 @@ async fn read_requests(
                 let Some((request_id, id, bytes)) = decode_input(&frame.payload) else {
                     return;
                 };
-                if let Err(refused) = requests::admit(core, client, &access::Rule::TERMINAL_INPUT) {
+                if let Err(refused) =
+                    (core.above().admit)(core, client, &access::Rule::TERMINAL_INPUT)
+                {
                     client.respond(request_id, Err(refused));
                     continue;
                 }
@@ -402,7 +403,7 @@ async fn read_requests(
                     client.respond(request_id, Err("invalid argument: pty not found".into()));
                     continue;
                 };
-                requests::write_to_program(core, client, request_id, &target, bytes.to_vec());
+                (core.above().write_to_program)(core, client, request_id, &target, bytes.to_vec());
             }
             FrameKind::Grid | FrameKind::Snapshot | FrameKind::Lines | FrameKind::Frozen => return,
         }

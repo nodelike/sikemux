@@ -86,13 +86,10 @@ pub(crate) enum Program {
 /// which cannot be told from an agent's shell: `sikemux login` while no account
 /// owns it, `logout`, and `pair` until its first device is in. A host signed in
 /// once stays its account's until the app, root or the account moves it.
-pub(crate) fn rule(request: &Request) -> Rule {
+pub(crate) fn rule(request: &Request, row: fn(&str) -> (Needs, Program)) -> Rule {
     let (needs, program) = match request {
         Request::TerminalInput(_) => return Rule::TERMINAL_INPUT,
-        Request::Call(ask::Call { method, .. }) => {
-            let row = super::calls::row(method);
-            (row.needs, row.program)
-        }
+        Request::Call(ask::Call { method, .. }) => row(method),
         Request::SetOwner(ask::SetOwner { owner: None }) => {
             (Needs::NoDevice, Program::AppWhen(|setup| setup.app_signed))
         }
@@ -205,6 +202,11 @@ pub(crate) fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> C
 
 #[cfg(test)]
 mod tests {
+    fn table(method: &str) -> (Needs, Program) {
+        let row = crate::server::calls::row(method);
+        (row.needs, row.program)
+    }
+
     use super::*;
     use sikemux_wire::protocol::{AllowedDevice, SessionId};
 
@@ -222,7 +224,7 @@ mod tests {
     }
 
     fn refusal(standing: Option<Standing>, request: &Request) -> String {
-        permit(&device(), standing, rule(request).needs)
+        permit(&device(), standing, rule(request, table).needs)
             .unwrap_err()
             .to_string()
     }
@@ -234,7 +236,7 @@ mod tests {
             Request::RegisterWindow,
             Request::Kill(ask::Kill { id: SESSION }),
         ] {
-            assert!(permit(&Peer::App, None, rule(&request).needs).is_ok());
+            assert!(permit(&Peer::App, None, rule(&request, table).needs).is_ok());
         }
     }
 
@@ -282,11 +284,11 @@ mod tests {
             option_id: None,
         });
         let watch = standing(DeviceAccess::Watch);
-        assert!(permit(&device(), watch, rule(&permission).needs).is_ok());
+        assert!(permit(&device(), watch, rule(&permission, table).needs).is_ok());
         assert!(permit(
             &device(),
             watch,
-            rule(&Request::Attach(ask::Attach { id: SESSION })).needs
+            rule(&Request::Attach(ask::Attach { id: SESSION }), table).needs
         )
         .is_ok());
         for request in [
@@ -322,7 +324,7 @@ mod tests {
         assert!(permit(
             &device(),
             full,
-            rule(&Request::Kill(ask::Kill { id: SESSION })).needs
+            rule(&Request::Kill(ask::Kill { id: SESSION }), table).needs
         )
         .is_ok());
     }

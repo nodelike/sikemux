@@ -91,7 +91,11 @@ pub(super) async fn run(
     while let Some((request_id, request)) = queue.recv().await {
         let core = core.clone();
         let client = client.clone();
-        if let Err(refused) = admit(&core, &client, &access::rule(&request)) {
+        if let Err(refused) = admit(
+            &core,
+            &client,
+            &access::rule(&request, super::base::access_of),
+        ) {
             client.respond(request_id, Err(refused));
             continue;
         }

@@ -15,7 +15,6 @@ pub(crate) use sikemux_view::changed::Topic;
 
 use sikemux_wire::protocol::{encode_control, Event, ServerMessage};
 
-use super::notify::Signal;
 use super::Core;
 
 const GATHER: Duration = Duration::from_millis(50);
@@ -64,22 +63,17 @@ impl ChangedCore for Core {
         match what {
             What::View => self.view_moved(),
             What::ViewNow => {
-                self.device_view().due.notify_one();
+                (self.above().view_due)(self);
                 self.view_moved();
             }
             What::Agents => {
-                self.harness().mailbox.wake.now();
-                self.harness().questions.wake.now();
-                self.boards().wake.now();
-                self.updates().chats_changed();
+                (self.above().agents_moved)(self);
                 self.view_moved();
             }
             What::Read(topic) => self.read_changed(topic, None, None),
             What::ReadIn(topic, project, paths) => self.read_changed(topic, project, paths),
             What::Event(event) => {
-                if let Some(signal) = signal_of(event) {
-                    self.notify().send(signal);
-                }
+                (self.above().told)(self, event);
                 self.tell(event);
             }
             What::ChatState(event) => self.tell(event),
@@ -87,10 +81,7 @@ impl ChangedCore for Core {
     }
 
     fn view_moved(&self) {
-        self.device_view().stale.notify_one();
-        self.hosts().copies.wake.now();
-        super::hosts::route::rows_moved(self);
-        self.notify().inbox_moved();
+        (self.above().view_moved)(self);
     }
 
     fn read_changed(&self, topic: Topic, project: Option<&str>, paths: Option<Vec<String>>) {
@@ -122,21 +113,6 @@ impl ChangedCore for Core {
 /// The topics whose reads a device's view also holds.
 fn shown_on_devices(topic: Topic) -> bool {
     matches!(topic, Topic::Account | Topic::Plugins | Topic::Preferences)
-}
-
-fn signal_of(event: &Event) -> Option<Signal> {
-    match event {
-        Event::Attention { attention } => Some(Signal::Attention(Box::new(attention.clone()))),
-        Event::AttentionCleared { id, agent_id } => Some(Signal::Cleared {
-            id: id.clone(),
-            agent_id: agent_id.clone(),
-        }),
-        Event::AgentState(state) => Some(Signal::AgentState {
-            agent_id: state.agent_id.clone(),
-            state: state.state,
-        }),
-        _ => None,
-    }
 }
 
 /// Paired devices hear only of terminals ending and changing, and that a read changed; the
