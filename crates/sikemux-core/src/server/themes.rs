@@ -12,7 +12,8 @@ pub(crate) use omarchy::{
 
 use super::{Core, CoreResult};
 use crate::server::parts::Parts;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+pub use sikemux_calls::themes::{ThemePaletteParams, ThemeParams};
 use std::sync::{Mutex, OnceLock};
 
 use sikemux_process::sync::Locked;
@@ -658,17 +659,6 @@ fn ghostty_theme(
             bright_white: terminal(15),
         },
     })
-}
-
-/// Which theme to answer for; the person's pick when none is named.
-#[derive(Serialize, Deserialize, Default)]
-pub struct ThemeParams {
-    pub id: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ThemePaletteParams {
-    pub theme: sikemux_view::theme::Theme,
 }
 
 #[derive(Deserialize)]

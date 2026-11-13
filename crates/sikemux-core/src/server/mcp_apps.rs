@@ -4,12 +4,12 @@
 //! its own server, through the agent that called it.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::mcp_apps::{McpApp, McpAppParams, McpAppRequestParams};
 pub(crate) use sikemux_drivers::server::mcp_apps::{Record, ServerRequest};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
@@ -21,38 +21,6 @@ const FOLDER: &str = "mcp-apps";
 pub(crate) const MARK: &str = "sikemuxMcpApp";
 const MAX_HTML_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ID_CHARS: usize = 128;
-
-/// An app as a client draws it.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpApp {
-    pub server: String,
-    pub tool: Value,
-    /// The page, with the policy that keeps it to the domains it named.
-    pub html: String,
-    pub prefers_border: bool,
-    pub input: Value,
-    pub result: Value,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpAppParams {
-    pub agent_id: String,
-    pub id: String,
-}
-
-/// A request the page made of its server.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct McpAppRequestParams {
-    pub agent_id: String,
-    pub id: String,
-    /// `tools/call` or `resources/read`.
-    pub method: String,
-    #[serde(default)]
-    pub params: Value,
-}
 
 pub(crate) struct McpApps {
     dir: Option<PathBuf>,

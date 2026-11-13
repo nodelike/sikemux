@@ -5,10 +5,8 @@
 
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
-use std::path::PathBuf;
+pub use sikemux_calls::move_agent::{MoveParams, MoveToFolder};
 use std::sync::Arc;
-
-use serde::{Deserialize, Serialize};
 
 use super::workspace::AddProjectParams;
 use super::{launching, layout, session, Core, CoreError, CoreResult};
@@ -16,22 +14,6 @@ use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::relocate::relocate;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::workspace::WorkspaceAgent;
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MoveParams {
-    pub agent_id: String,
-    /// The project, by id.
-    pub project: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MoveToFolder {
-    pub agent_id: String,
-    /// The folder, which becomes a project first when it is not one.
-    pub path: PathBuf,
-}
 
 fn movable(core: &Core, agent_id: &str) -> CoreResult<WorkspaceAgent> {
     let agent = core.workspaces().agent_or_gone(agent_id)?;

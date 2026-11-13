@@ -1,21 +1,15 @@
 //! A project's Playbook in one read: the person's rules, what agents noted, who lands and what
 //! runs with nobody asking.
 
+pub use sikemux_calls::playbook::PlaybookParams;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use sikemux_view::playbook::{Auto, AutoAgent, Landing, Lands, Playbook, RunsAlone};
 
 use super::access::Peer;
 use super::board::{auto, project_at};
 use super::connection::blocking;
 use super::Core;
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaybookParams {
-    pub project: String,
-}
 
 pub(crate) async fn read(
     core: &Arc<Core>,

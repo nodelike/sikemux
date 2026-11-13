@@ -13,6 +13,7 @@ mod seal;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::share::{GuestMessageParams, StopShareParams};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -625,13 +626,6 @@ fn guests_gone(core: &Core, agent_id: &str, gone: impl IntoIterator<Item = Guest
     core.changed(What::Agents);
 }
 
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GuestMessageParams {
-    pub agent_id: String,
-    pub id: String,
-}
-
 /// Sends a viewer's waiting message to the agent as the person's own.
 pub(crate) async fn send_guest(core: &Arc<Core>, params: GuestMessageParams) -> CoreResult<()> {
     let guest = core
@@ -692,11 +686,6 @@ pub struct ShareChatParams {
     pub agent_id: String,
     pub lifetime_ms: u64,
     pub title: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StopShareParams {
-    pub id: String,
 }
 
 pub(crate) fn share_chat_for(core: &Arc<Core>, params: ShareChatParams) -> CoreResult<ShareView> {

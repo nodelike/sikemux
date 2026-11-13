@@ -20,6 +20,7 @@ mod push;
 pub(crate) mod queue;
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::edits::CommitParams;
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
@@ -595,12 +596,6 @@ fn located(file: &str, old: Option<&str>, new: &str) -> Lines {
 pub(crate) async fn change_owners(core: &Arc<Core>, params: CheckoutParams) -> CoreResult<Owners> {
     let core = core.clone();
     blocking(move || Ok(owners_at(&core, &params.dir, params.staged)?)).await
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CommitParams {
-    pub dir: PathBuf,
-    pub message: String,
 }
 
 /// Commits what the person staged in the git panel, with the footer naming

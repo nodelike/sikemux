@@ -5,10 +5,10 @@
 //! `planFirst`, is planned first, and anything else is done at once. Judging
 //! size and vagueness needs a model, which the core has no quick call to yet.
 
+pub use sikemux_calls::triage::TriageParams;
 use std::path::Path;
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
 use sikemux_view::start::{Because, HardFact, StartMode, Triage};
 
 use super::board::project_at;
@@ -110,14 +110,6 @@ fn triaged(project: &Path, text: &str) -> Triage {
         },
         because,
     }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TriageParams {
-    pub project: String,
-    /// What the person typed so far.
-    pub text: String,
 }
 
 pub(crate) async fn triage(core: &Arc<Core>, params: TriageParams) -> Result<Triage, String> {

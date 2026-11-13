@@ -4,6 +4,7 @@ use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::remote::ApprovalSetting;
 
 pub(crate) fn set_access(core: &Core, id: &str, access: DeviceAccess) -> CoreResult<RemoteStatus> {
     core.remote().change(|stored| {
@@ -71,12 +72,6 @@ pub struct DeviceChange {
     /// None unpairs the device.
     #[serde(default)]
     access: Option<DeviceAccess>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApprovalSetting {
-    pub require_approval: bool,
 }
 
 /// Turns the lock of ADR 0018 on or off: whether each new device and host

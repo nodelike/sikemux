@@ -3,7 +3,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
-use serde::{Deserialize, Serialize};
+pub use sikemux_calls::notify::ActivityParams;
 use sikemux_process::sync::Locked;
 use sikemux_view::push::ActivityGlance;
 
@@ -15,13 +15,6 @@ use crate::text::clipped_line;
 use super::access::Peer;
 use super::{Core, MAX_TITLE_CHARS};
 use crate::server::CoreResult;
-
-/// The push token of the Live Activity the calling phone shows this host's agents in; none once it ended.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityParams {
-    pub token: Option<String>,
-}
 
 /// Keeps the calling phone's Live Activity current from now on, or stops once it ended.
 pub(crate) fn live_activity(core: &Core, peer: &Peer, params: ActivityParams) -> CoreResult<()> {

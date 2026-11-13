@@ -3,6 +3,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::agent_updates::UpdateAgents;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -45,13 +46,6 @@ pub enum Updating {
     Failed {
         reason: String,
     },
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct UpdateAgents {
-    /// The agents to update; none updates every one with a newer release out.
-    #[serde(default)]
-    pub kinds: Vec<String>,
 }
 
 fn updates() -> &'static Mutex<HashMap<String, Updating>> {

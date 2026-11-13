@@ -5,13 +5,13 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::open_files::ShowFiles;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
@@ -37,12 +37,6 @@ struct State {
     /// The folders watched, which hold the open files.
     folders: HashSet<PathBuf>,
     watcher: Option<RecommendedWatcher>,
-}
-
-/// The files a connection has open now, by absolute path; none when it shows none.
-#[derive(Serialize, Deserialize)]
-pub struct ShowFiles {
-    pub paths: Vec<String>,
 }
 
 /// The path the disk reports for `path`: its folder with links resolved.

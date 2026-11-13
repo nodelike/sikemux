@@ -8,6 +8,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::pictures::{TurnPictureData, TurnPictureParams};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -548,19 +549,6 @@ async fn shoot(
         at,
         shots,
     }))
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TurnPictureParams {
-    pub id: String,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TurnPictureData {
-    pub mime_type: String,
-    pub data: String,
 }
 
 /// A picture the core took of a turn's page, by the id a chat's head names it by.

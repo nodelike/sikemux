@@ -4,11 +4,11 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::new_project::{CloneProjectParams, NewProjectParams};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use sikemux_view::workspace::{Cloning, ProjectInfo};
 use tokio::io::AsyncReadExt;
@@ -19,16 +19,6 @@ use super::connection::blocking;
 use super::workspace::AddProjectParams;
 use super::{Core, CoreError, CoreResult};
 use crate::git::{git_command, Git};
-
-#[derive(Deserialize, Serialize)]
-pub struct NewProjectParams {
-    pub name: String,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct CloneProjectParams {
-    pub url: String,
-}
 
 /// The clones under way, by project id.
 #[derive(Default)]

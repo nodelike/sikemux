@@ -3,6 +3,7 @@
 //! remote with its own sign-in, or takes it from this host as a git bundle when
 //! it cannot, and adds it to its projects. Only committed work goes over.
 
+pub use sikemux_calls::hosts::OpenOnParams;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,16 +23,6 @@ use super::{find, StoredLink};
 /// The longest an opening may take while git keeps working on the other host, which ends a
 /// clone or fetch itself once git goes quiet.
 const OPEN_WAIT: Duration = Duration::from_secs(6 * 60 * 60);
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenOnParams {
-    pub path: PathBuf,
-    pub host: String,
-    /// What is not committed goes too, as a commit on top.
-    #[serde(default)]
-    pub uncommitted: bool,
-}
 
 /// Opens the project at `path` on the linked host `host`, and answers with
 /// that host's project for it.

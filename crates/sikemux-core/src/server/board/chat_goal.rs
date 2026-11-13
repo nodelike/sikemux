@@ -5,6 +5,7 @@
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::board::ChatGoalParams;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -719,13 +720,6 @@ pub(super) fn plain_stalled(core: &Core, card: &Card) -> Option<lease::Stalled> 
         why: lease::Why::Closed,
         stays: true,
     })
-}
-
-/// The chat a goal's button acts on.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatGoalParams {
-    pub agent_id: String,
 }
 
 impl ChatGoals {

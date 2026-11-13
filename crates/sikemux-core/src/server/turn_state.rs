@@ -7,6 +7,7 @@ use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::turn_state::TakeStepParams;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -628,13 +629,6 @@ pub(crate) fn told(turn: &TurnState) -> Option<ChatContext> {
             line(turn)?
         ),
     })
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TakeStepParams {
-    pub agent_id: String,
-    pub step: TurnStep,
 }
 
 /// The person takes a next step on an agent's work with one click, one its line offers now: it

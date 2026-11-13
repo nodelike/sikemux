@@ -1,12 +1,5 @@
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use sikemux_view::chat::DraftExtra;
-
-crate::calls! {
-    "drafts" Drafts (Option<DraftsParams>) -> BTreeMap<String, Draft>;
-    "setDraft" SetDraft (SetDraftParams) -> ();
-}
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Draft {

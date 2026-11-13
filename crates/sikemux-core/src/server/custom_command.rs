@@ -3,19 +3,19 @@
 //! or in place of the view in focus, or in a terminal floating over the window.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::custom_command::{CommandRan, CommandResult, RunCustomParams};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::connection::blocking;
 use super::{Core, CoreError, CoreResult};
 use crate::tasks::config::{self, ActionPlacement, ConfigLoad};
 use sikemux_view::layout::At;
 use sikemux_view::prefs::{CustomCommand, CustomCommandPlacement};
-use sikemux_wire::protocol::SessionId;
 
 const TIMEOUT: Duration = Duration::from_secs(120);
 const OUTPUT_LIMIT: usize = 16_000;
@@ -28,12 +28,6 @@ pub(crate) struct CommandParams {
     /// Only `SIKEMUX_` variables are passed on.
     #[serde(default)]
     pub env: HashMap<String, String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct CommandResult {
-    pub code: i32,
-    pub output: String,
 }
 
 /// Runs `command` in the person's login shell, answering its exit code and
@@ -68,36 +62,6 @@ pub(crate) async fn run(params: CommandParams) -> CoreResult<CommandResult> {
         })
     })
     .await
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct RunCustomParams {
-    /// The strip in front it runs for: a project, the terminals of no project or an SSH host's.
-    #[serde(flatten)]
-    pub at: At,
-    /// The command, by its id in the person's preferences.
-    #[serde(default)]
-    pub id: Option<String>,
-    /// Or the project's `sikemux.json` action, by its id, which runs once the person trusts
-    /// the file.
-    #[serde(default)]
-    pub action: Option<String>,
-    /// The tab in front and its view in focus, which a split or replacing command goes
-    /// beside or in place of.
-    pub tab: Option<String>,
-    pub pane: Option<String>,
-}
-
-/// What running a custom command did: the tab it opened or changed, the terminal to float
-/// over the window, or what it printed in the background.
-#[derive(Serialize, Deserialize, Default)]
-pub struct CommandRan {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tab: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub popup: Option<SessionId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<CommandResult>,
 }
 
 /// The project's `sikemux.json` action `id` as a command to run, once the person trusts the

@@ -9,6 +9,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::hosts::{AliasParams, SetupEnded};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -76,21 +77,8 @@ pub struct InstallParams {
     pub work: SetUpWork,
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct AliasParams {
-    pub alias: String,
-}
-
 /// How a set-up ended: the name of the host it added to the account, or why it stopped short.
 type Done = Result<Option<String>, String>;
-
-/// How a set-up ended: why it stopped short, if it did, and the host it added to the account.
-#[derive(Deserialize, Serialize)]
-pub struct SetupEnded {
-    pub problem: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub added: Option<String>,
-}
 
 /// An alias from ~/.ssh/config, never something ssh would read as an option.
 fn checked_alias(alias: &str) -> CoreResult<&str> {

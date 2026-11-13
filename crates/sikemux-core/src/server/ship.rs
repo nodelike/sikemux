@@ -12,12 +12,12 @@ use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::ship::{HoldParams, WebWriteParams};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_plugin_api::vault::{as_caller, Caller};
 use sikemux_process::clock::epoch_ms;
@@ -1145,14 +1145,6 @@ pub(crate) async fn check_tool(
     .map_err(|error| error.to_string())?
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct WebWriteParams {
-    pub agent: String,
-    pub project: String,
-    pub what: String,
-    pub origin: String,
-}
-
 /// Whether an agent's browser may send the write it is about to make to `origin`,
 /// as [`check`] says: none when it may, otherwise what the agent is told.
 pub(crate) async fn check_web_write(
@@ -1486,11 +1478,6 @@ fn place_of(core: &Core, call: &PersonCall) -> Option<places::Place> {
     let shown = call.place.as_ref()?;
     let (kept, _) = places::current(core, &call.project);
     kept.into_iter().find(|place| place.shown.id == shown.id)
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct HoldParams {
-    pub hold: String,
 }
 
 /// The person allows the held action once: a tool call runs and its agent hears

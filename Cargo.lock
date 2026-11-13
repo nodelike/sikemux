@@ -9830,7 +9830,9 @@ name = "sikemux-calls"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "sikemux-view",
+ "sikemux-wire",
  "workspace-hack",
 ]
 

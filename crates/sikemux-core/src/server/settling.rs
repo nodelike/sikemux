@@ -4,6 +4,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::settling::{SettleParams, SnoozeParams};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -211,18 +212,6 @@ pub(crate) fn sections(
     (main, snoozed, settled)
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SnoozeParams {
-    pub agent_ids: Vec<String>,
-    /// When it wakes, in Unix milliseconds; none wakes it now, unless `typed` names a time.
-    #[serde(default)]
-    pub until: Option<u64>,
-    /// A time in words this host reads on its own clock, such as "fri 2pm" or "in 90m".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub typed: Option<String>,
-}
-
 pub(crate) fn snooze(core: &Core, params: SnoozeParams) -> CoreResult<()> {
     let now = epoch_ms();
     let until = match &params.typed {
@@ -246,13 +235,6 @@ pub(crate) fn snooze(core: &Core, params: SnoozeParams) -> CoreResult<()> {
         });
     core.settling().changed.notify_one();
     Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SettleParams {
-    pub agent_ids: Vec<String>,
-    pub settled: bool,
 }
 
 pub(crate) fn settle(core: &Core, params: SettleParams) -> CoreResult<()> {

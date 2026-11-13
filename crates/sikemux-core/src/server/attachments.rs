@@ -7,6 +7,7 @@ use super::connection::blocking;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
 use serde::{Deserialize, Serialize};
+pub use sikemux_calls::attachments::{ChatFile, ChatFileParams};
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -193,23 +194,6 @@ fn extension_for(mime: &str) -> Option<&'static str> {
         "application/zip" => "zip",
         _ => return None,
     })
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatFileParams {
-    path: PathBuf,
-    /// For a picture shown small: the longest side, in pixels, to send it scaled to.
-    #[serde(default)]
-    max_edge: Option<u32>,
-}
-
-#[derive(Serialize)]
-pub struct ChatFile {
-    /// Set when the file was sent as a scaled copy, which is a JPEG.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mime: Option<&'static str>,
-    data: String,
 }
 
 /// A file a chat's message carried, in base64. Any device may read the

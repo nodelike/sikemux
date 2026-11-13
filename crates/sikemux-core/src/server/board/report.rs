@@ -4,6 +4,7 @@
 //! says something the one before did not.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::board::GoalReportsParams;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -35,13 +36,6 @@ pub struct ReportEveryParams {
     /// None stops its reports.
     #[serde(default)]
     pub every: Option<ReportEvery>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoalReportsParams {
-    pub project: String,
-    pub id: u64,
 }
 
 /// The person sets how often goal `id` is reported on. A report is written at once, so the page

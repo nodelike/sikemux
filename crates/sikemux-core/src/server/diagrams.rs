@@ -4,6 +4,7 @@
 //! `file:<host>:<path>`, `chat:<agent>:<text>`.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::diagrams::{DiagramLayout, DiagramParams};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Mutex;
@@ -84,20 +85,6 @@ impl Diagrams {
         self.kept.save_soon(&*held);
         Ok(())
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct DiagramParams {
-    pub key: String,
-    /// The arrangement to keep; without one the kept arrangement is forgotten.
-    #[serde(default)]
-    pub layout: Option<Value>,
-}
-
-/// The arrangement kept for a diagram, whose shape only the app that drew it knows.
-#[derive(Serialize, Deserialize)]
-pub struct DiagramLayout {
-    pub layout: Option<Value>,
 }
 
 pub(crate) fn layout(core: &Core, params: DiagramParams) -> DiagramLayout {

@@ -43,7 +43,7 @@ use sikemux_wire::protocol::{
     AgentState, Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice,
 };
 
-pub(crate) use activity::{live_activity, ActivityParams};
+pub(crate) use activity::live_activity;
 pub(crate) use goals::GoalMoved;
 pub(crate) use presence::{Presence, SystemPresence};
 

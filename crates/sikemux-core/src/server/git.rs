@@ -4,6 +4,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::git::PullRequestUrlParams;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -11,7 +12,7 @@ use std::time::Duration;
 
 use super::codehost::repo as codehost;
 use super::connection::blocking;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use sikemux_process::sync::Locked;
 use sikemux_view::prefs::PreferenceChange;
@@ -100,11 +101,6 @@ fn lived_in(core: &Core, path: &Path) -> bool {
             .into_iter()
             .filter_map(|id| core.workspaces().agent(&id))
             .any(|agent| agent.cwd.starts_with(path))
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct PullRequestUrlParams {
-    pub repo: String,
 }
 
 /// Where to open a pull request for the repository's branch, which the code host layer says.

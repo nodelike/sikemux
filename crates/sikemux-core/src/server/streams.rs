@@ -8,6 +8,7 @@ use super::Core;
 use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+pub use sikemux_calls::streams::StreamParams;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -167,12 +168,6 @@ async fn flush_while_open(stream: Arc<Stream>) {
             stream.flush();
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StreamParams {
-    /// None stops every stream on the connection, as a reloaded page does.
-    pub stream: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]

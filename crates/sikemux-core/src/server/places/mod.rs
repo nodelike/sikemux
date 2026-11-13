@@ -13,6 +13,7 @@ pub(crate) mod work;
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::places::{AddPlaceParams, PlaceLevelParams, PlacesParams, SeenParams};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -340,36 +341,6 @@ pub(crate) fn proposed_words(place: &Place) -> String {
         }
         (false, _) => format!("{} isn't production, so agents deploy there", place.name()),
     }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlacesParams {
-    pub project: String,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlaceLevelParams {
-    pub project: String,
-    pub place: String,
-    pub level: Level,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddPlaceParams {
-    pub project: String,
-    pub name: String,
-    pub production: bool,
-    pub recognise: Vec<Recognise>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SeenParams {
-    pub project: String,
-    pub seen: String,
 }
 
 use board::project_at;

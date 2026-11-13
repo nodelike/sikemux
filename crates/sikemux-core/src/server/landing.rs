@@ -3,6 +3,7 @@
 //! its branch, once an hour at most.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::landing::LandedMeansParams;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -42,12 +43,6 @@ pub(crate) fn means_now(core: &Core, project: &str) -> LandedMeans {
             history,
         },
     }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LandedMeansParams {
-    pub project: String,
 }
 
 /// What counts as landed in `project`, for the Playbook.

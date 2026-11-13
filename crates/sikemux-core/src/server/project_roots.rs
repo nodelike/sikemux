@@ -3,11 +3,11 @@
 //! and below it, within its depth, each git repo is one. The walk never goes
 //! into a repo or a dot folder.
 
+pub use sikemux_calls::project_roots::{ResolveParams, Resolved, RootEntry, ScanParams};
 use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::paths::expand_home;
 
 pub(crate) use sikemux_view::prefs::ProjectRoot;
@@ -16,12 +16,6 @@ use sikemux_view::prefs::MAX_PROJECT_DEPTH;
 const MAX_PROJECT_ROOTS: usize = 32;
 const MAX_VISITED_DIRECTORIES: usize = 50_000;
 const MAX_DISCOVERED_PROJECTS: usize = 4_096;
-
-#[derive(Serialize, Deserialize, PartialEq)]
-pub struct RootEntry {
-    pub name: String,
-    pub path: String,
-}
 
 fn name_of(p: &Path) -> String {
     p.file_name()
@@ -48,18 +42,6 @@ fn relative_name(root: &Path, p: &Path) -> String {
 
 fn is_repo(dir: &Path) -> bool {
     dir.join(".git").exists()
-}
-
-/// What is at a path as the person typed it, `~` and all.
-#[derive(Serialize, Deserialize)]
-pub struct Resolved {
-    pub path: String,
-    pub kind: Option<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ResolveParams {
-    pub path: String,
 }
 
 pub(crate) fn resolve(params: ResolveParams) -> Resolved {
@@ -142,11 +124,6 @@ fn walk(
         }
     }
     Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ScanParams {
-    pub roots: Vec<ProjectRoot>,
 }
 
 /// Runs on a blocking thread.

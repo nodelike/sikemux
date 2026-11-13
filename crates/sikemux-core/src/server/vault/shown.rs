@@ -2,6 +2,7 @@
 //! hosts and projects may use each sign-in, the recovery key, and each sign-in's use log.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::vault::{RecoverParams, RevokeParams, ShownUse, UsesParams};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -67,17 +68,6 @@ pub struct ShownHost {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub projects: Option<Vec<String>>,
     pub refreshes: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShownUse {
-    /// The agent, such as `@Otter`, or `Sikemux` for the host itself.
-    pub actor: String,
-    pub host: String,
-    pub count: i64,
-    /// Milliseconds since the Unix epoch.
-    pub at: u64,
 }
 
 /// What the account calls a host, and whether this host reaches it now, or the start of its
@@ -191,13 +181,6 @@ pub(crate) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<(
     .await
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RevokeParams {
-    pub entry: String,
-    pub host: String,
-}
-
 /// Takes a host off a sign-in. Taking off the last host removes the sign-in from the vault.
 pub(crate) async fn revoke(core: &Arc<Core>, params: RevokeParams) -> CoreResult<()> {
     sync::set_access(core, &params.entry, |body| {
@@ -223,18 +206,8 @@ pub(crate) async fn recovery_saved(core: &Arc<Core>) -> CoreResult<()> {
     Ok(())
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct RecoverParams {
-    pub key: String,
-}
-
 pub(crate) async fn recover(core: &Arc<Core>, params: RecoverParams) -> CoreResult<()> {
     sync::recover(core, &params.key).await
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct UsesParams {
-    pub entry: String,
 }
 
 /// The sign-in's uses over the last 30 days, on every host, newest first.

@@ -3,6 +3,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::account::DeviceParams;
 use std::sync::Arc;
 
 use reqwest::Method;
@@ -141,13 +142,6 @@ fn device_path(key: &str) -> CoreResult<String> {
         return Err(CoreError::from("that is not a device on the account"));
     }
     Ok(format!("/v1/devices/{key}"))
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-pub struct DeviceParams {
-    pub key: String,
-    #[serde(default)]
-    pub name: Option<String>,
 }
 
 /// The key this host's app goes on the network with, offered by the app the first time.

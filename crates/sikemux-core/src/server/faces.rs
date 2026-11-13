@@ -7,10 +7,11 @@ use super::Core;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::faces::FaceStyleChange;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sikemux_process::sync::Locked;
 
 use super::kept::Kept;
@@ -110,16 +111,6 @@ fn face(style: &FaceStyle, agent: &WorkspaceAgent) -> Option<AgentFace> {
         color: colour % pack.colors.max(1),
         view_box: shape.view_box.clone(),
     })
-}
-
-/// A change to the face style; a field left out stays as it is.
-#[derive(Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FaceStyleChange {
-    pub on: Option<bool>,
-    pub pack: Option<String>,
-    pub shape: Option<String>,
-    pub motion: Option<bool>,
 }
 
 pub(crate) struct Faces {

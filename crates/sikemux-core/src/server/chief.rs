@@ -9,6 +9,7 @@
 
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+pub use sikemux_calls::chief::{OpenChiefParams, OpenedChief};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -242,19 +243,6 @@ fn ensure_seat(core: &Core, chief: &str, project: &str) {
     core.chiefs().change(|saved| {
         saved.seats.entry(chief.to_owned()).or_insert(seat);
     });
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenChiefParams {
-    /// The project, by id.
-    pub project: String,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenedChief {
-    pub agent_id: String,
 }
 
 /// Opens a project's chief, as the person opening its row or writing to it does: made the

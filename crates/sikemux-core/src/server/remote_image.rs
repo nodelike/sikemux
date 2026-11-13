@@ -2,12 +2,12 @@
 //! only from the public internet, only images, and kept a while so a long chat
 //! scrolling past one picture fetches it once.
 
+pub use sikemux_calls::remote_image::{ImageParams, PictureData};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use url::Url;
 
@@ -21,18 +21,6 @@ const KEPT_BYTES: usize = 48 * 1024 * 1024;
 /// How long a picture that would not load is not asked for again.
 const FAILED_FOR: Duration = Duration::from_secs(60);
 const COULD_NOT: &str = "Couldn't load the picture";
-
-#[derive(Serialize, Deserialize)]
-pub struct ImageParams {
-    pub url: String,
-}
-
-/// A picture for a client to show, its bytes in base64.
-#[derive(Serialize, Deserialize)]
-pub struct PictureData {
-    pub mime: String,
-    pub data: String,
-}
 
 #[derive(Clone)]
 struct Image {

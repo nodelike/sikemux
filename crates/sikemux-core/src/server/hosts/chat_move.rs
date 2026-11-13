@@ -3,6 +3,7 @@
 //! effort the chat had, and this host closes the chat.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::hosts::{ChatMoved, MoveChatToHostParams};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,23 +21,6 @@ use super::transfer::call_once;
 use super::{find, Failed};
 
 const TAKE_WAIT: Duration = Duration::from_secs(30);
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MoveChatToHostParams {
-    pub agent_id: String,
-    /// The host it goes to, by its core's key.
-    pub host: String,
-    /// The project there, by its id there.
-    pub project: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatMoved {
-    /// The chat on the host it went to.
-    pub agent_id: String,
-}
 
 #[derive(Deserialize, Serialize)]
 pub(super) struct TakeChat {

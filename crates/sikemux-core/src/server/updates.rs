@@ -9,6 +9,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::updates::{HostUpdatesParams, UpdateInstallParams};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -406,13 +407,6 @@ pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct UpdateInstallParams {
-    /// Stop the chats an update would wait on rather than wait.
-    #[serde(default)]
-    pub force: bool,
-}
-
 /// Downloads and puts in place the release `check` found, in the background;
 /// clients follow it in the status.
 pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResult<UpdateStatus> {
@@ -725,11 +719,6 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
         steps,
         handing_over: in_place,
     })
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct HostUpdatesParams {
-    pub on: bool,
 }
 
 /// Turns a host's own updates on or off, for the person this core runs as.

@@ -5,6 +5,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::agent_sign_in::{AfterSignIn, LauncherParams};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -109,14 +110,6 @@ fn pages_changed(core: &Core) {
     core.changed(What::Read(Topic::AgentSignIn));
 }
 
-/// A chat to move onto one of the person's accounts once it signs in.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AfterSignIn {
-    pub agent_id: String,
-    pub account_id: String,
-}
-
 /// The chats waiting for an account's sign-in, by the account's id.
 fn waiting() -> MutexGuard<'static, HashMap<String, Vec<String>>> {
     static WAITING: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
@@ -160,12 +153,6 @@ fn signed_in(core: &Arc<Core>, account: &Account) {
             });
         }
     }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct LauncherParams {
-    /// The launcher whose account to sign in to, such as `claude:work`.
-    pub launcher: String,
 }
 
 /// Signs the person in to the account a launcher starts agents on, as

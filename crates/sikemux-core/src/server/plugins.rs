@@ -9,6 +9,7 @@ use crate::git::remote::remote_urls;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::plugins::{Disabled, PluginCall, StreamCall};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -190,15 +191,6 @@ pub(crate) async fn call_on(
     present(plugins, plugin)?.call(plugin, method, params).await
 }
 
-/// A plugin's own method and what it takes, which only the plugin knows the shape of.
-#[derive(Serialize, Deserialize)]
-pub struct PluginCall {
-    pub plugin: String,
-    pub method: String,
-    #[serde(default)]
-    pub params: Value,
-}
-
 /// A call from a plugin's pane. A pane signing in or out changes what its
 /// plugin offers agents, so they are told to list their tools again.
 pub(crate) async fn window_call(core: &Core, call: PluginCall) -> PluginOutcome {
@@ -256,11 +248,6 @@ pub(crate) fn wrote(core: &Arc<Core>, plugin: &str, method: &str, params: &Value
         super::board::proof::pull_opened(core);
     }
     super::codehost::wrote(core, plugin, params);
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Disabled {
-    pub ids: Vec<String>,
 }
 
 pub(crate) fn set_disabled(core: &Core, disabled: Disabled) {
@@ -388,14 +375,6 @@ pub(crate) fn disabled_in(plugins: Option<Provided>) -> Vec<String> {
     plugins
         .map(|Provided(plugins)| plugins.disabled())
         .unwrap_or_default()
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct StreamCall {
-    /// The client's number for the stream its items arrive as.
-    pub stream: u64,
-    #[serde(flatten)]
-    pub call: PluginCall,
 }
 
 /// Runs a plugin's stream, its items arriving as the client's stream on

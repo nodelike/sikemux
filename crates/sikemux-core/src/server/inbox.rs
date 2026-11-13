@@ -6,6 +6,7 @@
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use serde::{Deserialize, Serialize};
+pub use sikemux_calls::inbox::DigestParams;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -2026,14 +2027,6 @@ pub(super) async fn read(core: &Arc<Core>) -> CoreResult<sikemux_view::inbox::In
         Ok(view(&core, &chats, &sessions))
     })
     .await
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DigestParams {
-    pub since: Option<u64>,
-    /// Only what is about this project, by its path.
-    pub project: Option<String>,
 }
 
 /// What finished, failed and waits since the person last left, or `since`.

@@ -7,6 +7,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::triggers::{HoldTriggerParams, TriggerParams};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -1205,20 +1206,6 @@ fn fired_request(delivery: HookDelivery) -> FiredRequest {
         body,
         body_tree: None,
     }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TriggerParams {
-    pub trigger: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HoldTriggerParams {
-    pub trigger: u64,
-    /// True pauses it, false resumes it.
-    pub paused: bool,
 }
 
 impl super::part::Part for Triggers {

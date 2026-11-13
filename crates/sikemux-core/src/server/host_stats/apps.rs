@@ -3,11 +3,11 @@
 //! shows it.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::host_stats::AppIconParams;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::procs::Usage;
 use sikemux_process::sync::Locked;
 
@@ -112,12 +112,6 @@ impl Icons {
             });
         }
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AppIconParams {
-    pub app: String,
 }
 
 /// The icon of the app `app` names, as a PNG in base64, drawn the first time it is asked for.

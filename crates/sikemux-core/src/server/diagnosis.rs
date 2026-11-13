@@ -5,19 +5,12 @@
 
 use crate::server::parts::Parts;
 use iroh::Watcher;
-use serde::{Deserialize, Serialize};
+pub use sikemux_calls::diagnosis::DiagnosisParams;
 use sikemux_view::host_stats::{DiagnosisStep, HostDiagnosis, ReachStep, StepState, StepWhy};
 use sikemux_wire::protocol::AccountLinkState;
 
 use super::hosts::{DialFailure, DialState};
 use super::Core;
-
-#[derive(Deserialize, Serialize)]
-pub struct DiagnosisParams {
-    /// The linked host to diagnose by its core key; none for this host.
-    #[serde(default)]
-    pub host: Option<String>,
-}
 
 pub(crate) fn diagnose(core: &Core, params: DiagnosisParams) -> HostDiagnosis {
     let status = core.remote().status();

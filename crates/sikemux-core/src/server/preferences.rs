@@ -6,7 +6,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
-use serde::{Deserialize, Serialize};
+pub use sikemux_calls::preferences::WorktreeDefaultParams;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Mutex;
@@ -204,13 +204,6 @@ fn commands_within_limits(commands: Vec<CustomCommand>) -> Vec<CustomCommand> {
             ..command
         })
         .collect()
-}
-
-/// Whether a new chat in the project at the folder `project` starts in a worktree of its own.
-#[derive(Serialize, Deserialize)]
-pub struct WorktreeDefaultParams {
-    pub project: String,
-    pub on: bool,
 }
 
 /// The only way a running core changes a preference: sets it and does what follows from it.

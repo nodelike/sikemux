@@ -3,10 +3,10 @@
 //! provider's own commands do.
 
 use crate::server::parts::Parts;
-use std::path::PathBuf;
+pub use sikemux_calls::saved_sessions::{RecentChat, RecentRenamed};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::agent_catalog::AgentKind;
 use crate::sessions::{self, recent::RecentRequest, SavedRef};
@@ -80,23 +80,6 @@ pub(super) async fn relocate(moved: Moved) -> CoreResult<()> {
         moved.config_path,
     )
     .await?)
-}
-
-/// A recent chat, named as the workspace lists it.
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecentChat {
-    pub recent: String,
-    /// The folder it ran in, for a chat the core no longer lists.
-    pub cwd: Option<PathBuf>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecentRenamed {
-    pub recent: String,
-    pub title: String,
-    pub cwd: Option<PathBuf>,
 }
 
 /// Renames a recent chat in its CLI's own history, as the launcher that found it signs in.
