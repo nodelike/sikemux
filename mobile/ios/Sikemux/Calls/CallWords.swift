@@ -409,9 +409,9 @@ enum CallWords {
         case .heard, .unknown, nil: break
         }
         guard let answer = call.answer else { return String(localized: "closed") }
-        if call.secret == true { return String(localized: "answered, kept private") }
-        if answer.words != nil { return String(localized: "in your words") }
         let picked = answer.option.map { [$0] } ?? answer.options ?? []
+        if call.keepsWordsPrivate, picked.isEmpty { return String(localized: "answered, kept private") }
+        if answer.words != nil { return String(localized: "in your words") }
         if !picked.isEmpty, picked == call.pick.map({ [$0] }) { return String(localized: "as picked") }
         let labels = picked.compactMap { id in call.options.first { $0.id == id }?.label }
         return labels.isEmpty ? String(localized: "answered") : labels.map { "“\($0)”" }.joined(separator: ", ")

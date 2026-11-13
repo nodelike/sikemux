@@ -45,6 +45,9 @@ final class CallDraft {
 extension PersonCall {
     /// A call with nothing to pick that its asker goes on with: Go with this, with nothing typed, lets it stand.
     var goesOnAsIs: Bool { assumption != nil && options.isEmpty }
+    /// What the person types for it goes to a private file the asker reads, never into the chat: a secret, or an
+    /// access call.
+    var keepsWordsPrivate: Bool { secret == true || kind == .access }
 }
 
 /// The calls one host puts to the person, as its view lists them, with what the person has done on each card, and
@@ -127,11 +130,11 @@ final class HostCalls {
     }
 
     /// The call whatever a chat's composer sends answers, while one waits there and the person has not taken its chip
-    /// off. A step to production is answered only on its card. While any call in the chat asks for a secret, the
-    /// oldest such call takes what is typed, whichever call the card shows, and its chip never comes off.
+    /// off. A step to production is answered only on its card. While any call in the chat keeps its words private,
+    /// the oldest such call takes what is typed, whichever call the card shows, and its chip never comes off.
     func composing(for agentId: String) -> PersonCall? {
         let queue = queue(for: agentId)
-        if let secret = queue.first(where: { $0.secret == true }) { return secret }
+        if let kept = queue.first(where: \.keepsWordsPrivate) { return kept }
         guard let call = waiting(for: agentId) else { return nil }
         let chief = view?.workspace.projects.contains { $0.chief == agentId } == true
         // In the chief's chat, typed words answer a docked call only when it is the chief's own and the only one open.
@@ -187,7 +190,7 @@ final class HostCalls {
             do {
                 _ = try await connection.call(PhoneCall.AnswerCall.self, params)
                 Haptics.success()
-                if call.secret == true {
+                if call.keepsWordsPrivate {
                     draft.typed = ""
                     drafts[call.id] = nil
                 }

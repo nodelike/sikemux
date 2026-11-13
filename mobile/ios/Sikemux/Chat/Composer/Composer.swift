@@ -7,7 +7,7 @@ struct ComposerQuestion {
     let text: String
     /// Said, before anything uploads, when the answer cannot carry the context chips on the draft.
     var chipsRefused: String?
-    /// The answer is a secret: the words go alone, and the files and chips wait for the next message.
+    /// The answer is kept private: the words go alone, and the files and chips wait for the next message.
     var secret = false
     /// Takes the chip off, so what is sent goes to the agent; none on a secret, whose chip stays.
     let onRemove: (() -> Void)?

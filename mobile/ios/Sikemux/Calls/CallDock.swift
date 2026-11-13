@@ -26,7 +26,7 @@ struct CallDock: View {
     private var calls: HostCalls { HostCalls.of(core) }
     private var chosen: [String] { draft.chosen(in: call) }
     private var typed: Bool { !draft.typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    private var pictured: Bool { call.secret != true && call.options.contains { $0.picture != nil } }
+    private var pictured: Bool { !call.keepsWordsPrivate && call.options.contains { $0.picture != nil } }
 
     var body: some View {
         ScrollView {
@@ -218,20 +218,21 @@ struct CallDock: View {
     }
 
     /// The options' last row: a note that goes with the option chosen, or with none chosen, the person's own answer;
-    /// on a call for a password, a hidden field.
+    /// on a call that keeps its words private, a hidden field.
     private var field: some View {
         HStack(spacing: 12) {
             IconView(icon: Icons.pencil, size: 13).foregroundStyle(
                 fieldFocused || secretFocused || typed ? palette.tertiary : palette.inkFaint)
             Group {
-                if call.secret == true {
+                if call.keepsWordsPrivate {
                     SecretField(
                         text: $draft.typed, focused: $secretFocused, accent: UIColor(palette.accent),
                         dark: !palette.isLight
                     )
                     .overlay(alignment: .leading) {
                         if draft.typed.isEmpty {
-                            Text(CallWords.secretField).foregroundStyle(palette.tertiary).allowsHitTesting(false)
+                            Text(chosen.isEmpty ? CallWords.secretField : CallWords.addNote)
+                                .foregroundStyle(palette.tertiary).allowsHitTesting(false)
                         }
                     }
                 } else {
@@ -254,7 +255,7 @@ struct CallDock: View {
     @ViewBuilder
     private var extras: some View {
         let runs = call.kind == .production ? call.action : nil
-        if runs != nil || call.canHandBack || call.secret == true {
+        if runs != nil || call.canHandBack || call.keepsWordsPrivate {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     if runs != nil {
@@ -288,7 +289,7 @@ struct CallDock: View {
                 if let runs, draft.runsOpen {
                     Text(runs).font(Theme.mono(12.5)).foregroundStyle(palette.secondary).textSelection(.enabled)
                 }
-                if call.secret == true {
+                if call.keepsWordsPrivate {
                     if typed {
                         Text(CallWords.hidden(draft.typed)).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim)
                     }

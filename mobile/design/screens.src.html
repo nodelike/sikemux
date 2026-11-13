@@ -3263,6 +3263,40 @@
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Comet</b><i>·</i><em>Fix the staging payment tests</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="prose">The payment tests call Stripe in test mode, and staging has no key set for them.</div>
+          <div class="turn-line"><span class="tl-mark"><span class="dot warn"></span></span><span class="turn-words"><b class="needs">Needs you</b><i>·</i><span class="p2">2 min</span></span></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="call">
+            <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Comet</b><i>·</i><span>2m</span></div>
+            <div class="call-q">Which Stripe key do the staging payment tests take?</div>
+            <div class="call-ctx">Without it: the tests run against the mock only, and the webhook path goes untested.</div>
+            <div class="call-opts"><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Skip, use the test mock</span></span></div><div class="call-field">{{IconPencil:13}}<span>Type or paste it…</span></div></div>
+            <div class="call-kept">Kept private: @Comet reads it, and it never shows in the chat.</div>
+            <div class="call-go">Go with this</div>
+          </div>
+          <div class="composer">
+            <div class="answering stays"><span class="claude">{{IconClaude:13}}</span><span>Answering @Comet · Which Stripe key do the staging payment tests take?</span></div>
+            <div class="ta ph">Type or paste it · kept private</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>An access call, asked</b><div class="note">A call for access, such as a key, a login or a token (PersonCall.kind access, whether or not it is marked secret), keeps what is typed for it private, as a secret's does: its field is hidden, the keyboard corrects, suggests and learns nothing there, and it says it is kept private under the block. Its options stay, at least one of which goes on without the credential, such as Skip, use the test mock; choosing one sends its label in the open, and the field then adds a note, kept private too. With nothing chosen the field reads Type or paste it…, and the composer answers the call the same way: Answering @Comet with no ×, Type or paste it · kept private, the words alone, never shown in the chat or kept as its draft. When any call in the chat keeps its words private, that call takes what the composer sends, whichever call the card shows. While it is open its asker waits for it, even one that asked without blocking. Once answered, its row says answered, kept private, or the option chosen when one was.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Fix the flaky PTY replay test</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
           <div class="earlier"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>Loading earlier messages…</div>
