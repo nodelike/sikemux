@@ -106,7 +106,7 @@ if touches "$rust"; then
   if touches '(^|/)Cargo\.(toml|lock)$|^\.config/hakari\.toml$'; then
     step "hakari" pnpm -s rust:hakari
   fi
-  gpui=(-p sikemux-gpui)
+  gpui=(-p sikemux-gpui -p sikemux-app)
   for crate in app/crates/*/; do gpui+=(-p "$(basename "$crate")"); done
   step "clippy --fix" cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features
   step "clippy --fix (GPUI)" cargo clippy --fix --allow-dirty --allow-staged "${gpui[@]}" --all-targets

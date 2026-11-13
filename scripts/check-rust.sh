@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # A bare cargo run leaves out the GPUI app and its crates.
-gpui=(-p sikemux-gpui)
+gpui=(-p sikemux-gpui -p sikemux-app)
 for crate in app/crates/*/; do
   gpui+=(-p "$(basename "$crate")")
 done

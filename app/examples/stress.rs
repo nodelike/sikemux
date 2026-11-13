@@ -1178,7 +1178,7 @@ fn main() -> anyhow::Result<()> {
     unsafe {
         libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE, 0)
     };
-    let link = core::start(core::Home::default());
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
     let runtime = tokio::runtime::Runtime::new()?;
     let started = Instant::now();
     let client = loop {

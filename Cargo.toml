@@ -1,5 +1,5 @@
 [workspace]
-members = ["app", "app/crates/*", "crates/*", "plugins/*"]
+members = ["app", "app/lib", "app/crates/*", "crates/*", "plugins/*"]
 # A bare cargo run here leaves out the GPUI app and its crates, which take far longer to build than the
 # core; name them with -p to build them.
 default-members = ["crates/*", "plugins/*"]

@@ -88,7 +88,7 @@ fn main() -> anyhow::Result<()> {
         Arc::new(icons::Icons),
         gpui_platform::current_headless_renderer,
     );
-    let link = core::start(core::Home::default());
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
     let window = cx.update(|cx| {
         gpui_kit::init(cx);
         theme::install(cx);

@@ -21,7 +21,7 @@ const LANGUAGES: [(&str, &str); 8] = [
 /// Turns the string catalog into a table per language of each English string and what it
 /// says there, sorted by the English for `i18n::tr`'s binary search.
 fn strings() {
-    let path = "locales/Localizable.xcstrings";
+    let path = "../locales/Localizable.xcstrings";
     println!("cargo:rerun-if-changed={path}");
     let catalog: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).expect("the string catalog"))
@@ -53,9 +53,9 @@ fn strings() {
 }
 
 fn faces() {
-    println!("cargo:rerun-if-changed=assets/faces");
-    let mut shapes: Vec<String> = std::fs::read_dir("assets/faces")
-        .expect("assets/faces")
+    println!("cargo:rerun-if-changed=../assets/faces");
+    let mut shapes: Vec<String> = std::fs::read_dir("../assets/faces")
+        .expect("../assets/faces")
         .map(|entry| {
             entry
                 .expect("a face file")
@@ -70,7 +70,7 @@ fn faces() {
         .iter()
         .map(|file| {
             let shape = file.trim_end_matches(".json.gz");
-            format!("    ({shape:?}, include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/assets/faces/{file}\"))),\n")
+            format!("    ({shape:?}, include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/../assets/faces/{file}\"))),\n")
         })
         .collect();
     let out = Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("faces.rs");
@@ -87,7 +87,7 @@ fn faces() {
 fn shaders() {
     use naga::back::msl;
 
-    println!("cargo:rerun-if-changed=assets/shaders");
+    println!("cargo:rerun-if-changed=../assets/shaders");
     let out = Path::new(&std::env::var("OUT_DIR").expect("OUT_DIR")).join("shaders");
     std::fs::create_dir_all(&out).expect("create the shaders folder");
     let at = |group, binding, target| (naga::ResourceBinding { group, binding }, target);
@@ -152,8 +152,8 @@ fn shaders() {
         fake_missing_bindings: false,
         ..Default::default()
     };
-    let shared = std::fs::read_to_string("assets/shaders/dither.wgsl").expect("dither.wgsl");
-    for entry in std::fs::read_dir("assets/shaders").expect("assets/shaders") {
+    let shared = std::fs::read_to_string("../assets/shaders/dither.wgsl").expect("dither.wgsl");
+    for entry in std::fs::read_dir("../assets/shaders").expect("../assets/shaders") {
         let path = entry.expect("a shader file").path();
         if path.extension().is_none_or(|extension| extension != "wgsl")
             || path.file_stem().is_some_and(|stem| stem == "dither")

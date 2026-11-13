@@ -56,7 +56,7 @@ for (const half of ["core-unit-tests", "other-tests"]) {
   if (!ciWorkflow.includes(`run: scripts/check-rust.sh ${half}\n`)) fail(`CI does not run the ${half} half of the Rust tests`);
 }
 if (!ciWorkflow.includes("run: pnpm check:helpers\n")) fail("CI does not build the helpers pnpm check builds");
-for (const crate of ["sikemux-gpui", ...fs.readdirSync("app/crates")]) {
+for (const crate of ["sikemux-app", "sikemux-gpui", ...fs.readdirSync("app/crates")]) {
   if (!hakari.includes(`"${crate}"`)) fail(`.config/hakari.toml lets workspace-hack traverse ${crate}, which would bring GPUI's dependencies into the core's builds`);
 }
 if (pkg.version !== app.version) fail("package.json and the GPUI app's versions differ");

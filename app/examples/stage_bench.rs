@@ -154,7 +154,7 @@ fn main() -> anyhow::Result<()> {
         Arc::new(icons::Icons),
         gpui_platform::current_headless_renderer,
     );
-    let link = core::start(core::Home::default());
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
     let held = Rc::new(Cell::new(None));
     let kept = held.clone();
     let window = cx.update(|cx| {

@@ -108,7 +108,10 @@ such as a file open or an agent's browser, go to the one that registered last.
 
 ## The desktop app
 
-`app/` holds the GPUI app, the `sikemux-gpui` package. It shares the one Cargo workspace and
+`app/` holds the GPUI app as two packages: `sikemux-gpui` (`app/lib/Cargo.toml`), the library
+with everything under `src/` but `main.rs`, and `sikemux-app` (`app/Cargo.toml`), the program
+with `src/main.rs` and the examples. Only the program depends on `sikemux-buildinfo`, which is
+compiled again on every change to the core, so a core edit never recompiles the library. They share the one Cargo workspace and
 lockfile at the root, which builds it only when asked with `-p`. `src/main.rs` opens one
 window; in a Wayland session it takes XWayland's display, since browser pages are X11 windows
 inside it, and `xwayland_scale.rs` asks the compositor what scale to draw at and keeps the
@@ -193,6 +196,7 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 | `sikemux-agents`     | The agents the core runs, apart from running them: their catalog, accounts and sign-in, how each is launched, their sessions on disk, and the guards on their git and on what they send off this machine |
 | `sikemux-kernel`     | The core itself, below everything that hangs its state on it: `Core`, its error type and the parts each feature keeps on it                                                                              |
 | `sikemux-hostkit`    | What an app and the `sikemux` command do around the core without linking it: starting it and keeping it on their build, the login item, the CLI's paths, and crash, panic and hang reports               |
+| `sikemux-buildinfo`  | Which build this is: the commit, the time and a fingerprint of the core's sources, for the `sikemux` command and the app's program                                                                       |
 | `sikemux-drivers`    | The agents a chat runs on, each driven over its own protocol (Claude Code, Codex, Pi, Muse, ACP), and what a driver and its chat say to each other                                                       |
 | `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                                      |
 | `sikemux-base`       | What the core shares with the browser, simulator and voice crates: HTTP clients, pinned downloads, the async runtime, page building and the CLI endpoint's protocol                                      |
@@ -272,7 +276,7 @@ no window open and event cursors survive restarts. `pnpm agent-tools:generate` w
 - **Rust tests** run with `cargo test` in the one workspace, whose default members are the core's
   crates and the plugins; the GPUI app and its crates are named with `-p`. CI runs both on macOS
   and the core's crates' on Linux.
-- **Headless shots.** `sikemux-gpui`'s `shot` example draws the window offscreen into a PNG,
+- **Headless shots.** `sikemux-app`'s `shot` example draws the window offscreen into a PNG,
   optionally after a list of steps (clicks, keys, waits), to check a screen without a person at
   it. `fake_chat` seeds a throwaway core with chats from the fake agents in
   `crates/sikemux-core/src/bin/` (`sikemux-fake-acp-agent` and others), which answer prompts

@@ -9,7 +9,7 @@ fn main() {
     #[cfg(target_os = "linux")]
     hand_cli_to_core();
     let began = std::time::SystemTime::now();
-    sikemux_hostkit::panic_reports::record_panics("app", sikemux_host::BUILD_COMMIT);
+    sikemux_hostkit::panic_reports::record_panics("app", sikemux_buildinfo::COMMIT);
     crash_reports::start(Process::App, None, None);
     #[cfg(target_os = "linux")]
     {
@@ -23,7 +23,7 @@ fn main() {
         return;
     }
     let linking = std::time::SystemTime::now();
-    let link = core::start(core::Home::default());
+    let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
     let linked = std::time::SystemTime::now();
     let app = gpui_kit::application();
     #[cfg(target_os = "linux")]

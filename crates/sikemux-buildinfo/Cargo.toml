@@ -1,0 +1,20 @@
+[package]
+name = "sikemux-buildinfo"
+version.workspace = true
+edition = "2021"
+publish = false
+description = "Which build this is, worked out once for the core and the app built beside it"
+
+[build-dependencies]
+sha2 = "0.11"
+hex = "0.4"
+
+[dependencies]
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-wire = { path = "../sikemux-wire" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints]
+workspace = true

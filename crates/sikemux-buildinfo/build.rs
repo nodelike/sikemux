@@ -38,11 +38,11 @@ fn path_dependencies(manifest: &str) -> Vec<&str> {
 }
 
 /// Everything the background core is compiled from, found by following the path
-/// dependencies from this crate. A change to any of it makes a new build that a
+/// dependencies from sikemux-host. A change to any of it makes a new build that a
 /// running core upgrades to.
 fn core_sources(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut crates = std::collections::BTreeSet::new();
-    let mut waiting = vec![std::path::PathBuf::from(".")];
+    let mut waiting = vec![std::path::PathBuf::from("../sikemux-host")];
     while let Some(dir) = waiting.pop() {
         let Ok(dir) = std::fs::canonicalize(dir) else {
             continue;

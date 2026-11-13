@@ -155,7 +155,7 @@ fn gather() -> Result<PathBuf, String> {
     .collect();
     let context = json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "commit": env!("SIKEMUX_BUILD_COMMIT"),
+        "commit": crate::BUILD_COMMIT,
         "os": env::consts::OS,
         "arch": env::consts::ARCH,
         "status": status(),

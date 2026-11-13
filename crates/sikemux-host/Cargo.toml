@@ -30,10 +30,6 @@ vercel = ["dep:sikemux-plugin-vercel"]
 # release.
 fake-plugins = []
 
-[build-dependencies]
-sha2 = "0.11"
-hex = "0.4"
-
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -45,6 +41,7 @@ reqwest = { version = "0.13", default-features = false }
 sentry = { version = "0.49", default-features = false, features = ["contexts", "debug-images", "minidump", "release-health", "reqwest", "rustls-no-provider"] }
 log = "0.4"
 sha2 = "0.11"
+sikemux-buildinfo = { path = "../sikemux-buildinfo" }
 sikemux-core = { path = "../sikemux-core" }
 sikemux-hostkit = { path = "../sikemux-hostkit" }
 sikemux-view = { path = "../sikemux-view" }

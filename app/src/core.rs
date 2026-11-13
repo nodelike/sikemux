@@ -478,11 +478,14 @@ pub use login_item::IDENTIFIER;
 pub struct Home {
     pub socket: PathBuf,
     launch: Option<CoreLaunch>,
+    /// The build this program is, which its core is kept on.
+    build: Option<sikemux_wire::protocol::BuildIdentity>,
     manifest_dir: Option<PathBuf>,
 }
 
-impl Default for Home {
-    fn default() -> Self {
+impl Home {
+    /// This build's own core, started when none answers and kept on `build`.
+    pub fn of(build: sikemux_wire::protocol::BuildIdentity) -> Self {
         let folders = Folders::of_this_system();
         let socket = sikemux_corekit::default_socket_path().unwrap_or_default();
         let launch = cli_paths::cli_executable_path().map(|binary| CoreLaunch {
@@ -497,18 +500,18 @@ impl Default for Home {
         Self {
             socket,
             launch,
+            build: Some(build),
             manifest_dir: folders.map(|folders| folders.config.join("agent-detection")),
         }
     }
-}
 
-impl Home {
     /// A core someone else started and looks after, at `socket`: the window never starts or
     /// replaces it, nor changes whether this build's core starts at login.
     pub fn at(socket: PathBuf) -> Self {
         Self {
             socket,
             launch: None,
+            build: None,
             manifest_dir: None,
         }
     }
@@ -1196,12 +1199,10 @@ async fn run(
     let failed = FailedWatches::default();
     let mut reconnect = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
     loop {
-        if let Some(launch) = &home.launch {
+        if let (Some(launch), Some(build)) = (&home.launch, &home.build) {
             let force =
                 forced_update_marker().is_some_and(|marker| std::fs::remove_file(marker).is_ok());
-            match core_start::start(IDENTIFIER, launch, &sikemux_host::build_identity(), force)
-                .await
-            {
+            match core_start::start(IDENTIFIER, launch, build, force).await {
                 Ok(()) | Err(StartError::Unreachable(_)) => {}
                 Err(StartError::Incompatible { reason, .. }) => {
                     eprintln!("sikemux: the core cannot be used: {reason}");

@@ -9,8 +9,14 @@ the core sends.
 node icons.mjs     # after an icon in shared/ui/Icons.tsx changes
 python3 fonts.py   # after the mono font in shared/fonts changes (needs fontTools, brotli)
 cargo build -p sikemux-host
-cargo run -p sikemux-gpui
+cargo run -p sikemux-app
 ```
+
+The folder is two packages. `sikemux-app` (`Cargo.toml` here) is the program: `src/main.rs`,
+the examples, and which build it is. `sikemux-gpui` (`lib/Cargo.toml`) is everything else under
+`src/`, a library. Only the program knows its build, so a change to the core recompiles
+`main.rs` and not the library. Check and test the library with `-p sikemux-gpui`; add a
+dependency the window's code needs to `lib/Cargo.toml`.
 
 The app starts its core, or moves the one running onto its own build. `make dev`
 does all of this and opens the app as Sikemux Dev. A dev core takes requests

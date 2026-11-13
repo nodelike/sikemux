@@ -1,0 +1,108 @@
+[package]
+name = "sikemux-gpui"
+version.workspace = true
+edition = "2021"
+publish = false
+description = "The desktop UI on GPUI, a client of the core"
+
+[lib]
+name = "sikemux_gpui"
+path = "../src/lib.rs"
+
+[features]
+# The test bundle's kit: drives the window from step files, and dials hosts at the addresses its
+# dev/host-addresses.json names. Never on in a release.
+drive = ["sikemux-linked/host-addresses-file"]
+# Counts the transcript's drawing work, which the stress example prints beside a slow frame.
+# Never on in a release.
+counts = ["gpui-transcript/counts"]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+qrcodegen = "1.8"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "bmp", "webp", "gif"] }
+jpeg-decoder = { version = "0.3", default-features = false }
+tempfile = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+flate2 = "1"
+libc = "0.2"
+# The same GPUI as GPUI Kit's, named `gpui` for the macros that expand to it.
+gpui = { package = "gpui-pre", version = "=0.3.10" }
+gpui-kit = { version = "=0.8.1", default-features = false, features = ["component"] }
+gpui-native-view = { path = "../crates/gpui-native-view" }
+gpui-terminal-grid = { path = "../crates/gpui-terminal-grid" }
+gpui-transcript = { path = "../crates/gpui-transcript" }
+lsp-types = "0.97"
+mermaid-svg = "0.7"
+latex-rust = { version = "3.0.3", default-features = false, features = ["std"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+percent-encoding = "2"
+# Already in the build through GPUI's SVG drawing.
+resvg = { version = "0.46", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sys-locale = "0.3"
+smallvec = "1"
+sikemux-browser = { path = "../../crates/sikemux-browser" }
+sikemux-simulator = { path = "../../crates/sikemux-simulator" }
+sikemux-agents = { path = "../../crates/sikemux-agents" }
+sikemux-base = { path = "../../crates/sikemux-base" }
+sikemux-calls = { path = "../../crates/sikemux-calls" }
+sikemux-corekit = { path = "../../crates/sikemux-corekit" }
+sikemux-git = { path = "../../crates/sikemux-git" }
+sikemux-pty = { path = "../../crates/sikemux-pty" }
+sikemux-hostkit = { path = "../../crates/sikemux-hostkit" }
+sikemux-markdown = { path = "../../crates/sikemux-markdown" }
+sikemux-plugin-api = { path = "../../crates/sikemux-plugin-api" }
+sikemux-process = { path = "../../crates/sikemux-process" }
+sikemux-client = { path = "../../crates/sikemux-client" }
+sikemux-keychain = { path = "../../crates/sikemux-keychain" }
+sikemux-linked = { path = "../../crates/sikemux-linked" }
+sikemux-grid = { path = "../../crates/sikemux-grid" }
+sikemux-wire = { path = "../../crates/sikemux-wire" }
+sikemux-view = { path = "../../crates/sikemux-view" }
+sikemux-fold = { path = "../../crates/sikemux-fold" }
+sikemux-voice = { path = "../../crates/sikemux-voice" }
+textmate-highlight = { path = "../crates/textmate-highlight" }
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+url = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+core-foundation = "0.10"
+objc2 = "0.6"
+objc2-core-foundation = "0.3"
+raw-window-handle = "0.6"
+objc2-core-video = { version = "0.3", default-features = false, features = ["std", "CVBuffer", "CVImageBuffer", "CVPixelBuffer"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSBitmapImageRep", "NSImageRep", "NSResponder", "NSDockTile", "NSScreen", "NSSound", "NSWorkspace", "objc2-core-graphics"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGImage"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDictionary", "NSGeometry", "NSObject", "NSString", "NSURL", "NSUserNotification", "NSValue"] }
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Already in the build through GPUI's Linux platform.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+x11rb = { version = "0.13", features = ["randr", "resource_manager"] }
+zbus = "5"
+
+[build-dependencies]
+serde_json = "1"
+# The same naga as GPUI's wgpu, only to translate the shaders while building.
+naga = { git = "https://github.com/gfx-rs/wgpu", rev = "3b3506ea31154edc04de64debda0e780cba2639c", features = ["wgsl-in", "msl-out"] }
+
+[dev-dependencies]
+film-frame = { path = "../crates/film-frame" }
+gpui = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = ["test-support", "bench-support"] }
+# So the shot can read what the window drew, such as an open menu's items.
+gpui-base = { version = "=0.8.1", features = ["test-support"] }
+gpui-component = { version = "=0.8.1", default-features = false, features = ["test-support"] }
+
+# The film holds the window's native views in a stand-in window offscreen and pictures them.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSBitmapImageRep", "NSGraphics", "NSImage", "NSImageRep", "NSResponder", "NSRunningApplication", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSValue"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "WKSnapshotConfiguration", "WKWebView", "block2", "objc2-app-kit"] }

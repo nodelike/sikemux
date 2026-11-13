@@ -20,16 +20,4 @@ pub use sikemux_hostkit::{
     panic_reports,
 };
 
-/// The commit this binary and the app built beside it were built from.
-pub const BUILD_COMMIT: &str = env!("SIKEMUX_BUILD_COMMIT");
-
-/// The build of this binary and of the app built beside it, which share this
-/// crate's build script output.
-pub fn build_identity() -> sikemux_wire::protocol::BuildIdentity {
-    sikemux_core::build::identity(
-        env!("CARGO_PKG_VERSION"),
-        BUILD_COMMIT,
-        env!("SIKEMUX_BUILD_TIME").parse().unwrap_or(0),
-        env!("SIKEMUX_BUILD_SOURCE"),
-    )
-}
+pub use sikemux_buildinfo::{identity as build_identity, COMMIT as BUILD_COMMIT};

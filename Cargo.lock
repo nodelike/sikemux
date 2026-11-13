@@ -9765,6 +9765,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "sikemux-app"
+version = "0.6.1-nightly.17"
+dependencies = [
+ "anyhow",
+ "block2 0.6.2",
+ "core-foundation 0.10.1",
+ "film-frame",
+ "gpui-base",
+ "gpui-component",
+ "gpui-kit",
+ "gpui-native-view",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "gpui-transcript",
+ "image",
+ "libc",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "objc2-web-kit",
+ "serde_json",
+ "sikemux-agents",
+ "sikemux-base",
+ "sikemux-browser",
+ "sikemux-buildinfo",
+ "sikemux-calls",
+ "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-fold",
+ "sikemux-gpui",
+ "sikemux-hostkit",
+ "sikemux-process",
+ "sikemux-view",
+ "sikemux-wire",
+ "tokio",
+]
+
+[[package]]
 name = "sikemux-base"
 version = "0.1.0"
 dependencies = [
@@ -9823,6 +9861,17 @@ dependencies = [
  "workspace-hack",
  "wry",
  "x11",
+]
+
+[[package]]
+name = "sikemux-buildinfo"
+version = "0.6.1-nightly.17"
+dependencies = [
+ "hex",
+ "sha2 0.11.0",
+ "sikemux-corekit",
+ "sikemux-wire",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -10081,7 +10130,6 @@ dependencies = [
  "sikemux-fold",
  "sikemux-git",
  "sikemux-grid",
- "sikemux-host",
  "sikemux-hostkit",
  "sikemux-keychain",
  "sikemux-linked",
@@ -10118,7 +10166,6 @@ name = "sikemux-host"
 version = "0.6.1-nightly.17"
 dependencies = [
  "backtrace",
- "hex",
  "libc",
  "log",
  "reqwest",
@@ -10129,6 +10176,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "sikemux-agents",
+ "sikemux-buildinfo",
  "sikemux-client",
  "sikemux-core",
  "sikemux-hostkit",

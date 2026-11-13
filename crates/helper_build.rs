@@ -6,8 +6,12 @@
 use sha2::{Digest, Sha256};
 
 fn main() {
-    let binaries = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/binaries");
-    println!("cargo:rerun-if-changed={}", binaries.display());
+    let packaging = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging");
+    let binaries = packaging.join("binaries");
+    // Cargo runs a script again on every build while a path it watches is missing, so until
+    // the helpers are built the folder they go in is watched.
+    let watched = if binaries.exists() { &binaries } else { &packaging };
+    println!("cargo:rerun-if-changed={}", watched.display());
     let target = std::env::var("TARGET").unwrap_or_default();
     let asset = format!("{HELPER}-{target}");
     let Ok(bytes) = std::fs::read(binaries.join(&asset)) else {
