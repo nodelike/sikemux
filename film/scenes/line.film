@@ -1,0 +1,38 @@
+# Agents' heavy commands taking turns on the host: some run, the rest wait in line. The title
+# bar's badge says how many wait, its popover lists them, and each waiting agent's row says its place.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer buildRuns 2
+project storefront line-shop
+chat Flint
+title "Fix the rounding in cart totals"
+say "shell pnpm test"
+wait 1
+chat Otter
+title "Check the refund totals"
+say "shell pnpm test"
+wait 1
+chat Maple
+title "Bundle the storefront"
+say "shell pnpm build"
+wait 22
+chat Pike
+title "Tax per country"
+say "shell pnpm test tax"
+wait 1
+chat Wren
+title "Some orders come out a cent off"
+say "shell pnpm build cart"
+wait 1
+chat Birch
+title "Shrink the product images"
+say "shell pnpm build site"
+settle 6
+snap rail
+click 958,17
+settle 2
+snap popover
+move 814,335
+settle 1
+snap go-first

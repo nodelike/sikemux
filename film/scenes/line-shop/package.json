@@ -1,0 +1,8 @@
+{
+  "name": "shop",
+  "private": true,
+  "scripts": {
+    "test": "sh ./hold.sh",
+    "build": "sh ./hold.sh"
+  }
+}
