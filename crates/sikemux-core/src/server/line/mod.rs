@@ -608,7 +608,7 @@ impl Line {
                 }
                 Ok((false, format!(
                     "Not yet: {wants}. You are {} in line for it. Sikemux tells you when it is free; call hold again then, within {} s. Do other work or end your turn meanwhile.",
-                    ordinal(at + 1),
+                    place_word(at + 1),
                     ROOM_KEPT_MS / 1000
                 )))
             }
@@ -1298,7 +1298,7 @@ impl Turn {
         super::triggers::park_in_line(&self.core, agent_id, &project, &cwd, &command);
         Some(format!(
             "Not started: {} in line, {}. Sikemux starts you again when it is your turn.",
-            ordinal(ahead + 1),
+            place_word(ahead + 1),
             about(expected_ms)
         ))
     }
@@ -1428,7 +1428,11 @@ fn joined(
     }
 }
 
-fn ordinal(place: usize) -> String {
+/// A place in line as every screen words it: next, then 2nd, 3rd and so on.
+fn place_word(place: usize) -> String {
+    if place == 1 {
+        return "next".to_owned();
+    }
     let suffix = match (place % 10, place % 100) {
         (1, 11) | (2, 12) | (3, 13) => "th",
         (1, _) => "st",
