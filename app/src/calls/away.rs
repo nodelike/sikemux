@@ -5,7 +5,8 @@ use super::*;
 use sikemux_view::chat::{AwayDecision, AwayLanded, ChiefAway};
 use sikemux_view::turn::TurnStep;
 
-/// The block as the core sent it, with its calls as the device view lists them.
+/// The block as the core sent it, with its calls as the device view lists them: those answered
+/// since it began, then those open.
 #[derive(Clone, PartialEq)]
 pub(crate) struct Away {
     pub(crate) head: ChiefAway,
@@ -39,6 +40,9 @@ pub(super) fn block(
     let open = open_of(&away.head.calls, opened.as_deref(), |id| {
         away.calls.iter().find(|call| call.id == id)
     });
+    let waiting: Vec<&PersonCall> = (away.calls.iter())
+        .filter(|call| call.state == CallState::Open)
+        .collect();
     let queue = open.map(|open| {
         let mark = asker_mark(bench.read(cx), open, FACE, cx);
         let at = 1
@@ -50,7 +54,11 @@ pub(super) fn block(
             of: away.calls.len(),
         };
         let shown = card(open, mark, seat, through, window, cx);
-        let rest: Vec<AnyElement> = (away.calls.iter())
+        let answered: Vec<AnyElement> = (away.calls.iter())
+            .filter(|call| call.state != CallState::Open)
+            .filter_map(|call| answered_row(call, &t))
+            .collect();
+        let rest: Vec<AnyElement> = (waiting.iter())
             .filter(|call| call.id != open.id)
             .map(|call| folded(bench.read(cx), &cards, call, cx))
             .collect();
@@ -58,9 +66,16 @@ pub(super) fn block(
             .flex()
             .flex_col()
             .gap(SPACE_1)
+            .when(!answered.is_empty(), |queue| {
+                queue.child(div().w(px(CARD_WIDTH)).max_w_full().children(answered))
+            })
             .child(panel(&t).child(shown))
             .child(div().w(px(CARD_WIDTH)).max_w_full().children(rest))
     });
+    let needs = match away.calls.len() - waiting.len() {
+        0 => waiting.len().to_string(),
+        _ => t!("{count} left", count = waiting.len()),
+    };
     let decided = (away.head.decided.iter())
         .map(|decision| decided_row(decision, &bench, &target, &t))
         .collect::<Vec<_>>();
@@ -106,24 +121,29 @@ pub(super) fn block(
         .child(head)
         .when_some(queue, |block, queue| {
             block
-                .child(section(t!("Needs you"), away.calls.len(), &t, cx))
+                .child(section(t!("Needs you"), needs, &t, cx))
                 .child(queue)
         })
         .when(!decided.is_empty(), |block| {
             block
-                .child(section(t!("Decided for you"), decided.len(), &t, cx))
+                .child(section(
+                    t!("Decided for you"),
+                    decided.len().to_string(),
+                    &t,
+                    cx,
+                ))
                 .children(decided)
         })
         .when(!landed.is_empty(), |block| {
             block
-                .child(section(t!("Landed"), landed.len(), &t, cx))
+                .child(section(t!("Landed"), landed.len().to_string(), &t, cx))
                 .children(landed)
         })
         .into_any_element()
 }
 
 /// A part's label in spaced capitals, how many it holds, and a rule to the edge.
-fn section(label: &str, count: usize, t: &Tokens, cx: &App) -> AnyElement {
+fn section(label: &str, count: String, t: &Tokens, cx: &App) -> AnyElement {
     div()
         .pt(SPACE_1)
         .flex()
@@ -134,10 +154,46 @@ fn section(label: &str, count: usize, t: &Tokens, cx: &App) -> AnyElement {
             div()
                 .text_size(theme::ui_text(11.))
                 .text_color(t.text_tertiary)
-                .child(count.to_string()),
+                .child(count),
         )
         .child(div().flex_1().h(px(1.)).bg(t.line))
         .into_any_element()
+}
+
+/// A call of the block the person answered, folded to one dim line: what was asked, how they
+/// answered, and how long ago.
+fn answered_row(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
+    let answer = call.answer.as_ref()?;
+    Some(
+        line(t)
+            .pr(px(10.))
+            .text_color(t.text_tertiary)
+            .child(
+                div()
+                    .w(px(20.))
+                    .flex_none()
+                    .flex()
+                    .justify_center()
+                    .child(ui::icon(Icon::Check, 12.).text_color(t.text_tertiary)),
+            )
+            .child(div().min_w_0().truncate().child(call.question.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(60.))
+                    .truncate()
+                    .text_size(theme::ui_text(11.5))
+                    .child(answer_words(call, answer)),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .text_size(theme::ui_text(11.5))
+                    .font_features(theme::tabular())
+                    .child(ui::time::age(answer.at)),
+            )
+            .into_any_element(),
+    )
 }
 
 fn line(t: &Tokens) -> gpui_kit::Div {

@@ -1671,9 +1671,15 @@ pub fn pane(
     let calls = bench.calls_of(chat.target.place(), &agent.id, chat.last_said(cx));
     let head = (chat.state.as_ref()).and_then(|head| head.away.as_ref());
     let away_calls: Vec<&sikemux_view::calls::PersonCall> = (head.iter())
-        .flat_map(|head| head.calls.iter())
-        .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
-        .filter(|call| call.state == sikemux_view::calls::CallState::Open)
+        .flat_map(|head| {
+            let open = (head.calls.iter())
+                .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
+                .filter(|call| call.state == sikemux_view::calls::CallState::Open);
+            let answered = (head.answered.iter())
+                .filter_map(|id| bench.call_at(id).map(|(_, call)| call))
+                .filter(|call| call.state == sikemux_view::calls::CallState::Answered);
+            answered.chain(open)
+        })
         .collect();
     let away = match chat.calls.read(cx).shows_away(head, &away_calls) {
         true => crate::calls::Shown::Same,

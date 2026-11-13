@@ -971,6 +971,7 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
         since,
         back: Some(epoch_ms()),
         calls,
+        answered: Vec::new(),
         decided,
         landed,
     };
@@ -1010,6 +1011,14 @@ pub(crate) fn refresh_away(core: &Core, calls: &[PersonCall]) {
             continue;
         }
         let done = away.until_answered && live.is_empty();
+        let answered = (away.shown.calls.iter())
+            .filter(|id| !live.contains(id))
+            .filter(|id| {
+                (calls.iter()).any(|call| &call.id == *id && call.state == CallState::Answered)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        away.shown.answered.extend(answered);
         away.shown.calls = live;
         let shown = (!done).then(|| away.shown.clone());
         core.chiefs()

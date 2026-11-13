@@ -1820,6 +1820,9 @@ pub struct ChiefAway {
     /// The project's calls open now, by id, oldest first, as the device view lists them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub calls: Vec<String>,
+    /// Its calls the person answered since it began, by id, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answered: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decided: Vec<AwayDecision>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -2388,6 +2388,8 @@ export interface ChiefAway {
     back?: number;
     /** The project's calls open now, by id, oldest first, as the device view lists them. */
     calls?: string[];
+    /** Its calls the person answered since it began, by id, oldest first. */
+    answered?: string[];
     decided?: AwayDecision[];
     landed?: AwayLanded[];
 }

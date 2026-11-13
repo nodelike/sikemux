@@ -17,7 +17,8 @@ use gpui_kit::{
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;
 use sikemux_view::calls::{
-    AnswerCallParams, CallClient, CallKind, CallParams, CallResult, CallState, PersonCall,
+    AnswerCallParams, CallAnswer, CallClient, CallKind, CallParams, CallResult, CallState,
+    PersonCall,
 };
 use sikemux_view::device::DeviceView;
 
@@ -1203,24 +1204,28 @@ fn card_shadow(down: f32, blur: f32, alpha: f32) -> gpui_kit::BoxShadow {
 
 /// What came of a call, in one quiet line where its card stood: what the person said and what
 /// it led to.
-fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
+/// How the person answered `call`, as the line left in its place words it; never the words of a
+/// call that keeps them private.
+fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
     let label = |id: &String| {
         (call.options.iter())
             .find(|option| &option.id == id)
             .map(|option| format!("“{}”", option.label))
     };
-    let answered = call.answer.as_ref().map(|answer| {
-        let picked: Vec<String> = (answer.option.iter())
-            .chain(&answer.options)
-            .filter_map(label)
-            .collect();
-        match (&answer.by, picked.is_empty(), call.secret) {
-            (_, _, true) => t!("You answered, kept private").to_owned(),
-            (CallClient::Chat, ..) => t!("You answered in the chat").to_owned(),
-            (_, false, _) => t!("You chose {options}", options = picked.join(", ")),
-            (_, true, _) => t!("You answered in your own words").to_owned(),
-        }
-    });
+    let picked: Vec<String> = (answer.option.iter())
+        .chain(&answer.options)
+        .filter_map(label)
+        .collect();
+    match (&answer.by, picked.is_empty(), call.secret) {
+        (_, _, true) => t!("You answered, kept private").to_owned(),
+        (CallClient::Chat, ..) => t!("You answered in the chat").to_owned(),
+        (_, false, _) => t!("You chose {options}", options = picked.join(", ")),
+        (_, true, _) => t!("You answered in your own words").to_owned(),
+    }
+}
+
+fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
+    let answered = (call.answer.as_ref()).map(|answer| answer_words(call, answer));
     let outcome = call.outcome.as_ref().and_then(|outcome| {
         Some(match (outcome.result, outcome.healthy) {
             (CallResult::Shipped, Some(true)) => t!("shipped · healthy").to_owned(),

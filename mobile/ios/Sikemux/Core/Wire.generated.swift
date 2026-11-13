@@ -3714,6 +3714,8 @@ struct ChiefAway: Codable, Hashable, Sendable {
     var back: Int?
     /// The project's calls open now, by id, oldest first, as the device view lists them.
     var calls: [String]?
+    /// Its calls the person answered since it began, by id, oldest first.
+    var answered: [String]?
     var decided: [AwayDecision]?
     var landed: [AwayLanded]?
 }
