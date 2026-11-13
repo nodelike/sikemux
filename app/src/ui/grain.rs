@@ -303,19 +303,12 @@ pub fn field(cx: &App) -> Option<AnyElement> {
 }
 
 /// What fills an agent pane's frame: its usual field, crossing over to a new chat's glow as
-/// `glow` runs from 0 to 1. A pane picture shows in the glow's own dots.
+/// `glow` runs from 0 to 1.
 pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
     let field = field_at(cx);
-    let picture = cx
-        .try_global::<Grain>()
-        .filter(|grain| grain.shown && grain.strength > 0.)
-        .and_then(|grain| Some(grain.picture.as_ref()?.1.clone()));
-    let burned = if picture.is_some() { 1. } else { 0. };
-    let picture = picture.unwrap_or_else(blank);
     let accent = Tokens::get(cx).accent.to_rgb();
     let (start, speed) = clock(GLOW_SPEED, cx);
     move |glow| {
-        let picture = picture.clone();
         div()
             .absolute()
             .inset_0()
@@ -337,8 +330,7 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
                             inner_radius(),
                         ]);
                         params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, glow]);
-                        params[8] = burned;
-                        let _ = window.paint_ground_shader(bounds, &GLOW, params, Some(&picture));
+                        let _ = window.paint_ground_shader(bounds, &GLOW, params, None);
                     },
                 )
                 .absolute()
@@ -346,17 +338,6 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
             }))
             .into_any_element()
     }
-}
-
-/// A one-pixel picture for a shader that reads one when there is none to give it.
-fn blank() -> Arc<RenderImage> {
-    static BLANK: OnceLock<Arc<RenderImage>> = OnceLock::new();
-    BLANK
-        .get_or_init(|| {
-            let pixel = image::RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
-            Arc::new(RenderImage::new([image::Frame::new(pixel)]))
-        })
-        .clone()
 }
 
 fn inner_radius() -> f32 {
