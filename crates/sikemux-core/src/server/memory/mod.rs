@@ -897,6 +897,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
 fn said_by_person(core: &Core, agent: &str, rule: &str) -> Result<(), String> {
     const NOT_THEIRS: &str =
         "person: true is for a rule the person said to you in this turn; keep it without person";
+    const ADDED: &str = "Nothing is kept yet: the rule holds words the person did not say. Keep it again with person: true in their own words, without what you added, then keep your additions, such as examples, as a note of your own without person. If they said no such rule, keep it without person. Their rule is not turned down, so don't tell them it was.";
     let said = (core.chats().get(agent))
         .map(|chat| chat.feed.person_said())
         .unwrap_or_default();
@@ -914,7 +915,7 @@ fn said_by_person(core: &Core, agent: &str, rule: &str) -> Result<(), String> {
     let held = rule.iter().filter(|word| said.contains(*word)).count();
     match !rule.is_empty() && held * 2 >= rule.len() {
         true => Ok(()),
-        false => Err(NOT_THEIRS.into()),
+        false => Err(ADDED.into()),
     }
 }
 

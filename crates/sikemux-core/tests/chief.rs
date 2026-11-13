@@ -859,6 +859,67 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_persons_rule_the_agent_added_examples_to_is_kept_as_theirs_once_kept_in_their_words() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "pi", "name": "pi", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "pi".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+
+    // The examples are the agent's own words, escaped so the person's message does not hold them.
+    let examples: String = "document RemoteWatcher, allow scripts to declare tools/console"
+        .chars()
+        .map(|c| format!("\\u{:04x}", c as u32))
+        .collect();
+    let said = "In pi, commit messages say what changed in the present tense";
+    let with_examples = format!(
+        r#"tool memory.add {{"kind":"rule","person":true,"text":"{said} (e.g. {examples})."}}"#
+    );
+    let refused = worker.says(&with_examples, "tool ").await;
+    assert!(refused.contains("in their own words"), "{refused}");
+    assert!(refused.contains("don't tell them"), "{refused}");
+
+    let kept = worker
+        .tool(
+            "memory.add",
+            json!({ "kind": "rule", "person": true, "text": format!("{said}.") }),
+        )
+        .await;
+    assert!(kept.contains("as the person's rule"), "{kept}");
+    worker
+        .chat
+        .until(|chat| chat.notices().iter().any(|title| title == "Kept as a rule"))
+        .await;
+}
+
 const UNWRAP: &str = "Never call unwrap outside tests";
 const PUSH: &str = "Never push to main without a review";
 
