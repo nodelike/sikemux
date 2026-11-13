@@ -687,6 +687,7 @@ mod tests {
                 restored: false,
                 back_by: None,
             }),
+            decided: None,
         };
         let chip = WhyChip {
             href: "sikemux://why/commit/c0ffee1234".into(),
