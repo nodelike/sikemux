@@ -76,6 +76,8 @@ pub(crate) fn brief(core: &Core, cwd: &std::path::Path) -> String {
 pub(crate) struct Chiefs {
     kept: Kept,
     state: Mutex<Saved>,
+    /// The rule lines put in an agent's own chat, where a project has no chief, by their key.
+    lines_in_chats: Mutex<HashMap<String, (String, RuleChange)>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -154,7 +156,11 @@ impl Chiefs {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, FILE);
         let state = Mutex::new(kept.load());
-        Self { kept, state }
+        Self {
+            kept,
+            state,
+            lines_in_chats: Mutex::default(),
+        }
     }
 
     fn change<T>(&self, change: impl FnOnce(&mut Saved) -> T) -> T {
@@ -1151,15 +1157,53 @@ pub(crate) fn rule_back(core: &Core, line: RuleChange, agent: &str) {
 fn rule_line(core: &Core, line: RuleChange, title: &str, agent: &str) {
     let key = rule_key(&line.project, line.rule);
     let chief = chief_at(core, &line.project);
-    let update = sikemux_fold::update::rule_change_notice(title, line);
     match chief {
-        Some(chief) => put_row(core, &chief, key, update),
-        None => {
-            if let Some(feed) = core.chats().heard(agent) {
-                emit_row(&feed, agent, update, epoch_ms());
-            }
+        Some(chief) => {
+            let update = sikemux_fold::update::rule_change_notice(title, line);
+            put_row(core, &chief, key, update);
+        }
+        None => in_chat(core, key, line, title, agent),
+    }
+}
+
+fn in_chat(core: &Core, key: String, line: RuleChange, title: &str, agent: &str) {
+    let update = sikemux_fold::update::rule_change_notice(title, line.clone());
+    (core.chiefs().lines_in_chats.locked()).insert(key, (agent.to_owned(), line));
+    if let Some(feed) = core.chats().heard(agent) {
+        emit_row(&feed, agent, update, epoch_ms());
+    }
+}
+
+/// Marks as back each line of `project` that `back` picks and that still offers Undo, in the
+/// chief's chat or the agent's that holds it: its rule came back by another way.
+pub(crate) fn rule_lines_back(core: &Core, project: &str, back: impl Fn(&RuleChange) -> bool) {
+    let picked = |line: &RuleChange| line.project == project && !line.restored && back(line);
+    if let Some(chief) = chief_at(core, project) {
+        let lines = core.chiefs().read(&chief, |seat| {
+            (seat.rows.iter())
+                .filter_map(|row| serde_json::from_value(row.update["ruleChange"].clone()).ok())
+                .filter(|line| picked(line))
+                .collect::<Vec<RuleChange>>()
+        });
+        for mut line in lines.unwrap_or_default() {
+            line.restored = true;
+            let key = rule_key(project, line.rule);
+            put_row(core, &chief, key, rule_back_notice(line));
         }
     }
+    let in_chats: Vec<(String, String, RuleChange)> =
+        (core.chiefs().lines_in_chats.locked().iter())
+            .filter(|(_, (_, line))| picked(line))
+            .map(|(key, (agent, line))| (key.clone(), agent.clone(), line.clone()))
+            .collect();
+    for (key, agent, mut line) in in_chats {
+        line.restored = true;
+        in_chat(core, key, line, "Rule back", &agent);
+    }
+}
+
+fn rule_back_notice(line: RuleChange) -> Value {
+    sikemux_fold::update::rule_change_notice("Rule back", line)
 }
 
 fn rule_key(project: &str, rule: u64) -> String {

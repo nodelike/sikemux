@@ -302,7 +302,7 @@ pub(super) fn bring_back_words(
 }
 
 /// The person keeps `new` as a rule when the same words are kept already, as an Undo on a line
-/// whose rule came back another way does: the line in the chief's chat says it is back.
+/// whose rule came back another way does: the line that offered it says it is back.
 pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> bool {
     let super::NewMemory::Rule {
         text,
@@ -314,23 +314,15 @@ pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> 
         return false;
     };
     let same = crate::text::one_line(text);
-    let kept = {
-        let state = core.memory().state.locked();
-        let found = (state.applying(project))
-            .flat_map(|held| held.rules.iter())
-            .find(|rule| rule.learned.agent.is_none() && crate::text::one_line(&rule.text) == same)
-            .cloned();
-        found
-    };
-    let Some(rule) = kept else {
-        return false;
-    };
-    if let Some(chief) = crate::server::chief::chief_at(core, project) {
-        let mut back = line(core, project, &rule, &chief, None, None);
-        back.restored = true;
-        crate::server::chief::rule_back(core, back, &chief);
+    let kept = (core.memory().state.locked().applying(project))
+        .flat_map(|held| held.rules.iter())
+        .any(|rule| rule.learned.agent.is_none() && crate::text::one_line(&rule.text) == same);
+    if kept {
+        crate::server::chief::rule_lines_back(core, project, |line| {
+            line.was.is_none() && line.text == same
+        });
     }
-    true
+    kept
 }
 
 /// Brings rule `id` of the person's back to the list, unless the same words are kept again

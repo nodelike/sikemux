@@ -525,7 +525,7 @@ fn change(
         .get_mut(&folder)
         .ok_or("the folder went while it was being changed")?;
     let mut stale_moved = false;
-    let (mut line, mut back) = (None, None);
+    let (mut line, mut back, mut undone_already) = (None, None, None);
     if let Some(rule) = held.rules.iter_mut().find(|rule| rule.id == id) {
         let rule_change =
             wrong.is_none() && about.is_none() && check.is_none() && !update.drop_check;
@@ -577,6 +577,9 @@ fn change(
                 let put_back = (rule.was.clone()).filter(|was| crate::text::one_line(was) == flat);
                 let was = std::mem::replace(&mut rule.text, put_back.clone().unwrap_or(text));
                 let changed_by = (rule.learned.with.as_ref()).map(|with| with.agent.clone());
+                if put_back.is_none() && flat == crate::text::one_line(&was) {
+                    undone_already = Some(flat);
+                }
                 back = put_back.and(changed_by);
                 rule.learned = by;
                 rule.was = Some(was);
@@ -646,6 +649,11 @@ fn change(
             line.restored = true;
             crate::server::chief::rule_back(core, line, &agent);
         }
+    }
+    if let Some(words) = undone_already {
+        crate::server::chief::rule_lines_back(core, project, |line| {
+            line.rule == id && line.was.as_deref() == Some(words.as_str())
+        });
     }
     Ok(())
 }
