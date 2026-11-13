@@ -573,21 +573,26 @@ pub(crate) async fn run<B: Backend>(
     running.chat.rotation.runs_on(running.footing());
     running.opened(replay).await;
     let end = loop {
-        if !running.chat.prompted() && commands.is_empty() {
-            running.ready_rotation().await;
-        }
+        let held = if !running.chat.prompted() && commands.is_empty() {
+            running.ready_rotation(commands).await
+        } else {
+            None
+        };
         running.rest();
         // What the agent already said is taken in before the next command,
         // so a turn's failure or end is never cut off by letting go of the
         // agent.
-        let woke = tokio::select! {
-            biased;
-            Some(reason) = broken_rx.recv() => Woke::Broken(reason),
-            Some(failed) = failed_rx.recv() => Woke::Failed(failed),
-            Some(stalled) = stalled_rx.recv() => Woke::Stalled(stalled),
-            Some(settled) = settled_rx.recv() => Woke::Settled(settled),
-            reason = running.backend.closed() => Woke::Closed(reason),
-            command = commands.recv() => Woke::Command(command),
+        let woke = match held {
+            Some(command) => Woke::Command(command),
+            None => tokio::select! {
+                biased;
+                Some(reason) = broken_rx.recv() => Woke::Broken(reason),
+                Some(failed) = failed_rx.recv() => Woke::Failed(failed),
+                Some(stalled) = stalled_rx.recv() => Woke::Stalled(stalled),
+                Some(settled) = settled_rx.recv() => Woke::Settled(settled),
+                reason = running.backend.closed() => Woke::Closed(reason),
+                command = commands.recv() => Woke::Command(command),
+            },
         };
         running.chat.at_rest.store(false, Ordering::Release);
         let next = match woke {
@@ -661,9 +666,13 @@ impl<B: Backend> Running<'_, B> {
     }
 
     /// At rest after a turn, a session grown full writes its handoff note now, while its cache
-    /// is warm; the fresh session starts with the next message. Once a fresh session has
+    /// is warm; the fresh session starts with the next message. A command that comes meanwhile
+    /// stops the note and is answered with, to be taken next. Once a fresh session has
     /// answered a message, the chat goes on in it; until then each message carries its brief.
-    async fn ready_rotation(&mut self) {
+    async fn ready_rotation(
+        &mut self,
+        commands: &mut mpsc::UnboundedReceiver<ChatCommand>,
+    ) -> Option<Option<ChatCommand>> {
         if self.fresh_from.is_some() && self.chat.rotation.fresh_answered() {
             let from = self.fresh_from.take();
             self.rotation_brief = None;
@@ -673,17 +682,26 @@ impl<B: Backend> Running<'_, B> {
                 self.chat.emit(ChatEventKind::Ready, json!(start));
             }
         }
-        let Some(core) = self.chat.core.upgrade() else {
-            return;
-        };
+        let core = self.chat.core.upgrade()?;
         let session = self.state.session_id.clone();
         if self.chat.state_now() != AgentState::Idle
             || !rotation::full_at_rest(&core, &self.chat, &session)
         {
-            return;
+            return None;
         }
-        let note = self.backend.handoff().await.ok();
+        let mut held = None;
+        let note = tokio::select! {
+            note = self.backend.handoff() => note.ok(),
+            command = commands.recv() => {
+                held = Some(command);
+                None
+            }
+        };
+        if held.is_some() {
+            self.backend.end_handoff().await;
+        }
         rotation::readied(&self.chat, &session, note);
+        held
     }
 
     /// Starts a fresh session under the chat as a message is about to start a turn, when the old
