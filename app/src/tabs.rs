@@ -9,6 +9,7 @@ use sikemux_core::server::layout::TabsParams;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::ProjectLayout;
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -19,7 +20,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, ClickEvent, ClipboardItem, Context, FontWeight, InteractiveElement,
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity,
-    Window, WindowControlArea,
+    Window, WindowControlArea, WindowId,
 };
 use sikemux_view::layout::{Pane, PaneKind, Tab as LayoutTab};
 use sikemux_wire::pty::shell_protocol::SshLink;
@@ -44,9 +45,15 @@ const TAB_ROW_HEIGHT: f32 = 42.;
 const ROOMY_BAR: f32 = 1360.;
 
 thread_local! {
-    /// How wide the chips at the bar's right end were last drawn, which the place in the middle
-    /// keeps clear of.
-    static CHIPS_WIDTH: std::cell::Cell<f32> = const { std::cell::Cell::new(0.) };
+    /// How wide the chips at each window's bar's right end were last drawn, which the place in
+    /// the middle keeps clear of.
+    static CHIPS_WIDTH: std::cell::RefCell<HashMap<WindowId, f32>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+fn chips_width(window: &Window) -> f32 {
+    let id = window.window_handle().window_id();
+    CHIPS_WIDTH.with_borrow(|widths| widths.get(&id).copied().unwrap_or(0.))
 }
 
 /// How tall the bar and, when a place has tabs, the row of them under it stand.
@@ -79,8 +86,9 @@ pub fn top_bar(
             let chips = bounds
                 .last()
                 .map_or(0., |chips| f32::from(chips.size.width));
-            if (CHIPS_WIDTH.get() - chips).abs() > 0.5 {
-                CHIPS_WIDTH.set(chips);
+            if (chips_width(window) - chips).abs() > 0.5 {
+                let id = window.window_handle().window_id();
+                CHIPS_WIDTH.with_borrow_mut(|widths| widths.insert(id, chips));
                 ui::redraw_after_paint(window, cx);
             }
         })
@@ -100,7 +108,7 @@ pub fn top_bar(
         .child(div().flex_1())
         .child(crate::hosts::top_place::view(
             bench,
-            px(CHIPS_WIDTH.get()) + SPACE_2,
+            px(chips_width(window)) + SPACE_2,
             cx,
         ))
         .child(
