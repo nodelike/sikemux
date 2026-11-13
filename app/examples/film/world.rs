@@ -31,7 +31,7 @@ impl World {
     ) -> anyhow::Result<Self> {
         let work = &args.work;
         let home = work.join("home");
-        let claude = work.join("claude");
+        let claude = home.join(".claude");
         for folder in [&home, &claude, &work.join("data")] {
             std::fs::create_dir_all(folder)?;
         }
@@ -131,14 +131,14 @@ impl World {
             }
         };
         let profile = json!({
-            "id": "fake", "provider": "claude", "accent": "#d97757",
+            "id": "builtin-claude", "provider": "claude", "accent": "#d97757",
             "name": args.world["account"]["name"].as_str().unwrap_or("Claude"),
             "executablePath": args.claude, "configPath": claude,
         });
         runtime.block_on(client.call("setAgentAccounts", json!({ "profiles": [profile] })))?;
         runtime.block_on(client.call(
             "selectAgentAccount",
-            json!({ "provider": "claude", "id": "fake" }),
+            json!({ "provider": "claude", "id": "builtin-claude" }),
         ))?;
         let version = client.hello().build.version.clone();
         let mut preferences = vec![
@@ -314,7 +314,7 @@ impl World {
         let agents: Vec<&Value> = world["agents"].as_array().into_iter().flatten().collect();
         for agent in &agents {
             let (chat, _) = self.runtime.block_on(self.client.start_chat(
-                "claude:fake".into(),
+                "claude:builtin-claude".into(),
                 agent["project"].as_str().unwrap_or(project).to_owned(),
                 None,
             ))?;
@@ -477,7 +477,7 @@ impl World {
             "chat" => {
                 let (project, _) = self.project()?.clone();
                 let (chat, _) = self.runtime.block_on(self.client.start_chat(
-                    "claude:fake".into(),
+                    "claude:builtin-claude".into(),
                     project.clone(),
                     None,
                 ))?;

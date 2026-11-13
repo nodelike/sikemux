@@ -20,10 +20,11 @@
     ]
   },
   {
-    "when": "open vercel.com",
+    "when": "open the cart",
     "steps": [
-      { "say": "Opening vercel.com in my tab.", "perSecond": 20 },
-      { "tool": "mcp__sikemux-tools__browser_navigate", "call": "browser.navigate", "input": { "url": "https://vercel.com/" }, "ms": 1200 }
+      { "say": "Starting the site on 5173 and opening the cart in my tab.", "perSecond": 20 },
+      { "tool": "mcp__sikemux-tools__process_start", "call": "process.start", "input": { "processId": "run", "idempotencyKey": "site" }, "ms": 1500 },
+      { "tool": "mcp__sikemux-tools__browser_navigate", "call": "browser.navigate", "input": { "url": "http://localhost:5173/cart.html" }, "ms": 1200 }
     ]
   },
   {
