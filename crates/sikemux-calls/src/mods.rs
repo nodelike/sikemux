@@ -107,6 +107,24 @@ pub struct BridgeParams {
     pub project: Option<String>,
 }
 
+/// A change made to a mod's data, as its pane shows it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModChange {
+    pub collection: String,
+    /// The document's id.
+    pub id: String,
+    /// Which change it was, for undoing it.
+    pub version: i64,
+    /// "person", or the id of the agent that made it.
+    pub by: String,
+    /// What the agent is called now.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// When, in milliseconds since 1970.
+    pub at: u64,
+}
+
 /// How a mod's write went: done, or waiting on the person to allow what its manifest declares.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

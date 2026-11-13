@@ -4,6 +4,7 @@
 
 mod bridge;
 mod data;
+mod schema;
 pub use bridge::{BridgeParams, BridgeWrite};
 pub use sikemux_calls::mods::{change_prompt, follows, make_prompt, Moved};
 
@@ -11,8 +12,8 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 pub use sikemux_calls::mods::{
-    AllowParams, BadgeParams, ModExample, ModInfo, ModList, ModPage, ModParams, OffParams,
-    PinModParams,
+    AllowParams, BadgeParams, ModChange, ModExample, ModInfo, ModList, ModPage, ModParams,
+    OffParams, PinModParams,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -30,6 +31,7 @@ use super::skill_library::{resolved, watch_target};
 use super::{Core, CoreError, CoreResult};
 
 pub(super) use bridge::{read, write};
+pub(super) use data::{tool_read, tool_write};
 
 /// The mods Sikemux ships for the person to copy into their mods folder and change: each
 /// one's id, `mod.json` and `index.html`.
@@ -50,6 +52,16 @@ const MAX_NAME_CHARS: usize = 60;
 const MAX_DESCRIPTION_CHARS: usize = 400;
 const MAX_DECLARED: usize = 64;
 
+/// A collection of the mod's own data, as its `mod.json` describes it.
+#[derive(Deserialize)]
+struct Collection {
+    #[serde(default)]
+    description: Option<String>,
+    /// A JSON Schema each of its documents must match, in the subset `schema` checks.
+    #[serde(default)]
+    schema: Option<serde_json::Value>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Manifest {
@@ -62,6 +74,8 @@ struct Manifest {
     reads: Vec<String>,
     #[serde(default)]
     writes: Vec<String>,
+    #[serde(default)]
+    collections: BTreeMap<String, Collection>,
 }
 
 /// What the person decided about the mods, kept in the data folder rather than beside the mods,
@@ -164,6 +178,26 @@ fn read_manifest(folder: &Path) -> Result<Manifest, String> {
         declared.truncate(MAX_DECLARED);
         declared.sort();
         declared.dedup();
+    }
+    if manifest.collections.len() > MAX_DECLARED {
+        return Err(format!(
+            "its {MANIFEST} names more than {MAX_DECLARED} collections"
+        ));
+    }
+    for (name, collection) in &mut manifest.collections {
+        if !data::is_name(name) {
+            return Err(format!(
+                "its {MANIFEST} names a collection \"{name}\"; a collection is named with 1 to 64 letters, digits, dashes, underscores or dots"
+            ));
+        }
+        if let Some(problem) = (collection.schema.as_ref())
+            .and_then(|found| schema::unsupported(found, &format!("collections.{name}.schema")))
+        {
+            return Err(format!("in its {MANIFEST}, {problem}"));
+        }
+        collection.description = (collection.description.take())
+            .map(|said| said.trim().chars().take(MAX_DESCRIPTION_CHARS).collect())
+            .filter(|said: &String| !said.is_empty());
     }
     Ok(manifest)
 }
@@ -332,6 +366,19 @@ fn mod_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
         return Err("that is not a mod's id".into());
     }
     Ok(core.mods().folder()?.join(id))
+}
+
+/// The last change to the mod's data, when an agent made it.
+pub(super) async fn changed(core: &Arc<Core>, params: ModParams) -> CoreResult<Option<ModChange>> {
+    let last = data::changed_by_agent(core, &params.id).await?;
+    Ok(last.map(|last| ModChange {
+        collection: last.collection,
+        id: last.id,
+        version: last.version,
+        by: last.by,
+        name: last.name,
+        at: last.at,
+    }))
 }
 
 /// The name of the mod `id`, when it can show, for an agent opening it.

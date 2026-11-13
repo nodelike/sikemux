@@ -53,6 +53,8 @@ pub const HARNESS_METHODS: &[&str] = &[
     "process.stop",
     "line.hold",
     "ui.open",
+    "mod.read",
+    "mod.write",
     "page.show",
     "events.wait",
     "agent.list",

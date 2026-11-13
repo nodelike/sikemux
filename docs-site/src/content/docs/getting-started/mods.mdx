@@ -33,7 +33,7 @@ A mod reads only what its `mod.json` names, and never sees your sign-ins: Sikemu
 
 A mod that changes something, such as messaging an agent, adding a card to the agent board or re-running a CI run, names that in its `mod.json` as well. The first time it tries, Sikemux lists everything it may change and asks you once. **Allow** holds until its `mod.json` asks for more. **Take back writes** in **Settings → Mods** withdraws it.
 
-A mod keeps its own data with no declaration and no asking, since it can reach only its own (see [Keeping data](#keeping-data)). Removing a mod forgets its data too.
+A mod keeps its own data with no declaration and no asking, since it can reach only its own (see [Keeping data](#keeping-data)). Your agents can read and change any mod's data too, with no asking, and every change keeps who made it so you can undo it. Removing a mod forgets its data too.
 
 A mod whose tab is out of sight stops reading and its timers pause, so a mod left open does not slow your agents.
 
@@ -90,10 +90,44 @@ A mod keeps its own documents on your host, apart from its folder, so they stay 
 | Call | What it does |
 | ---- | ------------ |
 | `sikemux.data.get(collection, id)` | Resolves with the document, or `null`. |
-| `sikemux.data.list(collection)` | Resolves with the collection's documents as `[{ id, doc }]`, ordered by id. |
+| `sikemux.data.list(collection)` | Resolves with the collection's documents as `[{ id, doc, by, name, at }]`, ordered by id. `by` is `"person"` or the id of the agent that changed it last, `name` that agent's name, and `at` when, in milliseconds. |
 | `sikemux.data.set(collection, id, doc)` | Replaces the document whole, and resolves with it. |
 | `sikemux.data.patch(collection, id, patch)` | Changes some of its fields as a JSON Merge Patch: a field set to `null` goes. Makes the document if it has none. Resolves with the document after. |
 | `sikemux.data.remove(collection, id)` | Removes the document. |
+| `sikemux.data.history(collection, id)` | Resolves with the changes kept for the document, or for the whole collection without `id`, newest first, as `[{ version, id, by, name, at, was, existed }]`. `was` holds the fields the change touched as they were before it, `null` for one that was not there. |
+| `sikemux.data.undo(collection, id, version)` | Puts back the fields change `version` touched as they were before it, or removes the document again if that change made it. The undo is a change of its own, so it can be undone too. |
 | `sikemux.watch("data", { collection }, callback)` | Calls `callback(documents)` now and whenever the collection changes, as `list` gives it, from any pane or window. |
 
 Collections and ids are 1 to 64 letters, digits, dashes, underscores or dots, not starting with a dot. Sikemux keeps a record of when each field of a document last changed, and of fields taken out, and that record counts toward its size: a document holds at most 60 KiB with it, and a mod at most 10,000 documents and 16 MiB. Setting a document whole drops the record of fields taken out before. A document with no fields left is removed.
+
+Sikemux keeps the last 200 changes of each mod for 30 days, with who made each one.
+
+### Collections and schemas
+
+`mod.json` may describe its collections, each with a JSON Schema its documents must match:
+
+```json
+{
+  "name": "Posts",
+  "collections": {
+    "posts": {
+      "description": "One draft a day, by date.",
+      "schema": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "maxLength": 280 },
+          "posted": { "type": "boolean" },
+          "channel": { "enum": ["x", "discord"] }
+        }
+      }
+    }
+  }
+}
+```
+
+Every write is checked against its collection's schema, from the page and from agents alike, and one that does not match is refused with the field and the reason, such as `posts/3: field posted must be boolean, not string`. A schema may use `type`, `properties`, `required`, `enum`, `items`, `additionalProperties`, `minimum`, `maximum` and `maxLength`, with `description` and `title` as notes; a mod whose schema uses anything else does not open, and Settings says which word it used. A collection with no schema takes any object.
+
+### Agents
+
+Agents read a mod's data with `mod_read`: with only the mod's id it gives the mod's collections, their schemas and how many documents each holds, and with a collection or an id it gives the documents. They change it with `mod_write`, a list of writes made all together or not at all, each checked against the schema as the page's are.

@@ -195,6 +195,7 @@ crate::calls! {
     "modPage" ModPage (crate::mods::ModParams) -> crate::mods::ModPage;
     "modRead" ModRead (crate::mods::BridgeParams) -> serde_json::Value;
     "modWrite" ModWrite (crate::mods::BridgeParams) -> crate::mods::BridgeWrite;
+    "modChanged" ModChanged (crate::mods::ModParams) -> Option<crate::mods::ModChange>;
     "allowMod" AllowMod (crate::mods::AllowParams) -> ();
     "setModBadge" SetModBadge (crate::mods::BadgeParams) -> ();
     "pinMod" PinMod (crate::mods::PinModParams) -> ();
