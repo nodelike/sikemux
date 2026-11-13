@@ -24,7 +24,7 @@ use crate::chat::model_picker::Picked;
 use crate::icons::Icon;
 use crate::motion::{Curve, Ease};
 use crate::theme::{
-    self, Tokens, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4,
+    self, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4,
     TEXT_2XS, TEXT_2XS_H, TEXT_3XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, DockMenu, IconButton};
@@ -529,7 +529,7 @@ impl RenderOnce for Composer {
                     .relative()
                     .w_full()
                     .max_w(super::column::composer(cx))
-                    .rounded(theme::RADIUS_3)
+                    .rounded(theme::radius_3())
                     .child(
                         div()
                             .relative()
@@ -546,7 +546,7 @@ impl RenderOnce for Composer {
                             } else {
                                 edge
                             })
-                            .rounded(theme::RADIUS_3)
+                            .rounded(theme::radius_3())
                             .bg(fill)
                             .backdrop_blur(px(COMPOSER_BLUR))
                             .children(tiles)
@@ -866,7 +866,7 @@ fn stash_button(fresh: usize, open: bool, toggle: Act, room: Room, cx: &App) -> 
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS_H))
         .font_weight(FontWeight::MEDIUM)
         .text_color(if open {
@@ -1376,7 +1376,7 @@ fn context_meter(
                 .px(SPACE_3)
                 .pt(SPACE_2H)
                 .pb(px(11.))
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .bg(t.surface_overlay)
                 .border_1()
                 .border_color(t.border)
@@ -1649,7 +1649,7 @@ fn send(
         .flex()
         .items_center()
         .justify_center()
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .bg(t.text_primary)
         .when(!stopping && !drafted, |button| button.opacity(0.28))
         .when_some(about, |button, about| button.tooltip(ui::tooltip(about)))

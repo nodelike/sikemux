@@ -102,7 +102,7 @@ pub fn popup(width: f32, cx: &App) -> Div {
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .shadow(t.shadow_float())
 }
 
@@ -136,7 +136,7 @@ pub fn row<V: 'static>(
         .gap(SPACE_2)
         .h(px(28.))
         .px(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .cursor_pointer()
         .when(chosen, |row| row.bg(t.surface_hover));
     hover_chooses(row, at, list, choose)

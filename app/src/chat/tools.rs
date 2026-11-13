@@ -405,7 +405,7 @@ pub fn run(
         .gap(SPACE_2)
         .max_w_full()
         .font_family(theme::UI)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .cursor_pointer()
         .hover(move |sum| sum.bg(hover).text_color(ink))
         .child(label)
@@ -633,7 +633,7 @@ fn row(
                 .bottom_0()
                 .left(px(13.))
                 .right_0()
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .when(opens, |fill| {
                     fill.group_hover(group.clone(), |fill| fill.bg(looks.hover))
                 }),

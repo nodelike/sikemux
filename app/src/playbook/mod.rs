@@ -497,7 +497,7 @@ pub fn pane(
             .gap(SPACE_2)
             .h(px(28.))
             .px(SPACE_2)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .text_size(crate::theme::ui_text(TEXT_SM))
             .text_color(ink)
             .when(on, |row| row.bg(t.surface_chosen))

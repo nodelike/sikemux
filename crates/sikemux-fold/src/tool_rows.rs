@@ -894,6 +894,28 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "theme_read",
+        Spec {
+            verb: "read",
+            kind: "read",
+            icon: "highlighter",
+            target: &["{theme}", "the themes"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
+        "theme_set",
+        Spec {
+            verb: "restyle",
+            kind: "edit",
+            icon: "highlighter",
+            target: &["{theme}", "Sikemux"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "aws_profiles",
         Spec {
             verb: "list",

@@ -7,8 +7,8 @@ use base64::Engine;
 use sikemux_grid::TerminalColors;
 use sikemux_view::prefs::{Preferences, DEFAULT_THEME_ID};
 use sikemux_view::theme::{
-    Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSource, ThemeSummary,
-    ThemeTerminal, UiTokens,
+    Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSource, ThemeStyle,
+    ThemeSummary, ThemeTerminal, UiStyle, UiTokens,
 };
 
 struct Catalogue {
@@ -61,10 +61,29 @@ pub fn default_palette() -> Palette {
 }
 
 pub fn palette(preferences: &Preferences, omarchy: Option<&Theme>) -> Palette {
-    let theme = resolve(preferences, omarchy);
-    Palette {
-        tokens: tokens(&theme),
-        theme,
+    palette_of(resolve(preferences, omarchy))
+}
+
+/// The theme with `id` among every theme to pick from.
+pub fn find(preferences: &Preferences, omarchy: Option<&Theme>, id: &str) -> Option<Theme> {
+    let catalogue = catalogue();
+    (preferences.custom_themes.iter())
+        .chain(omarchy)
+        .chain(&catalogue.sikemux)
+        .chain(&catalogue.ghostty)
+        .find(|theme| theme.id == id)
+        .cloned()
+}
+
+/// DESIGN.md's corner radii at a theme's corners.
+fn style(theme: &Theme) -> UiStyle {
+    let corners = theme.style.corners.clamp(0., MOST_CORNERS);
+    UiStyle {
+        corners,
+        radius1: 4. * corners,
+        radius2: 5. * corners,
+        radius3: 10. * corners,
+        radius4: 14. * corners,
     }
 }
 
@@ -278,19 +297,137 @@ fn from_oklab([l, a, b]: [f64; 3]) -> [f64; 3] {
     ]
 }
 
-/// The tokens by name, as a device view carries them to phones.
-pub fn by_name(tokens: &UiTokens) -> std::collections::BTreeMap<String, String> {
-    serde_json::to_value(tokens)
-        .ok()
-        .and_then(|value| serde_json::from_value(value).ok())
-        .unwrap_or_default()
+/// The colours and corner radii by name, as a device view carries them to phones.
+pub fn by_name(palette: &Palette) -> std::collections::BTreeMap<String, String> {
+    let mut named: std::collections::BTreeMap<String, String> =
+        serde_json::to_value(&palette.tokens)
+            .ok()
+            .and_then(|value| serde_json::from_value(value).ok())
+            .unwrap_or_default();
+    let s = &palette.style;
+    for (name, radius) in [
+        ("radius1", s.radius1),
+        ("radius2", s.radius2),
+        ("radius3", s.radius3),
+        ("radius4", s.radius4),
+    ] {
+        named.insert(name.to_owned(), radius.to_string());
+    }
+    named
 }
 
-/// The palette an unsaved theme would draw with, for a theme editor's preview.
+/// The palette a theme draws with, saved or not, as a theme editor previews it.
 pub fn palette_of(theme: Theme) -> Palette {
     Palette {
         tokens: tokens(&theme),
+        style: style(&theme),
         theme,
+    }
+}
+
+/// The roundest a theme's corners can be, as a share of the default.
+pub const MOST_CORNERS: f64 = 2.;
+/// The most themes of the person's own that are kept.
+pub const MOST_CUSTOM_THEMES: usize = 64;
+/// The longest a theme's id or name can be, in characters.
+pub const MOST_NAME_CHARS: usize = 64;
+/// How readable a theme's ink must be on its ground, as a contrast ratio.
+pub const LEAST_INK_CONTRAST: f64 = 4.5;
+
+/// `theme` with every colour parsed and written again as `#rrggbb` or `rgba()`, and its style
+/// within range, with what was changed to fit; or why it cannot be a theme at all.
+pub fn checked(theme: Theme) -> Result<(Theme, Vec<String>), String> {
+    let fits = |text: &str| !text.trim().is_empty() && text.chars().count() <= MOST_NAME_CHARS;
+    if !fits(&theme.name) {
+        return Err(format!(
+            "a theme's name is 1 to {MOST_NAME_CHARS} characters"
+        ));
+    }
+    let id_fits = fits(&theme.id)
+        && (theme.id.chars()).all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+    if !id_fits {
+        return Err(format!(
+            "a theme's id is 1 to {MOST_NAME_CHARS} letters, digits, dashes, dots or underscores"
+        ));
+    }
+    let mut clamped = Vec::new();
+    let mut value = serde_json::to_value(&theme).map_err(|error| error.to_string())?;
+    for part in ["chrome", "editor", "highlight", "terminal"] {
+        let Some(colours) = value.get_mut(part).and_then(|part| part.as_object_mut()) else {
+            continue;
+        };
+        for (key, colour) in colours.iter_mut() {
+            let written = colour.as_str().and_then(written);
+            let Some(written) = written else {
+                return Err(format!(
+                    "{part}.{key} is {colour}, not a colour: use #rrggbb, #rrggbbaa, rgb(), rgba() or transparent"
+                ));
+            };
+            *colour = written.into();
+        }
+    }
+    let mut theme: Theme = serde_json::from_value(value).map_err(|error| error.to_string())?;
+    let corners = theme.style.corners;
+    let within = ((corners.clamp(0., MOST_CORNERS)) * 100.).round() / 100.;
+    if within != corners {
+        clamped.push(format!(
+            "style.corners {corners} is outside 0 to {MOST_CORNERS}, used {within}"
+        ));
+        theme.style.corners = within;
+    }
+    Ok((theme, clamped))
+}
+
+/// The id a theme saved by an agent under `name` keeps, so saving the same name again replaces it.
+pub fn custom_id(name: &str) -> String {
+    format!("custom-{}", slugify(name))
+}
+
+/// Refuses a theme whose ink would be hard to read on its ground.
+pub fn ink_reads(theme: &Theme) -> Result<(), String> {
+    let (ink, ground) = (hex(&theme.chrome.ink), hex(&theme.chrome.bg));
+    let ratio = ink
+        .zip(ground)
+        .map_or(0., |(ink, ground)| contrast(ink, ground));
+    if ratio < LEAST_INK_CONTRAST {
+        return Err(format!(
+            "chrome.ink on chrome.bg is {ratio:.1}:1, and needs {LEAST_INK_CONTRAST}:1 to read"
+        ));
+    }
+    Ok(())
+}
+
+/// A colour as a theme may write it, written back the one way the core writes it; none for
+/// anything else, such as a `url()` that would fetch a file.
+fn written(colour: &str) -> Option<String> {
+    let colour = colour.trim();
+    if colour == "transparent" {
+        return Some(show([0.; 4]));
+    }
+    if let Some(digits) = colour.strip_prefix('#') {
+        let hex_digits = digits.chars().all(|digit| digit.is_ascii_hexdigit());
+        return (hex_digits && matches!(digits.len(), 3 | 6 | 8)).then(|| show(rgba(colour)));
+    }
+    let inside = colour
+        .strip_prefix("rgba(")
+        .or_else(|| colour.strip_prefix("rgb("))?
+        .strip_suffix(')')?;
+    let parts: Vec<f64> = inside
+        .split(',')
+        .map(|part| {
+            part.trim()
+                .parse()
+                .ok()
+                .filter(|value: &f64| value.is_finite())
+        })
+        .collect::<Option<_>>()?;
+    let channels = |values: &[f64]| values.iter().all(|value| (0. ..=255.).contains(value));
+    match parts.as_slice() {
+        [r, g, b] if channels(&[*r, *g, *b]) => Some(show([r / 255., g / 255., b / 255., 1.])),
+        [r, g, b, a] if channels(&[*r, *g, *b]) && (0. ..=1.).contains(a) => {
+            Some(show([r / 255., g / 255., b / 255., *a]))
+        }
+        _ => None,
     }
 }
 
@@ -577,5 +714,6 @@ fn ghostty_theme(
             bright_cyan: terminal(14),
             bright_white: terminal(15),
         },
+        style: ThemeStyle::default(),
     })
 }

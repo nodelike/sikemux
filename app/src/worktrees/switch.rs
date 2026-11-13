@@ -150,7 +150,7 @@ pub fn note(switch: &Switch, cx: &App) -> Option<AnyElement> {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(crate::theme::RADIUS_2)
+                .rounded(crate::theme::radius_2())
                 .bg(Hsla {
                     a: 0.16,
                     ..t.accent

@@ -21,7 +21,7 @@ use super::{hair, ink};
 use crate::core::{Ask, RemoteAsk, Target};
 use crate::icons::Icon;
 use crate::theme::{
-    Tokens, RADIUS_4, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_5, TEXT_2XS_H, TEXT_MD,
+    radius_4, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_5, TEXT_2XS_H, TEXT_MD,
     TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::toast;
@@ -71,7 +71,7 @@ pub fn devices(bench: &Workbench, query: &str, t: &Tokens, cx: &mut Context<Work
         .collect();
     let list = match (status, shown.is_empty()) {
         (Some(status), false) => div()
-            .rounded(RADIUS_4)
+            .rounded(radius_4())
             .border_1()
             .border_color(hair(t))
             .bg(lifted(t, 0.))
@@ -156,7 +156,7 @@ fn held_card(held: &HeldTrust, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
         .gap(SPACE_3)
         .border_1()
         .border_color(hair(t))
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .bg(lifted(t, 0.))
         .child(
             ui::text(t!("Remote access is paused"), TEXT_XS_H, FontWeight::MEDIUM)
@@ -274,7 +274,7 @@ fn empty(bench: &Workbench, none_at_all: bool, t: &Tokens, cx: &mut Context<Work
         .border_1()
         .border_dashed()
         .border_color(t.border)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .text_color(t.text_tertiary)
         .child(ui::text(words, TEXT_XS_H, FontWeight::NORMAL))
         .when(!signed_in(bench) && bench.this_view().is_some(), |empty| {

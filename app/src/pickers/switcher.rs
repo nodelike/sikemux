@@ -194,7 +194,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
             .gap(SPACE_2H)
             .h(px(40.))
             .px(SPACE_2)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .when(chosen, |row| row.bg(t.surface_chosen))
             .clicks(cx.listener(move |bench, _, _, cx| {
                 if let Some(switcher) = bench.overlays.switcher.as_mut() {

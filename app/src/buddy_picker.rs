@@ -126,7 +126,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             .flex_none()
             .items_center()
             .justify_center()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .border_1()
             .cursor_pointer()
             .border_color(if on {
@@ -230,7 +230,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                     .flex_none()
                     .items_center()
                     .gap(SPACE_2)
-                    .rounded(theme::RADIUS_2)
+                    .rounded(theme::radius_2())
                     .cursor_pointer()
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(if on { t.text_primary } else { t.text_secondary })

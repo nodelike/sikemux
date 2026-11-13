@@ -100,6 +100,10 @@ const METHODS: &[Method] = &[
         ..acting("app.console")
     },
     Method {
+        purpose: "say what changed",
+        ..acting("theme.set")
+    },
+    Method {
         name: "workspace.inspect",
         purpose: "inspect the workspace",
         ..OTHER

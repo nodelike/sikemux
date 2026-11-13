@@ -2816,6 +2816,40 @@
         }
       },
       "required": []
+    },
+    {
+      "name": "theme_read",
+      "row": {"verb": "read", "kind": "read", "icon": "highlighter", "target": ["{theme}", "the themes"]},
+      "method": "theme.read",
+      "description": "Sikemux's own themes; how to theme_set.",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": []
+    },
+    {
+      "name": "theme_set",
+      "row": {"verb": "restyle", "kind": "edit", "icon": "highlighter", "target": ["{theme}", "Sikemux"]},
+      "method": "theme.set",
+      "description": "Restyle Sikemux itself, only when the person asks.",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "save": {
+          "description": "New theme: changes to a base",
+          "type": "object"
+        },
+        "adjust": {
+          "description": "Person's own, kept across themes",
+          "type": "object"
+        }
+      },
+      "required": []
     }
   ]
 }

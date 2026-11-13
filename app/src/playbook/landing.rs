@@ -267,7 +267,7 @@ fn done_chip(lands: Lands, cx: &App) -> AnyElement {
         .gap(SPACE_1H)
         .px(SPACE_2)
         .py(px(3.))
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .bg(t.surface_sunken)
         .border_1()
         .border_color(t.line_soft)

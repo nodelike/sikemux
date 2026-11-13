@@ -137,7 +137,7 @@ impl Render for Ghost {
         div()
             .px(SPACE_2H)
             .py(SPACE_1)
-            .rounded(crate::theme::RADIUS_2)
+            .rounded(crate::theme::radius_2())
             .border_1()
             .border_color(t.border)
             .bg(t.surface_overlay)
@@ -390,7 +390,7 @@ pub fn project(
             |dragged: &DraggedProject, _: Point<Pixels>, _, cx| ghost(dragged.label.clone(), cx),
         )
         .drag_over::<DraggedProject>(move |style, _, _, _| {
-            style.bg(hover).rounded(crate::theme::RADIUS_2)
+            style.bg(hover).rounded(crate::theme::radius_2())
         })
         .on_drop(move |dropped: &DraggedProject, _, cx| {
             let (id, target) = (dropped.id.clone(), target.clone());

@@ -122,7 +122,7 @@ pub(super) fn head(
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .text_size(crate::theme::ui_text(TEXT_XS_H))
             .hover(move |row| row.bg(hover))
             .clicks(move |_, _, cx| {
@@ -189,7 +189,7 @@ pub(super) fn head(
             .flex()
             .items_center()
             .self_start()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(looks.quiet)
             .hover(move |row| row.bg(hover))

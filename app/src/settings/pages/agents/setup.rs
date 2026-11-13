@@ -263,7 +263,7 @@ fn list(
             rows::row_with(
                 Some(
                     ui::mark_box(32., ui::mark(&agent.kind, 18.))
-                        .rounded(crate::theme::RADIUS_2)
+                        .rounded(crate::theme::radius_2())
                         .bg(t.surface_raised)
                         .border_1()
                         .border_color(t.border)

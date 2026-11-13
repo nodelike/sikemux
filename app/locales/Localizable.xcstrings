@@ -3070,6 +3070,7 @@
         }
       }
     },
+    "@{agent} changed the theme to {theme}": {},
     "@{name} asks: {text}": {
       "localizations": {
         "es": {

@@ -43,7 +43,7 @@ use crate::editor::OpenAt;
 use crate::icons::Icon;
 use crate::syntax::{self, LineRuns};
 use crate::theme::{
-    self, Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
+    self, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
     SPACE_5, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_XS,
 };
 use crate::toast;
@@ -1215,7 +1215,7 @@ fn hit_row(
         .pr(SPACE_3)
         .flex()
         .items_center()
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(if chosen {
             t.text_primary

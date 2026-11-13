@@ -13,7 +13,7 @@ use gpui::{
     Window,
 };
 
-use crate::theme::{Tokens, RADIUS_2};
+use crate::theme::{radius_2, Tokens};
 
 gpui::actions!(
     keyed_rows,
@@ -119,7 +119,7 @@ impl KeyedRows {
                 div()
                     .absolute()
                     .inset_0()
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .border_1()
                     .border_color(Tokens::get(cx).border_selected),
             )

@@ -272,7 +272,7 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded(crate::theme::RADIUS_1)
+            .rounded(crate::theme::radius_1())
             .font_family(crate::theme::MONO)
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(t.text_tertiary)
@@ -348,7 +348,7 @@ fn strip_tabs(
     let glided = glide.choose(front.clone(), cx.reduce_motion());
     glide.set_order(order);
     let chosen = Tokens::get(cx).surface_chosen;
-    let copy = glide.copy(move |copy| copy.rounded(crate::theme::RADIUS_2).bg(chosen));
+    let copy = glide.copy(move |copy| copy.rounded(crate::theme::radius_2()).bg(chosen));
     let mut drawn: Vec<AnyElement> = listed
         .iter()
         .map(|tab| {

@@ -14,6 +14,30 @@ pub struct Theme {
     pub editor: ThemeEditor,
     pub highlight: ThemeHighlight,
     pub terminal: ThemeTerminal,
+    #[serde(default, skip_serializing_if = "ThemeStyle::is_plain")]
+    pub style: ThemeStyle,
+}
+
+/// How a theme draws beside its colours.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ThemeStyle {
+    /// How round corners are, from square at 0 through the default at 1 to twice as round at 2.
+    pub corners: f64,
+}
+
+impl Eq for ThemeStyle {}
+
+impl Default for ThemeStyle {
+    fn default() -> Self {
+        Self { corners: 1. }
+    }
+}
+
+impl ThemeStyle {
+    pub fn is_plain(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,7 +149,22 @@ pub enum ThemeSource {
 pub struct Palette {
     pub theme: Theme,
     pub tokens: UiTokens,
+    pub style: UiStyle,
 }
+
+/// DESIGN.md's corner radii for one theme, in points.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiStyle {
+    /// The theme's corners, clamped.
+    pub corners: f64,
+    pub radius1: f64,
+    pub radius2: f64,
+    pub radius3: f64,
+    pub radius4: f64,
+}
+
+impl Eq for UiStyle {}
 
 /// DESIGN.md's colours for one theme, each `#rrggbb`, or `rgba(r, g, b, a)`
 /// when see-through. Phones read them by these names from the device view.
