@@ -8,7 +8,7 @@
 //! project's `worktree.onSettle`.
 
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -28,8 +28,8 @@ use super::warm::{hold_builds, ignored_folders, is_cargo_output};
 use super::{worktrees_folder, AgentWorktree};
 use crate::git::Git;
 use crate::server::changed::What;
-use crate::server::host_stats::lowest_priority;
 use crate::server::Core;
+use sikemux_process::procs::lowest_priority;
 
 /// How long after one pass at making room the next may start, while free space stays low.
 const MAKE_ROOM_EVERY: Duration = Duration::from_secs(60);
@@ -51,10 +51,10 @@ const LOOKS_AFTER_STOPPING: [Duration; 4] = [
 /// What a build output is renamed to, in the worktrees folder, while it is deleted, so a build
 /// that starts meanwhile makes a fresh one. One left by a core that stopped mid-delete goes at
 /// the next start.
-const SET_ASIDE: &str = ".build-output-removing-";
+pub const SET_ASIDE: &str = ".build-output-removing-";
 
 #[derive(Default)]
-pub(crate) struct BuildOutputs {
+pub struct BuildOutputs {
     /// Agents that landed since they last slept or closed.
     landed: Mutex<HashSet<String>>,
     /// When the next pass at making room may start, in Unix milliseconds; `u64::MAX` while one runs.
@@ -67,19 +67,19 @@ pub(crate) struct BuildOutputs {
 }
 
 impl BuildOutputs {
-    pub(crate) fn landed(&self, agent_id: &str) {
+    pub fn landed(&self, agent_id: &str) {
         self.landed.locked().insert(agent_id.to_owned());
     }
 }
 
-enum Outcome {
+pub enum Outcome {
     Removed,
     Kept(Keeper),
     Nothing,
 }
 
 /// What keeps a worktree's build output.
-enum Keeper {
+pub enum Keeper {
     Agent(String),
     Process(String),
     Unsure(String),
@@ -96,7 +96,7 @@ impl Keeper {
 /// The agent went to sleep: when it landed while awake and its worktree holds nothing left to
 /// land, the worktree's build output goes once its processes have ended. Waking it clones the
 /// main checkout's back, warm.
-pub(crate) fn slept(core: &Core, agent_id: &str) {
+pub fn slept(core: &Core, agent_id: &str) {
     if !core.build_outputs().landed.locked().remove(agent_id) {
         return;
     }
@@ -121,7 +121,7 @@ pub(crate) fn slept(core: &Core, agent_id: &str) {
 
 /// Agents closed: the build output of the worktrees they leave that no open agent works in goes
 /// once their processes have ended.
-pub(crate) fn closed(core: &Core, agent_ids: &[String], trees: Vec<AgentWorktree>) {
+pub fn closed(core: &Core, agent_ids: &[String], trees: Vec<AgentWorktree>) {
     {
         let mut landed = core.build_outputs().landed.locked();
         for agent_id in agent_ids {
@@ -183,7 +183,7 @@ fn clear_once_stopped(core: &Core, mut trees: Vec<PathBuf>, reason: ClearedFor) 
 /// worktrees on the home disk that no awake agent works in, least recently built first, until
 /// enough is free again. Only an installed core does: a development or trial core sees the same
 /// worktrees and would take them from under the agents of the core the person runs.
-pub(crate) fn make_room(core: &Core, free: u64, total: u64) {
+pub fn make_room(core: &Core, free: u64, total: u64) {
     if cfg!(debug_assertions) {
         return;
     }
@@ -269,7 +269,7 @@ fn pass_at_making_room(core: &Core) {
 }
 
 /// Deletes the build outputs a core that stopped mid-delete left set aside.
-pub(crate) fn remove_set_aside(core: &Core) {
+pub fn remove_set_aside(core: &Core) {
     let mut folders: Vec<PathBuf> = (core.workspaces().project_paths().iter())
         .map(|path| worktrees_folder(path))
         .collect();
@@ -410,7 +410,7 @@ fn running_in<'a>(places: &'a [Place], spellings: &[&Path]) -> Option<&'a Place>
 /// Removes the build output in the worktree at `tree` unless something keeps it, and says so;
 /// a kept one only when `say_kept`, once for each worktree.
 /// A main checkout has a `.git` folder, not a file, so it is left.
-fn clear(core: &Core, tree: &Path, reason: ClearedFor, say_kept: bool) -> Outcome {
+pub fn clear(core: &Core, tree: &Path, reason: ClearedFor, say_kept: bool) -> Outcome {
     if !tree.join(".git").is_file() {
         return Outcome::Nothing;
     }
@@ -449,11 +449,14 @@ fn clear(core: &Core, tree: &Path, reason: ClearedFor, say_kept: bool) -> Outcom
         tree.display(),
         freed / 1_000_000
     );
-    core.host_watch().note(HostEventKind::BuildOutputCleared {
-        worktree,
-        bytes: freed,
-        reason,
-    });
+    (core.repo_above().host_note)(
+        core,
+        HostEventKind::BuildOutputCleared {
+            worktree,
+            bytes: freed,
+            reason,
+        },
+    );
     core.changed(What::Read(Topic::HostStats));
     Outcome::Removed
 }
@@ -510,118 +513,4 @@ fn set_aside(tree: &Path, output: &Path, index: usize) -> std::io::Result<PathBu
         epoch_ms()
     ));
     std::fs::rename(output, &to).map(|()| to)
-}
-
-#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
-mod tests {
-    use super::*;
-    use crate::server::ServerCore;
-    use sikemux_process::user_environment::command;
-    use sikemux_wire::protocol::BuildIdentity;
-    use std::process::Child;
-
-    const STAND_IN: &str = "SIKEMUX_TEST_STAND_IN";
-
-    fn git(dir: &Path, args: &[&str]) {
-        Git::quick(dir).trimmed(args).unwrap();
-    }
-
-    fn removed_while(core: &Core, tree: &Path, mut child: Child) -> bool {
-        let removed = matches!(
-            clear(core, tree, ClearedFor::LowSpace, false),
-            Outcome::Removed
-        );
-        child.kill().unwrap();
-        child.wait().unwrap();
-        removed
-    }
-
-    /// What runs from `target` in the test below: this test binary, copied there.
-    #[test]
-    #[ignore]
-    fn stands_in_for_a_program_in_target() {
-        if std::env::var_os(STAND_IN).is_some() {
-            std::thread::sleep(Duration::from_secs(30));
-        }
-    }
-
-    /// A tools eval ran `target/debug/sikemux-host` from a worktree whose agent had ended its
-    /// turn, and making room took the whole `target` from under it.
-    #[test]
-    fn a_process_running_from_an_idle_worktree_keeps_its_build_output() {
-        let parent = tempfile::tempdir().unwrap();
-        let main = parent.path().join("app");
-        std::fs::create_dir(&main).unwrap();
-        git(&main, &["init", "-q"]);
-        std::fs::write(main.join(".gitignore"), "target/\n").unwrap();
-        git(&main, &["add", "."]);
-        git(
-            &main,
-            &[
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@t",
-                "commit",
-                "-qm",
-                "base",
-            ],
-        );
-        let tree = parent.path().join("app.worktrees/feat-eval");
-        git(
-            &main,
-            &[
-                "worktree",
-                "add",
-                "-q",
-                "-b",
-                "feat/eval",
-                tree.to_str().unwrap(),
-            ],
-        );
-        let debug = tree.join("target/debug");
-        std::fs::create_dir_all(&debug).unwrap();
-        std::fs::write(tree.join("target/.rustc_info.json"), "{}").unwrap();
-        let host = debug.join("sikemux-host");
-        std::fs::copy(std::env::current_exe().unwrap(), &host).unwrap();
-        let script = tree.join("run.sh");
-        std::fs::write(&script, "read line\n").unwrap();
-        let core = Core::new(BuildIdentity::default(), None).unwrap();
-
-        let from_target = command(&host)
-            .args(["--ignored", "--exact", "--quiet"])
-            .arg("server::worktree::build_output::tests::stands_in_for_a_program_in_target")
-            .env(STAND_IN, "1")
-            .current_dir(parent.path())
-            .spawn()
-            .unwrap();
-        let by_program = removed_while(&core, &tree, from_target);
-        let in_folder = command("sleep")
-            .arg("30")
-            .current_dir(&tree)
-            .spawn()
-            .unwrap();
-        let by_folder = removed_while(&core, &tree, in_folder);
-        let from_script = command("sh")
-            .arg(&script)
-            .stdin(std::process::Stdio::piped())
-            .current_dir(parent.path())
-            .spawn()
-            .unwrap();
-        let by_argument = removed_while(&core, &tree, from_script);
-        let with_nothing = matches!(
-            clear(&core, &tree, ClearedFor::LowSpace, false),
-            Outcome::Removed
-        );
-
-        assert!(!by_program, "removed while its program ran from target");
-        assert!(!by_folder, "removed while a process worked in it");
-        assert!(!by_argument, "removed while a process ran a script in it");
-        assert!(with_nothing);
-        assert!(!tree.join("target").exists());
-        assert!(std::fs::read_dir(tree.parent().unwrap())
-            .unwrap()
-            .flatten()
-            .all(|entry| !entry.file_name().to_string_lossy().starts_with(SET_ASIDE)));
-    }
 }

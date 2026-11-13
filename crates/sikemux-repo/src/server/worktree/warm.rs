@@ -32,7 +32,7 @@ const LOCKFILES: [&str; 5] = [
 ];
 
 /// [`seed`] on a thread of its own, so the checkout is handed over at once.
-pub(crate) fn seed_in_background(main: &Path, tree: &Path) {
+pub fn seed_in_background(main: &Path, tree: &Path) {
     let (main, tree) = (main.to_path_buf(), tree.to_path_buf());
     let _ = std::thread::Builder::new()
         .name("sikemux-warm".into())
@@ -42,7 +42,7 @@ pub(crate) fn seed_in_background(main: &Path, tree: &Path) {
 /// Clones into `tree` the folders Git ignores in `main` that a new checkout
 /// can build from: Cargo's output, installed packages `tree` has the same
 /// lockfile for, and the folders `.worktreeinclude` lists.
-pub(crate) fn seed(main: &Path, tree: &Path) {
+pub fn seed(main: &Path, tree: &Path) {
     let Some(ignored) = ignored_folders(main) else {
         return;
     };
@@ -96,7 +96,7 @@ fn indexed(checkout: &Path) -> Option<HashMap<String, String>> {
 }
 
 /// The folders Git ignores in `checkout`, each by its topmost ignored folder.
-pub(super) fn ignored_folders(checkout: &Path) -> Option<Vec<PathBuf>> {
+pub fn ignored_folders(checkout: &Path) -> Option<Vec<PathBuf>> {
     let listed = Git::quick(checkout)
         .trimmed(&[
             "ls-files",
@@ -117,14 +117,14 @@ pub(super) fn ignored_folders(checkout: &Path) -> Option<Vec<PathBuf>> {
 }
 
 /// Whether Cargo builds in `folder`.
-pub(super) fn is_cargo_output(folder: &Path) -> bool {
+pub fn is_cargo_output(folder: &Path) -> bool {
     folder.join(CARGO_OUTPUT).is_file()
 }
 
 /// Locks each Cargo build in `folder` against writing while it is cloned or
 /// removed, or `None` while one is running. Cloning one mid-build could pair a
 /// finished build's record with the files it replaced, which Cargo would then trust.
-pub(super) fn hold_builds(folder: &Path) -> Option<Vec<File>> {
+pub fn hold_builds(folder: &Path) -> Option<Vec<File>> {
     if !is_cargo_output(folder) {
         return Some(Vec::new());
     }
@@ -231,7 +231,7 @@ mod clone {
 
     /// Clones the folder `from` to `to` under a name of its own first, so a build
     /// that starts in the new checkout before the clone is done keeps its folder.
-    pub(super) fn bring(from: &Path, to: &Path) -> io::Result<()> {
+    pub fn bring(from: &Path, to: &Path) -> io::Result<()> {
         let (Some(parent), Some(name)) = (to.parent(), to.file_name()) else {
             return Ok(());
         };

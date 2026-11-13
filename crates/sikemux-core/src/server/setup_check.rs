@@ -3,10 +3,11 @@
 //! run the project's check, then run the removal steps, go, and leave nothing listening. The
 //! last result is kept with the `sikemux.json` it proved.
 
+use super::repo_state::RepoParts;
+pub(crate) use super::worktree::agent::{command_in, last_line, shell, STEP_TIME};
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -27,7 +28,6 @@ pub use sikemux_calls::setup::{Outcome, SetupParams, SetupRun, SetupState, Setup
 
 const FILE: &str = "setup-checks.json";
 /// How long one step may take, such as installing a project's packages.
-const STEP_TIME: Duration = Duration::from_secs(15 * 60);
 /// How long a process has to answer on its port.
 const ANSWER_TIME: Duration = Duration::from_secs(120);
 /// How long ports may take to close once everything is stopped.
@@ -402,54 +402,6 @@ fn finished(step: SetupStep, ran: Result<(), String>, log: PathBuf) -> SetupStep
             ..step
         },
     }
-}
-
-/// The person's login shell running `command` in `cwd` with `env`, its group its own.
-pub(crate) fn command_in(command: &str, cwd: &Path, env: &[(String, String)]) -> Command {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-    let mut process = sikemux_process::user_environment::agent_command_in_own_cgroup(shell);
-    process.args(["-lc", command]).current_dir(cwd);
-    process.envs(env.iter().map(|(key, value)| (key, value)));
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        process.process_group(0);
-    }
-    process
-}
-
-/// Runs `command` to its end, writing what it printed to `log`. Why it failed, by the last
-/// line it printed, when it did.
-pub(crate) fn shell(
-    command: &str,
-    cwd: &Path,
-    env: &[(String, String)],
-    log: &Path,
-) -> Result<(), String> {
-    let mut process = command_in(command, cwd, env);
-    let ran = sikemux_process::run(&mut process, None, STEP_TIME, 4 << 20, None);
-    let output = match ran {
-        Ok(output) => output,
-        Err(error) => return Err(error.to_string()),
-    };
-    let mut printed = output.stdout;
-    printed.extend(output.stderr);
-    if let Ok(mut file) = std::fs::File::create(log) {
-        let _ = file.write_all(&printed);
-    }
-    match output.status.success() {
-        true => Ok(()),
-        false => Err(last_line(&printed)
-            .unwrap_or_else(|| format!("exit {}", output.status.code().unwrap_or(-1)))),
-    }
-}
-
-fn last_line(printed: &[u8]) -> Option<String> {
-    String::from_utf8_lossy(printed)
-        .lines()
-        .map(str::trim)
-        .rfind(|line| !line.is_empty())
-        .map(str::to_owned)
 }
 
 /// Starts `command` and waits for `port` to answer, keeping it running in `serving`.

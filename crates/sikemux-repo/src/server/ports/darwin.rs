@@ -68,7 +68,7 @@ fn listeners_of(pid: u32) -> Vec<(u16, IpAddr)> {
         .collect()
 }
 
-pub(super) fn listeners(pids: &[u32]) -> Vec<super::Listener> {
+pub fn listeners(pids: &[u32]) -> Vec<super::Listener> {
     pids.iter()
         .flat_map(|&pid| {
             listeners_of(pid)
@@ -81,16 +81,16 @@ pub(super) fn listeners(pids: &[u32]) -> Vec<super::Listener> {
 /// Byte offsets into `struct socket_fdinfo` from <sys/proc_info.h>, which libc
 /// does not bind.
 mod socket_fdinfo {
-    pub(super) const SIZE: usize = 792;
-    pub(super) const KIND: usize = 256;
-    pub(super) const LOCAL_PORT: usize = 268;
-    pub(super) const IP_VERSION: usize = 288;
-    pub(super) const LOCAL_ADDRESS: usize = 312;
-    pub(super) const TCP_STATE: usize = 344;
-    pub(super) const KIND_TCP: i32 = 2;
-    pub(super) const STATE_LISTEN: i32 = 1;
-    pub(super) const IPV4: u8 = 1;
-    pub(super) const IPV6: u8 = 2;
+    pub const SIZE: usize = 792;
+    pub const KIND: usize = 256;
+    pub const LOCAL_PORT: usize = 268;
+    pub const IP_VERSION: usize = 288;
+    pub const LOCAL_ADDRESS: usize = 312;
+    pub const TCP_STATE: usize = 344;
+    pub const KIND_TCP: i32 = 2;
+    pub const STATE_LISTEN: i32 = 1;
+    pub const IPV4: u8 = 1;
+    pub const IPV6: u8 = 2;
 }
 
 fn read_i32(bytes: &[u8], at: usize) -> Option<i32> {

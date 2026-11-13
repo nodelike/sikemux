@@ -11,6 +11,7 @@ pub mod overlap;
 pub mod person_calls;
 pub mod places;
 pub mod plugged;
+pub mod ports;
 pub mod repo_above;
 pub mod repo_events;
 pub mod repo_state;
@@ -19,5 +20,6 @@ pub mod shown_cache;
 pub mod skill_library;
 pub mod trust_ask;
 pub mod who_wrote;
+pub mod worktree;
 
 pub use sikemux_remote::server::*;

@@ -65,7 +65,7 @@ fn socket_inodes(pid: u32) -> Vec<u64> {
         .collect()
 }
 
-pub(super) fn listeners(pids: &[u32]) -> Vec<Listener> {
+pub fn listeners(pids: &[u32]) -> Vec<Listener> {
     let mut listening = HashMap::new();
     for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
         if let Ok(text) = std::fs::read_to_string(table) {

@@ -2,7 +2,7 @@
 //! removing it would cost, so it can ask the person; then it removes it with
 //! their answers, and the agent goes back to the main checkout.
 
-use crate::server::agent_now::AgentNowCore;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::worktree::{
     RemoveWorktreeParams, WorktreeParams, WorktreeRemovalInfo, WorktreeRemoved, WorktreeReview,
@@ -15,7 +15,7 @@ use serde_json::Value;
 use super::AgentWorktree;
 use crate::git::Git;
 use crate::server::connection::blocking;
-use crate::server::{board, ports, tasks};
+use crate::server::ports;
 use crate::server::{Core, CoreError, CoreResult};
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::AgentState;
@@ -68,8 +68,8 @@ fn costs(worktree: &AgentWorktree) -> (usize, usize) {
     (dirty, unmerged)
 }
 
-pub(crate) fn busy(core: &Core, agent_id: &str) -> bool {
-    let state = core.agent_now(agent_id).chat_state();
+pub fn busy(core: &Core, agent_id: &str) -> bool {
+    let state = (core.repo_above().agent_chat_state)(core, agent_id);
     state.is_some_and(|state| state != AgentState::Idle)
 }
 
@@ -133,7 +133,7 @@ fn failure_note(modules: &[Value]) -> Option<String> {
 
 /// Whether the agent's branch is merged into the one it was cut from: it has commits of its
 /// own, and that branch has every one of them.
-pub(crate) async fn merged(core: &Arc<Core>, params: WorktreeParams) -> CoreResult<bool> {
+pub async fn merged(core: &Arc<Core>, params: WorktreeParams) -> CoreResult<bool> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
     let Some(base) = worktree.base.clone() else {
         return Ok(false);
@@ -157,17 +157,18 @@ pub(crate) async fn merged(core: &Arc<Core>, params: WorktreeParams) -> CoreResu
 }
 
 /// The `agentReview` call.
-pub(crate) async fn review(core: &Arc<Core>, params: WorktreeParams) -> CoreResult<WorktreeReview> {
+pub async fn review(core: &Arc<Core>, params: WorktreeParams) -> CoreResult<WorktreeReview> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
-    let summary = board::agent_card(core, &params.agent_id)
-        .and_then(|card| card.result)
-        .and_then(|result| {
+    let summary =
+        (core.repo_above().board_agent_result)(core, &params.agent_id).and_then(|result| {
             result
                 .lines()
                 .find(|line| !line.trim().is_empty())
                 .map(str::to_owned)
         });
-    let tests = tasks::module_tests(core, worktree.path.to_string_lossy().into_owned()).await?;
+    let tests =
+        (core.repo_above().tasks_module_tests)(core, worktree.path.to_string_lossy().into_owned())
+            .await?;
     let modules = tests.as_array().cloned().unwrap_or_default();
     let sum = |key: &str| -> u64 {
         modules
@@ -198,10 +199,7 @@ pub(crate) async fn review(core: &Arc<Core>, params: WorktreeParams) -> CoreResu
     })
 }
 
-pub(crate) async fn removal(
-    core: &Core,
-    params: WorktreeParams,
-) -> CoreResult<WorktreeRemovalInfo> {
+pub async fn removal(core: &Core, params: WorktreeParams) -> CoreResult<WorktreeRemovalInfo> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
     let shared_with = sharers(core, &params.agent_id, &worktree.path);
     let busy = busy(core, &params.agent_id);
@@ -228,10 +226,7 @@ fn outside(worktree: &AgentWorktree, cwd: &Path) -> PathBuf {
     }
 }
 
-pub(crate) async fn remove(
-    core: &Arc<Core>,
-    params: RemoveWorktreeParams,
-) -> CoreResult<WorktreeRemoved> {
+pub async fn remove(core: &Arc<Core>, params: RemoveWorktreeParams) -> CoreResult<WorktreeRemoved> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
     if busy(core, &params.agent_id) {
         return Err("stop the agent's turn before removing its worktree".into());

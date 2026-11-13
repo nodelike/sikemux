@@ -3,7 +3,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::worktree::{AgentWorktreeParams, MadeAgentWorktree};
 use std::path::{Path, PathBuf};
@@ -22,15 +22,15 @@ use crate::git::{main_checkout, Git};
 use crate::server::changed::What;
 use crate::server::connection::blocking;
 use crate::server::ports::checkout;
-use crate::server::{launching, tasks, Core, CoreResult};
+use crate::server::{Core, CoreResult};
 use crate::tasks::config::{self, ConfigLoad, WorktreeHook};
 
-pub(crate) const NOT_IN_GIT: &str = "is not in a git repository";
+pub const NOT_IN_GIT: &str = "is not in a git repository";
 
 /// A worktree of the repository `checkout` is in, cut from where it is now on
 /// the branch `branch`, with what it needs copied in, and the folder in it
 /// that stands where `cwd` stood.
-pub(crate) fn cut_for(
+pub fn cut_for(
     checkout: &Path,
     cwd: &Path,
     branch: &str,
@@ -71,7 +71,7 @@ pub(crate) fn cut_for(
 
 /// A worktree cut for an agent that has not started yet, removed again if
 /// starting it fails, so no branch or folder is left behind.
-pub(crate) struct Unclaimed(pub Option<AgentWorktree>);
+pub struct Unclaimed(pub Option<AgentWorktree>);
 
 impl Drop for Unclaimed {
     fn drop(&mut self) {
@@ -82,19 +82,19 @@ impl Drop for Unclaimed {
 }
 
 #[derive(Deserialize)]
-pub(crate) struct AtParams {
+pub struct AtParams {
     cwd: PathBuf,
 }
 
 /// The worktree the core cut that `cwd` lies in, read back from git, for a
 /// saved chat that resumes there. The project's current branch stands in as
 /// its base.
-pub(crate) async fn at(params: AtParams) -> CoreResult<Option<AgentWorktree>> {
+pub async fn at(params: AtParams) -> CoreResult<Option<AgentWorktree>> {
     blocking(move || Ok(read_back(&params.cwd))).await
 }
 
 /// Where an agent that ran in `cwd` takes its saved session up again, and its own checkout there.
-pub(crate) struct ResumedIn {
+pub struct ResumedIn {
     pub cwd: PathBuf,
     pub worktree: Option<AgentWorktree>,
     /// Whether the worktree was cleaned away and is made again, so it needs the project's setup.
@@ -104,7 +104,7 @@ pub(crate) struct ResumedIn {
 /// Where an agent that ran in `cwd` resumes: there, making its worktree again at the same path
 /// when it was cleaned away, since Claude and Codex find a session by the folder it ran in.
 /// `branch` is the one the agent's record names, when it has one.
-pub(crate) fn resumed_in(cwd: &Path, branch: Option<&str>) -> Result<ResumedIn, String> {
+pub fn resumed_in(cwd: &Path, branch: Option<&str>) -> Result<ResumedIn, String> {
     if cwd.is_dir() {
         return Ok(ResumedIn {
             worktree: read_back(cwd),
@@ -128,7 +128,7 @@ pub(crate) fn resumed_in(cwd: &Path, branch: Option<&str>) -> Result<ResumedIn, 
 /// Makes again the worktree a stored agent ran in when it was cleaned away, so it wakes on its
 /// session there, and keeps it on the agent's record. One still there gets back, warm, any
 /// build output that was removed while the agent was closed.
-pub(crate) async fn restore(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
+pub async fn restore(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
     let agent = core.workspaces().agent_or_gone(agent_id)?;
     if agent.cwd.is_dir() {
         if let Some(tree) = agent.worktree {
@@ -149,7 +149,7 @@ pub(crate) async fn restore(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> 
 
 /// Runs the project's worktree setup in a worktree made again for `agent_id`, without holding
 /// up its start.
-pub(crate) fn set_up_made_again(core: &Arc<Core>, agent_id: &str, resumed: &ResumedIn) {
+pub fn set_up_made_again(core: &Arc<Core>, agent_id: &str, resumed: &ResumedIn) {
     let Some(tree) = resumed.worktree.as_ref().filter(|_| resumed.made_again) else {
         return;
     };
@@ -266,7 +266,7 @@ fn read_back(cwd: &Path) -> Option<AgentWorktree> {
 
 /// Gives an agent a worktree of its own cut from where its checkout is now,
 /// moves it there, and starts it again there if it was running.
-pub(crate) async fn for_agent(
+pub async fn for_agent(
     core: &Arc<Core>,
     params: AgentWorktreeParams,
 ) -> CoreResult<MadeAgentWorktree> {
@@ -298,7 +298,7 @@ pub(crate) async fn for_agent(
         agent.cwd = tree_cwd.clone();
     })?;
     if core.chats().stop(&params.agent_id) {
-        launching::start_agent(core, None, &params.agent_id, false).await?;
+        (core.repo_above().launching_start_agent)(core, &params.agent_id).await?;
     }
     Ok(MadeAgentWorktree {
         worktree,
@@ -311,7 +311,7 @@ pub(crate) async fn for_agent(
 /// in, apart from the work in progress in everyone's own trees, moved to
 /// `commit`. It stays at one place beside the repository, so each build after
 /// the first only redoes what the commits changed.
-pub(crate) async fn integration(
+pub async fn integration(
     core: &Arc<Core>,
     project: &Path,
     commit: &str,
@@ -321,17 +321,13 @@ pub(crate) async fn integration(
 
 /// The checkout of `project`'s repository that assertions' commands run in, moved to `commit`. It
 /// is not the integration checkout, which a long command would otherwise move under a running check.
-pub(crate) async fn gates(
-    core: &Arc<Core>,
-    project: &Path,
-    commit: &str,
-) -> Result<PathBuf, String> {
+pub async fn gates(core: &Arc<Core>, project: &Path, commit: &str) -> Result<PathBuf, String> {
     clean_at(core, project, commit, GATES).await
 }
 
 /// The checkout of `project`'s repository the merge queue stacks changes and
 /// checks them in, so a check of the branch never has it moved from under it.
-pub(crate) async fn merge_queue(
+pub async fn merge_queue(
     core: &Arc<Core>,
     project: &Path,
     commit: &str,
@@ -341,11 +337,7 @@ pub(crate) async fn merge_queue(
 
 /// The checkout of `project`'s repository that its reservoir command runs in, moved to `commit`.
 /// It is its own, as that command can run for as long as a check does.
-pub(crate) async fn reservoir(
-    core: &Arc<Core>,
-    project: &Path,
-    commit: &str,
-) -> Result<PathBuf, String> {
+pub async fn reservoir(core: &Arc<Core>, project: &Path, commit: &str) -> Result<PathBuf, String> {
     clean_at(core, project, commit, RESERVOIR).await
 }
 
@@ -400,7 +392,7 @@ const RESERVOIR: &str = ".reservoir";
 /// once the person trusts its `sikemux.json`, asked on behalf of `agent_id`
 /// when an agent wants the checkout. Why they did not all finish, when they
 /// did not.
-pub(crate) async fn set_up(
+pub async fn set_up(
     core: &Arc<Core>,
     project: &Path,
     agent_id: Option<&str>,
@@ -428,7 +420,7 @@ pub(crate) async fn set_up(
     if hooks.is_empty() {
         return None;
     }
-    if !tasks::config_trusted(core, project, agent_id).await {
+    if !(core.repo_above().tasks_config_trusted)(core, project, agent_id).await {
         return Some(
             "The worktree setup in sikemux.json was not trusted, so it did not run".into(),
         );
@@ -441,7 +433,7 @@ pub(crate) async fn set_up(
 /// Runs `project`'s `worktree.onSettle` commands in the agent worktree at `tree` once nothing
 /// works there any more. They run only when the person already trusts its `sikemux.json`, as no
 /// one is there to ask.
-pub(crate) async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
+pub async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
     let load = {
         let project = project.clone();
         blocking(move || Ok(config::load(&project))).await
@@ -449,7 +441,7 @@ pub(crate) async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
     let Ok(load) = load else {
         return;
     };
-    if tasks::config_needs(&core, &load).is_some() {
+    if (core.repo_above().tasks_config_needs)(&core, &load).is_some() {
         return;
     }
     let ConfigLoad::Valid { config, .. } = load else {
@@ -470,16 +462,19 @@ pub(crate) async fn settle(core: Arc<Core>, project: PathBuf, tree: PathBuf) {
         || tree.display().to_string(),
         |name| name.to_string_lossy().into_owned(),
     );
-    core.host_watch().note(HostEventKind::SettleFailed {
-        worktree,
-        command: failed.label,
-        output: failed.output,
-    });
+    (core.repo_above().host_note)(
+        &core,
+        HostEventKind::SettleFailed {
+            worktree,
+            command: failed.label,
+            output: failed.output,
+        },
+    );
     core.changed(What::Read(Topic::HostStats));
 }
 
 /// A hook that failed: its label, and the end of what it printed or why it could not run.
-pub(crate) struct Failed {
+pub struct Failed {
     pub label: String,
     pub output: String,
 }
@@ -498,7 +493,7 @@ async fn environment(core: &Arc<Core>, cwd: &Path) -> Vec<(String, String)> {
 const FAILED_LINES: usize = 3;
 
 /// Runs `hooks` in `cwd` with `env` one after another, stopping at the first that fails.
-pub(crate) async fn run_hooks(
+pub async fn run_hooks(
     hooks: Vec<WorktreeHook>,
     cwd: &Path,
     env: Vec<(String, String)>,
@@ -510,7 +505,7 @@ pub(crate) async fn run_hooks(
         let ran = blocking(move || {
             let log =
                 std::env::temp_dir().join(format!("sikemux-step-{}.log", uuid::Uuid::new_v4()));
-            let ran = crate::server::setup_check::shell(&command, &cwd, &env, &log);
+            let ran = shell(&command, &cwd, &env, &log);
             let printed = std::fs::read_to_string(&log).unwrap_or_default();
             let _ = std::fs::remove_file(&log);
             Ok((ran, printed))
@@ -533,6 +528,57 @@ pub(crate) async fn run_hooks(
         });
     }
     None
+}
+
+/// How long one setup command may run.
+pub const STEP_TIME: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// The person's login shell running `command` in `cwd` with `env`, its group its own.
+pub fn command_in(command: &str, cwd: &Path, env: &[(String, String)]) -> std::process::Command {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let mut process = sikemux_process::user_environment::agent_command_in_own_cgroup(shell);
+    process.args(["-lc", command]).current_dir(cwd);
+    process.envs(env.iter().map(|(key, value)| (key, value)));
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        process.process_group(0);
+    }
+    process
+}
+
+/// Runs `command` to its end, writing what it printed to `log`. Why it failed, by the last
+/// line it printed, when it did.
+pub fn shell(
+    command: &str,
+    cwd: &Path,
+    env: &[(String, String)],
+    log: &Path,
+) -> Result<(), String> {
+    let mut process = command_in(command, cwd, env);
+    let ran = sikemux_process::run(&mut process, None, STEP_TIME, 4 << 20, None);
+    let output = match ran {
+        Ok(output) => output,
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut printed = output.stdout;
+    printed.extend(output.stderr);
+    if let Ok(mut file) = std::fs::File::create(log) {
+        let _ = std::io::Write::write_all(&mut file, &printed);
+    }
+    match output.status.success() {
+        true => Ok(()),
+        false => Err(last_line(&printed)
+            .unwrap_or_else(|| format!("exit {}", output.status.code().unwrap_or(-1)))),
+    }
+}
+
+pub fn last_line(printed: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(printed)
+        .lines()
+        .map(str::trim)
+        .rfind(|line| !line.is_empty())
+        .map(str::to_owned)
 }
 
 #[cfg(test)]

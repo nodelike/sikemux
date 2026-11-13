@@ -352,14 +352,23 @@ pub(super) fn repo_above() -> RepoAbove {
             Box::pin(messages::work_from_sikemux(core, to, text, why))
         },
         messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
-        worktree_merge_queue: |core, project, commit| {
-            Box::pin(worktree::agent::merge_queue(core, project, commit))
+        agent_chat_state: |core, agent| core.agent_now(agent).chat_state(),
+        board_agent_result: |core, agent| {
+            board::agent_card(core, agent).and_then(|card| card.result)
         },
-        worktree_integration: |core, project, commit| {
-            Box::pin(worktree::agent::integration(core, project, commit))
+        tasks_module_tests: |core, project| Box::pin(tasks::module_tests(core, project)),
+        tasks_config_trusted: |core, project, agent| {
+            Box::pin(tasks::config_trusted(core, project, agent))
         },
-        build_outputs_landed: |core, agent| core.build_outputs().landed(agent),
-        worktree_busy: worktree::removal::busy,
+        launching_start_agent: |core, agent| {
+            Box::pin(async move {
+                launching::start_agent(core, None, agent, false)
+                    .await
+                    .map(drop)
+            })
+        },
+        host_note: |core, what| core.host_watch().note(what),
+        running_sessions: |core| core.running_sessions(),
         agent_running: |core, agent| core.agent_now(agent).running(),
         tasks_config_needs: tasks::config_needs,
         tasks_ask_person: |core, project, ask, execution_id| {

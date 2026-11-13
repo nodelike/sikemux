@@ -119,8 +119,8 @@ async fn passes(
         return Err("it ran out of time".to_owned());
     };
     let checkout = match search.in_queue {
-        true => (core.repo_above().worktree_merge_queue)(core, &search.dir, sha).await?,
-        false => (core.repo_above().worktree_integration)(core, &search.dir, sha).await?,
+        true => crate::server::worktree::agent::merge_queue(core, &search.dir, sha).await?,
+        false => crate::server::worktree::agent::integration(core, &search.dir, sha).await?,
     };
     let env = match search.in_queue {
         true => (search.commits.iter())

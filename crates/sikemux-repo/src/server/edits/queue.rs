@@ -295,7 +295,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     let repairing = red.as_deref() == Some(tip.as_str());
     let _turn = merge_queue::checkout_turn().await;
     let (from, to) = (tip.clone(), stacked.top().to_owned());
-    let command = match (core.repo_above().worktree_merge_queue)(core, &key.0, &to).await {
+    let command = match crate::server::worktree::agent::merge_queue(core, &key.0, &to).await {
         Ok(checkout) => {
             let repo = key.0.clone();
             blocking(move || rust_check(&repo, &checkout, &from, &to).map_err(Into::into))
@@ -521,7 +521,7 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
     for laid in &stacked.laid {
         let waiting = &laid.waiting;
         let stays = land::follow(&waiting.worktree.path, &waiting.head, &laid.tip);
-        (core.repo_above().build_outputs_landed)(core, &waiting.agent);
+        core.build_outputs().landed(&waiting.agent);
         let subject = git(repo, &["log", "-1", "--format=%s", &laid.tip]).unwrap_or_default();
         (core.repo_above().chief_landed)(core, &project, &waiting.agent, &subject);
         core.repo_events().tell(RepoEvent::Landed {

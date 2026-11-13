@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -12,7 +12,9 @@ use serde_json::Value;
 use sikemux_calls::board::{BoardSettingsParams, Landing, ProjectBoard};
 use sikemux_calls::questions::{AnswerParams, AnswersParams};
 use sikemux_plugin_api::vault::Caller;
+use sikemux_view::host_stats::HostEventKind;
 use sikemux_view::turn::Landed;
+use sikemux_wire::protocol::AgentState;
 
 use super::chat::Saved;
 use super::checks::{CheckRan, CiCard};
@@ -22,7 +24,7 @@ use super::listed::Listed;
 use super::places::Place;
 use super::ship::Deploy;
 use super::trust_ask::TrustAsk;
-use super::Core;
+use super::{Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::tasks::config::ConfigLoad;
 
@@ -30,7 +32,7 @@ type Doing<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// A note on its way to an agent: what the agent's side answered, or why it could not be given.
 type Told<'a> = Doing<'a, Result<Value, String>>;
 type Note = for<'a> fn(&'a Arc<Core>, String, String) -> Told<'a>;
-type Checkout = for<'a> fn(&'a Arc<Core>, &'a Path, &'a str) -> Doing<'a, Result<PathBuf, String>>;
+type Trusted = for<'a> fn(&'a Arc<Core>, &'a Path, Option<&'a str>) -> Doing<'a, bool>;
 type Done<'a> = Doing<'a, Result<(), String>>;
 type Settings =
     for<'a> fn(&'a Arc<Core>, BoardSettingsParams) -> Doing<'a, Result<ProjectBoard, String>>;
@@ -69,14 +71,20 @@ pub struct RepoAbove {
     pub messages_work_from_sikemux: for<'a> fn(&'a Arc<Core>, String, String, &'a str) -> Told<'a>,
     /// Whether a note can reach the agent now.
     pub messages_reachable: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, bool>,
-    /// The checkout the merge queue checks a branch in, moved to the commit.
-    pub worktree_merge_queue: Checkout,
-    /// The checkout the project's check runs in, moved to the commit.
-    pub worktree_integration: Checkout,
-    /// The agent's work landed, so what its builds left can go.
-    pub build_outputs_landed: fn(&Core, &str),
-    /// Whether the agent is in a turn, so its checkout is in use.
-    pub worktree_busy: fn(&Core, &str) -> bool,
+    /// The state of the agent's chat, when it has one.
+    pub agent_chat_state: fn(&Core, &str) -> Option<AgentState>,
+    /// The result written on the card the agent works or was reviewed for.
+    pub board_agent_result: fn(&Core, &str) -> Option<String>,
+    /// The test results of the project's modules, as its tasks left them.
+    pub tasks_module_tests: for<'a> fn(&'a Arc<Core>, String) -> Doing<'a, CoreResult<Value>>,
+    /// Whether the project's file is trusted to run its commands for the agent.
+    pub tasks_config_trusted: Trusted,
+    /// Starts the agent's chat again in the checkout it was just given.
+    pub launching_start_agent: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, CoreResult<()>>,
+    /// How many terminals run now, the spare ones aside.
+    pub running_sessions: fn(&Core) -> usize,
+    /// Notes an event in the host's history.
+    pub host_note: fn(&Core, HostEventKind),
     /// Whether the agent's process runs now.
     pub agent_running: fn(&Core, &str) -> bool,
     /// What the person must trust before the project's file runs its commands, if anything.

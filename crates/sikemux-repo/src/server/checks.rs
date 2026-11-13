@@ -524,7 +524,7 @@ async fn run_batch(
         .iter()
         .flat_map(|commit| commit.agents.iter().cloned())
         .collect();
-    let outcome = match (core.repo_above().worktree_integration)(&core, &dir, &newest).await {
+    let outcome = match crate::server::worktree::agent::integration(&core, &dir, &newest).await {
         Ok(checkout) if needs_trust(&core, &project, &dir, &checkout, &commits, named).await => {
             Err("sikemux.json is not trusted yet, so the check did not run. The person is asked to trust it, and the check runs again if they do".to_owned())
         }
@@ -1494,7 +1494,7 @@ pub async fn run_in_queue(
     agent: &str,
 ) -> Result<QueueRun, String> {
     use crate::server::edits::generate::refresh;
-    let checkout = (core.repo_above().worktree_merge_queue)(core, dir, commit).await?;
+    let checkout = crate::server::worktree::agent::merge_queue(core, dir, commit).await?;
     let (owner, dir, command) = (core.clone(), dir.to_owned(), command.to_owned());
     let seed = sample_seed(agent);
     let env = before_commit(agent);

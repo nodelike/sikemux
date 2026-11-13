@@ -22,6 +22,8 @@ pub struct RepoFields {
     pub edits: edits::Edits,
     pub collisions: collisions::Collisions,
     pub checks: checks::ProjectChecks,
+    pub ports: super::ports::Ports,
+    pub build_outputs: super::worktree::build_output::BuildOutputs,
 }
 
 pub trait RepoParts {
@@ -38,6 +40,8 @@ pub trait RepoParts {
     fn edits(&self) -> &edits::Edits;
     fn collisions(&self) -> &collisions::Collisions;
     fn checks(&self) -> &checks::ProjectChecks;
+    fn ports(&self) -> &super::ports::Ports;
+    fn build_outputs(&self) -> &super::worktree::build_output::BuildOutputs;
 }
 
 impl RepoParts for Core {
@@ -91,5 +95,13 @@ impl RepoParts for Core {
 
     fn checks(&self) -> &checks::ProjectChecks {
         &self.kept::<RepoFields>().checks
+    }
+
+    fn ports(&self) -> &super::ports::Ports {
+        &self.kept::<RepoFields>().ports
+    }
+
+    fn build_outputs(&self) -> &super::worktree::build_output::BuildOutputs {
+        &self.kept::<RepoFields>().build_outputs
     }
 }

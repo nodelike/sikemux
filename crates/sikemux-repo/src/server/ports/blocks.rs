@@ -11,13 +11,13 @@ use crate::server::kept::Kept;
 use crate::tasks::checkout::{name_for, MAX_PORT_NAMES};
 
 const FILE: &str = "checkouts.json";
-pub(crate) const FIRST_PORT: u16 = 21_000;
-pub(crate) const LAST_PORT: u16 = 30_999;
-pub(crate) const BLOCK: u16 = MAX_PORT_NAMES as u16;
+pub const FIRST_PORT: u16 = 21_000;
+pub const LAST_PORT: u16 = 30_999;
+pub const BLOCK: u16 = MAX_PORT_NAMES as u16;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Held {
+pub struct Held {
     pub path: PathBuf,
     /// The project's own checkout, which names are unique within.
     pub repo: PathBuf,
@@ -30,13 +30,13 @@ struct Book {
     checkouts: Vec<Held>,
 }
 
-pub(crate) struct Blocks {
+pub struct Blocks {
     book: Mutex<Book>,
     kept: Kept,
 }
 
 impl Blocks {
-    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+    pub fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, FILE);
         Self {
             book: Mutex::new(kept.load()),
@@ -47,7 +47,7 @@ impl Blocks {
     /// The checkout at `path`'s name and ports, given now when it has none. A block something
     /// already listens in is passed over. `in_use` says whether a port is taken; `kept` whether
     /// a checkout whose folder is gone is still someone's, when the blocks run out.
-    pub(crate) fn reserve(
+    pub fn reserve(
         &self,
         repo: &Path,
         path: &Path,
@@ -85,7 +85,7 @@ impl Blocks {
     }
 
     /// The checkout `cwd` lies in, when the core gave it ports.
-    pub(crate) fn of(&self, cwd: &Path) -> Option<Held> {
+    pub fn of(&self, cwd: &Path) -> Option<Held> {
         let book = self.book.locked();
         (book.checkouts.iter())
             .filter(|held| cwd.starts_with(&held.path))
@@ -94,7 +94,7 @@ impl Blocks {
     }
 
     /// The checkout whose ports `port` is one of.
-    pub(crate) fn holding(&self, port: u16) -> Option<String> {
+    pub fn holding(&self, port: u16) -> Option<String> {
         let book = self.book.locked();
         (book.checkouts.iter())
             .find(|held| (held.first_port..held.first_port + BLOCK).contains(&port))
@@ -102,7 +102,7 @@ impl Blocks {
     }
 
     /// The checkout at `path` is gone; its name and ports are free again.
-    pub(crate) fn free(&self, path: &Path) {
+    pub fn free(&self, path: &Path) {
         let mut book = self.book.locked();
         let before = book.checkouts.len();
         book.checkouts.retain(|held| held.path != path);

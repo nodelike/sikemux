@@ -14,18 +14,17 @@ use tokio::task::JoinHandle;
 
 use tokio::sync::Notify;
 
-use super::{ports, streams, themes, ServerConfig};
+use super::{streams, themes, ServerConfig};
 
 use super::{
     board, chief, device_view, git, goal_summary, goals, harness, hooks, host_stats, hosts, inbox,
     layout, lifecycle, line, memory, mods, outside, pictures, pins, remote_image, session_watch,
-    settling, spare, stalls, tasks, tools, triggers, updates, worktree, Core,
+    settling, spare, stalls, tasks, tools, triggers, updates, Core,
 };
 
 pub(crate) struct Fields {
     pub(super) config: ServerConfig,
     pub(super) manifest_folder: Mutex<Option<PathBuf>>,
-    pub(super) ports: ports::Ports,
     /// Rings when a window opens, so the day's usage counts it at once.
     pub(super) usage_wake: Notify,
     /// Watches the SSH config once a client has listed its hosts.
@@ -42,7 +41,6 @@ pub(crate) struct Fields {
     pub(super) stalls: stalls::Stalls,
     pub(super) lifecycle: lifecycle::Lifecycle,
     pub(super) pins: pins::Pins,
-    pub(super) build_outputs: worktree::build_output::BuildOutputs,
     /// Builds agents start, taking turns.
     pub(super) line: line::Line,
     pub(super) session_watch: session_watch::SessionWatch,
@@ -70,7 +68,6 @@ pub(crate) struct Fields {
 pub(crate) trait Parts {
     fn config(&self) -> &ServerConfig;
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
-    fn ports(&self) -> &ports::Ports;
     fn usage_wake(&self) -> &Notify;
     fn ssh_watch(&self) -> &OnceLock<Option<::notify::RecommendedWatcher>>;
     fn streams(&self) -> &streams::Streams;
@@ -83,7 +80,6 @@ pub(crate) trait Parts {
     fn stalls(&self) -> &stalls::Stalls;
     fn lifecycle(&self) -> &lifecycle::Lifecycle;
     fn pins(&self) -> &pins::Pins;
-    fn build_outputs(&self) -> &worktree::build_output::BuildOutputs;
     fn line(&self) -> &line::Line;
     fn session_watch(&self) -> &session_watch::SessionWatch;
     fn device_view(&self) -> &device_view::DeviceViews;
@@ -113,10 +109,6 @@ impl Parts for Core {
 
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>> {
         &self.kept::<Fields>().manifest_folder
-    }
-
-    fn ports(&self) -> &ports::Ports {
-        &self.kept::<Fields>().ports
     }
 
     fn usage_wake(&self) -> &Notify {
@@ -165,10 +157,6 @@ impl Parts for Core {
 
     fn pins(&self) -> &pins::Pins {
         &self.kept::<Fields>().pins
-    }
-
-    fn build_outputs(&self) -> &worktree::build_output::BuildOutputs {
-        &self.kept::<Fields>().build_outputs
     }
 
     fn line(&self) -> &line::Line {

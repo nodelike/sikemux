@@ -5,17 +5,17 @@
 
 use std::path::{Path, PathBuf};
 
-pub(crate) use sikemux_view::workspace::AgentWorktree;
+pub use sikemux_view::workspace::AgentWorktree;
 
 use crate::git::{main_checkout, Git};
 use crate::tasks::detect::PERSONAL_TASKS;
 
 pub mod agent;
-pub(crate) mod build_output;
+pub mod build_output;
 pub mod removal;
 mod warm;
 
-pub(crate) use warm::seed_in_background;
+pub use warm::seed_in_background;
 
 const NAME_TRIES: usize = 50;
 const MAX_STRAYED_FILES: usize = 20;
@@ -70,7 +70,7 @@ const FILLER_WORDS: [&str; 29] = [
 /// naming them: `fix/` when it mends something, else `feat/`, then a few words
 /// of its first sentence that says what it is, past one that only says who the
 /// agent is, such as "You are the core teammate".
-pub(crate) fn branch_for(work: &str) -> String {
+pub fn branch_for(work: &str) -> String {
     let mut mends = false;
     let mut chosen: Vec<String> = Vec::new();
     for sentence in work.split(['.', ':', '!', '?', '\n']) {
@@ -105,7 +105,7 @@ pub(crate) fn branch_for(work: &str) -> String {
 
 /// Cuts a worktree of `repo` at `start` on a new branch called `branch`, or
 /// `branch` and a number when that is taken. The branch and the folder it is in.
-pub(crate) fn cut(repo: &Path, branch: &str, start: &str) -> Result<(String, PathBuf), String> {
+pub fn cut(repo: &Path, branch: &str, start: &str) -> Result<(String, PathBuf), String> {
     let folder = worktrees_folder(repo);
     let base = Git::quick(repo)
         .trimmed(&["check-ref-format", "--branch", branch])
@@ -137,7 +137,7 @@ pub(crate) fn cut(repo: &Path, branch: &str, start: &str) -> Result<(String, Pat
     Ok((branch, path))
 }
 
-pub(crate) fn remove(repo: &Path, path: &Path, branch: &str) {
+pub fn remove(repo: &Path, path: &Path, branch: &str) {
     let target = path.to_string_lossy().into_owned();
     if let Err(error) = Git::quick(repo).trimmed(&["worktree", "remove", "--force", &target]) {
         eprintln!("sikemux core: the worktree {target} is left: {error}");
@@ -146,7 +146,7 @@ pub(crate) fn remove(repo: &Path, path: &Path, branch: &str) {
 }
 
 /// Copies the files of [`included`] from `main` into the worktree at `tree`.
-pub(crate) fn copy_included(main: &Path, tree: &Path) {
+pub fn copy_included(main: &Path, tree: &Path) {
     for relative in included(main) {
         let (from, to) = (main.join(&relative), tree.join(&relative));
         if !from.is_file() || to.symlink_metadata().is_ok() {
@@ -167,7 +167,7 @@ pub(crate) fn copy_included(main: &Path, tree: &Path) {
 /// What a fresh checkout of `main` lacks but needs to run, such as `.env`:
 /// what `.worktreeinclude` lists, the file Claude Code and Codex read, or else
 /// [`DEFAULT_INCLUDE`].
-pub(crate) fn included(main: &Path) -> Vec<PathBuf> {
+pub fn included(main: &Path) -> Vec<PathBuf> {
     let listed = std::fs::read_to_string(main.join(".worktreeinclude")).ok();
     let patterns: Vec<&str> = match &listed {
         Some(listed) => listed
@@ -239,7 +239,7 @@ fn matches_part(pattern: &str, name: &str) -> bool {
 }
 
 /// A card's own checkout.
-pub(crate) struct Tree {
+pub struct Tree {
     pub repo: PathBuf,
     pub path: PathBuf,
     /// Where the agent works: the project's folder inside the worktree.
@@ -250,7 +250,7 @@ pub(crate) struct Tree {
 }
 
 /// A few words of `text`, kebab-cased, to name a branch and folder after.
-pub(crate) fn slug(text: &str) -> String {
+pub fn slug(text: &str) -> String {
     let mut slug = String::new();
     for word in text
         .to_lowercase()
@@ -274,7 +274,7 @@ pub(crate) fn slug(text: &str) -> String {
     }
 }
 
-pub(crate) fn branch_exists(repo: &Path, branch: &str) -> bool {
+pub fn branch_exists(repo: &Path, branch: &str) -> bool {
     Git::quick(repo)
         .trimmed(&[
             "rev-parse",
@@ -306,7 +306,7 @@ fn base_branch(repo: &Path) -> Result<String, String> {
 }
 
 /// Where `project` sits inside the repository at `repo`.
-pub(crate) fn inside(project: &Path, repo: &Path) -> PathBuf {
+pub fn inside(project: &Path, repo: &Path) -> PathBuf {
     project
         .canonicalize()
         .ok()
@@ -317,7 +317,7 @@ pub(crate) fn inside(project: &Path, repo: &Path) -> PathBuf {
 
 /// The folder beside the main checkout that every worktree of `repo` goes in,
 /// even when `repo` is itself one of those worktrees.
-pub(crate) fn worktrees_folder(repo: &Path) -> PathBuf {
+pub fn worktrees_folder(repo: &Path) -> PathBuf {
     let main = main_checkout(repo).unwrap_or_else(|| repo.to_path_buf());
     let name = main
         .file_name()
@@ -327,7 +327,7 @@ pub(crate) fn worktrees_folder(repo: &Path) -> PathBuf {
 }
 
 /// The branch Auto's work lands on in `repo` and its newest commit, on the remote when it has one.
-pub(crate) fn latest_of_base(repo: &Path) -> Result<(String, String), String> {
+pub fn latest_of_base(repo: &Path) -> Result<(String, String), String> {
     let base = base_branch(repo)?;
     let sha = latest_of(repo, &base)?;
     Ok((base, sha))
@@ -349,7 +349,7 @@ fn latest_of(repo: &Path, base: &str) -> Result<String, String> {
 
 /// Cuts a worktree for a card beside the project's checkout, on a branch of
 /// its own from the latest of the base branch.
-pub(crate) fn cut_for_card(project: &Path, branch: &str) -> Result<Tree, String> {
+pub fn cut_for_card(project: &Path, branch: &str) -> Result<Tree, String> {
     let repo = PathBuf::from(
         Git::quick(project).trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"],
         )
@@ -375,12 +375,12 @@ pub(crate) fn cut_for_card(project: &Path, branch: &str) -> Result<Tree, String>
 
 /// Where a card's commits are kept on the remote between ships. Code hosts start checks only
 /// for branches and tags, so a ref outside those never starts one.
-pub(crate) fn backup_ref(branch: &str) -> String {
+pub fn backup_ref(branch: &str) -> String {
     format!("refs/sikemux/auto/{branch}")
 }
 
 /// Where a card's worktree was made again.
-pub(crate) enum MadeAgain {
+pub enum MadeAgain {
     AtCommit(String),
     FromBase,
 }
@@ -432,7 +432,7 @@ fn last_pushed(
 
 /// Makes a card's lost worktree again where it was: at the local branch when that has
 /// everything pushed, else at the last commit pushed, else on the latest base.
-pub(crate) fn make_again(
+pub fn make_again(
     lost: Tree,
     kept: Option<&str>,
     shipped: Option<&str>,
@@ -471,7 +471,7 @@ pub(crate) fn make_again(
 
 /// Checks `branch` out at `start` in a worktree of `repo` at `path` again, after its folder
 /// was taken away, with what it needs copied in.
-pub(crate) fn add_again(repo: &Path, path: &Path, branch: &str, start: &str) -> Result<(), String> {
+pub fn add_again(repo: &Path, path: &Path, branch: &str, start: &str) -> Result<(), String> {
     Git::quick(repo).trimmed(&["worktree", "prune"])?;
     if let Some(folder) = path.parent() {
         std::fs::create_dir_all(folder)
@@ -494,7 +494,7 @@ pub(crate) fn add_again(repo: &Path, path: &Path, branch: &str, start: &str) -> 
 
 /// Takes away a card's worktree, its branch and what was kept of it on the remote, and when
 /// `remote` the branch on the remote too.
-pub(crate) fn remove_with_remote(repo: &Path, tree: &Path, branch: &str, remote: bool) {
+pub fn remove_with_remote(repo: &Path, tree: &Path, branch: &str, remote: bool) {
     remove(repo, tree, branch);
     let _ = Git::slow(repo).trimmed(&[
         "push",
@@ -511,7 +511,7 @@ pub(crate) fn remove_with_remote(repo: &Path, tree: &Path, branch: &str, remote:
 }
 
 /// A reviewer's checkout of one commit, on no branch, that it cannot write to.
-pub(crate) struct Checkout {
+pub struct Checkout {
     pub path: PathBuf,
     /// Where the reviewer works: the project's folder inside the checkout.
     pub cwd: PathBuf,
@@ -519,7 +519,7 @@ pub(crate) struct Checkout {
 
 /// Checks `head` out beside the project's checkout, detached, for a reviewer
 /// named by `slug`, and takes away the write permission on all of it.
-pub(crate) fn add_checkout(
+pub fn add_checkout(
     repo: &Path,
     project: &Path,
     head: &str,
@@ -540,7 +540,7 @@ pub(crate) fn add_checkout(
 
 /// A writable copy of `head` beside a reviewer's read-only checkout, where it
 /// builds and runs the change without being able to alter what it reviews.
-pub(crate) fn add_build_checkout(
+pub fn add_build_checkout(
     repo: &Path,
     project: &Path,
     head: &str,
@@ -558,7 +558,7 @@ pub(crate) fn add_build_checkout(
 }
 
 /// How the checkout at `path` strays from `head`, none when what it holds is that commit.
-pub(crate) fn strays_from(path: &Path, head: &str) -> Result<Option<String>, String> {
+pub fn strays_from(path: &Path, head: &str) -> Result<Option<String>, String> {
     let now = Git::quick(path).trimmed(&["rev-parse", "HEAD"])?;
     if now != head {
         return Ok(Some(format!("it is at {now} now")));
@@ -571,7 +571,7 @@ pub(crate) fn strays_from(path: &Path, head: &str) -> Result<Option<String>, Str
 }
 
 /// Gives a reviewer's checkout its write permission back and takes it away.
-pub(crate) fn remove_checkout(repo: &Path, path: &Path) {
+pub fn remove_checkout(repo: &Path, path: &Path) {
     if !path.exists() {
         let _ = Git::quick(repo).trimmed(&["worktree", "prune"]);
         return;

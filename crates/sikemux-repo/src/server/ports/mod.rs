@@ -4,7 +4,7 @@
 //! while something runs and a client that asked is still connected. Clients
 //! hear a `ports` change when what it found differs.
 
-pub(crate) mod blocks;
+pub mod blocks;
 pub mod checkout;
 #[cfg(target_os = "macos")]
 mod darwin;
@@ -14,10 +14,9 @@ mod linux;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;
-use crate::server::ServerCore;
 pub use sikemux_calls::ports::{ListeningPort, PortOwner, PortsParams, ProjectPort};
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
@@ -48,7 +47,7 @@ const SETTLE_MS: u64 = 1_500;
 const LOCAL_HOSTS: [&str; 5] = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]", "[::]"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Listener {
+pub struct Listener {
     pub pid: u32,
     pub port: u16,
     pub address: IpAddr,
@@ -61,14 +60,14 @@ struct State {
     watchers: HashSet<ClientId>,
 }
 
-pub(crate) struct Ports {
+pub struct Ports {
     state: Mutex<State>,
-    pub(crate) wake: Wake,
-    pub(crate) blocks: blocks::Blocks,
+    pub wake: Wake,
+    pub blocks: blocks::Blocks,
 }
 
 impl Ports {
-    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+    pub fn new(data_dir: Option<&Path>) -> Self {
         Self {
             state: Mutex::default(),
             wake: Wake::default(),
@@ -78,7 +77,7 @@ impl Ports {
 
     /// A session started or ended: look now, and again once a server it
     /// started has had time to bind.
-    pub(crate) fn changed(&self) {
+    pub fn changed(&self) {
         if !self.state.locked().watchers.is_empty() {
             self.wake.now();
             self.wake.at(epoch_ms() + SETTLE_MS);
@@ -222,7 +221,7 @@ fn describe(
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-pub(crate) fn listening_now(core: &Core) -> Vec<ListeningPort> {
+pub fn listening_now(core: &Core) -> Vec<ListeningPort> {
     let core_pid = std::process::id();
     let mut owners = HashMap::new();
     let mut pids = HashMap::new();
@@ -259,7 +258,7 @@ pub(crate) fn listening_now(core: &Core) -> Vec<ListeningPort> {
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub(crate) fn listening_now(_core: &Core) -> Vec<ListeningPort> {
+pub fn listening_now(_core: &Core) -> Vec<ListeningPort> {
     Vec::new()
 }
 
@@ -276,7 +275,7 @@ fn look(core: &Core) -> Vec<ListeningPort> {
 }
 
 /// Where a server `agent_id` started listens, by itself or in a task it ran.
-pub(crate) fn agent_url(core: &Core, agent_id: &str) -> Option<String> {
+pub fn agent_url(core: &Core, agent_id: &str) -> Option<String> {
     look(core)
         .into_iter()
         .find(|listening| listening.owner.started_by(agent_id))
@@ -284,12 +283,12 @@ pub(crate) fn agent_url(core: &Core, agent_id: &str) -> Option<String> {
 }
 
 fn anything_runs(core: &Core) -> bool {
-    core.running_sessions() > 0 || core.chats().count() > 0
+    (core.repo_above().running_sessions)(core) > 0 || core.chats().count() > 0
 }
 
 /// The work [`Ports::wake`] runs: a look while a client watches, and the
 /// next one a few seconds later while anything runs.
-pub(crate) fn settle(core: &Arc<Core>) {
+pub fn settle(core: &Arc<Core>) {
     if !watched(core) {
         return;
     }
@@ -302,7 +301,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     });
 }
 
-pub(crate) fn preview_port(url: &str) -> Option<u16> {
+pub fn preview_port(url: &str) -> Option<u16> {
     let parsed = url::Url::parse(url).ok()?;
     let host = parsed.host_str()?;
     if !LOCAL_HOSTS.contains(&host) {
@@ -311,11 +310,7 @@ pub(crate) fn preview_port(url: &str) -> Option<u16> {
     parsed.port_or_known_default()
 }
 
-pub(crate) fn for_project(
-    core: &Core,
-    found: Vec<ListeningPort>,
-    project: &Path,
-) -> Vec<ProjectPort> {
+pub fn for_project(core: &Core, found: Vec<ListeningPort>, project: &Path) -> Vec<ProjectPort> {
     let project_text = project.to_string_lossy();
     let preview_url = match config::load(project) {
         ConfigLoad::Valid { config, .. } => config
@@ -351,7 +346,7 @@ pub(crate) fn for_project(
 /// What the project's terminals, tasks and agents listen on, or everything
 /// the core's sessions do, looked up now. The core keeps looking for as long
 /// as the client that asked stays connected.
-pub(crate) async fn project_ports(
+pub async fn project_ports(
     core: &Arc<Core>,
     client: ClientId,
     project: Option<String>,
@@ -383,7 +378,7 @@ pub(crate) async fn project_ports(
 /// already listens on `port`. Connecting reaches servers on loopback or on
 /// every address, and unlike listening it never raises the macOS firewall
 /// prompt.
-pub(crate) fn in_use(port: u16) -> bool {
+pub fn in_use(port: u16) -> bool {
     let loopback = [
         IpAddr::from([127, 0, 0, 1]),
         IpAddr::from(std::net::Ipv6Addr::LOCALHOST),

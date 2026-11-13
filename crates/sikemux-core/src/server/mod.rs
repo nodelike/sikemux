@@ -94,7 +94,7 @@ pub use sikemux_repo::server::places;
 pub mod playbook;
 pub(crate) use sikemux_repo::server::plugged;
 pub mod plugins;
-pub mod ports;
+pub use sikemux_repo::server::ports;
 pub(crate) use sikemux_serve::server::prepare;
 pub use sikemux_workspace::server::preferences;
 pub use sikemux_workspace::server::project_files;
@@ -148,11 +148,11 @@ pub(crate) use sikemux_serve::server::wake;
 pub mod wallpaper;
 pub(crate) use sikemux_repo::server::who_wrote;
 mod why;
+pub use sikemux_repo::server::worktree;
 pub(crate) use sikemux_serve::server::window;
 pub use sikemux_workspace::server::workspace;
 pub(crate) use sikemux_workspace::server::workspace_above;
 pub(crate) use sikemux_workspace::server::workspace_state;
-pub mod worktree;
 
 pub use calls::call;
 pub use entry::main;
@@ -492,11 +492,12 @@ impl ServerCore for Core {
                     edits: edits::Edits::new(data_dir, me.clone()),
                     collisions: collisions::Collisions::new(me.clone()),
                     checks: Default::default(),
+                    ports: ports::Ports::new(data_dir),
+                    build_outputs: Default::default(),
                 }) as sikemux_kernel::Parts,
                 Box::new(parts::Fields {
                     config,
                     manifest_folder: Mutex::new(None),
-                    ports: ports::Ports::new(data_dir),
                     usage_wake: Notify::new(),
                     ssh_watch: OnceLock::new(),
                     streams: streams::Streams::default(),
@@ -509,7 +510,6 @@ impl ServerCore for Core {
                     stalls: stalls::Stalls::default(),
                     lifecycle: lifecycle::Lifecycle::default(),
                     pins: pins::Pins::new(data_dir),
-                    build_outputs: Default::default(),
                     line: line::Line::new(data_dir),
                     session_watch: session_watch::SessionWatch::default(),
                     device_view: device_view::DeviceViews::default(),
