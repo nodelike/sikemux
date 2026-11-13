@@ -8,6 +8,7 @@
 
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -43,6 +44,12 @@ const MAX_TIME: Duration = Duration::from_secs(2);
 const MAX_CHAT_BYTES: usize = 512 * 1024;
 /// The person's messages a search for words gives at most.
 const MAX_WORDS_FOUND: usize = 4;
+/// Words a question is phrased with that name nothing in particular, so a search skips them.
+const FILLER: &str = "\
+    about agent all and any are asked based been but can chose could decide decided decision \
+    decisions did does each for from had has have how into its lately made not our person \
+    pick project recent recently rest rests said say should that the there these this those \
+    today told use was were what when where which who why will with would yesterday you your";
 
 /// Something a fact rests on, which a chip opens.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -242,7 +249,11 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         words,
     };
     let (reading, asker) = (core.clone(), agent.clone());
-    let (found, searched) = blocking(move || {
+    let Read {
+        found,
+        searched,
+        newest,
+    } = blocking(move || {
         count(&reading, &asker);
         Ok(read(&reading, &asked))
     })
@@ -260,15 +271,29 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         true => "Sikemux keeps nothing about that. Say so plainly; don't guess.".to_owned(),
         false => "Write the answer from these facts only. Put a fact's ref right after the claim it supports; a sentence with no ref is not shown.".to_owned(),
     };
+    if newest {
+        note.push_str(
+            " Those words name nothing in particular, so these are the project's newest decisions.",
+        );
+    }
     if searched {
         note.push_str(" Words were looked for only in the project's open chats.");
     }
     Ok(json!({ "facts": shown, "note": note }))
 }
 
-/// The facts behind what `asked` names, and whether words were searched for. Reads git, the
-/// chats' history files and the calls file, so it blocks; it stops at [`MAX_TIME`].
-fn read(core: &Core, asked: &Asked) -> (Vec<Fact>, bool) {
+/// What a read found.
+struct Read {
+    found: Vec<Fact>,
+    /// Words were searched for.
+    searched: bool,
+    /// The words named nothing in particular, so the facts are the project's newest decisions.
+    newest: bool,
+}
+
+/// The facts behind what `asked` names. Reads git, the chats' history files and the calls file,
+/// so it blocks; it stops at [`MAX_TIME`].
+fn read(core: &Core, asked: &Asked) -> Read {
     let mut facts = Facts {
         found: Vec::new(),
         deadline: Instant::now() + MAX_TIME,
@@ -277,10 +302,21 @@ fn read(core: &Core, asked: &Asked) -> (Vec<Fact>, bool) {
     if let Some(about) = &asked.about {
         about_target(core, asked, about, &mut facts);
     }
+    let mut newest = false;
     if let Some(words) = &asked.words {
-        said_words(core, asked, words, &mut facts);
+        let wanted = meaningful(words);
+        if !wanted.is_empty() {
+            said_words(core, asked, &wanted, &mut facts);
+        } else if facts.found.is_empty() {
+            newest_decisions(core, asked, &mut facts);
+            newest = !facts.found.is_empty();
+        }
     }
-    (facts.found, asked.words.is_some())
+    Read {
+        found: facts.found,
+        searched: asked.words.is_some(),
+        newest,
+    }
 }
 
 /// Whether `agent` works in `project`, so what it was told and asked may be read for an asker
@@ -351,11 +387,10 @@ fn agent_facts(core: &Core, asked: &Asked, agent: &str, at: u64, facts: &mut Fac
             pointer,
         });
     }
-    let decided = (board::decisions_of(core, &asked.project).into_iter())
+    let decided = (decisions_newest_first(core, &asked.project).into_iter())
         .filter(|(_, decision)| {
             decision.holder.as_deref() == Some(agent) && decision.learned.at <= at
         })
-        .rev()
         .take(2);
     for (card, decision) in decided.collect::<Vec<_>>() {
         facts.extend(decision_fact(card, &decision));
@@ -388,10 +423,35 @@ fn agent_facts(core: &Core, asked: &Asked, agent: &str, at: u64, facts: &mut Fac
     }
 }
 
-/// What an agent or a lead decided, said as theirs, when it holds nothing that may be a secret.
+/// Every decision kept in `project` that still stands, newest first.
+fn decisions_newest_first(
+    core: &Core,
+    project: &str,
+) -> Vec<(Option<u64>, sikemux_view::slice::Decision)> {
+    let mut decisions = board::decisions_of(core, project);
+    decisions.sort_by_key(|(_, decision)| Reverse(decision.learned.at));
+    decisions
+}
+
+/// The project's newest decisions, for words that name nothing in particular.
+fn newest_decisions(core: &Core, asked: &Asked, facts: &mut Facts) {
+    for (card, decision) in decisions_newest_first(core, &asked.project) {
+        if facts.full() {
+            break;
+        }
+        facts.extend(decision_fact(card, &decision));
+    }
+}
+
+/// What an agent or a lead decided and why, said as theirs, when it holds nothing that may be a
+/// secret.
 fn decision_fact(card: Option<u64>, decision: &sikemux_view::slice::Decision) -> Option<Fact> {
     let says = decision.says();
-    if may_hold_secret(&says) {
+    let said = match decision.why.as_deref().map(str::trim) {
+        Some(why) if !why.is_empty() => format!("{}. Why: {why}", says.trim_end_matches('.')),
+        _ => says,
+    };
+    if may_hold_secret(&said) {
         return None;
     }
     let who = decision.learned.name.clone();
@@ -399,7 +459,7 @@ fn decision_fact(card: Option<u64>, decision: &sikemux_view::slice::Decision) ->
         .as_deref()
         .map_or("An agent".to_owned(), |name| format!("@{name}"));
     Some(Fact {
-        said: clipped(&format!("{by} decided: {says}"), MAX_SAID_CHARS),
+        said: clipped(&format!("{by} decided: {said}"), MAX_SAID_CHARS),
         at: Some(decision.learned.at),
         who,
         pointer: Pointer::Decision {
@@ -540,49 +600,84 @@ fn turn_prompt(core: &Core, feed: &str, turn: u64) -> Option<u64> {
         .map(|(index, _)| *index)
 }
 
-/// The person's own words in the project's open chats that hold every one of `words`, newest
-/// first, and the decisions and rules that hold them.
-fn said_words(core: &Core, asked: &Asked, words: &str, facts: &mut Facts) {
-    let wanted: Vec<String> = (words.split_whitespace())
+/// The words of `text` worth searching for, lowercased, each once.
+fn meaningful(text: &str) -> Vec<String> {
+    let mut words: Vec<String> = Vec::new();
+    for word in text
+        .split(|c: char| !c.is_alphanumeric())
         .map(str::to_lowercase)
-        .filter(|word| word.chars().count() > 2)
-        .collect();
-    if wanted.is_empty() {
-        return;
+    {
+        if word.chars().count() > 2
+            && !FILLER.split_whitespace().any(|filler| filler == word)
+            && !words.contains(&word)
+        {
+            words.push(word);
+        }
     }
-    let holds = |text: &str| {
-        let text = text.to_lowercase();
-        wanted.iter().all(|word| text.contains(word.as_str()))
-    };
-    let mut found = 0;
+    words
+}
+
+/// How many of `wanted` `text` holds, each as a word or, when four letters or more, the start of
+/// one.
+fn held(wanted: &[String], text: &str) -> usize {
+    let words: Vec<String> = (text.split(|c: char| !c.is_alphanumeric()))
+        .map(str::to_lowercase)
+        .collect();
+    (wanted.iter())
+        .filter(|wanted| {
+            let prefix = wanted.chars().count() >= 4;
+            (words.iter())
+                .any(|word| word == *wanted || prefix && word.starts_with(wanted.as_str()))
+        })
+        .count()
+}
+
+/// The items holding any of the wanted words, those holding most first and otherwise in the
+/// order given.
+fn ranked<T>(items: impl IntoIterator<Item = T>, score: impl Fn(&T) -> usize) -> Vec<T> {
+    let mut scored: Vec<(usize, T)> = (items.into_iter())
+        .map(|item| (score(&item), item))
+        .filter(|(score, _)| *score > 0)
+        .collect();
+    scored.sort_by_key(|(score, _)| Reverse(*score));
+    scored.into_iter().map(|(_, item)| item).collect()
+}
+
+/// The person's own words in the project's open chats, and the decisions and rules, that hold
+/// the most of `wanted`.
+fn said_words(core: &Core, asked: &Asked, wanted: &[String], facts: &mut Facts) {
+    let holds = |text: &str| held(wanted, text);
+    let mut said = Vec::new();
     for chat in core.chats().all() {
-        if found >= MAX_WORDS_FOUND || facts.full() {
+        if facts.full() {
             break;
         }
         if !of_project(core, chat.agent_id(), &asked.project) {
             continue;
         }
-        let said =
-            (persons_said(core, chat.agent_id()).into_iter()).find(|(words, _, _)| holds(words));
-        if let Some((words, pointer, at)) = said {
-            facts.add(Fact {
-                said: format!("You said: \"{words}\""),
-                at,
-                who: None,
-                pointer,
-            });
-            found += 1;
-        }
+        let best = (persons_said(core, chat.agent_id()).into_iter())
+            .map(|said| (holds(&said.0), said))
+            .min_by_key(|(score, _)| Reverse(*score));
+        said.extend(best.filter(|(score, _)| *score > 0));
     }
-    let decided = (board::decisions_of(core, &asked.project).into_iter())
-        .filter(|(_, decision)| holds(&decision.says()))
-        .rev()
-        .take(2);
-    for (card, decision) in decided.collect::<Vec<_>>() {
+    said.sort_by_key(|(score, _)| Reverse(*score));
+    for (_, (words, pointer, at)) in said.into_iter().take(MAX_WORDS_FOUND) {
+        facts.add(Fact {
+            said: format!("You said: \"{words}\""),
+            at,
+            who: None,
+            pointer,
+        });
+    }
+    let decided = ranked(
+        decisions_newest_first(core, &asked.project),
+        |(_, decision)| holds(&decision.says()),
+    );
+    for (card, decision) in decided.into_iter().take(2) {
         facts.extend(decision_fact(card, &decision));
     }
     let (rules, _) = memory::for_playbook(core, &asked.project, &Peer::Local);
-    for rule in rules.into_iter().filter(|rule| holds(&rule.text)).take(2) {
+    for rule in ranked(rules, |rule| holds(&rule.text)).into_iter().take(2) {
         facts.add(Fact {
             said: format!("Your rule: \"{}\"", rule.text),
             at: Some(rule.learned.at),
@@ -590,10 +685,12 @@ fn said_words(core: &Core, asked: &Asked, words: &str, facts: &mut Facts) {
             pointer: Pointer::Rule(rule.id),
         });
     }
-    let apart = (memory::set_aside(core, &asked.project).into_iter())
-        .filter(|apart| !apart.rule.sensitive && holds(&apart.rule.text))
-        .take(2);
-    for apart in apart.collect::<Vec<_>>() {
+    let apart =
+        (memory::set_aside(core, &asked.project).into_iter()).filter(|apart| !apart.rule.sensitive);
+    for apart in ranked(apart, |apart| holds(&apart.rule.text))
+        .into_iter()
+        .take(2)
+    {
         set_aside_facts(core, &apart, facts);
     }
 }

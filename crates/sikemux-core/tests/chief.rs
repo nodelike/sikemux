@@ -593,6 +593,72 @@ async fn a_production_question_is_answered_only_on_its_call_where_it_was_drawn()
         .expect("a call handed back replies");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn why_answers_a_broad_question_with_the_newest_decisions_and_a_specific_miss_with_none() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    worker
+        .tool("board.add", json!({ "title": "Share", "claim": true }))
+        .await;
+    let decided = worker
+        .tool(
+            "board.decide",
+            json!({ "text": "Shared links land in Inbox", "why": "The person reads Inbox first" }),
+        )
+        .await;
+    assert!(decided.contains("Decision #"), "{decided}");
+
+    let words = "what was decided in this project today and what each decision rests on";
+    let answered = worker.tool("agent.why", json!({ "words": words })).await;
+    assert!(
+        answered.contains("Shared links land in Inbox"),
+        "{answered}"
+    );
+    assert!(
+        answered.contains("The person reads Inbox first"),
+        "{answered}"
+    );
+
+    let missed = worker
+        .tool(
+            "agent.why",
+            json!({ "words": "why did we drop the rail's model names" }),
+        )
+        .await;
+    assert!(!missed.contains("newest decisions"), "{missed}");
+    assert!(!missed.contains("Shared links land in Inbox"), "{missed}");
+}
+
 const UNWRAP: &str = "Never call unwrap outside tests";
 const PUSH: &str = "Never push to main without a review";
 
