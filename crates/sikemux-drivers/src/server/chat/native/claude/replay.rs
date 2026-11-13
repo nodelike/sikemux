@@ -940,6 +940,8 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
     // tasks by itself; the prompt that wakes it is hidden, so a reply that
     // follows a finished turn begins a new one.
     let mut turn_over = false;
+    // The core's ask for a handoff note and the turn that answers it ran hushed.
+    let mut in_note = false;
     // Pictures from before the last compaction would be most of a long
     // chat's bytes; their rows still say what they were.
     let pictures_from = records
@@ -969,6 +971,18 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
         let Some(message) = record.get("message") else {
             continue;
         };
+        if parent.is_none() && str_field(record, "type") == Some("user") {
+            if is_handoff_ask(message) {
+                in_note = true;
+                continue;
+            }
+            if !only_tool_results(message) {
+                in_note = false;
+            }
+        }
+        if in_note {
+            continue;
+        }
         let is_assistant = str_field(record, "type") == Some("assistant");
         if is_assistant && is_synthetic_login(message) {
             continue;
@@ -1042,6 +1056,27 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
         }
     }
     replay.finish()
+}
+
+fn is_handoff_ask(message: &Value) -> bool {
+    let text = match message.get("content") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(blocks)) => (blocks.iter())
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect(),
+        _ => return false,
+    };
+    text.trim() == crate::server::chat::rotation::HANDOFF_ASK
+}
+
+fn only_tool_results(message: &Value) -> bool {
+    message
+        .get("content")
+        .and_then(Value::as_array)
+        .is_some_and(|blocks| {
+            !blocks.is_empty()
+                && (blocks.iter()).all(|block| str_field(block, "type") == Some("tool_result"))
+        })
 }
 
 fn drop_pictures(value: &mut Value) {
