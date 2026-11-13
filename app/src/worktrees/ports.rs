@@ -3,10 +3,13 @@
 
 use gpui::Anchor;
 use gpui_kit::base::Popover;
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gpui_kit::component::input::InputState;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity, FontWeight,
+    canvas, div, px, AnyElement, App, AppContext, ClipboardItem, Context, Entity, FontWeight,
     InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, WeakEntity, Window,
 };
@@ -25,12 +28,18 @@ const WIDTH: f32 = 360.;
 const FIRST_VALUES: usize = 5;
 const ENV_ROW: f32 = 22.;
 /// How tall the list of every value is, so the popover keeps its height however many there are.
-const ENV_LIST: f32 = 9. * ENV_ROW;
+const ENV_ROWS: f32 = 9.;
+/// The open popover's height besides its list, with the gap over the chip.
+const AROUND_LIST: f32 = 362.;
+/// The title bar and the tabs under it, which the popover stays below.
+const TOP_ROOM: f32 = 80.;
 
 /// Whether the popover shows every environment value, and the filter over them.
 pub struct EnvList {
     pub open: bool,
     pub filter: Entity<InputState>,
+    /// Where the chip was last drawn, in window points from the top.
+    pub chip_top: Rc<Cell<f32>>,
 }
 
 impl EnvList {
@@ -38,6 +47,7 @@ impl EnvList {
         Self {
             open: false,
             filter: cx.new(|cx| InputState::new(window, cx).placeholder(t!("Filter"))),
+            chip_top: Rc::default(),
         }
     }
 }
@@ -49,10 +59,21 @@ pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Opti
     let t = Tokens::get(cx).clone();
     let about = bench.feeds.in_front().checkout.clone();
     let shown = (bench.checkout_env.open, bench.checkout_env.filter.clone());
+    let chip_top = bench.checkout_env.chip_top.clone();
+    let list_rows = {
+        let chip_top = chip_top.clone();
+        move || {
+            ((chip_top.get() - TOP_ROOM - AROUND_LIST) / ENV_ROW)
+                .floor()
+                .clamp(2., ENV_ROWS)
+        }
+    };
     let (bench, agent) = (cx.entity().downgrade(), agent.to_owned());
+    let drawn_at = chip_top.clone();
     let face = move |open: bool| {
         div()
             .id("checkout-ports")
+            .relative()
             .h(px(20.))
             .px(SPACE_1H)
             .flex()
@@ -67,6 +88,15 @@ pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Opti
                 chip.bg(t.surface_hover).border_color(t.border_strong)
             })
             .hover(|style| style.bg(t.surface_hover).border_color(t.border_strong))
+            .child({
+                let chip_top = drawn_at.clone();
+                canvas(
+                    move |bounds, _, _| chip_top.set(f32::from(bounds.origin.y)),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full()
+            })
             .child(ui::icon(Icon::Plug, 11.).text_color(t.text_tertiary))
             .child(
                 ui::text(range(first), TEXT_3XS_H, FontWeight::NORMAL)
@@ -80,7 +110,11 @@ pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Opti
             .anchor(Anchor::BottomLeft)
             .offset(SPACE_1H)
             .trigger_with(move |open, _, _| face(open).into_any_element())
-            .content(move |_, _, cx| card(about.clone(), &shown, &bench, &agent, cx))
+            .content(move |_, _, cx| {
+                let room = chip_top.get() - TOP_ROOM;
+                let shown = (shown.0, shown.1.clone(), list_rows(), room);
+                card(about.clone(), &shown, &bench, &agent, cx)
+            })
             .into_any_element(),
     )
 }
@@ -94,20 +128,20 @@ fn range(first: u16) -> String {
 /// environment it gives.
 fn card(
     about: Option<CheckoutAbout>,
-    shown: &(bool, Entity<InputState>),
+    shown: &(bool, Entity<InputState>, f32, f32),
     bench: &WeakEntity<Workbench>,
     agent: &str,
     cx: &mut App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let frame = div()
+        .id("checkout-card")
+        .max_h(px(shown.3.max(ENV_ROWS * ENV_ROW)))
+        .overflow_y_scroll()
         .w(px(WIDTH))
         .px(SPACE_3)
         .pt(SPACE_2H)
         .pb(px(11.))
-        .flex()
-        .flex_col()
-        .gap(SPACE_1)
         .rounded(RADIUS_3)
         .bg(t.surface_overlay)
         .border_1()
@@ -238,31 +272,37 @@ fn card(
     };
     let env = env_group(&about.env, shown, bench, cx);
     frame
-        .child(heading(t!("Checkout"), cx))
-        .child(checkout)
-        .child(path)
-        .child(heading(t!("Ports"), cx))
-        .children(rows)
-        .when_some(note, |card, note| {
-            card.child(
-                ui::text(note, TEXT_2XS, FontWeight::NORMAL)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(SPACE_1)
+                .child(heading(t!("Checkout"), cx))
+                .child(checkout)
+                .child(path)
+                .child(heading(t!("Ports"), cx))
+                .children(rows)
+                .when_some(note, |card, note| {
+                    card.child(
+                        ui::text(note, TEXT_2XS, FontWeight::NORMAL)
+                            .w_full()
+                            .whitespace_normal()
+                            .text_color(t.text_tertiary),
+                    )
+                })
+                .child(heading(t!("Env"), cx))
+                .child(env)
+                .child(
+                    ui::text(
+                        t!("Worked out from sikemux.json. Every agent and process in this checkout gets them."),
+                        TEXT_2XS,
+                        FontWeight::NORMAL,
+                    )
+                    .pt(SPACE_1)
                     .w_full()
                     .whitespace_normal()
                     .text_color(t.text_tertiary),
-            )
-        })
-        .child(heading(t!("Env"), cx))
-        .child(env)
-        .child(
-            ui::text(
-                t!("Worked out from sikemux.json. Every agent and process in this checkout gets them."),
-                TEXT_2XS,
-                FontWeight::NORMAL,
-            )
-            .pt(SPACE_1)
-            .w_full()
-            .whitespace_normal()
-            .text_color(t.text_tertiary),
+                )
         )
         .into_any_element()
 }
@@ -271,7 +311,7 @@ fn card(
 /// Each value is one line; the full value and a copy button show on hover.
 fn env_group(
     env: &[(String, String)],
-    (open, filter): &(bool, Entity<InputState>),
+    (open, filter, list_rows, _): &(bool, Entity<InputState>, f32, f32),
     bench: &WeakEntity<Workbench>,
     cx: &mut App,
 ) -> AnyElement {
@@ -406,7 +446,7 @@ fn env_group(
         .child(
             div()
                 .id("checkout-env-list")
-                .h(px(ENV_LIST))
+                .h(px(list_rows * ENV_ROW))
                 .overflow_y_scroll()
                 .flex()
                 .flex_col()

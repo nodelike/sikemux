@@ -1,0 +1,20 @@
+# The checkout popover for forty environment values in a short window: open, it stays below the
+# title bar and the tabs, scrolling within itself.
+stage 1280 680
+window 1280 680
+prefer themeId aura-noir
+project storefront checkout-env-shop
+chat Wren
+core trustProject "{\"project\":\"$project\",\"fingerprint\":\"sha256:fd17bcc27cea928e2fdbc001c1ff6a529d4e404c4abc6892aa0e916b426681e2\"}"
+core createAgentWorktree "{\"agentId\":\"$chat\",\"message\":\"Some orders come out a cent off\"}"
+core taskStart "{\"project\":\"$checkout\",\"taskId\":\"web\"}"
+core taskStart "{\"project\":\"$checkout\",\"taskId\":\"api\"}"
+settle 8
+click 768,457
+settle 3
+move 880,300 0.3
+scroll -200 0.5
+settle 1
+click 771,376
+settle 2
+snap after-popover-40-open-short
