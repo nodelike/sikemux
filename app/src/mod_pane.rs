@@ -8,8 +8,8 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::Duration;
 
 use gpui_kit::{
-    div, AnyElement, AppContext, Context, IntoElement, ParentElement, Render, SharedString, Styled,
-    WeakEntity, Window,
+    div, AnyElement, App, AppContext, Context, IntoElement, ParentElement, Render, SharedString,
+    Styled, WeakEntity, Window,
 };
 use serde_json::{json, Value};
 use sikemux_calls::mods::follows;
@@ -18,6 +18,7 @@ use sikemux_view::layout::PaneKind;
 
 use crate::core::Target;
 use crate::hosts::Place;
+use crate::icons::Icon;
 use crate::page_view::{PageEvent, Room};
 use crate::theme::{Tokens, TEXT_XS};
 use crate::workbench::{Strip, Workbench};
@@ -28,6 +29,7 @@ use sikemux_calls::mods::BadgeParams;
 use sikemux_calls::mods::BridgeParams;
 use sikemux_calls::mods::BridgeWrite;
 use sikemux_calls::mods::ModAsk;
+use sikemux_calls::mods::ModBatchParams;
 use sikemux_calls::mods::ModChange;
 use sikemux_calls::mods::ModParams;
 
@@ -214,23 +216,21 @@ impl ModPane {
     }
 
     fn undo(&mut self, cx: &mut Context<Self>) {
-        let Some(change) = self.change.clone() else {
+        let Some(change) = self.change.as_ref() else {
             return;
         };
-        let params = json!({
-            "collection": change.collection,
-            "id": change.id,
-            "version": change.version,
-        });
         let undo = self
             .core
-            .request_typed::<call::ModWrite>(self.asking("data.undo", params));
+            .request_typed::<call::UndoModChange>(ModBatchParams {
+                id: self.id.clone(),
+                batch: change.batch,
+            });
         cx.spawn(async move |this, cx| {
             let answer = undo.await;
             let _ = this.update(cx, |pane, cx| match answer {
                 Ok(_) => pane.read_change(cx),
                 Err(error) => {
-                    pane.undo_failed = Some(error.into());
+                    pane.undo_failed = Some(t!("Couldn't undo: {why}", why = error).into());
                     cx.notify();
                 }
             });
@@ -238,34 +238,16 @@ impl ModPane {
         .detach();
     }
 
-    fn change_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let change = self.change.as_ref()?;
-        let t = Tokens::get(cx);
-        let (said, tone) = match &self.undo_failed {
-            Some(failed) => (failed.clone(), t.warn),
-            None => {
-                let who = change
-                    .name
-                    .as_ref()
-                    .map_or_else(|| t!("an agent").to_owned(), |name| format!("@{name}"));
-                let said = t!(
-                    "Changed by {who} · {ago}",
-                    who = who,
-                    ago = crate::ui::time::ago(change.at)
-                );
-                (said.into(), t.text_secondary)
-            }
+    fn dismiss(&mut self, cx: &mut Context<Self>) {
+        let Some(change) = self.change.take() else {
+            return;
         };
-        let pane = cx.weak_entity();
-        let undo = crate::ui::Button::new(
-            SharedString::from(format!("mod-undo-{}", self.id)),
-            t!("Undo"),
-            crate::ui::Variant::Outline,
-        )
-        .on_click(move |_, _, cx| {
-            let _ = pane.update(cx, |pane, cx| pane.undo(cx));
-        });
-        Some(crate::ui::notice_bar(said, tone, [undo], cx).into_any_element())
+        self.core
+            .call_typed::<call::DismissModChange>(ModBatchParams {
+                id: self.id.clone(),
+                batch: change.batch,
+            });
+        cx.notify();
     }
 
     fn present(&mut self, html: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -545,6 +527,58 @@ impl ModPane {
     }
 }
 
+/// Says who made the last list of writes to the mod, with Undo and a dismiss, or why undoing it
+/// failed.
+fn change_bar(
+    id: &str,
+    change: &ModChange,
+    failed: Option<SharedString>,
+    undo: impl Fn(&mut App) + 'static,
+    dismiss: impl Fn(&mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let (said, tone) = match failed {
+        Some(failed) => (failed, t.warn),
+        None => {
+            let who = change
+                .name
+                .as_ref()
+                .map_or_else(|| t!("an agent").to_owned(), |name| format!("@{name}"));
+            let ago = crate::ui::time::ago(change.at);
+            let said = match change.documents {
+                0 | 1 => t!("Changed by {who} · {ago}", who = who, ago = ago),
+                count => t!(
+                    "Changed by {who} · {count} documents · {ago}",
+                    who = who,
+                    count = count,
+                    ago = ago
+                ),
+            };
+            (said.into(), t.text_secondary)
+        }
+    };
+    let undo = crate::ui::Button::new(
+        SharedString::from(format!("mod-undo-{id}")),
+        t!("Undo"),
+        crate::ui::Variant::Outline,
+    )
+    .on_click(move |_, _, cx| undo(cx));
+    let dismiss = crate::ui::IconButton::new(
+        SharedString::from(format!("mod-dismiss-{id}")),
+        Icon::Close,
+        t!("Dismiss"),
+    )
+    .on_click(move |_, _, cx| dismiss(cx));
+    crate::ui::notice_bar(
+        said,
+        tone,
+        [undo.into_any_element(), dismiss.into_any_element()],
+        cx,
+    )
+    .into_any_element()
+}
+
 /// An answer as the bridge's script takes it: the error, then the value.
 fn outcome(answer: Result<Value, String>) -> String {
     match answer {
@@ -634,7 +668,21 @@ impl Render for ModPane {
             .size_full()
             .flex()
             .flex_col()
-            .children(self.change_bar(cx))
+            .children(self.change.as_ref().map(|change| {
+                let (undo, dismiss) = (cx.weak_entity(), cx.weak_entity());
+                change_bar(
+                    &self.id,
+                    change,
+                    self.undo_failed.clone(),
+                    move |cx| {
+                        let _ = undo.update(cx, |pane, cx| pane.undo(cx));
+                    },
+                    move |cx| {
+                        let _ = dismiss.update(cx, |pane, cx| pane.dismiss(cx));
+                    },
+                    cx,
+                )
+            }))
             .child(div().flex_1().min_h_0().child(drawn))
     }
 }

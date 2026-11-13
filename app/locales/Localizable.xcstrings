@@ -15248,6 +15248,7 @@
       }
     },
     "Changed by {who} · {ago}": {},
+    "Changed by {who} · {count} documents · {ago}": {},
     "Changes": {
       "localizations": {
         "es": {
@@ -24821,6 +24822,7 @@
         }
       }
     },
+    "Couldn't undo: {why}": {},
     "Count as production": {
       "localizations": {
         "es": {

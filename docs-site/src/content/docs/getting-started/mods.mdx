@@ -137,4 +137,4 @@ Every write is checked against its collection's schema, from the page and from a
 
 Agents read a mod's data with `mod_read`: with only the mod's id it gives the mod's collections, their schemas and how many documents each holds, and with a collection or an id it gives the documents. They change it with `mod_write`, a list of writes made all together or not at all, each checked against the schema as the page's are.
 
-When an agent changed a mod's data last, the mod's tab says so above the page, as "Changed by @Ada · 2m ago", with **Undo**.
+When an agent changed a mod's data last, the mod's tab says so above the page, as "Changed by @Ada · 3 documents · 2m ago". **Undo** takes back everything that `mod_write` changed at once; **×** hides the bar until an agent changes the mod again.
