@@ -55,7 +55,7 @@ The last line of every chat says how its turn stands, in one of six states:
 | State | Says | What you can do there |
 |---|---|---|
 | **Working** | the step of its plan it is on, and for how long | |
-| **Waiting** | what it waits on, such as CI, a deploy, another agent or a set time, and how long that has gone against how long it usually takes | |
+| **Waiting** | what it waits on, such as CI, a deploy, a set time, or another agent: a worker it started, or the lead that has a question it stopped for, and how long that has gone against how long it usually takes | |
 | **Needs you** | the question or permission it waits on, and for how long | |
 | **Done** | where the work is (no changes, uncommitted, committed, landed, on staging, shipped) and how its checks went | the next step, such as **Commit**, **Push**, **Deploy to staging**, **Ship to production…** or **Roll back** |
 | **Stopped** | what it left open, with nothing set to wake it | **Carry on** |

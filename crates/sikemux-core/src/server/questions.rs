@@ -695,6 +695,20 @@ impl Questions {
             .any(|question| question.agent_id == agent_id && question.blocked)
     }
 
+    /// Each agent that stopped for the answer to a question its lead has, with that lead's name
+    /// and when it asked; its oldest such question when it has several.
+    pub(crate) fn waiting_on_leads(&self) -> HashMap<String, (String, u64)> {
+        let mut waiting = HashMap::new();
+        for question in self.state.locked().open.iter().filter(|q| q.blocked) {
+            if let Stage::Lead { lead_name, .. } = &question.stage {
+                waiting
+                    .entry(question.agent_id.clone())
+                    .or_insert_with(|| (lead_name.clone(), question.at));
+            }
+        }
+        waiting
+    }
+
     /// Whether the agent has a question or an assumption the person has not
     /// answered.
     pub(crate) fn has_open(&self, agent_id: &str) -> bool {
@@ -2727,6 +2741,42 @@ mod tests {
         assert!(questions.hears_hidden("worker"));
         assert!(questions.hears_hidden("lead"));
         assert!(!questions.hears_hidden("bystander"));
+    }
+
+    #[tokio::test]
+    async fn a_worker_stopped_for_its_leads_answer_waits_on_the_lead_rather_than_being_done() {
+        use crate::server::activity::{Activity, ActivityCore};
+        use crate::server::parts::Parts;
+        use crate::server::{Core, ServerCore};
+        use sikemux_view::turn::{TurnPhase, TurnWaitKind};
+
+        let core = Core::new(Default::default(), None).unwrap();
+        core.note_activity("worker", Activity::Started);
+        let asked: Question = serde_json::from_value(serde_json::json!({
+            "id": "question-1",
+            "agentId": "worker",
+            "name": "Garou",
+            "cli": "opencode",
+            "project": "widget",
+            "asked": "Buy the display font for the welcome screen, $40?",
+            "text": "Buy the display font for the welcome screen, $40?",
+            "choices": [],
+            "blocked": true,
+            "assumption": null,
+            "secret": false,
+            "at": 7,
+            "stage": { "stage": "lead", "leadId": "lead", "leadName": "Mumen", "endedAt": null },
+        }))
+        .expect("a question");
+        core.harness().questions.state.locked().open.push(asked);
+        core.note_activity("worker", Activity::Finished { cancelled: false });
+
+        let turn = crate::server::turn_state::now(&core, "worker").expect("the turn ended");
+        assert_eq!(turn.state, TurnPhase::Waiting);
+        let wait = turn.wait.expect("what it waits on");
+        assert_eq!(wait.kind, TurnWaitKind::Agent);
+        assert_eq!(wait.what, "Mumen");
+        assert_eq!(wait.started_at, 7);
     }
 
     fn asked_in(reply: &str) -> Vec<(String, bool)> {

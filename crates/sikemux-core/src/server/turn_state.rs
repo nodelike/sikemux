@@ -88,6 +88,8 @@ pub(crate) struct Gathered {
     asks: HashMap<String, Vec<Ask>>,
     /// A worker each lead waits on, mid-turn, with when it started.
     workers: HashMap<String, (String, u64)>,
+    /// The lead each worker stopped to hear an answer from, with when it asked.
+    leads: HashMap<String, (String, u64)>,
     /// Owners of slices waiting on the project's check: since when, and how long it usually takes.
     on_check: HashMap<String, (u64, Option<u64>)>,
 }
@@ -131,6 +133,7 @@ impl Gathered {
         Self {
             asks,
             workers,
+            leads: core.harness().questions.waiting_on_leads(),
             on_check: super::board::owners_on_check(core),
         }
     }
@@ -229,9 +232,12 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
         .collect();
     let mut on_check = super::board::owners_on_check(core);
     on_check.retain(|owner, _| owner == agent_id);
+    let mut leads = core.harness().questions.waiting_on_leads();
+    leads.retain(|worker, _| worker == agent_id);
     let gathered = Gathered {
         asks,
         workers,
+        leads,
         on_check,
     };
     of(core, &gathered, agent_id, status)
@@ -319,7 +325,7 @@ pub(crate) fn of(
 }
 
 /// What set to wake the agent it waits on, its turn having ended at `rested_at`: CI or a timer
-/// it set, a worker of its at work, or the project's check on its slice.
+/// it set, its lead's answer, a worker of its at work, or the project's check on its slice.
 fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> Option<TurnWait> {
     let set = core
         .triggers()
@@ -343,7 +349,8 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
     {
         return set;
     }
-    if let Some((name, since)) = gathered.workers.get(agent_id) {
+    let on_agent = (gathered.leads.get(agent_id)).or_else(|| gathered.workers.get(agent_id));
+    if let Some((name, since)) = on_agent {
         return Some(TurnWait {
             kind: TurnWaitKind::Agent,
             what: name.clone(),
