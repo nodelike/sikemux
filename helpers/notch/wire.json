@@ -11,7 +11,7 @@
     "Attention": "id agentId choices",
     "PermissionChoices": "allowOnce allowAlways reject command title",
     "Inbox": "items working agents rollup",
-    "AgentShown": "agentId chief name cli title session group turn failed subagents tasks nextTrigger calledAt face project projectName reconnecting snoozedUntil settledAt line",
+    "AgentShown": "agentId chief name cli title titled session group turn failed subagents tasks nextTrigger calledAt face project projectName reconnecting snoozedUntil settledAt line",
     "InLine": "place what by",
     "TurnState": "state since on wait call done stopped failed seen",
     "TurnWait": "kind what startedAt expectedMs until",

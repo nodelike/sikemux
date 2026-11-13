@@ -295,9 +295,8 @@ struct RowLine: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if entry.isChief {
                     Text("@Chief").font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1).fixedSize()
-                    if entry.agent?.title.hasPrefix("@") == false {
-                        Text(entry.title).font(Theme.ui(13)).foregroundStyle(Theme.inkFaint).lineLimit(1)
-                    }
+                    Text(entry.agent?.titled == true ? entry.title : "Chief of staff")
+                        .font(Theme.ui(13)).foregroundStyle(Theme.inkFaint).lineLimit(1)
                 } else {
                     Text(entry.title).font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
                 }

@@ -578,6 +578,8 @@ struct AgentShown: Codable, Hashable {
     /// What its row is titled: the chat's or terminal's own title, else what
     /// it is, such as "New Claude chat".
     let title: String
+    /// `title` is its own, not only what it is. A client may show its name instead.
+    let titled: Bool
     /// Its terminal; none for a chat.
     let session: Int?
     let group: AgentGroup
