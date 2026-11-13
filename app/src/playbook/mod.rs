@@ -8,6 +8,7 @@ mod landing;
 mod places;
 mod rules;
 pub(crate) mod said;
+mod setup;
 
 pub(crate) use decisions::{overrule, undo_overrule};
 pub(crate) use rules::{restore as restore_rule, retire as undo_rule};
@@ -58,6 +59,7 @@ enum Page {
     Automation,
     General,
     Processes,
+    Setup,
     Git,
     Config,
 }
@@ -70,9 +72,10 @@ const DECIDED: [(Page, &str, Icon); 4] = [
     (Page::Automation, n!("Automation"), Icon::Bolt),
 ];
 
-const SETTINGS: [(Page, &str, Icon); 4] = [
+const SETTINGS: [(Page, &str, Icon); 5] = [
     (Page::General, n!("General"), Icon::Settings),
     (Page::Processes, n!("Processes"), Icon::Run),
+    (Page::Setup, n!("Setup"), Icon::Wrench),
     (Page::Git, "Git", Icon::Git),
     (Page::Config, "sikemux.json", Icon::Code),
 ];
@@ -88,6 +91,8 @@ pub struct PlaybookTab {
     config: Option<ProjectConfigRead>,
     /// The repositories directly inside the project's folder.
     repos: Option<Vec<DiscoveredRepo>>,
+    /// What a new checkout of the project runs, and its last check on fresh checkouts.
+    setup: Option<sikemux_core::server::setup_check::SetupState>,
     check: Entity<InputState>,
     /// The name of a place the person adds, and what it is recognised by.
     place_name: Entity<InputState>,
@@ -319,6 +324,7 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
             auto_open: false,
             config: None,
             repos: None,
+            setup: None,
             check,
             place_name,
             place_fact,
@@ -333,6 +339,7 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
     );
     bench.reload_config(&folder, cx);
     bench.reload_playbook(&folder, cx);
+    bench.reload_setup(&folder, cx);
     let finding =
         bench
             .target()
@@ -506,6 +513,9 @@ pub fn pane(
                     if let Some(settings) = bench.settings_of(&folder) {
                         settings.page = page;
                     }
+                    if page == Page::Setup {
+                        bench.reload_setup(&folder, cx);
+                    }
                     bench.parts.redraw_stage(cx);
                 })
             })
@@ -585,6 +595,7 @@ pub fn pane(
         ),
         Page::General => vec![general(bench, settings, folder, &this, cx)],
         Page::Processes => tasks(bench, settings, folder, &this, cx),
+        Page::Setup => setup::page(settings, folder, &this, cx),
         Page::Git => vec![git(bench, settings, folder, &this, cx)],
         Page::Config => vec![config(settings, folder, &this, cx)],
     };

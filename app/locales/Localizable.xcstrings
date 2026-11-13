@@ -2341,6 +2341,7 @@
         }
       }
     },
+    "1 step": {},
     "1 table": {
       "localizations": {
         "es": {
@@ -3901,6 +3902,7 @@
         }
       }
     },
+    "A new checkout runs nothing first.": {},
     "A new login on {alias}": {
       "localizations": {
         "es": {
@@ -8945,6 +8947,8 @@
         }
       }
     },
+    "Agents share this project's ports and builds until it is set up: two checkouts both start {label} on {port}, and their builds run at once.": {},
+    "Agents share this project's ports and builds until it is set up: two checkouts start the same servers on the same ports, and their builds run at once.": {},
     "Agents ship there and report after": {
       "localizations": {
         "es": {
@@ -10453,6 +10457,7 @@
         }
       }
     },
+    "An agent reads the project, writes what a new checkout runs, its ports and its heavy commands into sikemux.json, then proves it on a fresh checkout. Sikemux asks you once before it runs the new steps.": {},
     "An app": {
       "localizations": {
         "es": {
@@ -16434,6 +16439,7 @@
         }
       }
     },
+    "Checked on a fresh checkout {ago}": {},
     "Checked {channel} at {when}.": {
       "localizations": {
         "es": {
@@ -16486,6 +16492,7 @@
         }
       }
     },
+    "Checking on two fresh checkouts…": {},
     "Checking the packaged command-line integration…": {
       "localizations": {
         "es": {
@@ -33389,6 +33396,7 @@
         }
       }
     },
+    "Failed on a fresh checkout at step {at}": {},
     "Fetch": {
       "localizations": {
         "es": {
@@ -39734,6 +39742,7 @@
         }
       }
     },
+    "Heavy commands": {},
     "Heavy commands at once": {},
     "Help": {
       "localizations": {
@@ -41660,6 +41669,7 @@
         }
       }
     },
+    "In a checkout": {},
     "In a tab on the desk": {
       "localizations": {
         "es": {
@@ -54556,6 +54566,7 @@
         }
       }
     },
+    "New checkouts": {},
     "New device on your account: {name}": {
       "localizations": {
         "es": {
@@ -64697,6 +64708,7 @@
         }
       }
     },
+    "Open log": {},
     "Open mod…": {
       "localizations": {
         "es": {
@@ -73850,6 +73862,7 @@
         }
       }
     },
+    "Reading the project's setup…": {},
     "Reading the use log…": {
       "localizations": {
         "es": {
@@ -86227,6 +86240,7 @@
         }
       }
     },
+    "Set up": {},
     "Set up Android Emulator · {size}": {
       "localizations": {
         "es": {
@@ -86851,6 +86865,7 @@
         }
       }
     },
+    "Setup": {},
     "Shape": {
       "localizations": {
         "es": {
@@ -101622,6 +101637,7 @@
         }
       }
     },
+    "The check on a fresh checkout failed: {step}": {},
     "The decision stands again": {
       "localizations": {
         "es": {
@@ -104431,6 +104447,7 @@
         }
       }
     },
+    "The setup was not checked: {error}": {},
     "The side chat did not open: {error}": {
       "localizations": {
         "es": {
@@ -104795,6 +104812,8 @@
         }
       }
     },
+    "The steps run before its folder goes.": {},
+    "The steps run in a new checkout, in this order.": {},
     "The terminal's 16 colours, with its cursor and selection.": {
       "localizations": {
         "es": {
@@ -105367,6 +105386,7 @@
         }
       }
     },
+    "They take turns with every agent's on this host. A check before a commit goes first.": {},
     "Thinking": {
       "localizations": {
         "es": {
@@ -105991,6 +106011,8 @@
         }
       }
     },
+    "This folder": {},
+    "This folder keeps the usual ports; every checkout gets ten of its own, and its env values follow them.": {},
     "This host": {
       "localizations": {
         "es": {
@@ -114155,6 +114177,7 @@
         }
       }
     },
+    "What setting up does": {},
     "What should change in {name}?": {
       "localizations": {
         "es": {
@@ -114623,6 +114646,7 @@
         }
       }
     },
+    "When a checkout is removed": {},
     "When a turn ends, the line reads": {
       "localizations": {
         "es": {
@@ -119772,6 +119796,7 @@
         }
       }
     },
+    "all {count} steps passed": {},
     "an agent": {
       "localizations": {
         "es": {
@@ -128924,6 +128949,7 @@
         }
       }
     },
+    "goes ahead of the rest": {},
     "green": {
       "localizations": {
         "es": {
@@ -132980,6 +133006,7 @@
         }
       }
     },
+    "never waits": {},
     "new branch (from selected / from HEAD)": {
       "localizations": {
         "es": {
@@ -134541,6 +134568,7 @@
         }
       }
     },
+    "not run": {},
     "not set up: {problem}": {
       "localizations": {
         "es": {
@@ -135893,6 +135921,7 @@
         }
       }
     },
+    "one of its ten, such as": {},
     "one run for all {count}": {
       "localizations": {
         "es": {
@@ -141509,6 +141538,7 @@
         }
       }
     },
+    "sikemux.json changed since it was checked on a fresh checkout": {},
     "sikemux.json has mistakes; fix them to change the check.": {
       "localizations": {
         "es": {
@@ -144005,6 +144035,7 @@
         }
       }
     },
+    "the step passed": {},
     "the turn did not finish": {
       "localizations": {
         "es": {
@@ -153053,6 +153084,7 @@
         }
       }
     },
+    "{count} steps": {},
     "{count} tables": {
       "localizations": {
         "es": {

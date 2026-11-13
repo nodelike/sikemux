@@ -1,0 +1,30 @@
+# The Playbook's Setup page: before the project is set up, proved on fresh checkouts, and with a
+# step that fails on them.
+stage 1440 1180
+window 1440 1180
+prefer themeId aura-noir
+project storefront setup-shop
+core trustProject "{\"project\":\"$project\",\"fingerprint\":\"sha256:fa0b2a7cb6e0d3627d3b97492bd4999eb281bb84d81e5405ab8055ebd5c2a983\"}"
+chat Wren
+settle 4
+click 875,753
+settle 2
+click 101,362
+settle 3
+click 369,356
+settle 2
+snap after-not-set-up
+core setupCheck "{\"project\":\"$project\"}"
+click 381,325
+settle 1
+click 369,356
+settle 3
+snap after-proved
+patch setup-fail.diff
+core trustProject "{\"project\":\"$project\",\"fingerprint\":\"sha256:336986cc44f11a331422dbfc786ace8c30e41b8543317b044377349e43a29cf8\"}"
+core setupCheck "{\"project\":\"$project\"}"
+click 381,325
+settle 1
+click 369,356
+settle 3
+snap after-failed
