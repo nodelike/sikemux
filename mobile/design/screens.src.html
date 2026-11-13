@@ -824,6 +824,7 @@
   /* the host an agent runs on, on its row, while that is not the host in view */
   .rows .row .row-host { flex: none; display: inline-flex; align-items: center; gap: 4px; max-width: 150px; overflow: hidden; white-space: nowrap; font: 500 11px var(--ui); color: var(--live); }
   .rows .row.away .mark, .rows .row.away .t, .rows .row.away .row-host { opacity: .55; }
+  .rows .row-told { padding: 0 8px 8px 38px; font: 400 12.5px/1.4 var(--ui); color: var(--ink-faint); }
   .ibelow .ask { font-size: 12.5px; line-height: 1.4; color: var(--text-tertiary); }
   .rows .row.more { min-height: 40px; padding-left: 38px; }
   .rows .row.more .t { font-size: 13px; font-weight: 400; color: var(--text-tertiary); }
@@ -2042,11 +2043,12 @@
             <div class="row member"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Retry uploads on 503</div></div><span class="row-host">{{IconServer:11}}studio</span><span class="row-name">@Otter</span><span class="shells">{{IconCommand:11}}2</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
             <div class="row last away"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fern</div></div><span class="row-host">{{IconServer:11}}build-box · out of reach</span></div>
             <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Tidy the upload queue</div></div><span class="row-host">{{IconServer:11}}studio</span><span class="row-name">@Wren</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row-told">@Wren runs on studio. Pair this phone with studio to open its chat.</div>
           </div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Workers on linked hosts</b><div class="note">An agent here can start workers on another host linked to the same account; they run there, on that host's own sign-ins. Each is a row like any other agent's, hung under the agent that started it on the team's spine: its chat's title, or its name until its host has titled it, then the host it runs on, its name, how many subagents and shells it still has running, and the same squares or dot as any agent. Tapping it opens its chat on its host. When its host can't be reached the row dims, its host says out of reach and the mark at the end goes. A worker whose lead has closed sits at the end of the same list while all projects are shown, as Wren does here.</div></figcaption>
+      <figcaption><b>Workers on linked hosts</b><div class="note">An agent here can start workers on another host linked to the same account; they run there, on that host's own sign-ins. Each is a row like any other agent's, hung under the agent that started it on the team's spine: its chat's title, or its name until its host has titled it, then the host it runs on, its name, how many subagents and shells it still has running, and the same squares or dot as any agent. Tapping it opens its chat on its host; when this phone isn't paired with that host, the tap unfolds a line under the row saying where it runs instead, as under Wren here, and a second tap folds it. When its host can't be reached the row dims, its host says out of reach and the mark at the end goes. A worker whose lead has closed sits at the end of the same list while all projects are shown, as Wren does here.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

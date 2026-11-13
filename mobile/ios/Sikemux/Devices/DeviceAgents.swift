@@ -325,33 +325,54 @@ private struct AwayGroup<Content: View>: View {
 }
 
 /// A worker an agent here started on a linked host: the row any agent has, hung under the agent that started it,
-/// with the host it runs on tagged. Tapping opens its chat on that host, when this phone is paired with it.
+/// with the host it runs on tagged. Tapping opens its chat on that host when this phone is paired with it, and
+/// otherwise says where it runs.
 struct WorkerRow: View {
+    @Environment(\.palette) private var palette
     let worker: RemoteAgent
     let now: Date
     var nested = false
+    @State private var told = false
 
     var body: some View {
         let reachable = worker.reachable
         let paired = Hub.shared.device(worker.hostId) != nil
-        Row(
-            title: worker.titled == true ? worker.title : nil, name: worker.name,
-            host: reachable ? worker.host : "\(worker.host) · \(String(localized: "Out of reach").lowercased())",
-            dim: !reachable,
-            onPress: paired ? { Router.shared.push(.chat(core: worker.hostId, agent: worker.agentId)) } : nil,
-            mark: {
-                AskerMark(agentId: worker.agentId, provider: worker.cli, turn: worker.turn?.state)
-                    .opacity(reachable ? 1 : 0.55)
-            },
-            end: {
-                if reachable {
-                    if worker.subagents > 0 { SubagentCount(count: worker.subagents) }
-                    if worker.tasks > 0 { ShellCount(count: worker.tasks) }
-                    if let line = worker.line { LinePlace(line: line) }
-                    TurnMark(turn: worker.turn, now: now)
+        VStack(alignment: .leading, spacing: 0) {
+            Row(
+                title: worker.titled == true ? worker.title : nil, name: worker.name,
+                host: reachable ? worker.host : "\(worker.host) · \(String(localized: "Out of reach").lowercased())",
+                dim: !reachable,
+                onPress: {
+                    if paired {
+                        Router.shared.push(.chat(core: worker.hostId, agent: worker.agentId))
+                    } else {
+                        told.toggle()
+                    }
+                },
+                mark: {
+                    AskerMark(agentId: worker.agentId, provider: worker.cli, turn: worker.turn?.state)
+                        .opacity(reachable ? 1 : 0.55)
+                },
+                end: {
+                    if reachable {
+                        if worker.subagents > 0 { SubagentCount(count: worker.subagents) }
+                        if worker.tasks > 0 { ShellCount(count: worker.tasks) }
+                        if let line = worker.line { LinePlace(line: line) }
+                        TurnMark(turn: worker.turn, now: now)
+                    }
                 }
+            )
+            if told && !paired {
+                let who = worker.name.map { "@\($0)" } ?? worker.title
+                Text("\(who) runs on \(worker.host). Pair this phone with \(worker.host) to open its chat.")
+                    .font(Theme.ui(12.5))
+                    .foregroundStyle(palette.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 38)
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 8)
             }
-        )
+        }
         .modifier(TeamLines(team: nested ? (worker.team == .last ? .last : .member) : nil))
     }
 }
