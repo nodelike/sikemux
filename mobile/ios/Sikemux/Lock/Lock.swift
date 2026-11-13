@@ -1,6 +1,9 @@
 import LocalAuthentication
+import OSLog
 import Observation
 import UIKit
+
+private let log = Logger(subsystem: "com.nodelike.sikemux", category: "lock")
 
 /// Asks for Face ID, Touch ID or the passcode before the app shows an account's hosts and chats, when the person
 /// turned it on. Signed out there is nothing behind it, and someone who signs in on the phone has just proved who
@@ -100,7 +103,7 @@ final class Lock {
         do {
             return try Keychain.app.read(item) == "on"
         } catch {
-            print("sikemux: could not read whether the lock is on: \(error)")
+            log.error("could not read whether the lock is on: \(error, privacy: .public)")
             return nil
         }
     }

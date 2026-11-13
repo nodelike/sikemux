@@ -1,9 +1,12 @@
 import CryptoKit
 import Foundation
+import OSLog
 import Observation
 import SikemuxCore
 import UIKit
 import UserNotifications
+
+private let log = Logger(subsystem: "com.nodelike.sikemux", category: "notify")
 
 /// Whether the person wants notifications and whether the system lets the app show them; the account's copy of
 /// this phone's push token; and the keys hosts seal cards with.
@@ -66,7 +69,7 @@ final class Notify {
             choice = try Keychain.app.read(Self.choiceItem).flatMap(Choice.init)
             unread = false
         } catch {
-            print("sikemux: could not read the notifications choice: \(error)")
+            log.error("could not read the notifications choice: \(error, privacy: .public)")
         }
     }
 
@@ -77,7 +80,7 @@ final class Notify {
         do {
             try Keychain.app.write(Self.choiceItem, next.rawValue)
         } catch {
-            print("sikemux: could not keep the notifications choice: \(error)")
+            log.error("could not keep the notifications choice: \(error, privacy: .public)")
         }
     }
 
@@ -152,7 +155,7 @@ final class Notify {
             guard let stored = try Keychain.app.read(Self.sentItem) else { return nil }
             return try JSONDecoder().decode(SentToken.self, from: Data(stored.utf8))
         } catch {
-            print("sikemux: could not read the push token the server has: \(error)")
+            log.error("could not read the push token the server has: \(error, privacy: .public)")
             return nil
         }
     }

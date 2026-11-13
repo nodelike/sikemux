@@ -1,6 +1,9 @@
 import Foundation
+import OSLog
 import Observation
 import UIKit
+
+private let log = Logger(subsystem: "com.nodelike.sikemux", category: "account")
 
 /// Who this phone is signed in as: Clerk's session, a fresh token for the accounts server, and the person's name,
 /// email and picture.
@@ -45,10 +48,15 @@ final class Account {
                     try? JSONDecoder().decode(Saved.self, from: Data($0.utf8))
                 }
                 : nil
-        } catch {
-            print("sikemux: the Keychain refused the sign-in, so it is read again once the phone is unlocked: \(error)")
+        } catch let refused as KeychainError where refused.status == errSecInteractionNotAllowed && !Self.inFront {
+            log.info("the phone is locked, so the sign-in is read once it is unlocked")
             await Self.unlocked()
+            guard !Task.isCancelled else { return }
             return await load()
+        } catch {
+            log.error("the Keychain refused the sign-in, so the phone starts signed out: \(error, privacy: .public)")
+            state = .signedOut
+            return
         }
         guard let saved else {
             state = .signedOut
@@ -58,7 +66,13 @@ final class Account {
         Task { await refresh() }
     }
 
-    /// The Keychain refuses while the phone is locked, as when iOS starts the app early after an update.
+    /// In front with the phone unlocked, where a Keychain that refuses is not waiting for an unlock.
+    private static var inFront: Bool {
+        UIApplication.shared.applicationState == .active && UIApplication.shared.isProtectedDataAvailable
+    }
+
+    /// The Keychain refuses while the phone is locked, as when iOS starts the app early after an update, and can
+    /// refuse for a moment after protected data returns.
     private static func unlocked() async {
         let name =
             UIApplication.shared.isProtectedDataAvailable
@@ -74,8 +88,12 @@ final class Account {
                 return
             }
             keep(session: active.id, user: user)
+        } catch let problem as Clerk.Problem {
+            log.error(
+                "could not read the sign-in from Clerk: \(problem.status ?? 0) \(problem.code ?? "", privacy: .public) \(problem.message, privacy: .private)"
+            )
         } catch {
-            print("sikemux: could not read the sign-in from Clerk: \(error)")
+            log.error("could not read the sign-in from Clerk: \(error, privacy: .public)")
         }
     }
 
@@ -135,7 +153,7 @@ final class Account {
             let data = try JSONEncoder().encode(Saved(session: id, user: user))
             try Keychain.app.write(Self.savedItem, String(decoding: data, as: UTF8.self))
         } catch {
-            print("sikemux: could not keep the sign-in in the Keychain: \(error)")
+            log.error("could not keep the sign-in in the Keychain: \(error, privacy: .public)")
         }
         apply(session: id, user: user)
     }

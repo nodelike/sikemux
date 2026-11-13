@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "com.nodelike.sikemux", category: "account")
 
 /// Clerk's Frontend API, as a native app speaks it: form posts with `_is_native=1`, the client named by the token
 /// Clerk hands back in each answer's Authorization header, kept in the Keychain so the phone stays signed in.
@@ -159,7 +162,7 @@ enum Clerk {
             do {
                 try Keychain.app.write(clientItem, client)
             } catch {
-                print("sikemux: could not keep Clerk's client in the Keychain: \(error)")
+                log.error("could not keep Clerk's client in the Keychain: \(error, privacy: .public)")
             }
         }
         guard let status = http?.statusCode, (200..<300).contains(status) else {

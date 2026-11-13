@@ -1,4 +1,7 @@
 import Foundation
+import OSLog
+
+private let log = Logger(subsystem: "com.nodelike.sikemux", category: "stash")
 
 /// Keeps what the share extension needs where it can read it while signed in: the chats used last, where the
 /// accounts server is, and this phone's key. Signing out takes them all away.
@@ -15,7 +18,7 @@ enum ShareExtension {
     static func signIn() {
         signedIn = true
         do { StashShared.setKey(try Identity.shared.keyHex()) } catch {
-            print("sikemux: could not hand the share extension the key of this phone: \(error)")
+            log.error("could not hand the share extension the key of this phone: \(error, privacy: .public)")
         }
         write()
     }
