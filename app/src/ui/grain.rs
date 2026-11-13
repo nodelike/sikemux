@@ -650,7 +650,7 @@ fn tick<V: 'static>(
             let Ok(wait) = bench.update_in(cx, |bench, window, cx| {
                 match cx
                     .try_global::<Grain>()
-                    .is_some_and(|grain| grain.skies > 0)
+                    .is_some_and(|grain| grain.skies > 0 || grain.glowing)
                 {
                     true => {
                         window.present_shaders();

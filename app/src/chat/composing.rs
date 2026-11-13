@@ -795,6 +795,7 @@ pub(super) fn strip(
         }) as super::composer::ChipMenu
     });
     Strip {
+        fresh,
         host,
         hosts,
         project: folder

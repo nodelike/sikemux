@@ -87,6 +87,8 @@ pub struct Strip {
     /// A worktree agent's pull request and its Remove worktree, beside the worktree.
     pub pull: Option<AnyElement>,
     pub account: Option<AnyElement>,
+    /// Nothing is sent yet, so the line sits on a new chat's glow and is drawn in full ink.
+    pub fresh: bool,
 }
 
 /// A chat's composer: its draft, and the bar of what the chat lets the person change, as the
@@ -638,7 +640,11 @@ pub fn notice_line(notice: Notice, cx: &App) -> gpui_kit::Div {
 /// Where the chat runs, quietly under the box: its host, project and branch, then its
 /// account at the right.
 fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
+    let mut t = Tokens::get(cx).clone();
+    if strip.fresh {
+        t.text_secondary = t.text_primary;
+        t.text_tertiary = t.text_primary;
+    }
     let name = |chevron: bool| {
         div()
             .h(px(24.))
