@@ -296,6 +296,8 @@ export const SHOW_LESS = "Shows two lines";
 /** Under an Overrule or Undo that has no host to send it to. */
 export const NOT_CONNECTED = "Not connected to the host.";
 export const UNDO = "Undo";
+/** The line under an agent's reply that says it recorded a decision itself. */
+export const DECIDED = "Decided";
 export const OVERRULED = "Overruled";
 export const OVERRULED_UNDONE = "Overruled, then undone";
 export const STANDS_AGAIN = "It stands again";

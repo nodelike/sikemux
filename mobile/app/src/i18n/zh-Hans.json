@@ -751,6 +751,7 @@
   "While you were away": "你不在的时候",
   "{hours} h": "{hours} 小时",
   "{hours} h {minutes} min": "{hours} 小时 {minutes} 分钟",
+  "Decided": "已决定",
   "Decided for you": "已为你决定",
   "Landed": "已合入",
   "Overrule": "否决",
