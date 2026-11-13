@@ -4,9 +4,9 @@
 //! anything more goes back to the person. While it waits for review, its
 //! agent is handed reviewers' comments and its replies are posted for it.
 
-use crate::server::activity::ActivityCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Path, PathBuf};
@@ -24,10 +24,9 @@ use super::{
 use crate::server::codehost::ci;
 use crate::server::codehost::repo::{self as codehost, Checks, Feedback, CI_START_WAIT_MS};
 use crate::server::connection::blocking;
-use crate::server::hosts::route::stop_worker;
 use crate::server::wake::sooner;
 use crate::server::worktree;
-use crate::server::{messages, Core};
+use crate::server::Core;
 use sikemux_view::slice::Verdict;
 
 /// How long a run whose checks could not be read waits before it reads them again.
@@ -166,9 +165,9 @@ async fn clear(core: &Arc<Core>, dropped: Dropped) {
         blind::dismiss(core, reviewer).await;
     }
     if core.chats().stop(&run.agent) {
-        core.note_agent_gone(&run.agent);
+        (core.chat_above().note_agent_gone)(core, &run.agent);
     }
-    stop_worker(core, &run.agent);
+    (core.board_above().hosts_stop_worker)(core, &run.agent);
     if let (true, Some(pull)) = (discard, &run.pull) {
         if let Err(error) = codehost::close(core, pull).await {
             eprintln!(
@@ -852,7 +851,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
             });
             match check {
             Ok(Some((label, _, true)))
-                if !crate::server::tasks::config_trusted(core, Path::new(&step.project), None).await =>
+                if !(core.repo_above().tasks_config_trusted)(core, Path::new(&step.project), None).await =>
             {
                 step.hold(
                     core,
@@ -956,7 +955,9 @@ pub(super) async fn ask(
         run.stage = RunStage::Fixing;
         run.note = Some(note.to_owned());
     });
-    if let Err(error) = messages::from_auto(core, step.agent().to_owned(), text).await {
+    if let Err(error) =
+        (core.board_above().messages_from_auto)(core, step.agent().to_owned(), text).await
+    {
         step.hold(
             core,
             RunHold::Unblock,
@@ -971,7 +972,7 @@ pub(super) fn unanswered(core: &Core, step: &Step) -> Option<String> {
     let team = core.names().team(step.agent());
     let asker = team
         .iter()
-        .find(|agent| core.harness().questions.has_open(agent))?;
+        .find(|agent| (core.board_above().questions_has_open)(core, agent))?;
     let who = if asker == step.agent() {
         step.name(core)
     } else {
@@ -1144,9 +1145,9 @@ pub(super) async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
             .edit(&step.project, step.id, Card::auto_lets_go);
     }
     if core.chats().stop(step.agent()) {
-        core.note_agent_gone(step.agent());
+        (core.chat_above().note_agent_gone)(core, step.agent());
     }
-    stop_worker(core, step.agent());
+    (core.board_above().hosts_stop_worker)(core, step.agent());
     let (repo, tree, branch) = (
         PathBuf::from(&step.run.repo),
         step.tree(),

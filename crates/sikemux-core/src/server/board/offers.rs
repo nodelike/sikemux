@@ -115,7 +115,8 @@ pub(super) fn offer(core: &Arc<Core>) -> Option<u64> {
         );
         let core = core.clone();
         tokio::spawn(async move {
-            let sent = messages::from_board(&core, agent.clone(), text, note).await;
+            let sent =
+                (core.board_above().messages_from_board)(&core, agent.clone(), text, note).await;
             let new_turn = sent.is_ok_and(|sent| sent["delivery"] == "newTurn");
             if !new_turn {
                 core.boards().state.locked().woken.remove(&agent);

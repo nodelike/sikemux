@@ -6,6 +6,7 @@
 //! An approval moves to the rebased commit only when the patch is the same.
 
 use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -622,7 +623,9 @@ async fn command_of(core: &Arc<Core>, step: &Step) -> Option<(String, String)> {
         );
         return None;
     };
-    if named && !crate::server::tasks::config_trusted(core, Path::new(&step.project), None).await {
+    if named
+        && !(core.repo_above().tasks_config_trusted)(core, Path::new(&step.project), None).await
+    {
         step.hold(
             core,
             RunHold::Unblock,

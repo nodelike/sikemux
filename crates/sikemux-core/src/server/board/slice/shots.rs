@@ -146,22 +146,26 @@ pub(crate) async fn other_widths(
         method: method.to_owned(),
         params,
     };
-    let held =
-        match crate::server::harness::forward(core, asked("browser.viewport", json!({}), "held"))
-            .await
-        {
-            Ok(size) => size.get("held").cloned().unwrap_or(Value::Null),
-            Err(error) => {
-                eprintln!("sikemux core: the page was not taken at other widths: {error}");
-                return shots;
-            }
-        };
+    let held = match (core.board_above().harness_forward)(
+        core,
+        asked("browser.viewport", json!({}), "held"),
+    )
+    .await
+    {
+        Ok(size) => size.get("held").cloned().unwrap_or(Value::Null),
+        Err(error) => {
+            eprintln!("sikemux core: the page was not taken at other widths: {error}");
+            return shots;
+        }
+    };
     for preset in SCREENSHOT_WIDTHS {
         let mut params = json!({ "viewport": preset });
         if request.params.get("fullPage") == Some(&Value::Bool(true)) {
             params["fullPage"] = Value::Bool(true);
         }
-        match crate::server::harness::forward(core, asked(&request.method, params, preset)).await {
+        match (core.board_above().harness_forward)(core, asked(&request.method, params, preset))
+            .await
+        {
             Ok(shot) => shots.push(shot),
             Err(error) => {
                 eprintln!("sikemux core: the page was not taken at the {preset} width: {error}")
@@ -176,7 +180,7 @@ pub(crate) async fn other_widths(
         },
     };
     if let Err(error) =
-        crate::server::harness::forward(core, asked("browser.viewport", back, "back")).await
+        (core.board_above().harness_forward)(core, asked("browser.viewport", back, "back")).await
     {
         eprintln!("sikemux core: the tab was not put back at its own width: {error}");
     }

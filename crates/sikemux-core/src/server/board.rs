@@ -35,7 +35,6 @@ use crate::text::clipped;
 
 use super::connection::blocking;
 use super::kept;
-use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_view::inbox::InboxRecording;
@@ -97,6 +96,7 @@ pub(crate) use hand_off::hand_off;
 pub use hand_off::{BoardHandOffParams, HandOnParams, HandedOff};
 pub(crate) use lease::{person_hand_on, person_resume};
 pub(crate) use record::record_check;
+pub(crate) use slice::is_page_file;
 pub(crate) use slice::{
     check_stands, follow, gate_key, gate_words, person_note, person_pass, screenshot_taken,
     slice_screenshots,
@@ -1329,9 +1329,7 @@ pub(crate) fn unnamed_goals(core: &Core) -> Vec<(String, u64, String)> {
         .filter(|(board, card)| card.status != CardStatus::Done && board.is_goal(card))
         .filter(|(_, card)| wants_name(&card.title, &card.details))
         .filter(|(board, card)| {
-            core.goal_summaries()
-                .title(&board.project, card.id)
-                .is_none()
+            (core.board_above().goal_title)(core, &board.project, card.id).is_none()
         })
         .filter_map(|(board, card)| {
             Some((board.project.clone(), card.id, card.owner_id()?.to_owned()))
@@ -1567,7 +1565,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         ticket_above: ticket_above(board, card),
         column,
         question: (column == BoardColumn::Needs)
-            .then(|| core.harness().questions.blocking(card.owner_id()?))
+            .then(|| (core.board_above().questions_blocking)(core, card.owner_id()?))
             .flatten(),
         auto: card.auto.as_ref().map(AutoRun::view),
         recordings: card.recordings.clone(),
@@ -1611,8 +1609,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
 /// of what the person asked until that arrives.
 fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
     (card.parent.is_none() && wants_name(&card.title, &card.details)).then(|| {
-        core.goal_summaries()
-            .title(&board.project, card.id)
+        (core.board_above().goal_title)(core, &board.project, card.id)
             .unwrap_or_else(|| first_clause(card))
     })
 }
@@ -1621,7 +1618,7 @@ fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
 /// short name it was given; none while it waits for that.
 fn short_name(core: &Core, board: &Board, card: &Card) -> Option<String> {
     match wants_name(&card.title, &card.details) {
-        true => core.goal_summaries().title(&board.project, card.id),
+        true => (core.board_above().goal_title)(core, &board.project, card.id),
         false => Some(card.title.clone()),
     }
 }
@@ -1640,7 +1637,7 @@ fn board_view(core: &Core, _state: &State, board: &Board) -> ProjectBoard {
         running: auto::running(core, board),
         auto_note: (board.auto_note.clone()).or_else(|| board.reservoir_note.clone()),
         problems: Vec::new(),
-        triggers: core.triggers().on_board(&board.project),
+        triggers: (core.board_above().triggers_on_board)(core, &board.project),
         audit: audit::view(core, board),
     };
     board.forget_places();
@@ -1895,7 +1892,7 @@ fn add_card(
         By::Person | By::Auto(_) => holder,
     };
     if let Some(creator) = creator.filter(|_| goal) {
-        super::goal_summary::name_new(core, project, id, creator);
+        (core.board_above().goal_name_new)(core, project, id, creator);
     }
     if let (Some(note), Some(fields)) = (note, view.as_object_mut()) {
         fields.insert("note".into(), note.into());
@@ -2075,7 +2072,7 @@ fn change_in(
         if !only_ticks && !may_change(core, agent, holder) {
             let owner = before.owner_name(core).unwrap_or_default();
             let called = match before.owner_id() {
-                Some(owner_id) => super::messages::called(&owner, owner_id),
+                Some(owner_id) => crate::server::names::called(&owner, owner_id),
                 None => owner.clone(),
             };
             return Err(format!(
@@ -2504,7 +2501,7 @@ fn send_notices(core: &Arc<Core>, notices: Vec<Notice>) {
     let core = core.clone();
     tokio::spawn(async move {
         for notice in notices {
-            let _ = messages::from_board(
+            let _ = (core.board_above().messages_from_board)(
                 &core,
                 notice.to,
                 notice.text,
@@ -2821,7 +2818,7 @@ fn waits(core: &Core, board: &Board, card: &Card) -> Option<Waits> {
     (card.status == CardStatus::Progress
         && card
             .owner_id()
-            .is_some_and(|owner| core.harness().questions.blocks_on_person(owner)))
+            .is_some_and(|owner| (core.board_above().questions_blocks_on_person)(core, owner)))
     .then_some(Waits::Answer)
 }
 
@@ -3467,7 +3464,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
     chat_goal::settle(core);
     if !core.boards().state.locked().dirty.is_empty() {
-        core.harness().questions.boards_changed();
+        (core.board_above().questions_boards_changed)(core);
     }
     tell_clients(core);
 }
@@ -3476,7 +3473,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
 fn tell_clients(core: &Core) {
     let dirty = std::mem::take(&mut core.boards().state.locked().dirty);
     if !dirty.is_empty() {
-        super::hosts::route::rows_moved(core);
+        (core.board_above().hosts_rows_moved)(core);
     }
     for project in dirty {
         core.changed(What::ReadIn(Topic::Boards, Some(&project), None));

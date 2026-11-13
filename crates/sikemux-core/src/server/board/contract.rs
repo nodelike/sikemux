@@ -21,7 +21,7 @@ use super::auto::{RunHold, RunStage};
 use super::blind::{self, Mode, Reviewer};
 use super::finish::{change_run, Step};
 use super::Card;
-use crate::server::{messages, Core};
+use crate::server::Core;
 
 const MAX_ROUNDS: u32 = 3;
 const MAX_TERMS: usize = 20;
@@ -346,7 +346,7 @@ pub(super) fn stand(core: &Arc<Core>, project: &str, id: u64, builder: &str, why
 }
 
 async fn tell(core: &Arc<Core>, project: String, id: u64, builder: String, text: String) {
-    if let Err(error) = messages::from_auto(core, builder.clone(), text).await {
+    if let Err(error) = (core.board_above().messages_from_auto)(core, builder.clone(), text).await {
         let name = core.names().name_or_id(&builder);
         super::finish::hold(
             core,

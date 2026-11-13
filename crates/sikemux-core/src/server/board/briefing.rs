@@ -27,7 +27,7 @@ fn lead(core: &Core, agent_id: &str) -> Option<String> {
         .chats()
         .get(agent_id)
         .and_then(|chat| chat.origin.started_by.clone());
-    started_by.or_else(|| core.hosts().team.get(agent_id)?.parent)
+    started_by.or_else(|| (core.board_above().foreign)(core, agent_id)?.parent)
 }
 
 /// The goal's own words, its slices, and `agent_id`'s card, as sections of its brief. A blind
@@ -88,7 +88,7 @@ fn slices(core: &Core, board: &Board, goal: &Card, agent_id: &str) -> Option<Str
             let holder = match (card.owner_id(), card.owner_name(core)) {
                 (Some(owner), _) if owner == agent_id => "you".to_owned(),
                 (Some(owner), Some(name)) => {
-                    format!("@{}", super::super::messages::called(&name, owner))
+                    format!("@{}", crate::server::names::called(&name, owner))
                 }
                 _ => "nobody yet".to_owned(),
             };

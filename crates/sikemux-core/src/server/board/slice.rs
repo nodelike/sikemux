@@ -45,8 +45,8 @@ use sikemux_view::slice::{
 use super::auto::{BoardSettings, Landing};
 use super::steps::{ladder_steps, Step};
 use super::{
-    change_card, messages, project_at, project_view, send_notices, Board, By, Card, CardStatus,
-    Changes, Checker, NoCheck, Notice, ProjectBoard, State,
+    change_card, project_at, project_view, send_notices, Board, By, Card, CardStatus, Changes,
+    Checker, NoCheck, Notice, ProjectBoard, State,
 };
 use crate::git::Git;
 use crate::server::connection::blocking;
@@ -1893,7 +1893,7 @@ fn diff_of(repo: &Path, base: &str, head: &str) -> Result<(Proof, bool), String>
         };
         added += plus.parse::<u64>().unwrap_or(0);
         removed += minus.parse::<u64>().unwrap_or(0);
-        pages |= crate::server::pictures::is_page_file(path);
+        pages |= is_page_file(path);
         if files.len() < DIFF_FILES {
             files.push(path.to_owned());
         }
@@ -2458,7 +2458,7 @@ pub(crate) async fn person_note(
             told
         };
         for (to, message) in told {
-            messages::from_person(&core, &to, message)?;
+            (core.board_above().messages_from_person)(&core, &to, message)?;
         }
         Ok(project_view(&core, &project))
     })
@@ -2536,6 +2536,18 @@ fn reopen_change(
         "\n\nMake it, then tick it off again with board_update ticks [{{ change: {change}, proof, evidence }}], and mark the card done again."
     ));
     Ok(to.or(owner).map(|to| (to, message)))
+}
+
+const PAGE_FILES: [&str; 12] = [
+    "tsx", "jsx", "vue", "svelte", "astro", "html", "htm", "css", "scss", "sass", "less", "styl",
+];
+
+/// Whether the file is one a page is made of, so a change to it can change how the page looks.
+pub(crate) fn is_page_file(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|ending| ending.to_str())
+        .is_some_and(|ending| PAGE_FILES.contains(&ending.to_ascii_lowercase().as_str()))
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 //! usual contract, review and queue, and it waits for a slot like any other.
 
 use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,7 +13,6 @@ use sikemux_process::sync::Locked;
 
 use super::{new_card, Adding, Board, CardStatus, State, MAX_CARDS};
 use crate::git::Git;
-use crate::server::tasks::config_needs;
 use crate::server::worktree;
 use crate::server::Core;
 use crate::tasks::config::{self, ConfigLoad, ProjectRole};
@@ -137,7 +137,7 @@ async fn refresh(core: &Arc<Core>, project: &str) -> Result<(), String> {
         let (core, dir) = (core.clone(), dir.clone());
         tokio::task::spawn_blocking(move || {
             let load = config::load(&dir);
-            let ask = config_needs(&core, &load);
+            let ask = (core.repo_above().tasks_config_needs)(&core, &load);
             match load {
                 ConfigLoad::Valid { config, .. } => Some((config.roles, ask)),
                 ConfigLoad::Absent { .. } => Some((Vec::new(), None)),

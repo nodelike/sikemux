@@ -232,3 +232,16 @@ pub(super) fn changed_paths(repo: &Path, from: &str, to: &str) -> Result<Vec<Str
 pub(super) fn fork_point(repo: &Path, base: &str, head: &str) -> Result<String, String> {
     Git::quick(repo).trimmed(&["merge-base", &format!("origin/{base}"), head])
 }
+
+/// What git needs to make a commit in `tree`, on a host with no name of its own for git.
+pub(crate) fn identity(tree: &Path) -> Vec<&'static str> {
+    match Git::quick(tree).trimmed(&["config", "user.email"]) {
+        Ok(_) => Vec::new(),
+        Err(_) => vec![
+            "-c",
+            "user.name=Sikemux",
+            "-c",
+            "user.email=sikemux@localhost",
+        ],
+    }
+}

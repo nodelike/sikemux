@@ -6,12 +6,12 @@
 //! builder's, and no agent may reach it or be reached by it. Each round gets
 //! a fresh one.
 
-use crate::server::activity::ActivityCore;
 use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Path, PathBuf};
@@ -30,12 +30,12 @@ use super::record::RunRecord;
 use super::review::MAX_ROUNDS;
 use super::{git, recover, risk, Card, State};
 use crate::cli::protocol::{REVIEWER_OFFER, TOOLS_OFFER_ENV};
+use crate::server::chat::Ending;
 use crate::server::connection::blocking;
-use crate::server::harness::RunSelector;
 use crate::server::names::Starting;
-use crate::server::spawn::Ending;
 use crate::server::worktree;
-use crate::server::{chat, messages, Core};
+use crate::server::{chat, Core};
+use sikemux_calls::harness::RunSelector;
 use sikemux_wire::protocol::Event;
 
 const MAX_DIFF_BYTES: usize = 200 * 1024;
@@ -467,7 +467,7 @@ pub(super) fn admit(core: &Core) -> Vec<(String, u64)> {
                     waiting.push((since, project.clone(), card.id));
                 }
                 None if reviewer.running == Running::Required
-                    && !core.harness().questions.blocks_on_person(&reviewer.agent) =>
+                    && !(core.board_above().questions_blocks_on_person)(core, &reviewer.agent) =>
                 {
                     building += 1;
                 }
@@ -774,7 +774,12 @@ pub(super) async fn start(
     chat::until_started(core, chat)
         .await
         .map_err(|error| error.to_string())?;
-    messages::hand_task(core, agent, messages::auto_task(core, agent, text)).await?;
+    (core.board_above().messages_hand_task)(
+        core,
+        agent,
+        (core.board_above().messages_auto_task)(core, agent, text),
+    )
+    .await?;
     Ok(true)
 }
 
@@ -1188,7 +1193,9 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) -> b
         .name(agent_id)
         .unwrap_or_else(|| "Its reviewer".to_owned());
     let why = match ending {
-        Ending::Finished if core.harness().questions.waits_on_answer(agent_id) => return true,
+        Ending::Finished if (core.repo_above().questions_waits_on_answer)(core, agent_id) => {
+            return true
+        }
         Ending::Finished => format!("{name} ended its review without a verdict"),
         Ending::Stopped => format!("{name} was stopped before it gave a verdict"),
         Ending::Failed(reason) => format!("{name}'s review failed: {reason}"),
@@ -1219,9 +1226,9 @@ pub(super) fn clear_dismissed(core: &Arc<Core>) {
 
 pub(super) async fn dismiss(core: &Arc<Core>, reviewer: Reviewer) {
     if core.chats().stop(&reviewer.agent) {
-        core.note_agent_gone(&reviewer.agent);
+        (core.chat_above().note_agent_gone)(core, &reviewer.agent);
     }
-    crate::server::harness::stop_runs(core, RunSelector::of_agent(&reviewer.agent)).await;
+    (core.board_above().harness_stop_runs)(core, RunSelector::of_agent(&reviewer.agent)).await;
     let repo = PathBuf::from(reviewer.repo);
     let folders: Vec<PathBuf> = [reviewer.checkout, reviewer.build]
         .into_iter()

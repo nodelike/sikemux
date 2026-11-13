@@ -175,7 +175,15 @@ async fn dispatch(
         Team::METHOD => answered(route::team_here(core, host, read::<Team>(params)?)),
         Worked::METHOD => answered(route::worked_here(core, host, read::<Worked>(params)?)),
         AutoTurn::METHOD => {
-            super::super::board::elsewhere::turn_ended(core, host, read::<AutoTurn>(params)?)
+            let turn = read::<AutoTurn>(params)?;
+            super::super::board::elsewhere::turn_ended(
+                core,
+                host,
+                turn.agent_id,
+                turn.ending,
+                turn.answer,
+                turn.cost_usd,
+            )
         }
         Stop::METHOD => answered(route::stop_here(core, host, read::<Stop>(params)?)),
         "question" => super::super::questions::relayed_here(core, host, params),

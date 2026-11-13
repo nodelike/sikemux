@@ -9,7 +9,6 @@ use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -19,20 +18,14 @@ use super::auto::{self, AutoRun, RunStage, Seat};
 use super::finish::{self, Step};
 use super::{guard, recover, Board, Card};
 use crate::git::Git;
+use crate::server::board_above::{ForeignNow, HandOver};
+use crate::server::chat::Ending;
 use crate::server::connection::blocking;
-use crate::server::hosts::code;
-use crate::server::hosts::route::{pin, stop_worker};
-use crate::server::hosts::spawn::{hand_over, AutoTurn, Handed, Handing, LeadParams};
-use crate::server::hosts::team::{Foreign, Role};
-use crate::server::hosts::{find, name_of};
 use crate::server::names::Starting;
-use crate::server::spawn::Ending;
 use crate::server::worktree;
 use crate::server::Core;
 use sikemux_wire::protocol::AgentStatus;
 
-/// Long enough for the first bundle of a large repository.
-const HANDING_WAIT: Duration = Duration::from_secs(10 * 60);
 /// How long a host may be out of reach before Auto stops waiting for its agent. A laptop that
 /// sleeps for a moment should not cost a card its agent.
 const OUT_OF_REACH_MS: u64 = recover::HUNG_AFTER_MS;
@@ -93,33 +86,36 @@ fn busy_on(board: &Board, host: &str) -> usize {
 pub(super) fn free_places(core: &Core, board: &Board) -> Vec<String> {
     let slots = board.settings.slots as usize;
     (board.settings.hosts.iter())
-        .filter(|host| core.remote().link(host).is_some() && core.hosts().reachable(host))
+        .filter(|host| {
+            core.remote().link(host).is_some() && (core.board_above().hosts_reachable)(core, host)
+        })
         .flat_map(|host| {
             std::iter::repeat_n(host.clone(), slots.saturating_sub(busy_on(board, host)))
         })
         .collect()
 }
 
-fn at_work(core: &Core, worker: &Foreign) -> bool {
-    worker.role == Role::Worker
+fn at_work(core: &Core, worker: &ForeignNow) -> bool {
+    worker.worker
         && !matches!(worker.status, AgentStatus::Stopped | AgentStatus::Asleep)
-        && core.hosts().reachable(&worker.host)
+        && (core.board_above().hosts_reachable)(core, &worker.host)
 }
 
 /// The agents at work on linked hosts as far as this host can tell.
 pub(super) fn working(core: &Core) -> impl Iterator<Item = String> + '_ {
-    (core.hosts().team.all().into_iter())
+    ((core.board_above().foreign_all)(core).into_iter())
         .filter(|worker| at_work(core, worker))
         .map(|worker| worker.agent_id)
 }
 
 pub(super) fn works_now(core: &Core, agent: &str) -> bool {
-    (core.hosts().team.get(agent)).is_some_and(|worker| at_work(core, &worker))
+    (core.board_above().foreign)(core, agent).is_some_and(|worker| at_work(core, &worker))
 }
 
 fn out_of_reach(core: &Core, run: &AutoRun) -> bool {
     (run.elsewhere.as_ref()).is_some_and(|elsewhere| {
-        !core.hosts().reachable(&elsewhere.host) && core.hosts().team.get(&run.agent).is_some()
+        !(core.board_above().hosts_reachable)(core, &elsewhere.host)
+            && (core.board_above().foreign)(core, &run.agent).is_some()
     })
 }
 
@@ -138,7 +134,7 @@ pub(super) fn why_gone(core: &Core, run: &AutoRun, name: &str) -> Option<String>
     let elsewhere = run.elsewhere.as_ref().filter(|_| out_of_reach(core, run))?;
     Some(format!(
         "{name} runs on {}, which has been out of reach for {} minutes",
-        name_of(core, &elsewhere.host),
+        (core.board_above().hosts_name_of)(core, &elsewhere.host),
         OUT_OF_REACH_MS / 60_000
     ))
 }
@@ -206,8 +202,8 @@ async fn start_on(
         let board = state.boards.get(project).ok_or("the board is gone")?;
         board.settings.clone()
     };
-    let link = find(core, &place.host)?;
-    let (packed, provider, mode): (code::Packed, String, _) = {
+    let link = (core.board_above().hosts_find)(core, &place.host)?;
+    let (packed, provider, mode) = {
         let (core, cwd, settings) = (core.clone(), tree.cwd.clone(), settings.clone());
         let folder = Path::new(project)
             .file_name()
@@ -220,8 +216,7 @@ async fn start_on(
                 settings.model.clone(),
                 auto::PICKED_IN,
             )?;
-            let mut packed = code::package(&cwd)?;
-            packed.code.project = folder.unwrap_or(packed.code.project);
+            let packed = (core.board_above().hosts_package)(&cwd, folder)?;
             Ok((packed, launch.provider, launch.permission_mode))
         })
         .await
@@ -237,29 +232,20 @@ async fn start_on(
         core.open_agents(),
     );
     core.names().count_as_started(agent);
-    let Handed { name, .. } = hand_over(
+    let name = (core.board_above().hosts_hand_over)(
         core,
         &link,
-        Handing {
+        HandOver {
             agent_id: agent.to_owned(),
             name: named.name,
             provider: provider.clone(),
             project: project.to_owned(),
-            lead: LeadParams {
-                agent_id: place.lead.clone(),
-                name: "Auto".to_owned(),
-                cli: provider.clone(),
-                mode: Some(mode.as_str().to_owned()),
-                depth: 0,
-            },
+            lead: place.lead.clone(),
+            mode: mode.as_str().to_owned(),
             model: settings.model.clone(),
-            effort: None,
-            reports: true,
             prompt,
-            branch: Some(tree.branch.clone()),
+            branch: tree.branch.clone(),
             packed,
-            auto: true,
-            wait: HANDING_WAIT,
         },
     )
     .await?;
@@ -277,7 +263,7 @@ async fn start_on(
         tree,
     );
     if !seated {
-        stop_worker(core, agent);
+        (core.board_above().hosts_stop_worker)(core, agent);
         return Ok(false);
     }
     finish::change_run(core, project, id, agent, |_, run| {
@@ -288,23 +274,21 @@ async fn start_on(
 
 /// How a turn of a builder on `host` ended. Its commits got here first, so this host treats
 /// the ending as it does one of its own agents'.
-pub(crate) fn turn_ended(core: &Arc<Core>, host: &str, turn: AutoTurn) -> Result<Value, String> {
-    let AutoTurn {
-        agent_id,
-        ending,
-        answer,
-        cost_usd,
-    } = turn;
-    if (core.hosts().team.get(&agent_id)).is_none_or(|worker| worker.host != host) {
+pub(crate) fn turn_ended(
+    core: &Arc<Core>,
+    host: &str,
+    agent_id: String,
+    ending: Ending,
+    answer: Option<String>,
+    cost_usd: Option<f64>,
+) -> Result<Value, String> {
+    if (core.board_above().foreign)(core, &agent_id).is_none_or(|worker| worker.host != host) {
         return Ok(Value::Null);
     }
-    let mut landed = None;
-    core.hosts()
-        .team
-        .update(&agent_id, |worker| landed = worker.landed.take());
+    let mut landed = (core.board_above().foreign_take_landed)(core, &agent_id);
     if let Some((project, id)) = run_of(core, &agent_id, |_| true) {
         core.boards().edit_if(&project, id, |card| {
-            if let (Some(elsewhere), Some((branch, _))) = (
+            if let (Some(elsewhere), Some(branch)) = (
                 card.auto.as_mut().and_then(|run| run.elsewhere.as_mut()),
                 landed.take(),
             ) {
@@ -321,8 +305,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, host: &str, turn: AutoTurn) -> Result
     }
     auto::turn_ended(core, &agent_id, &ending);
     if matches!(ending, Ending::Gone { .. }) {
-        core.hosts().team.remove(&agent_id);
-        pin(core);
+        (core.board_above().foreign_gone)(core, &agent_id);
     }
     Ok(Value::Null)
 }
@@ -375,7 +358,7 @@ fn bring_in(tree: &Path, branch: &str, taken: Option<&str>, start: &str) -> Resu
     if descends("HEAD") {
         git().trimmed(&["merge", "--ff-only", "--quiet", &head])?;
     } else if descends(from) {
-        let mut args = code::identity(tree);
+        let mut args = super::git::identity(tree);
         let range = format!("{from}..{head}");
         args.extend(["cherry-pick", range.as_str()]);
         if let Err(error) = git().trimmed(&args) {

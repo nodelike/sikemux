@@ -4,6 +4,7 @@
 //! The first write to each pull request waits for the person to post the exact block.
 
 use crate::server::parts::Parts;
+use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -15,7 +16,6 @@ use sikemux_process::sync::Locked;
 use super::slice::{with_proof, KeptPicture, SlicePull};
 use super::{AutoPull, CardStatus, State};
 use crate::server::codehost::repo as codehost;
-use crate::server::questions::{self, ProofAsk};
 use crate::server::Core;
 
 #[derive(Default)]
@@ -233,7 +233,7 @@ fn ask(
         project: project.to_owned(),
         card,
     };
-    questions::put_proof_to_person(core, &owner, asked, header, text)?;
+    (core.board_above().questions_put_proof_to_person)(core, &owner, asked, header, text)?;
     core.boards().edit(project, card, |card| {
         if let Some(slice) = &mut card.slice {
             slice.pull = Some(SlicePull {
@@ -272,4 +272,12 @@ fn picture_name(pull: &AutoPull, card: u64, evidence: u64, path: &str) -> String
         "pull-{}-card-{card}-evidence-{evidence}.{extension}",
         pull.number
     )
+}
+
+/// A slice of the board at `project`, by its card.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProofAsk {
+    pub project: String,
+    pub card: u64,
 }

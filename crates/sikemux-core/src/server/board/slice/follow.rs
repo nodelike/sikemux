@@ -207,10 +207,10 @@ fn lost(core: &Arc<Core>, project: &str) {
 fn heard(core: &Arc<Core>, event: RepoEvent) {
     if let RepoEvent::Committed { agent, .. } = &event {
         super::super::chat_goal::committed(core, agent);
-        core.inbox().committed(agent);
+        (core.board_above().inbox_committed)(core, agent);
     }
     if let RepoEvent::Committed { agent, .. } | RepoEvent::Landed { agent, .. } = &event {
-        crate::server::turn_state::read_work(core, agent);
+        (core.board_above().turn_state_read_work)(core, agent);
     }
     if let RepoEvent::Checked {
         project,
@@ -219,8 +219,8 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         ..
     } = &event
     {
-        for (agent, turn, head) in core.inbox().showing(project, covered) {
-            crate::server::pictures::take(core, &agent, project, turn, head);
+        for (agent, turn, head) in (core.board_above().inbox_showing)(core, project, covered) {
+            (core.board_above().pictures_take)(core, &agent, project, turn, head);
         }
     }
     if let RepoEvent::Deployed {
@@ -234,7 +234,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
             passed && !crate::server::board::is_production(core, project, &ran.environment),
             ran.head.clone(),
         ) {
-            core.inbox().staged(agent, head);
+            (core.board_above().inbox_staged)(core, agent, head);
             core.changed(crate::server::changed::What::View);
         }
     }

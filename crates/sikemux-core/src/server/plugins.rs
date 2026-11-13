@@ -25,7 +25,7 @@ use sikemux_plugin_api::SignInStatus;
 use sikemux_view::plugins::Listed;
 
 pub use super::plugged::manifest::{AgentTool, CodeHostSpec, Compare, Manifest, ToolFamily};
-pub(crate) use super::plugged::{call, call_on, explain, manifest, manifests, plugins};
+pub(crate) use super::plugged::{call, explain, manifest, manifests, plugins};
 pub use super::plugged::{Answer, Gated, Listing, Plugins, Provided, Sink, StreamEvent};
 
 use crate::cli::protocol::HarnessRequest;

@@ -23,6 +23,7 @@ use super::{
 };
 
 pub(crate) struct Fields {
+    pub(super) board_above: super::board_above::BoardAbove,
     pub(super) config: ServerConfig,
     pub(super) manifest_folder: Mutex<Option<PathBuf>>,
     /// Rings when a window opens, so the day's usage counts it at once.
@@ -66,6 +67,7 @@ pub(crate) struct Fields {
 }
 
 pub(crate) trait Parts {
+    fn board_above(&self) -> &super::board_above::BoardAbove;
     fn config(&self) -> &ServerConfig;
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
     fn usage_wake(&self) -> &Notify;
@@ -103,6 +105,10 @@ pub(crate) trait Parts {
 }
 
 impl Parts for Core {
+    fn board_above(&self) -> &super::board_above::BoardAbove {
+        &self.kept::<Fields>().board_above
+    }
+
     fn config(&self) -> &ServerConfig {
         &self.kept::<Fields>().config
     }

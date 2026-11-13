@@ -5,6 +5,7 @@
 //! shown, never proven. The core takes only a page something already serves on this machine;
 //! only the person's Try it starts the project's process, as one they can see and stop.
 
+pub(crate) use super::board::is_page_file;
 use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
@@ -51,10 +52,6 @@ const LOOK_EVERY: Duration = Duration::from_secs(1);
 const ANSWER_WAIT: Duration = Duration::from_secs(10);
 
 /// The endings of the files a browser draws a page from.
-const PAGE_FILES: [&str; 12] = [
-    "tsx", "jsx", "vue", "svelte", "astro", "html", "htm", "css", "scss", "sass", "less", "styl",
-];
-
 /// How the titles start of what a server shows in place of a page: a listing of its files, or
 /// an error.
 const NOT_PAGES: [&str; 5] = [
@@ -64,13 +61,6 @@ const NOT_PAGES: [&str; 5] = [
     "404 Not Found",
     "502 Bad Gateway",
 ];
-
-pub(crate) fn is_page_file(path: &str) -> bool {
-    Path::new(path)
-        .extension()
-        .and_then(|ending| ending.to_str())
-        .is_some_and(|ending| PAGE_FILES.contains(&ending.to_ascii_lowercase().as_str()))
-}
 
 /// One page taken at each width, after one turn of one agent.
 #[derive(Clone, Serialize, Deserialize)]

@@ -13,6 +13,7 @@
 //! when they work on no goal, where the person can overrule it.
 
 use crate::server::agent_now::AgentNowCore;
+use crate::server::board_above::Overruled;
 use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
@@ -1000,7 +1001,11 @@ pub(crate) async fn overrule(
         .collect();
     for agent in &told {
         let name = core.names().name_or_id(agent);
-        let answered = crate::server::messages::Answered {
+        let text = instead
+            .clone()
+            .unwrap_or_else(|| "The person overruled this.".to_owned());
+        let note = "The person overruled this decision of the team's. Stop going by it and undo what rests on it; if they have not said what they want instead, hold that work until they do.".to_owned();
+        let overruled = Overruled {
             question: decision.says(),
             asker: name,
             asker_id: agent.clone(),
@@ -1008,25 +1013,16 @@ pub(crate) async fn overrule(
                 .agent_now(agent)
                 .cli()
                 .unwrap_or_else(|| "agent".to_owned()),
-            secret: false,
+            text,
+            note,
         };
-        let text = instead
-            .clone()
-            .unwrap_or_else(|| "The person overruled this.".to_owned());
-        let note = "The person overruled this decision of the team's. Stop going by it and undo what rests on it; if they have not said what they want instead, hold that work until they do.".to_owned();
-        if let Err(error) = crate::server::messages::answer(
-            core,
-            agent.clone(),
-            vec![(answered, text, note, Vec::new())],
-        )
-        .await
-        {
+        if let Err(error) = (core.board_above().messages_overruled)(core, overruled).await {
             eprintln!(
                 "sikemux core: an overruled decision in {project} did not reach its agent: {error}"
             );
         }
     }
-    crate::server::chief::overruled(
+    (core.board_above().chief_overruled)(
         core,
         &project,
         goal,
@@ -1067,7 +1063,7 @@ pub(crate) async fn undo_overrule(
             let undone = match stands {
                 true => None,
                 false => {
-                    let overrule = crate::server::chief::undoable(
+                    let overrule = (core.board_above().chief_undoable)(
                         &core,
                         &project,
                         params.goal,
@@ -1090,7 +1086,7 @@ pub(crate) async fn undo_overrule(
     let Some((overrule, text)) = undone else {
         return Ok(view);
     };
-    crate::server::chief::overrule_undone(core, &project, goal, (id, &text), overrule).await;
+    (core.board_above().chief_overrule_undone)(core, &project, goal, (id, &text), overrule).await;
     Ok(view)
 }
 
@@ -1307,4 +1303,14 @@ pub(crate) async fn person_assert(
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// An Overrule: the rule it kept, whether it stopped Auto's run on a slice, which cannot be put
+/// back, and the agents it told.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Overrule {
+    pub rule: Option<u64>,
+    pub stopped_auto: bool,
+    pub told: Vec<String>,
 }

@@ -3,6 +3,7 @@
 //! of thousands costs it no more than a short one, and each landing tops the cards up.
 
 use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -20,7 +21,6 @@ use super::{
     change_in, new_card, send_notices, Adding, Board, By, Card, CardStatus, Changes, Notice, State,
     MAX_CARDS, MAX_TITLE_CHARS,
 };
-use crate::server::tasks::{ask_person, config_needs};
 use crate::server::worktree;
 use crate::server::Core;
 use crate::tasks::config::{self, ConfigLoad};
@@ -183,7 +183,7 @@ async fn refill(core: &Arc<Core>, project: &str) -> Result<Outcome, String> {
         let (core, dir) = (core.clone(), dir.clone());
         tokio::task::spawn_blocking(move || {
             let load = config::load(&dir);
-            let ask = config_needs(&core, &load);
+            let ask = (core.repo_above().tasks_config_needs)(&core, &load);
             match load {
                 ConfigLoad::Valid { config, .. } => Ok((config.reservoir, ask)),
                 ConfigLoad::Absent { .. } => Ok((None, None)),
@@ -221,14 +221,14 @@ async fn refill(core: &Arc<Core>, project: &str) -> Result<Outcome, String> {
 
 /// Asks the person to trust the project's `sikemux.json`, once however many things wait on it;
 /// each looks again if they do.
-pub(super) fn ask_trust(core: &Arc<Core>, project: &str, ask: crate::server::tasks::TrustAsk) {
+pub(super) fn ask_trust(core: &Arc<Core>, project: &str, ask: crate::server::trust_ask::TrustAsk) {
     let first = (core.boards().state.locked().reservoirs.awaiting_trust).insert(project.to_owned());
     if !first {
         return;
     }
     let (core, project) = (core.clone(), project.to_owned());
     tokio::spawn(async move {
-        let trusted = ask_person(&core, &project, ask, None).await;
+        let trusted = (core.repo_above().tasks_ask_person)(&core, &project, ask, None).await;
         let mut state = core.boards().state.locked();
         state.reservoirs.awaiting_trust.remove(&project);
         if trusted {

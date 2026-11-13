@@ -26,7 +26,7 @@ use super::{
 };
 use crate::server::connection::blocking;
 use crate::server::wake::sooner;
-use crate::server::{launching, messages, Core};
+use crate::server::Core;
 
 /// How long an owner with no turn running may leave its slice untouched. Nothing announces that
 /// this has passed, so the board wakes at the earliest such moment; it is long enough that the
@@ -126,7 +126,7 @@ fn waits_elsewhere(core: &Core, owner: &str, running: &HashSet<String>) -> bool 
     core.workspaces().held(owner)
         || now.waits_on_something()
         || core.seen().viewed(owner)
-        || core.inbox().failing(owner)
+        || (core.board_above().inbox_failing)(core, owner)
         || running.contains(owner)
         || core
             .ship()
@@ -145,10 +145,7 @@ pub(super) fn settle(core: &Core) -> Option<u64> {
     }
     let here = core.open_agents();
     let linked = core.names().open_with(HashSet::new());
-    let running: HashSet<String> = (core.harness().all_runs().into_iter())
-        .filter(|run| run.status.is_active())
-        .filter_map(|run| run.agent_id)
-        .collect();
+    let running = (core.board_above().harness_running_agents)(core);
     let mut next: Option<u64> = None;
     let mut lost = Vec::new();
     for slice in slices {
@@ -415,7 +412,7 @@ fn standing_for(core: &Core, agent: &str) -> String {
 
 async fn tell(core: &Arc<Core>, agent: &str, text: String) -> Result<(), String> {
     let note = "Sent by Sikemux's board, because the person chose it.".to_owned();
-    messages::from_board(core, agent.to_owned(), text, note)
+    (core.board_above().messages_from_board)(core, agent.to_owned(), text, note)
         .await
         .map(drop)
 }
@@ -426,7 +423,7 @@ async fn bring_back(core: &Arc<Core>, stalled: &Stalled) -> Result<String, Strin
     let agent = stalled.agent.clone();
     if core.open_agents().contains(&agent) {
         if core.chats().get(&agent).is_none() && core.agent_session(&agent).is_none() {
-            launching::wake(core, agent.clone())
+            (core.board_above().launching_wake)(core, agent.clone())
                 .await
                 .map_err(|error| format!("@{} did not start again: {error}", stalled.name))?;
         }
@@ -438,10 +435,10 @@ async fn bring_back(core: &Arc<Core>, stalled: &Stalled) -> Result<String, Strin
             stalled.name
         ));
     }
-    let started = launching::reopen_agent(core, agent)
+    let started = (core.board_above().launching_reopen_agent)(core, agent)
         .await
         .map_err(|error| format!("@{}'s session did not start again: {error}", stalled.name))?;
-    Ok(started.agent_id)
+    Ok(started)
 }
 
 /// The person resumes the owner a slice lost, which holds it again. Answers with the board.

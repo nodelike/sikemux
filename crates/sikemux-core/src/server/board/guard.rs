@@ -20,8 +20,8 @@ use super::finish::{self, Step};
 use super::recover;
 use super::CheckRan;
 use super::{Board, Card};
+use crate::server::chat::Fault;
 use crate::server::codehost::log::failure_lines;
-use crate::server::inbox::Fault;
 use crate::server::Core;
 
 const START_LIMIT_USD: f64 = 50.0;
@@ -352,7 +352,10 @@ pub(super) fn look(core: &Core, project: &str, id: u64, agent: &str, looked: u64
     let agent_now = core.agent_now(agent);
     let at_work = (agent_now.maybe_mid_turn() || agent_now.workers_busy(agent))
         && !agent_now.waits_on_something()
-        && !matches!(core.inbox().fault(agent), Some(Fault::Retrying));
+        && !matches!(
+            (core.board_above().inbox_fault)(core, agent),
+            Some(Fault::Retrying)
+        );
     finish::change_run(core, project, id, agent, |card, run| {
         if at_work && looked != 0 {
             run.burn.work_ms += now.saturating_sub(looked).min(2 * LOOK_EVERY_MS);

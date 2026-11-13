@@ -6,6 +6,7 @@
 //! The person answers in the asker's chat, the notch or Sikemux's rail, and the
 //! first answer reaches the asker as a message.
 
+pub(crate) use super::board::proof::ProofAsk;
 pub(crate) use super::person_calls::{attached, without_attached};
 use crate::server::activity::ActivityCore;
 use crate::server::agent_now::AgentNowCore;
@@ -488,14 +489,6 @@ struct Asked {
     proof: Option<ProofAsk>,
     dialog: Option<String>,
     raise: Option<Raise>,
-}
-
-/// A slice of the board at `project`, by its card.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ProofAsk {
-    pub project: String,
-    pub card: u64,
 }
 
 impl Questions {

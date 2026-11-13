@@ -19,9 +19,10 @@ use super::{
     CardTicket, Changes, Notice, ProjectBoard, Tracker, MAX_TITLE_CHARS,
 };
 use crate::server::connection::blocking;
-use crate::server::plugins::{self, PluginFailure, Provided};
+use crate::server::plugged::Provided;
 use crate::server::wake::sooner;
 use crate::server::Core;
+use sikemux_calls::plugins::PluginFailure;
 
 /// How often a ticket is asked whether it was closed in its tracker.
 const UPSTREAM_EVERY_MS: u64 = 5 * 60 * 1000;
@@ -40,7 +41,7 @@ struct Jira<'a> {
 impl<'a> Jira<'a> {
     fn of(core: &Core, ticket: &'a CardTicket) -> Option<Self> {
         (ticket.provider == Tracker::Jira).then(|| Self {
-            plugins: core.config().plugins,
+            plugins: crate::server::plugged::provided(core),
             key: &ticket.key,
             site: ticket.url.as_deref().and_then(site_of),
         })
@@ -49,7 +50,7 @@ impl<'a> Jira<'a> {
     async fn call(&self, method: &str, mut params: Value) -> Result<Value, PluginFailure> {
         params["key"] = self.key.into();
         params["site"] = json!(self.site);
-        plugins::call_on(self.plugins, "sikemux.jira", method, params).await
+        crate::server::plugged::call_on(self.plugins, "sikemux.jira", method, params).await
     }
 }
 

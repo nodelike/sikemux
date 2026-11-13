@@ -23,7 +23,6 @@ use crate::git::Git;
 use crate::server::changed::What;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
-use crate::server::triggers::next_after;
 use crate::server::wake::sooner;
 use crate::server::{chat, workspace, Core};
 use sikemux_wire::protocol::Event;
@@ -78,8 +77,8 @@ pub(crate) async fn person_audit_every(
         let mut state = core.boards().state.locked();
         let board = (state.boards.entry(project.clone())).or_insert_with(|| Board::empty(&project));
         let now = epoch_ms();
-        board.audits.next_at =
-            (params.every.as_ref()).and_then(|every| next_after(every, now, now));
+        board.audits.next_at = (params.every.as_ref())
+            .and_then(|every| (core.board_above().triggers_next_after)(every, now, now));
         board.audits.every = params.every;
         core.boards().save(&mut state, &project);
         drop(state);
@@ -121,7 +120,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                 next = sooner(next, Some(at));
                 continue;
             }
-            board.audits.next_at = next_after(&every, at, now);
+            board.audits.next_at = (core.board_above().triggers_next_after)(&every, at, now);
             next = sooner(next, board.audits.next_at);
             if !latest_running(board) {
                 starting.push(project.clone());

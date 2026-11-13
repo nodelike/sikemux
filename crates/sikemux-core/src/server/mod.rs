@@ -15,6 +15,7 @@ pub use sikemux_workspace::server::attachments;
 mod backdrop;
 mod base;
 pub mod board;
+mod board_above;
 pub(crate) use sikemux_workspace::server::caller;
 pub mod calls;
 pub use sikemux_chat::server::chat;
@@ -496,6 +497,7 @@ impl ServerCore for Core {
                     build_outputs: Default::default(),
                 }) as sikemux_kernel::Parts,
                 Box::new(parts::Fields {
+                    board_above: base::board_above(),
                     config,
                     manifest_folder: Mutex::new(None),
                     usage_wake: Notify::new(),

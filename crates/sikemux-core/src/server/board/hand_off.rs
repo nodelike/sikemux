@@ -269,7 +269,7 @@ async fn hand_task(
     if let Some(chat) = core.chats().get(agent) {
         chat.take_brief();
     }
-    if let Some(brief) = crate::server::memory::brief(core, agent, Some(&text)) {
+    if let Some(brief) = (core.board_above().memory_brief)(core, agent, Some(&text)) {
         message.push_str(&format!("\n\n{brief}"));
     }
     let tracking = ChatContext {

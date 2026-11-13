@@ -7,6 +7,7 @@
 //! The core keeps, for each chief, what its next turn hears and what the person is shown in its
 //! chat: never what the person typed, which is read back from the chats' own records.
 
+pub(crate) use super::board::goal::Overrule;
 use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
@@ -143,16 +144,6 @@ struct Away {
     shown: ChiefAway,
     /// Built with calls in it, it stays until they are answered; else until the person writes.
     until_answered: bool,
-}
-
-/// An Overrule: the rule it kept, whether it stopped Auto's run on a slice, which cannot be put
-/// back, and the agents it told.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Overrule {
-    rule: Option<u64>,
-    stopped_auto: bool,
-    told: Vec<String>,
 }
 
 impl Chiefs {

@@ -5,6 +5,7 @@
 //! it, or keeps a copy of its own in its data folder. The worker's commits come
 //! back as a bundle onto a branch named for it, which the lead merges or not.
 
+pub(crate) use crate::server::board::git::identity;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Component, Path, PathBuf};
@@ -858,19 +859,6 @@ fn apply(tree: &Path, patch: &str) -> Result<(), String> {
         tree,
         "The lead's uncommitted changes, as they were when it started this worker",
     )
-}
-
-/// What git needs to make a commit in `tree`, on a host with no name of its own for git.
-pub(crate) fn identity(tree: &Path) -> Vec<&'static str> {
-    match Git::quick(tree).trimmed(&["config", "user.email"]) {
-        Ok(_) => Vec::new(),
-        Err(_) => vec![
-            "-c",
-            "user.name=Sikemux",
-            "-c",
-            "user.email=sikemux@localhost",
-        ],
-    }
 }
 
 fn commit_everything(tree: &Path, message: &str) -> Result<(), String> {

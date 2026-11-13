@@ -30,11 +30,11 @@ use super::record::RunRecord;
 use super::recover::{self, Recovery, TookOn};
 use super::review::Review;
 use super::{blind, finish, goal, queue, risk, Board, Card, CardStatus, Owner, Team};
+use crate::server::chat::Ending;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
-use crate::server::spawn::Ending;
 use crate::server::worktree::{self, AgentWorktree};
-use crate::server::{chat, messages, Core};
+use crate::server::{chat, Core};
 use sikemux_wire::protocol::{ChatLaunch, Event};
 
 pub(super) const MAX_SLOTS: u32 = crate::server::names::MAX_SPAWNED_PER_PROJECT as u32;
@@ -267,7 +267,7 @@ fn running_where(core: &Core, board: &Board, counts: impl Fn(&AutoRun) -> bool) 
                 run.held.is_none()
                     && run.stage.busy()
                     && counts(run)
-                    && !core.harness().questions.blocks_on_person(&run.agent)
+                    && !(core.board_above().questions_blocks_on_person)(core, &run.agent)
             })
         })
         .count()
@@ -718,7 +718,12 @@ async fn set_going(
     chat::until_started(core, chat)
         .await
         .map_err(|error| error.to_string())?;
-    messages::hand_task(core, agent, messages::auto_task(core, agent, text)).await
+    (core.board_above().messages_hand_task)(
+        core,
+        agent,
+        (core.board_above().messages_auto_task)(core, agent, text),
+    )
+    .await
 }
 
 /// The worktree of a run, as Auto started it.

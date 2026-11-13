@@ -4,7 +4,6 @@
 //! in a row, or too many, go to the person once, with the reason. What is tried and what is
 //! due sits on the run, so a core that restarts carries on from the card.
 
-use crate::server::activity::ActivityCore;
 use crate::server::agent_now::AgentNowCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
@@ -24,10 +23,8 @@ use super::lease::Stalled;
 use super::Card;
 use crate::git::Git;
 use crate::server::chat::carry_on_prompt;
-use crate::server::inbox::Fault;
-use crate::server::launching;
-use crate::server::messages;
-use crate::server::spawn::Ending;
+use crate::server::chat::Ending;
+use crate::server::chat::Fault;
 use crate::server::worktree::{self, agent::set_up, MadeAgain, Tree};
 use crate::server::Core;
 
@@ -100,7 +97,7 @@ fn cannot_run(reason: &str) -> bool {
 }
 
 fn sort(core: &Core, agent: &str, reason: &str) -> Sorted {
-    match core.inbox().fault(agent) {
+    match (core.board_above().inbox_fault)(core, agent) {
         Some(Fault::Account) => Sorted::NeedsPerson,
         Some(Fault::Retrying) => Sorted::WaitsByItself,
         _ if cannot_run(reason) => Sorted::NeedsPerson,
@@ -310,8 +307,7 @@ fn keeps_busy(core: &Core, agent: &str) -> bool {
     now.waits_on_something()
         || now.workers_busy(agent)
         || (core.chats().get(agent)).is_some_and(|chat| !chat.pending_permissions().is_empty())
-        || (core.harness().all_runs().into_iter())
-            .any(|run| run.status.is_active() && run.agent_id.as_deref() == Some(agent))
+        || (core.board_above().harness_running_agents)(core).contains(agent)
 }
 
 /// When the agent's turn counts as hung unless it says something first; none when not in one.
@@ -369,9 +365,9 @@ fn stop_agent(core: &Core, agent: &str) {
             .note_stopping(chat.agent_id(), chat.current_now());
     }
     if core.chats().stop(agent) {
-        core.note_agent_gone(agent);
+        (core.chat_above().note_agent_gone)(core, agent);
     }
-    crate::server::hosts::route::stop_worker(core, agent);
+    (core.board_above().hosts_stop_worker)(core, agent);
 }
 
 /// Stops an agent whose turn hung, which then has a try coming like any other failure.
@@ -439,7 +435,7 @@ async fn attempt(core: &Arc<Core>, step: Step) {
         return;
     }
     if !running {
-        if let Err(error) = launching::wake_chat(core, agent.clone()).await {
+        if let Err(error) = (core.board_above().launching_wake_chat)(core, agent.clone()).await {
             let error = error.to_string();
             if cannot_run(&error) {
                 hold(core, &step, format!("{name} cannot start again: {error}"));
@@ -454,7 +450,7 @@ async fn attempt(core: &Arc<Core>, step: Step) {
         return;
     }
     let prompt = carry_on_prompt(&format!("Sikemux's Auto brought you back ({why})"));
-    match messages::from_auto(core, agent.clone(), prompt.text).await {
+    match (core.board_above().messages_from_auto)(core, agent.clone(), prompt.text).await {
         Ok(_) => cleared(None),
         Err(_) => fresh(core, &step, &why).await,
     }
