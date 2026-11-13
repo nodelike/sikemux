@@ -58,6 +58,36 @@ pub(crate) fn tools(core: &Core) -> Option<Tools> {
     })
 }
 
+/// The folder under the data folder each agent keeps its temporary files in.
+const TEMP_FOLDERS: &str = "temp";
+
+/// Points an agent's temporary files at a folder of its own on disk where `/tmp` is held in
+/// memory, as on many Linux hosts, so they take no memory from builds. Claude Code reads
+/// `CLAUDE_CODE_TMPDIR`, not `TMPDIR`.
+fn own_temp(core: &Core, agent_id: &str) -> Vec<(String, String)> {
+    if !sikemux_process::machine::tmp_in_memory() {
+        return Vec::new();
+    }
+    let Some(folder) = (core.config().data_dir.as_ref())
+        .map(|data| data.join(TEMP_FOLDERS).join(agent_id))
+        .filter(|folder| std::fs::create_dir_all(folder).is_ok())
+    else {
+        return Vec::new();
+    };
+    let folder = folder.to_string_lossy().into_owned();
+    vec![
+        ("CLAUDE_CODE_TMPDIR".to_owned(), folder.clone()),
+        ("TMPDIR".to_owned(), folder),
+    ]
+}
+
+/// Deletes the temporary files a closed agent left.
+pub(crate) fn clear_temp(core: &Core, agent_id: &str) {
+    if let Some(data) = core.config().data_dir.as_ref() {
+        let _ = std::fs::remove_dir_all(data.join(TEMP_FOLDERS).join(agent_id));
+    }
+}
+
 /// Gives a terminal agent its tools, its account and the connected model providers, and
 /// answers with what keeps its token for them good. A launch that cannot be told about the
 /// tools still runs.
@@ -70,6 +100,9 @@ pub(crate) async fn terminal_agent(
         return None;
     };
     let agent_type = context.agent_type.clone()?;
+    if let Some(agent_id) = context.agent_id.as_deref() {
+        spawn.env.extend(own_temp(core, agent_id));
+    }
     if let (Some(agent_id), Some(tools)) = (context.agent_id.as_deref(), tools(core)) {
         match tools
             .terminal(agent_id, &agent_type, &command.program)
@@ -251,6 +284,8 @@ pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
     launch
         .env
         .insert(vars::AGENT_ID.into(), launch.agent_id.clone());
+    let temp = own_temp(core, &launch.agent_id);
+    launch.env.extend(temp);
     let Some(tools) = tools(core) else {
         return;
     };

@@ -99,6 +99,7 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
             chat::rotation::forget(core, agent_id);
             chief::closed(core, agent_id);
             core.line().agent_closed(core, agent_id);
+            launching::clear_temp(core, agent_id);
         },
         worktrees_closed: worktree::build_output::closed,
         title_moved: hosts::route::rows_moved,

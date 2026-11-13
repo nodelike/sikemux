@@ -75,6 +75,24 @@ pub fn overloaded(load: Option<f64>, cores: usize) -> bool {
     load.is_some_and(|load| load > cores as f64 * OVERLOADED_PER_CORE)
 }
 
+/// Whether `/tmp` is held in memory, so what is left there takes memory that builds need.
+pub fn tmp_in_memory() -> bool {
+    static IN_MEMORY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *IN_MEMORY.get_or_init(|| {
+        std::fs::read_to_string("/proc/self/mounts").is_ok_and(|mounts| {
+            mounts
+                .lines()
+                .filter_map(|mount| {
+                    let mut fields = mount.split_whitespace().skip(1);
+                    Some((fields.next()?, fields.next()?))
+                })
+                .rev()
+                .find(|(place, _)| *place == "/tmp")
+                .is_some_and(|(_, kind)| kind == "tmpfs")
+        })
+    })
+}
+
 /// How full the volume `path` is on.
 #[cfg(unix)]
 // statvfs's fields are of different widths on each system.
