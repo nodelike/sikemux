@@ -29,6 +29,26 @@ pub fn library(data_dir: &Path) -> PathBuf {
     data_dir.join(LIBRARY)
 }
 
+/// The skills Sikemux ships, by name, which it puts in the library as they are.
+const BUILT_IN: &[(&str, &str)] = &[(
+    "project-setup",
+    include_str!("../skills/project-setup/SKILL.md"),
+)];
+
+/// Puts the skills Sikemux ships in the library, replacing an older copy of one.
+pub fn place_built_in(data_dir: &Path) -> std::io::Result<()> {
+    let library = ready_library(data_dir)?;
+    for (name, text) in BUILT_IN {
+        let file = library.join(name).join(SKILL_FILE);
+        if fs::read_to_string(&file).is_ok_and(|kept| kept == *text) {
+            continue;
+        }
+        fs::create_dir_all(library.join(name))?;
+        fs::write(file, text)?;
+    }
+    Ok(())
+}
+
 /// The library, made if it is missing, so an agent is never pointed at a folder that is not there.
 pub fn ready_library(data_dir: &Path) -> std::io::Result<PathBuf> {
     let library = library(data_dir);

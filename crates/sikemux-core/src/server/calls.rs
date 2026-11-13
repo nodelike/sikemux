@@ -579,6 +579,8 @@ calls! { core, client, method, params;
     "trustProject" = TrustProject: Owner => super::tasks::trust_project_for(&core, &client.peer, params).await?,
     "tasks" Tasks (super::tasks::ProjectParams) -> super::tasks::TaskList: Owner => super::tasks::list(&core, params.project).await?,
     "taskRuns" = TaskRuns: Owner => super::tasks::runs(&core),
+    "setupState" = SetupState: Watch => super::setup_check::state(&core, params).await?,
+    "setupCheck" = SetupCheck: Owner, counted => super::setup_check::check(&core, &params.project, None).await?,
     "taskStart" = TaskStart: Owner, counted => super::tasks::start(&core, params).await?,
     "taskRerunFailed" = TaskRerunFailed: Owner, counted => super::tasks::rerun_failed(&core, params).await?,
     "taskStop" = TaskStop: Owner => super::harness::stop_runs(&core, params).await,

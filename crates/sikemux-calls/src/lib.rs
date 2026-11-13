@@ -77,6 +77,7 @@ pub mod search;
 pub mod seen;
 pub mod session;
 pub mod settling;
+pub mod setup;
 pub mod share;
 pub mod ship;
 pub mod skill_library;

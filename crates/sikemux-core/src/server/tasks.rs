@@ -153,6 +153,7 @@ struct State {
 pub(crate) struct Tasks {
     state: Mutex<State>,
     kept: Kept,
+    pub(crate) setups: super::setup_check::Setups,
 }
 
 impl Tasks {
@@ -164,6 +165,7 @@ impl Tasks {
                 ..State::default()
             }),
             kept,
+            setups: super::setup_check::Setups::new(data_dir),
         }
     }
 

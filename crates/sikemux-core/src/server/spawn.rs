@@ -11,7 +11,7 @@ use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -613,6 +613,10 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         ),
         None => format!("{} is starting in its own tab", started.name),
     };
+    let unproved = started.checkout.is_some() && {
+        let project = core.workspaces().project_of(Path::new(&request.project));
+        !super::setup_check::proved(core, &project)
+    };
     let answer = json!({
         "name": started.name,
         "agentId": started.agent_id,
@@ -622,9 +626,10 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         "resumed": saved.as_ref().map(|saved| &saved.session_id),
         "reportsBack": reports,
         "note": format!(
-            "{starting} and gets your prompt once it is ready.{}{}",
+            "{starting} and gets your prompt once it is ready.{}{}{}",
             if reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" },
             room_made(started.made_room.as_deref()),
+            if unproved { UNPROVED_SETUP } else { "" },
         ),
     });
     let answer = match (&saved, &request.agent_id) {
@@ -734,6 +739,10 @@ fn woken_by_answers(mut answer: Value, reports: bool) -> Value {
     }
     answer
 }
+
+/// What a lead is told when it gives a worker a checkout of its own in a project whose setup
+/// was never proved on a fresh checkout.
+const UNPROVED_SETUP: &str = " This project's setup is not proved on a fresh checkout, so checkouts may share ports and miss steps: load the project-setup skill and follow it.";
 
 fn room_made(closed: Option<&str>) -> String {
     closed.map_or_else(String::new, |name| {

@@ -300,5 +300,7 @@ crate::calls! {
     "setLandedMeans" SetLandedMeans (crate::landing::SetLandedMeansParams) -> sikemux_view::turn::LandedMeans;
     "changeOwners" ChangeOwners (sikemux_view::owners::CheckoutParams) -> sikemux_view::owners::Owners;
     "taskStart" TaskStart (crate::tasks::TaskStartParams) -> crate::tasks::TaskStarted;
+    "setupState" SetupState (crate::setup::SetupParams) -> crate::setup::SetupState;
+    "setupCheck" SetupCheck (crate::setup::SetupParams) -> crate::setup::SetupRun;
     "plugins" Plugins (crate::params::NoParams) -> Vec<sikemux_view::plugins::Listed>;
 }

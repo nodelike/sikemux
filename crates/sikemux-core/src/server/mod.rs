@@ -104,6 +104,7 @@ mod seen;
 pub mod session;
 mod session_watch;
 pub mod settling;
+pub mod setup_check;
 pub mod share;
 pub mod ship;
 mod shown_cache;
@@ -1085,6 +1086,11 @@ pub(crate) async fn run_core(
     if let Some(data_dir) = config.data_dir.as_deref() {
         crate::agent_accounts::usage::keep_readings_in(data_dir.join("plan-limits.json"));
         tokio::spawn(workspace::refresh_launchers(core.clone()));
+        if let Err(error) = crate::skills::place_built_in(data_dir) {
+            eprintln!(
+                "sikemux core: the skills Sikemux ships were not put in the library: {error}"
+            );
+        }
         skill_library::watch_global(&core);
         account::start(&core);
         tokio::spawn(usage::serve(core.clone(), data_dir.to_owned()));

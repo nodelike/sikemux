@@ -132,7 +132,12 @@ checkout gets `SIKEMUX_CHECKOUT` (`main` in the project's own folder),
 `SIKEMUX_ROOT`, `SIKEMUX_PORT` (the first of its ten), `SIKEMUX_PORT_<NAME>`
 and `env`; only a process with `port` gets `PORT`. `worktree.onRemove` runs
 before a checkout is deleted. `workspace_inspect` shows them under
-`checkout`.
+`checkout`. `setup_check` proves the setup on two fresh checkouts at once:
+the `onCreate` steps, each process with a port answering on it, the check,
+no heavy command left running after it, the `onRemove` steps, and nothing
+listening once both are gone. It answers each step with its outcome, the
+last line of a failed one and its log. The `project-setup` skill walks
+through writing and proving it.
 
 ## processes: Starting and stopping processes
 

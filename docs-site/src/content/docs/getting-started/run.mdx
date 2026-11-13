@@ -95,6 +95,10 @@ Every checkout Sikemux cuts gets a short name, taken from its branch, and ten po
 - Everything started in a checkout gets `SIKEMUX_CHECKOUT`, `SIKEMUX_ROOT`, `SIKEMUX_PORT` (the first of its ten), `SIKEMUX_PORT_WEB` and the like, and `env`. Only a process with a `port` gets `PORT`, and in a checkout it always runs on that checkout's port; if something else holds it, the process does not start and says what holds it.
 - `env` is part of what you trust when Sikemux asks about the file.
 
+### Setting a project up
+
+An agent can write all of this for you. **Set up** on the Playbook's **Setup** page starts one with the `project-setup` skill: it reads the project, writes `sikemux.json` and proves it with `setup_check`, which cuts two fresh checkouts at once, runs the steps for a new checkout in both, starts every process that has a `port` and waits for it to answer, runs the project's check, then runs the removal steps, removes both and makes sure nothing is left listening. A heavy command still running once the check ends fails it, as a server or a watcher must not be listed as heavy. The page shows the last check and says when `sikemux.json` has changed since. When a lead gives an agent a checkout of its own in a project whose setup was never proved, Sikemux tells the lead to load the skill.
+
 Beside the branch under the composer, a chat in a checkout of its own shows a plug and its ports, such as `21040–49`. Click it to see the checkout's name, which of its ports something listens on (click one to open it in the browser) and the environment it gets. Agents read the same from `workspace_inspect`.
 
 ## Heavy commands take turns

@@ -466,6 +466,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "setup_check",
+        Spec {
+            verb: "check",
+            kind: "execute",
+            icon: "check",
+            target: &["the setup on fresh checkouts"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "process_start",
         Spec {
             verb: "start",

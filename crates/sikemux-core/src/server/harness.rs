@@ -653,6 +653,13 @@ async fn dispatch(
         "process.start" => process_start(core, &request, false).await,
         "process.restart" => process_start(core, &request, true).await,
         "workspace.inspect" => inspect(core, request).await,
+        "setup.check" => {
+            let ran =
+                super::setup_check::check(core, &request.project, request.agent_id.as_deref())
+                    .await
+                    .map_err(|error| error.to_string())?;
+            Ok(serde_json::to_value(ran).unwrap_or_default())
+        }
         "page.show" => show_page(core, request).await,
         "ui.open" => ui_open(core, request).await,
         _ => forward(core, request).await,
