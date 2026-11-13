@@ -1336,7 +1336,7 @@
           "maxLength": 128
         },
         "readyWhen": {
-          "description": "Output text meaning ready, e.g. Ready in; events_wait until ready waits for it",
+          "description": "Output text meaning ready, e.g. Ready in",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -1610,7 +1610,7 @@
       "description": "Message a Sikemux agent.",
       "properties": {
         "to": {
-          "description": "Agent name or id, several separated by commas, or team",
+          "description": "Name or id, comma-separated, or team",
           "type": "string",
           "minLength": 1,
           "maxLength": 2000
@@ -1627,7 +1627,7 @@
           "maxLength": 200
         },
         "why": {
-          "description": "With answers: why you decided so, for the decision log",
+          "description": "With answers: why, for the decision log",
           "type": "string",
           "minLength": 1,
           "maxLength": 8192
@@ -1691,19 +1691,19 @@
           ]
         },
         "branch": {
-          "description": "Branch for an own checkout, e.g. fix/jira-board-drag; named for the task when left out",
+          "description": "Own checkout's branch, e.g. fix/board-drag",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
         },
         "repo": {
-          "description": "For an own checkout from a folder of repositories: the one to cut it from",
+          "description": "Repository to cut it from, in a folder of repositories",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
         "resume": {
-          "description": "sessionId to reopen, or a worker's name that closed on a linked host",
+          "description": "sessionId, or a closed linked-host worker's name",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -1715,7 +1715,7 @@
           "maxLength": 200
         },
         "uncommitted": {
-          "description": "With host: also carry this checkout's uncommitted changes, everyone's in it",
+          "description": "With host: carry uncommitted changes too",
           "type": "boolean"
         }
       },
