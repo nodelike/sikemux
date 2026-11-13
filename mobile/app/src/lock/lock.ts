@@ -33,7 +33,11 @@ const waiting = new Set<() => void>();
 const chosen: Promise<void> = guarded
   ? SecureStore.getItemAsync(ITEM)
       .then((stored) => set({ on: stored === 'on' }))
-      .catch((error: unknown) => console.warn('sikemux: could not read whether the lock is on', error))
+      .catch((error: unknown) => {
+        // A choice that can't be read keeps the app locked, as Face ID or the passcode still opens it.
+        console.warn('sikemux: could not read whether the lock is on', error);
+        set({ on: true });
+      })
   : Promise.resolve();
 
 function set(next: Partial<LockState>) {
@@ -105,8 +109,8 @@ export async function turnLockOn(): Promise<string | undefined> {
 }
 
 export async function turnLockOff() {
-  await SecureStore.deleteItemAsync(ITEM);
   set({ on: false });
+  await SecureStore.deleteItemAsync(ITEM).catch((error: unknown) => console.warn('sikemux: could not forget that the lock is on', error));
 }
 
 function changed(next: AppStateStatus) {
