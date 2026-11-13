@@ -22,7 +22,7 @@ use sikemux_view::inbox::{
     InboxKind, InboxLook, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent,
     ShipHold, ShipKind, TeamLink,
 };
-use sikemux_view::workspace::WorkspaceAgent;
+use sikemux_view::workspace::{ConfigPicker, WorkspaceAgent};
 use sikemux_wire::protocol::{
     AgentGroup, AgentState, AgentStatus, ChatInfo, ChatState, SessionId, SessionInfo,
 };
@@ -196,6 +196,7 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         chief: false,
         name: None,
         cli,
+        model: None,
         title,
         titled: false,
         session: None,
@@ -1714,6 +1715,17 @@ fn shown(
             .filter(|title| !title.is_empty())
             .filter(|_| own_titles.get(agent_id) != Some(&false))
     };
+    let mut pickers: HashMap<String, Option<ConfigPicker>> = HashMap::new();
+    let mut model_of = |chat: &ChatInfo| {
+        let model =
+            (chat.model.clone()).or_else(|| core.workspaces().agent(&chat.agent_id)?.model)?;
+        let picker = (pickers.entry(chat.provider.clone()))
+            .or_insert_with(|| super::chat::models_of(core, &chat.provider));
+        let label = (picker.iter().flat_map(|picker| &picker.choices))
+            .find(|choice| choice.value == model)
+            .map(|choice| choice.label.clone());
+        Some(label.unwrap_or(model))
+    };
     let mut ranked: Vec<(u32, AgentShown)> = chats
         .iter()
         .map(|chat| {
@@ -1729,6 +1741,7 @@ fn shown(
             );
             shown.titled = titled;
             shown.name = chat.name.clone();
+            shown.model = model_of(chat);
             shown.project_name = Some(chat.cwd.to_string_lossy().into_owned());
             shown.reconnecting = chat.reconnecting;
             shown.subagents = chat.subagents;

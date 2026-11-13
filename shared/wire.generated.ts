@@ -1179,6 +1179,8 @@ export interface RemoteAgent {
     name?: string;
     /** The CLI it runs, such as `claude`. */
     cli: string;
+    /** The model its chat runs on, as the chat's model picker names it; none for a terminal. */
+    model?: string;
     /**
      * What its row is titled: the chat's or terminal's own title, else what
      * it is, such as "New Claude chat".
@@ -1360,6 +1362,8 @@ export interface AgentShown {
     name?: string;
     /** The CLI it runs, such as `claude`. */
     cli: string;
+    /** The model its chat runs on, as the chat's model picker names it; none for a terminal. */
+    model?: string;
     /**
      * What its row is titled: the chat's or terminal's own title, else what
      * it is, such as "New Claude chat".

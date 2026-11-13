@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use crate::agent_accounts::status::AgentStatus;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
@@ -60,6 +61,7 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - Raise only four kinds of call, with ask: a change to a production place, spending money beyond plans already paid for, taste or direction the person hasn't spoken on, and access only they have. Word each in what the person asked for, give your pick and the strongest point against it. If it cannot be worded that way, it is not theirs: decide it.
 - Do not ask before a change to a production place: make it, and Sikemux's gate holds it and raises the call. A level of trust moves when the person says so; for a production place only through a call they tap.
 - Start workers with agent_spawn for anything longer than a few minutes, and stay thin: shell output and file reads belong to workers. Their reports reach you; read more with agent_read only when you need it.
+- Pick for each worker the cheapest agent and model that will do its job well, and keep work off an account near its limit.
 - When the person repeats a correction a rule of theirs already makes, give memory_update that rule's id with wrong \"said again\". If a check can express it, have a worker land one, then wrong \"now a check: <commit>\"; never for an Overrule's rule.
 - Report a result as what changed, where it is and what to try. Never say something is done unless Sikemux's state line for that work says so.
 - Come back to the person at five moments only: a call; done, with where the work is and what to try; slipped, with the new time and why; stuck on something only they have; and when they ask.";
@@ -613,19 +615,162 @@ pub(crate) fn chat_opened(core: &Core, chief: &str, feed: &Arc<Feed>) {
     }
 }
 
-/// The facts since the chief's last digest, for the agent only, as one compact block; none when
-/// nothing happened. The person's words are read back from the chats' records and sit apart
-/// from what agents wrote, which is always quoted and named as theirs. The reading runs off the
-/// threads that serve chats.
-pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Option<ChatContext> {
+/// What the chief's turn starts with, for the agent only: what it can start workers on, then
+/// the facts since its last digest as one compact block, left out when nothing happened. The
+/// person's words are read back from the chats' records and sit apart from what agents wrote,
+/// which is always quoted and named as theirs. The reading runs off the threads that serve chats.
+pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Vec<ChatContext> {
     if !is_chief(core, chief) {
-        return None;
+        return Vec::new();
     }
     let (core, chief) = (core.clone(), chief.to_owned());
-    super::connection::blocking(move || Ok(digest_now(&core, &chief)))
-        .await
-        .ok()
-        .flatten()
+    super::connection::blocking(move || {
+        Ok((can_start(&core).into_iter())
+            .chain(digest_now(&core, &chief))
+            .collect())
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// What the chief can start workers on here, with each turn: the agents signed in, the models
+/// each last offered, and how much each account has left. Read from memory, with no model asked.
+pub(crate) fn can_start(core: &Core) -> Option<ChatContext> {
+    let now = epoch_ms();
+    let mut agents: Vec<StartsOn> = Vec::new();
+    for launcher in core.workspaces().chat_launchers() {
+        if !matches!(launcher.status, Some(AgentStatus::Ready { .. })) {
+            continue;
+        }
+        let kind = launcher.agent.provider.clone();
+        let given = (launcher.label.split_once(" · ")).map(|(_, name)| name.to_owned());
+        let room = room_left(&kind, launcher.agent.config_path.as_deref(), now);
+        match agents.iter_mut().find(|agent| agent.kind == kind) {
+            Some(agent) => agent.accounts.push((given, room)),
+            None => agents.push(StartsOn {
+                models: offered_models(core, &kind),
+                kind,
+                accounts: vec![(given, room)],
+            }),
+        }
+    }
+    let text = can_start_text(&agents)?;
+    Some(crate::sessions::for_agent::sikemux_context(
+        "can-start",
+        "What you can start workers on",
+        &text,
+    ))
+}
+
+const CAN_START_CHARS: usize = 600;
+const CAN_START_SHOWN: usize = 3;
+
+/// An agent the chief can start workers on: the models it offers, and each account's name the
+/// person gave it, if any, with what it has left.
+struct StartsOn {
+    kind: String,
+    models: Vec<String>,
+    accounts: Vec<(Option<String>, String)>,
+}
+
+fn offered_models(core: &Core, kind: &str) -> Vec<String> {
+    (super::chat::models_of(core, kind).into_iter())
+        .flat_map(|picker| picker.choices)
+        .filter(|choice| !choice.superseded)
+        .map(|choice| choice.label)
+        .collect()
+}
+
+/// How much the account's tightest limit has left, as its last reading said.
+fn room_left(kind: &str, config_path: Option<&str>, now: u64) -> String {
+    use crate::agent_accounts::usage::{last_reading, UsageResetAt};
+    let Some(reading) = last_reading(kind, config_path) else {
+        return "no plan reading".to_owned();
+    };
+    let tightest = (reading.usage.windows.iter())
+        .max_by(|one, other| one.used_percent.total_cmp(&other.used_percent));
+    let Some(window) = tightest else {
+        return "no plan reading".to_owned();
+    };
+    let left = (100.0 - window.used_percent).clamp(0.0, 100.0).round();
+    let over = match window.window_minutes {
+        Some(minutes) if minutes >= 7 * 24 * 60 => "this week".to_owned(),
+        Some(minutes) if minutes >= 60 => format!("in {}h", minutes / 60),
+        _ => window.label.to_lowercase(),
+    };
+    let mut room = format!("{left}% left {over}");
+    if let (true, Some(UsageResetAt::Unix(at))) = (left < 15.0, &window.resets_at) {
+        let hours = (at * 1000).saturating_sub(now) / 3_600_000;
+        room.push_str(&match hours {
+            0 => " (resets within the hour)".to_owned(),
+            1..=47 => format!(" (resets in {hours}h)"),
+            _ => format!(" (resets in {}d)", hours / 24),
+        });
+    }
+    if now.saturating_sub(reading.read_at) >= 15 * 60 * 1000 {
+        room.push_str(" (reading old)");
+    }
+    room
+}
+
+/// The line itself, within [`CAN_START_CHARS`]: models past the first few go first, then
+/// accounts past the first few, then the last agents. An account is called by the name the
+/// person gave it in Sikemux, or by its place among the agent's accounts, never by an address.
+fn can_start_text(agents: &[StartsOn]) -> Option<String> {
+    if agents.is_empty() {
+        return None;
+    }
+    let line = |models: usize, accounts: usize, kept: usize| {
+        let mut parts: Vec<String> = (agents.iter().take(kept))
+            .map(|agent| {
+                let called = |at: usize, given: &Option<String>| match given {
+                    Some(name) if !name.contains('@') => name.clone(),
+                    _ => format!("account {}", at + 1),
+                };
+                let mut rooms: Vec<String> = match agent.accounts.as_slice() {
+                    [(None, room)] => vec![room.clone()],
+                    all => (all.iter().enumerate().take(accounts))
+                        .map(|(at, (given, room))| format!("{} {room}", called(at, given)))
+                        .collect(),
+                };
+                if agent.accounts.len() > accounts {
+                    rooms.push(format!("+{} more", agent.accounts.len() - accounts));
+                }
+                let mut said = format!("{}: {}", agent.kind, rooms.join(", "));
+                if !agent.models.is_empty() {
+                    let shown = agent.models.iter().take(models).cloned();
+                    let mut named: Vec<String> = shown.collect();
+                    if agent.models.len() > models {
+                        named.push(format!("+{} more", agent.models.len() - models));
+                    }
+                    said.push_str(&format!("; models {}", named.join(", ")));
+                }
+                said
+            })
+            .collect();
+        if agents.len() > kept {
+            parts.push(format!("+{} more agents", agents.len() - kept));
+        }
+        format!(
+            "Agents you can start workers on here: {}",
+            parts.join(" · ")
+        )
+    };
+    let most = usize::MAX;
+    let fits = |text: &String| text.chars().count() <= CAN_START_CHARS;
+    let mut text = line(most, most, agents.len());
+    for (models, accounts) in [(CAN_START_SHOWN, most), (CAN_START_SHOWN, CAN_START_SHOWN)] {
+        if fits(&text) {
+            return Some(text);
+        }
+        text = line(models, accounts, agents.len());
+    }
+    let mut kept = agents.len();
+    while !fits(&text) && kept > 1 {
+        kept -= 1;
+        text = line(CAN_START_SHOWN, CAN_START_SHOWN, kept);
+    }
+    Some(text.chars().take(CAN_START_CHARS).collect())
 }
 
 fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
@@ -1423,5 +1568,27 @@ fn prune(core: &Core) {
                     .is_some_and(|path| paths.contains(path))
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{can_start_text, StartsOn};
+
+    #[test]
+    fn an_account_named_by_an_address_is_called_by_its_place() {
+        let claude = StartsOn {
+            kind: "claude".into(),
+            models: vec!["Opus 5.5".into(), "Haiku 5.5".into()],
+            accounts: vec![
+                (Some("Work".into()), "62% left this week".into()),
+                (Some("ada@example.com".into()), "8% left this week".into()),
+            ],
+        };
+        let text = can_start_text(&[claude]).expect("a line");
+        assert_eq!(
+            text,
+            "Agents you can start workers on here: claude: Work 62% left this week, account 2 8% left this week; models Opus 5.5, Haiku 5.5"
+        );
     }
 }

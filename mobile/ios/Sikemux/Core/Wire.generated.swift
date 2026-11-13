@@ -1998,6 +1998,8 @@ struct RemoteAgent: Codable, Hashable, Sendable {
     var name: String?
     /// The CLI it runs, such as `claude`.
     var cli: String
+    /// The model its chat runs on, as the chat's model picker names it; none for a terminal.
+    var model: String?
     /// What its row is titled: the chat's or terminal's own title, else what
     /// it is, such as "New Claude chat".
     var title: String
@@ -2279,6 +2281,8 @@ struct AgentShown: Codable, Hashable, Sendable {
     var name: String?
     /// The CLI it runs, such as `claude`.
     var cli: String
+    /// The model its chat runs on, as the chat's model picker names it; none for a terminal.
+    var model: String?
     /// What its row is titled: the chat's or terminal's own title, else what
     /// it is, such as "New Claude chat".
     var title: String
