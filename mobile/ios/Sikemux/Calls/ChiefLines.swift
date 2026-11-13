@@ -1,9 +1,83 @@
 import SwiftUI
 
+/// A decision's quiet line in a chat: what became of it with its one action, the decision quoted, then why. The decided
+/// line and the Overruled line it turns into share it.
+private struct DecisionLineLayout: View {
+    @Environment(\.palette) private var palette
+    let icon: IconDef
+    let head: String
+    let action: String?
+    let sending: Bool
+    let act: () -> Void
+    let quote: String?
+    let why: String?
+    let refused: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                IconView(icon: icon, size: 12).foregroundStyle(palette.tertiary)
+                Text(head).foregroundStyle(palette.tertiary)
+                Spacer(minLength: 12)
+                if let action {
+                    Button(action, action: act)
+                        .buttonStyle(.plain)
+                        .font(Theme.ui(13, .medium))
+                        .foregroundStyle(palette.ink)
+                        .opacity(sending ? 0.5 : 1)
+                        .disabled(sending)
+                }
+            }
+            .font(Theme.ui(13))
+            if let quote, !quote.isEmpty {
+                Text(CallWords.quoted(quote)).font(Theme.ui(14)).foregroundStyle(palette.ink).lineLimit(2)
+            }
+            if let why { Text(why).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary).lineLimit(2) }
+            if let refused { Text(refused).font(Theme.ui(12.5)).foregroundStyle(palette.danger) }
+        }
+        .padding(.leading, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The line under an agent's reply that says it recorded a decision itself, as the Mac words it: Decided, with Overrule
+/// on a phone with full access, the decision quoted and what it rests on.
+struct AgentDecidedLine: View {
+    @Environment(TranscriptContext.self) private var context
+    let decided: DecidedLine
+    @State private var sending = false
+    @State private var refused: String?
+
+    var body: some View {
+        DecisionLineLayout(
+            icon: Icons.check, head: CallWords.decided, action: context.acts ? CallWords.overrule : nil,
+            sending: sending, act: overrule, quote: decided.text, why: decided.why, refused: refused)
+    }
+
+    private func overrule() {
+        guard !sending else { return }
+        guard let core = context.core, let connection = Hub.shared.live(core).connection else {
+            refused = CallWords.notConnected
+            return
+        }
+        sending = true
+        refused = nil
+        let params = OverruleParams(project: decided.project, goal: decided.goal, decision: decided.decision)
+        Task {
+            defer { sending = false }
+            do {
+                _ = try await connection.call(PhoneCall.OverruleDecision.self, params)
+            } catch {
+                refused = problem(error)
+            }
+        }
+    }
+}
+
 /// The quiet line an Overrule leaves in the chief's chat, as the Mac words it: what was decided, quoted, and Undo until
 /// it is undone, or when it stopped Auto's run, which Undo cannot put back.
 struct OverruledLine: View {
-    @Environment(\.palette) private var palette
     @Environment(TranscriptContext.self) private var context
     let overruled: OverruledDecision
     @State private var sending = false
@@ -16,31 +90,11 @@ struct OverruledLine: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                IconView(icon: Icons.reply, size: 12).foregroundStyle(palette.tertiary)
-                Text(overruled.undone == true ? CallWords.overruledUndone : CallWords.overruled)
-                    .foregroundStyle(palette.tertiary)
-                Spacer(minLength: 12)
-                if context.acts && overruled.undone != true && overruled.stoppedAuto != true {
-                    Button(CallWords.undo, action: undo)
-                        .buttonStyle(.plain)
-                        .font(Theme.ui(13, .medium))
-                        .foregroundStyle(palette.ink)
-                        .opacity(sending ? 0.5 : 1)
-                        .disabled(sending)
-                }
-            }
-            .font(Theme.ui(13))
-            if let text = overruled.text, !text.isEmpty {
-                Text(CallWords.quoted(text)).font(Theme.ui(14)).foregroundStyle(palette.ink).lineLimit(2)
-            }
-            if let why { Text(why).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary) }
-            if let refused { Text(refused).font(Theme.ui(12.5)).foregroundStyle(palette.danger) }
-        }
-        .padding(.leading, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        let undoes = context.acts && overruled.undone != true && overruled.stoppedAuto != true
+        DecisionLineLayout(
+            icon: Icons.reply, head: overruled.undone == true ? CallWords.overruledUndone : CallWords.overruled,
+            action: undoes ? CallWords.undo : nil, sending: sending, act: undo, quote: overruled.text, why: why,
+            refused: refused)
     }
 
     private func undo() {

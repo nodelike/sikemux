@@ -95,6 +95,8 @@ struct AgentNoticeLine: View {
             GoalLine(notice: notice, goal: goal)
         } else if let overruled = notice.overruled {
             OverruledLine(overruled: overruled)
+        } else if let decided = notice.decided {
+            AgentDecidedLine(decided: decided)
         } else if let week = notice.week {
             WeekLine(week: week)
         } else if let rule = notice.ruleChange {
