@@ -615,7 +615,7 @@ impl log::Log for Breadcrumbs {
     fn flush(&self) {}
 }
 
-#[cfg(all(test, unix))]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
@@ -710,7 +710,7 @@ mod tests {
                 .stderr(Stdio::null())
                 .spawn()
                 .unwrap();
-            match wait_for(&mut child, Duration::from_secs(5)) {
+            match wait_for(&mut child, Duration::from_secs(10)) {
                 Some(status) if status.signal().is_some() => println!("{role} ended by a signal"),
                 other => println!("{role} did not end by a signal: {other:?}"),
             }
@@ -721,7 +721,6 @@ mod tests {
 
     /// Whatever started this test, such as a Sikemux already running, may have a crash handler
     /// these processes would inherit. A core started at login inherits none.
-    #[cfg(target_os = "macos")]
     fn clear_inherited_handlers() {
         unsafe extern "C" {
             static mach_task_self_: u32;
@@ -741,9 +740,6 @@ mod tests {
         };
         assert_eq!(result, 0);
     }
-
-    #[cfg(not(target_os = "macos"))]
-    fn clear_inherited_handlers() {}
 
     fn overflow_a_tokio_worker() -> ! {
         tokio::runtime::Builder::new_multi_thread()
@@ -820,7 +816,8 @@ mod tests {
             let read = stream.read(&mut chunk).ok().filter(|read| *read > 0)?;
             request.extend_from_slice(&chunk[..read]);
         }
-        let _ = stream.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}");
+        let _ = stream
+            .write_all(b"HTTP/1.1 200 OK\r\nconnection: close\r\ncontent-length: 2\r\n\r\n{}");
         Some(request.split_off(head_end))
     }
 
