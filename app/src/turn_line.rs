@@ -230,7 +230,7 @@ fn waiting_on(wait: &TurnWait) -> String {
             Some(until) => t!("Waiting until {when}", when = moment(until)),
             None => t!("Waiting").into(),
         },
-        TurnWaitKind::Line => t!("In line for {what}", what = wait.what),
+        TurnWaitKind::Line => wait.what.clone(),
         TurnWaitKind::InUse => t!("Waiting for {what}", what = wait.what),
         TurnWaitKind::Process | TurnWaitKind::Unknown => {
             t!("Waiting on {what}", what = wait.what)
@@ -244,7 +244,7 @@ fn waited(wait: &TurnWait, now: u64) -> Vec<String> {
     let gone = now.saturating_sub(wait.started_at) / 60_000;
     match wait.kind {
         TurnWaitKind::Timer => Vec::new(),
-        TurnWaitKind::Line => (wait.place.map(place))
+        TurnWaitKind::Line => (wait.place.map(in_line))
             .into_iter()
             .chain(wait.expected_ms.map(about))
             .collect(),
@@ -256,14 +256,6 @@ fn waited(wait: &TurnWait, now: u64) -> Vec<String> {
             ),
             None => t!("{minutes} min", minutes = gone),
         }],
-    }
-}
-
-/// A place in the host's line as a list of them says it: "next", "2nd".
-pub fn place(place: u32) -> String {
-    match place {
-        0 | 1 => t!("next").to_owned(),
-        place => ordinal(place),
     }
 }
 

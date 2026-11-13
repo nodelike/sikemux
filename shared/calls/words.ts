@@ -93,7 +93,7 @@ export function waitingOn(wait: TurnWait, say: Say = english): string {
         case "timer":
             return wait.until != null ? say("Waiting until {when}", { when: clockLabel(wait.until, undefined, undefined, say) }) : say("Waiting");
         case "line":
-            return say("In line for {what}", { what: wait.what });
+            return wait.what;
         case "inUse":
             return say("Waiting for {what}", { what: wait.what });
         default:
@@ -108,16 +108,11 @@ export function waitingOn(wait: TurnWait, say: Say = english): string {
 export function waited(wait: TurnWait, now = Date.now(), say: Say = english): string[] {
     if (wait.kind === "timer") return [];
     if (wait.kind === "line") {
-        return [...(wait.place != null ? [placeInLine(wait.place, say)] : []), ...(wait.expectedMs != null ? [about(wait.expectedMs, say)] : [])];
+        return [...(wait.place != null ? [inLine(wait.place, say)] : []), ...(wait.expectedMs != null ? [about(wait.expectedMs, say)] : [])];
     }
     const gone = Math.floor(Math.max(0, now - wait.startedAt) / MINUTE);
     if (wait.expectedMs == null) return [say("{minutes} min", { minutes: gone })];
     return [say("{minutes} of ~{expected} min", { minutes: gone, expected: Math.ceil(wait.expectedMs / MINUTE) })];
-}
-
-/** A place in the host's line as a list of them says it: "next", "2nd". */
-export function placeInLine(at: number, say: Say = english): string {
-    return at > 1 ? ordinal(at, say) : say("next");
 }
 
 /** A place in the host's line on its own: "next in line", "2nd in line". */

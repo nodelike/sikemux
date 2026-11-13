@@ -478,7 +478,7 @@ fn groups(bench: &Workbench, load: &HostLoad, cx: &App) -> Groups {
                     .and_then(|line| line.expected_ms);
                 let place = ahead + 1;
                 let said = match place {
-                    1 => turn_line::place(place),
+                    1 => t!("next").to_owned(),
                     _ => turn_line::in_line(place),
                 };
                 let detail = [said]

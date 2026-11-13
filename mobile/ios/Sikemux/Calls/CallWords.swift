@@ -85,7 +85,7 @@ enum CallWords {
                 ? String(localized: "Waiting on \(wait.what)") : String(localized: "Waiting on @\(wait.what)")
         case .timer:
             wait.until.map { String(localized: "Waiting until \(ChatWords.clock($0))") } ?? String(localized: "Waiting")
-        case .line: String(localized: "In line for \(wait.what)")
+        case .line: wait.what
         case .inUse: String(localized: "Waiting for \(wait.what)")
         case .process, .unknown: String(localized: "Waiting on \(wait.what)")
         }
@@ -96,18 +96,13 @@ enum CallWords {
     static func waited(_ wait: TurnWait, nowMs: Int) -> [String] {
         switch wait.kind {
         case .timer: return []
-        case .line: return [wait.place.map(place), wait.expectedMs.map(about)].compactMap { $0 }
+        case .line: return [wait.place.map(inLine), wait.expectedMs.map(about)].compactMap { $0 }
         default:
             let gone = max(0, nowMs - wait.startedAt) / 60_000
             guard let expected = wait.expectedMs else { return [String(localized: "\(gone) min")] }
             let usual = (expected + 59_999) / 60_000
             return [String(localized: "\(gone) of ~\(usual) min")]
         }
-    }
-
-    /// A place in the host's line as a list of them says it: "next", "2nd".
-    static func place(_ place: Int) -> String {
-        place > 1 ? ordinal(place) : String(localized: "next")
     }
 
     /// A place in the host's line on its own: "next in line", "2nd in line".
