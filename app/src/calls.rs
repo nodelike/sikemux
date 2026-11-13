@@ -183,7 +183,7 @@ impl Cards {
         if let Some(held) = self.held.get(&call.id) {
             return held.field.clone();
         }
-        let field = cx.new(|cx| InputState::new(window, cx).masked(call.secret));
+        let field = cx.new(|cx| InputState::new(window, cx).masked(call.keeps_words_private()));
         let id = call.id.clone();
         // Only the button, or the card's own key, passes a step to production; Enter in its
         // note sends nothing.
@@ -277,16 +277,16 @@ pub(crate) enum Typed {
     Message,
     /// To the call waiting there, as the person's answer, with any files.
     Answer,
-    /// To the call waiting there, which asks for a secret: the words alone, never drawn in the
-    /// chat or kept as its draft.
-    Secret,
+    /// To the call waiting there, which keeps its words private, a secret's or an access call's:
+    /// the words alone, never drawn in the chat or kept as its draft.
+    Private,
 }
 
 /// Where words typed in a chat go while `waiting` is the call it answers. A change to production
 /// passes only by its button, so words typed beside it go to the agent.
 pub(crate) fn typed_goes(waiting: Option<&PersonCall>) -> Typed {
     match waiting {
-        Some(call) if call.secret => Typed::Secret,
+        Some(call) if call.keeps_words_private() => Typed::Private,
         Some(call) if call.kind != CallKind::Production => Typed::Answer,
         _ => Typed::Message,
     }
@@ -341,7 +341,7 @@ impl Workbench {
     /// The call agent `agent`'s chat answers when the person types or presses a key there, on the
     /// host at `place`: the one chosen in the title bar's list while it waits on the agent, else the
     /// oldest, drawn nearest the composer. While the chat shows a chief's away card, only the card
-    /// drawn open in it, and only when that call is the agent's own or asks for a secret.
+    /// drawn open in it, and only when that call is the agent's own or keeps its words private.
     pub(crate) fn waiting_call(&self, place: &Place, agent: &str, cx: &App) -> Option<&PersonCall> {
         let away = (self.chats.open.get(agent))
             .and_then(|chat| chat.state.as_ref())
@@ -351,7 +351,7 @@ impl Workbench {
             return away::open_of(&away.calls, opened.as_deref(), |id| {
                 (self.view_at(place)?.calls.iter()).find(|call| call.id == id)
             })
-            .filter(|call| call.secret || waits(call, agent));
+            .filter(|call| call.keeps_words_private() || waits(call, agent));
         }
         let opened = self.calls.read(cx).opened.clone();
         let open = (self.view_at(place)?.calls.iter())
@@ -359,15 +359,15 @@ impl Workbench {
         answered_in_chat(open, opened.as_deref())
     }
 
-    /// The call words typed in agent `agent`'s chat answer, on the host at `place`: a call for a
-    /// secret open there, whichever card is chosen, so a token never answers another call; else
-    /// the one its keys answer.
+    /// The call words typed in agent `agent`'s chat answer, on the host at `place`: a call open
+    /// there that keeps its words private, whichever card is chosen, so a token never answers
+    /// another call; else the one its keys answer.
     pub(crate) fn typed_call(&self, place: &Place, agent: &str, cx: &App) -> Option<&PersonCall> {
         let away = (self.chats.open.get(agent))
             .and_then(|chat| chat.state.as_ref())
             .and_then(|head| head.away.as_ref());
         let secrets = (self.view_at(place)?.calls.iter())
-            .filter(|call| call.state == CallState::Open && call.secret);
+            .filter(|call| call.state == CallState::Open && call.keeps_words_private());
         let secret = match away {
             Some(away) => secrets
                 .filter(|call| away.calls.contains(&call.id))
@@ -401,7 +401,7 @@ impl Workbench {
         let (paths, context) = match typed_goes(Some(call)) {
             Typed::Message => return false,
             Typed::Answer => (paths, context),
-            Typed::Secret => (Vec::new(), Vec::new()),
+            Typed::Private => (Vec::new(), Vec::new()),
         };
         let asked_by_question = self
             .feeds
@@ -772,7 +772,7 @@ fn card(
             .children(pick)
             .into_any_element()
     });
-    let hint = match (chosen.is_empty(), call.secret) {
+    let hint = match (chosen.is_empty(), call.keeps_words_private()) {
         (_, true) => t!("Type or paste it…"),
         (false, false) => t!("Add a note…"),
         (true, false) => t!("Or answer in your own words…"),
@@ -794,7 +794,7 @@ fn card(
         );
     }
     let block = block.child(note);
-    let kept = call.secret.then(|| {
+    let kept = call.keeps_words_private().then(|| {
         div()
             .mt(SPACE_2)
             .flex()
@@ -1265,7 +1265,8 @@ fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
         .filter_map(label)
         .collect();
     let said_nothing = answer.words.is_none() && answer.note.is_none();
-    match (&answer.by, picked.is_empty(), call.secret) {
+    let private = call.keeps_words_private() && picked.is_empty();
+    match (&answer.by, picked.is_empty(), private) {
         (_, _, true) => t!("You answered, kept private").to_owned(),
         _ if handed_back(call) => t!("handed back to @{name}", name = call.asker.name),
         (by, true, _)

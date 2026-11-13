@@ -240,9 +240,10 @@ impl Workbench {
         });
     }
 
-    /// Keeps `agent`'s draft with the core, without its words while they answer a secret.
+    /// Keeps `agent`'s draft with the core, without its words while they answer a call that keeps
+    /// them private.
     pub fn keep_draft(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let secret = self.typed_goes(agent, cx) == crate::calls::Typed::Secret;
+        let secret = self.typed_goes(agent, cx) == crate::calls::Typed::Private;
         let Some(composing) = self.composing_mut(agent) else {
             return;
         };
@@ -268,9 +269,9 @@ impl Workbench {
 }
 
 impl Composing {
-    /// Leaves the call for a secret the draft's words answered, now closed: words typed while it
+    /// Leaves the call whose private words the draft held, now closed: words typed while it
     /// waited go, and a draft left as it was when the call came stays. Either way the undo
-    /// history goes, so a secret cut from the draft can't come back. Says whether any words went.
+    /// history goes, so a token cut from the draft can't come back. Says whether any words went.
     pub fn left_secret(&mut self, window: &mut Window, cx: &mut App) -> bool {
         let Some(before) = self.secret_since.take() else {
             return false;

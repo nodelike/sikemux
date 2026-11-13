@@ -90,7 +90,7 @@ pub struct Composing {
     pub view: Entity<ComposerView>,
     pub secret: Entity<TextareaState>,
     pub secret_focused: bool,
-    /// While the draft's words answer a call for a secret, the draft as it was when that call
+    /// While the draft's words answer a call that keeps them private, the draft as it was when it
     /// came. Once it closes, words typed for it are dropped, never sent to the agent or kept.
     pub secret_since: Option<String>,
     pub hint: SharedString,
@@ -1340,7 +1340,7 @@ impl Workbench {
             .flatten()
             .map(SharedString::new);
         let hint = SharedString::from(match typed {
-            Typed::Secret => t!("Type or paste it · kept private").to_owned(),
+            Typed::Private => t!("Type or paste it · kept private").to_owned(),
             Typed::Answer => t!("Or answer in your own words").to_owned(),
             Typed::Message => chat.hint(
                 &agent,
@@ -1353,7 +1353,7 @@ impl Workbench {
             return;
         };
         match typed {
-            Typed::Secret => {
+            Typed::Private => {
                 let draft = &composing.draft;
                 (composing.secret_since).get_or_insert_with(|| draft.read(cx).value().to_string());
             }
@@ -1458,7 +1458,7 @@ impl Workbench {
             .map(|composing| (composing.draft.clone(), composing.outgoing(cx)));
         if let Some((draft, outgoing)) = typed {
             let text = draft.read(cx).value().trim().to_owned();
-            let secret = self.typed_goes(agent, cx) == Typed::Secret;
+            let secret = self.typed_goes(agent, cx) == Typed::Private;
             let dropped = !secret
                 && (self.composing_mut(agent))
                     .is_some_and(|composing| composing.left_secret(window, cx));
