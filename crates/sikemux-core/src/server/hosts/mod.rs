@@ -123,6 +123,9 @@ struct State {
     adopted: HashMap<String, u64>,
     /// Workers whose start is being asked after, so one asks at a time.
     settling: HashSet<String>,
+    /// Hosts back in reach whose teammates here were told they were away, until each says
+    /// which of its agents still run.
+    told_away: HashSet<String>,
 }
 
 pub(crate) struct Hosts {
@@ -193,6 +196,12 @@ impl Hosts {
             installed.entry(key).or_insert(alias);
         }
         self.installed_kept.save(&*installed);
+    }
+
+    /// Whether the teammates here of `host`'s agents were told it was out of reach, since it
+    /// last said which of them still run.
+    pub(crate) fn take_told_away(&self, host: &str) -> bool {
+        self.state.locked().told_away.remove(host)
     }
 
     fn reach(&self, host: &str) -> listed::Reach {
@@ -795,7 +804,11 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) -> Connection {
             .filter(|old| old.stable_id() != connection.stable_id());
         state.held.retain(|(held, _), _| held != host);
         state.adopted.insert(host.to_owned(), epoch_ms());
-        (state.down.remove(host), replaced)
+        let was_down = state.down.remove(host);
+        if was_down.as_ref().is_some_and(|down| down.told) {
+            state.told_away.insert(host.to_owned());
+        }
+        (was_down, replaced)
     };
     if let Some(replaced) = replaced {
         replaced.close(DUPLICATE.into(), b"replaced by a newer connection");

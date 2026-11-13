@@ -503,6 +503,7 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
         .into_iter()
         .map(|standing| (standing.agent_id, (standing.status, standing.said)))
         .collect();
+    let was_away = core.hosts().take_told_away(host);
     for foreign in core.hosts().team.on(host) {
         match present.get(&foreign.agent_id) {
             None if foreign.pending.is_some() => {}
@@ -520,7 +521,11 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
                 core.hosts().team.remove(&foreign.agent_id);
                 if let (Role::Worker, Some(lead)) = (foreign.role, foreign.parent.clone()) {
                     let host = name_of(core, host);
-                    notice(core, lead, format!("{} no longer runs on {host}: it stopped while {host} was out of reach, so it reports no more. What it committed and did not report yet stays in its checkout there; start another agent if the work is not done.", foreign.name));
+                    let why = match was_away {
+                        true => format!("it stopped while {host} was out of reach"),
+                        false => format!("it was closed there, or {host}'s Sikemux restarted"),
+                    };
+                    notice(core, lead, format!("{} is no longer open on {host} ({why}), so it reports no more. What it committed and did not report yet stays in its checkout there; start another agent if the work is not done.", foreign.name));
                 }
             }
         }
