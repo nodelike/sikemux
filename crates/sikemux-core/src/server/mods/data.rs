@@ -211,6 +211,15 @@ pub(super) struct Version {
     pub existed: bool,
 }
 
+/// A list of writes made together, as the mod's pane offers to undo it.
+pub(super) struct Batch {
+    pub batch: i64,
+    pub by: String,
+    pub name: Option<String>,
+    pub at: u64,
+    pub documents: u32,
+}
+
 /// What an agent's id is called now, or none for the person.
 pub(super) type Names<'a> = &'a dyn Fn(&str) -> Option<String>;
 
@@ -283,9 +292,11 @@ fn open(path: &Path) -> rusqlite::Result<Open> {
              ms INTEGER NOT NULL,
              was TEXT NOT NULL,
              existed INTEGER NOT NULL,
+             batch INTEGER NOT NULL,
              PRIMARY KEY (mod, version)
          ) WITHOUT ROWID;
          CREATE INDEX IF NOT EXISTS history_of_document ON history (mod, collection, id);
+         CREATE INDEX IF NOT EXISTS history_of_batch ON history (mod, batch);
          CREATE TABLE IF NOT EXISTS clock (
              one INTEGER PRIMARY KEY CHECK (one = 0),
              ms INTEGER NOT NULL,
@@ -483,17 +494,27 @@ impl Store {
         })
     }
 
-    /// The last change made to the mod `id`'s data.
-    pub(super) fn last(&self, id: &str, names: Names<'_>) -> CoreResult<Option<Version>> {
+    /// The last list of writes made to the mod `id`'s data: its batch, who made it, when, and how
+    /// many documents it changed.
+    pub(super) fn last_batch(&self, id: &str, names: Names<'_>) -> CoreResult<Option<Batch>> {
         self.with(|open| {
             open.connection
                 .query_row(
-                    &format!(
-                        "SELECT {VERSION_COLUMNS} FROM history
-                         WHERE mod = ?1 ORDER BY version DESC LIMIT 1"
-                    ),
+                    "SELECT batch, who, MAX(ms), COUNT(DISTINCT collection || '/' || id)
+                     FROM history WHERE mod = ?1 AND batch = (
+                         SELECT batch FROM history WHERE mod = ?1 ORDER BY version DESC LIMIT 1
+                     ) GROUP BY batch, who",
                     params![id],
-                    |row| version_of(row, names),
+                    |row| {
+                        let by: String = row.get(1)?;
+                        Ok(Batch {
+                            batch: row.get(0)?,
+                            name: names(&by),
+                            by,
+                            at: row.get::<_, i64>(2)? as u64,
+                            documents: row.get(3)?,
+                        })
+                    },
                 )
                 .optional()
                 .map_err(failed)
@@ -531,6 +552,7 @@ impl Store {
                 .map_err(failed)?
                 .unwrap_or_default();
             let mut done = Vec::with_capacity(writes.len());
+            let batch = counts.changes + 1;
             for write in writes {
                 let stamp = {
                     let clock = open.clock.tick(epoch_ms());
@@ -542,7 +564,7 @@ impl Store {
                     }
                 };
                 let schema = schemas.get(&write.collection);
-                done.push(write_one(&transaction, id, write, schema, &stamp, &mut counts)?);
+                done.push(write_one(&transaction, (id, batch), write, schema, &stamp, &mut counts)?);
             }
             transaction
                 .execute(
@@ -606,15 +628,38 @@ impl Store {
                 "{collection}/{document} has no change {version} kept; history keeps 200 changes a mod for 30 days"
             ))
         })?;
-        let change = match (existed, serde_json::from_str(&was)?) {
-            (true, Value::Object(fields)) => Change::Put(fields),
-            _ => Change::Remove,
-        };
-        Ok(Write {
-            collection: collection.to_owned(),
-            id: document.to_owned(),
-            change,
-        })
+        written_back(collection.to_owned(), document.to_owned(), &was, existed)
+    }
+
+    /// The writes that undo every change of the list of writes `batch`, the latest first, so a
+    /// document it changed twice ends as it was before the first.
+    pub(super) fn undoing_batch(&self, id: &str, batch: i64) -> CoreResult<Vec<Write>> {
+        let found: Vec<(String, String, String, bool)> = self.with(|open| {
+            let mut statement = open
+                .connection
+                .prepare_cached(
+                    "SELECT collection, id, was, existed FROM history
+                     WHERE mod = ?1 AND batch = ?2 ORDER BY version DESC",
+                )
+                .map_err(failed)?;
+            let rows = statement
+                .query_map(params![id, batch], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                })
+                .map_err(failed)?;
+            rows.collect::<rusqlite::Result<_>>().map_err(failed)
+        })?;
+        if found.is_empty() {
+            return Err(
+                "that change is no longer kept; history keeps 200 changes a mod for 30 days".into(),
+            );
+        }
+        found
+            .into_iter()
+            .map(|(collection, document, was, existed)| {
+                written_back(collection, document, &was, existed)
+            })
+            .collect()
     }
 
     /// Forgets every document of the mod `id`, and their history.
@@ -631,11 +676,23 @@ impl Store {
     }
 }
 
+fn written_back(collection: String, id: String, was: &str, existed: bool) -> CoreResult<Write> {
+    let change = match (existed, serde_json::from_str(was)?) {
+        (true, Value::Object(fields)) => Change::Put(fields),
+        _ => Change::Remove,
+    };
+    Ok(Write {
+        collection,
+        id,
+        change,
+    })
+}
+
 /// Writes one document within `transaction`, checked against `schema`, keeping `counts` and a
 /// version in the history.
 fn write_one(
     transaction: &rusqlite::Transaction<'_>,
-    id: &str,
+    (id, batch): (&str, i64),
     Write {
         collection,
         id: document,
@@ -720,8 +777,8 @@ fn write_one(
         .map_err(failed)?;
     transaction
         .execute(
-            "INSERT INTO history (mod, version, collection, id, who, ms, was, existed)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO history (mod, version, collection, id, who, ms, was, existed, batch)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 id,
                 counts.changes,
@@ -730,7 +787,8 @@ fn write_one(
                 stamp.by,
                 stamp.ms as i64,
                 Value::Object(was).to_string(),
-                was_shown
+                was_shown,
+                batch
             ],
         )
         .map_err(failed)?;
@@ -910,15 +968,23 @@ pub(super) async fn call(
     .await
 }
 
-/// The last change to the mod `id`'s data, when an agent made it, for its pane to offer Undo.
-pub(super) async fn changed_by_agent(core: &Arc<Core>, id: &str) -> CoreResult<Option<Version>> {
+/// The last list of writes to the mod `id`'s data, when an agent made it, for its pane.
+pub(super) async fn changed_by_agent(core: &Arc<Core>, id: &str) -> CoreResult<Option<Batch>> {
     super::shown_folder(core, id)?;
     let (worker, id) = (core.clone(), id.to_owned());
     blocking(move || {
-        let last = worker.mods().data.last(&id, &namer(&worker))?;
+        let last = worker.mods().data.last_batch(&id, &namer(&worker))?;
         Ok(last.filter(|last| last.by != PERSON))
     })
     .await
+}
+
+/// Takes back every write of the list `batch` at once, as the person.
+pub(super) async fn undo_batch(core: &Arc<Core>, id: &str, batch: i64) -> CoreResult<()> {
+    let (worker, owned) = (core.clone(), id.to_owned());
+    let writes = blocking(move || worker.mods().data.undoing_batch(&owned, batch)).await?;
+    written(core, id, writes, PERSON).await?;
+    Ok(())
 }
 
 const MOST_LISTED: usize = 50;

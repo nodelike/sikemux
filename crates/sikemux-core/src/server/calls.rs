@@ -397,6 +397,8 @@ calls! { core, client, method, params;
     "modRead" = ModRead: Owner => super::mods::read(&core, client, params).await?,
     "modWrite" = ModWrite: Owner => super::mods::write(&core, client, params).await?,
     "modChanged" = ModChanged: Owner => super::mods::changed(&core, params).await?,
+    "undoModChange" = UndoModChange: Owner => super::mods::undo_change(&core, params).await?,
+    "dismissModChange" = DismissModChange: Owner => super::mods::dismiss_change(&core, params)?,
     "allowMod" = AllowMod: Owner => super::mods::allow(&core, params).await?,
     "setModBadge" = SetModBadge: Owner => super::mods::set_badge(&core, params)?,
     "pinMod" = PinMod: Owner => super::mods::pin(&core, params)?,

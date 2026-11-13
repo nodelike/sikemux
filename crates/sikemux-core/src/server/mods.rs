@@ -12,8 +12,8 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 pub use sikemux_calls::mods::{
-    AllowParams, BadgeParams, ModChange, ModExample, ModInfo, ModList, ModPage, ModParams,
-    OffParams, PinModParams,
+    AllowParams, BadgeParams, ModBatchParams, ModChange, ModExample, ModInfo, ModList, ModPage,
+    ModParams, OffParams, PinModParams,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -91,6 +91,9 @@ struct Settled {
     pinned: BTreeMap<String, String>,
     #[serde(default)]
     off: BTreeSet<String>,
+    /// The last list of writes by an agent the person dismissed in each mod's pane, by id.
+    #[serde(default)]
+    dismissed: BTreeMap<String, i64>,
 }
 
 pub(crate) struct Mods {
@@ -368,17 +371,38 @@ fn mod_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
     Ok(core.mods().folder()?.join(id))
 }
 
-/// The last change to the mod's data, when an agent made it.
+/// The last list of writes to the mod's data, when an agent made it and the person has not
+/// dismissed it.
 pub(super) async fn changed(core: &Arc<Core>, params: ModParams) -> CoreResult<Option<ModChange>> {
     let last = data::changed_by_agent(core, &params.id).await?;
-    Ok(last.map(|last| ModChange {
-        collection: last.collection,
-        id: last.id,
-        version: last.version,
-        by: last.by,
-        name: last.name,
-        at: last.at,
-    }))
+    let dismissed = core
+        .mods()
+        .settled
+        .locked()
+        .dismissed
+        .get(&params.id)
+        .copied();
+    Ok(last
+        .filter(|last| Some(last.batch) != dismissed)
+        .map(|last| ModChange {
+            batch: last.batch,
+            by: last.by,
+            name: last.name,
+            at: last.at,
+            documents: last.documents,
+        }))
+}
+
+pub(super) async fn undo_change(core: &Arc<Core>, params: ModBatchParams) -> CoreResult<()> {
+    data::undo_batch(core, &params.id, params.batch).await
+}
+
+pub(super) fn dismiss_change(core: &Core, params: ModBatchParams) -> CoreResult<()> {
+    mod_folder(core, &params.id)?;
+    core.mods().settle(|settled| {
+        settled.dismissed.insert(params.id, params.batch);
+    });
+    Ok(())
 }
 
 /// The name of the mod `id`, when it can show, for an agent opening it.
@@ -466,6 +490,7 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
         settled.allowed.remove(&params.id);
         settled.pinned.remove(&params.id);
         settled.off.remove(&params.id);
+        settled.dismissed.remove(&params.id);
     });
     core.mods().badges.locked().remove(&params.id);
     settled_changed(core);
