@@ -1,13 +1,13 @@
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
-import { BASE_PATH } from './sandbox.mjs';
+import { BASE_PATH, sandboxed } from './sandbox.mjs';
 
 // The tool server runs outside the agent's sandbox, so nothing the agent runs can start a Sikemux binary.
 export async function startTools({ host, endpoint, sandbox, profile }) {
   const servers = new Set();
   const server = createServer((socket) => {
-    const tools = spawn('/usr/bin/sandbox-exec', ['-f', profile, host, '--tools-mcp'], {
+    const tools = spawn(...sandboxed(profile, host, ['--tools-mcp']), {
       env: {
         HOME: sandbox.home,
         USER: process.env.USER,

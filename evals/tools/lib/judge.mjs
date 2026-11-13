@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { run, claudeToken } from './runners.mjs';
+import { CLAUDE } from './sandbox.mjs';
 import { brief } from './grade.mjs';
 
 export const JUDGE_MODEL = 'claude-sonnet-5-5';
@@ -21,7 +22,7 @@ export async function judge({ testCase, outcome, dir, sandbox }) {
     'Answer with only a JSON object and nothing else: {"pass": true or false, "why": "one sentence"}.',
   ].join('\n\n');
   await run({
-    command: join(process.env.HOME, '.local/bin/claude'),
+    command: CLAUDE,
     args: ['-p', prompt, '--system-prompt', ROLE, '--model', JUDGE_MODEL, '--output-format', 'json', '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--max-turns', '1'],
     cwd: sandbox.repo,
     env: { ...sandbox.env, CLAUDE_CODE_OAUTH_TOKEN: claudeToken(), ENABLE_CLAUDEAI_MCP_SERVERS: 'false', DISABLE_AUTOUPDATER: '1' },

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { tmpdir } from 'node:os';
+import { platform, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { deflateSync, crc32 } from 'node:zlib';
 import { valueMatches, toolMatches } from './match.mjs';
@@ -438,6 +438,7 @@ function preview(args, repo, profile) {
 const PREVIEWERS = '/private/tmp/sikemux-tool-eval-previewers';
 
 function draw(profile, page, width, shot, script = '', tallest = 14_400) {
+  if (platform() !== 'darwin') return { error: 'pages are drawn only on a Mac' };
   const output = execFileSync('/usr/bin/sandbox-exec', ['-f', profile, previewer(), page, '/', String(width), shot, script, String(tallest)], {
     encoding: 'utf8',
     timeout: 30_000,

@@ -1,7 +1,9 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createWriteStream, readFileSync, writeFileSync } from 'node:fs';
+import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { REPO, readRepo } from './surface.mjs';
+import { CLAUDE, sandboxed } from './sandbox.mjs';
 
 const EVAL = join(REPO, 'evals/tools');
 const SERVER_PREFIX = /^mcp__([^_]+(?:[-_][^_]+)*?)__(.+)$/;
@@ -36,8 +38,12 @@ function stopGroup(group, signal) {
 }
 
 // The Claude sign-in is read fresh for each run and handed over in the environment, so no sandbox ever touches the keychain.
+// On Linux Claude keeps it in a file instead.
 export function claudeToken() {
-  const stored = execFileSync('/usr/bin/security', ['find-generic-password', '-s', 'Claude Code-credentials', '-a', process.env.USER, '-w'], { encoding: 'utf8' });
+  const stored =
+    platform() === 'darwin'
+      ? execFileSync('/usr/bin/security', ['find-generic-password', '-s', 'Claude Code-credentials', '-a', process.env.USER, '-w'], { encoding: 'utf8' })
+      : readFileSync(join(homedir(), '.claude/.credentials.json'), 'utf8');
   return JSON.parse(stored).claudeAiOauth.accessToken;
 }
 
@@ -45,7 +51,8 @@ export function run({ command, args, cwd, env, dir, timeoutMs, profile = join(di
   return new Promise((resolve) => {
     const out = createWriteStream(join(dir, 'transcript.jsonl'));
     const err = createWriteStream(join(dir, 'stderr.log'));
-    const child = spawn('/usr/bin/sandbox-exec', ['-f', profile, command, ...args], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const [program, argv] = sandboxed(profile, command, args);
+    const child = spawn(program, argv, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     groups.add(child.pid);
     child.stdout.pipe(out);
     child.stderr.pipe(err);
@@ -102,7 +109,7 @@ export async function runClaude({ model, search, dir, sandbox, servers, prompt, 
     DISABLE_AUTOUPDATER: '1',
     CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: '1',
   };
-  const exit = await run({ command: join(process.env.HOME, '.local/bin/claude'), args, cwd: sandbox.repo, env, dir, timeoutMs });
+  const exit = await run({ command: CLAUDE, args, cwd: sandbox.repo, env, dir, timeoutMs });
   return { exit, ...readClaude(join(dir, 'transcript.jsonl')) };
 }
 

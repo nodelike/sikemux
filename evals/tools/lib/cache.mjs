@@ -9,14 +9,19 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, platform } from "node:os";
 import { join } from "node:path";
 import { REPO } from "./surface.mjs";
 import { sikemuxSystemLines } from "./runners.mjs";
 import { agentZshOptions } from "./sandbox.mjs";
 import { baseCss } from "./answers.mjs";
 
-const ROOT = join(homedir(), "Library/Caches/sikemux-tool-eval");
+const ROOT = join(
+  platform() === "darwin"
+    ? join(homedir(), "Library/Caches")
+    : (process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache")),
+  "sikemux-tool-eval",
+);
 const RESULTS = join(ROOT, "results");
 const QUEUE = join(ROOT, "queue");
 const LAST_FULL = join(ROOT, "last-full.json");

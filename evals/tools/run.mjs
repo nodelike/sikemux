@@ -3,9 +3,10 @@ import { parseArgs } from 'node:util';
 import { readFileSync, readdirSync, mkdirSync, writeFileSync, realpathSync, statSync, existsSync, copyFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { platform } from 'node:os';
 import { loadSurface, REPO, SIGNED_IN_PLUGINS } from './lib/surface.mjs';
 import { startCore } from './lib/core.mjs';
-import { prepareCase, writeAgentProfile } from './lib/sandbox.mjs';
+import { prepareCase, writeAgentProfile, CLAUDE, DEFAULT_SHELL } from './lib/sandbox.mjs';
 import { MODELS, mcpServers, runClaude, readClaude, killAll } from './lib/runners.mjs';
 import { startTools } from './lib/tools.mjs';
 import { runOmp, readOmp } from './lib/omp.mjs';
@@ -18,6 +19,10 @@ const EVAL = join(REPO, 'evals/tools');
 const SURFACE = ['browser', 'crates/sikemux-host/src/tools_mcp', 'plugins', 'AGENTS.md'];
 const BUILT_HOST = join(REPO, 'target/debug/sikemux-host');
 const HOSTS = '/tmp/sikemux-tool-eval/hosts';
+const TOOLS_MCP = 'crates/sikemux-host/src/tools_mcp';
+const INSTALLED_HOST = '/usr/local/lib/sikemux/sikemux-host';
+const MAC = platform() === 'darwin';
+const DRAWS_PAGES = /page_preview|page_show/;
 
 const { values: options } = parseArgs({
   options: {
@@ -35,7 +40,7 @@ const { values: options } = parseArgs({
     resume: { type: 'string' },
     keep: { type: 'boolean', default: false },
     trials: { type: 'string', default: '1' },
-    shell: { type: 'string', default: '/bin/zsh' },
+    shell: { type: 'string', default: DEFAULT_SHELL },
     'shell-env': { type: 'string' },
     record: { type: 'string' },
     affected: { type: 'boolean', default: false },
@@ -57,8 +62,8 @@ if (options.help) {
   --affected                      only the cases whose inputs changed since the last full run
   --fresh                         run again even when an unchanged case has a saved result
   --turns 16 --timeout 420        limits per case (turns, seconds)
-  --build                         rebuild sikemux-host first
-  --shell /bin/bash               the shell agents' commands run in (default /bin/zsh)
+  --build                         rebuild sikemux-host first; on Linux the installed Sikemux's is used when its tools match
+  --shell /bin/bash               the shell agents' commands run in (default /bin/zsh, or /bin/bash without zsh)
   --shell-env <file>              startup lines that shell reads first, as ~/.zshenv or BASH_ENV
   --keep                          keep each case's home and repo after grading
   --resume <run folder>           finish a run that stopped: grade what finished, run the rest
@@ -71,7 +76,7 @@ if (options.help) {
 }
 
 const at = options.at ? git('rev-parse', '--short=9', options.at) : null;
-const claudeVersion = execFileSync(join(process.env.HOME, '.local/bin/claude'), ['--version'], { encoding: 'utf8' }).trim();
+const claudeVersion = execFileSync(CLAUDE, ['--version'], { encoding: 'utf8' }).trim();
 const surface = surfaceInputs({ at, claude: claudeVersion, shell: options.shell, shellEnv: options['shell-env'], timeout: options.timeout, turns: options.turns });
 const loaded = loadCases();
 const inputs = new Map(loaded.map((testCase) => [testCase.id, caseInputs(surface, testCase)]));
@@ -120,7 +125,7 @@ const toRun = variants.flatMap((variant) =>
 let HOST = null;
 if (toRun.length) {
   await takeTurn({ repo: REPO, args: process.argv.slice(2).join(' ') });
-  HOST = at ? savedHost(at) : ensureHost();
+  HOST = at ? savedHost(at) : MAC || options.build || builtIsCurrent() ? ensureHost() : installedHost();
 }
 
 mkdirSync('/tmp/sikemux-tool-eval', { recursive: true });
@@ -168,12 +173,16 @@ function loadCases() {
   }
   const wanted = options.cases?.split(',');
   const categories = options.category?.split(',');
-  return all.filter(
+  const chosen = all.filter(
     (testCase) =>
       !testCase.skip &&
       (!wanted || wanted.some((id) => (id.endsWith('*') ? testCase.id.startsWith(id.slice(0, -1)) : testCase.id === id))) &&
       (!categories || categories.includes(testCase.category)),
   );
+  if (MAC) return chosen;
+  const drawable = chosen.filter((testCase) => !DRAWS_PAGES.test(JSON.stringify(testCase)));
+  if (drawable.length < chosen.length) console.log(`${chosen.length - drawable.length} cases that draw pages left out: they run only on a Mac`);
+  return drawable;
 }
 
 function affectedCases(all) {
@@ -184,10 +193,31 @@ function affectedCases(all) {
   return changed;
 }
 
-function ensureHost() {
-  const sources = join(REPO, 'crates/sikemux-host/src/tools_mcp');
+function builtIsCurrent() {
+  const sources = join(REPO, TOOLS_MCP);
   const newest = Math.max(...readdirSync(sources).map((name) => statSync(join(sources, name)).mtimeMs));
-  if (options.build || !existsSync(BUILT_HOST) || statSync(BUILT_HOST).mtimeMs < newest) {
+  return existsSync(BUILT_HOST) && statSync(BUILT_HOST).mtimeMs >= newest;
+}
+
+// A core build needs more memory than a small Linux host has, so there the installed Sikemux serves the tools,
+// as long as its tool server's source is the same as this checkout's.
+function installedHost() {
+  if (!existsSync(INSTALLED_HOST)) throw new Error(`no Sikemux installed at ${INSTALLED_HOST}; --build builds sikemux-host here`);
+  const version = execFileSync(INSTALLED_HOST, ['--version'], { encoding: 'utf8' }).trim().split(' ').pop();
+  const tag = `v${version}`;
+  try {
+    git('rev-parse', '--verify', '--quiet', `${tag}^{commit}`);
+  } catch {
+    git('fetch', '--quiet', '--no-tags', 'origin', `refs/tags/${tag}:refs/tags/${tag}`);
+  }
+  if (git('diff', '--name-only', tag, '--', TOOLS_MCP) !== '') {
+    throw new Error(`the installed Sikemux ${version} has an older ${TOOLS_MCP} than this checkout: wait for the next nightly here, or pass --build (a core build)`);
+  }
+  return INSTALLED_HOST;
+}
+
+function ensureHost() {
+  if (options.build || !builtIsCurrent()) {
     console.log('building sikemux-host…');
     execFileSync('cargo', ['build', '--manifest-path', join(REPO, 'Cargo.toml'), '-p', 'sikemux-host', '--bin', 'sikemux-host'], {
       stdio: 'inherit',

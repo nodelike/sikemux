@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync, readFileSync, symlinkSync, cpSync, chmodSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { homedir } from 'node:os';
+import { homedir, platform } from 'node:os';
 import { join, dirname } from 'node:path';
 import { SHIMMED } from './shims.mjs';
 import { REPO, readRepo } from './surface.mjs';
@@ -20,6 +20,9 @@ const SIKEMUX_PATHS = [join(REPO, 'target'), '/tmp/sikemux-tool-eval/hosts', '/p
 // Other cases' homes, the run folders with every fixture and grade, and other sessions' temporary files.
 const OTHERS = [`^/private/tmp/u${'[A-Za-z0-9]'.repeat(6)}(/|$)`, '^/private/tmp/sikemux-tool-eval(/|$)', '^/private/tmp/omphome(/|$)', '^/private/tmp/claude-[0-9]+(/|$)'];
 const SIKEMUX_SOCKETS = ['.config/sikemux', 'Library/Application Support/com.nodelike.sikemux'].map((path) => join(HOME, path));
+const MAC = platform() === 'darwin';
+export const CLAUDE = claudeBinary();
+export const DEFAULT_SHELL = existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash';
 export const AUTHOR = { GIT_AUTHOR_NAME: 'nodelike', GIT_AUTHOR_EMAIL: 'dev@example.com', GIT_COMMITTER_NAME: 'nodelike', GIT_COMMITTER_EMAIL: 'dev@example.com' };
 
 export const BASE_PATH = [
@@ -31,9 +34,28 @@ export const BASE_PATH = [
   '/bin',
   '/usr/sbin',
   '/sbin',
-].join(':');
+  dirname(process.execPath),
+]
+  .filter((folder, index, all) => all.indexOf(folder) === index)
+  .join(':');
 
-export function prepareCase(dir, testCase, { at = null, host, shell = '/bin/zsh', shellEnv }) {
+function claudeBinary() {
+  const local = join(HOME, '.local/bin/claude');
+  if (existsSync(local)) return realpathSync(local);
+  try {
+    return execFileSync('mise', ['which', 'claude'], { encoding: 'utf8' }).trim();
+  } catch {
+    return realpathSync(execFileSync('which', ['claude'], { encoding: 'utf8' }).trim());
+  }
+}
+
+// The command line that runs `command` inside the sandbox a profile file describes.
+export function sandboxed(profile, command, args) {
+  if (MAC) return ['/usr/bin/sandbox-exec', ['-f', profile, command, ...args]];
+  return ['bwrap', [...JSON.parse(readFileSync(profile, 'utf8')), '--', command, ...args]];
+}
+
+export function prepareCase(dir, testCase, { at = null, host, shell = DEFAULT_SHELL, shellEnv }) {
   const fixture = testCase.fixture ?? {};
   const root = realpathSync(mkdtempSync('/tmp/u'));
   const home = join(root, 'home');
@@ -150,6 +172,7 @@ export function writeAgentProfile(dir, sandbox, relayPort) {
 }
 
 function profile(writable, host, own) {
+  if (!MAC) return JSON.stringify(bubblewrap(writable, host));
   const quote = (path) => JSON.stringify(path);
   const sikemux = [...SIKEMUX_REGEX.map((pattern) => `(regex #"${pattern}")`), ...SIKEMUX_PATHS.map((path) => `(subpath ${quote(path)})`)].join(' ');
   return [
@@ -176,4 +199,26 @@ function profile(writable, host, own) {
     ...(own ? [`(deny file-read* ${OTHERS.map((pattern) => `(regex #"${pattern}")`).join(' ')})`, `(allow file-read* (subpath ${quote(own.root)}) (subpath ${quote(own.agent)}) (regex #"^/private/tmp/claude-[0-9]+/${own.root.replace(/[^A-Za-z0-9]/g, '-')}-") (literal ${quote(`/private/tmp/claude-${process.getuid()}`)}))`] : []),
     '',
   ].join('\n');
+}
+
+// Linux has no sandbox-exec, so bubblewrap hides what the Mac profile denies: the person's home, other cases'
+// files under /tmp, Sikemux's programs and sockets, and the commands that reach outside. Ports cannot be limited.
+const LINUX_SIKEMUX = ['/usr/local/lib/sikemux', '/opt/sikemux', '/usr/lib/sikemux', join(REPO, 'target')];
+const LINUX_NEVER_RUN = ['ssh', 'scp', 'curl', 'wget', 'make', 'pkill', 'killall', 'pgrep', 'ps', 'docker', 'gh', 'aws', 'cargo', 'rustc', 'rustup', 'npm', 'npx', 'pnpm', 'corepack', 'psql', 'codex', 'sudo', 'systemctl', 'loginctl', 'xdg-open', 'secret-tool'];
+
+function bubblewrap(writable, host) {
+  const node = dirname(dirname(process.execPath));
+  const runtime = `/run/user/${process.getuid()}`;
+  const readable = [...new Set([node, dirname(CLAUDE), join(EVAL, 'lib'), join(EVAL, 'rivals'), ...(host ? [host] : [])])];
+  const neverRun = LINUX_NEVER_RUN.flatMap((name) => [`/usr/bin/${name}`, join(node, 'bin', name)]).filter((path) => existsSync(path));
+  return [
+    '--die-with-parent',
+    '--unshare-pid',
+    '--unshare-ipc',
+    ...['--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc', '--tmpfs', '/tmp', '--tmpfs', HOME],
+    ...[runtime, ...LINUX_SIKEMUX].filter((path) => existsSync(path)).flatMap((path) => ['--tmpfs', path]),
+    ...readable.flatMap((path) => ['--ro-bind', path, path]),
+    ...writable.flatMap((path) => ['--bind', path, path]),
+    ...neverRun.flatMap((path) => ['--ro-bind', '/dev/null', path]),
+  ];
 }
