@@ -270,6 +270,13 @@ gpui-pre-wgpu = { git = "https://github.com/sikemux/gpui", rev = "d6b834997774c4
 gpui-pre-windows = { git = "https://github.com/sikemux/gpui", rev = "d6b834997774c41e3c359080e448dc3d668e8337" }
 gpui-pre-ztracing = { git = "https://github.com/sikemux/gpui", rev = "d6b834997774c41e3c359080e448dc3d668e8337" }
 gpui-pre-ztracing-macro = { git = "https://github.com/sikemux/gpui", rev = "d6b834997774c41e3c359080e448dc3d668e8337" }
+# GPUI Kit with menu icons at the small size and a wider gap before their label; all its crates
+# come from the one commit, so they share their types.
+gpui-base = { git = "https://github.com/sikemux/gpui-kit", rev = "f1849bb1dca4dedc30edc27770088b6c251d2c31" }
+gpui-component = { git = "https://github.com/sikemux/gpui-kit", rev = "f1849bb1dca4dedc30edc27770088b6c251d2c31" }
+gpui-component-macros = { git = "https://github.com/sikemux/gpui-kit", rev = "f1849bb1dca4dedc30edc27770088b6c251d2c31" }
+gpui-kit = { git = "https://github.com/sikemux/gpui-kit", rev = "f1849bb1dca4dedc30edc27770088b6c251d2c31" }
+gpui-kit-assets = { git = "https://github.com/sikemux/gpui-kit", rev = "f1849bb1dca4dedc30edc27770088b6c251d2c31" }
 # crash-handler 0.7 with 0.8.1's fix for crashing child processes, until minidumper-child takes 0.8.
 crash-handler = { git = "https://github.com/sikemux/crash-handling", rev = "7443679fda95eb546cd4ec33100a13d3c6674aab" }
 # irosashi with C Oniguruma and Shiki's injection rules, until frostybee/irosashi takes them.
