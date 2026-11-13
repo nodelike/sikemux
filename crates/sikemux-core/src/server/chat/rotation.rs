@@ -342,10 +342,10 @@ fn within(lines: impl IntoIterator<Item = String>, most: usize) -> String {
 
 pub(crate) fn brief(core: &Core, chat: &Chat) -> Brief {
     let mut sections = Vec::new();
-    let instructions = if crate::server::chief::is_chief(core, chat.agent_id()) {
-        crate::server::chief::brief(core, &chat.launch.cwd)
+    let instructions = if core.workspaces().is_chief(chat.agent_id()) {
+        (core.chat_above().chief_brief)(core, &chat.launch.cwd)
     } else {
-        crate::server::memory::for_chat(core, &chat.launch.cwd).unwrap_or_default()
+        (core.chat_above().memory_for_chat)(core, &chat.launch.cwd).unwrap_or_default()
     };
     let rules = instructions
         .lines()
@@ -362,7 +362,7 @@ pub(crate) fn brief(core: &Core, chat: &Chat) -> Brief {
 
     let project = core.workspaces().project_of(&chat.launch.cwd);
     let since = epoch_ms().saturating_sub(DECISION_DAYS * 24 * 60 * 60_000);
-    let decided = crate::server::board::goal::standing_since(core, &project, since, MOST_DECISIONS);
+    let decided = (core.chat_above().board_standing_since)(core, &project, since, MOST_DECISIONS);
     let decisions = within(
         decided.iter().map(|decision| match &decision.why {
             Some(why) => format!("- {} ({why})", decision.text),

@@ -239,9 +239,9 @@ pub(super) fn start(
         briefed,
         notice,
     } = starting;
-    crate::server::launching::own_tools(core, &mut launch_spec);
+    (core.chat_above().launching_own_tools)(core, &mut launch_spec);
     rebind::name_accounts(core, &mut launch_spec);
-    for (key, value) in crate::server::plugins::agent_environment(core, &launch_spec.cwd) {
+    for (key, value) in (core.chat_above().plugins_agent_environment)(core, &launch_spec.cwd) {
         launch_spec.env.entry(key).or_insert(value);
     }
     let here = crate::server::ports::checkout::here(core, &launch_spec.cwd);
@@ -254,10 +254,10 @@ pub(super) fn start(
     let (chat, queue) = core.chats().insert(core, launch_spec, origin, None)?;
     match &resume_id {
         None if !briefed => {
-            *chat.brief.locked() = crate::server::memory::for_chat(core, &chat.launch.cwd);
+            *chat.brief.locked() = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
         }
         Some(session) if !waking => {
-            *chat.brief.locked() = crate::server::board::lease::resumed_session(
+            *chat.brief.locked() = (core.chat_above().board_resumed_session)(
                 core,
                 chat.agent_id(),
                 chat.provider(),
@@ -266,8 +266,8 @@ pub(super) fn start(
         }
         _ => {}
     }
-    if crate::server::chief::is_chief(core, chat.agent_id()) {
-        *chat.brief.locked() = Some(crate::server::chief::brief(core, &chat.launch.cwd));
+    if core.workspaces().is_chief(chat.agent_id()) {
+        *chat.brief.locked() = Some((core.chat_above().chief_brief)(core, &chat.launch.cwd));
     }
     core.workspaces().note_begun(
         &chat.launch,

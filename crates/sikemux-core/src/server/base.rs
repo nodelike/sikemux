@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use sikemux_view::prefs::PreferenceChange;
 
 use super::activity_log::{transcript_of, Place};
+use super::chat_above::ChatAbove;
 use super::launching;
 use super::notch;
 use super::workspace_above::WorkspaceAbove;
@@ -27,6 +28,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
+use super::{agent_accounts, memory, person_calls, plugins, questions, turn_state};
 use crate::launch::named_account;
 
 pub(super) fn above() -> Above {
@@ -157,6 +159,41 @@ fn agents_gone(core: &Core, gone: &[&String]) {
                 harness::stop_runs(&core, harness::RunSelector::of_agent(&agent_id)).await;
             }
         });
+    }
+}
+
+pub(super) fn chat_above() -> ChatAbove {
+    ChatAbove {
+        agent_accounts_note_live: agent_accounts::note_live,
+        board_standing_since: board::goal::standing_since,
+        memory_brief: memory::brief,
+        memory_for_chat: memory::for_chat,
+        questions_ask_for_dialog: questions::ask_for_dialog,
+        turn_state_now: turn_state::now,
+        agent_accounts_chat_refused: agent_accounts::chat_refused,
+        board_subagent_started: board::chat_goal::subagent_started,
+        board_take_note: board::chat_goal::take_note,
+        board_resumed_session: board::lease::resumed_session,
+        board_stopped_waiting: board::recover::stopped_waiting,
+        chief_brief: chief::brief,
+        chief_chat_opened: chief::chat_opened,
+        chief_chat_ready: chief::chat_ready,
+        chief_keep_session: chief::keep_session,
+        chief_kept_session: chief::kept_session,
+        chief_person_wrote: chief::person_wrote,
+        hosts_name_of: hosts::name_of,
+        hosts_rows_moved: hosts::route::rows_moved,
+        launching_own_tools: launching::own_tools,
+        messages_from_person: messages::from_person,
+        messages_person_wrote: messages::person_wrote,
+        messages_used_tool: messages::used_tool,
+        messages_worked: messages::worked,
+        person_calls_hides_typed: person_calls::hides_typed,
+        plugins_agent_environment: plugins::agent_environment,
+        questions_ask_from_cli: questions::ask_from_cli,
+        questions_offers_in_reply: questions::offers_in_reply,
+        questions_withdraw_dialogs: questions::withdraw_dialogs,
+        triggers_seed: triggers::seed,
     }
 }
 

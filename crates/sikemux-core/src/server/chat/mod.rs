@@ -129,7 +129,7 @@ impl Whose {
     /// The person's own words to `agent_id` as they arrive: hidden while it waits on a call
     /// whose words are never kept.
     pub(crate) fn typed_to(core: &Core, agent_id: &str) -> Self {
-        let hidden = crate::server::person_calls::hides_typed(core, agent_id);
+        let hidden = (core.chat_above().person_calls_hides_typed)(core, agent_id);
         Self {
             person: true,
             answered: hidden.then_some(Answered::HiddenCall),
@@ -448,7 +448,7 @@ impl Chat {
                 if self.turn_running() && self.feed.starts_own_subagent(&payload) =>
             {
                 if let Some(core) = self.core.upgrade() {
-                    super::board::chat_goal::subagent_started(&core, self.agent_id());
+                    (core.chat_above().board_subagent_started)(&core, self.agent_id());
                 }
             }
             Some(UpdateKind::SessionInfoUpdate | UpdateKind::AccountSwitched) => {
@@ -583,7 +583,7 @@ impl Chat {
             .is_some_and(|ending| !matches!(ending, Ending::Stopped));
         if let Some(core) = self.core.upgrade() {
             if matches!(ending, Some(Ending::Finished)) {
-                super::questions::offers_in_reply(&core, self.agent_id());
+                (core.chat_above().questions_offers_in_reply)(&core, self.agent_id());
             }
             core.note_activity(self.agent_id(), activity);
             if let Some(ending) = ending {
@@ -666,7 +666,7 @@ impl Chat {
             .as_str()
             .or_else(|| update["title"].as_str())
             .unwrap_or_default();
-        super::messages::used_tool(&core, self.agent_id(), tool);
+        (core.chat_above().messages_used_tool)(&core, self.agent_id(), tool);
     }
 
     /// Finishes a held turn once its last subagent has ended, unless the agent
@@ -890,7 +890,7 @@ impl Chat {
     /// Sikemux's, and says what the agent is told in its place.
     pub(crate) fn ask_question(&self, input: &Value) -> String {
         match self.core.upgrade() {
-            Some(core) => super::questions::ask_from_cli(&core, self.agent_id(), input),
+            Some(core) => (core.chat_above().questions_ask_from_cli)(&core, self.agent_id(), input),
             None => "Sikemux is shutting down; ask again later.".to_owned(),
         }
     }
@@ -903,12 +903,19 @@ impl Chat {
         choices: Vec<QuestionChoice>,
     ) -> Result<(), String> {
         let core = self.core.upgrade().ok_or("Sikemux is shutting down")?;
-        super::questions::ask_for_dialog(&core, self.agent_id(), dialog, header, text, choices)
+        (core.chat_above().questions_ask_for_dialog)(
+            &core,
+            self.agent_id(),
+            dialog,
+            header,
+            text,
+            choices,
+        )
     }
 
     pub(crate) fn withdraw_dialogs(&self, only: Option<&str>) {
         if let Some(core) = self.core.upgrade() {
-            super::questions::withdraw_dialogs(&core, self.agent_id(), only);
+            (core.chat_above().questions_withdraw_dialogs)(&core, self.agent_id(), only);
         }
     }
 
@@ -1040,7 +1047,7 @@ impl Chat {
     ) {
         let hidden = whose.person
             && (self.core.upgrade()).is_some_and(|core| {
-                crate::server::person_calls::hides_typed(&core, self.agent_id())
+                (core.chat_above().person_calls_hides_typed)(&core, self.agent_id())
             });
         if hidden {
             whose.answered = Some(Answered::HiddenCall);
@@ -1061,7 +1068,7 @@ impl Chat {
         self.tell_saved_usage(&start);
         self.readiness.send_replace(Readiness::Ready(start));
         if let Some(core) = self.core.upgrade() {
-            crate::server::chief::chat_ready(&core, self);
+            (core.chat_above().chief_chat_ready)(&core, self);
             core.changed(What::Agents);
         }
     }
@@ -1191,7 +1198,7 @@ impl Chat {
         });
         self.publish_state();
         if let Some(core) = self.core.upgrade() {
-            crate::server::hosts::route::rows_moved(&core);
+            (core.chat_above().hosts_rows_moved)(&core);
         }
     }
 

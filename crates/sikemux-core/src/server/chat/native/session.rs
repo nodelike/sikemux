@@ -38,7 +38,6 @@ use super::super::{cap, rotation};
 use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond, Whose};
 use super::process::{AgentRecord, Process, Released};
 use crate::server::activity_log::{Compaction, ModelCall};
-use crate::server::agent_accounts;
 pub(crate) use sikemux_drivers::server::chat::native::session::{
     slim, Backend, Prompt, Sink, SinkPort, Steered, Telling, Told, TurnEnd,
 };
@@ -228,7 +227,12 @@ impl SinkPort for ChatSink {
     fn plan_limits(&self, live: Vec<crate::agent_accounts::usage::UsageWindow>) {
         if let Some(core) = self.chat.core.upgrade() {
             let provider = self.chat.provider();
-            agent_accounts::note_live(&core, provider, self.account.as_deref(), live);
+            (core.chat_above().agent_accounts_note_live)(
+                &core,
+                provider,
+                self.account.as_deref(),
+                live,
+            );
         }
     }
 
@@ -804,7 +808,7 @@ impl<B: Backend> Running<'_, B> {
     fn rest(&self) {
         self.chat.keep(self.state.progress());
         if let Some(core) = self.chat.core.upgrade() {
-            crate::server::chief::keep_session(&core, &self.chat);
+            (core.chat_above().chief_keep_session)(&core, &self.chat);
         }
         if !self.chat.prompted() {
             self.tell_reach();
@@ -945,7 +949,11 @@ impl<B: Backend> Running<'_, B> {
         }
         chat.fail_turn(failure);
         if let (FailureKind::SignIn, Some(core)) = (failed.failure.kind, chat.core.upgrade()) {
-            agent_accounts::chat_refused(&core, self.provider, current.as_deref());
+            (core.chat_above().agent_accounts_chat_refused)(
+                &core,
+                self.provider,
+                current.as_deref(),
+            );
         }
         if failed.failure.kind == FailureKind::Network && state.failed_prompt.is_some() {
             chat.offline_failed.store(true, Ordering::Release);

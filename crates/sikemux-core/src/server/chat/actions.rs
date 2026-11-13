@@ -235,8 +235,8 @@ pub(crate) fn prompt(
     };
     mentions::fill(core, agent_id, &mut context);
     super::side::tell(core, agent_id, &mut context);
-    crate::server::messages::worked(core, agent_id);
-    crate::server::messages::person_wrote(core, agent_id);
+    (core.chat_above().messages_worked)(core, agent_id);
+    (core.chat_above().messages_person_wrote)(core, agent_id);
     let words = context.first().map(|context| context.title.as_str());
     let title = feed::title(if text.trim().is_empty() {
         words.unwrap_or_default()
@@ -245,9 +245,9 @@ pub(crate) fn prompt(
     });
     crate::server::workspace::retitle(core, agent_id, title, true);
     let chat = core.chats().running(agent_id)?;
-    context.extend(crate::server::board::chat_goal::take_note(core, agent_id));
+    context.extend((core.chat_above().board_take_note)(core, agent_id));
     context.extend(
-        crate::server::turn_state::now(core, agent_id)
+        (core.chat_above().turn_state_now)(core, agent_id)
             .and_then(|turn| crate::server::turn_state::told(&turn)),
     );
     // The agent reads it only once it has started, which takes seconds, so the person
@@ -300,7 +300,7 @@ pub(crate) async fn steer(
     whose: super::Whose,
 ) -> CoreResult<native::Steered> {
     mentions::fill(core, agent_id, &mut context);
-    crate::server::messages::person_wrote(core, agent_id);
+    (core.chat_above().messages_person_wrote)(core, agent_id);
     let (reply, answer) = oneshot::channel();
     core.chats().running(agent_id)?.send(ChatCommand::Steer {
         text,

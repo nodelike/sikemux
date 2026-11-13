@@ -195,7 +195,7 @@ pub(crate) fn keep_list(core: &Core, chat: &Chat) -> String {
 pub(crate) fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
     let agent_id = chat.agent_id();
     let brief = (chat.brief().is_none())
-        .then(|| crate::server::memory::brief(core, agent_id, None))
+        .then(|| (core.chat_above().memory_brief)(core, agent_id, None))
         .flatten();
     let open = if chat.capped() {
         open_work(core, agent_id)

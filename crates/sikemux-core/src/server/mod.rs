@@ -20,6 +20,7 @@ pub mod calls;
 pub(crate) use sikemux_serve::server::catalog;
 pub(crate) use sikemux_serve::server::changed;
 pub mod chat;
+mod chat_above;
 mod checks;
 pub mod chief;
 pub use sikemux_workspace::server::cli_install;
@@ -503,6 +504,7 @@ impl ServerCore for Core {
                     mods: mods::Mods::new(data_dir),
                     mcp_apps: mcp_apps::McpApps::new(data_dir),
                     chiefs: chief::Chiefs::new(data_dir),
+                    chat_above: base::chat_above(),
                 }) as sikemux_kernel::Parts,
             ]
         });

@@ -384,11 +384,11 @@ impl Chats {
         }
         feed.work_in(launch.cwd.clone());
         feed.set_handoff(self.handoffs.shown(&launch.agent_id));
-        crate::server::triggers::seed(core, &feed, &launch.agent_id);
-        let chief = crate::server::chief::is_chief(core, &launch.agent_id);
+        (core.chat_above().triggers_seed)(core, &feed, &launch.agent_id);
+        let chief = core.workspaces().is_chief(&launch.agent_id);
         if chief {
             feed.seat_chief();
-            crate::server::chief::chat_opened(core, &launch.agent_id, &feed);
+            (core.chat_above().chief_chat_opened)(core, &launch.agent_id, &feed);
         }
         let keeper = Keeper::new(self.kept.as_deref(), feed.id());
         let chat = Arc::new(Chat {
@@ -429,7 +429,7 @@ impl Chats {
             chat.meter.take_up(meter);
         }
         if let Some(kept) = chief
-            .then(|| crate::server::chief::kept_session(core, &chat.launch.agent_id))
+            .then(|| (core.chat_above().chief_kept_session)(core, &chat.launch.agent_id))
             .flatten()
         {
             super::rotation::take_up(&chat, kept);

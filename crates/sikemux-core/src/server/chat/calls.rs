@@ -1,5 +1,6 @@
 //! What the chat's own methods take, and what they do with more than one part of a chat.
 
+use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::{
     ChatLeftOutParams, ChatPageParams, EditParams, PromptChatParams, QueuedParams, ToolDetailParams,
@@ -30,7 +31,7 @@ pub(crate) async fn edit_with(
     mut context: Vec<ChatContext>,
 ) -> CoreResult<()> {
     core.workspaces().person_said(&agent_id);
-    crate::server::chief::person_wrote(core, &agent_id);
+    (core.chat_above().chief_person_wrote)(core, &agent_id);
     super::wake_for_message(core, &agent_id, &mut context).await?;
     super::edit(core, &agent_id, message_id, text, paths, context).await
 }
@@ -38,8 +39,8 @@ pub(crate) async fn edit_with(
 /// What the person says to an agent running in a terminal goes in as a message.
 pub(crate) fn steer_terminal(core: &Arc<Core>, agent_id: &str, text: String) -> CoreResult<String> {
     core.workspaces().person_said(agent_id);
-    crate::server::chief::person_wrote(core, agent_id);
-    crate::server::messages::from_person(core, agent_id, text)?;
+    (core.chat_above().chief_person_wrote)(core, agent_id);
+    (core.chat_above().messages_from_person)(core, agent_id, text)?;
     Ok("queued".to_owned())
 }
 
@@ -51,7 +52,7 @@ pub(crate) async fn steer_chat(
     mut context: Vec<ChatContext>,
 ) -> CoreResult<String> {
     core.workspaces().person_said(agent_id);
-    crate::server::chief::person_wrote(core, agent_id);
+    (core.chat_above().chief_person_wrote)(core, agent_id);
     super::wake_for_message(core, agent_id, &mut context).await?;
     let whose = super::Whose::typed_to(core, agent_id);
     let steered = super::steer(core, agent_id, text, paths, context, whose).await?;
@@ -79,10 +80,10 @@ pub(crate) fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreRe
     let typed = super::Whose::typed_to(core, &agent_id);
     let answered = crate::server::person_calls::written(core, &agent_id, &text).max(typed.answered);
     core.activity_log()
-        .person_wrote(crate::server::chief::is_chief(core, &agent_id));
-    crate::server::chief::person_wrote(core, &agent_id);
+        .person_wrote(core.workspaces().is_chief(&agent_id));
+    (core.chat_above().chief_person_wrote)(core, &agent_id);
     if core.workspaces().in_terminal(&agent_id) {
-        crate::server::messages::from_person(core, &agent_id, text)
+        (core.chat_above().messages_from_person)(core, &agent_id, text)
     } else {
         let whose = super::Whose {
             person: true,
@@ -100,7 +101,7 @@ pub(crate) async fn prompt_from_mod(
     text: String,
 ) -> CoreResult<()> {
     if core.workspaces().in_terminal(agent_id) {
-        return crate::server::messages::from_person(core, agent_id, text);
+        return (core.chat_above().messages_from_person)(core, agent_id, text);
     }
     let mut context = Vec::new();
     super::wake_for_prompt(core, agent_id, &mut context).await?;

@@ -89,6 +89,7 @@ pub(crate) struct Fields {
     pub(super) mods: mods::Mods,
     pub(super) mcp_apps: mcp_apps::McpApps,
     pub(super) chiefs: chief::Chiefs,
+    pub(super) chat_above: super::chat_above::ChatAbove,
 }
 
 pub(crate) trait Parts {
@@ -148,6 +149,7 @@ pub(crate) trait Parts {
     fn mods(&self) -> &mods::Mods;
     fn mcp_apps(&self) -> &mcp_apps::McpApps;
     fn chiefs(&self) -> &chief::Chiefs;
+    fn chat_above(&self) -> &super::chat_above::ChatAbove;
 }
 
 impl Parts for Core {
@@ -373,6 +375,10 @@ impl Parts for Core {
 
     fn chiefs(&self) -> &chief::Chiefs {
         &self.kept::<Fields>().chiefs
+    }
+
+    fn chat_above(&self) -> &super::chat_above::ChatAbove {
+        &self.kept::<Fields>().chat_above
     }
 }
 

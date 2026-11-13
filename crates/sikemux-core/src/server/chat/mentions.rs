@@ -201,7 +201,7 @@ fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
 /// that host's.
 fn note_elsewhere(core: &Core, id: &str) -> Option<String> {
     let mate = core.hosts().team.get(id)?;
-    let host = crate::server::hosts::name_of(core, &mate.host);
+    let host = (core.chat_above().hosts_name_of)(core, &mate.host);
     let to = format!("{} on {host}", mate.name);
     let shown = crate::server::inbox::foreign_shown(core, &mate);
     let cli = crate::agent_catalog::agent(&mate.cli).map_or(mate.cli.as_str(), |entry| entry.label);

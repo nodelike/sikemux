@@ -156,7 +156,7 @@ pub(crate) async fn steer(
 ) -> CoreResult<()> {
     let chat = core.chats().running(agent_id)?;
     core.workspaces().person_said(agent_id);
-    crate::server::chief::person_wrote(core, agent_id);
+    (core.chat_above().chief_person_wrote)(core, agent_id);
     let message = match message {
         Some(mut message) => {
             super::mentions::wake(core, agent_id, &mut message.context).await?;
