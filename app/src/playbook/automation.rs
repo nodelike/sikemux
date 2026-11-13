@@ -204,6 +204,7 @@ fn schedule(when: &TriggerWhen) -> String {
         }
         TriggerWhen::Webhook { .. } => t!("When its address is called").to_owned(),
         TriggerWhen::Ci { on } => t!("When CI on {branch} ends", branch = on),
+        TriggerWhen::Mod { on } => t!("When {collection} changes", collection = on),
     }
 }
 

@@ -1,7 +1,8 @@
 //! Triggers an agent sets: each, when its time comes, once or again and again, sends the
 //! agent's own chat a prompt, or adds a card to its project's board, which Auto carries when it
 //! is on, and stays until it is removed. A webhook trigger fires on each request to its address
-//! instead of at a time. A chat's triggers pause while it is closed and go on when it is taken up
+//! instead of at a time, and one on a mod's collection when a document there is added or changed.
+//! A chat's triggers pause while it is closed and go on when it is taken up
 //! again.
 
 use crate::server::changed::ChangedCore;
@@ -10,7 +11,7 @@ use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::triggers::{HoldTriggerParams, TriggerParams};
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -36,9 +37,11 @@ use crate::cli::protocol::HarnessRequest;
 
 mod check;
 mod ci;
+mod on_mod;
 mod park;
 
 pub(crate) use ci::{ci_moved, waiting_on_ci};
+pub(crate) use on_mod::{written as mod_written, Written as ModWritten};
 
 const FILE: &str = "triggers.json";
 const MAX_PER_AGENT: usize = 20;
@@ -88,6 +91,9 @@ struct Trigger {
     /// The command whose output, when it changes, is what makes a repeating trigger fire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     check: Option<check::Check>,
+    /// The mod's collection whose changed documents fire it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    watch: Option<on_mod::Watch>,
     /// When the person paused it; it skips its times until they resume it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stopped: Option<u64>,
@@ -153,6 +159,9 @@ pub(crate) struct Triggers {
     state: Mutex<Saved>,
     pub(crate) wake: Wake,
     seen: Mutex<VecDeque<String>>,
+    watched: Mutex<HashSet<String>>,
+    /// Mod triggers gathering a burst of changes before they fire.
+    gathering: Mutex<HashSet<u64>>,
 }
 
 /// A trigger whose time came, and whether it was due long before the core could send it.
@@ -176,12 +185,15 @@ enum Late {
 impl Triggers {
     pub(crate) fn new(data_dir: Option<&std::path::Path>) -> Self {
         let kept = Kept::new(data_dir, FILE);
-        let state = Mutex::new(kept.load());
+        let saved: Saved = kept.load();
+        let watched = Mutex::new(on_mod::watched(&saved));
         Self {
             kept,
-            state,
+            state: Mutex::new(saved),
             wake: Wake::default(),
             seen: Mutex::default(),
+            watched,
+            gathering: Mutex::default(),
         }
     }
 
@@ -330,6 +342,7 @@ impl Triggers {
         let mut state = self.state.locked();
         let out = change(&mut state);
         self.kept.save(&*state);
+        *self.watched.locked() = on_mod::watched(&state);
         drop(state);
         self.wake.now();
         out
@@ -422,7 +435,10 @@ impl Triggers {
 /// only time.
 pub(crate) fn next_after(when: &TriggerWhen, due: u64, now: u64) -> Option<u64> {
     match when {
-        TriggerWhen::Once { .. } | TriggerWhen::Webhook { .. } | TriggerWhen::Ci { .. } => None,
+        TriggerWhen::Once { .. }
+        | TriggerWhen::Webhook { .. }
+        | TriggerWhen::Ci { .. }
+        | TriggerWhen::Mod { .. } => None,
         TriggerWhen::Every { seconds } => {
             let step = seconds * 1000;
             let behind = now.saturating_sub(due) / step + 1;
@@ -507,6 +523,9 @@ pub(crate) fn resume(core: &Arc<Core>) {
                     }),
             );
             resumed.push(trigger.clone());
+            if trigger.watch.is_some() {
+                return true;
+            }
             if trigger.ci.is_some() {
                 trigger.next_at = Some(now);
                 return true;
@@ -536,6 +555,11 @@ pub(crate) fn resume(core: &Arc<Core>) {
     }
     if resumed.iter().any(|trigger| trigger.park.is_some()) {
         core.harness().changed();
+    }
+    for trigger in &resumed {
+        if trigger.watch.as_ref().is_some_and(on_mod::Watch::waiting) {
+            on_mod::gather(core, trigger.id);
+        }
     }
     for firing in missed {
         tokio::spawn(fire(core.clone(), firing));
@@ -632,6 +656,10 @@ async fn fire(core: Arc<Core>, firing: Firing) {
         (true, _) => "It will not fire again.".to_owned(),
         (false, Some(_)) => format!(
             "It fires on each request to its address; trigger_remove {} stops it.",
+            trigger.id
+        ),
+        (false, None) if trigger.watch.is_some() => format!(
+            "It fires again on the next changes; trigger_remove {} stops it.",
             trigger.id
         ),
         (false, None) => core
@@ -757,7 +785,33 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         }
         Some(_) => return Err("check must be a shell command".into()),
     };
+    let watch = match params.get("mod") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(on)) => {
+            if ci.is_some()
+                || park.is_some()
+                || given(params, "webhook")
+                || given(params, "check")
+                || TIMES.iter().any(|key| given(params, key))
+            {
+                return Err("A mod trigger fires when a document in its collection is added or changed, so give it no time, ci, process, agent, check or webhook".into());
+            }
+            Some(on_mod::Watch::asked(core, on.trim(), params.get("where"))?)
+        }
+        Some(_) => {
+            return Err(
+                "mod must be a mod's id and one of its collections, such as posts/drafts".into(),
+            )
+        }
+    };
+    if watch.is_none() && given(params, "where") {
+        return Err("where goes with mod".into());
+    }
     let (rule, next_at, hook_id) = match params.get("webhook") {
+        _ if watch.is_some() => {
+            let on = watch.as_ref().map(on_mod::Watch::on).unwrap_or_default();
+            (TriggerWhen::Mod { on }, None, None)
+        }
         _ if park.is_some() => {
             let at = park.as_ref().map_or(now, |(_, _, at)| *at);
             (TriggerWhen::Once { at }, Some(at), None)
@@ -837,6 +891,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             ci: ci.map(|(watch, _)| watch),
             park: park.clone().map(|(park, _, _)| park),
             check,
+            watch: watch.clone(),
             stopped: None,
             set: Some(learned(core, Some(&agent_id))),
             held: Vec::new(),
@@ -874,6 +929,12 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     match (&trigger.when, next_at) {
         (TriggerWhen::Ci { on }, _) => {
             answer["note"] = format!("Once CI on {on} ends, {what} It says how CI went, so end your turn now rather than waiting or polling.").into();
+        }
+        (TriggerWhen::Mod { on }, _) => {
+            answer["note"] = format!("Each time anyone but you adds or changes documents in {on}{}, {what} The documents are named, a few seconds of changes at once; read them with mod_read.", match watch.as_ref().is_some_and(on_mod::Watch::filtered) {
+                true => " that match where",
+                false => "",
+            }).into();
         }
         (TriggerWhen::Webhook { url }, _) => {
             answer["url"] = url.clone().into();
@@ -1033,6 +1094,7 @@ pub(crate) fn park_in_line(
             ci: None,
             park: Some(park),
             check: None,
+            watch: None,
             stopped: None,
             set: Some(learned(core, Some(agent_id))),
             held: Vec::new(),
@@ -1075,6 +1137,7 @@ pub(crate) fn park_for_thing(
             ci: None,
             park: Some(park),
             check: None,
+            watch: None,
             stopped: None,
             set: Some(learned(core, Some(agent_id))),
             held: Vec::new(),
@@ -1147,6 +1210,27 @@ pub(crate) fn line_left(core: &Arc<Core>, agent_id: &str, cwd: &str, command: &s
         trigger.agent_id == agent_id
             && (trigger.park.as_ref()).is_some_and(|park| park.is_line(cwd, command))
     });
+}
+
+/// Removes the triggers on the mod `mod_id`'s collections, as the mod goes.
+pub(crate) fn mod_removed(core: &Arc<Core>, mod_id: &str) {
+    if !core.triggers().watched.locked().contains(mod_id) {
+        return;
+    }
+    let on_it = |trigger: &Trigger| {
+        trigger
+            .watch
+            .as_ref()
+            .is_some_and(|watch| watch.is_on(mod_id))
+    };
+    let gone: Vec<Trigger> = core.triggers().change(|state| {
+        let (gone, kept) = std::mem::take(&mut state.triggers)
+            .into_iter()
+            .partition(on_it);
+        state.triggers = kept;
+        gone
+    });
+    gone.iter().for_each(|trigger| show(core, trigger));
 }
 
 /// Removes trigger `id` at the person's word, saying whether there was one.
@@ -1367,6 +1451,7 @@ impl super::part::Part for Triggers {
         if !waiting_on_ci(core).is_empty() {
             super::codehost::ci::start(core);
         }
+        on_mod::gather_waiting(core);
         vec![
             super::part::on_wake(core, |core| &core.triggers().wake, settle),
             tokio::spawn(park::serve(core.clone())),

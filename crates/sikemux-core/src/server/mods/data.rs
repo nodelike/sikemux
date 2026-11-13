@@ -21,6 +21,7 @@ use super::super::changed::{ChangedCore, Topic, What};
 use super::super::connection::blocking;
 use super::super::parts::Parts;
 use super::super::remote_state::RemoteParts;
+use super::super::triggers::{mod_written, ModWritten};
 use super::super::workspace_state::WorkspaceParts;
 use super::super::{Core, CoreError, CoreResult};
 use super::schema;
@@ -894,11 +895,27 @@ async fn written(
         .iter()
         .map(|write| format!("{id}/{}", write.collection))
         .collect();
-    let (worker, id, by) = (core.clone(), id.to_owned(), by.to_owned());
+    let names: Vec<(String, String)> = (writes.iter())
+        .map(|write| (write.collection.clone(), write.id.clone()))
+        .collect();
+    let (worker, owned, who) = (core.clone(), id.to_owned(), by.to_owned());
     let done = blocking(move || {
-        (worker.mods().data).write(&id, writes, &schemas(&manifest), (&host, &by))
+        (worker.mods().data).write(&owned, writes, &schemas(&manifest), (&host, &who))
     })
     .await?;
+    let added: Vec<ModWritten<'_>> = names
+        .iter()
+        .zip(&done)
+        .filter_map(|((collection, document), doc)| match doc {
+            Some(Value::Object(doc)) => Some(ModWritten {
+                collection,
+                id: document,
+                doc,
+            }),
+            _ => None,
+        })
+        .collect();
+    mod_written(core, id, by, &added);
     if done.iter().any(Option::is_some) {
         let mut paths = paths;
         paths.sort();

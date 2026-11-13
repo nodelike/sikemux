@@ -508,6 +508,20 @@ pub(super) async fn title(core: &Core, id: &str) -> Result<String, String> {
     .map_err(|error| error.to_string())?
 }
 
+/// Whether `name` can name one of a mod's collections.
+pub(crate) fn is_collection(name: &str) -> bool {
+    data::is_name(name)
+}
+
+/// Fails unless the mod `id` is there and on.
+pub(crate) fn is_there(core: &Core, id: &str) -> Result<(), String> {
+    let folder = shown_folder(core, id).map_err(|error| error.to_string())?;
+    match folder.is_dir() {
+        true => Ok(()),
+        false => Err(format!("there is no mod {id} on this host")),
+    }
+}
+
 /// The folder of a mod that is on, which alone shows and reads.
 fn shown_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
     match core.mods().is_off(id) {
@@ -581,6 +595,7 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
         settled.dismissed.remove(&params.id);
     });
     core.mods().badges.locked().remove(&params.id);
+    super::triggers::mod_removed(core, &params.id);
     settled_changed(core);
     Ok(())
 }

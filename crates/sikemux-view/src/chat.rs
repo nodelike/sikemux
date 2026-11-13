@@ -641,6 +641,10 @@ pub enum TriggerWhen {
     Ci {
         on: String,
     },
+    /// On each burst of documents added or changed in `on`, a mod's collection as `mod/collection`.
+    Mod {
+        on: String,
+    },
 }
 
 /// Work the agent left running in the background.

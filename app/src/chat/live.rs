@@ -1131,7 +1131,10 @@ const WEEKDAYS: [&str; 7] = [
 /// How often a trigger fires, in a few words; none for one that fires once.
 fn repeats(when: &TriggerWhen) -> Option<String> {
     match when {
-        TriggerWhen::Once { .. } | TriggerWhen::Webhook { .. } | TriggerWhen::Ci { .. } => None,
+        TriggerWhen::Once { .. }
+        | TriggerWhen::Webhook { .. }
+        | TriggerWhen::Ci { .. }
+        | TriggerWhen::Mod { .. } => None,
         TriggerWhen::Every { seconds } => Some(match seconds {
             86_400 => t!("every 1 day").to_owned(),
             s if s % 86_400 == 0 => t!("every {days} days", days = s / 86_400),
@@ -1156,6 +1159,7 @@ pub(crate) fn fires(trigger: &ChatTrigger) -> String {
     match &trigger.when {
         TriggerWhen::Webhook { .. } => return t!("on each request").to_owned(),
         TriggerWhen::Ci { on } => return t!("when CI on {on} ends", on = on),
+        TriggerWhen::Mod { on } => return t!("when {on} changes", on = on),
         _ => {}
     }
     let next = trigger

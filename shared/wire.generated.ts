@@ -792,6 +792,11 @@ export type TriggerWhen =
     | {
           kind: "ci";
           on: string;
+      }
+    /** On each burst of documents added or changed in `on`, a mod's collection as `mod/collection`. */
+    | {
+          kind: "mod";
+          on: string;
       };
 
 export interface Inbox {

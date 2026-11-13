@@ -114514,6 +114514,7 @@
         }
       }
     },
+    "When {collection} changes": {},
     "Where an AWS or GCP sign-in URL opens, and where to go once it does.": {
       "localizations": {
         "es": {
@@ -146615,6 +146616,7 @@
         }
       }
     },
+    "when {on} changes": {},
     "white": {
       "localizations": {
         "es": {

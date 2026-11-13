@@ -1389,6 +1389,8 @@ enum TriggerWhen: Codable, Hashable, Sendable {
     case webhook(Webhook)
     /// Once, when CI on `on` ends: a commit or a run, as the agent named it.
     case ci(Ci)
+    /// On each burst of documents added or changed in `on`, a mod's collection as `mod/collection`.
+    case mod(Mod)
     /// One added after this build, by its `kind`.
     case unknown(String)
 
@@ -1413,6 +1415,10 @@ enum TriggerWhen: Codable, Hashable, Sendable {
         var on: String
     }
 
+    struct Mod: Codable, Hashable, Sendable {
+        var on: String
+    }
+
     private enum TagKey: String, CodingKey {
         case tag = "kind"
     }
@@ -1430,6 +1436,8 @@ enum TriggerWhen: Codable, Hashable, Sendable {
             self = .webhook(try Webhook(from: decoder))
         case "ci":
             self = .ci(try Ci(from: decoder))
+        case "mod":
+            self = .mod(try Mod(from: decoder))
         default:
             self = .unknown(tag)
         }
@@ -1453,6 +1461,9 @@ enum TriggerWhen: Codable, Hashable, Sendable {
         case .ci(let value):
             try value.encode(to: encoder)
             tag = "ci"
+        case .mod(let value):
+            try value.encode(to: encoder)
+            tag = "mod"
         case .unknown(let value):
             tag = value
         }
