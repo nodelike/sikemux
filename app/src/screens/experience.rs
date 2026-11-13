@@ -59,7 +59,7 @@ pub fn open_welcome(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     close_shown(bench, cx);
     let required = !bench.preferences().onboarding_complete;
     if required {
-        Target::here(&bench.asks).call_typed::<call::FirstRunStep>(Step::SetupStarted);
+        Target::here(&bench.asks).call_quietly::<call::FirstRunStep>(Step::SetupStarted);
     }
     bench.overlays.experience = Some(Experience::Welcome(welcome::Welcome::new(required, cx)));
     welcome::opened(bench, cx);

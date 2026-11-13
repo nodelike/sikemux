@@ -1057,6 +1057,16 @@ impl Target {
         self.ask(typed_call::<C>(params));
     }
 
+    /// Sends the call `C` as `call_typed` does, but a refusal shows the person nothing, for
+    /// calls they did not make themselves, such as a usage ping a core too old may not know.
+    pub fn call_quietly<C: Call>(&self, params: C::Params)
+    where
+        C::Params: Serialize,
+    {
+        let (answer, _) = oneshot::channel();
+        self.ask(Ask::Request(Method::of::<C>(params), answer));
+    }
+
     /// Starts a chat with `launcher`'s agent in `project` there, in `mode` for this launch or
     /// else the launcher's, answering the new agent's id to `started` when it is there.
     pub fn start_chat(

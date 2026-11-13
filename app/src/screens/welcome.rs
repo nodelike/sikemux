@@ -986,7 +986,7 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
             if let Some(welcome) = welcome_in(bench).filter(|welcome| welcome.required) {
                 let skipped = welcome.shortcut == Shortcut::Taken;
                 Target::here(&bench.asks)
-                    .call_typed::<call::FirstRunStep>(Step::SetupFinished { skipped });
+                    .call_quietly::<call::FirstRunStep>(Step::SetupFinished { skipped });
             }
             leave(bench, cx);
             bench.activate_project(&project);
