@@ -34,6 +34,13 @@ pub fn tr(english: &str) -> &str {
     }
 }
 
+/// The BCP 47 tag of the language spoken.
+pub fn spoken() -> &'static str {
+    LANGUAGES
+        .get(SPOKEN.load(Ordering::Relaxed))
+        .map_or("en", |language| language.code)
+}
+
 /// `text` with each `{name}` in it replaced by its value.
 pub fn fill(text: &str, values: &[(&str, &dyn Display)]) -> String {
     let mut filled = text.to_owned();

@@ -1015,13 +1015,13 @@ fn said_at(at: u64, time: bool) -> String {
     };
     let at = at.with_timezone(&chrono::Local);
     let days = (chrono::Local::now().date_naive() - at.date_naive()).num_days();
-    let clock = at.format("%-I:%M %p");
+    use crate::ui::time::{month_day, time_of_day, weekday};
     match (days, time) {
-        (..=0, true) => clock.to_string(),
+        (..=0, true) => time_of_day(at),
         (..=0, false) => t!("today").into(),
-        (1..=6, true) => format!("{} {clock}", at.format("%a")),
-        (1..=6, false) => at.format("%a").to_string(),
-        _ => at.format("%b %-d").to_string(),
+        (1..=6, true) => format!("{} {}", weekday(at), time_of_day(at)),
+        (1..=6, false) => weekday(at),
+        _ => month_day(at),
     }
 }
 

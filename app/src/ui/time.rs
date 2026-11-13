@@ -91,6 +91,73 @@ pub fn clock(at: u64) -> String {
     }
 }
 
+/// The time of day `at` in the language spoken, by the Mac's 24 or 12-hour clock.
+pub fn time_of_day(at: chrono::DateTime<chrono::Local>) -> String {
+    written(at, if twelve_hour() { "hmm" } else { "Hmm" })
+}
+
+/// The short name of `at`'s weekday in the language spoken.
+pub fn weekday(at: chrono::DateTime<chrono::Local>) -> String {
+    written(at, "EEE")
+}
+
+/// `at`'s day and short month in the language spoken, in its order.
+pub fn month_day(at: chrono::DateTime<chrono::Local>) -> String {
+    written(at, "MMMd")
+}
+
+/// `at` written by a date template such as `EEE` or `MMMd` in the language spoken, which puts
+/// the parts in that language's order.
+#[cfg(target_os = "macos")]
+fn written(at: chrono::DateTime<chrono::Local>, template: &'static str) -> String {
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use objc2_foundation::NSString;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    type Formatters = HashMap<(&'static str, &'static str), Retained<AnyObject>>;
+    thread_local! {
+        static FORMATTERS: RefCell<Formatters> = RefCell::default();
+    }
+    let language = crate::i18n::spoken();
+    FORMATTERS.with_borrow_mut(|formatters| {
+        let formatter = formatters.entry((template, language)).or_insert_with(|| {
+            // SAFETY: each is a Foundation method taking and returning objects of these kinds,
+            // and every argument outlives its call.
+            unsafe {
+                let identifier = NSString::from_str(language);
+                let locale: Retained<AnyObject> =
+                    msg_send![class!(NSLocale), localeWithLocaleIdentifier: &*identifier];
+                let formatter: Retained<AnyObject> = msg_send![class!(NSDateFormatter), new];
+                let _: () = msg_send![&*formatter, setLocale: &*locale];
+                let template = NSString::from_str(template);
+                let _: () = msg_send![&*formatter, setLocalizedDateFormatFromTemplate: &*template];
+                formatter
+            }
+        });
+        let seconds = at.timestamp_millis() as f64 / 1000.;
+        // SAFETY: as above.
+        let text: Retained<NSString> = unsafe {
+            let date: Retained<AnyObject> =
+                msg_send![class!(NSDate), dateWithTimeIntervalSince1970: seconds];
+            msg_send![&**formatter, stringFromDate: &*date]
+        };
+        text.to_string()
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn written(at: chrono::DateTime<chrono::Local>, template: &'static str) -> String {
+    let format = match template {
+        "hmm" => "%-I:%M %p",
+        "Hmm" => "%H:%M",
+        "EEE" => "%a",
+        _ => "%b %-d",
+    };
+    at.format(format).to_string()
+}
+
 /// Whether the person's Mac writes times with AM and PM, as its locale and Language & Region
 /// settings say.
 #[cfg(target_os = "macos")]

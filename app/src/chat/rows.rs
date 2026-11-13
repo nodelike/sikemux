@@ -1140,7 +1140,11 @@ fn week_count(week: &ChiefWeek, looks: &Drawn) -> AnyElement {
             chrono::Weekday::Sat => t!("Saturday"),
             chrono::Weekday::Sun => t!("Sunday"),
         };
-        t!("{day} · {time}", day = day, time = at.format("%H:%M"))
+        t!(
+            "{day} · {time}",
+            day = day,
+            time = crate::ui::time::time_of_day(at)
+        )
     });
     let decided = week.decided;
     let first = match (decided, week.overruled) {
