@@ -17,6 +17,7 @@ pub mod install;
 mod join;
 mod link;
 mod listed;
+mod machine;
 pub mod open;
 mod outbox;
 pub(crate) mod probe;
@@ -135,6 +136,8 @@ pub(crate) struct Hosts {
     pub(crate) team: team::Team,
     /// What the other hosts hold of the account's projects.
     pub(crate) copies: copies::Copies,
+    /// How big each linked host is, by its key.
+    pub(crate) machines: machine::Machines,
     /// Tries hosts out of reach again and tells leads when one stays away.
     pub(crate) wake: Wake,
     /// Links with the account's other hosts, when it may have one not linked.
@@ -170,6 +173,7 @@ impl Hosts {
             receipts: receipts::Receipts::new(data_dir),
             team: team::Team::new(data_dir),
             copies: copies::Copies::new(data_dir),
+            machines: machine::Machines::default(),
             wake: Wake::default(),
             relink: Wake::default(),
             linking: AtomicBool::new(false),
@@ -348,7 +352,10 @@ pub(crate) fn find(core: &Core, wanted: &str) -> Result<StoredLink, String> {
             "No linked host is called {wanted}; the linked hosts are {}",
             links
                 .iter()
-                .map(|link| link.name.as_str())
+                .map(|link| match core.hosts().machines.of(&link.id) {
+                    Some(size) => format!("{} ({size})", link.name),
+                    None => link.name.clone(),
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
@@ -827,6 +834,7 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) -> Connection {
     flush(core, host);
     core.hosts().copies.reached(host);
     route::resync(core, host);
+    machine::ask_machine(core, host);
     spawn::settle_pending_on(core, host);
     route::ask_after_workers(core, host);
     if was_down.is_some_and(|down| down.told) {

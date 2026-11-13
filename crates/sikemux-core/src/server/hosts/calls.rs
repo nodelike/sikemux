@@ -13,7 +13,8 @@ use super::super::Core;
 use super::link::{Answer, Kind, Received, Refusal};
 use super::receipts::Stands;
 use super::{
-    answered, chat_move, code, copies, introduction, not_linked, open, route, spawn, transfer,
+    answered, chat_move, code, copies, introduction, machine, not_linked, open, route, spawn,
+    transfer,
 };
 
 /// One ask between hosts: what it is called and what it carries, shared by the host asking
@@ -61,6 +62,7 @@ host_asks! {
     TakeChat "takeChat" chat_move::TakeChat;
     Receipt "receipt" ReceiptParams;
     Workers "workers" route::WorkersParams;
+    Machine "machine" machine::MachineParams;
 }
 
 /// Asks what became of the call `call`.
@@ -171,6 +173,10 @@ async fn dispatch(
         Permit::METHOD => answered(route::permit_here(core, host, read::<Permit>(params)?)),
         Act::METHOD => answered(route::act_here(core, host, read::<Act>(params)?).await),
         Workers::METHOD => route::workers_here(core, host, read::<Workers>(params)?),
+        Machine::METHOD => {
+            read::<Machine>(params)?;
+            serde_json::to_value(machine::machine_here()).map_err(|error| error.to_string())
+        }
         Happened::METHOD => answered(route::happened_here(core, host, read::<Happened>(params)?)),
         Team::METHOD => answered(route::team_here(core, host, read::<Team>(params)?)),
         Worked::METHOD => answered(route::worked_here(core, host, read::<Worked>(params)?)),
