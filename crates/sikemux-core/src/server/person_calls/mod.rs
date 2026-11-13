@@ -1362,6 +1362,10 @@ pub(crate) async fn answer_questions(
     if (given.answers.iter()).any(|params| questions::asks_production(core, &params.id)) {
         return Err(PRODUCTION_ONLY_ON_ITS_CALL.into());
     }
+    let questions = &core.harness().questions;
+    if !(given.answers.iter()).all(|params| questions.is_open(&params.id)) {
+        return Err(gone());
+    }
     let answered: Vec<&str> = given
         .answers
         .iter()
