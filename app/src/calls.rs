@@ -52,7 +52,8 @@ pub struct Cards {
     held: HashMap<String, Held>,
     /// The calls this window told their core it drew.
     seen: HashSet<String>,
-    /// The call the popover shows open, until another is picked; else its newest.
+    /// The call picked in the popover, shown open there and answered by its agent's chat; with
+    /// none picked the popover shows the newest and a chat answers its agent's oldest.
     opened: Option<String>,
     /// Each evidence picture's width over its height, read once from its file.
     ratios: HashMap<String, Option<f32>>,
@@ -314,9 +315,10 @@ impl Workbench {
         of
     }
 
-    /// The call agent `agent`'s chat answers when the person types or presses a key there: the
-    /// newest it waits on, drawn nearest the composer, on the host at `place`. While the chat shows a chief's away card, only
-    /// the card drawn open in it, and only when that call is the agent's own.
+    /// The call agent `agent`'s chat answers when the person types or presses a key there, on the
+    /// host at `place`: the one chosen in the title bar's list while it waits on the agent, else the
+    /// oldest, drawn nearest the composer. While the chat shows a chief's away card, only the card
+    /// drawn open in it, and only when that call is the agent's own.
     pub(crate) fn waiting_call(&self, place: &Place, agent: &str, cx: &App) -> Option<&PersonCall> {
         let away = (self.chats.open.get(agent))
             .and_then(|chat| chat.state.as_ref())
@@ -328,9 +330,10 @@ impl Workbench {
             })
             .filter(|call| waits(call, agent));
         }
-        (self.view_at(place)?.calls.iter())
-            .filter(|call| call.state == CallState::Open && waits(call, agent))
-            .max_by_key(|call| call.raised_at)
+        let opened = self.calls.read(cx).opened.clone();
+        let open = (self.view_at(place)?.calls.iter())
+            .filter(|call| call.state == CallState::Open && waits(call, agent));
+        answered_in_chat(open, opened.as_deref())
     }
 
     /// Answers the call agent `agent` waits on with what the person typed in its chat, with the
@@ -391,7 +394,7 @@ impl Workbench {
         self.calls.update(cx, |cards, _| cards.keep(&open));
     }
 
-    /// The call whose card takes the keys of `agent`'s chat: the newest it waits on, unless it
+    /// The call whose card takes the keys of `agent`'s chat: the one its chat answers, unless it
     /// asks for a secret, whose field takes them.
     pub(crate) fn keyed_call(&self, place: &Place, agent: &str, cx: &App) -> Option<String> {
         (self.waiting_call(place, agent, cx))
@@ -1333,6 +1336,17 @@ impl InChat {
     }
 }
 
+/// Of an agent's open calls, the one its chat answers: the one chosen while it is among them,
+/// else the oldest.
+fn answered_in_chat<'a>(
+    open: impl Iterator<Item = &'a PersonCall> + Clone,
+    opened: Option<&str>,
+) -> Option<&'a PersonCall> {
+    (open.clone())
+        .find(|call| Some(call.id.as_str()) == opened)
+        .or_else(|| open.min_by_key(|call| call.raised_at))
+}
+
 impl Render for InChat {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.calls.open.is_empty() && self.calls.settled.is_empty() && self.away.is_none() {
@@ -1342,11 +1356,17 @@ impl Render for InChat {
         let Some(bench) = self.bench.upgrade() else {
             return div().into_any_element();
         };
-        let marks: Vec<AnyElement> = (self.calls.open.iter())
+        let opened = self.cards.read(cx).opened.clone();
+        let answered = answered_in_chat(self.calls.open.iter(), opened.as_deref());
+        let open: Vec<&PersonCall> = (self.calls.open.iter())
+            .filter(|call| answered.is_none_or(|answered| answered.id != call.id))
+            .chain(answered)
+            .collect();
+        let marks: Vec<AnyElement> = (open.iter())
             .map(|call| asker_mark(bench.read(cx), call, FACE, cx))
             .collect();
         let notices = (self.calls.settled.iter()).filter_map(|call| notice(call, &t));
-        let cards: Vec<AnyElement> = (self.calls.open.iter())
+        let cards: Vec<AnyElement> = (open.into_iter())
             .zip(marks)
             .map(|(call, mark)| {
                 panel(&t)
