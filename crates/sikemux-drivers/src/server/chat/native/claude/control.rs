@@ -9,6 +9,7 @@ use uuid::Uuid;
 use super::super::pending::{Answered, Pending, Purpose};
 use super::super::process::Writer;
 use super::super::rpc::{error_text, ANSWER_WAIT};
+use super::super::session::Sink;
 use super::messages::ControlResponse;
 
 #[derive(Clone)]
@@ -58,12 +59,49 @@ impl Control {
         self.write(&id, request)
     }
 
-    /// Puts the chat's own permission mode back after a hidden turn ran in another.
-    pub fn restore_mode(&self, mode: &str, asked_before: u8) -> Result<(), String> {
-        self.send_for(
-            json!({ "subtype": "set_permission_mode", "mode": mode }),
-            Purpose::Mode(asked_before),
-        )
+    /// Asks Claude to work in permission `mode`: whether it did, or None when it gave no
+    /// answer in time.
+    pub async fn set_mode(&self, mode: &str) -> Option<Result<(), String>> {
+        const WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+        let id = request_id();
+        let answered = self.pending.waited(id.clone(), None);
+        let request = json!({ "subtype": "set_permission_mode", "mode": mode });
+        if let Err(error) = self.write(&id, request) {
+            return Some(Err(error));
+        }
+        match tokio::time::timeout(WAIT, answered).await {
+            Ok(Ok(answer)) => Some(answer.map(drop).map_err(|error| error_text(&error))),
+            Ok(Err(_)) => Some(Err("Claude stopped before it answered".to_owned())),
+            Err(_) => {
+                self.pending.forget(&id);
+                None
+            }
+        }
+    }
+
+    /// Puts the chat's own permission mode back after a hidden turn ran in another, asking
+    /// again when Claude refuses. Claude still refusing, or not answering, is started again on
+    /// its session, which it launches in that mode.
+    pub fn restore_mode(&self, mode: String, sink: Sink) {
+        const ASKS: usize = 3;
+        let control = self.clone();
+        tokio::spawn(async move {
+            let mut why = String::new();
+            for _ in 0..ASKS {
+                match control.set_mode(&mode).await {
+                    Some(Ok(())) => return,
+                    Some(Err(error)) => why = error,
+                    None => {
+                        why = "it did not answer".to_owned();
+                        break;
+                    }
+                }
+            }
+            eprintln!("sikemux core: Claude did not go back to its permission mode {mode} after a handoff note: {why}");
+            sink.broke(format!(
+                "Claude would not go back to its permission mode after a handoff note: {why}"
+            ));
+        });
     }
 
     pub fn writer(&self) -> &Writer {

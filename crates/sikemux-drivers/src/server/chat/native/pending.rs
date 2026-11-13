@@ -57,9 +57,6 @@ pub enum Purpose {
     Compact(u64),
     /// The messages still queued in the agent, cleared by a stop.
     ClearQueue,
-    /// The chat's own permission mode, put back after a hidden turn ran in another, and how
-    /// many times it was asked for before.
-    Mode(u8),
 }
 
 /// An error object for a request that got no answer from the agent.

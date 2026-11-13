@@ -861,22 +861,24 @@ impl Backend for Claude {
         };
         // The tool hook refuses every tool while hushed; this mode also refuses, without asking,
         // any tool the person's settings do not already allow, should the hook not be asked.
-        let refusing = self
-            .running
-            .control
-            .request(json!({ "subtype": "set_permission_mode", "mode": "dontAsk" }))
-            .await;
-        if let Err(error) = refusing {
-            unhush(&self.shared);
-            let mode = self.shared.locked().mode.clone();
-            let _ = self.running.control.restore_mode(&mode, 0);
-            return Err(error);
+        match self.running.control.set_mode("dontAsk").await {
+            Some(Ok(())) => {}
+            Some(Err(error)) => {
+                unhush(&self.shared);
+                return Err(error);
+            }
+            None => {
+                unhush(&self.shared);
+                let mode = self.shared.locked().mode.clone();
+                (self.running.control).restore_mode(mode, self.sink.clone());
+                return Err("Claude did not answer the ask to refuse tools".to_owned());
+            }
         }
         let ask = json!({ "type": "text", "text": super::super::rotation::HANDOFF_ASK });
         if let Err(error) = self.writer().send(&user_message(&uuid, vec![ask], None)) {
             unhush(&self.shared);
             let mode = self.shared.locked().mode.clone();
-            let _ = self.running.control.restore_mode(&mode, 0);
+            (self.running.control).restore_mode(mode, self.sink.clone());
             return Err(error);
         }
         let written = tokio::time::timeout(WAIT, async {

@@ -24,7 +24,6 @@ use super::super::super::Respond;
 use super::super::json::{self, text};
 use super::super::pending::{Answered, Purpose};
 use super::super::process::Reads;
-use super::super::rpc::error_text;
 use super::super::session::{Sink, TurnEnd};
 use super::apps::{self, Apps, Shows};
 use super::compaction::AutoCompact;
@@ -726,23 +725,6 @@ impl Reader {
     }
 
     fn purpose_answered(&self, purpose: &Purpose, result: Answered) {
-        const MODE_ASKS: u8 = 3;
-        if let (Purpose::Mode(asked_before), Err(error)) = (purpose, &result) {
-            let mode = self.shared.locked().mode.clone();
-            let asked = asked_before + 1;
-            if asked < MODE_ASKS && self.control.restore_mode(&mode, asked).is_ok() {
-                return;
-            }
-            eprintln!(
-                "sikemux core: Claude kept refusing to go back to its permission mode {mode} after a handoff note: {}",
-                error_text(error)
-            );
-            self.sink.broke(format!(
-                "Claude would not go back to its permission mode after a handoff note: {}",
-                error_text(error)
-            ));
-            return;
-        }
         if *purpose == Purpose::Title {
             let title = result
                 .ok()
@@ -1154,7 +1136,7 @@ impl Reader {
                 shared.quiet = None;
                 if std::mem::take(&mut shared.hushed) {
                     shared.handed = Some(result.result.clone().unwrap_or_default());
-                    let _ = self.control.restore_mode(&shared.mode, 0);
+                    (self.control).restore_mode(shared.mode.clone(), self.sink.clone());
                 }
             }
             quiet
