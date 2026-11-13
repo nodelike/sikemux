@@ -791,8 +791,9 @@ impl<R: Row> Transcript<R> {
     fn selected_text(&self) -> Option<String> {
         let span = self.span()?;
         let mut blocks = Vec::new();
-        for ix in span.0 .0..=span.1 .0 {
-            for (doc, markdown) in self.rows[ix].docs().into_iter().enumerate() {
+        let rows = self.rows.iter().enumerate();
+        for (ix, row) in rows.take(span.1 .0 + 1).skip(span.0 .0) {
+            for (doc, markdown) in row.docs().into_iter().enumerate() {
                 blocks.extend(picked(markdown, span, ix, doc));
             }
         }
