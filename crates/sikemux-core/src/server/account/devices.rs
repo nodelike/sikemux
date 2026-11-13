@@ -3,6 +3,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::account::DeviceParams;
 use std::sync::Arc;
 
@@ -18,7 +19,6 @@ use crate::server::changed::What;
 use sikemux_wire::accounts::protocol::{DeviceKey, JoinTicket};
 use sikemux_wire::protocol::{DeviceInfo, Event};
 
-use super::super::hosts::account::forget_hosts_off_account;
 use super::super::join::NAME_LIMIT;
 use super::super::{Core, CoreError, CoreResult};
 use super::api::{as_host, host_request};
@@ -170,7 +170,7 @@ pub(crate) async fn app_device_key(params: AppKeyParams) -> CoreResult<String> {
 const NAME_SENT_FILE: &str = "account-host-name";
 
 fn name_sent_path(core: &Core) -> Option<std::path::PathBuf> {
-    Some(core.config().data_dir.as_ref()?.join(NAME_SENT_FILE))
+    Some(core.data_dir().as_ref()?.join(NAME_SENT_FILE))
 }
 
 pub(crate) async fn remember_name_sent(core: &Core, name: &str) {
@@ -259,7 +259,7 @@ pub(crate) async fn remove_device(core: &Core, params: DeviceParams) -> CoreResu
         return Ok(());
     };
     let hosts: DeviceList = as_host(core, Method::GET, "/v1/devices?role=host", None).await?;
-    forget_hosts_off_account(core, &hosts)?;
+    (core.remote_above().forget_hosts_off_account)(core, &hosts)?;
     if hosts.devices.iter().any(|host| host.key == params.key) {
         return Err(error);
     }

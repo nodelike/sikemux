@@ -94,7 +94,7 @@ pub(crate) async fn trust_held(core: &Arc<Core>) -> CoreResult<RemoteStatus> {
         eprintln!("sikemux core: remote access did not start: {error}");
     }
     ensure_live(core);
-    core.hosts().relink.now();
+    (core.remote_above().hosts_relink)(core);
     Ok(announce(core))
 }
 

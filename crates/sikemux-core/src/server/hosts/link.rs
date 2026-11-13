@@ -15,7 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use sikemux_wire::protocol::{encode_control, read_frame_within, FrameKind};
 
-pub(crate) const LINK_ALPN: &[u8] = b"sikemux/link/1";
+pub(crate) use crate::server::remote::LINK_ALPN;
 /// The code a host closes a connection with when it is not linked with the
 /// host on the other end.
 pub(super) const NOT_LINKED: u32 = 2;

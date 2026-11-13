@@ -401,7 +401,7 @@ fn inbox(core: &Core, now: u64) {
     if !core.window().is_open() && phones.is_empty() {
         return;
     }
-    let items = super::inbox::told(core);
+    let items = (core.remote_above().inbox_told)(core);
     let held = |call: &PersonCall| {
         (items.iter()).any(|item| item.hold.as_ref().is_some_and(|hold| hold.id == call.id))
     };
@@ -551,7 +551,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             let started = core.notify().state.locked().turns.remove(&agent_id);
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
-            let asking = core.harness().questions.waits_on_answer(&agent_id);
+            let asking = (core.remote_above().waits_on_answer)(core, &agent_id);
             let waits = (core.remote_above().turn_state_set_a_wake)(core, &agent_id);
             if long && !cancelled && !asking && !waits {
                 if let Some(draft) = finished(core, &agent_id, now) {
@@ -604,7 +604,7 @@ fn input_card(agent_id: &str) -> String {
 
 /// Each chat says what the agents messaging it need of the person on the line their messages fold to.
 fn tell_chats_needs(core: &Core) {
-    let needs = super::inbox::agent_needs(core);
+    let needs = (core.remote_above().agent_needs)(core);
     for chat in core.chats().all() {
         chat.feed.set_needs(&needs);
     }

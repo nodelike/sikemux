@@ -54,6 +54,9 @@ pub(crate) use listening::*;
 pub(crate) use pairing::*;
 pub(crate) use push::*;
 
+/// What a link between two hosts of one account speaks.
+pub(crate) const LINK_ALPN: &[u8] = b"sikemux/link/1";
+
 /// How long signing out waits for the account to confirm this host left.
 #[cfg(not(test))]
 const LEAVE_WAIT: Duration = Duration::from_secs(5);

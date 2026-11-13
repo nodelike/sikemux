@@ -3,6 +3,7 @@
 use super::*;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 
 /// Signing in starts the live connection to the account and turns remote
 /// access on, forgetting every device that joined through another account.
@@ -89,7 +90,7 @@ pub(crate) fn ensure_live(core: &Arc<Core>) {
     let (changed, watching) = watch::channel(());
     let app = LiveApp {
         platform: crate::server::host::PLATFORM,
-        version: core.config().build.version.clone(),
+        version: core.build().version.clone(),
     };
     let account = Arc::new(HostAccount(Arc::downgrade(core)));
     let outbox = inner.outbox.clone();
@@ -106,7 +107,7 @@ pub(super) fn leave_with_retired_key(core: &Arc<Core>) {
     };
     let app = LiveApp {
         platform: crate::server::host::PLATFORM,
-        version: core.config().build.version.clone(),
+        version: core.build().version.clone(),
     };
     let account = Arc::new(RetiredHost {
         core: Arc::downgrade(core),
@@ -162,7 +163,7 @@ impl live::Account for HostAccount {
     fn apply(&self, events: &[AccountEvent]) {
         if let Some(core) = self.0.upgrade() {
             apply_events(&core, events);
-            crate::server::stash::heard(&core, events);
+            (core.remote_above().stash_heard)(&core, events);
         }
     }
 
@@ -206,9 +207,9 @@ impl live::Account for HostAccount {
                     eprintln!("sikemux core: could not check the account's phones: {error}");
                 }
             });
-            core.hosts().relink.now();
+            (core.remote_above().hosts_relink)(&core);
             core.vault().wake();
-            crate::server::stash::catch_up(&core);
+            (core.remote_above().stash_catch_up)(&core);
             (core.remote_above().hooks_connect)(&core);
         }
     }
@@ -301,12 +302,12 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
                 released = Some(Some(RevokeReason::AccountDeleted));
             }
             AccountEventType::DeviceChanged if event.role == Some(DeviceRole::Host) => {
-                core.hosts().relink.now();
+                (core.remote_above().hosts_relink)(core);
             }
             AccountEventType::VaultChanged => core.vault().wake(),
             AccountEventType::DeviceAdded => {
                 if event.role == Some(DeviceRole::Host) {
-                    core.hosts().relink.now();
+                    (core.remote_above().hosts_relink)(core);
                     core.vault().wake();
                 }
                 // Events a host missed while offline come all at once; only a

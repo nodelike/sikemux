@@ -37,7 +37,7 @@ pub(crate) fn pairing(core: &Core) -> RemotePairing {
     RemotePairing {
         pending: status.pending,
         devices: status.devices,
-        links: crate::server::hosts::views(core),
+        links: (core.remote_above().linked_hosts)(core),
         pending_links: core.remote().pending_links(),
     }
 }

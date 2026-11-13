@@ -1,7 +1,6 @@
 //! The Live Activity a phone shows of this host's agents, kept current while the phone is locked: the host
 //! seals what its agents are doing for each phone that started one, and the account passes it on unread.
 
-use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 pub use sikemux_calls::notify::ActivityParams;
 use sikemux_process::sync::Locked;
@@ -51,8 +50,7 @@ pub(super) fn tell(core: &Core, now: u64) {
         core.notify().state.locked().activities.clear();
         return;
     }
-    let (chats, sessions) = core.ranked_infos();
-    let glance = crate::server::inbox::view(core, &chats, &sessions).glance;
+    let glance = (core.remote_above().activity_glance)(core);
     let outbox = core.remote().outbox();
     for (target, token) in targets {
         let last = core

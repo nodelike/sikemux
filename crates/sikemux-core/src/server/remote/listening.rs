@@ -3,6 +3,7 @@
 use super::*;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 
 /// Loads the core's key and devices, listens if remote access was left on,
 /// and connects to the account the host is signed in to.
@@ -108,7 +109,7 @@ pub(crate) async fn network_back(core: &Arc<Core>) {
     }
     core.remote().refresh.notify_one();
     ensure_live(core);
-    core.hosts().retry_now();
+    (core.remote_above().hosts_retry_now)(core);
     crate::server::share::network_back(core);
 }
 
@@ -123,7 +124,7 @@ pub(crate) fn stop_network(core: &Core) {
 /// allows.
 pub(super) async fn apply_network(core: &Arc<Core>, fetched: Network) {
     let relays = network::usable_relays(&fetched);
-    let version = &core.config().build.version;
+    let version = &core.build().version;
     let (moved, endpoint, required, was_required) = {
         let mut inner = core.remote().inner.locked();
         let required = if inner.never_too_old {
@@ -180,7 +181,7 @@ pub(super) async fn apply_network(core: &Arc<Core>, fetched: Network) {
             );
             stop(core).await;
             stop_live(core);
-            core.updates().check_soon();
+            (core.remote_above().check_updates_soon)(core);
         }
         (Some(_), None) => {
             ensure_live(core);
@@ -233,7 +234,7 @@ pub(super) async fn listen(core: &Arc<Core>) -> CoreResult<()> {
         .alpns(vec![
             CORE_ALPN.to_vec(),
             JOIN_ALPN.to_vec(),
-            crate::server::hosts::LINK_ALPN.to_vec(),
+            super::LINK_ALPN.to_vec(),
         ])
         .bind()
         .await
@@ -246,7 +247,7 @@ pub(super) async fn listen(core: &Arc<Core>) -> CoreResult<()> {
     }
     inner.running = Some(Running { endpoint, accept });
     drop(inner);
-    core.hosts().wake.now();
+    (core.remote_above().hosts_wake)(core);
     Ok(())
 }
 
@@ -325,8 +326,8 @@ pub(super) async fn serve_device(core: Arc<Core>, incoming: Incoming) {
         crate::server::join::serve(core, connection).await;
         return;
     }
-    if connection.alpn() == crate::server::hosts::LINK_ALPN {
-        crate::server::hosts::serve(core, connection).await;
+    if connection.alpn() == super::LINK_ALPN {
+        (core.remote_above().serve_link)(core.clone(), connection).await;
         return;
     }
     let id = connection.remote_id().to_string();

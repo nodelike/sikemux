@@ -14,6 +14,7 @@ mod profile;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::account::AccountPictureParams;
 pub use sikemux_calls::account::SignInPage;
 use std::path::PathBuf;
@@ -148,7 +149,7 @@ fn released(owner: Option<&str>, has_key: bool, user_id: &str) -> bool {
 }
 
 fn folder(core: &Core) -> Option<PathBuf> {
-    Some(core.config().data_dir.as_ref()?.join(FOLDER))
+    Some(core.data_dir().as_ref()?.join(FOLDER))
 }
 
 async fn forget(core: &Core) -> CoreResult<()> {

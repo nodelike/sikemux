@@ -13,9 +13,9 @@ use sikemux_process::sync::Locked;
 use crate::accounts::vault::VaultUses;
 
 use super::super::account::api::as_host;
-use super::super::hosts::{self, HostReach as Reach};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
 use super::{local, sync, Scope, State, Status};
+use sikemux_calls::hosts::Reach;
 
 /// What the account calls a host, and whether this host reaches it now, or the start of its
 /// key when the account does not name it.
@@ -23,7 +23,7 @@ pub(super) fn named(core: &Core, state: &State, key: &str) -> (String, bool) {
     if state.me.as_deref() == Some(key) {
         return (core.notify().host_name(), true);
     }
-    let linked = hosts::rows(core)
+    let linked = (core.remote_above().host_rows)(core)
         .into_iter()
         .find(|row| row.id.as_deref() == Some(key));
     let name = state

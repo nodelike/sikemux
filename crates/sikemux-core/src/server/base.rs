@@ -20,7 +20,6 @@ use sikemux_view::prefs::PreferenceChange;
 
 use super::activity_log::{transcript_of, Place};
 use super::chat_above::ChatAbove;
-use super::hooks;
 use super::launching;
 use super::notch;
 use super::remote_above::RemoteAbove;
@@ -31,6 +30,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
+use super::{hooks, inbox, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -293,6 +293,28 @@ pub(super) fn chat_above() -> ChatAbove {
 
 pub(super) fn remote_above() -> RemoteAbove {
     RemoteAbove {
+        hosts_retry_now: |core| core.hosts().retry_now(),
+        hosts_wake: |core| core.hosts().wake.now(),
+        hosts_relink: |core| core.hosts().relink.now(),
+        serve_link: |core, connection| Box::pin(hosts::serve(core, connection)),
+        forget_hosts_off_account: hosts::account::forget_hosts_off_account,
+        host_rows: hosts::rows,
+        linked_hosts: hosts::views,
+        check_updates_soon: |core| core.updates().check_soon(),
+        vault_books: |core| {
+            (core.config().plugins)
+                .map(|plugins::Provided(plugins)| plugins.vault_books())
+                .unwrap_or_default()
+        },
+        stash_heard: stash::heard,
+        stash_catch_up: stash::catch_up,
+        inbox_told: inbox::told,
+        agent_needs: inbox::agent_needs,
+        activity_glance: |core| {
+            let (chats, sessions) = core.ranked_infos();
+            inbox::view(core, &chats, &sessions).glance
+        },
+        waits_on_answer: |core, agent_id| core.harness().questions.waits_on_answer(agent_id),
         hooks_connect: hooks::connect,
         hosts_halt: hosts::halt,
         hosts_unlink: hosts::unlink,
