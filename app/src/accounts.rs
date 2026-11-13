@@ -129,7 +129,7 @@ pub fn face(picture: Arc<Image>, provider: &str, size: f32, cx: &gpui_kit::App) 
 pub fn named<'a>(bench: &'a Workbench, provider: &str, label: &str) -> Option<&'a Profile> {
     bench.accounts.of(provider).into_iter().find(|profile| {
         let shown = status(bench, profile).and_then(|status| status.as_ref().ok());
-        profile.shown_name(shown) == label
+        profile.shown_name(shown) == label || profile.name == label
     })
 }
 

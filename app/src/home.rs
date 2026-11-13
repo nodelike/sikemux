@@ -274,11 +274,20 @@ fn smart_pick(
     cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let face = match crate::accounts::named(bench, provider, &placed.label) {
+    let account = crate::accounts::named(bench, provider, &placed.label);
+    let face = match account {
         Some(profile) => crate::accounts::face(bench.accounts.avatar(profile), provider, 14., cx)
             .into_any_element(),
         None => ui::mark(provider, 12.).into_any_element(),
     };
+    let name = account.map_or_else(
+        || placed.label.clone(),
+        |profile| {
+            let signed_in =
+                crate::accounts::status(bench, profile).and_then(|status| status.as_ref().ok());
+            profile.shown_name(signed_in)
+        },
+    );
     let dot = || div().flex_none().child("·");
     div()
         .min_w_0()
@@ -294,7 +303,7 @@ fn smart_pick(
                 .flex_none()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text_primary)
-                .child(placed.label.clone()),
+                .child(name),
         )
         .child(dot())
         .child(ui::caps(t!("Smart pick"), cx).flex_none())
