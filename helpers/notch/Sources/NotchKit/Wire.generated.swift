@@ -849,8 +849,6 @@ struct PersonCall: Codable, Hashable {
     let asker: CallAsker
     /// Other agents waiting on the same thing, which this one answer covers.
     let joined: [CallAsker]?
-    /// What the person asked for, in their words: the card's heading.
-    let askedFor: String?
     /// The decision, in one line.
     let question: String
     let context: String?

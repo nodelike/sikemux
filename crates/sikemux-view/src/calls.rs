@@ -185,9 +185,6 @@ pub struct PersonCall {
     /// Other agents waiting on the same thing, which this one answer covers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub joined: Vec<CallAsker>,
-    /// What the person asked for, in their words: the card's heading.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub asked_for: Option<String>,
     /// The decision, in one line.
     pub question: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

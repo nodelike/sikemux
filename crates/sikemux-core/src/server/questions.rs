@@ -127,9 +127,6 @@ pub(crate) struct Raise {
     pick: Option<String>,
     /// What breaks if that is wrong, or what stays stuck without the access.
     breaks: String,
-    /// What the person asked for, in their words, which heads the call.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    asked_for: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     context: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -313,10 +310,6 @@ impl Question {
                 chief: false,
             },
             joined: Vec::new(),
-            asked_for: self
-                .raise
-                .as_ref()
-                .and_then(|raise| raise.asked_for.clone()),
             question: self.text.clone(),
             context,
             assumption,
@@ -1082,7 +1075,6 @@ fn raise_of(
             reason,
             pick,
             breaks,
-            asked_for: None,
             context,
             evidence,
             brief,
@@ -1093,26 +1085,6 @@ fn raise_of(
         )),
     }
 }
-
-/// What the person asked `agent` for, in their own words, which heads a call it raises: the
-/// prompt of theirs that started its turn, as the core recorded it, cut to the card's heading.
-/// None when the person's words did not start the turn, answered a question, may hold a secret,
-/// or are marked as answering a call or as typed while one whose words are never kept was open.
-/// Reads the chat's history file, so it blocks.
-fn asked_for(core: &Core, agent: &str) -> Option<String> {
-    let chat = core.chats().get(agent)?;
-    let dir = core.chats().history_dir()?;
-    let said = super::chat::history::turn_prompt(dir, chat.feed.id(), MAX_ASKED_FOR_BYTES)?;
-    if said.answered.is_some() || said.text.trim_start().starts_with("<question-answer ") {
-        return None;
-    }
-    let words = crate::sessions::asked::person_prose(&said.text)?;
-    (!crate::sessions::asked::may_hold_secret(&words))
-        .then(|| clipped(&crate::text::one_line(&words), MAX_LABEL_CHARS))
-}
-
-/// How much of a chat's history is read for the prompt that started its turn.
-const MAX_ASKED_FOR_BYTES: u64 = 512 * 1024;
 
 /// What a raised question shows to look at before deciding.
 fn evidence_of(value: Option<&Value>) -> Result<Vec<CallEvidence>, String> {
@@ -1475,12 +1447,6 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     if production && !blocked {
         return Err("A change to production waits for the person's answer; ask it with blocked: true, never going on with an assumption".into());
     }
-    if let Some(raise) = raise.as_mut() {
-        let (reading, asker) = (core.clone(), agent_id.clone());
-        raise.asked_for = super::connection::blocking(move || Ok(asked_for(&reading, &asker)))
-            .await
-            .map_err(|error| error.to_string())?;
-    }
     mark_pick(params, &mut choices)?;
     (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
     (core.harness().questions).keep_evidence(&request.project, &mut raise)?;
@@ -1700,10 +1666,6 @@ pub(crate) fn pass_on_from(
     choices: &Value,
     raise: Raise,
 ) -> Result<Value, String> {
-    let raise = Raise {
-        asked_for: None,
-        ..raise
-    };
     let text = text_param(&json!({ "text": text }), "text", MAX_QUESTION_BYTES)?
         .ok_or("the question must be nonempty text")?;
     let mut choices = self::choices(Some(choices))?;

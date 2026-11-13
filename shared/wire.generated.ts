@@ -1488,8 +1488,6 @@ export interface PersonCall {
     asker: CallAsker;
     /** Other agents waiting on the same thing, which this one answer covers. */
     joined?: CallAsker[];
-    /** What the person asked for, in their words: the card's heading. */
-    askedFor?: string;
     /** The decision, in one line. */
     question: string;
     context?: string;

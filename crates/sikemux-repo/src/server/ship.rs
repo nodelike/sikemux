@@ -577,7 +577,6 @@ fn call_asking(
             name: name.clone(),
             chief: false,
         },
-        asked_for: None,
         question: format!("Change {} with @{name}'s work?", place.name()),
         context: [
             resolved_from.map(|from| format!("Sikemux read where it lands from {from}.")),
@@ -1670,7 +1669,6 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
             chief: false,
         },
         joined: Vec::new(),
-        asked_for: None,
         question,
         context: hold.why.clone(),
         assumption: None,

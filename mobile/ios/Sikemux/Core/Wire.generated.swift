@@ -2393,8 +2393,6 @@ struct PersonCall: Codable, Hashable, Sendable {
     var asker: CallAsker
     /// Other agents waiting on the same thing, which this one answer covers.
     var joined: [CallAsker]?
-    /// What the person asked for, in their words: the card's heading.
-    var askedFor: String?
     /// The decision, in one line.
     var question: String
     var context: String?
