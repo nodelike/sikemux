@@ -558,7 +558,7 @@ impl Line {
             tidy(core);
             return Ok((true, format!("You hold {label} until your turn ends. Nobody else gets it meanwhile; it goes to whoever waits next once your turn ends, you close, or you do no work for ten minutes.")));
         }
-        if !state.waiting.iter().any(|run| mine(run)) {
+        if !state.waiting.iter().any(&mine) {
             if let Some(other) = things::would_deadlock(&state, agent_id, &key) {
                 let other = name_of(core, &other);
                 return Err(format!(
@@ -581,9 +581,7 @@ impl Line {
                 Ok((true, format!("You hold {label} until your turn ends. Nobody else gets it meanwhile; it goes to whoever waits next once your turn ends, you close, or you do no work for ten minutes.")))
             }
             None => {
-                let at = (state.waiting.iter())
-                    .position(|run| mine(run))
-                    .unwrap_or_default();
+                let at = (state.waiting.iter()).position(mine).unwrap_or_default();
                 let wants = (state.waiting.get(at))
                     .and_then(|run| run.wants.clone())
                     .map(|wants| wants.words(&|agent| name_of(core, agent)))
