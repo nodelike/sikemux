@@ -29,7 +29,6 @@ mod turn;
 mod usage;
 
 use crate::server::access::Peer;
-use crate::server::activity::ActivityCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
@@ -60,11 +59,8 @@ use sikemux_wire::protocol::{
     ChatContext, ChatInfo, ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId,
 };
 
-use super::activity::Activity;
 use super::connection::{ClientConn, ClientId};
-use super::inbox::Fault;
 use super::model_proxy::{Grant as ModelGrant, KeptGrant};
-use super::spawn::Ending;
 use super::{Core, CoreError, CoreResult};
 use feed::{Feed, FeedState, Standing};
 use kept::{Keeper, KeptAgent, KeptChat};
@@ -79,6 +75,46 @@ pub(crate) use actions::*;
 pub(crate) use offers::{models_of, AgentModelsParams};
 pub(crate) use registry::Chats;
 pub(crate) use start::*;
+
+/// What an agent just did, which everything that follows it hears.
+pub(crate) enum Activity<'a> {
+    Started,
+    Working,
+    /// Its turn ended. One the person stopped is nothing new to them.
+    Finished {
+        cancelled: bool,
+    },
+    NeedsYou,
+    /// It ran into a problem, and said this about it.
+    Problem(&'a str),
+}
+
+/// How a turn, or the agent, ended.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum Ending {
+    Finished,
+    Stopped,
+    Failed(String),
+    /// The chat ended, `mid_turn` or while the worker was idle. `asked` when someone
+    /// closed or stopped it, rather than it dying by itself.
+    Gone {
+        reason: Option<String>,
+        mid_turn: bool,
+        asked: bool,
+    },
+}
+
+/// How a turn failed, as far as the person is concerned.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum Fault {
+    /// Its account is signed out, or out of usage with nothing to send again once that resets.
+    Account,
+    /// The chat sends the prompt again by itself, once the plan resets or the network is back.
+    Retrying,
+    /// Anything else that stopped the turn.
+    Broke,
+}
 
 const MAX_AGENT_ID: usize = 200;
 const START_TIMEOUT: Duration = Duration::from_secs(150);
@@ -326,7 +362,7 @@ pub(crate) struct Chat {
     /// The turn at work is being stopped only to go on under another account, so its lead
     /// is not told it stopped.
     pub(crate) moving_on: AtomicBool,
-    edits: super::edits::Open,
+    pub(crate) edits: Box<dyn std::any::Any + Send + Sync>,
     /// The version of the agent's CLI, once the agent has said it.
     cli_version: Mutex<Option<String>>,
     /// Keeps good the token its agent reaches the model provider with.
@@ -472,7 +508,7 @@ impl Chat {
             }
         }
         if let Some(core) = self.core.upgrade() {
-            core.note_activity(self.agent_id(), Activity::Started);
+            (core.chat_above().note_activity)(&core, self.agent_id(), Activity::Started);
         }
         self.note_resumable();
         self.feed.emit(ChatEventKind::TurnStarted, json!({}));
@@ -585,7 +621,7 @@ impl Chat {
             if matches!(ending, Some(Ending::Finished)) {
                 (core.chat_above().questions_offers_in_reply)(&core, self.agent_id());
             }
-            core.note_activity(self.agent_id(), activity);
+            (core.chat_above().note_activity)(&core, self.agent_id(), activity);
             if let Some(ending) = ending {
                 self.report_turn(&core, ending);
             }
@@ -727,7 +763,7 @@ impl Chat {
             .and_then(|failure| failure.get("kind"))
             .and_then(|kind| serde_json::from_value(kind.clone()).ok());
         if let Some(core) = self.core.upgrade() {
-            core.inbox().failed(self.agent_id(), message, fault, kind);
+            (core.chat_above().inbox_failed)(&core, self.agent_id(), message, fault, kind);
         }
         self.turn.locked().failure = Some(message.to_owned());
     }
@@ -744,7 +780,7 @@ impl Chat {
     /// Tells the agent's lead how its turn ended, once per turn.
     fn report_turn(&self, core: &Arc<Core>, ending: Ending) {
         if self.take_unreported() {
-            core.note_ending(self.agent_id(), ending);
+            (core.chat_above().note_ending)(core, self.agent_id(), ending);
         }
     }
 
@@ -762,7 +798,8 @@ impl Chat {
             Ok(SessionEnd::Requested) => None,
             Ok(_) => self.take_failure(),
         };
-        core.note_ending(
+        (core.chat_above().note_ending)(
+            core,
             self.agent_id(),
             Ending::Gone {
                 reason,
@@ -938,7 +975,7 @@ impl Chat {
 
     pub(crate) fn letter_unread(&self, text: String) {
         if let Some(core) = self.core.upgrade() {
-            core.harness().mailbox.returned(self.agent_id(), text);
+            (core.chat_above().letter_returned)(&core, self.agent_id(), text);
         }
     }
 
@@ -954,16 +991,7 @@ impl Chat {
         let Some(core) = self.core.upgrade() else {
             return;
         };
-        core.line().tool_update(self.agent_id(), update);
-        if core
-            .collisions()
-            .saw(self.agent_id(), &self.launch.cwd, update)
-        {
-            core.edits().command_began(self.agent_id());
-        }
-        if let Some((tool_call_id, changes)) = self.edits.note(update) {
-            core.edits().record(self, tool_call_id, changes);
-        }
+        (core.chat_above().tool_updated)(&core, self, update);
     }
 
     pub(crate) async fn turn_ended(&self) {
@@ -1124,7 +1152,7 @@ impl Chat {
         permissions.insert(request_id, pending);
         drop(permissions);
         if let Some(core) = self.core.upgrade() {
-            core.note_activity(self.agent_id(), Activity::NeedsYou);
+            (core.chat_above().note_activity)(&core, self.agent_id(), Activity::NeedsYou);
         }
         self.announce(&Event::Attention { attention });
         self.publish_state();

@@ -405,7 +405,7 @@ impl Chats {
             releasing: AtomicBool::new(false),
             offline_failed: AtomicBool::new(false),
             moving_on: AtomicBool::new(false),
-            edits: Default::default(),
+            edits: (core.chat_above().new_edits)(),
             cli_version: Mutex::new(None),
             keeper,
             agent: Mutex::new(None),
@@ -446,7 +446,7 @@ impl Chats {
             .retain(|resting| resting.agent_id != chat.agent_id());
         chats.insert(chat.agent_id().to_owned(), chat.clone());
         // A goal that ended while it slept gets its line in the chat now.
-        core.boards().wake.now();
+        (core.chat_above().board_wake)(core);
         Ok((chat, queue))
     }
 }

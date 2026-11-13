@@ -4,7 +4,6 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
@@ -201,8 +200,7 @@ fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
 
 /// The word every client shows beside the agent, or Asleep while it is not running.
 fn status(core: &Core, id: &str) -> &'static str {
-    if let Some(chat) = core
-        .chat_infos()
+    if let Some(chat) = (core.chat_above().chat_infos)(core)
         .into_iter()
         .find(|chat| chat.agent_id == id)
     {
@@ -212,7 +210,7 @@ fn status(core: &Core, id: &str) -> &'static str {
             display::group_label(chat.group)
         };
     }
-    core.session_infos()
+    (core.chat_above().session_infos)(core)
         .into_iter()
         .find(|session| session.agent_id.as_deref() == Some(id))
         .and_then(|session| session.group)

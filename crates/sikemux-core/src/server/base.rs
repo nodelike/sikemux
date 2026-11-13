@@ -28,7 +28,11 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
+use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
+
+use super::chat::Chat;
+use super::edits;
 
 use super::{
     agent_accounts, memory, person_calls, plugins, ports, questions, saved, team_told, turn_state,
@@ -166,6 +170,20 @@ fn account_with_room(
     .map(|placed| placed.id)
 }
 
+fn tool_updated(core: &Core, chat: &Chat, update: &Value) {
+    core.line().tool_update(chat.agent_id(), update);
+    if core
+        .collisions()
+        .saw(chat.agent_id(), &chat.launch.cwd, update)
+    {
+        core.edits().command_began(chat.agent_id());
+    }
+    let noted = (chat.edits.downcast_ref::<edits::Open>()).and_then(|open| open.note(update));
+    if let Some((tool_call_id, changes)) = noted {
+        core.edits().record(chat, tool_call_id, changes);
+    }
+}
+
 fn agents_gone(core: &Core, gone: &[&String]) {
     for agent_id in gone {
         core.chats().stop(agent_id);
@@ -189,6 +207,19 @@ fn agents_gone(core: &Core, gone: &[&String]) {
 
 pub(super) fn chat_above() -> ChatAbove {
     ChatAbove {
+        note_activity: |core, agent_id, activity| core.note_activity(agent_id, activity),
+        note_ending: |core, agent_id, ending| core.note_ending(agent_id, ending),
+        note_agent_gone: |core, agent_id| core.note_agent_gone(agent_id),
+        chat_infos: |core| core.chat_infos(),
+        session_infos: |core| core.session_infos(),
+        board_wake: |core| core.boards().wake.now(),
+        inbox_not_retrying: |core, agent_id| core.inbox().not_retrying(agent_id),
+        inbox_failed: |core, agent_id, said, fault, kind| {
+            core.inbox().failed(agent_id, said, fault, kind)
+        },
+        letter_returned: |core, agent_id, text| core.harness().mailbox.returned(agent_id, text),
+        tool_updated,
+        new_edits: || Box::<edits::Open>::default(),
         account_with_room,
         other_agent_with_room: agent_accounts::other_agent_with_room,
         turn_told: turn_state::told,

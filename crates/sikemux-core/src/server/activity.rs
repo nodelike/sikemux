@@ -1,6 +1,7 @@
 //! What an agent just did, told once to both the person's unread marks and
 //! the phones' notifications, for chats and agents in terminals alike.
 
+pub(crate) use super::chat::Activity;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
@@ -12,18 +13,6 @@ use super::notify::Signal;
 use super::spawn::Ending;
 use super::Core;
 use crate::server::changed::What;
-
-pub(crate) enum Activity<'a> {
-    Started,
-    Working,
-    /// Its turn ended. One the person stopped is nothing new to them.
-    Finished {
-        cancelled: bool,
-    },
-    NeedsYou,
-    /// It ran into a problem, and said this about it.
-    Problem(&'a str),
-}
 
 /// Telling everything that follows an agent what it just did.
 pub(crate) trait ActivityCore {

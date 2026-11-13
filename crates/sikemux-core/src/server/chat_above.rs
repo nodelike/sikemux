@@ -1,6 +1,7 @@
 //! What chats ask of the features built over them. They cannot name those features, so a core
 //! is built with these, one function for each.
 
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::Path;
@@ -8,17 +9,18 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use serde_json::Value;
+use sikemux_view::chat::FailureKind;
 use sikemux_view::questions::QuestionChoice;
 use sikemux_view::slice::Decision;
 use sikemux_view::turn::TurnState;
-use sikemux_wire::protocol::{ChatContext, ChatLaunch};
+use sikemux_wire::protocol::{ChatContext, ChatInfo, ChatLaunch, SessionInfo};
 
 use crate::agent_accounts::usage::UsageWindow;
 use crate::agent_accounts::Book;
 
 use super::chat::feed::Feed;
 use super::chat::rotation::KeptSession;
-use super::chat::{Answered, Chat};
+use super::chat::{Activity, Answered, Chat, Ending, Fault};
 use super::saved::Saved;
 use super::workspace::ChatChoice;
 use super::{Core, CoreResult};
@@ -153,4 +155,26 @@ pub(crate) struct ChatAbove {
     /// The calls open to the person in the chat's project, what the chat waits on, and where
     /// each of its workers stands.
     pub open_work: fn(&Core, &str) -> Vec<String>,
+    /// Everything that follows an agent hears what it just did.
+    pub note_activity: fn(&Core, &str, Activity<'_>),
+    /// A turn, or the agent, ended this way.
+    pub note_ending: fn(&Arc<Core>, &str, Ending),
+    /// The agent stopped running, whether it ended by itself or was closed.
+    pub note_agent_gone: fn(&Core, &str),
+    /// The chats as clients are sent them.
+    pub chat_infos: fn(&Core) -> Vec<ChatInfo>,
+    /// The terminals as clients are sent them.
+    pub session_infos: fn(&Core) -> Vec<SessionInfo>,
+    /// A chat went away, so the board looks at its cards again.
+    pub board_wake: fn(&Core),
+    /// The agent's turn no longer waits to be sent again.
+    pub inbox_not_retrying: fn(&Core, &str),
+    /// The agent's turn failed with these words, this way.
+    pub inbox_failed: fn(&Core, &str, &str, Fault, Option<FailureKind>),
+    /// A letter the agent did not read goes back to wait for it.
+    pub letter_returned: fn(&Core, &str, String),
+    /// A tool call of the chat moved on: the line, collisions and edits hear of it.
+    pub tool_updated: fn(&Core, &Chat, &Value),
+    /// What a new chat keeps of its tool calls' edits that have not finished, for `tool_updated`.
+    pub new_edits: fn() -> Box<dyn Any + Send + Sync>,
 }

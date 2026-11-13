@@ -2,7 +2,6 @@
 
 use super::offers::offer_options;
 use super::*;
-use crate::server::activity::ActivityCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
@@ -135,7 +134,7 @@ pub(super) fn launch(
         }
         ending.end(result.err());
         if owner.chats().remove_if_current(&ending) {
-            owner.note_agent_gone(ending.agent_id());
+            (owner.chat_above().note_agent_gone)(&owner, ending.agent_id());
         }
         ending.cancel_permissions();
         ending.publish(AgentState::Stopped);
@@ -322,7 +321,7 @@ pub(crate) async fn until_started(core: &Arc<Core>, chat: Arc<Chat>) -> CoreResu
         Ok(result) => result.map_err(CoreError::from),
         Err(_) => {
             if core.chats().remove_if_current(&chat) {
-                core.note_agent_gone(chat.agent_id());
+                (core.chat_above().note_agent_gone)(core, chat.agent_id());
             }
             Chats::halt(&chat);
             Err(format!(
@@ -477,7 +476,7 @@ pub(super) fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -
                     .emit(ChatEventKind::Error, rebind::error_message(&error));
                 Chats::halt(&chat);
                 if core.chats().remove_if_current(&chat) {
-                    core.note_agent_gone(chat.agent_id());
+                    (core.chat_above().note_agent_gone)(&core, chat.agent_id());
                 }
             }
         }

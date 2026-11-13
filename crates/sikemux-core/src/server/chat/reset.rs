@@ -248,7 +248,7 @@ pub(super) fn schedule(
 }
 
 fn not_retrying(core: &Core, chat: &Chat) {
-    core.inbox().not_retrying(chat.agent_id());
+    (core.chat_above().inbox_not_retrying)(core, chat.agent_id());
     (core.chat_above().board_stopped_waiting)(core, chat.agent_id());
     core.changed(What::View);
 }

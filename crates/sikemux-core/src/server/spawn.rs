@@ -4,6 +4,7 @@
 //! the new agent's turn ends, its final answer goes back to the agent that
 //! started it.
 
+pub(crate) use super::chat::Ending;
 use crate::server::activity::ActivityCore;
 use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
@@ -17,7 +18,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_view::workspace::WorkspaceAgent;
@@ -992,21 +992,6 @@ async fn spawn_terminal(
         ),
     });
     Ok(woken_by_answers(answer, reports))
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) enum Ending {
-    Finished,
-    Stopped,
-    Failed(String),
-    /// The chat ended, `mid_turn` or while the worker was idle. `asked` when someone
-    /// closed or stopped it, rather than it dying by itself.
-    Gone {
-        reason: Option<String>,
-        mid_turn: bool,
-        asked: bool,
-    },
 }
 
 /// Sends a worker's lead how its turn ended, unless all it did was ignore the board's offer.

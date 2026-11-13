@@ -19,7 +19,7 @@ use crate::launch::PermissionMode;
 use crate::acp::failure::{Failure, FailureKind};
 use crate::agent_accounts::sign_in::{self, SignIn};
 use crate::server::chat::prompt::MAX_CONTEXT_ITEMS;
-use crate::server::inbox::Fault;
+use crate::server::chat::Fault;
 
 use super::SessionEnd;
 use sikemux_fold::update::turn_answer;

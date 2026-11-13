@@ -3,6 +3,7 @@
 //! to review, then finished work, then work under way. Built from what the
 //! core already keeps; only how each agent's latest turn went is kept here.
 
+pub(crate) use super::chat::Fault;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -61,17 +62,6 @@ const MAX_HAND_TO: usize = 12;
 const DONE_UNCOMMITTED: &str = "Done, uncommitted";
 /// The files of an agent's whose state git is asked for at once.
 const MAX_STATUS_FILES: usize = 256;
-
-/// How a turn failed, as far as the person is concerned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum Fault {
-    /// Its account is signed out, or out of usage with nothing to send again once that resets.
-    Account,
-    /// The chat sends the prompt again by itself, once the plan resets or the network is back.
-    Retrying,
-    /// Anything else that stopped the turn.
-    Broke,
-}
 
 /// What an item tells of, which alone decides its kind, what it needs the person for, and
 /// so where it ranks.
