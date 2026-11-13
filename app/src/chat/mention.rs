@@ -83,7 +83,10 @@ struct Typed {
 
 fn typed(text: &str, caret: usize) -> Option<Typed> {
     let before = text.get(..caret)?;
-    let start = before.rfind(char::is_whitespace).map_or(0, |at| at + 1);
+    let start = before
+        .char_indices()
+        .rfind(|(_, ch)| ch.is_whitespace())
+        .map_or(0, |(at, ch)| at + ch.len_utf8());
     let mut word = before[start..].chars();
     let trigger = word
         .next()
