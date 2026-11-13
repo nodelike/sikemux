@@ -24,8 +24,8 @@ use crate::host_update;
 /// The window's executable, beside the core's own in a build.
 const APP: &str = sikemux_process::names::APP_PROGRAM;
 const BUNDLED_APP: &str = "Contents/MacOS/sikemux";
-pub(super) const BUNDLED_NOTCH: &str = "Contents/Helpers/Sikemux Notch.app";
-pub(super) const NOTCH_EXECUTABLE: &str = "Contents/MacOS/sikemux-notch";
+pub const BUNDLED_NOTCH: &str = "Contents/Helpers/Sikemux Notch.app";
+pub const NOTCH_EXECUTABLE: &str = "Contents/MacOS/sikemux-notch";
 /// The programs beside a dev build's own binary that act as its app.
 const DEV_PROGRAMS: [&str; 3] = [
     "Sikemux Notch Dev.app",
@@ -43,7 +43,7 @@ static TRUST: OnceLock<Trust> = OnceLock::new();
 
 /// Settles what this core trusts from its own code as it started, before an
 /// update can replace the files it ran from.
-pub(crate) fn settle() {
+pub fn settle() {
     trust();
 }
 
@@ -88,11 +88,11 @@ fn app_paths_beside(own: &Path) -> Vec<PathBuf> {
 }
 
 /// The process on the other end of a connection from this host.
-pub(crate) fn pid(stream: &UnixStream) -> Option<u32> {
+pub fn pid(stream: &UnixStream) -> Option<u32> {
     platform::credentials(stream.as_raw_fd()).map(|credentials| credentials.pid())
 }
 
-pub(crate) async fn identify(stream: &UnixStream) -> Peer {
+pub async fn identify(stream: &UnixStream) -> Peer {
     let Some(credentials) = platform::credentials(stream.as_raw_fd()) else {
         return Peer::Local;
     };
@@ -108,7 +108,7 @@ pub(crate) async fn identify(stream: &UnixStream) -> Peer {
 
 /// Whether this core tells its app by the code signature, which nothing on
 /// this host can forge, rather than by where the program lives.
-pub(crate) fn app_is_signed() -> bool {
+pub fn app_is_signed() -> bool {
     trust().team_signed
 }
 
@@ -176,7 +176,7 @@ mod platform {
         r#" and (identifier "com.nodelike.sikemux" or identifier "com.nodelike.sikemux.notch")"#
     );
 
-    pub(super) fn own_code_signed_by_team() -> bool {
+    pub fn own_code_signed_by_team() -> bool {
         let Ok(code) = SecCode::for_self(Flags::NONE) else {
             return false;
         };
@@ -187,19 +187,19 @@ mod platform {
 
     /// The peer's audit token, which names the process as it was when it
     /// connected, so one that has since run another program no longer matches.
-    pub(super) struct Credentials([u32; 8]);
+    pub struct Credentials([u32; 8]);
 
     impl Credentials {
-        pub(super) fn pid(&self) -> u32 {
+        pub fn pid(&self) -> u32 {
             self.0.get(TOKEN_PID).copied().unwrap_or_default()
         }
 
-        pub(super) fn uid(&self) -> u32 {
+        pub fn uid(&self) -> u32 {
             self.0.get(TOKEN_EUID).copied().unwrap_or(u32::MAX)
         }
     }
 
-    pub(super) fn credentials(fd: RawFd) -> Option<Credentials> {
+    pub fn credentials(fd: RawFd) -> Option<Credentials> {
         let mut token = [0u32; 8];
         let mut length = std::mem::size_of_val(&token) as libc::socklen_t;
         // SAFETY: `token` is a writable buffer of `length` bytes, and the
@@ -217,7 +217,7 @@ mod platform {
             .then_some(Credentials(token))
     }
 
-    pub(super) fn examine(credentials: &Credentials) -> Examined {
+    pub fn examine(credentials: &Credentials) -> Examined {
         let token: Vec<u8> = credentials
             .0
             .iter()
@@ -251,22 +251,22 @@ mod platform {
 
     use super::Examined;
 
-    pub(super) struct Credentials {
+    pub struct Credentials {
         pid: u32,
         uid: u32,
     }
 
     impl Credentials {
-        pub(super) fn pid(&self) -> u32 {
+        pub fn pid(&self) -> u32 {
             self.pid
         }
 
-        pub(super) fn uid(&self) -> u32 {
+        pub fn uid(&self) -> u32 {
             self.uid
         }
     }
 
-    pub(super) fn credentials(fd: RawFd) -> Option<Credentials> {
+    pub fn credentials(fd: RawFd) -> Option<Credentials> {
         let mut credentials = libc::ucred {
             pid: 0,
             uid: 0,
@@ -290,11 +290,11 @@ mod platform {
         })
     }
 
-    pub(super) fn own_code_signed_by_team() -> bool {
+    pub fn own_code_signed_by_team() -> bool {
         false
     }
 
-    pub(super) fn examine(credentials: &Credentials) -> Examined {
+    pub fn examine(credentials: &Credentials) -> Examined {
         Examined {
             signed_app: false,
             program: std::fs::read_link(format!("/proc/{}/exe", credentials.pid)).ok(),
@@ -308,27 +308,27 @@ mod platform {
 
     use super::Examined;
 
-    pub(super) struct Credentials;
+    pub struct Credentials;
 
     impl Credentials {
-        pub(super) fn pid(&self) -> u32 {
+        pub fn pid(&self) -> u32 {
             0
         }
 
-        pub(super) fn uid(&self) -> u32 {
+        pub fn uid(&self) -> u32 {
             u32::MAX
         }
     }
 
-    pub(super) fn credentials(_fd: RawFd) -> Option<Credentials> {
+    pub fn credentials(_fd: RawFd) -> Option<Credentials> {
         None
     }
 
-    pub(super) fn own_code_signed_by_team() -> bool {
+    pub fn own_code_signed_by_team() -> bool {
         false
     }
 
-    pub(super) fn examine(_credentials: &Credentials) -> Examined {
+    pub fn examine(_credentials: &Credentials) -> Examined {
         Examined {
             signed_app: false,
             program: None,

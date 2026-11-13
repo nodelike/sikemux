@@ -4,7 +4,7 @@ use sikemux_view::catalog::{CatalogAgent, ChatDriver as Driver};
 
 use crate::agent_catalog::{ChatDriver, AGENTS};
 
-pub(crate) fn view() -> Vec<CatalogAgent> {
+pub fn view() -> Vec<CatalogAgent> {
     AGENTS
         .iter()
         .map(|agent| CatalogAgent {

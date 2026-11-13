@@ -17,7 +17,7 @@ fn rule(row: &str) -> bool {
 }
 
 /// The draft in the input box among the screen's `rows`; empty when there is none.
-pub(crate) fn read(rows: &[&str]) -> String {
+pub fn read(rows: &[&str]) -> String {
     let from = rows.len().saturating_sub(BOTTOM_ROWS).max(1);
     let Some(start) = (from..rows.len())
         .rev()

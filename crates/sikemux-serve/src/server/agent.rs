@@ -47,7 +47,7 @@ fn next_sequence() -> u64 {
 /// A chat's state, from the core that runs it, so it reads the same in every
 /// app whether or not one has the chat open. A chat's permission requests
 /// already notify, so its state stays out of the notices.
-pub(crate) fn publish_chat_state(core: &Core, agent_id: &str, state: AgentState) {
+pub fn publish_chat_state(core: &Core, agent_id: &str, state: AgentState) {
     core.changed(What::Agents);
     let event = Event::AgentState(AgentStateEvent {
         agent_id: agent_id.to_owned(),
@@ -61,18 +61,18 @@ pub(crate) fn publish_chat_state(core: &Core, agent_id: &str, state: AgentState)
     core.changed(What::ChatState(&event));
 }
 
-pub(crate) fn sequence_mark() -> u64 {
+pub fn sequence_mark() -> u64 {
     sequence().load(Ordering::Acquire)
 }
 
-pub(crate) fn continue_sequence(mark: u64) {
+pub fn continue_sequence(mark: u64) {
     sequence().fetch_max(mark, Ordering::AcqRel);
 }
 
 /// The part of an agent's activity a replacement core carries on from.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AgentRecord {
+pub struct AgentRecord {
     armed: bool,
     state: u8,
     silenced: bool,
@@ -82,7 +82,7 @@ pub(crate) struct AgentRecord {
 
 /// What the core infers about an agent running in a terminal, so its state is
 /// known even while no client is looking at it.
-pub(crate) struct AgentActivity {
+pub struct AgentActivity {
     agent_id: String,
     kind: Option<AgentKind>,
     armed: AtomicBool,
@@ -106,7 +106,7 @@ pub(crate) struct AgentActivity {
 }
 
 impl AgentActivity {
-    pub(crate) fn new(
+    pub fn new(
         agent_id: Option<&str>,
         agent_type: Option<&str>,
         initial_prompt_submitted: bool,
@@ -129,7 +129,7 @@ impl AgentActivity {
         })
     }
 
-    pub(crate) fn record(&self) -> AgentRecord {
+    pub fn record(&self) -> AgentRecord {
         AgentRecord {
             armed: self.armed.load(Ordering::Acquire),
             state: self.state.load(Ordering::Acquire),
@@ -140,7 +140,7 @@ impl AgentActivity {
     }
 
     /// The screen is read again on the next poll, as the rules may differ.
-    pub(crate) fn restored(
+    pub fn restored(
         agent_id: Option<&str>,
         agent_type: Option<&str>,
         record: &AgentRecord,
@@ -158,11 +158,11 @@ impl AgentActivity {
         Some(activity)
     }
 
-    pub(crate) fn agent_id(&self) -> &str {
+    pub fn agent_id(&self) -> &str {
         &self.agent_id
     }
 
-    pub(crate) fn kind(&self) -> Option<AgentKind> {
+    pub fn kind(&self) -> Option<AgentKind> {
         self.kind
     }
 
@@ -171,29 +171,29 @@ impl AgentActivity {
     }
 
     /// What it was last published doing, for an agent of a kind the core reads.
-    pub(crate) fn state(&self) -> Option<AgentState> {
+    pub fn state(&self) -> Option<AgentState> {
         self.kind.map(|_| self.state_now())
     }
 
     /// It is at work on a turn, or waits on the person in the middle of one.
-    pub(crate) fn busy(&self) -> bool {
+    pub fn busy(&self) -> bool {
         self.state_now().busy()
     }
 
     /// Its screen shows it waiting for a prompt.
-    pub(crate) fn idle(&self) -> bool {
+    pub fn idle(&self) -> bool {
         self.kind.is_some() && self.state_now() == AgentState::Idle
     }
 
-    pub(crate) fn silence(&self) {
+    pub fn silence(&self) {
         self.silenced.store(true, Ordering::Release);
     }
 
-    pub(crate) fn note_parsed(&self) {
+    pub fn note_parsed(&self) {
         self.revision.fetch_add(1, Ordering::AcqRel);
     }
 
-    pub(crate) fn invalidate_detection(&self) {
+    pub fn invalidate_detection(&self) {
         self.last_detection_fingerprint.store(0, Ordering::Release);
         self.last_detection_revision.store(0, Ordering::Release);
     }
@@ -245,7 +245,7 @@ impl AgentActivity {
     }
 }
 
-pub(crate) fn publish_start(core: &Core, agent: &AgentActivity) {
+pub fn publish_start(core: &Core, agent: &AgentActivity) {
     if agent.kind.is_none() {
         return;
     }
@@ -270,11 +270,11 @@ pub(crate) fn publish_start(core: &Core, agent: &AgentActivity) {
     }
 }
 
-pub(crate) fn submits_line(bytes: &[u8]) -> bool {
+pub fn submits_line(bytes: &[u8]) -> bool {
     bytes.iter().any(|byte| matches!(byte, b'\r' | b'\n'))
 }
 
-pub(crate) fn note_input(core: &Core, session: &Session, bytes: &[u8]) {
+pub fn note_input(core: &Core, session: &Session, bytes: &[u8]) {
     let Some(agent) = session.agent.as_ref() else {
         return;
     };
@@ -301,7 +301,7 @@ pub(crate) fn note_input(core: &Core, session: &Session, bytes: &[u8]) {
 /// stays ready until a submitted line arms it. Output from an agent at rest is
 /// a redraw, such as Claude's after each turn, unless it keeps going or its
 /// screen shows it at work.
-pub(crate) fn note_output(core: &Core, agent: &AgentActivity) {
+pub fn note_output(core: &Core, agent: &AgentActivity) {
     if agent.kind.is_none() || !agent.armed.load(Ordering::Acquire) {
         return;
     }
@@ -327,7 +327,7 @@ pub(crate) fn note_output(core: &Core, agent: &AgentActivity) {
     );
 }
 
-pub(crate) fn note_exit(core: &Core, agent: &AgentActivity, status: Option<&ExitStatus>) {
+pub fn note_exit(core: &Core, agent: &AgentActivity, status: Option<&ExitStatus>) {
     if agent.kind.is_none() {
         return;
     }
@@ -359,7 +359,7 @@ fn detection_input<'a>(recent: &'a str, title: &'a str) -> DetectionInput<'a> {
 /// a moment behind a permission prompt. One that has had no prompt yet must
 /// also have gone quiet with its prompt box in sight, as it may still be
 /// starting or asking the person something first.
-pub(crate) fn takes_prompt(core: &Core, session: &Session) -> bool {
+pub fn takes_prompt(core: &Core, session: &Session) -> bool {
     let Some(agent) = session.agent.as_ref().filter(|agent| agent.idle()) else {
         return false;
     };
@@ -383,7 +383,7 @@ pub(crate) fn takes_prompt(core: &Core, session: &Session) -> bool {
 
 /// Whether the agent's screen shows it asking the person something now, such
 /// as for a permission.
-pub(crate) fn asks_now(core: &Core, session: &Session) -> bool {
+pub fn asks_now(core: &Core, session: &Session) -> bool {
     screen_now(core, session)
         .is_some_and(|detection| matches!(detection.state, AgentDetectionState::Blocked))
 }
@@ -395,14 +395,14 @@ fn screen_now(core: &Core, session: &Session) -> Option<AgentDetection> {
     Some(registry.detect(kind, detection_input(&recent, &title)))
 }
 
-pub(crate) fn screen_text(session: &Session) -> (String, String) {
+pub fn screen_text(session: &Session) -> (String, String) {
     let screen = session.screen.locked();
     (screen.terminal.contents(), screen.window_title.clone())
 }
 
 /// Reads a settled agent screen and publishes what it shows. Runs a few times
 /// a second for every session.
-pub(crate) fn poll(core: &Core, session: &Session, now: u64) {
+pub fn poll(core: &Core, session: &Session, now: u64) {
     let Some(agent) = session.agent.as_ref() else {
         return;
     };
@@ -473,7 +473,7 @@ pub(crate) fn poll(core: &Core, session: &Session, now: u64) {
 }
 
 /// How the agent's detection rules read its screen now.
-pub(crate) async fn explain_of(core: Arc<Core>, agent_id: String) -> CoreResult<DetectionExplain> {
+pub async fn explain_of(core: Arc<Core>, agent_id: String) -> CoreResult<DetectionExplain> {
     let target = core
         .agent_session(&agent_id)
         .ok_or("invalid argument: agent has no live terminal")?;

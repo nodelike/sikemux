@@ -7,15 +7,15 @@ use tokio::sync::{watch, Notify};
 
 /// Whether this core hands itself over to a newer binary, and the work in
 /// progress a hand-over waits for.
-pub(crate) struct Updating {
+pub struct Updating {
     /// True while the core hands itself over: it takes no new work and its
     /// readers stop at the next whole chunk.
-    pub(crate) frozen: watch::Sender<bool>,
-    pub(crate) started: AtomicBool,
+    pub frozen: watch::Sender<bool>,
+    pub started: AtomicBool,
     /// Readers that hold output not yet fed to their screen.
-    pub(crate) pumping: Gauge,
+    pub pumping: Gauge,
     /// Sessions being spawned that are not in the table yet.
-    pub(crate) launching: Gauge,
+    pub launching: Gauge,
 }
 
 impl Default for Updating {
@@ -30,17 +30,17 @@ impl Default for Updating {
 }
 
 impl Updating {
-    pub(crate) fn is_frozen(&self) -> bool {
+    pub fn is_frozen(&self) -> bool {
         *self.frozen.borrow()
     }
 
-    pub(crate) async fn until_frozen(&self) {
+    pub async fn until_frozen(&self) {
         let mut frozen = self.frozen.subscribe();
         let _ = frozen.wait_for(|frozen| *frozen).await;
     }
 
     /// Hears each time the core freezes or thaws.
-    pub(crate) fn watch(&self) -> watch::Receiver<bool> {
+    pub fn watch(&self) -> watch::Receiver<bool> {
         self.frozen.subscribe()
     }
 }
@@ -48,25 +48,25 @@ impl Updating {
 /// Counts work in progress that a hand-over waits for, and wakes it when the
 /// count drops.
 #[derive(Default)]
-pub(crate) struct Gauge {
+pub struct Gauge {
     count: AtomicUsize,
     idle: Notify,
 }
 
-pub(crate) struct GaugeGuard<'a>(&'a Gauge);
+pub struct GaugeGuard<'a>(&'a Gauge);
 
 impl Gauge {
-    pub(crate) fn enter(&self) -> GaugeGuard<'_> {
+    pub fn enter(&self) -> GaugeGuard<'_> {
         self.count.fetch_add(1, Ordering::AcqRel);
         GaugeGuard(self)
     }
 
-    pub(crate) fn is_idle(&self) -> bool {
+    pub fn is_idle(&self) -> bool {
         self.count.load(Ordering::Acquire) == 0
     }
 
     /// False when the work did not finish in time.
-    pub(crate) async fn settle(&self, limit: Duration) -> bool {
+    pub async fn settle(&self, limit: Duration) -> bool {
         let deadline = tokio::time::Instant::now() + limit;
         loop {
             let idle = self.idle.notified();
@@ -90,5 +90,4 @@ impl Drop for GaugeGuard<'_> {
 }
 
 /// What anything that asks the core for work hears while it hands itself over.
-pub(crate) const UPDATING: &str =
-    "Sikemux is updating its background process; try again in a moment";
+pub const UPDATING: &str = "Sikemux is updating its background process; try again in a moment";

@@ -12,7 +12,7 @@ use sikemux_wire::protocol::{ask, DeviceAccess, Request};
 use super::{CoreError, CoreResult};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(crate) enum Peer {
+pub enum Peer {
     /// Sikemux's own window or notch, over the core's socket, as the code
     /// signature of the program on the other end shows.
     App,
@@ -29,7 +29,7 @@ pub(crate) enum Peer {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Needs {
+pub enum Needs {
     Watch,
     Full,
     /// Full control, and joined through this host's own account.
@@ -40,24 +40,23 @@ pub(crate) enum Needs {
 
 /// What a paired device may do now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct Standing {
+pub struct Standing {
     pub access: DeviceAccess,
     /// It joined through the account this host is signed in to.
     pub owners: bool,
 }
 
-pub(crate) const LOCAL_ONLY: &str = "only Sikemux on this host can do that";
-pub(crate) const APP_ONLY: &str = "only Sikemux's own window or notch can do that";
-pub(crate) const WATCH_ONLY: &str =
+pub const LOCAL_ONLY: &str = "only Sikemux on this host can do that";
+pub const APP_ONLY: &str = "only Sikemux's own window or notch can do that";
+pub const WATCH_ONLY: &str =
     "this device can watch and answer permission requests, not drive sessions";
-pub(crate) const UNPAIRED: &str = "this device is no longer paired with this host";
-pub(crate) const OWNER_ONLY: &str =
-    "only a device on this host's account with full control can do that";
+pub const UNPAIRED: &str = "this device is no longer paired with this host";
+pub const OWNER_ONLY: &str = "only a device on this host's account with full control can do that";
 
 /// What this host has set up, which decides what a program other than the app
 /// may still do to set it up.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Setup {
+pub struct Setup {
     pub signed_in: bool,
     pub paired: bool,
     /// The core tells its app by code signature, so the app is always there
@@ -67,14 +66,14 @@ pub(crate) struct Setup {
 
 /// Who may send a request: what a paired device needs for it, and which programs on this
 /// host may send it.
-pub(crate) struct Rule {
+pub struct Rule {
     pub needs: Needs,
     program: Program,
 }
 
 /// Which programs on this host may send a request.
 #[derive(Clone, Copy)]
-pub(crate) enum Program {
+pub enum Program {
     Anyone,
     /// Only Sikemux's own window or notch.
     App,
@@ -86,7 +85,7 @@ pub(crate) enum Program {
 /// which cannot be told from an agent's shell: `sikemux login` while no account
 /// owns it, `logout`, and `pair` until its first device is in. A host signed in
 /// once stays its account's until the app, root or the account moves it.
-pub(crate) fn rule(request: &Request, row: fn(&str) -> (Needs, Program)) -> Rule {
+pub fn rule(request: &Request, row: fn(&str) -> (Needs, Program)) -> Rule {
     let (needs, program) = match request {
         Request::TerminalInput(_) => return Rule::TERMINAL_INPUT,
         Request::Call(ask::Call { method, .. }) => row(method),
@@ -152,13 +151,13 @@ pub(crate) fn rule(request: &Request, row: fn(&str) -> (Needs, Program)) -> Rule
 
 impl Rule {
     /// What typing into a terminal takes, by a request or a frame of input.
-    pub(crate) const TERMINAL_INPUT: Rule = Rule {
+    pub const TERMINAL_INPUT: Rule = Rule {
         needs: Needs::Full,
         program: Program::App,
     };
 
     /// Whether only the app may send the request from this host, set up as `setup` says.
-    pub(crate) fn only_the_app(&self, setup: Setup) -> bool {
+    pub fn only_the_app(&self, setup: Setup) -> bool {
         match self.program {
             Program::Anyone => false,
             Program::App => true,
@@ -168,24 +167,24 @@ impl Rule {
 }
 
 impl Peer {
-    pub(crate) fn is_local(&self) -> bool {
+    pub fn is_local(&self) -> bool {
         matches!(self, Peer::App | Peer::Local)
     }
 
-    pub(crate) fn device_id(&self) -> Option<String> {
+    pub fn device_id(&self) -> Option<String> {
         match self {
             Peer::App | Peer::Local | Peer::Share { .. } => None,
             Peer::Device { id } => Some(id.clone()),
         }
     }
 
-    pub(crate) fn is_device(&self, id: &str) -> bool {
+    pub fn is_device(&self, id: &str) -> bool {
         matches!(self, Peer::Device { id: own } if own == id)
     }
 }
 
 /// `standing` is what the device may do now: `None` once it is unpaired.
-pub(crate) fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> CoreResult<()> {
+pub fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> CoreResult<()> {
     if peer.is_local() {
         return Ok(());
     }
@@ -203,8 +202,7 @@ pub(crate) fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> C
 #[cfg(test)]
 mod tests {
     fn table(method: &str) -> (Needs, Program) {
-        let row = crate::server::calls::row(method);
-        (row.needs, row.program)
+        unreachable!("no request here is the call {method}")
     }
 
     use super::*;

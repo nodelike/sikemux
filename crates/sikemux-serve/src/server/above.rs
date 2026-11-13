@@ -18,7 +18,7 @@ type Running<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 /// What a client asks, in the order it asked.
 type Asked = mpsc::UnboundedReceiver<(RequestId, Request)>;
 
-pub(crate) struct Above {
+pub struct Above {
     /// The terminal theme's colours, which a screen answers a program's colour queries with.
     pub terminal_colors: fn(&Core) -> TerminalColors,
     /// A terminal started or ended, so which ports are taken may have changed.

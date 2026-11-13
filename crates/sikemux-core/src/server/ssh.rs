@@ -235,7 +235,7 @@ mod tests {
         for shell in shells {
             sikemux_process::user_environment::command(shell)
                 .arg("-c")
-                .arg(super::super::ssh_startup::startup(alias))
+                .arg(sikemux_serve::server::ssh_startup::startup(alias))
                 .env("PATH", &path)
                 .output()
                 .unwrap();

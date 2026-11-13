@@ -548,7 +548,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     env:
-      CORE_CRATES: -p sikemux-core -p sikemux-calls -p sikemux-corekit -p sikemux-git -p sikemux-agents -p sikemux-kernel -p sikemux-drivers -p sikemux-hostkit -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
+      CORE_CRATES: -p sikemux-core -p sikemux-calls -p sikemux-corekit -p sikemux-git -p sikemux-agents -p sikemux-kernel -p sikemux-serve -p sikemux-drivers -p sikemux-hostkit -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -39,7 +39,7 @@ use super::connection::{blocking, ClientConn};
 use super::prepare::{Owner, PreparedLaunch};
 
 /// An agent's token for the model proxy, good until its session drops it.
-pub(crate) type ModelGrant = Box<dyn std::any::Any + Send + Sync>;
+pub type ModelGrant = Box<dyn std::any::Any + Send + Sync>;
 use super::{CapacityPermit, Core, CoreError, CoreResult};
 
 const OUTPUT_COALESCE: Duration = Duration::from_millis(2);
@@ -50,7 +50,7 @@ const FRAME_GAP: Duration = Duration::from_millis(8);
 /// Frames a client may have undrawn before it is sent no more. One that
 /// falls behind gets the latest screen once it catches up, never a backlog.
 const MAX_FRAMES_IN_FLIGHT: u32 = 2;
-pub(crate) const MAX_SUBSCRIBERS_PER_SESSION: usize = 16;
+pub const MAX_SUBSCRIBERS_PER_SESSION: usize = 16;
 const TASK_OUTPUT_NOTICE_DELAY: Duration = Duration::from_millis(50);
 
 static NEXT_STREAM: AtomicU32 = AtomicU32::new(1);
@@ -60,7 +60,7 @@ struct LineWaiter {
     found: tokio::sync::oneshot::Sender<Option<String>>,
 }
 
-pub(crate) struct Subscriber {
+pub struct Subscriber {
     client: Arc<ClientConn>,
     view: View,
     in_flight: u32,
@@ -70,22 +70,22 @@ pub(crate) struct Subscriber {
 /// Wakes a session's frame pump, which holds the session only while it
 /// sends, so a session that goes away also ends its pump.
 #[derive(Default)]
-pub(crate) struct FrameSignal {
+pub struct FrameSignal {
     notify: Notify,
     closed: AtomicBool,
 }
 
-pub(crate) struct InputJob {
+pub struct InputJob {
     bytes: Vec<u8>,
     reply: Box<dyn FnOnce(std::io::Result<()>) + Send>,
 }
 
-pub(crate) struct TaskOutput {
+pub struct TaskOutput {
     log: Mutex<OutputLog>,
     notice_pending: AtomicBool,
 }
 
-pub(crate) struct Session {
+pub struct Session {
     pub id: SessionId,
     pub kind: SessionKind,
     io: AsyncFd<File>,
@@ -93,12 +93,12 @@ pub(crate) struct Session {
     child: Mutex<Box<dyn Child + Send + Sync>>,
     pid: Option<u32>,
     owner: Owner,
-    pub(crate) screen: Mutex<Screen>,
-    pub(crate) shell_protocol: bool,
+    pub screen: Mutex<Screen>,
+    pub shell_protocol: bool,
     subscribers: Mutex<HashMap<StreamId, Subscriber>>,
     frames: Arc<FrameSignal>,
-    pub(crate) last_activity_ms: AtomicU64,
-    pub(crate) trimmed: AtomicBool,
+    pub last_activity_ms: AtomicU64,
+    pub trimmed: AtomicBool,
     killed: AtomicBool,
     exit_reported: AtomicBool,
     exited: AtomicBool,
@@ -106,11 +106,11 @@ pub(crate) struct Session {
     /// Zero while the process runs; when it was reaped otherwise. Completed
     /// tasks, and terminals that ended with nobody watching, stay attachable
     /// for a while.
-    pub(crate) exited_at_ms: AtomicU64,
+    pub exited_at_ms: AtomicU64,
     exit: Mutex<Option<SessionExit>>,
     stop_reader: Notify,
     /// Present for a terminal launched for an agent.
-    pub(crate) agent: Option<AgentActivity>,
+    pub agent: Option<AgentActivity>,
     /// The reader stopped for a hand-over that then failed, so it has to be
     /// started again.
     reader_frozen: AtomicBool,
@@ -125,7 +125,7 @@ pub(crate) struct Session {
     /// approves for the account, so only the person's own app types into it.
     setup: AtomicBool,
     /// Keeps good the token an agent in this terminal reaches model providers with.
-    pub(crate) model_grant: Mutex<Option<ModelGrant>>,
+    pub model_grant: Mutex<Option<ModelGrant>>,
     _capacity_permit: CapacityPermit,
 }
 
@@ -133,13 +133,13 @@ pub(crate) struct Session {
 /// answering its program's own queries, or anyone else, the core's own typing
 /// included.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Typist {
+pub enum Typist {
     App,
     Terminal,
     Other,
 }
 
-pub(crate) const SETUP_LOCKED: &str =
+pub const SETUP_LOCKED: &str =
     "this terminal is setting a host up, and only the Sikemux window types into it";
 
 /// Programs that animate their title, such as a spinner, send at most one
@@ -148,7 +148,7 @@ const TITLE_GAP: Duration = Duration::from_millis(200);
 
 /// Everything a session is made of besides its process handle and terminal,
 /// for a session spawned here or adopted from an earlier core.
-pub(crate) struct SessionParts {
+pub struct SessionParts {
     pub id: SessionId,
     pub kind: SessionKind,
     pub pid: Option<u32>,
@@ -168,7 +168,7 @@ pub(crate) struct SessionParts {
 }
 
 impl Session {
-    pub(crate) fn assemble(
+    pub fn assemble(
         parts: SessionParts,
         io: AsyncFd<File>,
         child: Box<dyn Child + Send + Sync>,
@@ -216,86 +216,82 @@ impl Session {
         (session, input_jobs)
     }
 
-    pub(crate) fn may_type(&self, typist: Typist) -> bool {
+    pub fn may_type(&self, typist: Typist) -> bool {
         typist != Typist::Other || !self.in_setup()
     }
 
-    pub(crate) fn in_setup(&self) -> bool {
+    pub fn in_setup(&self) -> bool {
         self.setup.load(Ordering::Acquire)
     }
 
     /// The core has read the sign-in code, or the set-up ended without one.
-    pub(crate) fn end_setup(&self) {
+    pub fn end_setup(&self) {
         self.setup.store(false, Ordering::Release);
     }
 
-    pub(crate) fn owner(&self) -> &Owner {
+    pub fn owner(&self) -> &Owner {
         &self.owner
     }
 
-    pub(crate) fn pid(&self) -> Option<u32> {
+    pub fn pid(&self) -> Option<u32> {
         self.pid
     }
 
-    pub(crate) fn fd(&self) -> std::os::fd::RawFd {
+    pub fn fd(&self) -> std::os::fd::RawFd {
         self.io.get_ref().as_raw_fd()
     }
 
-    pub(crate) fn shell_files(&self) -> Option<&std::path::Path> {
+    pub fn shell_files(&self) -> Option<&std::path::Path> {
         self.shell_integration
             .as_ref()
             .and_then(ShellLaunchIntegration::files_directory)
     }
 
-    pub(crate) fn is_killed(&self) -> bool {
+    pub fn is_killed(&self) -> bool {
         self.killed.load(Ordering::Acquire)
     }
 
-    pub(crate) fn exit_reported(&self) -> bool {
+    pub fn exit_reported(&self) -> bool {
         self.exit_reported.load(Ordering::Acquire)
     }
 
-    pub(crate) fn exit(&self) -> Option<SessionExit> {
+    pub fn exit(&self) -> Option<SessionExit> {
         self.exit.locked().clone()
     }
 
     /// Holds the process handle so nothing reaps or signals it, unless a
     /// waiter already holds it.
-    pub(crate) fn hold_child(
-        &self,
-    ) -> Option<std::sync::MutexGuard<'_, Box<dyn Child + Send + Sync>>> {
+    pub fn hold_child(&self) -> Option<std::sync::MutexGuard<'_, Box<dyn Child + Send + Sync>>> {
         self.child.try_lock().ok()
     }
 
-    pub(crate) fn task_log(&self) -> Option<(Vec<u8>, u64)> {
+    pub fn task_log(&self) -> Option<(Vec<u8>, u64)> {
         let task = self.task.as_ref()?;
         Some(task.log.locked().contents())
     }
 
-    pub(crate) fn is_task(&self) -> bool {
+    pub fn is_task(&self) -> bool {
         self.task.is_some()
     }
 
-    pub(crate) fn is_running(&self) -> bool {
+    pub fn is_running(&self) -> bool {
         !self.exited.load(Ordering::Acquire)
     }
 
-    pub(crate) fn shell_at_prompt(&self) -> bool {
+    pub fn shell_at_prompt(&self) -> bool {
         self.is_running()
             && self
                 .pid
                 .is_some_and(|pid| sikemux_pty::process::shell_at_prompt(self.fd(), pid))
     }
 
-    pub(crate) fn has_subscribers(&self) -> bool {
+    pub fn has_subscribers(&self) -> bool {
         !self.subscribers.locked().is_empty()
     }
 
     /// The SSH config host an ssh terminal connects to, and how it reaches
     /// it while ssh is up, on its way, or gave up.
-    pub(crate) fn ssh_link(
-        &self,
-    ) -> Option<(String, Option<sikemux_pty::shell_protocol::SshLink>)> {
+    pub fn ssh_link(&self) -> Option<(String, Option<sikemux_pty::shell_protocol::SshLink>)> {
         let host = self.owner.ssh_host.clone()?;
         let link = self
             .screen
@@ -307,7 +303,7 @@ impl Session {
     }
 
     /// The folder its shell last reported, else the project it was started in.
-    pub(crate) fn cwd(&self) -> Option<PathBuf> {
+    pub fn cwd(&self) -> Option<PathBuf> {
         let reported = self
             .screen
             .locked()
@@ -319,11 +315,11 @@ impl Session {
             .map(PathBuf::from)
     }
 
-    pub(crate) fn rail_number(&self) -> Option<u32> {
+    pub fn rail_number(&self) -> Option<u32> {
         self.owner.rail_number
     }
 
-    pub(crate) fn info(&self) -> SessionInfo {
+    pub fn info(&self) -> SessionInfo {
         let ((rows, cols), ssh, window_title) = {
             let screen = self.screen.locked();
             let ssh = screen.shell.as_ref().and_then(|shell| shell.ssh());
@@ -379,21 +375,21 @@ fn os_error() -> CoreError {
 /// A session that is listed but whose output is not read yet. Starting it
 /// after the spawn reply is queued means a client hears about the session
 /// before any of its output or its exit.
-pub(crate) struct PendingStart {
+pub struct PendingStart {
     session: Arc<Session>,
     input_jobs: mpsc::UnboundedReceiver<InputJob>,
 }
 
 impl PendingStart {
-    pub(crate) fn id(&self) -> SessionId {
+    pub fn id(&self) -> SessionId {
         self.session.id
     }
 
-    pub(crate) fn task(&self) -> Option<&sikemux_wire::protocol::TaskSessionInfo> {
+    pub fn task(&self) -> Option<&sikemux_wire::protocol::TaskSessionInfo> {
         self.session.owner.task.as_ref()
     }
 
-    pub(crate) fn start(self, core: &Arc<Core>) {
+    pub fn start(self, core: &Arc<Core>) {
         if let Some(agent) = self.session.agent.as_ref() {
             agent::publish_start(core, agent);
         }
@@ -410,7 +406,7 @@ impl PendingStart {
 
 /// Starts a session adopted from an earlier core. One whose exit was already
 /// reported has nothing left to read.
-pub(crate) fn start_adopted(
+pub fn start_adopted(
     core: &Arc<Core>,
     session: Arc<Session>,
     input_jobs: mpsc::UnboundedReceiver<InputJob>,
@@ -427,18 +423,18 @@ pub(crate) fn start_adopted(
 }
 
 /// Starts the readers a failed hand-over stopped.
-pub(crate) fn thaw(core: &Arc<Core>, session: Arc<Session>) {
+pub fn thaw(core: &Arc<Core>, session: Arc<Session>) {
     if session.reader_frozen.swap(false, Ordering::AcqRel) {
         tokio::spawn(read_output(core.clone(), session));
     }
 }
 
 /// Opens the terminal and starts its process. Runs on a blocking thread.
-pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreResult<PendingStart> {
+pub fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreResult<PendingStart> {
     validate_pty_dimensions(launch.cols, launch.rows)?;
     let _launching = core.updating().launching.enter();
     if core.updating().is_frozen() {
-        return Err(super::upgrade::UPDATING.into());
+        return Err(super::updating::UPDATING.into());
     }
     core.reclaim_exited_sessions(core.uptime_ms());
     let capacity_permit = core.capacity().try_acquire()?;
@@ -637,7 +633,7 @@ async fn write_input(session: Weak<Session>, mut jobs: mpsc::UnboundedReceiver<I
 /// `text` as typed into `session` to arrive as one paste: between paste
 /// markers when its program has turned bracketed paste on, else on one line,
 /// since a bare newline would send it.
-pub(crate) fn pasted(session: &Session, text: &str) -> Vec<u8> {
+pub fn pasted(session: &Session, text: &str) -> Vec<u8> {
     pasted_on(&session.screen.locked(), text)
 }
 
@@ -655,7 +651,7 @@ fn pasted_on(screen: &Screen, text: &str) -> Vec<u8> {
     }
 }
 
-pub(crate) fn queue_input(
+pub fn queue_input(
     session: &Session,
     bytes: Vec<u8>,
     typist: Typist,
@@ -820,7 +816,7 @@ fn send_last_frames(session: &Session) {
     });
 }
 
-pub(crate) fn stamp_exited(core: &Core, session: &Session) -> Option<u64> {
+pub fn stamp_exited(core: &Core, session: &Session) -> Option<u64> {
     let exited_at = core.uptime_ms().max(1);
     match session
         .exited_at_ms
@@ -837,7 +833,7 @@ pub(crate) fn stamp_exited(core: &Core, session: &Session) -> Option<u64> {
 /// Tells every client the process is gone. Natural exit, kill and shutdown can
 /// race here; only the first one is reported. The event goes out under the
 /// screen lock, so an attach knows whether its snapshot came after it.
-pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitStatus>) {
+pub fn report_exit(core: &Core, session: &Session, status: Option<&ExitStatus>) {
     let exited_at = stamp_exited(core, session);
     session.end_setup();
     let (code, signal) = match status {
@@ -963,9 +959,9 @@ fn reply_to_program(session: &Session, replies: Vec<u8>) {
     }
 }
 
-pub(crate) const RESET_MODES: &[u8] = b"\x1b>\x1b[4l\x1b[?1l\x1b[?6l\x1b[?7h\x1b[?9l\x1b[?45l\x1b[?66l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1049l";
+pub const RESET_MODES: &[u8] = b"\x1b>\x1b[4l\x1b[?1l\x1b[?6l\x1b[?7h\x1b[?9l\x1b[?45l\x1b[?66l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\x1b[?2004l\x1b[?1049l";
 
-pub(crate) fn reset_modes(core: &Core, session: &Session) -> CoreResult<()> {
+pub fn reset_modes(core: &Core, session: &Session) -> CoreResult<()> {
     session
         .screen
         .locked()
@@ -974,7 +970,7 @@ pub(crate) fn reset_modes(core: &Core, session: &Session) -> CoreResult<()> {
     Ok(())
 }
 
-pub(crate) fn clear(core: &Core, session: &Session) {
+pub fn clear(core: &Core, session: &Session) {
     session
         .screen
         .locked()
@@ -1043,7 +1039,7 @@ fn type_draft(session: &Session, screen: &Screen, draft: &str, typist: Typist) {
 }
 
 /// `draft` as it can be typed into a terminal; none when nothing is left.
-pub(crate) fn typable(draft: &str) -> Option<String> {
+pub fn typable(draft: &str) -> Option<String> {
     let draft = draft.replace('\0', "");
     let draft = draft.trim();
     (!draft.is_empty()).then(|| draft.to_owned())
@@ -1052,7 +1048,7 @@ pub(crate) fn typable(draft: &str) -> Option<String> {
 /// Types `draft` into the session once it is ready for it: at its shell's
 /// prompt, or a moment after it starts when the core cannot see a prompt.
 /// How it is typed is decided then, by what the program has turned on.
-pub(crate) fn type_when_ready(session: &Arc<Session>, draft: String, typist: Typist) {
+pub fn type_when_ready(session: &Arc<Session>, draft: String, typist: Typist) {
     let screen = session.screen.locked();
     if session.shell_protocol && at_prompt(&screen) {
         return type_draft(session, &screen, &draft, typist);
@@ -1074,14 +1070,14 @@ pub(crate) fn type_when_ready(session: &Arc<Session>, draft: String, typist: Typ
 }
 
 /// What is typed in the input box of the agent's TUI the session shows.
-pub(crate) fn prompt_draft(session: &Session) -> String {
+pub fn prompt_draft(session: &Session) -> String {
     let rows = session.screen.locked().terminal.read_rows();
     super::prompt_draft::read(&rows.iter().map(String::as_str).collect::<Vec<_>>())
 }
 
 /// Connects an ssh terminal again when it has given up and sits at the local
 /// shell's prompt.
-pub(crate) fn reconnect_ssh(session: &Session) {
+pub fn reconnect_ssh(session: &Session) {
     let Some(host) = session.owner.ssh_host.as_deref() else {
         return;
     };
@@ -1097,14 +1093,14 @@ pub(crate) fn reconnect_ssh(session: &Session) {
 }
 
 /// How the terminal's process ended, once it has.
-pub(crate) async fn ended(session: &Session) -> Option<SessionExit> {
+pub async fn ended(session: &Session) -> Option<SessionExit> {
     let _ = line_shown(session, "\0".to_owned()).await;
     session.exit()
 }
 
 /// The first line on the screen containing `containing`, once one shows,
 /// whether or not anyone watches the terminal. Nothing if it ends first.
-pub(crate) fn line_shown(
+pub fn line_shown(
     session: &Session,
     containing: String,
 ) -> tokio::sync::oneshot::Receiver<Option<String>> {
@@ -1126,15 +1122,15 @@ pub(crate) fn line_shown(
 
 /// What the person did, as the bytes the program expects under the modes it
 /// turned on.
-pub(crate) fn encode(session: &Session, input: &TerminalInput) -> Vec<u8> {
+pub fn encode(session: &Session, input: &TerminalInput) -> Vec<u8> {
     session.screen.locked().terminal.encode(input)
 }
 
-pub(crate) fn lines(session: &Session, start: u64, count: u32) -> Vec<u8> {
+pub fn lines(session: &Session, start: u64, count: u32) -> Vec<u8> {
     session.screen.locked().terminal.lines(start, count)
 }
 
-pub(crate) fn text(session: &Session, range: Option<(GridPoint, GridPoint)>) -> String {
+pub fn text(session: &Session, range: Option<(GridPoint, GridPoint)>) -> String {
     let screen = session.screen.locked();
     match range {
         Some((from, to)) => screen.terminal.text(from, to),
@@ -1142,7 +1138,7 @@ pub(crate) fn text(session: &Session, range: Option<(GridPoint, GridPoint)>) -> 
     }
 }
 
-pub(crate) fn find(
+pub fn find(
     session: &Session,
     query: &str,
     options: &FindOptions,
@@ -1222,7 +1218,7 @@ async fn pump_frames(core: Arc<Core>, session: Weak<Session>, signal: Arc<FrameS
     }
 }
 
-pub(crate) fn mark_task_output_noticed(session: &Session) {
+pub fn mark_task_output_noticed(session: &Session) {
     if let Some(task) = session.task.as_ref() {
         task.notice_pending.store(false, Ordering::Release);
     }
@@ -1230,7 +1226,7 @@ pub(crate) fn mark_task_output_noticed(session: &Session) {
 
 /// Starts a stream: its first frame, with the whole screen, answers the
 /// attach, queued under the screen lock before any later frame can be.
-pub(crate) fn attach(
+pub fn attach(
     session: &Session,
     client: &Arc<ClientConn>,
     request_id: RequestId,
@@ -1273,7 +1269,7 @@ pub(crate) fn attach(
     Ok(())
 }
 
-pub(crate) fn detach(session: &Session, stream: StreamId) {
+pub fn detach(session: &Session, stream: StreamId) {
     let emptied = {
         let mut subscribers = session.subscribers.locked();
         if subscribers.remove(&stream).is_none() {
@@ -1295,7 +1291,7 @@ pub(crate) fn detach(session: &Session, stream: StreamId) {
     }
 }
 
-pub(crate) fn detach_all(session: &Session) {
+pub fn detach_all(session: &Session) {
     let subscribers = std::mem::take(&mut *session.subscribers.locked());
     for (stream, subscriber) in subscribers {
         subscriber.client.forget_stream(stream);
@@ -1303,7 +1299,7 @@ pub(crate) fn detach_all(session: &Session) {
 }
 
 /// The client drew every frame of the stream up to `frame`.
-pub(crate) fn ack(session: &Session, stream: StreamId, frame: u32) {
+pub fn ack(session: &Session, stream: StreamId, frame: u32) {
     {
         let mut subscribers = session.subscribers.locked();
         let Some(subscriber) = subscribers.get_mut(&stream) else {
@@ -1315,7 +1311,7 @@ pub(crate) fn ack(session: &Session, stream: StreamId, frame: u32) {
     session.frames.notify.notify_one();
 }
 
-pub(crate) fn resize(session: &Session, cols: u16, rows: u16) -> CoreResult<()> {
+pub fn resize(session: &Session, cols: u16, rows: u16) -> CoreResult<()> {
     let size = libc::winsize {
         ws_row: rows,
         ws_col: cols,
@@ -1339,7 +1335,7 @@ pub(crate) fn resize(session: &Session, cols: u16, rows: u16) -> CoreResult<()> 
     Ok(())
 }
 
-pub(crate) fn task_output(
+pub fn task_output(
     session: &Session,
     query: &sikemux_pty::output_log::OutputQuery,
 ) -> CoreResult<sikemux_pty::output_log::OutputPage> {
@@ -1351,11 +1347,11 @@ pub(crate) fn task_output(
 }
 
 /// A task's output as plain lines, or none for a terminal that is not a task.
-pub(crate) fn task_lines(session: &Session) -> Option<Vec<String>> {
+pub fn task_lines(session: &Session) -> Option<Vec<String>> {
     Some(session.task.as_ref()?.log.locked().plain_lines())
 }
 
-pub(crate) fn kill(core: &Core, session: &Session) {
+pub fn kill(core: &Core, session: &Session) {
     // A terminal kept after its process ended has nothing left to signal, and
     // its pid may belong to someone else by now.
     if !session.is_task() && !session.is_running() {
@@ -1385,7 +1381,7 @@ pub(crate) fn kill(core: &Core, session: &Session) {
 }
 
 /// First half of shutting everything down: ask the process tree to stop.
-pub(crate) fn signal_for_drain(session: &Session) {
+pub fn signal_for_drain(session: &Session) {
     session.killed.store(true, Ordering::Release);
     let child = session.child.locked();
     if sikemux_pty::task::should_signal_process_on_drain(
@@ -1399,7 +1395,7 @@ pub(crate) fn signal_for_drain(session: &Session) {
 }
 
 /// Second half, after the shared grace: force whatever is left and reap it.
-pub(crate) fn finish_drain(core: &Core, session: &Session) {
+pub fn finish_drain(core: &Core, session: &Session) {
     use sikemux_pty::process::{child_process_id, kill_and_reap_child};
     use sikemux_pty::task::{should_signal_process_on_drain, task_process_needs_force_backstop};
     let status = {
@@ -1430,7 +1426,7 @@ pub(crate) fn finish_drain(core: &Core, session: &Session) {
     session.stop_reader.notify_one();
 }
 
-pub(crate) fn trim_if_idle(session: &Session, now: u64, idle: Duration) {
+pub fn trim_if_idle(session: &Session, now: u64, idle: Duration) {
     let idle_ms = idle.as_millis() as u64;
     let quiet = || now.saturating_sub(session.last_activity_ms.load(Ordering::Relaxed)) >= idle_ms;
     if session.trimmed.load(Ordering::Relaxed) || !quiet() || session.has_subscribers() {
@@ -1452,12 +1448,12 @@ const NOT_HERE: &str = "that terminal is not on this host";
 /// A draft to paste into a terminal once it is ready, left at the prompt for
 /// the person to send.
 #[derive(Deserialize)]
-pub(crate) struct TypeWhenReadyParams {
+pub struct TypeWhenReadyParams {
     id: sikemux_wire::protocol::SessionId,
     draft: String,
 }
 
-pub(crate) fn type_when_asked(
+pub fn type_when_asked(
     core: &Core,
     client: &ClientConn,
     params: TypeWhenReadyParams,
@@ -1473,13 +1469,13 @@ pub(crate) fn type_when_asked(
     Ok(json!({}))
 }
 
-pub(crate) fn draft_at_prompt(core: &Core, params: SessionParams) -> CoreResult<Value> {
+pub fn draft_at_prompt(core: &Core, params: SessionParams) -> CoreResult<Value> {
     let session = core.session(params.id).ok_or(NOT_HERE)?;
     Ok(json!({ "draft": prompt_draft(&session) }))
 }
 
 /// Starts the terminal's ssh again, off the async threads.
-pub(crate) async fn reconnect(core: &Core, params: SessionParams) -> CoreResult<Value> {
+pub async fn reconnect(core: &Core, params: SessionParams) -> CoreResult<Value> {
     let session = core.session(params.id).ok_or(NOT_HERE)?;
     blocking(move || {
         reconnect_ssh(&session);
@@ -1490,7 +1486,7 @@ pub(crate) async fn reconnect(core: &Core, params: SessionParams) -> CoreResult<
 }
 
 /// Who `client` types as: the person's own app, or anyone else.
-pub(crate) fn typist(client: &ClientConn) -> Typist {
+pub fn typist(client: &ClientConn) -> Typist {
     if client.peer == Peer::App {
         Typist::App
     } else {

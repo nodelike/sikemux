@@ -30,7 +30,7 @@ const WINDOW_GONE: &str = "Sikemux's window closed before it answered";
 /// one opens, which covers the app starting.
 const FOCUS_HELD: Duration = Duration::from_secs(60);
 
-pub(crate) fn not_open(purpose: &str) -> String {
+pub fn not_open(purpose: &str) -> String {
     format!("Sikemux's window is not open — open Sikemux to {purpose}")
 }
 
@@ -51,7 +51,7 @@ struct Inner {
     focus: Option<(String, Instant)>,
 }
 
-pub(crate) struct Window {
+pub struct Window {
     inner: Mutex<Inner>,
     next_call: AtomicU64,
 }
@@ -59,35 +59,35 @@ pub(crate) struct Window {
 /// A call sent to the window. `closed` resolves once a waiting CLI `open`
 /// has had every tab it opened closed: true when they were, false when the
 /// window went away first.
-pub(crate) struct Call {
+pub struct Call {
     pub id: CallId,
     pub answer: oneshot::Receiver<Result<Value, String>>,
     pub closed: oneshot::Receiver<bool>,
 }
 
 impl Window {
-    pub(crate) fn new(first_call: CallId) -> Self {
+    pub fn new(first_call: CallId) -> Self {
         Self {
             inner: Mutex::new(Inner::default()),
             next_call: AtomicU64::new(first_call),
         }
     }
 
-    pub(crate) fn call_mark(&self) -> CallId {
+    pub fn call_mark(&self) -> CallId {
         self.next_call.load(Ordering::Acquire)
     }
 
     /// Carries on from the call ids an earlier core handed out.
-    pub(crate) fn continue_calls(&self, mark: CallId) {
+    pub fn continue_calls(&self, mark: CallId) {
         self.next_call.fetch_max(mark, Ordering::AcqRel);
     }
 
     /// The connection the window in front speaks through, while one is open.
-    pub(crate) fn client_id(&self) -> Option<ClientId> {
+    pub fn client_id(&self) -> Option<ClientId> {
         self.inner.locked().clients.last().map(|client| client.id)
     }
 
-    pub(crate) fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         !self.inner.locked().clients.is_empty()
     }
 
@@ -104,7 +104,7 @@ impl Window {
 
     /// Sends the window an event no other client hears. False when no window
     /// is open.
-    pub(crate) fn tell(&self, event: Event) -> bool {
+    pub fn tell(&self, event: Event) -> bool {
         let Some(client) = self.inner.locked().clients.last().cloned() else {
             return false;
         };
@@ -116,7 +116,7 @@ impl Window {
 
     /// Shows `agent_id` in the window, or in the next window to open. False
     /// when no window is open now.
-    pub(crate) fn focus(&self, agent_id: String) -> bool {
+    pub fn focus(&self, agent_id: String) -> bool {
         let shown = self.tell(Event::FocusAgent {
             agent_id: agent_id.clone(),
         });
@@ -128,7 +128,7 @@ impl Window {
 
     /// Puts the window `client` speaks for in front, so the calls that follow
     /// go to it. Calls already sent to another window stay with that one.
-    pub(crate) fn register(&self, client: Arc<ClientConn>) {
+    pub fn register(&self, client: Arc<ClientConn>) {
         let focus = {
             let mut inner = self.inner.locked();
             if inner
@@ -150,7 +150,7 @@ impl Window {
         }
     }
 
-    pub(crate) fn unregister(&self, client: ClientId) {
+    pub fn unregister(&self, client: ClientId) {
         let orphaned = {
             let mut inner = self.inner.locked();
             inner.clients.retain(|known| known.id != client);
@@ -173,7 +173,7 @@ impl Window {
     /// until the window says its tabs closed.
     /// `pinned` names the agent whose browser or simulator the call drives,
     /// which goes to the window holding them.
-    pub(crate) fn call(
+    pub fn call(
         &self,
         call: WindowCall,
         purpose: &str,
@@ -233,7 +233,7 @@ impl Window {
         }
     }
 
-    pub(crate) fn answer(&self, client: ClientId, id: CallId, answer: WindowAnswer) {
+    pub fn answer(&self, client: ClientId, id: CallId, answer: WindowAnswer) {
         self.settle(client, id, |call| {
             if let Some(sender) = call.answer.take() {
                 let _ = sender.send(answer.into());
@@ -244,7 +244,7 @@ impl Window {
         });
     }
 
-    pub(crate) fn open_closed(&self, client: ClientId, id: CallId) {
+    pub fn open_closed(&self, client: ClientId, id: CallId) {
         self.settle(client, id, |call| {
             call.answer = None;
             if let Some(sender) = call.closed.take() {
@@ -254,7 +254,7 @@ impl Window {
     }
 
     /// The caller stopped waiting.
-    pub(crate) fn forget(&self, id: CallId) {
+    pub fn forget(&self, id: CallId) {
         self.inner.locked().calls.remove(&id);
     }
 }

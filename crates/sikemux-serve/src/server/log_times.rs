@@ -23,7 +23,7 @@ fn stamping() -> std::sync::MutexGuard<'static, Option<Stamping>> {
 
 /// Starts timing the log's lines when stderr is a log file. A terminal or a pipe someone else
 /// reads is left as it is.
-pub(crate) fn start() {
+pub fn start() {
     let mut held = stamping();
     if held.is_some() {
         return;
@@ -47,7 +47,7 @@ pub(crate) fn start() {
 }
 
 /// Copies whatever waits in the pipe into the log now, as before the process ends.
-pub(crate) fn flush() {
+pub fn flush() {
     let mut held = stamping();
     if let Some(stamping) = held.as_mut() {
         if drain(stamping).is_err() {
@@ -58,7 +58,7 @@ pub(crate) fn flush() {
 
 /// Copies what waits, then puts stderr back on the log file, for a process about to be
 /// replaced by one that may not read the pipe. [`start`] takes it up again if it is not.
-pub(crate) fn before_exec() {
+pub fn before_exec() {
     let mut held = stamping();
     if let Some(stamping) = held.as_mut() {
         let _ = drain(stamping);

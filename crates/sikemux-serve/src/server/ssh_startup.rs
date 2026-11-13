@@ -9,7 +9,7 @@ const RETRIES: &str = "5";
 /// The command an ssh terminal runs, through the person's own shell: ssh to
 /// `alias`, retried a few times when the connection drops, then back to the
 /// local shell. It reports where the connection stands for the rail.
-pub(crate) fn startup(alias: &str) -> String {
+pub fn startup(alias: &str) -> String {
     if cfg!(windows) {
         windows_startup(alias)
     } else {

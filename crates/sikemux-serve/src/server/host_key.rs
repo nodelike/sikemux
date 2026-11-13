@@ -17,7 +17,7 @@ const SERVICE: &str = if cfg!(debug_assertions) {
 };
 
 #[derive(Clone)]
-pub(super) struct HostKey {
+pub struct HostKey {
     pub secret: SecretKey,
     pub trusted: String,
     /// Kept through signing out, so a program here can sign the host back in
@@ -31,7 +31,7 @@ pub(super) struct HostKey {
     pub written: Option<String>,
 }
 
-pub(super) enum Keeper {
+pub enum Keeper {
     /// The secret store's entry, named for the socket's whole path so a core
     /// started with another HOME never shares it.
     Store { account: String },
@@ -40,7 +40,7 @@ pub(super) enum Keeper {
 }
 
 impl Keeper {
-    pub(super) fn new(socket: &Path, secret_store: bool) -> CoreResult<Self> {
+    pub fn new(socket: &Path, secret_store: bool) -> CoreResult<Self> {
         if !secret_store {
             let mut path = socket.as_os_str().to_owned();
             path.push(".host");
@@ -54,13 +54,13 @@ impl Keeper {
 
     /// The entry format 1 data folders kept, named for the socket's file name
     /// alone, which every core with a socket of that name shared.
-    pub(super) fn named_by_file(socket: &Path) -> CoreResult<Self> {
+    pub fn named_by_file(socket: &Path) -> CoreResult<Self> {
         Ok(Self::Store {
             account: socket_name(socket)?.to_owned(),
         })
     }
 
-    pub(super) fn load(&self) -> CoreResult<Option<HostKey>> {
+    pub fn load(&self) -> CoreResult<Option<HostKey>> {
         let text = match self {
             Self::Store { account } => {
                 sikemux_keychain::read(SERVICE, account).map_err(|error| error.to_string())?
@@ -74,7 +74,7 @@ impl Keeper {
         Ok(text.as_deref().and_then(decode))
     }
 
-    pub(super) fn save(&self, key: &HostKey) -> CoreResult<()> {
+    pub fn save(&self, key: &HostKey) -> CoreResult<()> {
         let text = format!(
             "{}.{}.{}.{}.{}",
             hex::encode(key.secret.to_bytes()),
@@ -104,7 +104,7 @@ fn socket_name(socket: &Path) -> CoreResult<&str> {
         .ok_or_else(|| CoreError::from("the core's socket has no name"))
 }
 
-pub(super) fn secret_from_hex(text: &str) -> Option<SecretKey> {
+pub fn secret_from_hex(text: &str) -> Option<SecretKey> {
     let bytes: [u8; 32] = hex::decode(text).ok()?.try_into().ok()?;
     Some(SecretKey::from_bytes(&bytes))
 }

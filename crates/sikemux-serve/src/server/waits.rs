@@ -28,20 +28,20 @@ struct Saved {
     order: VecDeque<String>,
 }
 
-pub(crate) struct Waits {
+pub struct Waits {
     kept: Kept,
     state: Mutex<Saved>,
 }
 
 impl Waits {
-    pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+    pub fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, FILE);
         let state = Mutex::new(kept.load());
         Self { kept, state }
     }
 
     /// A wait on `on` ended after `ms`.
-    pub(crate) fn took(&self, on: &str, ms: u64) {
+    pub fn took(&self, on: &str, ms: u64) {
         let mut state = self.state.locked();
         state.order.retain(|known| known != on);
         state.order.push_back(on.to_owned());
@@ -59,7 +59,7 @@ impl Waits {
     }
 
     /// The middle of the last waits on `on`, once there were enough of them.
-    pub(crate) fn expected(&self, on: &str) -> Option<u64> {
+    pub fn expected(&self, on: &str) -> Option<u64> {
         let state = self.state.locked();
         let times = state
             .took

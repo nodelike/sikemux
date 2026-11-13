@@ -1,0 +1,37 @@
+[package]
+name = "sikemux-serve"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+# For the tests of the core built on this crate: the stand-ins its own tests use.
+testing = []
+
+[target.'cfg(unix)'.dependencies]
+sikemux-agents = { path = "../sikemux-agents" }
+sikemux-calls = { path = "../sikemux-calls" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-grid = { path = "../sikemux-grid" }
+sikemux-kernel = { path = "../sikemux-kernel" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-pty = { path = "../sikemux-pty" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
+sikemux-keychain = { path = "../sikemux-keychain" }
+hex = "0.4"
+iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
+libc = "0.2"
+portable-pty = "0.9"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.11"
+tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+core-foundation = { version = "0.10", default-features = false }
+security-framework = { version = "3", default-features = false }

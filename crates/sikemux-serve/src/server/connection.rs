@@ -20,16 +20,16 @@ use super::access::{self, Peer};
 use super::session;
 use super::{local_peer, Core, CoreError, CoreResult};
 
-pub(crate) type ClientId = u64;
-pub(crate) type FrameReader = BufReader<Box<dyn AsyncRead + Send + Unpin>>;
-pub(crate) type FrameWriter = BufWriter<Box<dyn AsyncWrite + Send + Unpin>>;
+pub type ClientId = u64;
+pub type FrameReader = BufReader<Box<dyn AsyncRead + Send + Unpin>>;
+pub type FrameWriter = BufWriter<Box<dyn AsyncWrite + Send + Unpin>>;
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 /// A client that stops reading entirely is cut off rather than buffered for.
 const MAX_CLIENT_BACKLOG: usize = 64 * 1024 * 1024;
-pub(super) const SHUTDOWN_FLUSH: Duration = Duration::from_secs(1);
+pub const SHUTDOWN_FLUSH: Duration = Duration::from_secs(1);
 
-pub(crate) struct ClientConn {
+pub struct ClientConn {
     pub id: ClientId,
     pub peer: Peer,
     /// The process on the other end, for a client on this host.
@@ -41,9 +41,9 @@ pub(crate) struct ClientConn {
     /// The session each of this client's terminal streams shows.
     streams: Mutex<HashMap<StreamId, SessionId>>,
     /// A local client that asked for the device view.
-    pub(super) watches_view: AtomicBool,
+    pub watches_view: AtomicBool,
     /// A phone's app is in front, as far as it last said.
-    pub(super) foreground: AtomicBool,
+    pub foreground: AtomicBool,
 }
 
 impl ClientConn {
@@ -67,53 +67,50 @@ impl ClientConn {
         })
     }
 
-    pub(crate) fn watches_view(&self) -> bool {
+    pub fn watches_view(&self) -> bool {
         self.watches_view.load(Ordering::Acquire)
     }
 
-    pub(crate) fn in_front(&self) -> bool {
+    pub fn in_front(&self) -> bool {
         self.foreground.load(Ordering::Acquire)
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_foreground(&self, foreground: bool) {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn set_foreground(&self, foreground: bool) {
         self.foreground.store(foreground, Ordering::Release);
     }
 
     /// A client inside the core, such as a shared chat's link, that reads the
     /// frames sent to it from `frames` itself. The core does not list it, so
     /// it hears only what it attaches to.
-    pub(crate) fn inside(
-        core: &Core,
-        peer: Peer,
-    ) -> (Arc<Self>, mpsc::UnboundedReceiver<Arc<[u8]>>) {
+    pub fn inside(core: &Core, peer: Peer) -> (Arc<Self>, mpsc::UnboundedReceiver<Arc<[u8]>>) {
         let (frames, queue) = mpsc::unbounded_channel();
         (Self::new(core, peer, None, frames), queue)
     }
 
     /// The reader of a client [`inside`](Self::inside) the core took a frame.
-    pub(crate) fn took(&self, bytes: usize) {
+    pub fn took(&self, bytes: usize) {
         self.queued.fetch_sub(bytes, Ordering::AcqRel);
     }
 
     /// A client with nobody on the other end, registered with the core.
-    #[cfg(test)]
-    pub(crate) fn stand_in(core: &Core, peer: Peer) -> Arc<Self> {
+    #[cfg(any(test, feature = "testing"))]
+    pub fn stand_in(core: &Core, peer: Peer) -> Arc<Self> {
         let (frames, _) = mpsc::unbounded_channel();
         let client = Self::new(core, peer, None, frames);
         core.register_client(client.clone());
         client
     }
 
-    pub(crate) fn is_subscribed(&self, id: SessionId) -> bool {
+    pub fn is_subscribed(&self, id: SessionId) -> bool {
         self.streams.locked().values().any(|session| *session == id)
     }
 
-    pub(crate) fn stream_session(&self, stream: StreamId) -> Option<SessionId> {
+    pub fn stream_session(&self, stream: StreamId) -> Option<SessionId> {
         self.streams.locked().get(&stream).copied()
     }
 
-    pub(crate) fn send(&self, frame: Arc<[u8]>) -> bool {
+    pub fn send(&self, frame: Arc<[u8]>) -> bool {
         if self.closed.load(Ordering::Acquire) {
             return false;
         }
@@ -129,21 +126,21 @@ impl ClientConn {
         true
     }
 
-    pub(crate) fn close(&self) {
+    pub fn close(&self) {
         self.closed.store(true, Ordering::Release);
         self.kick.notify_one();
     }
 
-    pub(crate) fn is_closed(&self) -> bool {
+    pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
 
     /// The bytes sent to the client that it has not read yet.
-    pub(crate) fn backlog(&self) -> usize {
+    pub fn backlog(&self) -> usize {
         self.queued.load(Ordering::Acquire)
     }
 
-    pub(crate) fn send_message(&self, message: &ServerMessage) {
+    pub fn send_message(&self, message: &ServerMessage) {
         let Ok(frame) = encode_control(message) else {
             return;
         };
@@ -168,7 +165,7 @@ impl ClientConn {
         }
     }
 
-    pub(crate) fn respond(&self, request_id: RequestId, result: CoreResult<Response>) {
+    pub fn respond(&self, request_id: RequestId, result: CoreResult<Response>) {
         self.send_message(&match result {
             Ok(response) => ServerMessage::Response {
                 request_id,
@@ -183,23 +180,23 @@ impl ClientConn {
         });
     }
 
-    pub(crate) fn answer<A: Ask>(&self, request_id: RequestId, result: CoreResult<A::Answer>) {
+    pub fn answer<A: Ask>(&self, request_id: RequestId, result: CoreResult<A::Answer>) {
         self.respond(request_id, result.map(A::reply));
     }
 
-    pub(crate) fn note_stream(&self, stream: StreamId, id: SessionId) {
+    pub fn note_stream(&self, stream: StreamId, id: SessionId) {
         self.streams.locked().insert(stream, id);
     }
 
-    pub(crate) fn forget_stream(&self, stream: StreamId) {
+    pub fn forget_stream(&self, stream: StreamId) {
         self.streams.locked().remove(&stream);
     }
 
-    pub(crate) fn take_streams(&self) -> HashMap<StreamId, SessionId> {
+    pub fn take_streams(&self) -> HashMap<StreamId, SessionId> {
         std::mem::take(&mut *self.streams.locked())
     }
 
-    pub(crate) async fn wait_flushed(&self, limit: Duration) {
+    pub async fn wait_flushed(&self, limit: Duration) {
         let deadline = Instant::now() + limit;
         while self.queued.load(Ordering::Acquire) > 0 && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(5)).await;
@@ -292,14 +289,14 @@ async fn handshake(
     }
 }
 
-pub(crate) async fn serve_local(core: Arc<Core>, stream: UnixStream) {
+pub async fn serve_local(core: Arc<Core>, stream: UnixStream) {
     let peer = local_peer::identify(&stream).await;
     let pid = local_peer::pid(&stream);
     let (read_half, write_half) = stream.into_split();
     serve_client(core, peer, pid, Box::new(read_half), Box::new(write_half)).await;
 }
 
-pub(crate) async fn serve_client(
+pub async fn serve_client(
     core: Arc<Core>,
     peer: Peer,
     pid: Option<u32>,
@@ -410,7 +407,7 @@ async fn read_requests(
     }
 }
 
-pub(crate) async fn blocking<T: Send + 'static>(
+pub async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> CoreResult<T> + Send + 'static,
 ) -> CoreResult<T> {
     tokio::task::spawn_blocking(work)
@@ -429,7 +426,7 @@ fn unreadable_request_id(payload: &[u8]) -> Option<RequestId> {
 }
 
 /// The connection a call came on, for a stream to send its parts down.
-pub(super) fn connection_of(core: &Core, client: &ClientConn) -> CoreResult<Arc<ClientConn>> {
+pub fn connection_of(core: &Core, client: &ClientConn) -> CoreResult<Arc<ClientConn>> {
     core.client_conn(client.id)
         .ok_or_else(|| CoreError::from("this connection is closing"))
 }

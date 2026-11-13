@@ -18,25 +18,25 @@ use super::connection::{ClientConn, ClientId};
 use super::session::{self, Session};
 use super::{waits, window, Capacity, Core};
 
-pub(crate) struct ServeFields {
-    pub(crate) sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
-    pub(crate) next_session_id: AtomicU64,
-    pub(crate) capacity: Arc<Capacity>,
-    pub(crate) connections: Mutex<HashMap<ClientId, Arc<ClientConn>>>,
-    pub(crate) next_client_id: AtomicU64,
-    pub(crate) detection: RwLock<ManifestRegistry>,
-    pub(crate) window: window::Window,
-    pub(crate) waits: waits::Waits,
-    pub(crate) changes: changed::Changes,
-    pub(crate) updating: super::updating::Updating,
+pub struct ServeFields {
+    pub sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
+    pub next_session_id: AtomicU64,
+    pub capacity: Arc<Capacity>,
+    pub connections: Mutex<HashMap<ClientId, Arc<ClientConn>>>,
+    pub next_client_id: AtomicU64,
+    pub detection: RwLock<ManifestRegistry>,
+    pub window: window::Window,
+    pub waits: waits::Waits,
+    pub changes: changed::Changes,
+    pub updating: super::updating::Updating,
     /// The rail numbers running loose terminals have.
-    pub(crate) rail_numbers: Mutex<BTreeSet<u32>>,
-    pub(crate) above: super::above::Above,
+    pub rail_numbers: Mutex<BTreeSet<u32>>,
+    pub above: super::above::Above,
     /// The build this core is, which a client is told as it connects.
-    pub(crate) build: BuildIdentity,
+    pub build: BuildIdentity,
 }
 
-pub(crate) trait ServeParts {
+pub trait ServeParts {
     fn sessions(&self) -> &Mutex<HashMap<SessionId, Arc<Session>>>;
     fn next_session_id(&self) -> &AtomicU64;
     fn capacity(&self) -> &Arc<Capacity>;
@@ -107,7 +107,7 @@ impl ServeParts for Core {
 }
 
 /// The core's terminals and clients.
-pub(crate) trait ServeCore {
+pub trait ServeCore {
     fn clients(&self) -> Vec<Arc<ClientConn>>;
 
     fn agent_session(&self, agent_id: &str) -> Option<Arc<Session>>;

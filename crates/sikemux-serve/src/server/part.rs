@@ -10,7 +10,7 @@ use super::connection::ClientId;
 use super::wake::{self, Wake};
 use super::Core;
 
-pub(crate) trait Part: Send + Sync {
+pub trait Part: Send + Sync {
     /// The tasks it runs for as long as the core does.
     fn start(&self, _core: &Arc<Core>) -> Vec<JoinHandle<()>> {
         Vec::new()
@@ -24,10 +24,6 @@ pub(crate) trait Part: Send + Sync {
 }
 
 /// Runs `work` each time the wake `of` the core is woken.
-pub(crate) fn on_wake(
-    core: &Arc<Core>,
-    of: fn(&Core) -> &Wake,
-    work: fn(&Arc<Core>),
-) -> JoinHandle<()> {
+pub fn on_wake(core: &Arc<Core>, of: fn(&Core) -> &Wake, work: fn(&Arc<Core>)) -> JoinHandle<()> {
     tokio::spawn(wake::serve(core.clone(), of, work))
 }

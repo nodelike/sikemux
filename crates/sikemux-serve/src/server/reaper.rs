@@ -7,7 +7,7 @@ use std::time::Duration;
 const LOOK_EVERY: Duration = Duration::from_secs(60);
 
 /// The process's children now, with when each started, taken before it starts any of its own.
-pub(crate) fn children_now() -> Vec<(u32, u64)> {
+pub fn children_now() -> Vec<(u32, u64)> {
     let own = std::process::id();
     sikemux_process::procs::processes()
         .into_iter()
@@ -18,7 +18,7 @@ pub(crate) fn children_now() -> Vec<(u32, u64)> {
 
 /// Reaps each of `children` once it has stayed a zombie for a whole look, which a child
 /// whose exit something else waits for never does.
-pub(crate) fn watch(children: Vec<(u32, u64)>) {
+pub fn watch(children: Vec<(u32, u64)>) {
     if children.is_empty() {
         return;
     }

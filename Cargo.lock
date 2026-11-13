@@ -9936,6 +9936,7 @@ dependencies = [
  "sikemux-plugin-api",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-serve",
  "sikemux-view",
  "sikemux-wire",
  "tempfile",
@@ -10545,6 +10546,33 @@ dependencies = [
  "tempfile",
  "thiserror 1.0.69",
  "url",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-serve"
+version = "0.1.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "hex",
+ "iroh",
+ "libc",
+ "portable-pty",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-agents",
+ "sikemux-calls",
+ "sikemux-corekit",
+ "sikemux-grid",
+ "sikemux-kernel",
+ "sikemux-keychain",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-view",
+ "sikemux-wire",
+ "tokio",
  "workspace-hack",
 ]
 

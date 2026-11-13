@@ -11,7 +11,7 @@ use tokio::time::Instant;
 
 use super::Core;
 
-pub(crate) struct Wake {
+pub struct Wake {
     notify: Notify,
     due: Mutex<Option<Instant>>,
 }
@@ -30,13 +30,13 @@ impl Default for Wake {
 
 impl Wake {
     /// Something the work reads changed.
-    pub(crate) fn now(&self) {
+    pub fn now(&self) {
         self.notify.notify_one();
     }
 
     /// The work runs again by `at`, in Unix milliseconds, unless it runs
     /// sooner.
-    pub(crate) fn at(&self, at: u64) {
+    pub fn at(&self, at: u64) {
         let at = Instant::now() + Duration::from_millis(at.saturating_sub(epoch_ms()));
         let mut due = self.due.locked();
         if due.is_none_or(|due| at < due) {
@@ -66,7 +66,7 @@ impl Wake {
 
 /// Runs `work` each time the wake `of` the core is woken, for as long as the
 /// core runs. The work says when it next wants to run with [`Wake::at`].
-pub(crate) async fn serve(core: Arc<Core>, of: fn(&Core) -> &Wake, work: fn(&Arc<Core>)) {
+pub async fn serve(core: Arc<Core>, of: fn(&Core) -> &Wake, work: fn(&Arc<Core>)) {
     loop {
         of(&core).woken().await;
         work(&core);
@@ -74,7 +74,7 @@ pub(crate) async fn serve(core: Arc<Core>, of: fn(&Core) -> &Wake, work: fn(&Arc
 }
 
 /// The earlier of two moments, either of which may be none.
-pub(crate) fn sooner(a: Option<u64>, b: Option<u64>) -> Option<u64> {
+pub fn sooner(a: Option<u64>, b: Option<u64>) -> Option<u64> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),

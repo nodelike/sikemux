@@ -26,7 +26,7 @@ use super::CoreResult;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Owner {
+pub struct Owner {
     pub project: Option<String>,
     pub pane_id: Option<String>,
     pub agent_id: Option<String>,
@@ -74,7 +74,7 @@ impl Owner {
 
     /// A plain shell outside every project, agent, task and SSH host, which
     /// the rail can only tell apart by number.
-    pub(crate) fn wants_rail_number(&self, kind: SessionKind) -> bool {
+    pub fn wants_rail_number(&self, kind: SessionKind) -> bool {
         kind == SessionKind::Terminal
             && self.plain
             && self.project.is_none()
@@ -85,7 +85,7 @@ impl Owner {
     }
 }
 
-pub(crate) struct PreparedLaunch {
+pub struct PreparedLaunch {
     pub cols: u16,
     pub rows: u16,
     pub command: CommandBuilder,
@@ -102,7 +102,7 @@ pub(crate) struct PreparedLaunch {
 
 /// The command a terminal starts with, minus the parts only the app can do: it applies the
 /// browser integration to `direct_command` and passes its environment in `env`.
-pub(crate) fn prepare_terminal(
+pub fn prepare_terminal(
     launch: &LaunchIdentity,
     spawn: TerminalSpawn,
 ) -> CoreResult<PreparedLaunch> {
@@ -238,7 +238,7 @@ pub(crate) fn prepare_terminal(
 
 /// The command a task starts with. Blocks on the first call while
 /// the login shell's environment is captured.
-pub(crate) fn prepare_task(
+pub fn prepare_task(
     launch: &LaunchIdentity,
     request: TaskSpawnRequest,
 ) -> CoreResult<PreparedLaunch> {

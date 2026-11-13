@@ -5,15 +5,15 @@ use super::{CoreError, CoreResult};
 
 /// Counts launching, live and retained sessions, so the PTY budget holds even
 /// while a session is between being spawned and being published.
-pub(crate) struct Capacity {
-    pub(crate) active: AtomicUsize,
-    pub(crate) limit: usize,
+pub struct Capacity {
+    pub active: AtomicUsize,
+    pub limit: usize,
 }
 
-pub(crate) struct CapacityPermit(Arc<Capacity>);
+pub struct CapacityPermit(Arc<Capacity>);
 
 impl Capacity {
-    pub(crate) fn try_acquire(self: &Arc<Self>) -> CoreResult<CapacityPermit> {
+    pub fn try_acquire(self: &Arc<Self>) -> CoreResult<CapacityPermit> {
         self.active
             .try_update(Ordering::AcqRel, Ordering::Acquire, |active| {
                 (active < self.limit).then_some(active + 1)

@@ -11,7 +11,7 @@ use std::time::Duration;
 use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
-pub(crate) use sikemux_view::changed::Topic;
+pub use sikemux_view::changed::Topic;
 
 use sikemux_wire::protocol::{encode_control, Event, ServerMessage};
 
@@ -24,7 +24,7 @@ const MAX_PATHS: usize = 512;
 /// Paths by topic and project; none means anything may have changed.
 type Pending = BTreeMap<(Topic, Option<String>), Option<BTreeSet<String>>>;
 
-pub(crate) enum What<'a> {
+pub enum What<'a> {
     /// Something only a device's view of this host shows. The view goes out again shortly,
     /// with any changes that follow it.
     View,
@@ -47,7 +47,7 @@ pub(crate) enum What<'a> {
 }
 
 /// Saying that the core's state changed.
-pub(crate) trait ChangedCore {
+pub trait ChangedCore {
     fn changed(&self, what: What<'_>);
 
     /// The view is built afresh, and with it what the inbox is made from may have moved.
@@ -151,7 +151,7 @@ fn view_shows(event: &Event) -> bool {
 }
 
 #[derive(Default)]
-pub(crate) struct Changes {
+pub struct Changes {
     pending: Mutex<Pending>,
     notify: Notify,
 }
@@ -178,7 +178,7 @@ impl Changes {
     }
 }
 
-pub(crate) async fn serve(core: Arc<Core>) {
+pub async fn serve(core: Arc<Core>) {
     loop {
         core.changes().notify.notified().await;
         tokio::time::sleep(GATHER).await;

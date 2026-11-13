@@ -15,7 +15,7 @@ const SETTLE: Duration = Duration::from_millis(250);
 /// How many times a write that failed is tried again, a settle apart.
 const RETRIES: usize = 5;
 
-pub(crate) struct Kept {
+pub struct Kept {
     path: Option<PathBuf>,
     queue: Arc<Queue>,
 }
@@ -39,7 +39,7 @@ struct Pending {
 
 impl Kept {
     /// Without a data folder nothing is kept.
-    pub(crate) fn new(data_dir: Option<&Path>, file: &str) -> Self {
+    pub fn new(data_dir: Option<&Path>, file: &str) -> Self {
         Self {
             path: data_dir.map(|dir| dir.join(file)),
             queue: Arc::default(),
@@ -49,7 +49,7 @@ impl Kept {
     /// What the file holds, or the default when there is none yet. A file
     /// that cannot be read is moved aside first, so the next save does not
     /// overwrite what it held.
-    pub(crate) fn load<T: DeserializeOwned + Default>(&self) -> T {
+    pub fn load<T: DeserializeOwned + Default>(&self) -> T {
         let Some(path) = &self.path else {
             return T::default();
         };
@@ -65,7 +65,7 @@ impl Kept {
     }
 
     /// Moves a file that cannot be used to `<file>.unreadable-<when>`.
-    pub(crate) fn set_aside(&self, why: &str) {
+    pub fn set_aside(&self, why: &str) {
         let Some(path) = &self.path else {
             return;
         };
@@ -85,7 +85,7 @@ impl Kept {
         );
     }
 
-    pub(crate) fn save<T: Serialize>(&self, value: &T) {
+    pub fn save<T: Serialize>(&self, value: &T) {
         let Some(path) = &self.path else {
             return;
         };
@@ -101,7 +101,7 @@ impl Kept {
     /// on the disk. Changes made while one is being written are saved together
     /// after it, only the latest of them. Answers false when `value` is what
     /// was last saved, which is then not written again.
-    pub(crate) fn save_soon<T: Serialize>(&self, value: &T) -> bool {
+    pub fn save_soon<T: Serialize>(&self, value: &T) -> bool {
         let Some(path) = &self.path else {
             return true;
         };
@@ -134,7 +134,7 @@ impl Kept {
     }
 
     /// Waits until every [`Kept::save_soon`] so far is on disk.
-    pub(crate) fn flush(&self) {
+    pub fn flush(&self) {
         let mut pending = self.queue.state.locked();
         if !pending.writing {
             return;
@@ -151,7 +151,7 @@ impl Kept {
 
     /// Why the latest change handed to [`Kept::save_soon`] is not on disk,
     /// once its writes, tries again included, are over.
-    pub(crate) fn unsaved(&self) -> Option<String> {
+    pub fn unsaved(&self) -> Option<String> {
         self.queue.state.locked().unsaved.clone()
     }
 }
@@ -200,21 +200,21 @@ impl Queue {
 
 /// The file a record keyed by `key`, such as a project's path, is kept in
 /// among others of its kind in one folder.
-pub(crate) fn file_for(key: &str) -> String {
+pub fn file_for(key: &str) -> String {
     let digest = hex::encode(Sha256::digest(key.as_bytes()));
     format!("{}.json", digest.get(..16).unwrap_or(&digest))
 }
 
 /// Every record kept in `folder`, one file each; a file that cannot be read
 /// is moved aside.
-pub(crate) fn load_all<T: DeserializeOwned>(folder: Option<&Path>) -> Vec<T> {
+pub fn load_all<T: DeserializeOwned>(folder: Option<&Path>) -> Vec<T> {
     load_all_upgraded(folder, |value| value)
 }
 
 /// Every record kept in `folder`, each carried over by `upgrade` from how an
 /// earlier core wrote it before it is read; a file that cannot be read is
 /// moved aside.
-pub(crate) fn load_all_upgraded<T: DeserializeOwned>(
+pub fn load_all_upgraded<T: DeserializeOwned>(
     folder: Option<&Path>,
     upgrade: impl Fn(serde_json::Value) -> serde_json::Value,
 ) -> Vec<T> {
