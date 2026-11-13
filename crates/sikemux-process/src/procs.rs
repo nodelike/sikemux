@@ -151,6 +151,10 @@ mod system {
             .collect()
     }
 
+    pub(super) fn footprint(pid: u32) -> Option<u64> {
+        rusage(pid).map(|usage| usage.ri_phys_footprint)
+    }
+
     fn rusage(pid: u32) -> Option<libc::rusage_info_v2> {
         let mut usage = MaybeUninit::<libc::rusage_info_v2>::zeroed();
         // SAFETY: `usage` is a writable `rusage_info_v2`, the flavor the kernel is asked for.
@@ -350,6 +354,14 @@ mod system {
 mod system {
     use std::fs;
 
+    pub(super) fn footprint(pid: u32) -> Option<u64> {
+        let statm = fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
+        let resident: u64 = statm.split(' ').nth(1)?.parse().ok()?;
+        // SAFETY: sysconf only reads the system's configuration.
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(1) as u64;
+        Some(resident * page)
+    }
+
     /// `pid`'s parent and start time, from `/proc/<pid>/stat`, whose name may hold spaces and
     /// parentheses.
     fn stat(pid: u32) -> Option<(u32, u64)> {
@@ -488,6 +500,10 @@ mod system {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod system {
+    pub(super) fn footprint(_pid: u32) -> Option<u64> {
+        None
+    }
+
     pub(super) fn started(_pid: u32) -> Option<u64> {
         None
     }
@@ -595,6 +611,12 @@ pub struct Usage {
 /// What every process this user may look at uses.
 pub fn usages() -> Vec<Usage> {
     system::usages()
+}
+
+/// The memory `pid` holds, in bytes: what it alone holds where the system says, else what is
+/// resident.
+pub fn footprint(pid: u32) -> Option<u64> {
+    system::footprint(pid)
 }
 
 /// The arguments `pid` was started with, its program first.

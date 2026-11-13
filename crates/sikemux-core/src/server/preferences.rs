@@ -131,7 +131,7 @@ fn within_limits(mut preferences: Preferences) -> Preferences {
     preferences.pane_strength = ((preferences.pane_strength * 20.0).round() / 20.0).clamp(0.0, 2.0);
     let hundredths = |value: f64, low: f64| ((value * 100.0).round() / 100.0).clamp(low, 1.0);
     preferences.pane_dot_size = preferences.pane_dot_size.clamp(1, 6);
-    preferences.build_runs = preferences.build_runs.min(super::builds::MOST_RUNS);
+    preferences.build_runs = preferences.build_runs.min(super::line::MOST_RUNS);
     preferences.pane_contrast = hundredths(preferences.pane_contrast, -1.0);
     preferences.pane_brightness = hundredths(preferences.pane_brightness, -1.0);
     preferences.pane_glow = hundredths(preferences.pane_glow, 0.0);

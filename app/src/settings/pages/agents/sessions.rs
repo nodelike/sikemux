@@ -87,8 +87,8 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
     crate::settings::index::row(
         crate::settings::index::Page::Chats,
         "Chats",
-        "Builds at once",
-        "cargo build compile queue jobs cores parallel limit",
+        "Heavy commands at once",
+        "cargo build compile test queue line memory jobs parallel limit",
     ),
 ];
 
@@ -380,8 +380,8 @@ pub fn render(
             )
         }))
         .child(rows::row(
-            t!("Builds at once"),
-            Some(t!("How many builds agents start run side by side. The rest wait their turn and say so. Automatic fits it to this host's cores and free memory.")),
+            t!("Heavy commands at once"),
+            Some(t!("How many heavy commands agents start, such as builds and test suites, run side by side. The rest wait in line and say so. Automatic starts the next one when this host's free memory holds it.")),
             fields.builds.view(),
             cx,
         ))

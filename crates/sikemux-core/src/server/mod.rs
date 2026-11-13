@@ -13,7 +13,6 @@ mod approvals;
 pub mod attachments;
 mod backdrop;
 pub mod board;
-pub(crate) mod builds;
 mod caller;
 pub mod calls;
 mod catalog;
@@ -56,6 +55,7 @@ pub mod landing;
 pub mod launching;
 pub mod layout;
 mod lifecycle;
+mod line;
 mod local_peer;
 mod log_times;
 pub mod lsp;
@@ -520,7 +520,7 @@ impl ServerCore for Core {
                 person_calls,
                 pins: pins::Pins::new(data_dir),
                 build_outputs: Default::default(),
-                builds: builds::Builds::default(),
+                line: line::Line::new(data_dir),
                 session_watch: session_watch::SessionWatch::default(),
                 activity_log,
                 device_view: device_view::DeviceViews::default(),

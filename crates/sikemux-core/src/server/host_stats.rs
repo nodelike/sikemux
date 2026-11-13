@@ -148,6 +148,14 @@ impl HostWatch {
         })
     }
 
+    /// Whether the system says it is short of memory now.
+    pub(crate) fn short_of_memory(&self) -> bool {
+        matches!(
+            self.state.locked().pressure,
+            Some(Pressure::Warn | Pressure::Critical)
+        )
+    }
+
     fn watched(&self) -> bool {
         epoch_ms() < self.watched_until.load(Ordering::Acquire)
     }
@@ -222,7 +230,7 @@ pub(crate) fn load(core: &Core) -> HostLoad {
             .map(|average| average.round() as u32),
         cores: cores as u32,
         builds: match overloaded {
-            true => core.builds().shown(),
+            true => core.line().shown(),
             false => Vec::new(),
         },
     }

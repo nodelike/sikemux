@@ -1767,7 +1767,7 @@ export interface HostLoad {
     builds?: AgentBuild[];
 }
 
-/** A build an agent started, such as `xcodebuild` or `cargo build`, running or waiting its turn. */
+/** A heavy command an agent started, such as `cargo build` or `pnpm test`, running or waiting its turn. */
 export interface AgentBuild {
     id: number;
     agentId?: string;
@@ -1776,6 +1776,10 @@ export interface AgentBuild {
     since: number;
     /** How many builds wait ahead of it, while it waits. */
     ahead?: number;
+    /** How long it usually takes, once it was measured. */
+    expectedMs?: number;
+    /** A check before a commit, which goes ahead of the others waiting. */
+    final?: boolean;
 }
 
 /** An alert about this host, or about the linked host `host` names. */

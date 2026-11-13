@@ -19,6 +19,9 @@ pub const CLI_ENDPOINT_PUBLISH: &str = "SIKEMUX_CLI_ENDPOINT_PUBLISH";
 pub const REAL_GIT: &str = "SIKEMUX_REAL_GIT";
 /// Set for what a build runs while it holds its turn, so a build it starts does not wait for one.
 pub const BUILD_TURN: &str = "SIKEMUX_BUILD_TURN";
+/// `final` puts a heavy command ahead of others waiting, as a check before a commit; `normal`
+/// makes one the project marks final wait as any other.
+pub const PRIORITY: &str = "SIKEMUX_PRIORITY";
 pub const USER_ZDOTDIR: &str = "SIKEMUX_USER_ZDOTDIR";
 pub const PROJECT: &str = "SIKEMUX_PROJECT";
 pub const SHELL: &str = "SIKEMUX_SHELL";

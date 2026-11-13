@@ -14145,58 +14145,6 @@
         }
       }
     },
-    "Builds at once": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compilaciones a la vez"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "同时构建数"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Builds gleichzeitig"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Builds simultanés"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "同時ビルド数"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "동시 빌드 수"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сборок одновременно"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compilações simultâneas"
-          }
-        }
-      }
-    },
     "Built": {
       "localizations": {
         "es": {
@@ -39730,6 +39678,7 @@
         }
       }
     },
+    "Heavy commands at once": {},
     "Help": {
       "localizations": {
         "es": {
@@ -41186,58 +41135,7 @@
         }
       }
     },
-    "How many builds agents start run side by side. The rest wait their turn and say so. Automatic fits it to this host's cores and free memory.": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuántas compilaciones de las que inician los agentes se ejecutan a la vez. El resto espera su turno y lo indica. Automático lo ajusta a los núcleos y la memoria libre de este host."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理启动的构建可同时运行的数量。其余的会排队等待并提示。“自动”会根据此主机的核心数和可用内存调整。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wie viele von Agents gestartete Builds gleichzeitig laufen. Der Rest wartet und sagt das. Automatisch passt es an die Kerne und den freien Speicher dieses Hosts an."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nombre de builds lancés par les agents qui tournent en parallèle. Les autres attendent leur tour et le signalent. Automatique l'adapte aux cœurs et à la mémoire libre de cet hôte."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "エージェントが開始するビルドを同時にいくつ実行するか。残りは順番を待ち、その旨を表示します。「自動」はこのホストのコア数と空きメモリに合わせます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트가 시작한 빌드 중 동시에 실행할 수. 나머지는 차례를 기다리며 그렇다고 알립니다. 자동은 이 호스트의 코어 수와 여유 메모리에 맞춥니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сколько сборок, запущенных агентами, идёт одновременно. Остальные ждут своей очереди и сообщают об этом. «Автоматически» подбирает число по ядрам и свободной памяти этого хоста."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quantas compilações iniciadas pelos agentes rodam ao mesmo tempo. As demais esperam a vez e avisam. Automático ajusta aos núcleos e à memória livre deste host."
-          }
-        }
-      }
-    },
+    "How many heavy commands agents start, such as builds and test suites, run side by side. The rest wait in line and say so. Automatic starts the next one when this host's free memory holds it.": {},
     "How strongly the texture or picture shows. 1.00 is the default.": {
       "localizations": {
         "es": {

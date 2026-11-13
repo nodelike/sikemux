@@ -350,36 +350,36 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
     write(&mut writer, &response).await;
 }
 
-/// Gives the build its turn once the host has room, saying while it waits, and
-/// holds the turn until the build closes the connection.
+/// Gives a heavy command its turn once the host has room, saying while it waits, and
+/// holds the turn until the command closes the connection.
 async fn build(
     core: &Arc<Core>,
     reader: &mut BufReader<OwnedReadHalf>,
     writer: &mut OwnedWriteHalf,
     request: crate::cli::protocol::BuildRequest,
 ) {
-    let turn = super::builds::Turn::ask(core, request);
+    let turn = super::line::Turn::ask(core, request);
     let mut told = false;
     loop {
         match turn.place() {
-            super::builds::Place::Building => break,
-            super::builds::Place::Waiting {
+            super::line::Place::Running => break,
+            super::line::Place::Waiting {
                 ahead,
-                building,
-                limit,
+                running,
+                why,
             } if !told => {
                 told = true;
                 turn.show();
                 let queued = CliServerResponse::Queued {
                     ahead,
-                    building,
-                    limit,
+                    building: running,
+                    why,
                 };
                 if !write(writer, &queued).await {
                     return;
                 }
             }
-            super::builds::Place::Waiting { .. } => {}
+            super::line::Place::Waiting { .. } => {}
         }
         tokio::select! {
             () = turn.changed() => {}

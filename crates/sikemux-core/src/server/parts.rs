@@ -18,9 +18,9 @@ use super::{
 };
 
 use super::{
-    account, activity_log, board, builds, chat, checks, chief, codehost, collisions, device_view,
-    diagrams, drafts, edits, faces, git, goal_summary, goals, harness, hooks, host_stats, hosts,
-    inbox, join, landing, layout, lifecycle, mcp_apps, memory, mods, names, new_project, notify,
+    account, activity_log, board, chat, checks, chief, codehost, collisions, device_view, diagrams,
+    drafts, edits, faces, git, goal_summary, goals, harness, hooks, host_stats, hosts, inbox, join,
+    landing, layout, lifecycle, line, mcp_apps, memory, mods, names, new_project, notify,
     open_files, outside, person_calls, pictures, pins, places, remote, remote_image, repo_events,
     seen, session_watch, settling, share, ship, spare, stalls, tasks, tools, triggers, updates,
     upgrade, vault, workspace, worktree, Core,
@@ -72,7 +72,7 @@ pub(crate) struct Fields {
     pub(super) pins: pins::Pins,
     pub(super) build_outputs: worktree::build_output::BuildOutputs,
     /// Builds agents start, taking turns.
-    pub(super) builds: builds::Builds,
+    pub(super) line: line::Line,
     pub(super) session_watch: session_watch::SessionWatch,
     pub(super) activity_log: Arc<activity_log::ActivityLog>,
     pub(super) device_view: device_view::DeviceViews,
@@ -161,7 +161,7 @@ pub(crate) trait Parts {
     fn places(&self) -> &places::store::Store;
     fn pins(&self) -> &pins::Pins;
     fn build_outputs(&self) -> &worktree::build_output::BuildOutputs;
-    fn builds(&self) -> &builds::Builds;
+    fn line(&self) -> &line::Line;
     fn session_watch(&self) -> &session_watch::SessionWatch;
     fn activity_log(&self) -> &Arc<activity_log::ActivityLog>;
     fn device_view(&self) -> &device_view::DeviceViews;
@@ -352,8 +352,8 @@ impl Parts for Core {
         &self.kept::<Fields>().build_outputs
     }
 
-    fn builds(&self) -> &builds::Builds {
-        &self.kept::<Fields>().builds
+    fn line(&self) -> &line::Line {
+        &self.kept::<Fields>().line
     }
 
     fn session_watch(&self) -> &session_watch::SessionWatch {

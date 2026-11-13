@@ -159,6 +159,18 @@ pub struct BuildRequest {
     /// The process asking, which the person can stop.
     #[serde(default)]
     pub pid: Option<u32>,
+    /// Where it runs, which tells its project.
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// The heavy command it matched, such as `cargo test`, which the core measures it by.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// A check before a commit, which goes ahead of other waiting runs.
+    #[serde(default)]
+    pub before_commit: bool,
+    /// Runs at once while it is measured, unless it was seen to take a lot of memory before.
+    #[serde(default)]
+    pub watched: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -193,14 +205,14 @@ pub enum CliServerResponse {
         request_id: String,
         reason: CliCloseReason,
     },
-    /// The build waits behind `ahead` others while `building` builds run, of the
-    /// `limit` this machine takes at once.
+    /// The heavy command waits behind `ahead` others while `building` run, for the reason
+    /// `why` gives, such as "free memory would not hold it".
     Queued {
         ahead: usize,
         building: usize,
-        limit: usize,
+        why: String,
     },
-    /// The build may run now.
+    /// The heavy command may run now.
     Building,
     Error {
         message: String,

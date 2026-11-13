@@ -122,6 +122,7 @@ impl Process {
         args: impl IntoIterator<Item = String>,
         env: impl IntoIterator<Item = (String, String)>,
     ) -> Result<(Self, Writer, Lines), String> {
+        git_guard::shim::stand_in_for_heavy(&launch.cwd);
         let mut command =
             sikemux_process::user_environment::agent_command_in_own_cgroup(&launch.program);
         command

@@ -64,7 +64,7 @@ pub struct HostLoad {
     pub builds: Vec<AgentBuild>,
 }
 
-/// A build an agent started, such as `xcodebuild` or `cargo build`, running or waiting its turn.
+/// A heavy command an agent started, such as `cargo build` or `pnpm test`, running or waiting its turn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentBuild {
@@ -77,6 +77,12 @@ pub struct AgentBuild {
     /// How many builds wait ahead of it, while it waits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ahead: Option<u32>,
+    /// How long it usually takes, once it was measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_ms: Option<u64>,
+    /// A check before a commit, which goes ahead of the others waiting.
+    #[serde(rename = "final", default, skip_serializing_if = "std::ops::Not::not")]
+    pub before_commit: bool,
 }
 
 /// An alert about this host, or about the linked host `host` names.

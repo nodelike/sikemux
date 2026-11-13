@@ -50,7 +50,8 @@ pub fn install(data_dir: &Path, endpoint: Option<&Path>) {
     crate::agent_shell::install(data_dir);
     match link(&folder, "git") {
         Ok(()) => {
-            for program in crate::ship::PROGRAMS.iter().chain(super::builds::PROGRAMS) {
+            let built_in = super::heavy::built_in_programs();
+            for program in crate::ship::PROGRAMS.iter().copied().chain(built_in) {
                 if let Err(error) = link(&folder, program) {
                     eprintln!("sikemux core: agents' {program} commands go unchecked: {error}");
                 }
@@ -163,7 +164,7 @@ pub fn environment(path: Option<&str>) -> Vec<(String, String)> {
     crate::android_sdk::extend(&mut env);
     env.extend(crate::agent_shell::environment());
     env.extend(
-        super::builds::rustc_cache()
+        super::heavy::rustc_cache()
             .map(|(name, cache)| (name.to_owned(), cache.to_string_lossy().into_owned())),
     );
     if let Some(git) = sikemux_process::user_environment::git_program() {
@@ -246,13 +247,77 @@ pub fn run_if_git() -> Option<i32> {
         TIMEOUT => Some(crate::timeout::run(args.collect())),
         footer::LINK => Some(footer::run(args.collect())),
         program => {
-            let program = crate::ship::PROGRAMS
-                .iter()
-                .chain(super::builds::PROGRAMS)
-                .find(|known| **known == program)?;
-            Some(run_program(program, args.collect()))
+            let known = crate::ship::PROGRAMS.contains(&program)
+                || super::heavy::built_in_programs().any(|known| known == program)
+                || (!program.starts_with("sikemux") && stood_in_for(program));
+            known.then(|| run_program(program, args.collect()))
         }
     }
+}
+
+/// The file in the shim's folder that lists the programs projects' `heavy` lists named, which
+/// the shim stands in for beside the built-in ones.
+const LISTED: &str = "line.json";
+
+/// Has the shim stand in for the programs the `heavy` list of the project at `dir` names,
+/// for agents started from now on. Nothing before [`install`].
+pub fn stand_in_for_heavy(dir: &Path) {
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let Some(folder) = FOLDER.get() else {
+        return;
+    };
+    let Some(heavy) = crate::tasks::config::heavy_near(dir) else {
+        return;
+    };
+    let wanted = super::heavy::listed_programs(&heavy);
+    if wanted.is_empty() {
+        return;
+    }
+    let _writing = WRITING.lock();
+    let mut listed = listed_programs(folder);
+    let new: Vec<String> = wanted
+        .into_iter()
+        .filter(|program| !listed.contains(program))
+        .collect();
+    if new.is_empty() {
+        return;
+    }
+    for program in new {
+        match link(folder, &program) {
+            Ok(()) => listed.push(program),
+            Err(error) => eprintln!(
+                "sikemux core: agents' {program} commands do not wait their turn: {error}"
+            ),
+        }
+    }
+    let table = json!({ "programs": listed }).to_string();
+    if let Err(error) =
+        sikemux_process::files::write_atomic(&folder.join(LISTED), table.as_bytes(), false)
+    {
+        eprintln!("sikemux core: could not list the heavy commands agents run: {error}");
+    }
+}
+
+fn listed_programs(folder: &Path) -> Vec<String> {
+    std::fs::read(folder.join(LISTED))
+        .ok()
+        .and_then(|table| serde_json::from_slice::<Value>(&table).ok())
+        .and_then(|table| serde_json::from_value(table["programs"].clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Whether this binary, started as `program`, stands in for it because a project's `heavy`
+/// list named it.
+fn stood_in_for(program: &str) -> bool {
+    std::env::var_os("PATH")
+        .iter()
+        .flat_map(std::env::split_paths)
+        .filter(|folder| folder.file_name().is_some_and(|name| name == AGENT_BIN))
+        .any(|folder| {
+            listed_programs(&folder)
+                .iter()
+                .any(|listed| listed == program)
+        })
 }
 
 /// Checks the shell command in the tool call a harness writes to stdin, in
@@ -380,17 +445,17 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
                 eprintln!("{said}");
                 return 1;
             }
-            Asked::Goes { went } => watched = went.map(|went| (went, cwd)),
+            Asked::Goes { went } => watched = went,
         }
     }
     let rustup = (program == "cargo")
-        .then(|| super::builds::rustup_cargo(&std::env::current_dir().unwrap_or_default()))
+        .then(|| super::heavy::rustup_cargo(&cwd))
         .flatten();
     let Some(real) = rustup.or_else(|| real(program)) else {
         eprintln!("{program}: Sikemux found no {program} to run on PATH");
         return 127;
     };
-    if let Some((went, cwd)) = watched {
+    if let Some(went) = watched {
         let status = sikemux_process::user_environment::command(&real)
             .args(&args)
             .status();
@@ -401,12 +466,12 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         tell_ran(&went, &cwd, code);
         return code.unwrap_or(1);
     }
-    if let Some(build) = super::builds::of_program(program, &words) {
-        return super::builds::run(program, &real, &args, &words, build);
+    if let Some(heavy) = super::heavy::of_program(program, &words, &cwd) {
+        return super::heavy::run(program, &real, &args, &words, &cwd, heavy);
     }
     let mut command = sikemux_process::user_environment::command(&real);
     if program == "cargo" {
-        command.env("PATH", super::builds::path_with(&real));
+        command.env("PATH", super::heavy::path_with(&real));
     }
     let error = command.args(&args).exec();
     eprintln!("{program}: {}: {error}", real.display());

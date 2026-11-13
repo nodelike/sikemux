@@ -2837,7 +2837,7 @@ struct HostLoad: Codable, Hashable, Sendable {
     var builds: [AgentBuild]?
 }
 
-/// A build an agent started, such as `xcodebuild` or `cargo build`, running or waiting its turn.
+/// A heavy command an agent started, such as `cargo build` or `pnpm test`, running or waiting its turn.
 struct AgentBuild: Codable, Hashable, Sendable {
     var id: Int
     var agentId: String?
@@ -2846,6 +2846,10 @@ struct AgentBuild: Codable, Hashable, Sendable {
     var since: Int
     /// How many builds wait ahead of it, while it waits.
     var ahead: Int?
+    /// How long it usually takes, once it was measured.
+    var expectedMs: Int?
+    /// A check before a commit, which goes ahead of the others waiting.
+    var final: Bool?
 }
 
 /// An alert about this host, or about the linked host `host` names.

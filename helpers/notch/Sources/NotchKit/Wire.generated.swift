@@ -1011,7 +1011,7 @@ struct HostLoad: Codable, Hashable {
     let builds: [AgentBuild]?
 }
 
-/// A build an agent started, such as `xcodebuild` or `cargo build`, running or waiting its turn.
+/// A heavy command an agent started, such as `cargo build` or `pnpm test`, running or waiting its turn.
 struct AgentBuild: Codable, Hashable {
     let agentId: String?
     let command: String

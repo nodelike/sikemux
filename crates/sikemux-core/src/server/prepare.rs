@@ -168,6 +168,9 @@ pub(crate) fn prepare_terminal(
         .map(|home| account_dir(home));
     let guard = match direct_command {
         Some(_) => {
+            if let Some(cwd) = cwd.as_deref() {
+                shim::stand_in_for_heavy(std::path::Path::new(cwd));
+            }
             let mut guard = shim::environment(env.get("PATH").map(String::as_str));
             guard.extend(homes::environment(
                 owner.agent_type.as_deref().unwrap_or_default(),
