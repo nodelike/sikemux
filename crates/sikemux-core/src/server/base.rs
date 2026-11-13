@@ -28,7 +28,11 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
-use super::{agent_accounts, memory, person_calls, plugins, questions, turn_state};
+use sikemux_wire::protocol::ChatLaunch;
+
+use super::{
+    agent_accounts, memory, person_calls, plugins, ports, questions, saved, team_told, turn_state,
+};
 use crate::launch::named_account;
 
 pub(super) fn above() -> Above {
@@ -141,6 +145,27 @@ fn preference_changed(core: &Core, change: &PreferenceChange) -> CoreResult<()> 
     Ok(())
 }
 
+fn account_with_room(
+    core: &Core,
+    provider: &str,
+    launch: &ChatLaunch,
+    among: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    let chat = agent_accounts::Placing {
+        model: launch.model.clone(),
+        typical_tokens: None,
+        cwd: Some(launch.cwd.clone()),
+    };
+    agent_accounts::placement(
+        &core.workspaces().accounts().unwrap_or_default(),
+        provider,
+        &chat,
+        crate::agent_accounts::allocate::Aim::Headroom,
+        |profile| among(&profile.id),
+    )
+    .map(|placed| placed.id)
+}
+
 fn agents_gone(core: &Core, gone: &[&String]) {
     for agent_id in gone {
         core.chats().stop(agent_id);
@@ -164,6 +189,40 @@ fn agents_gone(core: &Core, gone: &[&String]) {
 
 pub(super) fn chat_above() -> ChatAbove {
     ChatAbove {
+        account_with_room,
+        other_agent_with_room: agent_accounts::other_agent_with_room,
+        turn_told: turn_state::told,
+        permit_elsewhere: |core, agent_id, request_id, option_id| {
+            let Some(worker) = core.hosts().team.get(agent_id) else {
+                return false;
+            };
+            hosts::route::permit(core, &worker, request_id, option_id);
+            true
+        },
+        checkout_environment: |core, folder| {
+            (ports::checkout::here(core, folder))
+                .map(|here| here.environment())
+                .unwrap_or_default()
+        },
+        person_calls_written: person_calls::written,
+        locate_saved: saved::locate,
+        note_elsewhere: team_told::note_elsewhere,
+        open_work: team_told::open_work,
+        start_saved: |core, agent_id, waits| {
+            Box::pin(launching::start_saved(core, agent_id, waits))
+        },
+        ensure_running: |core, agent_id, waits| {
+            Box::pin(lifecycle::ensure_running(core, agent_id, waits))
+        },
+        wake_chat: |core, agent_id| Box::pin(launching::wake_chat(core, agent_id)),
+        start_new: |core, choice| {
+            Box::pin(async move {
+                let (agent_id, _) = launching::start_new(core, None, choice).await?;
+                Ok(agent_id)
+            })
+        },
+        own_home: |core, launch| Box::pin(launching::own_home(core, launch)),
+        chief_digest: |core, chief| Box::pin(chief::digest(core, chief)),
         agent_accounts_note_live: agent_accounts::note_live,
         board_standing_since: board::goal::standing_since,
         memory_brief: memory::brief,
@@ -181,7 +240,6 @@ pub(super) fn chat_above() -> ChatAbove {
         chief_keep_session: chief::keep_session,
         chief_kept_session: chief::kept_session,
         chief_person_wrote: chief::person_wrote,
-        hosts_name_of: hosts::name_of,
         hosts_rows_moved: hosts::route::rows_moved,
         launching_own_tools: launching::own_tools,
         messages_from_person: messages::from_person,

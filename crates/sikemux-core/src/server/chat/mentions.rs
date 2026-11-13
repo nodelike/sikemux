@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use crate::server::connection::blocking;
 use crate::server::workspace::{new_agent, LauncherId};
-use crate::server::{display, launching, saved, Core, CoreError, CoreResult};
+use crate::server::{display, Core, CoreError, CoreResult};
 use sikemux_view::chat::{AGENT_URI, EARLIER_URI, WOKEN_URI};
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{ChatContext, ChatState};
@@ -56,8 +56,10 @@ async fn woken(
 ) -> CoreResult<ChatContext> {
     let found = {
         let (owner, session, cli) = (core.clone(), session.to_owned(), cli.to_owned());
-        blocking(move || saved::locate(&owner, &session, Some(&cli)).map_err(CoreError::from))
-            .await?
+        blocking(move || {
+            (owner.chat_above().locate_saved)(&owner, &session, Some(&cli)).map_err(CoreError::from)
+        })
+        .await?
     };
     if let Some((agent_id, _)) = &found.open {
         let name = core
@@ -103,7 +105,7 @@ async fn woken(
     {
         let (core, agent_id) = (core.clone(), agent.id.clone());
         tokio::spawn(async move {
-            if let Err(error) = launching::start_saved(&core, &agent_id, false).await {
+            if let Err(error) = (core.chat_above().start_saved)(&core, &agent_id, false).await {
                 eprintln!(
                     "sikemux core: an earlier chat named in a message did not start: {error}"
                 );
@@ -166,7 +168,7 @@ pub(crate) fn fill(core: &Core, caller: &str, context: &mut Vec<ChatContext>) {
 
 fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
     let Some(mate) = core.workspaces().agent(id) else {
-        return note_elsewhere(core, id);
+        return (core.chat_above().note_elsewhere)(core, id);
     };
     let name = core.names().name(id)?;
     let elsewhere = core
@@ -195,28 +197,6 @@ fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
         "To read what it said, call agent_read with agent \"{id}\"."
     ));
     Some(lines.join("\n"))
-}
-
-/// The note for a teammate on a linked host, which messages and reads reach by its name and
-/// that host's.
-fn note_elsewhere(core: &Core, id: &str) -> Option<String> {
-    let mate = core.hosts().team.get(id)?;
-    let host = (core.chat_above().hosts_name_of)(core, &mate.host);
-    let to = format!("{} on {host}", mate.name);
-    let shown = crate::server::inbox::foreign_shown(core, &mate);
-    let cli = crate::agent_catalog::agent(&mate.cli).map_or(mate.cli.as_str(), |entry| entry.label);
-    Some(
-        [
-            format!("@{to} is an agent of your team on another host, {host}, not the person."),
-            format!("Agent id: {id}"),
-            format!("CLI: {cli}"),
-            format!("Status: {}", display::status_label(mate.status)),
-            format!("Working on: {}", shown.title),
-            format!("To message it, call agent_send with to \"{to}\"."),
-            format!("To read what it said, call agent_read with agent \"{to}\"."),
-        ]
-        .join("\n"),
-    )
 }
 
 /// The word every client shows beside the agent, or Asleep while it is not running.

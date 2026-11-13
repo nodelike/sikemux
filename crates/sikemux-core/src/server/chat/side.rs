@@ -42,7 +42,7 @@ pub(crate) async fn start(core: &Arc<Core>, params: SideChatParams) -> CoreResul
         title: None,
         terminal: false,
     };
-    let (agent_id, _) = crate::server::launching::start_new(core, None, choice).await?;
+    let agent_id = (core.chat_above().start_new)(core, choice).await?;
     core.workspaces()
         .edit_agent(&agent_id, |agent| agent.side_of = Some(main.id.clone()))?;
     core.changed(crate::server::changed::What::View);

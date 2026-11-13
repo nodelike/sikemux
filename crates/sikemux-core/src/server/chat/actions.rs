@@ -61,7 +61,7 @@ pub(crate) async fn attach(
                 .is_some_and(|agent| agent.terminal);
             let taken_up = stopped(core, agent_id)
                 && !in_terminal
-                && crate::server::launching::start_saved(core, agent_id, true)
+                && (core.chat_above().start_saved)(core, agent_id, true)
                     .await
                     .is_ok();
             match core.chats().get(agent_id).filter(|_| taken_up) {
@@ -196,7 +196,7 @@ pub(crate) async fn wake_for_prompt(
 
 /// Starts a sleeping chat waiting for the person, with its saved history in place.
 pub(super) async fn wake_shown(core: &Arc<Core>, agent_id: &str) -> CoreResult<Arc<Chat>> {
-    crate::server::lifecycle::ensure_running(core, agent_id, true).await?;
+    (core.chat_above().ensure_running)(core, agent_id, true).await?;
     let chat = core.chats().running(agent_id)?;
     chat.until_saved_read().await;
     Ok(chat)
@@ -210,7 +210,7 @@ pub(crate) async fn wake_for_message(
     context: &mut [ChatContext],
 ) -> CoreResult<()> {
     if stopped(core, agent_id) {
-        crate::server::launching::wake_chat(core, agent_id.to_owned()).await?;
+        (core.chat_above().wake_chat)(core, agent_id.to_owned()).await?;
     }
     mentions::wake(core, agent_id, context).await
 }
@@ -248,7 +248,7 @@ pub(crate) fn prompt(
     context.extend((core.chat_above().board_take_note)(core, agent_id));
     context.extend(
         (core.chat_above().turn_state_now)(core, agent_id)
-            .and_then(|turn| crate::server::turn_state::told(&turn)),
+            .and_then(|turn| (core.chat_above().turn_told)(&turn)),
     );
     // The agent reads it only once it has started, which takes seconds, so the person
     // sees it sent now.
@@ -463,9 +463,10 @@ pub(crate) fn reply_permission(
     if let Some(chat) = core.chats().get(agent_id) {
         return chat.reply_permission(request_id, option_id, peer);
     }
-    let worker = (core.hosts().team.get(agent_id)).ok_or_else(super::permission_gone)?;
-    crate::server::hosts::route::permit(core, &worker, request_id, option_id);
-    Ok(())
+    match (core.chat_above().permit_elsewhere)(core, agent_id, request_id, option_id) {
+        true => Ok(()),
+        false => Err(super::permission_gone()),
+    }
 }
 
 pub(crate) async fn set_permission_mode(

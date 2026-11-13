@@ -2,6 +2,7 @@
 //! own ran out of usage, or after a sign-in, with the prompt that failed sent
 //! again once the agent is back.
 
+use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -165,20 +166,11 @@ pub(super) fn next_account<'a>(
         })
         .collect();
     let placed = chat.core.upgrade().and_then(|core| {
-        let chat = crate::server::agent_accounts::Placing {
-            model: launch.model.clone(),
-            typical_tokens: None,
-            cwd: Some(launch.cwd.clone()),
-        };
-        crate::server::agent_accounts::placement(
-            &core.workspaces().accounts().unwrap_or_default(),
-            provider,
-            &chat,
-            crate::agent_accounts::allocate::Aim::Headroom,
-            |profile| open.iter().any(|fallback| fallback.id == profile.id),
-        )
+        (core.chat_above().account_with_room)(&core, provider, launch, &|profile| {
+            open.iter().any(|fallback| fallback.id == profile)
+        })
     });
-    let best = placed.and_then(|placed| open.iter().find(|fallback| fallback.id == placed.id));
+    let best = placed.and_then(|placed| open.iter().find(|fallback| fallback.id == placed));
     best.or(open.first()).copied()
 }
 

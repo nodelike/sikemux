@@ -854,7 +854,7 @@ impl<B: Backend> Running<'_, B> {
                 replay.context.extend(handoff);
                 replay
                     .context
-                    .extend(crate::server::chief::digest(&core, self.chat.agent_id()).await);
+                    .extend((core.chat_above().chief_digest)(&core, self.chat.agent_id()).await);
             }
         }
         // A slash command takes what follows it as its arguments, so the brief waits for

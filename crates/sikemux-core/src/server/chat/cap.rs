@@ -4,23 +4,18 @@
 //! to it later does not read it all again uncached. The chat the person sees is the core's
 //! record, so none of this changes it.
 
-use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
-use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::KeepHistoryParams;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_wire::protocol::AgentState;
 
-use sikemux_view::calls::CallState;
 use sikemux_view::turn::{TurnPhase, TurnState, TurnWait, TurnWaitKind};
 
 use super::{Chat, ChatCommand};
-use crate::server::messages::called_now;
-use crate::server::{inbox, person_calls, roster, Core, CoreResult};
+use crate::server::{Core, CoreResult};
 use sikemux_view::chat::ExpiredCache;
 
 /// Claude cuts what a compaction hook answers past this many characters.
@@ -29,7 +24,7 @@ const HOOK_CHARS: usize = 10_000;
 const LONGEST_SAID: usize = 1_500;
 /// One line of what is open past this is cut, so a long command a worker waits on leaves the
 /// person's words their room.
-const LONGEST_OPEN: usize = 300;
+pub(crate) const LONGEST_OPEN: usize = 300;
 /// What is open takes at most this much of the keep-list, so the person's words always keep
 /// the rest, however many workers are blocked.
 const OPEN_SHARE: usize = 3_000;
@@ -163,7 +158,7 @@ pub(crate) fn keep_list(core: &Core, chat: &Chat) -> String {
                     each waits for. A message ending in [cut] was longer: only its start is here, \
                     so keep that start and say it was cut."
         .to_owned();
-    let open = open_work(core, chat.agent_id());
+    let open = (core.chat_above().open_work)(core, chat.agent_id());
     if !open.is_empty() {
         text.push_str("\n\nStill open, as Sikemux has it now:");
         let mut room = OPEN_SHARE;
@@ -198,7 +193,7 @@ pub(crate) fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
         .then(|| (core.chat_above().memory_brief)(core, agent_id, None))
         .flatten();
     let open = if chat.capped() {
-        open_work(core, agent_id)
+        (core.chat_above().open_work)(core, agent_id)
     } else {
         Vec::new()
     };
@@ -213,63 +208,6 @@ pub(crate) fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
         return None;
     }
     Some(text.join("\n\n").chars().take(HOOK_CHARS).collect())
-}
-
-/// The calls open to the person in the chat's project, what the chat waits on, and where each
-/// of its workers stands.
-pub(crate) fn open_work(core: &Core, agent_id: &str) -> Vec<String> {
-    let listed = roster::listed(core);
-    let Some(own) = listed.iter().find(|agent| agent.agent_id == agent_id) else {
-        return Vec::new();
-    };
-    let (chats, sessions) = core.ranked_infos();
-    let turns: HashMap<String, TurnState> = inbox::view(core, &chats, &sessions)
-        .agents
-        .into_iter()
-        .filter_map(|agent| Some((agent.agent_id, agent.turn?)))
-        .collect();
-    let now = epoch_ms();
-    let mut lines: Vec<String> = person_calls::shown(core)
-        .into_iter()
-        .filter(|call| call.state == CallState::Open && call.project == own.project)
-        .map(|call| {
-            format!(
-                "- A call to the person from @{}, open {}: {}",
-                call.asker.name,
-                ago(now, call.raised_at),
-                call.question
-            )
-        })
-        .collect();
-    let turn = |agent: &roster::Listed| turns.get(&agent.agent_id);
-    if let Some(wait) = turn(own).and_then(|turn| turn.wait.as_ref()) {
-        lines.push(format!("- You wait on {}", waited(wait, now)));
-    }
-    let leads = core.workspaces().agent_leads();
-    let mut workers: Vec<String> = (listed.iter())
-        .filter(|agent| leads.get(&agent.agent_id).map(String::as_str) == Some(agent_id))
-        .map(|worker| {
-            let title = worker.title.as_deref().unwrap_or("no title yet");
-            let stands =
-                turn(worker).map_or_else(|| "not started".to_owned(), |turn| standing(turn, now));
-            format!(
-                "- Your worker {}: {title}. {stands}",
-                called_now(core, &worker.agent_id)
-            )
-        })
-        .collect();
-    workers.sort();
-    lines.extend(workers);
-    for line in &mut lines {
-        if line.chars().count() > LONGEST_OPEN {
-            *line = line
-                .chars()
-                .take(LONGEST_OPEN)
-                .chain(" [cut]".chars())
-                .collect();
-        }
-    }
-    lines
 }
 
 pub(crate) fn standing(turn: &TurnState, now: u64) -> String {
@@ -300,7 +238,7 @@ pub(crate) fn standing(turn: &TurnState, now: u64) -> String {
     }
 }
 
-fn waited(wait: &TurnWait, now: u64) -> String {
+pub(crate) fn waited(wait: &TurnWait, now: u64) -> String {
     let kind = match wait.kind {
         TurnWaitKind::Ci => "CI",
         TurnWaitKind::Deploy => "a deploy",
@@ -315,7 +253,7 @@ fn waited(wait: &TurnWait, now: u64) -> String {
     format!("{kind}, {}, since {}", wait.what, ago(now, wait.started_at))
 }
 
-fn ago(now: u64, at: u64) -> String {
+pub(crate) fn ago(now: u64, at: u64) -> String {
     let minutes = now.saturating_sub(at) / 60_000;
     match minutes {
         0 => "a moment ago".to_owned(),

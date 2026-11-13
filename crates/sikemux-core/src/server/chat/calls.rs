@@ -78,7 +78,8 @@ pub(crate) fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreRe
     } = params;
     core.workspaces().person_said(&agent_id);
     let typed = super::Whose::typed_to(core, &agent_id);
-    let answered = crate::server::person_calls::written(core, &agent_id, &text).max(typed.answered);
+    let answered =
+        (core.chat_above().person_calls_written)(core, &agent_id, &text).max(typed.answered);
     core.activity_log()
         .person_wrote(core.workspaces().is_chief(&agent_id));
     (core.chat_above().chief_person_wrote)(core, &agent_id);

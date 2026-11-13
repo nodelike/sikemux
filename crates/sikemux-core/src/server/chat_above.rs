@@ -2,7 +2,9 @@
 //! is built with these, one function for each.
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -12,16 +14,37 @@ use sikemux_view::turn::TurnState;
 use sikemux_wire::protocol::{ChatContext, ChatLaunch};
 
 use crate::agent_accounts::usage::UsageWindow;
+use crate::agent_accounts::Book;
 
 use super::chat::feed::Feed;
 use super::chat::rotation::KeptSession;
-use super::chat::Chat;
+use super::chat::{Answered, Chat};
+use super::saved::Saved;
+use super::workspace::ChatChoice;
 use super::{Core, CoreResult};
 
 /// An agent, the dialog's id, its header, its text and what the person may choose.
 type AskForDialog = fn(&Core, &str, String, &str, &str, Vec<QuestionChoice>) -> Result<(), String>;
 
+/// Something that takes a while, such as starting a chat.
+type Doing<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// A provider, a launch, and which accounts may be picked by their id.
+type AccountWithRoom = fn(&Core, &str, &ChatLaunch, &dyn Fn(&str) -> bool) -> Option<String>;
+
 pub(crate) struct ChatAbove {
+    /// Starts the agent's chat again on what it saved, waiting for the person or not.
+    pub start_saved: for<'a> fn(&'a Arc<Core>, &'a str, bool) -> Doing<'a, CoreResult<()>>,
+    /// Starts the agent's chat when it is not running, as `start_saved` does underneath.
+    pub ensure_running: for<'a> fn(&'a Arc<Core>, &'a str, bool) -> Doing<'a, CoreResult<()>>,
+    /// Wakes the agent's chat and waits until it is ready for a prompt.
+    pub wake_chat: for<'a> fn(&'a Arc<Core>, String) -> Doing<'a, CoreResult<()>>,
+    /// Starts a new chat as chosen and answers its agent's id.
+    pub start_new: for<'a> fn(&'a Arc<Core>, ChatChoice) -> Doing<'a, CoreResult<String>>,
+    /// Gives a launch a home of its own for agents that keep one; whether it changed.
+    pub own_home: for<'a> fn(&'a Core, &'a mut ChatLaunch) -> Doing<'a, bool>,
+    /// What a chief is told of what happened while its session was away.
+    pub chief_digest: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, Vec<ChatContext>>,
     /// A chat on `account`, one of the person's profiles or the default one when absent, was
     /// refused for sign-in: the account is signed out now, whatever its CLI last said.
     pub agent_accounts_chat_refused: fn(&Core, &str, Option<&str>),
@@ -51,8 +74,6 @@ pub(crate) struct ChatAbove {
     /// block with no call in it is done with; written to another agent, its chief's next digest
     /// reads that chat.
     pub chief_person_wrote: fn(&Core, &str),
-    /// `hosts::name_of`.
-    pub hosts_name_of: fn(&Core, &str) -> String,
     /// Something the agents here show changed: the hosts their teammates run on hear each row
     /// that differs from what they were last told.
     pub hosts_rows_moved: fn(&Core),
@@ -112,4 +133,24 @@ pub(crate) struct ChatAbove {
     pub questions_ask_for_dialog: AskForDialog,
     /// How `agent_id`'s turn stands, worked out now from its own facts alone.
     pub turn_state_now: fn(&Core, &str) -> Option<TurnState>,
+    /// The account of this provider with the most room for this launch, among those `among`
+    /// lets through by their id.
+    pub account_with_room: AccountWithRoom,
+    /// Another agent that has room to take a chat of this provider over, in this folder.
+    pub other_agent_with_room: fn(&Book, &str, &Path) -> Option<&'static str>,
+    /// How a turn stands, as its agent is told.
+    pub turn_told: fn(&TurnState) -> Option<ChatContext>,
+    /// Answers a permission request of a worker on a linked host; false when it is not one.
+    pub permit_elsewhere: fn(&Core, &str, &str, Option<String>) -> bool,
+    /// What a checkout in this folder gives the programs started in it.
+    pub checkout_environment: fn(&Core, &Path) -> Vec<(String, String)>,
+    /// What the person's written words answered of the calls open to them.
+    pub person_calls_written: fn(&Core, &str, &str) -> Option<Answered>,
+    /// Finds a saved session by its id, of this CLI when given.
+    pub locate_saved: fn(&Core, &str, Option<&str>) -> Result<Saved, String>,
+    /// The note for a teammate on a linked host.
+    pub note_elsewhere: fn(&Core, &str) -> Option<String>,
+    /// The calls open to the person in the chat's project, what the chat waits on, and where
+    /// each of its workers stands.
+    pub open_work: fn(&Core, &str) -> Vec<String>,
 }

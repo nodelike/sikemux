@@ -21,7 +21,7 @@ use crate::agent_accounts::usage;
 use sikemux_fold::ChatEventKind;
 use sikemux_wire::protocol::ChatLaunch;
 
-use super::super::{launching, Core};
+use super::super::Core;
 use super::kept;
 use super::rebind::Replay;
 use super::{Chat, ChatCommand};
@@ -312,7 +312,7 @@ async fn resume(core: &Arc<Core>, agent_id: String) {
         resets.cancel(&agent_id);
         return;
     }
-    if let Err(error) = launching::wake_chat(core, agent_id.clone()).await {
+    if let Err(error) = (core.chat_above().wake_chat)(core, agent_id.clone()).await {
         eprintln!("sikemux core: chat {agent_id} waits to resume until it next starts: {error}");
     }
 }

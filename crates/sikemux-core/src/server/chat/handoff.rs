@@ -320,7 +320,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
             title: None,
             terminal: false,
         };
-        let (agent_id, _) = crate::server::launching::start_new(core, None, choice).await?;
+        let agent_id = (core.chat_above().start_new)(core, choice).await?;
         core.chats().handoffs.set(&agent_id, pending);
         tell(core, &agent_id);
         return Ok(ChatHandedOff {
@@ -354,7 +354,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreRes
         },
     )?;
     core.chats().handoffs.set(&agent_id, pending);
-    crate::server::launching::start_saved(core, &agent_id, true).await?;
+    (core.chat_above().start_saved)(core, &agent_id, true).await?;
     tell(core, &agent_id);
     Ok(ChatHandedOff {
         agent_id,
@@ -381,9 +381,7 @@ pub(crate) fn offer_another_agent(chat: &super::Chat, launch: &sikemux_wire::pro
         return;
     }
     let from = chat.provider();
-    let Some(other) =
-        crate::server::agent_accounts::other_agent_with_room(&book, from, &launch.cwd)
-    else {
+    let Some(other) = (core.chat_above().other_agent_with_room)(&book, from, &launch.cwd) else {
         return;
     };
     let label = |kind: &str| {

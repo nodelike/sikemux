@@ -99,7 +99,7 @@ pub(super) fn launch(
         // or after a sign-in, and the chat carries on through it.
         let mut begin = begin;
         let mut first = ending.current_launch();
-        if crate::server::launching::own_home(&owner, &mut first).await {
+        if (owner.chat_above().own_home)(&owner, &mut first).await {
             ending.set_current(first);
         }
         let result = loop {
@@ -244,8 +244,7 @@ pub(super) fn start(
     for (key, value) in (core.chat_above().plugins_agent_environment)(core, &launch_spec.cwd) {
         launch_spec.env.entry(key).or_insert(value);
     }
-    let here = crate::server::ports::checkout::here(core, &launch_spec.cwd);
-    for (key, value) in here.map(|here| here.environment()).unwrap_or_default() {
+    for (key, value) in (core.chat_above().checkout_environment)(core, &launch_spec.cwd) {
         launch_spec.env.entry(key).or_insert(value);
     }
     validate(&launch_spec)?;

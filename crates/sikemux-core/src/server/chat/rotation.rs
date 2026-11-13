@@ -382,7 +382,7 @@ pub(crate) fn brief(core: &Core, chat: &Chat) -> Brief {
         ));
     }
 
-    let open = cap::open_work(core, chat.agent_id());
+    let open = (core.chat_above().open_work)(core, chat.agent_id());
     let work = within(open.iter().cloned(), WORK_CHARS);
     if !work.is_empty() {
         let count = |opening: &str| {
