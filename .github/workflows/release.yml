@@ -925,15 +925,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Look for the tap token
+      - name: Look for the tap key
         id: token
         env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
         run: |
-          if [[ -n "$HOMEBREW_TAP_TOKEN" ]]; then
+          if [[ -n "$HOMEBREW_TAP_SSH_KEY" ]]; then
             echo "configured=true" >>"$GITHUB_OUTPUT"
           else
-            echo "No HOMEBREW_TAP_TOKEN in the release environment, so the cask keeps its last version" >>"$GITHUB_STEP_SUMMARY"
+            echo "No HOMEBREW_TAP_SSH_KEY in the release environment, so the cask keeps its last version" >>"$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Checkout
@@ -952,7 +952,7 @@ jobs:
       - name: Push the cask to nodelike/homebrew-tap
         if: steps.token.outputs.configured == 'true'
         env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
           VERSION: ${{ needs.plan.outputs.version }}
         run: packaging/homebrew/push-cask.sh "$VERSION" "$RUNNER_TEMP/Sikemux_${VERSION}_aarch64.dmg"
 

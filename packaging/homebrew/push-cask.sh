@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Write the sikemux cask for a stable release's DMG and push it to nodelike/homebrew-tap.
-# HOMEBREW_TAP_TOKEN must be able to push to that repository.
+# HOMEBREW_TAP_SSH_KEY is that repository's deploy key, with write access.
 set -euo pipefail
 
 VERSION="${1:-}"
 DMG="${2:-}"
 TAP=nodelike/homebrew-tap
+GITHUB_HOST_KEY="github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"
 
 fail() {
   echo "Homebrew push failed: $*" >&2
@@ -13,17 +14,22 @@ fail() {
 }
 
 [[ -n "$VERSION" && -f "$DMG" ]] || { echo "Usage: $0 <version> <dmg>" >&2; exit 2; }
-[[ -n "${HOMEBREW_TAP_TOKEN:-}" ]] || fail "HOMEBREW_TAP_TOKEN is not set"
+[[ -n "${HOMEBREW_TAP_SSH_KEY:-}" ]] || fail "HOMEBREW_TAP_SSH_KEY is not set"
 case "$VERSION" in
   *-*) fail "only stable releases go to Homebrew, not $VERSION" ;;
 esac
 [[ "${DMG##*/}" == "Sikemux_${VERSION}_aarch64.dmg" ]] || fail "$DMG is not the $VERSION DMG"
 
 SHA256="$(shasum -a 256 "$DMG" | cut -d' ' -f1)"
+SSH_DIR="$(mktemp -d)"
 CLONE="$(mktemp -d)"
-trap 'rm -rf "$CLONE"' EXIT
+trap 'rm -rf "$SSH_DIR" "$CLONE"' EXIT
+printf '%s\n' "$HOMEBREW_TAP_SSH_KEY" >"$SSH_DIR/key"
+chmod 600 "$SSH_DIR/key"
+printf '%s\n' "$GITHUB_HOST_KEY" >"$SSH_DIR/known_hosts"
+export GIT_SSH_COMMAND="ssh -i $SSH_DIR/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$SSH_DIR/known_hosts -o StrictHostKeyChecking=yes"
 
-git clone --quiet --depth 1 "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${TAP}.git" "$CLONE"
+git clone --quiet --depth 1 "git@github.com:${TAP}.git" "$CLONE"
 mkdir -p "$CLONE/Casks"
 cat >"$CLONE/Casks/sikemux.rb" <<CASK
 cask "sikemux" do
