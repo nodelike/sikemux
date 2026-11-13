@@ -3,6 +3,7 @@
 
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_wire::protocol::{AgentState, Event, SessionId};
 

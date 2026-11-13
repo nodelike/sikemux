@@ -4,7 +4,7 @@
 use super::*;
 use crate::accounts::protocol::DeviceList;
 use crate::server::account::api::as_host;
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use reqwest::Method;
 
 /// The remote file set aside beside `path`, and when it was, if there is one.

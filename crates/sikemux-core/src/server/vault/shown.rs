@@ -1,7 +1,7 @@
 //! The vault as Settings → Connectors shows it, and what the person changes there: which
 //! hosts and projects may use each sign-in, the recovery key, and each sign-in's use log.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 pub use sikemux_calls::vault::{AllowParams, ShownHost, ShownSignIn, ShownStatus, ShownVault};
 pub use sikemux_calls::vault::{RecoverParams, RevokeParams, ShownUse, UsesParams};
 use std::collections::BTreeSet;

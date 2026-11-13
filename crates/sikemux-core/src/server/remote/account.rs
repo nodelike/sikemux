@@ -1,7 +1,7 @@
 //! The account this host belongs to: signing in and out, and the live connection that tells it of devices, hosts and phones the account adds or revokes.
 
 use super::*;
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
 

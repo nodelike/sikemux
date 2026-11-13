@@ -4,6 +4,7 @@
 //! the merge queue read that worktree as they do for an agent here.
 
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;

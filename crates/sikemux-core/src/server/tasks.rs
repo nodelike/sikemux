@@ -7,6 +7,7 @@ use super::access::Peer;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;

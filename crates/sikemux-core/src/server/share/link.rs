@@ -4,7 +4,7 @@
 //! snapshot, since the server may have lost what it held.
 
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 

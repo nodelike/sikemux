@@ -4,6 +4,7 @@
 use super::connection::ClientId as GoneClient;
 use super::part::Part;
 use crate::server::chat_state::ChatParts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::PathBuf;
@@ -15,11 +16,10 @@ use tokio::sync::Notify;
 use super::{ports, streams, themes, ServerConfig};
 
 use super::{
-    account, board, checks, chief, codehost, collisions, device_view, edits, git, goal_summary,
-    goals, harness, hooks, host_stats, hosts, inbox, join, landing, layout, lifecycle, line,
-    memory, mods, notify, outside, person_calls, pictures, pins, places, remote, remote_image,
-    repo_events, session_watch, settling, share, ship, spare, stalls, tasks, tools, triggers,
-    updates, vault, worktree, Core,
+    board, checks, chief, codehost, collisions, device_view, edits, git, goal_summary, goals,
+    harness, hooks, host_stats, hosts, inbox, landing, layout, lifecycle, line, memory, mods,
+    outside, person_calls, pictures, pins, places, remote_image, repo_events, session_watch,
+    settling, ship, spare, stalls, tasks, tools, triggers, updates, worktree, Core,
 };
 
 pub(crate) struct Fields {
@@ -35,10 +35,8 @@ pub(crate) struct Fields {
     pub(super) look: themes::Look,
     pub(super) harness: harness::Harness,
     pub(super) tools: Mutex<Option<tools::ToolEndpoint>>,
-    pub(super) remote: remote::Remote,
     /// Programs Sikemux did not start that the person lets drive its chats.
     pub(super) outside: outside::Outside,
-    pub(super) shares: share::Shares,
     pub(super) hooks: hooks::Hooks,
     pub(super) settling: settling::Settling,
     pub(super) stalls: stalls::Stalls,
@@ -72,22 +70,15 @@ pub(crate) struct Fields {
     /// The code-host lists clients look at, kept and read again while they do.
     pub(super) code_host_lists: codehost::Lists,
     pub(super) layouts: layout::Layouts,
-    /// Who this host is signed in to Sikemux as.
-    pub(super) account: account::Account,
-    /// The account's vault of sign-ins, as this host holds it.
-    pub(super) vault: vault::Vault,
     pub(super) ci: codehost::ci::Ci,
     pub(super) edits: edits::Edits,
     pub(super) collisions: collisions::Collisions,
     pub(super) checks: checks::ProjectChecks,
-    pub(super) notify: notify::Notifier,
     pub(super) inbox: inbox::Turns,
-    pub(super) joins: join::Joins,
     /// Hosts linked with this one, and the agents of teams shared with them.
     pub(super) hosts: hosts::Hosts,
     pub(super) mods: mods::Mods,
     pub(super) chiefs: chief::Chiefs,
-    pub(super) remote_above: super::remote_above::RemoteAbove,
 }
 
 pub(crate) trait Parts {
@@ -100,9 +91,7 @@ pub(crate) trait Parts {
     fn look(&self) -> &themes::Look;
     fn harness(&self) -> &harness::Harness;
     fn tools(&self) -> &Mutex<Option<tools::ToolEndpoint>>;
-    fn remote(&self) -> &remote::Remote;
     fn outside(&self) -> &outside::Outside;
-    fn shares(&self) -> &share::Shares;
     fn hooks(&self) -> &hooks::Hooks;
     fn settling(&self) -> &settling::Settling;
     fn stalls(&self) -> &stalls::Stalls;
@@ -132,19 +121,14 @@ pub(crate) trait Parts {
     fn git(&self) -> &git::Projects;
     fn code_host_lists(&self) -> &codehost::Lists;
     fn layouts(&self) -> &layout::Layouts;
-    fn account(&self) -> &account::Account;
-    fn vault(&self) -> &vault::Vault;
     fn ci(&self) -> &codehost::ci::Ci;
     fn edits(&self) -> &edits::Edits;
     fn collisions(&self) -> &collisions::Collisions;
     fn checks(&self) -> &checks::ProjectChecks;
-    fn notify(&self) -> &notify::Notifier;
     fn inbox(&self) -> &inbox::Turns;
-    fn joins(&self) -> &join::Joins;
     fn hosts(&self) -> &hosts::Hosts;
     fn mods(&self) -> &mods::Mods;
     fn chiefs(&self) -> &chief::Chiefs;
-    fn remote_above(&self) -> &super::remote_above::RemoteAbove;
 }
 
 impl Parts for Core {
@@ -184,16 +168,8 @@ impl Parts for Core {
         &self.kept::<Fields>().tools
     }
 
-    fn remote(&self) -> &remote::Remote {
-        &self.kept::<Fields>().remote
-    }
-
     fn outside(&self) -> &outside::Outside {
         &self.kept::<Fields>().outside
-    }
-
-    fn shares(&self) -> &share::Shares {
-        &self.kept::<Fields>().shares
     }
 
     fn hooks(&self) -> &hooks::Hooks {
@@ -312,14 +288,6 @@ impl Parts for Core {
         &self.kept::<Fields>().layouts
     }
 
-    fn account(&self) -> &account::Account {
-        &self.kept::<Fields>().account
-    }
-
-    fn vault(&self) -> &vault::Vault {
-        &self.kept::<Fields>().vault
-    }
-
     fn ci(&self) -> &codehost::ci::Ci {
         &self.kept::<Fields>().ci
     }
@@ -336,16 +304,8 @@ impl Parts for Core {
         &self.kept::<Fields>().checks
     }
 
-    fn notify(&self) -> &notify::Notifier {
-        &self.kept::<Fields>().notify
-    }
-
     fn inbox(&self) -> &inbox::Turns {
         &self.kept::<Fields>().inbox
-    }
-
-    fn joins(&self) -> &join::Joins {
-        &self.kept::<Fields>().joins
     }
 
     fn hosts(&self) -> &hosts::Hosts {
@@ -358,10 +318,6 @@ impl Parts for Core {
 
     fn chiefs(&self) -> &chief::Chiefs {
         &self.kept::<Fields>().chiefs
-    }
-
-    fn remote_above(&self) -> &super::remote_above::RemoteAbove {
-        &self.kept::<Fields>().remote_above
     }
 }
 

@@ -4,6 +4,7 @@
 //! failed are unchecked, since each needs the one before.
 
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use iroh::Watcher;
 pub use sikemux_calls::diagnosis::DiagnosisParams;
 use sikemux_view::host_stats::{DiagnosisStep, HostDiagnosis, ReachStep, StepState, StepWhy};

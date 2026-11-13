@@ -2,7 +2,7 @@
 //! the agent sessions a commit's signed footer names, else the person git
 //! names as its author and the pull request it came in through.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};

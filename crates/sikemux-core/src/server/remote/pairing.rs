@@ -3,7 +3,7 @@
 use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 pub use sikemux_calls::remote::ApprovalSetting;
 pub use sikemux_calls::remote::{DeviceChange, PairingAnswer, RemotePairing};
 

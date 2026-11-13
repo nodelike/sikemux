@@ -1,6 +1,6 @@
 //! The computer this core runs on, as a paired device shows it.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::sync::OnceLock;
 
 use crate::accounts::protocol::Platform;

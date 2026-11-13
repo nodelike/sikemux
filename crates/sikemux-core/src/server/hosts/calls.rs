@@ -2,6 +2,7 @@
 //! host that makes it is still linked.
 
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;

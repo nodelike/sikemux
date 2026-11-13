@@ -29,6 +29,7 @@ pub mod transfer;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeParts;
 pub use sikemux_calls::hosts::LinkedHost;
 use std::collections::{BTreeMap, HashMap, HashSet};

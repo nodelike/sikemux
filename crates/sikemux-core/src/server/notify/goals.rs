@@ -4,7 +4,7 @@
 //! notification, kept off a phone with Sikemux in front; the window decides for
 //! itself whether the person is looking.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;

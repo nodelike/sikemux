@@ -1,7 +1,7 @@
 //! The Live Activity a phone shows of this host's agents, kept current while the phone is locked: the host
 //! seals what its agents are doing for each phone that started one, and the account passes it on unread.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 pub use sikemux_calls::notify::ActivityParams;
 use sikemux_process::sync::Locked;
 use sikemux_view::push::ActivityGlance;

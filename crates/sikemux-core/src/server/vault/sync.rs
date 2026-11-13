@@ -2,7 +2,7 @@
 //! has none, wraps its key for hosts that join, replaces it when one leaves, moves this host's
 //! sign-ins in, writes back what changed here and takes in what changed elsewhere.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

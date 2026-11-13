@@ -5,6 +5,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::hosts::install::SetupRowExt;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::ServerCore;
 pub use sikemux_calls::hosts::{HostRow, Reach};
 use std::collections::BTreeMap;

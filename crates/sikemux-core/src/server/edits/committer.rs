@@ -2,7 +2,7 @@
 //! can still push its own: a signed git note under [`NOTES_REF`] that stays on
 //! this computer, since pushing a branch does not push notes.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::path::Path;
 use std::time::Duration;
 

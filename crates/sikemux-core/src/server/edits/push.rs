@@ -5,7 +5,7 @@
 //! and pushed, and the branch is rebuilt on what was pushed with the other
 //! commits after it, so its files stay exactly as they are.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

@@ -1,7 +1,7 @@
 //! Listening for devices: the endpoint, its relays, and the network the accounts server describes.
 
 use super::*;
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
 

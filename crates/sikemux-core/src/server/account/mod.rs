@@ -13,7 +13,7 @@ mod profile;
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::account::AccountPictureParams;
 pub use sikemux_calls::account::SignInPage;

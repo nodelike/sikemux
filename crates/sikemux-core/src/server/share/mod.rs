@@ -14,6 +14,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 pub use sikemux_calls::share::{GuestMessageParams, StopShareParams};
 pub use sikemux_calls::share::{ShareChatParams, ShareState, ShareView};
 use std::borrow::Cow;

@@ -5,6 +5,7 @@
 //! as linked.
 
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::sync::Arc;
 use std::time::Duration;
 

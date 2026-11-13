@@ -6,6 +6,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};

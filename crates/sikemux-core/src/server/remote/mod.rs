@@ -3,6 +3,8 @@
 //! release cores keep separate ones; the core's key and the digest of what
 //! that file trusts live in the person's secret store.
 
+#[cfg(test)]
+use crate::server::remote_state::RemoteParts;
 use serde_json::{json, Value};
 pub(crate) use sikemux_corekit::usage::remote_file as file_path;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -1133,7 +1135,7 @@ impl Remote {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::parts::Parts;
+
     use crate::server::ServerCore;
 
     /// Hosts that update keep the digest their last build took, over that

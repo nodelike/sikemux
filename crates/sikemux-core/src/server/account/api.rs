@@ -1,6 +1,6 @@
 //! Calling the accounts API as this host, signed with its key.
 
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 

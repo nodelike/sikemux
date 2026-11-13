@@ -1,7 +1,7 @@
 //! The person's devices and hosts on the account, as this host sees and changes them.
 
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::account::DeviceParams;

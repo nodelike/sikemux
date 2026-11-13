@@ -3,6 +3,7 @@
 //! that runs while the host has a webhook and comes back whenever it drops.
 
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 

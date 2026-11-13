@@ -99,6 +99,7 @@ pub(crate) use sikemux_serve::server::reaper;
 pub mod remote;
 mod remote_above;
 pub mod remote_image;
+mod remote_state;
 mod repo_events;
 mod requests;
 mod roster;
@@ -153,6 +154,7 @@ pub use turn_state::TakeStepParams;
 use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
+use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -460,6 +462,15 @@ impl ServerCore for Core {
                     chat_above: base::chat_above(),
                     restart_wait: config.restart_wait,
                 }) as sikemux_kernel::Parts,
+                Box::new(remote_state::RemoteFields {
+                    remote: remote::Remote::default(),
+                    vault: vault::Vault::default(),
+                    notify: notify::Notifier::default(),
+                    shares: share::Shares::default(),
+                    account: Default::default(),
+                    joins: Default::default(),
+                    remote_above: base::remote_above(),
+                }) as sikemux_kernel::Parts,
                 Box::new(parts::Fields {
                     config,
                     manifest_folder: Mutex::new(None),
@@ -470,9 +481,7 @@ impl ServerCore for Core {
                     look: themes::Look::default(),
                     harness,
                     tools: Mutex::new(None),
-                    remote: remote::Remote::default(),
                     outside: outside::Outside::new(data_dir),
-                    shares: share::Shares::default(),
                     hooks: hooks::Hooks::default(),
                     settling: settling::Settling::default(),
                     stalls: stalls::Stalls::default(),
@@ -502,19 +511,14 @@ impl ServerCore for Core {
                     git: git::Projects::default(),
                     code_host_lists: Default::default(),
                     layouts: layout::Layouts::new(data_dir),
-                    account: Default::default(),
-                    vault: vault::Vault::default(),
                     ci: Default::default(),
                     edits: edits::Edits::new(data_dir, me.clone()),
                     collisions: collisions::Collisions::new(me.clone()),
                     checks: Default::default(),
-                    notify: notify::Notifier::default(),
                     inbox: inbox::Turns::new(data_dir),
-                    joins: Default::default(),
                     hosts,
                     mods: mods::Mods::new(data_dir),
                     chiefs: chief::Chiefs::new(data_dir),
-                    remote_above: base::remote_above(),
                 }) as sikemux_kernel::Parts,
             ]
         });

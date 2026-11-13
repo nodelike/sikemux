@@ -4,6 +4,7 @@
 pub(crate) use super::chat::Activity;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::sync::Arc;

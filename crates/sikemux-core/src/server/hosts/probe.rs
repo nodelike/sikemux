@@ -8,6 +8,7 @@
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+use crate::server::remote_state::RemoteParts;
 pub use sikemux_calls::hosts::{Found, Unanswered};
 use std::collections::{HashMap, HashSet};
 use std::process::Stdio;
