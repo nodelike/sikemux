@@ -272,6 +272,8 @@ pub(crate) struct ForHost {
     pub reports: bool,
     pub cwd: PathBuf,
     pub prompt: String,
+    /// The account's launcher it starts on, as this host picked it.
+    pub launcher: Option<String>,
 }
 
 /// Starts a worker for a lead on a linked host, on this host's own sign-in
@@ -281,7 +283,7 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
     let lead = Lead {
         provider: String::new(),
         launch: None,
-        launcher: None,
+        launcher: plan.launcher.clone(),
         permission_mode: plan
             .mode
             .as_deref()

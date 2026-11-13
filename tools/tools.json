@@ -1713,6 +1713,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "uncommitted": {
+          "description": "With host: also carry this checkout's uncommitted changes, everyone's in it",
+          "type": "boolean"
         }
       },
       "required": [

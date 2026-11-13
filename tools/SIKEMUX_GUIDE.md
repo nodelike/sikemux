@@ -1362,11 +1362,17 @@ its agents or keep them.
 The person may link this host with others on their account, in Settings,
 Devices. `agent_spawn` with `host`, the name a linked host goes by here, starts
 the agent there, on that host's own sign-in for `cli`, never yours; a refusal
-lists the linked hosts. It runs as a chat, so leave out `mode`, `resume` and
+lists the linked hosts. That host picks the account as it does for a new chat
+there, and refuses at once when `cli` is signed in to no account there or
+every account is at its limit, saying when one is free again and which other
+clis it can start. It runs as a chat, so leave out `mode`, `resume` and
 `provider`. It works in a checkout of its own of your project there, on a
-branch of its own cut from your commit, with your uncommitted changes, new
-files too, committed on top as its first commit; your folder must be in a git
-repository. Its name comes with the host's, such as `Otter on studio`, which
+branch of its own cut from your commit; your folder must be in a git
+repository. Your unpushed commits go with it, but what is not committed stays
+behind, and the answer says how many changed files did. Commit what it needs
+first with `git_commit`, which takes only your lines. In a checkout only you
+work in, `uncommitted: true` carries everything not committed, new files too,
+as its first commit. Its name comes with the host's, such as `Otter on studio`, which
 `agent_send`, `agent_read`, `agent_wait` and `ask`'s `for` take, as they take
 its `agentId`.
 

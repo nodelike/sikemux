@@ -544,7 +544,7 @@ pub(super) fn board_above() -> BoardAbove {
         hosts_find: hosts::find,
         hosts_name_of: hosts::name_of,
         hosts_package: |cwd, folder| {
-            let mut packed = hosts::code::package(cwd)?;
+            let mut packed = hosts::code::package_for(cwd, false)?;
             packed.code.project = folder.unwrap_or(packed.code.project);
             Ok(Box::new(packed))
         },

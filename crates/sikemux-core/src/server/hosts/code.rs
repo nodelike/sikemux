@@ -64,6 +64,8 @@ impl Code {
 pub(crate) struct Packed {
     pub repo: PathBuf,
     pub code: Code,
+    /// How many changed files stay behind, when what is not committed does not go.
+    pub left_behind: usize,
 }
 
 /// A file made for the link, removed once it is dropped.
@@ -93,11 +95,6 @@ fn has_commit(repo: &Path, commit: &str) -> bool {
     Git::quick(repo)
         .trimmed(&["cat-file", "-e", &format!("{commit}^{{commit}}")])
         .is_ok()
-}
-
-/// What the lead working in `cwd` would hand a worker on another host.
-pub(crate) fn package(cwd: &Path) -> Result<Packed, String> {
-    package_for(cwd, true)
 }
 
 /// What another host needs to open the project at `cwd`, with what is not committed only when
@@ -137,7 +134,17 @@ pub(crate) fn package_for(cwd: &Path, uncommitted: bool) -> Result<Packed, Strin
         },
         commit,
     };
-    Ok(Packed { repo, code })
+    let left_behind = match uncommitted {
+        true => 0,
+        false => Git::slow(&repo)
+            .trimmed(&["status", "--porcelain"])
+            .map_or(0, |status| status.lines().count()),
+    };
+    Ok(Packed {
+        repo,
+        code,
+        left_behind,
+    })
 }
 
 /// Everything not committed, new files too, as a patch on `HEAD`, worked out

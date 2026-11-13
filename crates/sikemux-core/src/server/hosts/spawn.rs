@@ -16,7 +16,12 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
+use crate::agent_accounts::allocate::Aim;
+use crate::agent_accounts::status::AgentStatus as AccountStatus;
+use crate::agent_accounts::usage;
 use crate::cli::protocol::{is_tool_agent_id, HarnessRequest};
+use crate::server::agent_accounts::{placement, Placing};
+use crate::server::workspace::LauncherId;
 use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
@@ -73,6 +78,7 @@ pub(crate) async fn spawn(
     let model = text(params, "model").map(str::to_owned);
     let effort = text(params, "effort").map(str::to_owned);
     let reports = !matches!(params.get("report"), Some(Value::Bool(false)));
+    let uncommitted = matches!(params.get("uncommitted"), Some(Value::Bool(true)));
     let agent_id = crate::server::names::new_agent_id();
     let (lead, cwd, named, provider) = {
         let (core, request, agent_id) = (core.clone(), request.clone(), agent_id.clone());
@@ -101,7 +107,7 @@ pub(crate) async fn spawn(
     let lead_id = request.agent_id.clone().unwrap_or_default();
     let packed = {
         let cwd = cwd.clone();
-        blocking(move || code::package(&cwd).map_err(Into::into)).await
+        blocking(move || code::package_for(&cwd, uncommitted).map_err(Into::into)).await
     };
     let packed = match packed {
         Ok(packed) => packed,
@@ -110,6 +116,17 @@ pub(crate) async fn spawn(
             return Err(error.to_string());
         }
     };
+    let started_from = format!(
+        "your commit {}{}",
+        &packed.code.commit[..packed.code.commit.len().min(10)],
+        match (packed.code.patch.is_some(), packed.left_behind) {
+            (true, _) => " with your uncommitted changes committed on top".to_owned(),
+            (false, 0) => String::new(),
+            (false, 1) => ", without the 1 changed file not committed in your checkout".to_owned(),
+            (false, count) =>
+                format!(", without the {count} changed files not committed in your checkout"),
+        }
+    );
     let lead_name = core
         .names()
         .name(&lead_id)
@@ -152,7 +169,7 @@ pub(crate) async fn spawn(
             "agentId": agent_id,
             "host": link.name,
             "started": "not known yet",
-            "note": format!("{} did not answer in time, so whether {shown} started is not known yet. Do not start it again: Sikemux asks {} until it knows, and tells you whether it started.", link.name, link.name),
+            "note": format!("{} did not answer in time, so whether {shown} started is not known yet. Do not start it again: Sikemux asks {} until it knows, and tells you whether it started. It starts from {started_from}.", link.name, link.name),
         }));
     }
     let branch = answer["branch"].as_str().unwrap_or_default();
@@ -164,7 +181,7 @@ pub(crate) async fn spawn(
         "model": answer["model"],
         "reportsBack": reports,
         "note": format!(
-            "{shown} is starting on {} in a checkout of its own{}, from your commit with your uncommitted changes committed on top, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
+            "{shown} is starting on {} in a checkout of its own{}, from {started_from}, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
             link.name,
             if branch.is_empty() { String::new() } else { format!(" on its branch {branch}") },
             if reports { " and its final answer comes to you as a message" } else { "" },
@@ -481,6 +498,12 @@ pub(super) async fn start_here(
         return Err("that agent already runs here".into());
     }
     let host_name = name_of(core, host);
+    let launcher = {
+        let (core, cli) = (core.clone(), params.cli.trim().to_lowercase());
+        blocking(move || Ok(account_here(&core, &cli))).await
+    }
+    .map_err(|error| error.to_string())?
+    .map_err(|why| format!("{why}; {}", can_start_here(core, &params.cli)))?;
     let checked = {
         let branch = params
             .branch
@@ -565,6 +588,7 @@ pub(super) async fn start_here(
         reports: params.reports,
         cwd,
         prompt: params.prompt.clone(),
+        launcher,
     };
     let started = {
         let core = core.clone();
@@ -586,6 +610,97 @@ pub(super) async fn start_here(
             .await;
             Err(error.to_string())
         }
+    }
+}
+
+/// The launcher a worker of `cli` starts on here: the account a new chat of it would go to.
+/// Refuses only for what is known: no account signed in, or every one at its limit. An account
+/// whose sign-in or usage was not read yet counts as able to start.
+fn account_here(core: &Core, cli: &str) -> Result<Option<String>, String> {
+    let of_cli: Vec<_> = (core.workspaces().chat_launchers().into_iter())
+        .filter(|launcher| launcher.agent.provider == cli)
+        .collect();
+    if of_cli.is_empty() {
+        return Err(format!("{cli} is not set up there"));
+    }
+    let startable: Vec<_> = (of_cli.iter())
+        .filter(|launcher| match &launcher.status {
+            None => true,
+            Some(status) => status.refusal(&launcher.label).is_none(),
+        })
+        .collect();
+    if startable.is_empty() {
+        let signed_out = (of_cli.iter())
+            .any(|launcher| matches!(launcher.status, Some(AccountStatus::SignedOut)));
+        return Err(match signed_out {
+            true => format!("{cli} is signed in to no account there; the person signs in from Sikemux's Settings on that host"),
+            false => format!("{cli} does not start there"),
+        });
+    }
+    let now = epoch_ms();
+    let limit_ends = |config_path: Option<&str>| -> Option<Option<u64>> {
+        let reading = usage::last_reading(cli, config_path)?;
+        let full: Vec<_> = (reading.usage.windows.iter())
+            .filter(|window| window.scope.is_none() && window.used_at(now) >= 100.0)
+            .collect();
+        (!full.is_empty()).then(|| {
+            (full.iter())
+                .map(|window| window.resets_at.as_ref()?.unix_ms())
+                .collect::<Option<Vec<u64>>>()
+                .and_then(|ends| ends.into_iter().max())
+        })
+    };
+    let (full, room): (Vec<_>, Vec<_>) = (startable.into_iter())
+        .map(|launcher| (launcher, limit_ends(launcher.agent.config_path.as_deref())))
+        .partition(|(_, ends)| ends.is_some());
+    if room.is_empty() {
+        let soonest = (full.iter()).filter_map(|(_, ends)| ends.flatten()).min();
+        return Err(match soonest {
+            Some(at) => format!(
+                "every {cli} account there is at its limit, the first free again in {}",
+                in_words(at.saturating_sub(now))
+            ),
+            None => format!("every {cli} account there is at its limit"),
+        });
+    }
+    let room: Vec<&str> = (room.iter())
+        .map(|(launcher, _)| launcher.id.as_str())
+        .collect();
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let placed = placement(&book, cli, &Placing::default(), Aim::Soonest, |profile| {
+        room.contains(&LauncherId::on(cli, &profile.id).to_string().as_str())
+    })
+    .map(|placed| LauncherId::on(cli, &placed.id).to_string());
+    let chosen = LauncherId::on(cli, &book.chosen(cli)).to_string();
+    Ok(placed
+        .or_else(|| room.contains(&chosen.as_str()).then_some(chosen))
+        .or_else(|| room.first().map(|id| (*id).to_owned())))
+}
+
+/// The other clis this host can start, for a refusal of `cli`.
+fn can_start_here(core: &Core, cli: &str) -> String {
+    let mut others: Vec<String> = (core.workspaces().chat_launchers().into_iter())
+        .filter(|launcher| launcher.agent.provider != cli.trim().to_lowercase())
+        .filter(|launcher| {
+            (launcher.status.as_ref())
+                .is_none_or(|status| status.refusal(&launcher.label).is_none())
+        })
+        .map(|launcher| launcher.agent.provider)
+        .collect();
+    others.sort_unstable();
+    others.dedup();
+    match others.is_empty() {
+        true => "it can start no other cli".to_owned(),
+        false => format!("it can start {} instead", others.join(", ")),
+    }
+}
+
+fn in_words(ms: u64) -> String {
+    let minutes = ms.div_ceil(60_000);
+    match minutes {
+        0..=89 => format!("{minutes} min"),
+        90..=2879 => format!("{} h", minutes / 60),
+        _ => format!("{} days", minutes / 1440),
     }
 }
 
