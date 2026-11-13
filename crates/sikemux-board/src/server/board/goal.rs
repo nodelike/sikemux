@@ -869,18 +869,16 @@ pub struct Settled {
     pub by: String,
     /// The agent that goes by it.
     pub holder: String,
-    pub asked: String,
+    /// The question it settles, when one did and the record may name it.
+    pub asked: Option<String>,
     pub text: String,
     pub why: Option<String>,
-    /// It settles a question whose answer is never shown again, so no chat shows it as decided.
-    pub hides_answer: bool,
 }
 
 /// Keeps what agents settled, on the goal its holder works on, or else on its project's board.
 pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)> {
     let goal = goal_of(core, &settled.holder);
     let learned = learned(core, Some(&settled.by));
-    let shown = !settled.hides_answer;
     let project = goal
         .as_ref()
         .map_or(settled.project, |goal| goal.project.clone());
@@ -905,15 +903,13 @@ pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)>
         learned,
         was: None,
         retired: None,
-        asked: Some(clipped(&settled.asked, MAX_TEXT_CHARS)),
+        asked: (settled.asked).map(|asked| clipped(&asked, MAX_TEXT_CHARS)),
         holder: Some(settled.holder),
     });
     let decision = kept.decisions.last().cloned()?;
     core.boards().save(&mut state, &project);
     drop(state);
-    if shown {
-        (core.board_above().chief_decided)(core, &project, goal, &decision);
-    }
+    (core.board_above().chief_decided)(core, &project, goal, &decision);
     Some((goal, decision.id))
 }
 

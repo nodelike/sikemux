@@ -880,10 +880,12 @@ fn note_takeover(
         project: project.to_owned(),
         by: agent.to_owned(),
         holder: agent.to_owned(),
-        asked: format!("Who carries on {label}, now @{} has stalled?", stalled.name),
+        asked: Some(format!(
+            "Who carries on {label}, now @{} has stalled?",
+            stalled.name
+        )),
         text: "Auto took it on, as its owner lost the lease".to_owned(),
         why: Some(stalled.why.words()),
-        hides_answer: false,
     };
     let Some((goal, decision)) = goal::keep_settled(core, settled) else {
         return;

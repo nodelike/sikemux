@@ -246,3 +246,111 @@ async fn messages_to_a_lead_and_the_chief_beside_a_workers_access_call_reach_the
         "nothing was taken as the worker's answer"
     );
 }
+
+/// Every file under `dir` whose path holds `part` and whose text holds `words`.
+fn holding(dir: &Path, part: &str, words: &str, found: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            holding(&path, part, words, found);
+        } else if path.to_string_lossy().contains(part)
+            && std::fs::read_to_string(&path).is_ok_and(|text| text.contains(words))
+        {
+            found.push(path);
+        }
+    }
+}
+
+/// QA #233: a lead that passed its worker's access call to the person and then answered it itself
+/// had its answer kept in clear as a decision, so the away block, the inbox and every reader of
+/// decisions could quote it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_leads_answer_to_an_access_question_is_kept_as_settled_without_its_words() {
+    let root = tempfile::Builder::new()
+        .prefix("qa233")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let (_core, app) = core_with_project(&root).await;
+    let socket = root.join("core.sock");
+    let project = root.join("project");
+
+    let mut lead = Agent::start(&app, &socket).await;
+    let asked = "What is the passphrase for the staging vault?";
+    let task = format!("tool agent.ask {}", raise(asked));
+    let spawn = json!({ "cli": "opencode", "prompt": task });
+    let spawned = lead
+        .says(&format!("tool agent.spawn {spawn}"), "tool ")
+        .await;
+    let spawned = spawned
+        .split_once("tool answered: ")
+        .map(|(_, answer)| answer);
+    let spawned: Value = serde_json::from_str(spawned.unwrap_or_default()).expect("a worker");
+    let worker = spawned["agentId"].as_str().expect("its id").to_owned();
+    let kept = root.join("data").join("agent-questions.json");
+    let deadline = Instant::now() + WAIT;
+    let question = loop {
+        let open: Value = std::fs::read_to_string(&kept)
+            .ok()
+            .and_then(|kept| serde_json::from_str(&kept).ok())
+            .unwrap_or_default();
+        let found = (open["open"].as_array().into_iter().flatten())
+            .find(|question| question["asked"] == asked)
+            .and_then(|question| question["id"].as_str().map(str::to_owned));
+        if let Some(id) = found {
+            break id;
+        }
+        assert!(Instant::now() < deadline, "the worker never asked its lead");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+
+    let mut passed = raise(asked);
+    passed["for"] = json!(worker);
+    lead.says(&format!("tool agent.ask {passed}"), "tool ")
+        .await;
+    raised(&root, asked);
+
+    let passphrase = "correct horse battery staple";
+    let send = json!({ "to": worker, "answers": question, "text": passphrase, "why": format!("the vault takes {passphrase}") });
+    lead.says(&format!("tool agent.send {send}"), "tool ").await;
+    let deadline = Instant::now() + WAIT;
+    let digest = loop {
+        let digest = app
+            .call("digest", json!({ "project": project }))
+            .await
+            .expect("the digest");
+        if digest["decided"]
+            .as_array()
+            .is_some_and(|decided| !decided.is_empty())
+        {
+            break digest;
+        }
+        assert!(Instant::now() < deadline, "the answer was never kept");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let board = app
+        .call("board", json!({ "project": project }))
+        .await
+        .expect("the board");
+    let why = json!({ "words": "the passphrase for the staging vault" });
+    let why = lead.says(&format!("tool agent.why {why}"), "tool ").await;
+    let mut kept = Vec::new();
+    holding(&root.join("data"), "board", "correct horse", &mut kept);
+    println!(
+        "digest: {digest}\nboard holds it: {}\nwhy: {why}\nlog files holding it: {kept:?}",
+        board.to_string().contains("correct horse")
+    );
+
+    let decision = &digest["decided"][0]["decision"];
+    assert!(
+        decision["text"]
+            .as_str()
+            .is_some_and(|text| text.ends_with("'s question privately")),
+        "{decision}"
+    );
+    assert_eq!(decision["asked"], asked, "{decision}");
+    assert!(!digest.to_string().contains("correct horse"), "{digest}");
+    assert!(!board.to_string().contains("correct horse"), "{board}");
+    assert!(!why.contains("correct horse"), "{why}");
+    assert_eq!(kept, Vec::<std::path::PathBuf>::new());
+}

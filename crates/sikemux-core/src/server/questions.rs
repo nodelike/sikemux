@@ -30,6 +30,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
+use crate::sessions::asked::may_hold_secret;
 use crate::text::clipped;
 use sikemux_view::calls::{
     CallAsker, CallBrief, CallEvidence, CallKind, CallOption, CallState, PersonCall,
@@ -867,7 +868,8 @@ impl Questions {
 }
 
 /// The lead answered the question `id` its agent asked it, which settles it: the answer goes on
-/// the record, with who decided and why.
+/// the record, with who decided and why. An answer the question hides goes on it only as answered
+/// privately, without the lead's why, which may repeat it.
 pub(crate) fn lead_answered(
     core: &Core,
     lead: &str,
@@ -879,26 +881,47 @@ pub(crate) fn lead_answered(
     let Some(question) = core.harness().questions.take_answered(lead, agent_id, id) else {
         return;
     };
+    let (asked, text, why) = match question.hides_answer() {
+        true => (
+            private_title(&question),
+            format!(
+                "@{} answered @{}'s question privately",
+                core.names().name_or_id(lead),
+                question.name
+            ),
+            None,
+        ),
+        false => (Some(question.asked.clone()), answer.to_owned(), why),
+    };
     super::board::goal::keep_settled(
         core,
         super::board::goal::Settled {
-            hides_answer: question.hides_answer(),
             project: question.project,
             by: lead.to_owned(),
             holder: question.agent_id,
-            asked: question.asked,
-            text: answer.to_owned(),
+            asked,
+            text,
             why,
         },
     );
 }
 
 /// An assumption stands: its asker goes on with it, and it goes on the record, where the person
-/// can overrule it.
+/// can overrule it. On a question that hides its answer the record says only that it went on with
+/// it, as the assumption may restate what was asked for.
 fn stood(core: &Core, question: Question) {
-    let hides_answer = question.hides_answer();
-    let Some(assumption) = question.assumption else {
+    let Some(assumption) = question.assumption.clone() else {
         return;
+    };
+    let (asked, text) = match question.hides_answer() {
+        true => (
+            private_title(&question),
+            format!(
+                "@{} went on with its assumption on its question, kept private",
+                question.name
+            ),
+        ),
+        false => (Some(question.asked.clone()), assumption),
     };
     let why = match &question.stage {
         Stage::Person {
@@ -913,15 +936,22 @@ fn stood(core: &Core, question: Question) {
     super::board::goal::keep_settled(
         core,
         super::board::goal::Settled {
-            hides_answer,
             project: question.project,
             by: question.agent_id.clone(),
             holder: question.agent_id,
-            asked: question.asked,
-            text: assumption,
+            asked,
+            text,
             why: Some(why),
         },
     );
+}
+
+/// What the record names a question whose answer is hidden by: its words, or else its header,
+/// whichever may not hold a secret itself.
+fn private_title(question: &Question) -> Option<String> {
+    (std::iter::once(&question.asked).chain(&question.header))
+        .find(|title| !may_hold_secret(title))
+        .cloned()
 }
 
 /// The agent's turn ended, so a question it was handed and did not answer
