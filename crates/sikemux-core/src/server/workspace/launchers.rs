@@ -586,12 +586,12 @@ impl Workspaces {
             .unwrap_or_default()
     }
 
-    /// Each offered account whose agent reports how much of its plan is used.
     /// The agents a chat can be started on here, one launcher for each account.
     pub(crate) fn chat_launchers(&self) -> Vec<Launcher> {
         self.published.locked().launchers.clone()
     }
 
+    /// Each offered account whose agent reports how much of its plan is used.
     pub(crate) fn usage_accounts(&self) -> Vec<UsageAccount> {
         self.published
             .locked()

@@ -695,8 +695,8 @@ fn room_left(kind: &str, config_path: Option<&str>, now: u64) -> String {
     let left = (100.0 - window.used_percent).clamp(0.0, 100.0).round();
     let over = match window.window_minutes {
         Some(minutes) if minutes >= 7 * 24 * 60 => "this week".to_owned(),
-        Some(minutes) if minutes >= 60 => format!("in {}h", minutes / 60),
-        _ => window.label.to_lowercase(),
+        Some(minutes) if minutes >= 60 => format!("of this {}h window", minutes / 60),
+        _ => format!("of {}", window.label.to_lowercase()),
     };
     let mut room = format!("{left}% left {over}");
     if let (true, Some(UsageResetAt::Unix(at))) = (left < 15.0, &window.resets_at) {
