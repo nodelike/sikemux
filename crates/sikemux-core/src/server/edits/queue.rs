@@ -596,13 +596,10 @@ fn rust_check(
     };
     Ok(Some((
         format!("Clippy and the tests of {of}"),
-        format!("{OWN_CARGO}cargo clippy {scope} --all-targets --all-features -- -D warnings && cargo test {scope} --all-features"),
+        format!("cargo clippy {scope} --all-targets --all-features -- -D warnings && cargo test {scope} --all-features"),
     )))
 }
 
-/// A repository that keeps its own cargo in `scripts/bin`, to pin the
-/// toolchain or limit how many builds run at once, has the check use it.
-const OWN_CARGO: &str = "if [ -x scripts/bin/cargo ]; then PATH=\"$PWD/scripts/bin:$PATH\"; fi\n";
 const METADATA_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
 const METADATA_OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 
@@ -619,10 +616,8 @@ struct Member {
 fn members(checkout: &Path) -> Result<Vec<Member>, String> {
     let mut shell = sikemux_process::user_environment::background_shell();
     shell
-        .args([
-            "-c",
-            &format!("{OWN_CARGO}cargo metadata --no-deps --format-version 1"),
-        ])
+        .args(["-c", "cargo metadata --no-deps --format-version 1"])
+        .envs(crate::git_guard::shim::environment(None))
         .current_dir(checkout);
     let output = sikemux_process::run(
         &mut shell,

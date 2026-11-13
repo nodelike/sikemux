@@ -536,7 +536,8 @@ async fn run_batch(
                 use crate::server::edits::generate::regenerate;
                 match regenerate(&owner, &dir, &checkout, &newest, &agents) {
                     Ok(Some(generated)) => Ok(BatchRun::Generated(generated)),
-                    Ok(None) => run_check(&checkout, &command, seed, RUN_LIMIT).map(BatchRun::Ran),
+                    Ok(None) => run_check(&checkout, &command, seed, RUN_LIMIT, Vec::new())
+                        .map(BatchRun::Ran),
                     Err(error) => Err(format!(
                         "the files the project generates could not be brought up to date: {error}"
                     )),
@@ -1441,11 +1442,18 @@ pub(super) struct Ran {
 
 /// Runs `command` in `cwd` at low priority, with its output in the order written, for `limit`
 /// at most.
-fn run_check(cwd: &Path, command: &str, seed: u32, limit: Duration) -> Result<Ran, String> {
+fn run_check(
+    cwd: &Path,
+    command: &str,
+    seed: u32,
+    limit: Duration,
+    env: Vec<(String, String)>,
+) -> Result<Ran, String> {
     let mut shell = sikemux_process::user_environment::background_shell();
     shell
         .args(["-c", &format!("exec 2>&1\n{command}")])
         .env(SEED_VARIABLE, seed.to_string())
+        .envs(env)
         .current_dir(cwd);
     let started = Instant::now();
     let output = sikemux_process::run(&mut shell, None, limit, OUTPUT_LIMIT, None)
@@ -1455,6 +1463,18 @@ fn run_check(cwd: &Path, command: &str, seed: u32, limit: Duration) -> Result<Ra
         text: all_said(&output),
         took_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     })
+}
+
+/// What a landing check runs with, so its heavy commands wait in the host's line for `agent`,
+/// ahead of others as checks before a commit.
+pub(crate) fn before_commit(agent: &str) -> Vec<(String, String)> {
+    let mut env = crate::git_guard::shim::environment(None);
+    env.push((sikemux_process::vars::AGENT_ID.to_owned(), agent.to_owned()));
+    env.push((
+        sikemux_process::vars::PRIORITY.to_owned(),
+        "final".to_owned(),
+    ));
+    env
 }
 
 /// How the check went on a commit of the merge queue's checkout.
@@ -1477,9 +1497,10 @@ pub(crate) async fn run_in_queue(
     let checkout = crate::server::worktree::agent::merge_queue(core, dir, commit).await?;
     let (owner, dir, command) = (core.clone(), dir.to_owned(), command.to_owned());
     let seed = sample_seed(agent);
+    let env = before_commit(agent);
     let ran = tokio::task::spawn_blocking(move || {
         refresh(&owner, &dir, &checkout)?;
-        run_check(&checkout, &command, seed, RUN_LIMIT)
+        run_check(&checkout, &command, seed, RUN_LIMIT, env)
     })
     .await
     .map_err(|error| error.to_string())??;
