@@ -44,6 +44,9 @@ const MAX_SHELL_RUNS: usize = 8;
 const MAX_COMMAND_BYTES: usize = 16 * 1024;
 /// How long a change on disk waits for an agent's edit tool to say it made it.
 pub const GRACE_MS: u64 = 1500;
+/// How long after a shell command began the core may hear of it: a quick command has written
+/// by then, and Linux dates a file up to a clock tick before its write.
+const HEARD_LATE_MS: u64 = 500;
 /// A burst of edits to the same lines makes one note, once it has been quiet
 /// this long, or at the latest this long after it began.
 const QUIET_MS: u64 = 4000;
@@ -1317,7 +1320,7 @@ impl Collisions {
     /// The agents that could have written `place` when it changed: when the
     /// time is the file's own and a command ran at that very time, those at
     /// work then, else those at work then or up to the grace before, as
-    /// [`Self::at_work`].
+    /// [`Self::at_work`], and those whose command the core heard begin just after.
     pub fn writers(
         &self,
         core: &Core,
@@ -1328,10 +1331,14 @@ impl Collisions {
     ) -> (BTreeSet<String>, BTreeSet<String>) {
         let exact = written.exact
             && !self
-                .commands(core, project, place, written.at, 0)
+                .commands(core, project, place, written.at, 0, 0)
                 .is_empty();
-        let grace = if exact { 0 } else { GRACE_MS };
-        let running = self.commands(core, project, place, written.at, grace);
+        let (grace, late) = if exact {
+            (0, 0)
+        } else {
+            (GRACE_MS, HEARD_LATE_MS)
+        };
+        let running = self.commands(core, project, place, written.at, grace, late);
         let naming: BTreeSet<String> = running
             .iter()
             .filter(|(_, commands)| commands.iter().any(|command| names_file(command, place)))
@@ -1369,7 +1376,7 @@ impl Collisions {
         grace: u64,
     ) -> (BTreeSet<String>, BTreeSet<String>) {
         let mut shells: BTreeSet<String> = self
-            .commands(core, project, place, at, grace)
+            .commands(core, project, place, at, grace, 0)
             .into_keys()
             .collect();
         shells.extend(in_background(core, project, place));
@@ -1377,8 +1384,9 @@ impl Collisions {
     }
 
     /// The chat agents in `project` that were running a shell command at
-    /// `at`, or ended one up to `grace` before, in the checkout holding
-    /// `place`, each with the text of those commands.
+    /// `at`, ended one up to `grace` before, or were heard to begin one up to
+    /// `late` after, in the checkout holding `place`, each with the text of
+    /// those commands.
     fn commands(
         &self,
         core: &Core,
@@ -1386,6 +1394,7 @@ impl Collisions {
         place: &Path,
         at: u64,
         grace: u64,
+        late: u64,
     ) -> BTreeMap<String, Vec<Arc<str>>> {
         let mut found: BTreeMap<String, Vec<Arc<str>>> = BTreeMap::new();
         {
@@ -1393,11 +1402,11 @@ impl Collisions {
             let open = state
                 .calls
                 .iter()
-                .filter(|(_, call)| call.kind == "execute" && call.at <= at)
+                .filter(|(_, call)| call.kind == "execute" && call.at <= at + late)
                 .map(|((agent, _), call)| (agent, call.command.clone()));
             let ended = state.shell_runs.iter().flat_map(|(agent, runs)| {
                 runs.iter()
-                    .filter(|run| run.started <= at && at <= run.ended + grace)
+                    .filter(|run| run.started <= at + late && at <= run.ended + grace)
                     .map(move |run| (agent, run.command.clone()))
             });
             for (agent, command) in open.chain(ended) {
