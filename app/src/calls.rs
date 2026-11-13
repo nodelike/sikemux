@@ -1401,8 +1401,9 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
     let Some(Strip::Project(_)) = bench.strip() else {
         return None;
     };
-    let project = bench.project()?.path.to_string_lossy().into_owned();
-    let count = bench.open_calls(&bench.place(), &project).len();
+    let project = bench.project()?;
+    let count = project.calls as usize;
+    let project = project.path.to_string_lossy().into_owned();
     if count == 0 {
         return None;
     }

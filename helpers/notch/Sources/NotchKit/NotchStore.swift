@@ -385,8 +385,9 @@ final class NotchStore {
     /// How many calls wait on you, or with none how many items need you, how many agents work, how many subagents and shells run across every agent, and
     /// how many items are done, leaving out what is none.
     var rollups: [(mark: Rollup, count: Int)] {
+        let waiting = view.workspace.projects.reduce(0) { $0 + ($1.calls ?? 0) }
         let counts: [(Rollup, Int)] = [
-            calls.isEmpty ? (.mark(.needs), entries.filter { $0.mark == .needs }.count) : (.calls, calls.count),
+            waiting == 0 ? (.mark(.needs), entries.filter { $0.mark == .needs }.count) : (.calls, waiting),
             (.mark(.working), view.inbox.working),
             (.subagents, view.inbox.rollup?.subagents ?? 0),
             (.shells, view.inbox.rollup?.tasks ?? 0),
