@@ -2,13 +2,16 @@
 
 # Sikemux
 
-**The IDE for you and your coding agents.**
+**Out of Claude? The chat carries on in Codex.**
 
-Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, logs and deploys, in one 25 MB native app.
+And see which agent needs you, on your Mac, the notch or your phone.
+
+A native app, not Electron, about 25 MB. Claude Code, Codex and more on the plans you already pay for, working as one team. Free and MIT, for Apple Silicon Macs and Linux.
 
 ![Sikemux with a Claude Code agent and its browser tab](docs/screenshots/sikemux-hero.png)
 
 [![Latest release](https://img.shields.io/github/v/release/nodelike/sikemux?display_name=tag)](https://github.com/nodelike/sikemux/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-a277ff)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/UKfmHpF9kX)
 [![Website](https://img.shields.io/badge/website-sikemux.com-a277ff)](https://sikemux.com)
 [![Docs](https://img.shields.io/badge/docs-docs.sikemux.com-a277ff)](https://docs.sikemux.com)
