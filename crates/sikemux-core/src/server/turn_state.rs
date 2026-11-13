@@ -320,6 +320,7 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
         .wait_of(agent_id, rested_at, |on| core.waits().expected(on))
         .map(|mut wait| {
             if let (TurnWaitKind::Line, Some(line)) = (wait.kind, core.line().waiting(agent_id)) {
+                wait.what = line.what;
                 wait.place = Some(line.place);
                 wait.expected_ms = line.expected_ms;
             }
