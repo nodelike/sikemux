@@ -3,6 +3,7 @@
 //! reads and writes. The core lists them, follows their files and serves their pages.
 
 mod bridge;
+mod data;
 pub use bridge::{BridgeParams, BridgeWrite};
 pub use sikemux_calls::mods::{change_prompt, follows, make_prompt, Moved};
 
@@ -83,6 +84,7 @@ pub(crate) struct Mods {
     settled: Mutex<Settled>,
     kept: Kept,
     badges: Mutex<BTreeMap<String, String>>,
+    data: data::Store,
 }
 
 impl Mods {
@@ -93,6 +95,7 @@ impl Mods {
             settled: Mutex::new(kept.load()),
             kept,
             badges: Mutex::default(),
+            data: data::Store::new(data_dir),
         }
     }
 
@@ -403,11 +406,15 @@ pub(super) async fn add_example(core: &Arc<Core>, params: ModParams) -> CoreResu
     .await
 }
 
-/// Moves a mod's folder to the Trash and forgets what the person decided about it.
+/// Moves a mod's folder to the Trash and forgets its data and what the person decided about it.
 pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()> {
     let folder = mod_folder(core, &params.id)?;
-    blocking(move || trash::delete(&folder).map_err(|error| CoreError::from(error.to_string())))
-        .await?;
+    let (worker, id) = (core.clone(), params.id.clone());
+    blocking(move || {
+        trash::delete(&folder).map_err(|error| CoreError::from(error.to_string()))?;
+        worker.mods().data.clear(&id)
+    })
+    .await?;
     core.mods().settle(|settled| {
         settled.allowed.remove(&params.id);
         settled.pinned.remove(&params.id);

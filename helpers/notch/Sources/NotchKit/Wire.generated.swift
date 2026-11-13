@@ -301,6 +301,8 @@ enum Topic: String, Codable, Hashable {
     case goals
     /// The mods in the person's mods folder; `paths` names those whose files moved.
     case mods
+    /// A mod's own data; `paths` names each collection that changed as `mod/collection`.
+    case modData
     /// The core is stopping on purpose, so its clients do not start it again.
     case stopping
     /// How busy this host is, for its page, while a client shows it.

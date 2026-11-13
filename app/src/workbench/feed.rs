@@ -254,10 +254,14 @@ impl Workbench {
             crate::editor::changed(self, &place, paths.as_deref().unwrap_or_default(), cx);
         }
         self.project_changed(&place, topic, project.as_deref(), paths.as_deref(), cx);
-        if topic == Topic::Mods {
-            self.mods_moved(&place, paths.as_deref(), cx);
+        match topic {
+            Topic::Mods => self.mods_moved(&place, paths.as_deref(), cx),
+            Topic::ModData => self.mods_data_moved(&place, paths.as_deref(), cx),
+            _ => {}
         }
-        self.mods_follow(&place, crate::mod_pane::Moved::Topic(topic), cx);
+        if topic != Topic::ModData {
+            self.mods_follow(&place, crate::mod_pane::Moved::Topic(topic), cx);
+        }
         if topic == Topic::Git {
             crate::editor::git_changed(self, &place, project.as_deref(), paths.as_deref(), cx);
         }

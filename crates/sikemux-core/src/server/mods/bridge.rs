@@ -15,7 +15,7 @@ use sikemux_plugin_api::codehost as host_method;
 use super::super::connection::{blocking, ClientConn};
 use super::super::plugins::{self, Provided};
 use super::super::{board, codehost, git, tasks, Core, CoreError, CoreResult};
-use super::{read_manifest, Manifest as ModManifest};
+use super::{data, read_manifest, Manifest as ModManifest};
 
 /// Where a name the bridge is asked for goes.
 enum Reach {
@@ -158,6 +158,11 @@ pub(in super::super) async fn read(
     client: &ClientConn,
     asked: BridgeParams,
 ) -> CoreResult<Value> {
+    match data::writes(&asked.name) {
+        Some(false) => return data::call(core, &asked.id, &asked.name, asked.params).await,
+        Some(true) => return Err(format!("{} writes; ask for it with write", asked.name).into()),
+        None => {}
+    }
     let manifest = manifest_of(core, &asked.id).await?;
     let wanted = self::asked(core, &asked.name)?;
     if wanted.writes {
@@ -180,6 +185,16 @@ pub(in super::super) async fn write(
     client: &ClientConn,
     asked: BridgeParams,
 ) -> CoreResult<BridgeWrite> {
+    match data::writes(&asked.name) {
+        Some(true) => {
+            let done = data::call(core, &asked.id, &asked.name, asked.params).await?;
+            return Ok(BridgeWrite::Done(done));
+        }
+        Some(false) => {
+            return Err(format!("{} only reads; ask for it with read", asked.name).into())
+        }
+        None => {}
+    }
     let manifest = manifest_of(core, &asked.id).await?;
     let wanted = self::asked(core, &asked.name)?;
     if !wanted.writes {

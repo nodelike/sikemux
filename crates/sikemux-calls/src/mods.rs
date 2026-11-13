@@ -147,6 +147,7 @@ pub fn follows(name: &str) -> Option<Moved> {
         "runs" => Moved::Topic(Topic::Runs),
         "usage" => Moved::Topic(Topic::Usage),
         "questions" => Moved::Topic(Topic::Questions),
+        "data" => Moved::Topic(Topic::ModData),
         name if name.starts_with("git.") => Moved::Topic(Topic::Git),
         _ => return None,
     })

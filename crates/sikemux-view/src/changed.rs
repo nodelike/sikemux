@@ -58,6 +58,8 @@ pub enum Topic {
     Goals,
     /// The mods in the person's mods folder; `paths` names those whose files moved.
     Mods,
+    /// A mod's own data; `paths` names each collection that changed as `mod/collection`.
+    ModData,
     /// The core is stopping on purpose, so its clients do not start it again.
     Stopping,
     /// How busy this host is, for its page, while a client shows it.

@@ -34,6 +34,8 @@ const BRIDGE: &str = include_str!("mod_pane/bridge.js");
 const GATHER: Duration = Duration::from_millis(300);
 const MAX_WATCHES: usize = 32;
 const MAX_PARAMS_BYTES: usize = 16 * 1024;
+/// Room for a document at the core's 60 KiB limit and the names around it.
+const MAX_DATA_PARAMS_BYTES: usize = 64 * 1024;
 
 pub struct Watched {
     name: String,
@@ -124,6 +126,22 @@ impl ModPane {
         }
     }
 
+    /// The mod's data in `collections` changed, or in any of them without: the data watches
+    /// on those read again once the pane shows.
+    pub fn data_moved(&mut self, collections: Option<&[&str]>, cx: &mut Context<Self>) {
+        let mut any = false;
+        for watch in self.watches.values_mut() {
+            let collection = watch.params["collection"].as_str().unwrap_or_default();
+            if watch.name == "data" && collections.is_none_or(|moved| moved.contains(&collection)) {
+                watch.dirty = true;
+                any = true;
+            }
+        }
+        if any {
+            self.gather(cx);
+        }
+    }
+
     pub fn retheme(&self, cx: &Context<Self>) {
         let rule = serde_json::to_string(&theme_rule(cx)).unwrap_or_default();
         self.run(&format!(
@@ -197,7 +215,11 @@ impl ModPane {
         let id = message["id"].as_u64().unwrap_or_default();
         let name = message["name"].as_str().unwrap_or_default().to_owned();
         let params = message["params"].clone();
-        if params.to_string().len() > MAX_PARAMS_BYTES {
+        let most = match name.starts_with("data.") {
+            true => MAX_DATA_PARAMS_BYTES,
+            false => MAX_PARAMS_BYTES,
+        };
+        if params.to_string().len() > most {
             return self.answer_to(self.generation, id, Err("those params are too long".into()));
         }
         match message["op"].as_str() {
@@ -535,6 +557,36 @@ impl Workbench {
             if moved {
                 pane.update(cx, |pane, cx| pane.files_moved(cx));
             }
+        }
+    }
+
+    /// The data of the mods on `place` moved, in the collections `paths` names as
+    /// `mod/collection`, or in any without.
+    pub(crate) fn mods_data_moved(
+        &mut self,
+        place: &Place,
+        paths: Option<&[String]>,
+        cx: &mut Context<Self>,
+    ) {
+        for pane in self.mod_panes.values() {
+            let collections: Option<Vec<&str>> = {
+                let pane = pane.read(cx);
+                if pane.core.place() != place {
+                    continue;
+                }
+                paths.map(|paths| {
+                    paths
+                        .iter()
+                        .filter_map(|path| path.split_once('/'))
+                        .filter(|(id, _)| *id == pane.id)
+                        .map(|(_, collection)| collection)
+                        .collect()
+                })
+            };
+            if collections.as_ref().is_some_and(Vec::is_empty) {
+                continue;
+            }
+            pane.update(cx, |pane, cx| pane.data_moved(collections.as_deref(), cx));
         }
     }
 
