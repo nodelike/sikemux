@@ -248,6 +248,16 @@ export interface Tables {
     seq: ColumnType<string, never, number>;
     sealed_bytes: ColumnType<string, never, number>;
     cleared_seq: ColumnType<string, never, never>;
+    file_bytes: ColumnType<string, never, number>;
+  };
+  mod_files: {
+    user_id: string;
+    mod_id: string;
+    file_id: string;
+    stored_as: string;
+    size: ColumnType<string, number, never>;
+    stored_by: string;
+    stored_at: CreatedAt;
   };
   mod_documents: {
     user_id: string;

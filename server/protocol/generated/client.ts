@@ -22,6 +22,7 @@ import type {
   HostSignInState,
   JoinRequest,
   JoinTicket,
+  ModFiles,
   ModSeqParam,
   ModsPulled,
   ModsPurged,
@@ -204,6 +205,15 @@ export function apiClient(send: Send) {
     /** The mod documents and purges after a seq, a page at a time. */
     pullModDocuments: (query: { since?: ModSeqParam } = {}) =>
       send<ModsPulled>("GET", `/v1/mods/documents${search(query)}`),
+    /** The ids of the files the account holds for one mod. */
+    listModFiles: (mod: string) =>
+      send<ModFiles>("GET", `/v1/mods/${encodeURIComponent(mod)}/files`),
+    /** Remove one of a mod's files no host's copy of the mod names any more. */
+    removeModFile: (mod: string, file: string) =>
+      send<void>(
+        "DELETE",
+        `/v1/mods/${encodeURIComponent(mod)}/files/${encodeURIComponent(file)}`,
+      ),
     /** Remove every document of one mod from the account, when the person removes the mod. */
     purgeModDocuments: (mod: string) =>
       send<ModsPurged>(

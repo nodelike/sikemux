@@ -16,7 +16,7 @@ import { DOCUMENT_COLUMNS, toDocument } from "./documents.ts";
 
 export const MAX_SEALED_BYTES = 64 * 1024 * 1024;
 
-interface Asker {
+export interface Asker {
   userId: string;
   hostKey: string;
 }
@@ -25,7 +25,7 @@ interface Asker {
  * The account's mod counter, locked until the transaction ends. Every change to the account's
  * mod documents takes it first, so seqs commit in order and a pull never skips one.
  */
-async function lockedCounter(trx: Transaction<Tables>, userId: string) {
+export async function lockedCounter(trx: Transaction<Tables>, userId: string) {
   const vault = await trx
     .selectFrom("vaults")
     .select("generation")
@@ -180,11 +180,12 @@ export async function pushDocuments(
   });
 }
 
+/** Removes every document and file of `mod`, answering the purge and the stored names of its files. */
 export async function purgeMod(
   db: Kysely<Tables>,
   { userId, hostKey }: Asker,
   mod: string,
-): Promise<ModsPurged> {
+): Promise<ModsPurged & { storedAs: string[] }> {
   return db.transaction().execute(async (trx) => {
     const counter = await lockedCounter(trx, userId);
     const removed = await trx
@@ -194,6 +195,13 @@ export async function purgeMod(
       .returning((eb) => eb.fn("length", ["sealed"]).as("length"))
       .execute();
     const freed = removed.reduce((sum, row) => sum + Number(row.length), 0);
+    const files = await trx
+      .deleteFrom("mod_files")
+      .where("user_id", "=", userId)
+      .where("mod_id", "=", mod)
+      .returning(["stored_as", "size"])
+      .execute();
+    const filesFreed = files.reduce((sum, row) => sum + Number(row.size), 0);
     const seq = counter.seq + 1;
     await trx
       .insertInto("mod_purges")
@@ -201,7 +209,11 @@ export async function purgeMod(
       .execute();
     await trx
       .updateTable("mod_counters")
-      .set({ seq, sealed_bytes: counter.sealedBytes - freed })
+      .set({
+        seq,
+        sealed_bytes: counter.sealedBytes - freed,
+        file_bytes: sql<number>`file_bytes - ${filesFreed}`,
+      })
       .where("user_id", "=", userId)
       .execute();
     await appendEvent(trx, {
@@ -214,8 +226,8 @@ export async function purgeMod(
       actor: `device:${hostKey}`,
       action: "mods.purged",
       subject: mod,
-      detail: { documents: removed.length, seq },
+      detail: { documents: removed.length, files: files.length, seq },
     });
-    return { seq };
+    return { seq, storedAs: files.map((row) => row.stored_as) };
   });
 }

@@ -46,6 +46,23 @@ pub struct ModDocumentPut {
     pub revision: i64,
 }
 
+/// A mod file's id, which the host derives from the file's content under the mod's naming key, in lowercase hex. The server never sees the file's name or content.
+pub type ModFileId = String;
+
+/// The files the account holds for one mod.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModFiles {
+    pub files: Vec<ModFileId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModFileStored {
+    /// False when the account held the file already, and the body was not read.
+    pub stored: bool,
+}
+
 /// A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash.
 pub type ModId = String;
 
@@ -285,6 +302,9 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "ModDocument" => through::<ModDocument>(json),
         "ModDocumentId" => through::<ModDocumentId>(json),
         "ModDocumentPut" => through::<ModDocumentPut>(json),
+        "ModFileId" => through::<ModFileId>(json),
+        "ModFiles" => through::<ModFiles>(json),
+        "ModFileStored" => through::<ModFileStored>(json),
         "ModId" => through::<ModId>(json),
         "ModPurge" => through::<ModPurge>(json),
         "ModSeq" => through::<ModSeq>(json),

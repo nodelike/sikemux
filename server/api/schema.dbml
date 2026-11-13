@@ -313,6 +313,7 @@ Table mod_counters {
   seq bigint [not null, default: 0, note: 'seq >= 0']
   sealed_bytes bigint [not null, default: 0, note: 'sealed_bytes >= 0']
   cleared_seq bigint [not null, default: 0]
+  file_bytes bigint [not null, default: 0, note: 'file_bytes >= 0']
 
   Note: '(cleared_seq >= 0) AND (cleared_seq <= seq)'
 }
@@ -349,6 +350,20 @@ Table mod_purges {
   }
 }
 
+Table mod_files {
+  user_id text [not null]
+  mod_id text [not null, note: 'mod_id ~ \'^[a-z0-9][a-z0-9-]{0,63}$\'']
+  file_id text [not null, note: 'file_id ~ \'^[0-9a-f]{64}$\'']
+  stored_as text [not null, unique, note: 'stored_as ~ \'^[A-Za-z0-9_-]{22}$\'']
+  size bigint [not null, note: 'size >= 0']
+  stored_by text [not null]
+  stored_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, mod_id, file_id) [pk]
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -368,3 +383,4 @@ Ref: vault_uses.user_id > users.id [delete: cascade]
 Ref: mod_counters.user_id - vaults.user_id [delete: cascade]
 Ref: mod_documents.user_id > mod_counters.user_id [delete: cascade]
 Ref: mod_purges.user_id > mod_counters.user_id [delete: cascade]
+Ref: mod_files.user_id > mod_counters.user_id [delete: cascade]

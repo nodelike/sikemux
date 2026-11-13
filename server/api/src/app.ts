@@ -100,7 +100,7 @@ export function createApp(services: Services) {
   app.route("/v1/stash", stashRoutes(services));
   // A vault rotation carries every entry sealed again, so the vault limits its own bodies too.
   app.route("/v1/vault", vaultRoutes(services));
-  // A push carries many sealed documents, so mods limit their own bodies too.
+  // A push carries many sealed documents and a mod's files are uploaded, so mods limit their own bodies too.
   app.route("/v1/mods", modRoutes(services));
   app.use(limitBody());
 

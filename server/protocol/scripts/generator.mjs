@@ -859,8 +859,6 @@ export function openapi(definitions, routes) {
       !["request", "response"].includes(route.bytes)
     )
       fail(where, `bytes is "request" or "response"`);
-    if (route.bytes === "request" && !route.request)
-      fail(where, "a route taking bytes also names its JSON request");
     if (route.requestOptional !== undefined && !route.request)
       fail(where, "requestOptional needs a request");
     if (seen.has(route.operationId))
@@ -932,12 +930,12 @@ export function openapi(definitions, routes) {
         : {}),
       ...messages,
       ...(parameters.length ? { parameters } : {}),
-      ...(route.request
+      ...(route.request || route.bytes === "request"
         ? {
             requestBody: {
               required: route.requestOptional !== true,
               content: {
-                ...named(route.request),
+                ...(route.request ? named(route.request) : {}),
                 ...(route.bytes === "request" ? binary : {}),
               },
             },
@@ -982,7 +980,12 @@ export function client(routes) {
   const types = new Set();
   const calls = [];
   for (const route of routes.routes) {
-    if (route.upgrade || route.auth === "webhook" || route.bytes === "response")
+    if (
+      route.upgrade ||
+      route.auth === "webhook" ||
+      route.bytes === "response" ||
+      (route.bytes === "request" && !route.request)
+    )
       continue;
     const params = [...route.path.matchAll(/\{([a-z][A-Za-z]*)\}/g)].map(
       ([, param]) => param,

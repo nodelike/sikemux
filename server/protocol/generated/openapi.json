@@ -2047,6 +2047,215 @@
         }
       }
     },
+    "/v1/mods/{mod}/files": {
+      "get": {
+        "operationId": "listModFiles",
+        "summary": "The ids of the files the account holds for one mod",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every file of the mod, in no order.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModFiles" }
+              }
+            }
+          },
+          "400": {
+            "description": "The mod id is not valid.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mods/{mod}/files/{file}": {
+      "put": {
+        "operationId": "putModFile",
+        "summary": "Store one of a mod's files, such as a picture, sealed under the vault key by the host",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": { "type": "string", "format": "binary" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored, or held already. When stored, the account's other hosts hear mods.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModFileStored" }
+              }
+            }
+          },
+          "400": {
+            "description": "The mod or file id is not valid, or the body does not match its X-Body-Sha256.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "413": {
+            "description": "The file is over 25 MiB sealed, or the account's mod files would be over 256 MiB (message names which).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "This host stored more than 120 files in the last minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "The server keeps no files.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "getModFile",
+        "summary": "One of a mod's files, as the host sealed it",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The sealed bytes.",
+            "content": {
+              "application/octet-stream": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account holds no such file.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "removeModFile",
+        "summary": "Remove one of a mod's files no host's copy of the mod names any more",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The account no longer holds the file, whether or not it did."
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/mods/{mod}/documents": {
       "delete": {
         "operationId": "purgeModDocuments",
@@ -2063,7 +2272,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Purged. The account's other hosts hear mods.changed and see the purge in their next pull.",
+            "description": "Purged, with the mod's files. The account's other hosts hear mods.changed and see the purge in their next pull.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ModsPurged" }
@@ -3210,6 +3419,34 @@
           }
         },
         "required": ["mod", "id", "sealed", "removed", "revision"],
+        "additionalProperties": false
+      },
+      "ModFileId": {
+        "description": "A mod file's id, which the host derives from the file's content under the mod's naming key, in lowercase hex. The server never sees the file's name or content.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "ModFiles": {
+        "description": "The files the account holds for one mod.",
+        "type": "object",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModFileId" }
+          }
+        },
+        "required": ["files"],
+        "additionalProperties": false
+      },
+      "ModFileStored": {
+        "type": "object",
+        "properties": {
+          "stored": {
+            "description": "False when the account held the file already, and the body was not read.",
+            "type": "boolean"
+          }
+        },
+        "required": ["stored"],
         "additionalProperties": false
       },
       "ModId": {

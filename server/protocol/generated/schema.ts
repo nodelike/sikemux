@@ -1188,6 +1188,33 @@ export const schema = {
       required: ["mod", "id", "sealed", "removed", "revision"],
       additionalProperties: false,
     },
+    ModFileId: {
+      description:
+        "A mod file's id, which the host derives from the file's content under the mod's naming key, in lowercase hex. The server never sees the file's name or content.",
+      type: "string",
+      pattern: "^[0-9a-f]{64}$",
+    },
+    ModFiles: {
+      description: "The files the account holds for one mod.",
+      type: "object",
+      properties: {
+        files: { type: "array", items: { $ref: "#/$defs/ModFileId" } },
+      },
+      required: ["files"],
+      additionalProperties: false,
+    },
+    ModFileStored: {
+      type: "object",
+      properties: {
+        stored: {
+          description:
+            "False when the account held the file already, and the body was not read.",
+          type: "boolean",
+        },
+      },
+      required: ["stored"],
+      additionalProperties: false,
+    },
     ModId: {
       description:
         "A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash.",

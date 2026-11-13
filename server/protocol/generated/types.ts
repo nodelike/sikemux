@@ -637,6 +637,19 @@ export interface ModDocumentPut {
   revision: number;
 }
 
+/** A mod file's id, which the host derives from the file's content under the mod's naming key, in lowercase hex. The server never sees the file's name or content. */
+export type ModFileId = string;
+
+/** The files the account holds for one mod. */
+export interface ModFiles {
+  files: ModFileId[];
+}
+
+export interface ModFileStored {
+  /** False when the account held the file already, and the body was not read. */
+  stored: boolean;
+}
+
 /** A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash. */
 export type ModId = string;
 
@@ -1385,6 +1398,9 @@ export interface Definitions {
   ModDocument: ModDocument;
   ModDocumentId: ModDocumentId;
   ModDocumentPut: ModDocumentPut;
+  ModFileId: ModFileId;
+  ModFiles: ModFiles;
+  ModFileStored: ModFileStored;
   ModId: ModId;
   ModPurge: ModPurge;
   ModSeq: ModSeq;
