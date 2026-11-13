@@ -232,6 +232,18 @@ pub(crate) enum ChatCommand {
     },
 }
 
+impl ChatCommand {
+    /// The person's own message or Stop.
+    fn is_persons(&self) -> bool {
+        match self {
+            Self::Prompt { whose, .. } | Self::Steer { whose, .. } => whose.person,
+            Self::Letter { person, .. } => *person,
+            Self::Edit { .. } | Self::Cancel => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Delivery {
     NewTurn,
@@ -323,6 +335,8 @@ pub(crate) struct Chat {
     /// A new chat starts its agent only once the person writes in it or something is sent to it.
     unstarted: AtomicBool,
     wanted: tokio::sync::Notify,
+    /// The person sent a message or Stop, which a handoff note being written gives way to.
+    pub(crate) person_came: tokio::sync::Notify,
     /// The saved history of the session it resumes is shown already, so the agent's own
     /// replay of it as it starts stays quiet.
     pub(crate) saved_shown: AtomicBool,
@@ -1235,7 +1249,12 @@ impl Chat {
                 _ => self.start_agent(),
             }
         }
-        self.commands.send(command).map_err(|_| STOPPED.into())
+        let persons = command.is_persons();
+        self.commands.send(command).map_err(|_| STOPPED)?;
+        if persons {
+            self.person_came.notify_one();
+        }
+        Ok(())
     }
 
     /// Starts the agent of a chat that waited for the person, once; later calls do nothing.
