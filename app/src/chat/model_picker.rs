@@ -629,7 +629,7 @@ fn chip(
         .gap(px(5.))
         .h(px(24.))
         .px(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .border_1()
         .cursor_pointer()
         .text_size(crate::theme::ui_text(TEXT_2XS_H))
@@ -676,7 +676,7 @@ impl Menu {
             .gap(px(9.))
             .py(px(7.))
             .px(SPACE_2H)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_color(if adds {
                 t.text_secondary
@@ -875,7 +875,7 @@ impl Render for Menu {
             .bg(t.surface_overlay)
             .border_1()
             .border_color(t.border)
-            .rounded(theme::RADIUS_3)
+            .rounded(theme::radius_3())
             .shadow(t.shadow_float())
             .child(
                 div()

@@ -964,7 +964,7 @@ pub fn sheet(
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_4)
+        .rounded(theme::radius_4())
         .shadow(t.shadow_float())
         .occlude();
     let size = window.viewport_size();

@@ -26,7 +26,7 @@ use super::{card, hair, ink, wash};
 use crate::hosts::{HostChoice, Place, Sending};
 use crate::icons::Icon;
 use crate::theme::{
-    Tokens, RADIUS_1, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
+    radius_1, radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
     SPACE_3H, SPACE_4, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM,
     TEXT_XL, TEXT_XS,
 };
@@ -134,10 +134,15 @@ fn pill(words: &str, tint: Hsla) -> Div {
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(px(11.))
+        .rounded(crate::theme::corner(px(11.)))
         .bg(tint.opacity(0.13))
         .text_color(tint)
-        .child(div().size(px(6.)).rounded_full().bg(tint))
+        .child(
+            div()
+                .size(px(6.))
+                .rounded(crate::theme::radius_round())
+                .bg(tint),
+        )
         .child(ui::text(words.to_owned(), TEXT_2XS_H, FontWeight::MEDIUM))
 }
 
@@ -194,7 +199,7 @@ fn menu_button(
         .child(ui::icon(Icon::More, 13.).text_color(t.text_secondary));
     let trigger = {
         use gpui_kit::component::button::ButtonVariants;
-        trigger.ghost().compact().rounded(RADIUS_2)
+        trigger.ghost().compact().rounded(radius_2())
     };
     use gpui_kit::component::menu::DropdownMenu;
     match &host.place {
@@ -239,7 +244,7 @@ fn section(
         .children(count.map(|count| {
             div()
                 .px(SPACE_1H)
-                .rounded(px(8.))
+                .rounded(crate::theme::corner(px(8.)))
                 .bg(ink(t, 0.06))
                 .child(ui::mono(count, TEXT_3XS, cx))
         }))
@@ -677,7 +682,7 @@ fn alert_card(
         .pl(SPACE_4)
         .pr(px(18.))
         .py(SPACE_4)
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
         .border_1()
         .border_color(crate::theme::mix(tint, t.border, 0.26))
         .bg(wash(tint, t, 0.06))
@@ -688,7 +693,7 @@ fn alert_card(
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(9.))
+                .rounded(crate::theme::corner(px(9.)))
                 .bg(tint.opacity(0.15))
                 .child(ui::icon(icon, 15.).text_color(tint)),
         )
@@ -885,7 +890,7 @@ fn resources(
                 .pb(SPACE_3H)
                 .flex()
                 .flex_col()
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .border_1()
                 .border_color(hair(t))
                 .bg(card(t))
@@ -1013,7 +1018,7 @@ fn resources(
             section.child(
                 div()
                     .mt(SPACE_2)
-                    .rounded(RADIUS_3)
+                    .rounded(radius_3())
                     .border_1()
                     .border_color(hair(t))
                     .bg(card(t))
@@ -1072,7 +1077,7 @@ fn disk_parts(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Opt
                 div()
                     .px(SPACE_4)
                     .py(SPACE_1)
-                    .rounded(RADIUS_3)
+                    .rounded(radius_3())
                     .border_1()
                     .border_color(hair(t))
                     .bg(card(t))
@@ -1233,7 +1238,7 @@ fn list(t: &Tokens) -> Div {
     div()
         .flex()
         .flex_col()
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
         .border_1()
         .border_color(hair(t))
         .bg(card(t))
@@ -1344,7 +1349,7 @@ fn agent_row(
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(7.))
+                .rounded(crate::theme::corner(px(7.)))
                 .bg(ink(t, 0.05))
                 .when(idle, |mark| mark.opacity(0.55))
                 .child(mark),
@@ -1435,7 +1440,7 @@ fn agent_menu(
         )))
         .ghost()
         .compact()
-        .rounded(RADIUS_1)
+        .rounded(radius_1())
         .child(ui::icon(Icon::More, 12.).text_color(t.text_secondary))
     };
     use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
@@ -1568,7 +1573,7 @@ fn top(
         .child(
             div()
                 .px(SPACE_1H)
-                .rounded(px(8.))
+                .rounded(crate::theme::corner(px(8.)))
                 .bg(ink(t, 0.06))
                 .child(ui::mono(
                     stats.top.len().min(TOP_SHOWN).to_string(),
@@ -1657,12 +1662,12 @@ pub(super) fn app_icon(bench: &Workbench, process: &ProcessUse, t: &Tokens) -> A
         Some(icon) => gpui_kit::img(icon)
             .size(side)
             .flex_none()
-            .rounded(px(4.))
+            .rounded(crate::theme::corner(px(4.)))
             .into_any_element(),
         None => div()
             .size(side)
             .flex_none()
-            .rounded(px(4.5))
+            .rounded(crate::theme::corner(px(4.5)))
             .bg(ink(t, 0.05))
             .border_1()
             .border_color(hair(t))
@@ -1778,7 +1783,7 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                             .flex()
                             .items_center()
                             .justify_center()
-                            .rounded_full()
+                            .rounded(crate::theme::radius_round())
                             .bg(crate::theme::mix(tint, t.surface_raised, 0.13))
                             .child(ui::icon(icon, 12.).text_color(tint)),
                     )
@@ -1801,7 +1806,7 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                 .relative()
                 .px(SPACE_4)
                 .py(SPACE_1H)
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .border_1()
                 .border_color(hair(t))
                 .bg(card(t))
@@ -1863,7 +1868,7 @@ fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbenc
             div()
                 .px(SPACE_4)
                 .py(SPACE_1)
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .border_1()
                 .border_color(hair(t))
                 .bg(card(t))

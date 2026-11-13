@@ -262,7 +262,7 @@ pub(super) fn bar(
             .h(px(22.))
             .flex()
             .items_center()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_color(if chosen {
                 t.text_primary
@@ -361,7 +361,7 @@ pub(super) fn bar(
                         .child(
                             div()
                                 .size(px(7.))
-                                .rounded_full()
+                                .rounded(crate::theme::radius_round())
                                 .bg(severity_colour(problem.severity, &t)),
                         )
                         .child(

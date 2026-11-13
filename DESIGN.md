@@ -11,7 +11,13 @@ made for other apps.
   hover is `--surface-hover`. Never a coloured stripe down the left edge.
 - Agent and provider marks keep their brand colour everywhere, whatever the
   agent's state.
-- Group labels are spaced capitals with a hairline after them (PROJECTS, LIMITS).
+- Group labels are spaced capitals with a hairline after them (PROJECTS, LIMITS);
+  in Sharp they are set in `--mono`.
+- Two styles, the person's pick, over every theme: Soft (rounded panels floating
+  apart) and Sharp (sikemux.com's look: square corners, rails and stage flush in
+  one grid of hairlines, ink hairlines on light themes, accent squares where the
+  rails' hairlines meet the window's top and bottom and on a primary button's
+  corner). Avatars stay round in both.
 - The project tree stays a tree: spine, tick, bare icons, and the current page
   in the accent, not filled pills.
 - Picker rows stay one line.
@@ -31,8 +37,8 @@ made for other apps.
 | Borders  | `--border`, `--border-strong` (hover), `--border-selected` (a focused field)                                                                     |
 | Ramp     | Greys mixed in oklab from the theme's ground and ink, which the surfaces, borders and text above are taken from                                  |
 | Semantic | `--danger`, `--live`, `--warn`, `--cmd`, the `--git-*` colours and the `--brand-*` agent colours                                                 |
-| Radius   | `--radius-1` 4px chips · `--radius-2` 5px controls and rows · `--radius-3` 10px panels · `--radius-4` 14px floats                                |
-| Shadow   | `--shadow-1` … `--shadow-4`, from a pressed control to a modal                                                                                   |
+| Radius   | Soft: `--radius-1` 4px chips · `--radius-2` 5px controls and rows · `--radius-3` 10px panels · `--radius-4` 14px floats. Sharp: all 0            |
+| Shadow   | Soft: `--shadow-1` … `--shadow-4`, from a pressed control to a modal. Sharp: none on tiles; floats cast a hard 6px one, accent dark, ink light   |
 | Focus    | `--focus-ring`, drawn outside the element so it never moves a layout                                                                             |
 | Type     | `--ui` (Figtree) for what the app says, `--mono` for what the machine says; `--text-3xs` 10px … `--text-xl` 20px, 13px by default; three weights |
 | Space    | `--space-0` 2 · `-1` 4 · `-1h` 6 · `-2` 8 · `-2h` 10 · `-3` 12 · `-3h` 14 · `-4` 16 · `-5` 20 · `-6` 24                                          |

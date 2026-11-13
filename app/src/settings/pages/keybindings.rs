@@ -236,7 +236,7 @@ fn keycap(
         .items_center()
         .justify_center()
         .border_1()
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .font_family(theme::MONO)
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .cursor_pointer()
@@ -420,16 +420,13 @@ pub fn render(
         .border_color(t.line_soft)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)
-        .child(
-            div()
-                .size(px(6.))
-                .rounded_full()
-                .bg(if recording.is_some() {
-                    t.accent
-                } else {
-                    t.text_disabled
-                }),
-        )
+        .child(div().size(px(6.)).rounded(crate::theme::radius_round()).bg(
+            if recording.is_some() {
+                t.accent
+            } else {
+                t.text_disabled
+            },
+        ))
         .child(message);
     let system = match cfg!(target_os = "macos") {
         true => t!("macOS may keep system-reserved combinations before Sikemux can receive them."),

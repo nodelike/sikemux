@@ -33,7 +33,10 @@ pub(crate) fn state_ink(state: SliceState, t: &Tokens) -> gpui_kit::Hsla {
 /// That mark on its own, at `size`.
 pub(crate) fn state_dot(state: SliceState, size: f32, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
-    let dot = div().size(px(size)).flex_none().rounded_full();
+    let dot = div()
+        .size(px(size))
+        .flex_none()
+        .rounded(crate::theme::radius_round());
     match state {
         SliceState::Done => dot.bg(t.live),
         SliceState::Moving => dot.border(px(1.5)).border_color(t.live),

@@ -40,7 +40,7 @@ use crate::core::{Ask, Target};
 use crate::icons::Icon;
 use crate::tabs::shows;
 use crate::theme::{
-    Tokens, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_6, TEXT_XS, TEXT_XS_H,
+    radius_2, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_6, TEXT_XS, TEXT_XS_H,
 };
 use crate::toast;
 use crate::ui::{self, IconButton};
@@ -621,7 +621,7 @@ impl Surface for DeskPage {
             holes: Vec::new(),
             dim: 0.,
             opacity: 1.,
-            bottom_radius: f64::from(f32::from(RADIUS_3) - 1.),
+            bottom_radius: f64::from((f32::from(radius_3()) - 1.).max(0.)),
         });
         if let Err(error) = self.engine.set_bounds(&self.agent, bounds) {
             eprintln!("sikemux: the desk's page could not be placed: {error}");
@@ -2091,7 +2091,7 @@ pub fn pane(
                 .ml(SPACE_1)
                 .flex()
                 .items_center()
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .border_1()
                 .border_color(if focused {
                     t.border_selected
@@ -2216,7 +2216,7 @@ fn frame(
         .relative()
         .size_full()
         .overflow_hidden()
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
         .child(
             gpui_kit::canvas(
                 |_, _, _| {},
@@ -2251,7 +2251,7 @@ fn frame(
                 .w(px(SWITCH_W))
                 .h(px(SWITCH_H))
                 .p(SPACE_1)
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .border_1()
                 .border_color(t.border)
                 .bg(ground)
@@ -2266,7 +2266,8 @@ fn stepped_edge(
     bounds: gpui_kit::Bounds<gpui_kit::Pixels>,
     mut path: gpui_kit::PathBuilder,
 ) -> gpui_kit::PathBuilder {
-    let (radius, inner) = (f32::from(RADIUS_3), f32::from(RADIUS_3) + GAP);
+    let radius = f32::from(radius_3());
+    let inner = if radius > 0. { radius + GAP } else { 0. };
     let at = |x: f32, y: f32| gpui_kit::point(bounds.origin.x + px(x), bounds.origin.y + px(y));
     let (left, top) = (0.5, 0.5);
     let (right, bottom) = (
@@ -2330,7 +2331,7 @@ fn pill(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .bg(match (shown, tinted) {
             (true, _) => t.surface_chosen,
             (false, Some(tint)) => tint.opacity(0.14),

@@ -134,7 +134,7 @@ pub fn status_of_run(outcome: &str, size: f32, cx: &App) -> AnyElement {
     let ended = |color: Hsla, inner: Icon| {
         div()
             .size(px(size * 0.9))
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .bg(color)
             .flex()
             .items_center()
@@ -146,15 +146,18 @@ pub fn status_of_run(outcome: &str, size: f32, cx: &App) -> AnyElement {
         "failure" => ended(t.danger, Icon::MarkFailure),
         "cancelled" => ended(t.text_tertiary, Icon::MarkCancelled),
         "skipped" => ended(t.text_tertiary, Icon::MarkSkipped),
-        "queued" => div().size(px(size * 0.55)).rounded_full().bg(t.warn),
+        "queued" => div()
+            .size(px(size * 0.55))
+            .rounded(crate::theme::radius_round())
+            .bg(t.warn),
         "running" | "blocked" => div()
             .size(px(size * 0.82))
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .border(px(1.5))
             .border_color(t.warn),
         _ => div()
             .size(px(size * 0.8))
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .border(px(size * 1.3 / 16.))
             .border_color(t.text_tertiary),
     };
@@ -327,6 +330,12 @@ pub fn caps(value: &str, cx: &App) -> Div {
         .letter_spacing(0.2)
         .line_height(crate::theme::ui_text(TEXT_LG))
         .text_color(Tokens::get(cx).text_tertiary)
+        .when(theme::sharp(), |label| {
+            label
+                .font_family(theme::MONO)
+                .text_size(crate::theme::ui_text(theme::TEXT_3XS))
+                .letter_spacing(0.18)
+        })
 }
 
 /// `value` with the letters a search for `query` found in it in the primary ink at semibold,
@@ -375,7 +384,21 @@ pub fn keycap(keys: impl Into<SharedString>, cx: &App) -> Div {
         .border_1()
         .border_color(t.border)
         .bg(t.surface_sunken)
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
+}
+
+/// A rail's frame: a panel in Soft, flush with the stage in Sharp, where hairlines part them.
+pub fn rail_panel(cx: &App) -> Div {
+    match theme::sharp() {
+        true => div()
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .when(!crate::see_through::clear(cx), |panel| {
+                panel.bg(Tokens::get(cx).surface)
+            }),
+        false => panel(cx),
+    }
 }
 
 /// A rounded frame over the shell, as the rails and panes are.
@@ -388,7 +411,7 @@ pub fn panel(cx: &App) -> Div {
         .when(!crate::see_through::clear(cx), |panel| panel.bg(t.surface))
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
 }
 
 /// How something reachable stands, as its 7px dot says.
@@ -403,7 +426,7 @@ pub enum Tone {
 
 pub fn dot(tone: Tone, cx: &App) -> Div {
     let t = Tokens::get(cx);
-    let dot = div().size(px(7.)).rounded_full();
+    let dot = div().size(px(7.)).rounded(crate::theme::radius_round());
     match tone {
         Tone::Ok => dot.bg(t.live),
         Tone::Pending => dot.bg(t.warn),

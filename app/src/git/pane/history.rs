@@ -24,7 +24,7 @@ use crate::agents::rows::AgentRow;
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
+    self, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
     SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_LG, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::toast;
@@ -351,12 +351,18 @@ fn ref_badge(label: &str, cx: &App) -> Div {
         .py(SPACE_0)
         .border_1()
         .border_color(edge)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .when_some(ground, |badge, ground| badge.bg(ground))
         .text_size(crate::theme::ui_text(TEXT_3XS))
         .line_height(crate::theme::ui_text(TEXT_3XS))
         .text_color(ink)
-        .child(div().size(px(5.)).flex_none().rounded_full().bg(ink))
+        .child(
+            div()
+                .size(px(5.))
+                .flex_none()
+                .rounded(crate::theme::radius_round())
+                .bg(ink),
+        )
         .child(div().min_w_0().truncate().child(text.to_owned()))
 }
 
@@ -396,7 +402,7 @@ pub fn commit_row(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS_H))
         .text_color(if chosen {
             t.text_primary
@@ -504,7 +510,7 @@ pub fn commit_card(
             .items_center()
             .border_1()
             .border_color(edge)
-            .rounded(px(4.))
+            .rounded(crate::theme::corner(px(4.)))
             .font_family(theme::MONO)
             .text_size(crate::theme::ui_text(TEXT_3XS))
             .text_color(colour)
@@ -597,7 +603,7 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_secondary)
             .hover(move |style| style.bg(t.surface_hover).text_color(t.text_primary))
@@ -785,7 +791,7 @@ fn commit_agents(pane: &GitPane, hash: &str, compact: bool, cx: &App) -> Option<
             .overflow_hidden()
             .border_1()
             .border_color(t.border)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .font_weight(FontWeight::NORMAL)
             .text_color(t.text_secondary)

@@ -270,7 +270,7 @@ fn account_row(
             label.child(
                 div()
                     .px(px(5.))
-                    .rounded(theme::RADIUS_1)
+                    .rounded(theme::radius_1())
                     .bg(t.surface_chosen)
                     .text_size(crate::theme::ui_text(TEXT_3XS_H))
                     .text_color(t.text_secondary)

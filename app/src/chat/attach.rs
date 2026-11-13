@@ -97,7 +97,7 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
         )
         .size(px(15.))
         .flex_none()
-        .rounded(px(3.))
+        .rounded(crate::theme::corner(px(3.)))
         .object_fit(gpui_kit::ObjectFit::Cover)
         .into_any_element();
     }
@@ -713,7 +713,7 @@ pub fn drop_hint(words: &'static str, agent: &str, bench: &Workbench, cx: &App) 
         .border_1()
         .border_dashed()
         .border_color(t.border_selected)
-        .rounded(theme::RADIUS_4)
+        .rounded(theme::radius_4())
         .bg(Hsla {
             a: 0.86,
             ..t.surface_sunken
@@ -785,7 +785,7 @@ fn chip_face(
         .flex()
         .items_center()
         .gap(px(5.))
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .bg(if selected {
             Hsla {
                 a: 0.2,
@@ -1475,7 +1475,7 @@ fn quote_card(
         .gap(SPACE_1H)
         .px(SPACE_2)
         .py(SPACE_1H)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .bg(Hsla {
             a: 0.6,
             ..t.surface_sunken
@@ -1554,7 +1554,7 @@ pub fn thumbnail(
         .id(SharedString::from(id))
         .size(px(64.))
         .flex_none()
-        .rounded(px(7.))
+        .rounded(crate::theme::corner(px(7.)))
         .overflow_hidden()
         .border_1()
         .border_color(t.border)
@@ -1600,7 +1600,7 @@ pub fn file_pill(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(px(7.))
+        .rounded(crate::theme::corner(px(7.)))
         .border_1()
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))

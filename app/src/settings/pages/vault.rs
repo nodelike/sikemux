@@ -269,7 +269,7 @@ fn key_box(text: &str, cx: &App) -> AnyElement {
     div()
         .px(SPACE_3)
         .py(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .border_1()
         .border_color(t.border)
         .bg(t.surface_sunken)
@@ -476,11 +476,10 @@ fn host_row(
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
-    let dot =
-        div()
-            .size(px(6.))
-            .rounded_full()
-            .bg(if host.online { t.live } else { t.text_tertiary });
+    let dot = div()
+        .size(px(6.))
+        .rounded(crate::theme::radius_round())
+        .bg(if host.online { t.live } else { t.text_tertiary });
     let mut notes = Vec::new();
     if host.this {
         notes.push(t!("this host"));

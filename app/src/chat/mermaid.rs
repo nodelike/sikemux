@@ -84,7 +84,7 @@ pub(super) fn block(fence: Fence, running: bool, window: &mut Window, cx: &mut A
             Arc::new(fence.id),
             "mermaid-card".into(),
         ))
-        .rounded(card.radius)
+        .rounded(crate::theme::corner(card.radius))
         .bg(card.ground)
         .overflow_hidden()
         .child(title)

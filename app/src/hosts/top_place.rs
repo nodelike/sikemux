@@ -220,7 +220,7 @@ fn set_up_offer(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> 
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .font_weight(FontWeight::MEDIUM)
             .text_color(if set_up.is_none() {
@@ -252,7 +252,7 @@ fn pill(id: &'static str, shown: Choice, cx: &App) -> BaseButton {
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded_full()
+        .rounded(crate::theme::radius_round())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .font_weight(FontWeight::MEDIUM)
         .text_color(t.text_primary)

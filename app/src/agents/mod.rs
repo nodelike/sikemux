@@ -62,7 +62,7 @@ mod terminal_pages;
 
 pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let frame = bench.rails.frame.clone();
-    let rail = ui::panel(cx)
+    let rail = ui::rail_panel(cx)
         .relative()
         .w(px(bench.rail_width(Edge::End)))
         .flex_none();
@@ -499,7 +499,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .flex()
             .items_center()
             .gap(px(7.))
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .hover(move |style| style.bg(t.surface_hover))
             .child(mark)
             .child(name)
@@ -960,7 +960,7 @@ fn team_rows(
     let mut glide = bench.rails.glide.borrow_mut();
     glide.set_order(order);
     let chosen = Tokens::get(cx).surface_chosen;
-    let copy = glide.copy(move |copy| copy.rounded(theme::RADIUS_2).bg(chosen));
+    let copy = glide.copy(move |copy| copy.rounded(theme::radius_2()).bg(chosen));
     (copy, rows)
 }
 
@@ -1055,7 +1055,7 @@ fn team_lines(team: Option<TeamLink>, open_head: bool, cx: &App) -> Vec<AnyEleme
             .border_l_1()
             .border_b_1()
             .border_color(t.tree_spine)
-            .rounded_bl(px(4.))
+            .rounded_bl(crate::theme::corner(px(4.)))
             .into_any_element()],
         _ => Vec::new(),
     }
@@ -1218,7 +1218,7 @@ fn agent_row(
         div()
             .flex_none()
             .px(px(5.))
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .bg(t.surface_hover)
             .text_color(t.text_tertiary)
             .text_size(crate::theme::ui_text(TEXT_3XS))
@@ -1440,7 +1440,7 @@ pub fn called(agent: &AgentRow, cx: &App) -> Option<AnyElement> {
                 div()
                     .absolute()
                     .inset_0()
-                    .rounded(theme::RADIUS_2)
+                    .rounded(theme::radius_2())
                     .overflow_hidden()
                     .when(through > 0. && through < 1., |light| {
                         light.child(

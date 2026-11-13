@@ -190,9 +190,10 @@ pub fn top_bar(
             .flex()
             .flex_none()
             .items_center()
-            .pt(SPACE_2H)
-            .pb(SPACE_1H)
-            .px(SPACE_2H)
+            .map(|row| match crate::theme::sharp() {
+                true => row.border_b_1().border_color(t.border),
+                false => row.pt(SPACE_2H).pb(SPACE_1H).px(SPACE_2H),
+            })
             .window_control_area(WindowControlArea::Drag)
             .child(
                 div()
@@ -210,7 +211,7 @@ pub fn top_bar(
                             .min_w_0()
                             .flex()
                             .items_center()
-                            .gap(SPACE_1)
+                            .when(!crate::theme::sharp(), |strip| strip.gap(SPACE_1))
                             .overflow_x_scroll()
                             .track_scroll(&bench.strip.scroll)
                             .children(tabs),
@@ -272,7 +273,7 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded(crate::theme::RADIUS_1)
+            .rounded(crate::theme::radius_1())
             .font_family(crate::theme::MONO)
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(t.text_tertiary)
@@ -348,7 +349,7 @@ fn strip_tabs(
     let glided = glide.choose(front.clone(), cx.reduce_motion());
     glide.set_order(order);
     let chosen = Tokens::get(cx).surface_chosen;
-    let copy = glide.copy(move |copy| copy.rounded(crate::theme::RADIUS_2).bg(chosen));
+    let copy = glide.copy(move |copy| copy.rounded(crate::theme::radius_2()).bg(chosen));
     let mut drawn: Vec<AnyElement> = listed
         .iter()
         .map(|tab| {
@@ -451,7 +452,7 @@ fn strip_tab(
                 None if unsaved => Some(
                     div()
                         .size(px(6.))
-                        .rounded_full()
+                        .rounded(crate::theme::radius_round())
                         .bg(t.warn)
                         .into_any_element(),
                 ),

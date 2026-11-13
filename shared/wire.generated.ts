@@ -3464,6 +3464,8 @@ export interface Preferences {
     chiefRotation: boolean;
     /** One of 1, 1.1 and 1.25. */
     uiTextScale: number;
+    /** How the interface's corners, lines and shadows are drawn, in every theme. */
+    uiStyle: UiStyle;
     terminalFontSize: number;
     chatTextScale: number;
     /** How wide a chat's messages and composer grow on a wide window. */
@@ -3606,6 +3608,12 @@ export interface Preferences {
 }
 
 export type MidTurnSend = "steer" | "queue";
+
+/**
+ * Soft: rounded panels floating over the window with soft shadows. Sharp: square corners,
+ * rails and stage flush in one grid of hairlines, hard shadows, as sikemux.com draws.
+ */
+export type UiStyle = "soft" | "sharp";
 
 /** How wide a chat's column grows: a reading width, a wider one, or the whole pane. */
 export type ChatWidth = "comfortable" | "wide" | "full";

@@ -212,7 +212,7 @@ fn island(t: &Tokens) -> StyleRefinement {
     StyleRefinement::default()
         .p_0()
         .gap(px(0.))
-        .rounded(px(12.))
+        .rounded(crate::theme::corner(px(12.)))
         .bg(t.surface_raised)
         .border_color(t.border)
 }

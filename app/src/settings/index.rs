@@ -100,7 +100,7 @@ impl Page {
             ),
             Interface => (
                 n!("Interface"),
-                n!("Text size, what shows behind each pane, and the window"),
+                n!("Style, text size, what shows behind each pane, and the window"),
                 Icon::Text,
             ),
             Buddies => (

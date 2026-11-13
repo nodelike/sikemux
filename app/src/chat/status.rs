@@ -1065,7 +1065,7 @@ fn plan_step(agent: &str, index: usize, entry: &PlanEntry, cx: &App) -> AnyEleme
         }
         PlanStatus::Pending | PlanStatus::Unknown => div()
             .size(px(7.))
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .border_1()
             .border_color(t.text_disabled)
             .into_any_element(),

@@ -118,7 +118,7 @@ pub(super) fn block(
         .bg(t.surface_raised)
         .border_1()
         .border_color(t.line)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .child(head)
         .when_some(queue, |block, queue| {
             block

@@ -15,7 +15,7 @@ use gpui_kit::{
 
 use super::text;
 use crate::theme::{
-    self, Tokens, RADIUS_2, RADIUS_3, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6,
+    self, radius_2, radius_3, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6,
     TEXT_2XS, TEXT_LG, TEXT_SM, TEXT_XS,
 };
 
@@ -91,7 +91,7 @@ impl RenderOnce for Screen {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(RADIUS_3)
+            .rounded(radius_3())
             .border_1()
             .border_color(t.border)
             .bg(linear_gradient(
@@ -190,7 +190,7 @@ impl RenderOnce for Field {
                     .h(px(30.))
                     .flex()
                     .items_center()
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .border_1()
                     .border_color(match focused {
                         true => t.border_selected,
@@ -257,7 +257,7 @@ pub fn waiting(
         .items_center()
         .justify_center()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .border_1()
         .border_color(t.border)
         .text_size(theme::ui_text(TEXT_SM))
@@ -310,7 +310,7 @@ fn callout(tone: Hsla) -> Div {
         .w_full()
         .px(SPACE_3)
         .py(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .border_1()
         .border_color(tone.opacity(0.34))
         .bg(tone.opacity(0.08))
@@ -393,7 +393,7 @@ fn choice_box(id: impl Into<ElementId>, ink: Hsla, t: &Tokens) -> Stateful<Div> 
         .flex()
         .items_center()
         .cursor_pointer()
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .border_1()
         .border_color(t.border)
         .bg(tint(t))

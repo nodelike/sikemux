@@ -138,7 +138,7 @@ fn block(
             Arc::new(fence.id),
             "dbml-card".into(),
         ))
-        .rounded(card.radius)
+        .rounded(crate::theme::corner(card.radius))
         .bg(card.ground)
         .overflow_hidden()
         .child(title)
@@ -231,7 +231,7 @@ fn chip(id: &'static str) -> Stateful<Div> {
         .h(px(17.))
         .flex()
         .items_center()
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .cursor_pointer()
 }
 

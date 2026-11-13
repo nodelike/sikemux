@@ -1666,7 +1666,7 @@ pub fn pane(
                         .child(
                             div()
                                 .block_mouse_except_scroll()
-                                .rounded(theme::RADIUS_2)
+                                .rounded(theme::radius_2())
                                 .border_1()
                                 .border_color(line)
                                 .bg(ground)

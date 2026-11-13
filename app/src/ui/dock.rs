@@ -253,7 +253,7 @@ impl RenderOnce for DockMenu {
                         .flex()
                         .items_center()
                         .gap(px(5.))
-                        .rounded(theme::RADIUS_2)
+                        .rounded(theme::radius_2())
                         .cursor_pointer()
                         .text_size(crate::theme::ui_text(TEXT_3XS_H))
                         .text_color(if scope.on {
@@ -307,18 +307,18 @@ impl RenderOnce for DockMenu {
                 .items_center()
                 .gap(SPACE_2)
                 .child(
-                    div()
-                        .w(px(16.))
-                        .flex_none()
-                        .flex()
-                        .justify_center()
-                        .child(Skeleton::new().size(px(12.)).rounded_full().bg(bar)),
+                    div().w(px(16.)).flex_none().flex().justify_center().child(
+                        Skeleton::new()
+                            .size(px(12.))
+                            .rounded(crate::theme::radius_round())
+                            .bg(bar),
+                    ),
                 )
                 .child(
                     Skeleton::new()
                         .w(px(34.))
                         .h(px(6.))
-                        .rounded(theme::RADIUS_1)
+                        .rounded(theme::radius_1())
                         .bg(bar),
                 )
                 .child(
@@ -326,7 +326,7 @@ impl RenderOnce for DockMenu {
                         Skeleton::new()
                             .w(relative(width))
                             .h(px(6.))
-                            .rounded(theme::RADIUS_1)
+                            .rounded(theme::radius_1())
                             .bg(bar),
                     ),
                 )
@@ -365,7 +365,7 @@ pub fn shell(cx: &App) -> Div {
         .border_l_1()
         .border_r_1()
         .border_color(t.border)
-        .rounded_t(theme::RADIUS_3)
+        .rounded_t(theme::radius_3())
         .bg(t.surface_composer)
         .occlude()
 }

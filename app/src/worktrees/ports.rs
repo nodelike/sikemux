@@ -18,7 +18,7 @@ use sikemux_calls::ports::CheckoutAbout;
 
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, RADIUS_2, RADIUS_3, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS,
+    self, radius_2, radius_3, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS,
     TEXT_3XS_H, TEXT_XS,
 };
 use crate::ui::{self, IconButton};
@@ -81,7 +81,7 @@ pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Opti
             .flex_none()
             .items_center()
             .gap(px(5.))
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .border_1()
             .border_color(t.border)
             .cursor_pointer()
@@ -143,7 +143,7 @@ fn card(
         .px(SPACE_3)
         .pt(SPACE_2H)
         .pb(px(11.))
-        .rounded(RADIUS_3)
+        .rounded(radius_3())
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.border)
@@ -204,7 +204,7 @@ fn card(
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .when(listening, |row| {
                 row.cursor_pointer()
                     .hover(|style| style.bg(t.surface_hover))
@@ -218,7 +218,7 @@ fn card(
                 div()
                     .size(px(7.))
                     .flex_none()
-                    .rounded_full()
+                    .rounded(crate::theme::radius_round())
                     .bg(if listening { t.live } else { t.text_disabled }),
             )
             .child(

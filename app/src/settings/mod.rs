@@ -341,7 +341,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             .gap(px(9.))
             .h(px(24.))
             .px(SPACE_2)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_size(crate::theme::ui_text(TEXT_XS_H))
             .text_color(if chosen {
@@ -426,7 +426,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             .gap(px(9.))
             .h(px(24.))
             .px(SPACE_2)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .cursor_pointer()
             .text_size(crate::theme::ui_text(TEXT_XS_H))
             .text_color(if chosen {
@@ -586,7 +586,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             .bg(rows::card_fill(cx))
             .border_1()
             .border_color(t.border)
-            .rounded(theme::RADIUS_3)
+            .rounded(theme::radius_3())
             .children(found.iter().enumerate().map(|(at, entry)| {
                 let (entry, this) = (*entry, this.clone());
                 let chosen = at == settings.chosen;
@@ -596,7 +596,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                     .flex_col()
                     .px(SPACE_3)
                     .py(px(7.))
-                    .rounded(theme::RADIUS_2)
+                    .rounded(theme::radius_2())
                     .when(chosen, |row| row.bg(t.surface_chosen))
                     .when(!chosen, |row| row.hover(|style| style.bg(t.surface_hover)))
                     .clicks(move |_, window, cx| {

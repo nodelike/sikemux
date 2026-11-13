@@ -172,7 +172,7 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
         .py(SPACE_2)
         .border_1()
         .border_color(looks.line)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .bg(looks.bubble)
         .child(
             Textarea::new(&editing.draft)

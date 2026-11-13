@@ -809,7 +809,7 @@ fn shell_chip(shell: &ShellMetadataSnapshot, cx: &App) -> impl IntoElement {
         .gap(px(5.))
         .px(SPACE_1H)
         .py(SPACE_0)
-        .rounded_full()
+        .rounded(crate::theme::radius_round())
         .border_1()
         .border_color(t.line)
         .bg(t.surface)
@@ -818,7 +818,13 @@ fn shell_chip(shell: &ShellMetadataSnapshot, cx: &App) -> impl IntoElement {
         .text_color(t.text_secondary)
         .opacity(0.58)
         .group_hover(CHIP_GROUP, |chip| chip.opacity(0.9))
-        .child(div().flex_none().size(px(5.)).rounded_full().bg(dot))
+        .child(
+            div()
+                .flex_none()
+                .size(px(5.))
+                .rounded(crate::theme::radius_round())
+                .bg(dot),
+        )
         .when_some(folder, |chip, folder| {
             chip.child(
                 div()

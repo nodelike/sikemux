@@ -73,10 +73,25 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
         _ => needs_java.map(|text| said(text, t.warn)),
     };
     let dot = match (running, &failed) {
-        (Some(_), _) if port.is_some() => Some(div().size(px(7.)).rounded_full().bg(t.live)),
+        (Some(_), _) if port.is_some() => Some(
+            div()
+                .size(px(7.))
+                .rounded(crate::theme::radius_round())
+                .bg(t.live),
+        ),
         (Some(_), _) => Some(div().child(ui::run_mark("run-chip-mark", "running", 8.5, cx))),
-        (None, Some(_)) => Some(div().size(px(7.)).rounded_full().bg(t.danger)),
-        (None, None) if passed.is_some() => Some(div().size(px(7.)).rounded_full().bg(t.live)),
+        (None, Some(_)) => Some(
+            div()
+                .size(px(7.))
+                .rounded(crate::theme::radius_round())
+                .bg(t.danger),
+        ),
+        (None, None) if passed.is_some() => Some(
+            div()
+                .size(px(7.))
+                .rounded(crate::theme::radius_round())
+                .bg(t.live),
+        ),
         _ => None,
     };
     let output = running
@@ -142,7 +157,7 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
         .max_w(px(320.))
         .px(SPACE_2)
         .gap(SPACE_1H)
-        .rounded(crate::theme::RADIUS_2)
+        .rounded(crate::theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)
         .child(match dot {

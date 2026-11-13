@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 
 use super::{mark_box, meta, text};
 use crate::theme::{
-    Tokens, RADIUS_3, RADIUS_4, SPACE_0, SPACE_2, SPACE_3, SPACE_3H, TEXT_SM, TEXT_XS,
+    radius_3, radius_4, Tokens, SPACE_0, SPACE_2, SPACE_3, SPACE_3H, TEXT_SM, TEXT_XS,
 };
 
 /// How far an agent pane's contents sit inside its frame, as on the Mac.
@@ -29,9 +29,12 @@ pub fn pane_frame(cx: &App) -> Div {
         .relative()
         .size_full()
         .overflow_hidden()
-        .border_1()
-        .border_color(Tokens::get(cx).border)
-        .rounded(RADIUS_3)
+        .when(!crate::theme::sharp(), |frame| {
+            frame
+                .border_1()
+                .border_color(Tokens::get(cx).border)
+                .rounded(radius_3())
+        })
 }
 
 /// A detail panel that floats over the right of a page, which stays in view behind it.
@@ -49,7 +52,7 @@ pub fn floating_panel(id: impl Into<ElementId>, cx: &App) -> Stateful<Div> {
         .max_w(px(540.))
         .occlude()
         .overflow_y_scroll()
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .border_1()
         .border_color(t.border_strong)
         .bg(t.surface_sunken)

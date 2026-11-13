@@ -27,7 +27,7 @@ pub fn gif(id: &str, gif: &GifRef, looks: &Drawn, cx: &App) -> AnyElement {
         img(picture.source())
             .id(SharedString::from(format!("gif:{id}")))
             .size_full()
-            .rounded(theme::RADIUS_3)
+            .rounded(theme::radius_3())
             .object_fit(ObjectFit::Cover)
     });
     div()
@@ -40,7 +40,7 @@ pub fn gif(id: &str, gif: &GifRef, looks: &Drawn, cx: &App) -> AnyElement {
             div()
                 .w(px(width))
                 .h(px(height))
-                .rounded(theme::RADIUS_3)
+                .rounded(theme::radius_3())
                 .bg(looks.bubble)
                 .children(shown),
         )

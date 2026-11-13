@@ -66,6 +66,8 @@ pub struct Preferences {
     pub chief_rotation: bool,
     /// One of 1, 1.1 and 1.25.
     pub ui_text_scale: f64,
+    /// How the interface's corners, lines and shadows are drawn, in every theme.
+    pub ui_style: UiStyle,
     pub terminal_font_size: u32,
     pub chat_text_scale: f64,
     /// How wide a chat's messages and composer grow on a wide window.
@@ -227,6 +229,7 @@ preference_changes! {
     MidTurnSend mid_turn_send: MidTurnSend,
     ChiefRotation chief_rotation: bool,
     UiTextScale ui_text_scale: f64,
+    UiStyle ui_style: UiStyle,
     TerminalFontSize terminal_font_size: u32,
     ChatTextScale chat_text_scale: f64,
     ChatWidth chat_width: ChatWidth,
@@ -373,6 +376,16 @@ pub enum ChatWidth {
     Full,
 }
 
+/// Soft: rounded panels floating over the window with soft shadows. Sharp: square corners,
+/// rails and stage flush in one grid of hairlines, hard shadows, as sikemux.com draws.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum UiStyle {
+    #[default]
+    Soft,
+    Sharp,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RailDensity {
@@ -407,6 +420,7 @@ impl Default for Preferences {
             mid_turn_send: MidTurnSend::default(),
             chief_rotation: false,
             ui_text_scale: UI_TEXT_SCALES[0],
+            ui_style: UiStyle::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             chat_text_scale: DEFAULT_TEXT_SCALE,
             chat_width: ChatWidth::default(),

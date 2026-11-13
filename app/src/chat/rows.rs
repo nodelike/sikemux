@@ -329,8 +329,8 @@ pub(super) fn bubble(looks: &Looks) -> Div {
         .max_w_full()
         .px(px(14.))
         .py(SPACE_2H)
-        .rounded(BUBBLE_RADIUS)
-        .rounded_br(SPACE_1H)
+        .rounded(crate::theme::corner(BUBBLE_RADIUS))
+        .rounded_br(crate::theme::corner(SPACE_1H))
         .bg(looks.bubble)
 }
 
@@ -465,8 +465,8 @@ fn from(who: Div, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div
                 .max_w_full()
                 .px(px(14.))
                 .py(SPACE_2H)
-                .rounded(BUBBLE_RADIUS)
-                .rounded_bl(SPACE_1H)
+                .rounded(crate::theme::corner(BUBBLE_RADIUS))
+                .rounded_bl(crate::theme::corner(SPACE_1H))
                 .border_1()
                 .border_color(looks.line)
                 .bg(looks.asked)
@@ -514,7 +514,7 @@ pub(super) fn fired_request(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .hover(move |line| line.bg(hover))
         .clicks(move |_, _, cx| {
             reader.update(cx, |reading, cx| {
@@ -563,7 +563,7 @@ pub(super) fn fired_request(
             .gap(SPACE_2)
             .border_1()
             .border_color(looks.line)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .bg(t.surface_raised)
             .child(
                 div()
@@ -832,7 +832,7 @@ pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyE
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS_H))
         .font_weight(FontWeight::MEDIUM)
         .text_color(looks.quiet)
@@ -1317,7 +1317,7 @@ pub(super) fn subagent(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .text_size(crate::theme::ui_text(TEXT_XS_H))
         .hover(move |summary| summary.bg(hover))
         .clicks(move |_, _, cx| {
@@ -1403,7 +1403,7 @@ pub(super) fn subagent(
     div()
         .flex()
         .flex_col()
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .bg(Hsla {
             a: 0.55,
             ..t.surface_raised

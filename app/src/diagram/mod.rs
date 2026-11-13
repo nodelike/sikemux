@@ -776,7 +776,7 @@ impl Render for Diagram {
                     .items_center()
                     .gap(SPACE_0)
                     .p(px(3.))
-                    .rounded(theme::RADIUS_3)
+                    .rounded(theme::radius_3())
                     .bg(t.surface_overlay)
                     .border_1()
                     .border_color(t.border)
@@ -798,7 +798,7 @@ impl Render for Diagram {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .rounded(theme::RADIUS_2)
+                            .rounded(theme::radius_2())
                             .hover(|reset| reset.bg(t.surface_hover))
                             .tooltip(crate::ui::tooltip(t!("Actual size")))
                             .clicks(cx.listener(|diagram, _, _, cx| {
@@ -845,7 +845,7 @@ fn text_button(
         .h(px(24.))
         .flex()
         .items_center()
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .cursor_pointer()
         .hover(|button| button.bg(t.surface_hover).text_color(t.text_primary))
         .tooltip(crate::ui::tooltip(tip))
@@ -1305,7 +1305,7 @@ impl Frame {
         }
         let hovered = self.hover.is_some_and(|spot| spot.table == index);
         let is_related = related.contains(&(index, None));
-        let radius = px(RADIUS * z);
+        let radius = crate::theme::corner(px(RADIUS * z));
         if hovered || self.dragging && self.order.last() == Some(&index) {
             window.paint_drop_shadows(frame, Corners::all(radius), 0., &t.shadow_raised());
         }

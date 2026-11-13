@@ -55,7 +55,12 @@ impl Render for Glance {
                             .flex()
                             .items_center()
                             .gap(SPACE_1H)
-                            .child(div().size(px(6.)).rounded_full().bg(tint))
+                            .child(
+                                div()
+                                    .size(px(6.))
+                                    .rounded(crate::theme::radius_round())
+                                    .bg(tint),
+                            )
                             .child(
                                 ui::text(host.state.words(), TEXT_XS, FontWeight::NORMAL)
                                     .text_color(t.text_tertiary),

@@ -17,7 +17,7 @@ use gpui::{
 };
 use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern, Preferences};
 
-use crate::theme::{self, Tokens, RADIUS_3};
+use crate::theme::{self, radius_3, Tokens};
 
 macro_rules! program {
     ($name:literal) => {
@@ -341,7 +341,7 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
 }
 
 fn inner_radius() -> f32 {
-    f32::from(RADIUS_3) - 1.
+    (f32::from(radius_3()) - 1.).max(0.)
 }
 
 /// The pane's field drawn as solid as the number it is given, from 0 to 1.
@@ -415,7 +415,7 @@ pub fn picture_preview(cx: &App) -> Option<impl IntoElement + Styled> {
     Some(picture_canvas(
         picture_params(grain, cx),
         picture.clone(),
-        f32::from(RADIUS_3),
+        f32::from(radius_3()),
         false,
     ))
 }

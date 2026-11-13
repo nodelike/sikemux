@@ -79,7 +79,7 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .flex()
             .items_center()
             .gap(SPACE_2)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .hover(move |row| row.bg(t.surface_hover))
             .clicks(cx.listener(move |bench, _, _, cx| bench.pick_git_repo(opened.clone(), cx)))
             .child(ui::icon(Icon::Git, 13.).text_color(if changes > 0 {

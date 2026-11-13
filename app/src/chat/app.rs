@@ -282,7 +282,7 @@ pub(super) fn app(
         .w_full()
         .flex()
         .flex_col()
-        .rounded(px(10.))
+        .rounded(crate::theme::corner(px(10.)))
         .overflow_hidden()
         .border_1()
         .border_color(t.border)

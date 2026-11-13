@@ -396,7 +396,12 @@ pub(crate) fn calendar(
                 .justify_end()
                 .gap(px(CELL_GAP))
                 .child(small(t!("Less").into(), &t).mr(SPACE_1))
-                .children((0..5).map(|level| div().size(px(10.)).rounded(px(2.)).bg(colour(level))))
+                .children((0..5).map(|level| {
+                    div()
+                        .size(px(10.))
+                        .rounded(crate::theme::corner(px(2.)))
+                        .bg(colour(level))
+                }))
                 .child(small(t!("More").into(), &t).ml(SPACE_1)),
         )
 }

@@ -17,7 +17,7 @@ use gpui_kit::{
 use sikemux_view::workspace::{ProjectInfo, SpaceInfo};
 
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_2, TEXT_3XS_H, TEXT_XS};
+use crate::theme::{radius_2, Tokens, SPACE_0, SPACE_1, SPACE_2, TEXT_3XS_H, TEXT_XS};
 use crate::ui;
 use crate::ui::IconButton;
 use crate::workbench::{Workbench, MAX_SPACE_NAME};
@@ -121,7 +121,7 @@ impl Render for DraggedSpace {
         div()
             .px(SPACE_2)
             .py(SPACE_1)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .bg(t.surface_raised)
             .border_1()
             .border_color(t.border)
@@ -166,7 +166,7 @@ impl Render for SpaceEditor {
                     .items_center()
                     .gap(SPACE_1)
                     .px(SPACE_0)
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .hover(move |row| row.bg(t.surface_hover))
                     .drag_over::<DraggedSpace>(move |row, _, _, _| row.bg(t.surface_hover))
                     .on_drop({
@@ -194,7 +194,7 @@ impl Render for SpaceEditor {
                             .compact()
                             .w(px(26.))
                             .h(px(24.))
-                            .rounded(RADIUS_2)
+                            .rounded(radius_2())
                             .border_1()
                             .border_color(t.border)
                             .when(worn_glyph.is_none(), |button| button.border_dashed())
@@ -238,7 +238,7 @@ impl Render for SpaceEditor {
                 .flex()
                 .items_center()
                 .gap(px(5.))
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .border_1()
                 .text_size(crate::theme::ui_text(TEXT_3XS_H))
                 .map(|button| match done {
@@ -347,7 +347,7 @@ pub fn anchor(bench: &Workbench, width: f32, cx: &mut Context<Workbench>) -> imp
             div()
                 .w(px(width))
                 .mt(SPACE_1)
-                .rounded(RADIUS_2 + px(3.))
+                .rounded(crate::theme::corner(radius_2() + px(3.)))
                 .bg(t.surface_overlay)
                 .border_1()
                 .border_color(t.border)

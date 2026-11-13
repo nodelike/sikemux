@@ -5344,6 +5344,8 @@ struct Preferences: Codable, Hashable, Sendable {
     var chiefRotation: Bool
     /// One of 1, 1.1 and 1.25.
     var uiTextScale: Double
+    /// How the interface's corners, lines and shadows are drawn, in every theme.
+    var uiStyle: UiStyle
     var terminalFontSize: Int
     var chatTextScale: Double
     /// How wide a chat's messages and composer grow on a wide window.
@@ -5474,6 +5476,19 @@ enum MidTurnSend: String, Codable, Hashable, Sendable {
     case steer
     /// The message waits for the turn to end.
     case queue
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// Soft: rounded panels floating over the window with soft shadows. Sharp: square corners,
+/// rails and stage flush in one grid of hairlines, hard shadows, as sikemux.com draws.
+enum UiStyle: String, Codable, Hashable, Sendable {
+    case soft
+    case sharp
     /// One added after this build.
     case unknown
 

@@ -519,7 +519,7 @@ fn preview(side: Side, cx: &App) -> impl IntoElement {
         .when(side == Side::Bottom, |half| half.bottom_0())
         .when(across, |half| half.w(gpui_kit::relative(0.5)).h_full())
         .when(!across, |half| half.h(gpui_kit::relative(0.5)).w_full())
-        .rounded(crate::theme::RADIUS_3)
+        .rounded(crate::theme::radius_3())
         .bg(Hsla {
             a: 0.14,
             ..t.accent
@@ -603,7 +603,7 @@ fn split(
     }
     for (at, child) in panes.iter().enumerate() {
         if at > 0 {
-            row = row.child(divider(tab, id, at - 1, across));
+            row = row.child(divider(tab, id, at - 1, across, cx));
         }
         let mut cell = div().flex().min_w_0().min_h_0().flex_basis(px(0.));
         cell.style().flex_grow = Some(grows[at]);
@@ -649,13 +649,13 @@ fn split(
     row.into_any_element()
 }
 
-fn divider(tab: &str, split: &str, at: usize, across: bool) -> impl IntoElement {
+fn divider(tab: &str, split: &str, at: usize, across: bool, cx: &App) -> impl IntoElement {
     let value = Divider {
         tab: tab.to_owned(),
         split: split.to_owned(),
         at,
     };
-    handle(format!("{split}-divider-{at}"), value, across)
+    handle(format!("{split}-divider-{at}"), value, across, cx)
 }
 
 /// The gap between two panes that a drag resizes, carrying `value` to whatever hears the
@@ -664,6 +664,7 @@ pub(crate) fn handle<T: Clone + 'static>(
     id: impl Into<SharedString>,
     value: T,
     across: bool,
+    cx: &App,
 ) -> impl IntoElement {
     div()
         .id(id.into())
@@ -679,6 +680,17 @@ pub(crate) fn handle<T: Clone + 'static>(
                 .h(px(GAP))
                 .w_full()
                 .cursor(CursorStyle::ResizeUpDown)
+        })
+        .when(crate::theme::sharp(), |divider| {
+            let line = div().bg(crate::theme::Tokens::get(cx).border);
+            divider
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(match across {
+                    true => line.w(px(1.)).h_full(),
+                    false => line.h(px(1.)).w_full(),
+                })
         })
         .on_drag(value, |_, _, _, cx| cx.new(|_| EmptyView))
 }

@@ -405,7 +405,7 @@ pub fn run(
         .gap(SPACE_2)
         .max_w_full()
         .font_family(theme::UI)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .cursor_pointer()
         .hover(move |sum| sum.bg(hover).text_color(ink))
         .child(label)
@@ -633,7 +633,7 @@ fn row(
                 .bottom_0()
                 .left(px(13.))
                 .right_0()
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .when(opens, |fill| {
                     fill.group_hover(group.clone(), |fill| fill.bg(looks.hover))
                 }),
@@ -798,7 +798,7 @@ pub(super) fn spine(last: bool, looks: &Drawn) -> Div {
             .border_l_1()
             .border_b_1()
             .border_color(spine)
-            .rounded_bl(px(4.));
+            .rounded_bl(crate::theme::corner(px(4.)));
     }
     div()
         .absolute()
@@ -858,7 +858,7 @@ fn detail(call: &Call, looks: &Drawn, cx: &mut App) -> AnyElement {
 /// A quiet sunken surface for what a call printed or changed, set in the mono face.
 fn well(looks: &Drawn) -> Div {
     div()
-        .rounded(px(8.))
+        .rounded(crate::theme::corner(px(8.)))
         .bg(looks.tints.sunken)
         .font_family(theme::MONO)
         .text_size(crate::theme::ui_text(TEXT_XS))
@@ -939,7 +939,7 @@ fn terminal(
             div()
                 .px(px(7.))
                 .py(px(1.))
-                .rounded(px(10.))
+                .rounded(crate::theme::corner(px(10.)))
                 .bg(looks.tints.failed_ground)
                 .font_family(theme::MONO)
                 .text_size(crate::theme::ui_text(TEXT_2XS))
@@ -1063,7 +1063,7 @@ fn shot_card(
             .flex()
             .flex_col()
             .max_w(px(300.))
-            .rounded(px(8.))
+            .rounded(crate::theme::corner(px(8.)))
             .overflow_hidden()
             .border_1()
             .border_color(looks.line)

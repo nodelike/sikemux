@@ -23,7 +23,7 @@ use crate::code_host_marks::pull_look;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    self, Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_3H, SPACE_4,
+    self, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_3H, SPACE_4,
     SPACE_5, TEXT_2XS, TEXT_3XS, TEXT_LG, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
@@ -756,7 +756,7 @@ fn branch_row(
         .h(px(ROW_HEIGHT))
         .flex()
         .items_center()
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .cursor_pointer()
         .map(|row| {
             if chosen {
@@ -807,7 +807,7 @@ fn branch_row(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded_full()
+                    .rounded(crate::theme::radius_round())
                     .bg(t.surface_chosen)
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .text_color(t.text_secondary)
@@ -822,8 +822,13 @@ fn branch_row(
             .flex()
             .items_center()
             .justify_center()
-            .rounded_full()
-            .child(div().size(px(7.)).rounded_full().bg(ink))
+            .rounded(crate::theme::radius_round())
+            .child(
+                div()
+                    .size(px(7.))
+                    .rounded(crate::theme::radius_round())
+                    .bg(ink),
+            )
     };
     let name_and_tip = |name: &str, ink: Hsla, subject: &str| {
         let (folder, leaf) = match name.rfind('/') {
@@ -950,7 +955,7 @@ fn branch_row(
                         .flex_none()
                         .items_center()
                         .gap(SPACE_0)
-                        .rounded(RADIUS_2)
+                        .rounded(radius_2())
                         .font_family(theme::MONO)
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.warn)
@@ -1107,7 +1112,7 @@ fn pull_chip(pane: &GitPane, branch: &str, index: usize, cx: &App) -> Option<Any
             .flex_none()
             .items_center()
             .gap(px(3.))
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .border_1()
             .border_color(ink.opacity(0.32))
             .font_family(theme::MONO)
@@ -1384,7 +1389,7 @@ pub(super) fn branch_card(
                                         .items_center()
                                         .border_1()
                                         .border_color(t.live.opacity(0.35))
-                                        .rounded(px(4.))
+                                        .rounded(crate::theme::corner(px(4.)))
                                         .text_size(crate::theme::ui_text(TEXT_3XS))
                                         .font_weight(FontWeight::NORMAL)
                                         .text_color(t.live)
@@ -1428,7 +1433,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .map(|button| {
                 if primary {

@@ -16,7 +16,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use sikemux_view::prefs::{ChatWidth, PaneColours, PaneCoverage, PanePattern};
+use sikemux_view::prefs::{ChatWidth, PaneColours, PaneCoverage, PanePattern, UiStyle};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
 use crate::core::Target;
@@ -50,6 +50,13 @@ pub(in crate::settings) const THEME: &[Entry] = &[
 
 /// What a search finds on this page.
 pub(in crate::settings) const INTERFACE: &[Entry] = &[
+    section(Interface, "Style", ""),
+    row(
+        Interface,
+        "Style",
+        "Style",
+        "look sharp soft square rounded corners radius shadows hairlines grid",
+    ),
     section(Interface, "Text", ""),
     row(
         Interface,
@@ -507,7 +514,7 @@ fn picture_rows(
                 div()
                     .relative()
                     .h(px(180.))
-                    .rounded(crate::theme::RADIUS_3)
+                    .rounded(crate::theme::radius_3())
                     .border_1()
                     .border_color(t.border)
                     .overflow_hidden()
@@ -631,7 +638,7 @@ fn preview(summary: &ThemeSummary, height: f32, rail: bool) -> gpui_kit::Div {
         div()
             .h(px(4.))
             .w(gpui_kit::relative(width))
-            .rounded(px(2.))
+            .rounded(crate::theme::corner(px(2.)))
             .bg(color)
     };
     let line = |parts: Vec<(gpui_kit::Hsla, f32)>| {
@@ -645,7 +652,7 @@ fn preview(summary: &ThemeSummary, height: f32, rail: bool) -> gpui_kit::Div {
         .flex()
         .flex_col()
         .overflow_hidden()
-        .rounded(px(6.))
+        .rounded(crate::theme::corner(px(6.)))
         .border_1()
         .border_color(theme::color(&summary.line))
         .bg(theme::color(&summary.bg))
@@ -846,7 +853,7 @@ pub fn render(
                             .flex_col()
                             .gap(SPACE_1)
                             .p(SPACE_1)
-                            .rounded(px(8.))
+                            .rounded(crate::theme::corner(px(8.)))
                             .cursor_pointer()
                             .when(chosen, |card| card.bg(t.surface_chosen))
                             .when(!chosen, |card| {
@@ -1080,6 +1087,27 @@ pub fn render(
             })
         })
     };
+    let ui_style = {
+        let this = this.clone();
+        let styles = [UiStyle::Soft, UiStyle::Sharp];
+        ui::Segmented::new(
+            "ui-style",
+            vec![
+                (Icon::Window, SharedString::from(t!("Soft"))),
+                (Icon::Table, SharedString::from(t!("Sharp"))),
+            ],
+            styles
+                .iter()
+                .position(|style| *style == preferences.ui_style)
+                .unwrap_or(0),
+        )
+        .on_select(move |chosen, _, cx| {
+            let style = styles[*chosen];
+            this.update(cx, |bench, _| {
+                crate::settings::set(bench, PreferenceChange::UiStyle(style))
+            })
+        })
+    };
     let chat_width = {
         let this = this.clone();
         let widths = [ChatWidth::Comfortable, ChatWidth::Wide, ChatWidth::Full];
@@ -1171,6 +1199,12 @@ pub fn render(
                     .child(shown),
             )
     };
+    let style_rows = div().child(rows::row(
+        t!("Style"),
+        Some(t!("Soft rounds panels and floats them apart. Sharp squares every corner and sets the rails and stage flush, parted by hairlines.")),
+        ui_style,
+        cx,
+    ));
     let text = div()
         .child(rows::row(
             t!("Language"),
@@ -1286,7 +1320,7 @@ pub fn render(
             .items_center()
             .gap(SPACE_1H)
             .p(SPACE_2)
-            .rounded(theme::RADIUS_3)
+            .rounded(theme::radius_3())
             .border_1()
             .cursor_pointer()
             .border_color(if on { t.border_strong } else { t.border })
@@ -1351,7 +1385,7 @@ pub fn render(
                 .px(SPACE_3)
                 .flex()
                 .items_center()
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .border_1()
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(t.text_secondary)
@@ -1369,7 +1403,7 @@ pub fn render(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(theme::RADIUS_2)
+                    .rounded(theme::radius_2())
                     .border_1()
                     .border_color(if on { t.border_strong } else { t.border })
                     .when(on, |chip| chip.bg(t.surface_chosen))
@@ -1488,6 +1522,7 @@ pub fn render(
         }
         Page::Interface => {
             let mut sections = vec![
+                rows::section(n!("Style"), None, None, lit("Style"), style_rows, cx),
                 rows::section(n!("Text"), None, None, lit("Text"), text, cx),
                 rows::section(n!("Panes"), None, None, lit("Panes"), interface, cx),
             ];

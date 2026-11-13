@@ -183,7 +183,7 @@ pub fn history(series: Series, height: f32, t: &Tokens) -> AnyElement {
                 .ml(px(-3.))
                 .mt(px(-3.))
                 .size(px(6.))
-                .rounded_full()
+                .rounded(crate::theme::radius_round())
                 .bg(tint)
         }));
     div()

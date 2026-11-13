@@ -356,7 +356,7 @@ fn running_bar(t: &Tokens, still: bool) -> AnyElement {
             .relative()
             .h(px(2.))
             .w_full()
-            .rounded(px(1.))
+            .rounded(crate::theme::corner(px(1.)))
             .bg(track)
             .overflow_hidden()
             .child(

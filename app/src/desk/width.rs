@@ -17,7 +17,7 @@ use sikemux_browser::viewport::Viewport;
 use sikemux_browser::BrowserTab;
 
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_XS};
+use crate::theme::{radius_2, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_XS};
 use crate::ui::{self, MenuRow};
 use crate::workbench::Workbench;
 
@@ -133,7 +133,7 @@ pub(super) fn chip(
         .flex()
         .items_center()
         .gap(px(5.))
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .bg(t.surface_chosen)
         .hover(move |chip| chip.bg(t.surface_active))
         .cursor_pointer()
@@ -269,7 +269,12 @@ pub(super) fn all(
                 .items_center()
                 .justify_center()
                 .gap(SPACE_1H)
-                .child(div().size(px(6.)).rounded_full().bg(t.live))
+                .child(
+                    div()
+                        .size(px(6.))
+                        .rounded(crate::theme::radius_round())
+                        .bg(t.live),
+                )
                 .child(label(named(live_at).0, format!(" · {}", t!("live")))),
         )
         .child(div().flex_1().min_h_0().child(live));
@@ -299,7 +304,7 @@ pub(super) fn all(
                             .w_full()
                             .aspect_ratio(shape.max(1. / TALLEST_PICTURE))
                             .overflow_hidden()
-                            .rounded(px(6.))
+                            .rounded(crate::theme::corner(px(6.)))
                             .border_1()
                             .border_color(t.border)
                             .bg(t.surface_raised)

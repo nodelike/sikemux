@@ -272,7 +272,7 @@ pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
                 .h(at(13.))
                 .border(at(1.))
                 .border_color(frame)
-                .rounded(at(4.1)),
+                .rounded(crate::theme::corner(at(4.1))),
         )
         .child(
             div()
@@ -281,7 +281,7 @@ pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
                 .top(at(4.4))
                 .w(at(1.6))
                 .h(at(4.2))
-                .rounded_r(at(1.6))
+                .rounded_r(crate::theme::corner(at(1.6)))
                 .bg(frame),
         )
         .child(
@@ -291,7 +291,7 @@ pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
                 .top(at(2.))
                 .w(at(fill))
                 .h(at(9.))
-                .rounded(at(2.2))
+                .rounded(crate::theme::corner(at(2.2)))
                 .bg(tint),
         )
         .when(battery.charging, |icon| {

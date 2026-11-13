@@ -1305,7 +1305,7 @@ fn progress_dots(step: usize, room: Room, t: &Tokens) -> Div {
             div()
                 .h(px(size))
                 .w(px(if on { size * 3.1 } else { size }))
-                .rounded(px(size))
+                .rounded(crate::theme::corner(px(size)))
                 .bg(if on { t.text_primary } else { t.border_strong })
         }))
 }
@@ -1732,7 +1732,7 @@ fn tick(on: bool, t: &Tokens) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(4.));
+        .rounded(crate::theme::corner(px(4.)));
     match on {
         true => tick
             .bg(t.accent)
@@ -1978,7 +1978,7 @@ fn projects_pane(
                                 .px(px(room.fit(16., 10.)))
                                 .flex()
                                 .items_center()
-                                .rounded(px(room.fit(9., 6.)))
+                                .rounded(crate::theme::corner(px(room.fit(9., 6.))))
                                 .bg(t.surface_raised)
                                 .map(|field| match typing {
                                     true => field

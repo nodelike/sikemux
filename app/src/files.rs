@@ -695,7 +695,7 @@ fn open_files(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
             .items_center()
             .justify_start()
             .gap(px(5.))
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .font_weight(FontWeight::MEDIUM)
             .text_color(if active {
@@ -802,7 +802,7 @@ fn row_view(
         .items_center()
         .justify_start()
         .gap(px(5.))
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .font_weight(FontWeight::MEDIUM)
         .text_color(ink)

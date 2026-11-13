@@ -135,7 +135,7 @@ pub fn section_with(
         })
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .when(headed, |card| card.child(heading))
         .child(
             div()
@@ -157,7 +157,7 @@ pub fn card(flash: bool, body: impl IntoElement, cx: &App) -> AnyElement {
         })
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .child(body)
         .into_any_element()
 }

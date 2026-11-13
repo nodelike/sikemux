@@ -111,7 +111,7 @@ pub fn render(
             .min_w_0()
             .px(SPACE_1H)
             .py(SPACE_1)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .bg(t.surface_sunken)
             .font_family(theme::MONO)
             .text_size(crate::theme::ui_text(TEXT_XS))

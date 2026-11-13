@@ -21,7 +21,7 @@ use super::{row, Colours, Compared, Diff, Notes, RowLook};
 use crate::core::Target;
 use crate::editor::OpenAt;
 use crate::theme::{
-    Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_XS,
+    radius_2, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_XS,
 };
 use crate::ui;
 
@@ -506,7 +506,7 @@ fn draw(
                     .border_l_1()
                     .border_r_1()
                     .border_color(t.border)
-                    .rounded_b(RADIUS_2)
+                    .rounded_b(radius_2())
                     .bg(t.surface),
             )
             .into_any_element(),

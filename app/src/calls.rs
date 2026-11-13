@@ -27,7 +27,7 @@ use crate::core::Target;
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::picture::Picture;
-use crate::theme::{self, Tokens, RADIUS_2, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2};
+use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::{Strip, Workbench};
 
@@ -784,7 +784,7 @@ fn card(
         .flex_col()
         .border_1()
         .border_color(t.line)
-        .rounded(px(8.))
+        .rounded(crate::theme::corner(px(8.)))
         .overflow_hidden();
     for (ix, row) in rows.enumerate() {
         block = block.child(
@@ -1034,8 +1034,12 @@ fn note_row(
         .when(lit, |row| {
             row.border_1()
                 .border_color(ring)
-                .when(under_options, |row| row.rounded_b(px(7.)))
-                .when(!under_options, |row| row.rounded(px(7.)))
+                .when(under_options, |row| {
+                    row.rounded_b(crate::theme::corner(px(7.)))
+                })
+                .when(!under_options, |row| {
+                    row.rounded(crate::theme::corner(px(7.)))
+                })
         })
         .child(ui::icon(Icon::Pencil, 11.).text_color(match lit {
             true => t.text_tertiary,
@@ -1070,7 +1074,10 @@ fn note_row(
 
 /// The ring of an option on a call that takes one.
 fn radio(on: bool, t: &Tokens) -> AnyElement {
-    let ring = div().size(px(13.)).flex_none().rounded_full();
+    let ring = div()
+        .size(px(13.))
+        .flex_none()
+        .rounded(crate::theme::radius_round());
     match on {
         true => ring.border(px(4.)).border_color(t.accent).bg(t.on_accent),
         false => ring.border(px(1.5)).border_color(t.text_disabled),
@@ -1086,7 +1093,7 @@ fn tick(on: bool, t: &Tokens) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(3.));
+        .rounded(crate::theme::corner(px(3.)));
     match on {
         true => tick
             .bg(t.accent)
@@ -1121,7 +1128,7 @@ fn picture(
         .id(id)
         .relative()
         .overflow_hidden()
-        .rounded(px(8.))
+        .rounded(crate::theme::corner(px(8.)))
         .bg(t.surface_sunken)
         .border_1()
         .border_color(t.line)
@@ -1165,7 +1172,7 @@ fn picture_label(text: String) -> gpui_kit::Div {
         .max_w(relative(0.9))
         .px(px(6.))
         .py(px(2.))
-        .rounded(px(5.))
+        .rounded(crate::theme::corner(px(5.)))
         .bg(gpui_kit::black().opacity(0.62))
         .text_color(gpui_kit::white())
         .text_size(theme::ui_text(11.))
@@ -1191,7 +1198,10 @@ fn strip(
         let id = SharedString::from(format!("call-picture-{}-{ix}", call.id));
         match option.picture.as_deref() {
             Some(path) => picture(id, path, option.label.clone(), Fill::Cover, bench, t),
-            None => div().id(id).rounded(px(8.)).bg(t.surface_sunken),
+            None => div()
+                .id(id)
+                .rounded(crate::theme::corner(px(8.)))
+                .bg(t.surface_sunken),
         }
     };
     let rest = (0..call.options.len()).filter(|ix| *ix != lead).map(|ix| {
@@ -1236,7 +1246,7 @@ fn panel(t: &Tokens) -> gpui_kit::Div {
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.line)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .shadow(vec![card_shadow(2., 4., 0.35), card_shadow(14., 40., 0.45)])
 }
 
@@ -1511,7 +1521,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .cursor_pointer()
                 .text_size(theme::ui_text(12.))
                 .text_color(t.text_primary)
@@ -1519,7 +1529,12 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                     true => chip.bg(t.surface_chosen),
                     false => chip.hover(move |style| style.bg(hover)),
                 })
-                .child(div().size(px(7.)).rounded_full().bg(t.warn))
+                .child(
+                    div()
+                        .size(px(7.))
+                        .rounded(crate::theme::radius_round())
+                        .bg(t.warn),
+                )
                 .child(words)
                 .into_any_element()
         })
@@ -1612,7 +1627,7 @@ fn popover(
     .bg(t.surface_overlay)
     .border_1()
     .border_color(t.line)
-    .rounded(RADIUS_4)
+    .rounded(radius_4())
     .shadow(t.shadow_float())
     .child(head)
     .child(shown)
@@ -1638,7 +1653,7 @@ fn folded(bench: &Workbench, cards: &Entity<Cards>, call: &PersonCall, cx: &App)
         .flex()
         .items_center()
         .gap(px(9.))
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_size(theme::ui_text(13.))
         .text_color(t.text_primary)
         .hover(move |style| style.bg(hover))

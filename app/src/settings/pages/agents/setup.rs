@@ -180,7 +180,7 @@ fn list(
                 .gap(SPACE_1H)
                 .px(SPACE_2)
                 .h(px(22.))
-                .rounded_full()
+                .rounded(crate::theme::radius_round())
                 .border_1()
                 .border_color(t.border)
                 .child(ui::dot(tone, cx))
@@ -263,7 +263,7 @@ fn list(
             rows::row_with(
                 Some(
                     ui::mark_box(32., ui::mark(&agent.kind, 18.))
-                        .rounded(crate::theme::RADIUS_2)
+                        .rounded(crate::theme::radius_2())
                         .bg(t.surface_raised)
                         .border_1()
                         .border_color(t.border)

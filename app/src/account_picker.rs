@@ -102,7 +102,7 @@ pub fn picker(
         .max_w(px(200.))
         .px(SPACE_2)
         .gap(SPACE_1H)
-        .rounded_full()
+        .rounded(crate::theme::radius_round())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(t.text_secondary)
         .tooltip(about)

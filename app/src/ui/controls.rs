@@ -14,7 +14,7 @@ use super::{icon, kbd, text};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_SM,
+    radius_2, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_SM,
     TEXT_XS,
 };
 
@@ -180,7 +180,7 @@ impl RenderOnce for IconButton {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_color(ink)
             .bg(wash)
             .on_hover(keep_over)
@@ -363,7 +363,7 @@ impl RenderOnce for Button {
             .items_center()
             .justify_start()
             .gap(SPACE_2)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .whitespace_nowrap();
         let base = match self.variant {
             Variant::Outline | Variant::Ghost => base
@@ -438,7 +438,7 @@ impl RenderOnce for Button {
             button
                 .h(px(height))
                 .px(px(padding))
-                .rounded(px(height * SIZED_ROUNDING))
+                .rounded(crate::theme::corner(px(height * SIZED_ROUNDING)))
                 .text_size(crate::theme::ui_text(text))
                 .when(self.variant == Variant::Primary, |button| {
                     button.font_weight(FontWeight::SEMIBOLD).gap(SPACE_3)
@@ -480,6 +480,19 @@ impl RenderOnce for Button {
                     keys.text_size(crate::theme::ui_text(text))
                 })
         }))
+        .when(
+            self.variant == Variant::Primary && crate::theme::sharp(),
+            |button| {
+                button.relative().child(
+                    div()
+                        .absolute()
+                        .right(px(-4.))
+                        .bottom(px(-4.))
+                        .size(px(7.))
+                        .bg(t.text_primary),
+                )
+            },
+        )
     }
 }
 
@@ -601,7 +614,7 @@ impl Segmented {
             .flex()
             .h(px(24.))
             .p(px(1.))
-            .rounded(px(7.))
+            .rounded(crate::theme::corner(px(7.)))
             .bg(t.surface_hover)
             .border_1()
             .border_color(t.border)
@@ -615,7 +628,7 @@ impl Segmented {
                     .left(px(1. + at * SLOT))
                     .w(px(SLOT))
                     .h(px(20.))
-                    .rounded(px(5.))
+                    .rounded(crate::theme::corner(px(5.)))
                     .bg(t.surface_active),
             )
             .children(
@@ -678,7 +691,7 @@ impl RenderOnce for Segmented {
             })
             .h(px(TOOLBAR_HEIGHT))
             .p(px(2.))
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .border_1()
             .border_color(t.border)
             .children(
@@ -711,7 +724,7 @@ impl RenderOnce for Segmented {
                             .items_center()
                             .justify_center()
                             .gap(px(7.))
-                            .rounded(px(3.))
+                            .rounded(crate::theme::corner(px(3.)))
                             .text_color(if chosen {
                                 t.text_primary
                             } else {
@@ -744,7 +757,11 @@ impl RenderOnce for Segmented {
                                 )
                             })
                             .children(why.map(|_| {
-                                div().flex_none().size(px(5.)).rounded_full().bg(t.accent)
+                                div()
+                                    .flex_none()
+                                    .size(px(5.))
+                                    .rounded(crate::theme::radius_round())
+                                    .bg(t.accent)
                             }))
                             .children(count.map(|count| {
                                 text(count.to_string(), TEXT_3XS, FontWeight::NORMAL)
@@ -760,7 +777,7 @@ impl RenderOnce for Segmented {
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .rounded(px(8.))
+                                    .rounded(crate::theme::corner(px(8.)))
                                     .bg(t.warn.opacity(0.2))
                                     .child(
                                         text(count.to_string(), TEXT_3XS, FontWeight::MEDIUM)
@@ -843,7 +860,7 @@ impl RenderOnce for Field {
                 .px(px(if self.small { 8. } else { 10. }))
                 .border_1()
                 .border_color(t.line)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(Hsla {
                     a: 0.62,
                     ..t.line_soft

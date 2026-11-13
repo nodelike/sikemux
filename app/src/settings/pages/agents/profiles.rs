@@ -179,7 +179,7 @@ pub fn render(
                     div()
                         .size(px(8.))
                         .flex_none()
-                        .rounded_full()
+                        .rounded(crate::theme::radius_round())
                         .bg(crate::accounts::accent(profile)),
                 )
                 .child(
@@ -351,7 +351,7 @@ pub fn render(
             .flex()
             .child(list)
             .child(editor)
-            .rounded(theme::RADIUS_3),
+            .rounded(theme::radius_3()),
         cx,
     )
 }

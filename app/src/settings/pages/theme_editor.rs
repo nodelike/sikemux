@@ -561,7 +561,7 @@ fn sample(draft: &Value) -> AnyElement {
                 .flex_col()
                 .gap(SPACE_0)
                 .p(SPACE_3)
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .bg(theme::color(
                     draft["editor"]["bg"].as_str().unwrap_or_default(),
                 ))
@@ -595,14 +595,18 @@ fn sample(draft: &Value) -> AnyElement {
                 .flex()
                 .gap(SPACE_0)
                 .p(SPACE_1H)
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .bg(theme::color(
                     draft["terminal"]["background"].as_str().unwrap_or_default(),
                 ))
                 .children(ansi.iter().map(|key| {
-                    div().flex_1().h(px(12.)).rounded(px(2.)).bg(theme::color(
-                        draft["terminal"][*key].as_str().unwrap_or_default(),
-                    ))
+                    div()
+                        .flex_1()
+                        .h(px(12.))
+                        .rounded(crate::theme::corner(px(2.)))
+                        .bg(theme::color(
+                            draft["terminal"][*key].as_str().unwrap_or_default(),
+                        ))
                 })),
         )
         .into_any_element()

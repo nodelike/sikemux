@@ -892,7 +892,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
         .gap(SPACE_2H)
         .h(px(ROW_HEIGHT))
         .px(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_SM))
         .text_color(ink)
         .when(selected, |element| element.bg(t.surface_chosen))
@@ -990,7 +990,7 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
         .p(SPACE_0)
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .bg(Hsla {
             a: t.surface_sunken.a * 0.46,
             ..t.surface_sunken
@@ -1012,7 +1012,7 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .flex()
                         .items_center()
                         .gap(px(5.))
-                        .rounded(theme::RADIUS_2)
+                        .rounded(theme::radius_2())
                         .text_color(ink)
                         .when(on, |option| {
                             option

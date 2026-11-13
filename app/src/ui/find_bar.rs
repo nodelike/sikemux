@@ -116,7 +116,7 @@ impl RenderOnce for FindBar {
             .p(px(5.))
             .border_1()
             .border_color(t.line)
-            .rounded(theme::RADIUS_3)
+            .rounded(theme::radius_3())
             .bg(t.surface_overlay)
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(div().w(px(250.)).child(Field::new(&self.input)))

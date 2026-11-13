@@ -13,7 +13,7 @@ use gpui_kit::{
 use super::{icon, text};
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, RADIUS_2, RADIUS_4, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
+    self, radius_2, radius_4, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
     SPACE_3H, SPACE_4, SPACE_5, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM,
     TEXT_XL, TEXT_XS,
 };
@@ -141,7 +141,7 @@ pub(crate) fn field(name: &'static str, input: &Entity<InputState>, mono: bool, 
                 .items_center()
                 .border_1()
                 .border_color(t.border_strong)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(t.surface_sunken)
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .when(mono, |field| field.font_family(theme::MONO))
@@ -200,7 +200,7 @@ fn head(tile: Option<Tile>, title: SharedString, cx: &App) -> Div {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(ground)
                 .child(icon(tile.icon, 15.).text_color(ink))
         }))
@@ -271,7 +271,7 @@ pub(crate) fn floating(
                 .bg(t.surface_overlay)
                 .border_1()
                 .border_color(t.border)
-                .rounded(RADIUS_4)
+                .rounded(radius_4())
                 .shadow(t.shadow_float())
                 .child(content),
         )
@@ -290,7 +290,7 @@ pub(crate) fn button(
         .accessibility_label(label.clone())
         .h(px(30.))
         .px(SPACE_3)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .border_1()
         .text_size(crate::theme::ui_text(TEXT_SM))
         .font_weight(FontWeight::MEDIUM)
@@ -513,7 +513,7 @@ impl RenderOnce for Prompt {
                 .items_center()
                 .border_1()
                 .border_color(t.border)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .bg(t.surface_sunken)
                 .text_size(crate::theme::ui_text(TEXT_SM))
                 .text_color(t.text_primary)
@@ -572,7 +572,7 @@ impl RenderOnce for Prompt {
                         .items_center()
                         .border_1()
                         .border_color(t.border_strong)
-                        .rounded(RADIUS_2)
+                        .rounded(radius_2())
                         .bg(t.surface_sunken)
                         .font_family(theme::MONO)
                         .text_size(crate::theme::ui_text(TEXT_XS))
@@ -706,7 +706,7 @@ impl RenderOnce for Choices {
                         } else {
                             t.border
                         })
-                        .rounded(px(4.))
+                        .rounded(crate::theme::corner(px(4.)))
                         .bg(t.surface)
                         .text_size(crate::theme::ui_text(TEXT_3XS_H))
                         .font_weight(FontWeight::SEMIBOLD)

@@ -32,7 +32,7 @@ use crate::hosts::install_pane::{SetUp, Words};
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
 use crate::theme::{
-    Tokens, RADIUS_1, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS,
+    radius_1, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS,
     TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{Button, Group, IconButton, Row, Tone, Variant};
@@ -68,7 +68,21 @@ impl Render for DraggedRail {
 }
 
 /// The handle between a docked rail and the stage.
-const RESIZER_WIDTH: f32 = 10.;
+/// How wide the strip between a rail and the stage is: a gutter that drags in Soft, the hairline
+/// in Sharp, whose grip reaches a little past it.
+pub(crate) fn resizer_width() -> f32 {
+    if crate::theme::sharp() {
+        1.
+    } else {
+        10.
+    }
+}
+
+/// The side of Sharp's accent squares at the ends of the rails' hairlines.
+const TICK: f32 = 7.;
+
+/// How far Sharp's resizer grip reaches past its hairline, over the rail beside it.
+const SHARP_GRIP: f32 = 4.;
 
 /// How long a peeking rail stays after the pointer leaves it.
 const PEEK_CLOSE: Duration = Duration::from_millis(180);
@@ -194,7 +208,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
         Some(space) => t!("no projects in {space}", space = space.name),
         None => t!("no projects").to_owned(),
     };
-    let rail = ui::panel(cx)
+    let rail = ui::rail_panel(cx)
         .w(px(bench.rail_width(Edge::Start)))
         .flex_none();
     keyed_rail(rail, Edge::Start, bench, cx)
@@ -408,7 +422,7 @@ fn with_menu(
                 KitButton::new(SharedString::from(format!("{id}-more")))
                     .ghost()
                     .compact()
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .bg(t.surface_hover)
                     .child(ui::icon(Icon::More, 12.).text_color(t.text_secondary))
                     .dropdown_menu_with_anchor(
@@ -899,7 +913,7 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .line_height(crate::theme::ui_text(TEXT_XS))
                         .border_1()
                         .border_color(t.line)
-                        .rounded(RADIUS_1)
+                        .rounded(radius_1())
                         .text_color(t.text_tertiary)
                 })),
         )
@@ -1331,7 +1345,7 @@ fn tree_row(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_color(if lit { t.accent } else { t.text_tertiary })
         .when(!lit, |row| {
             row.hover(move |style| style.text_color(t.text_primary))
@@ -1343,7 +1357,7 @@ fn tree_row(
                 .border_l_1()
                 .border_b_1()
                 .border_color(t.tree_spine)
-                .rounded_bl(px(4.))
+                .rounded_bl(crate::theme::corner(px(4.)))
         } else {
             spine.bottom_0().w(px(1.)).bg(t.tree_spine)
         })
@@ -1407,7 +1421,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .gap(px(5.))
             .h(px(22.))
             .px(SPACE_2)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .whitespace_nowrap()
             .text_color(if on { t.text_primary } else { t.text_tertiary })
@@ -1456,7 +1470,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         .overflow_x_scroll()
         .border_1()
         .border_color(t.border)
-        .rounded(RADIUS_2 + px(3.))
+        .rounded(crate::theme::corner(radius_2() + px(3.)))
         .context_menu(ui::menu({
             let bench = cx.entity();
             move |popup, _, _| {
@@ -1766,7 +1780,7 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .bg(gpui_kit::Hsla {
             a: 0.04,
             ..t.text_primary
@@ -1922,7 +1936,11 @@ impl Workbench {
                 Edge::End => "resize-tab-rail",
             })
             .flex_none()
-            .w(px(RESIZER_WIDTH))
+            .map(|resizer| match (crate::theme::sharp(), edge) {
+                (false, _) => resizer.w(px(resizer_width())),
+                (true, Edge::Start) => resizer.absolute().top_0().right_0().w(px(1. + SHARP_GRIP)),
+                (true, Edge::End) => resizer.absolute().top_0().left_0().w(px(1. + SHARP_GRIP)),
+            })
             .h_full()
             .cursor_col_resize()
             .key_context("RailResizer")
@@ -2060,6 +2078,27 @@ impl Workbench {
 
     /// A docked rail and its handle, `tuck` of the way under the stage. It keeps its width as
     /// it goes, so nothing in it wraps again; the stage takes the room it gives up.
+    /// Sharp's small accent squares where the hairline beside each open rail meets the line
+    /// above the rails and the window's bottom edge.
+    pub(crate) fn rail_ticks(&self, side_tuck: f32, tab_tuck: f32, cx: &App) -> Vec<Div> {
+        let accent = Tokens::get(cx).accent;
+        let tick = || div().absolute().size(px(TICK)).bg(accent);
+        let reach =
+            |width: f32, tuck: f32| (width + resizer_width()) * (1. - tuck) - TICK / 2. - 0.5;
+        let mut ticks = Vec::new();
+        if side_tuck < 1. {
+            let left = px(reach(self.rails.side_width, side_tuck));
+            ticks.push(tick().left(left).top(px(-TICK / 2. - 0.5)));
+            ticks.push(tick().left(left).bottom_0());
+        }
+        if tab_tuck < 1. {
+            let right = px(reach(self.rails.tab_width, tab_tuck));
+            ticks.push(tick().right(right).top(px(-TICK / 2. - 0.5)));
+            ticks.push(tick().right(right).bottom_0());
+        }
+        ticks
+    }
+
     pub(crate) fn docked_rail(
         &self,
         edge: Edge,
@@ -2077,10 +2116,23 @@ impl Workbench {
         let drawer = div()
             .flex_none()
             .h_full()
-            .w(px((width + RESIZER_WIDTH) * (1. - tuck)))
+            .w(px((width + resizer_width()) * (1. - tuck)))
             .overflow_hidden()
             .flex()
             .opacity(1. - tuck);
+        if crate::theme::sharp() {
+            let line = div()
+                .flex_none()
+                .w(px(1.))
+                .h_full()
+                .bg(Tokens::get(cx).border);
+            let drawer = drawer.relative();
+            return match edge {
+                Edge::Start => drawer.child(rail).child(line),
+                Edge::End => drawer.justify_end().child(line).child(rail),
+            }
+            .child(self.rail_resizer(edge, cx));
+        }
         match edge {
             Edge::Start => drawer.child(rail).child(self.rail_resizer(edge, cx)),
             Edge::End => drawer

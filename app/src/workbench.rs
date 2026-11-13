@@ -905,9 +905,9 @@ impl Render for Workbench {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .pt(SPACE_1)
-                    .px(SPACE_2H)
-                    .pb(SPACE_2H)
+                    .when(!theme::sharp(), |row| {
+                        row.pt(SPACE_1).px(SPACE_2H).pb(SPACE_2H)
+                    })
                     .on_drag_move(cx.listener(
                         |bench, event: &DragMoveEvent<DraggedRail>, window, cx| {
                             let edge = event.drag(cx).0;
@@ -916,7 +916,13 @@ impl Render for Workbench {
                                 Edge::Start => x - bounds.left(),
                                 Edge::End => bounds.right() - x,
                             };
-                            bench.resize_rail(edge, f32::from(width) - 15., window, cx);
+                            let inset = crate::rail::resizer_width() / 2.
+                                + if theme::sharp() {
+                                    0.
+                                } else {
+                                    f32::from(SPACE_2H)
+                                };
+                            bench.resize_rail(edge, f32::from(width) - inset, window, cx);
                         },
                     ))
                     .when(side_tuck < 1., |row| {
@@ -930,6 +936,10 @@ impl Render for Workbench {
                     )
                     .when(tab_tuck < 1., |row| {
                         row.child(self.docked_rail(Edge::End, tab_tuck, cx))
+                    })
+                    .when(theme::sharp(), |row| {
+                        row.relative()
+                            .children(self.rail_ticks(side_tuck, tab_tuck, cx))
                     }),
             )
             // Web pages cover all GPUI draws but deferred layers, so what floats goes here.

@@ -292,7 +292,7 @@ pub fn render(
         .bg(t.surface)
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_4)
+        .rounded(theme::radius_4())
         .shadow(t.shadow_float())
         .text_color(t.text_secondary)
         .on_mouse_down(gpui_kit::MouseButton::Left, |_, _, cx| {
@@ -395,10 +395,15 @@ fn side(
                 .self_start()
                 .px(px(7.))
                 .py(SPACE_1)
-                .rounded(theme::RADIUS_1)
+                .rounded(theme::radius_1())
                 .bg(Hsla { a: 0.12, ..t.live })
                 .text_color(t.live)
-                .child(div().size(px(5.)).rounded_full().bg(t.live))
+                .child(
+                    div()
+                        .size(px(5.))
+                        .rounded(crate::theme::radius_round())
+                        .bg(t.live),
+                )
                 .child(
                     ui::text(channel.to_uppercase(), TEXT_3XS, FontWeight::SEMIBOLD)
                         .letter_spacing(0.08),
@@ -531,7 +536,7 @@ fn contributors(
                 .py(px(9.))
                 .border_1()
                 .border_color(gpui_kit::transparent_black())
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .bg(t.surface_overlay)
                 .hover(|row| row.border_color(t.border).bg(t.surface_raised))
                 .clicks(open(&person.login))
@@ -598,7 +603,7 @@ fn contributors(
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .rounded(theme::RADIUS_2)
+                                .rounded(theme::radius_2())
                                 .bg(t.border)
                                 .text_size(crate::theme::ui_text(TEXT_2XS))
                                 .font_weight(FontWeight::SEMIBOLD)
@@ -810,7 +815,7 @@ fn waiting(
             } else {
                 t.border
             })
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .text_color(if danger { t.danger } else { t.text_secondary })
             .cursor_pointer()
             .when(danger, |button| {
@@ -885,7 +890,7 @@ fn waiting(
                         .py(px(7.))
                         .border_1()
                         .border_color(t.border)
-                        .rounded(theme::RADIUS_2)
+                        .rounded(theme::radius_2())
                         .bg(t.surface_raised)
                         .child(div().min_w_0().truncate().text_color(t.text_primary).child(title))
                         .child(

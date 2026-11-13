@@ -309,7 +309,7 @@ fn failure_line(step: &SetupStep, cx: &mut Context<Workbench>) -> AnyElement {
                 .gap(SPACE_3)
                 .px(SPACE_2H)
                 .py(SPACE_1H)
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .border_1()
                 .border_color(t.danger.opacity(0.3))
                 .child(
@@ -432,7 +432,7 @@ fn heavy_card(config: &ProjectConfig, cx: &mut Context<Workbench>) -> Option<Any
                 row.child(
                     div()
                         .px(SPACE_1H)
-                        .rounded(theme::RADIUS_1)
+                        .rounded(theme::radius_1())
                         .bg(t.accent.opacity(0.14))
                         .text_size(theme::ui_text(TEXT_2XS_H))
                         .text_color(t.accent)

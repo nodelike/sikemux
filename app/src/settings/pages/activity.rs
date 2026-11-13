@@ -546,7 +546,7 @@ fn cost_split(model: &ActivityModel, t: &Tokens) -> AnyElement {
                 .flex()
                 .gap(px(1.))
                 .h(px(6.))
-                .rounded(px(3.))
+                .rounded(crate::theme::corner(px(3.)))
                 .overflow_hidden()
                 .children(parts.iter().filter(|part| part.1 > 0.).map(|part| {
                     div()
@@ -568,7 +568,12 @@ fn cost_split(model: &ActivityModel, t: &Tokens) -> AnyElement {
                         .gap(SPACE_1H)
                         .text_size(crate::theme::ui_text(TEXT_2XS_H))
                         .text_color(t.text_tertiary)
-                        .child(div().size(px(7.)).rounded(px(2.)).bg(part.2))
+                        .child(
+                            div()
+                                .size(px(7.))
+                                .rounded(crate::theme::corner(px(2.)))
+                                .bg(part.2),
+                        )
                         .child(part.0)
                         .child(
                             div()

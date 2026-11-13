@@ -15,7 +15,7 @@ use super::{hair, ink};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::theme::{
-    self, Tokens, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
+    self, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
     SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_XL, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, Field, Segmented, Toggle, Variant};
@@ -140,7 +140,12 @@ fn head(
                         .gap(px(9.))
                         .text_color(t.text_tertiary)
                         .child(figure(online, t!("of {all} online", all = listed.len())))
-                        .child(div().size(px(3.)).rounded_full().bg(t.text_disabled))
+                        .child(
+                            div()
+                                .size(px(3.))
+                                .rounded(crate::theme::radius_round())
+                                .bg(t.text_disabled),
+                        )
                         .child(figure(running, t!("of {all} agents running", all = agents))),
                 ),
         )
@@ -233,7 +238,7 @@ fn empty(t: &Tokens, none_at_all: bool) -> Div {
         .border_1()
         .border_dashed()
         .border_color(t.border)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .text_color(t.text_tertiary)
         .child(ui::text(
             match none_at_all {
@@ -284,7 +289,7 @@ fn state_mark(host: &Listed, tint: Hsla) -> AnyElement {
         None => div()
             .size(px(6.))
             .mx(px(3.5))
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .bg(tint)
             .into_any_element(),
     }
@@ -313,7 +318,7 @@ fn host_card(
         .min_w_0()
         .flex()
         .flex_col()
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .border_1()
         .border_color(hair(t))
         .overflow_hidden()
@@ -389,7 +394,7 @@ pub fn tile(host: &Listed, size: f32, glyph: f32, t: &Tokens) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(size * 0.28))
+        .rounded(crate::theme::corner(px(size * 0.28)))
         .bg(ink(t, 0.05))
         .border_1()
         .border_color(hair(t))
@@ -606,11 +611,16 @@ pub fn counts(counts: Counts, t: &Tokens) -> Div {
                 .child(ui::text(words, TEXT_XS, FontWeight::NORMAL).text_color(t.text_tertiary))
         })
     };
-    let dot = |tint: Hsla| div().size(px(6.)).rounded_full().bg(tint);
+    let dot = |tint: Hsla| {
+        div()
+            .size(px(6.))
+            .rounded(crate::theme::radius_round())
+            .bg(tint)
+    };
     let ring = || {
         div()
             .size(px(6.))
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .border_1()
             .border_color(t.text_tertiary)
     };
@@ -646,7 +656,7 @@ fn table(
         (t!("Agents"), Some(Icon::Agents)),
     ];
     div()
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .border_1()
         .border_color(hair(t))
         .bg(lifted(t, 0.))

@@ -16,7 +16,7 @@ use super::{caps, icon, mark_box, meta, mono, text};
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_XS,
+    radius_2, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_XS,
 };
 
 /// The hover group a row puts itself in, for a glyph in it that follows its text.
@@ -262,7 +262,7 @@ impl RenderOnce for Row {
                     row.items_center()
                 }
             })
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_color(ink)
             .bg(tint)
             .on_hover(keep_over)
@@ -425,7 +425,7 @@ impl RenderOnce for Group {
             .pr(SPACE_1H)
             .pb(SPACE_1H)
             .pl(SPACE_2)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .child(caps(self.label, cx).flex_none())
             .when((folded || self.counted) && count > 0, |heading| {
                 heading.child(
@@ -597,19 +597,38 @@ impl RenderOnce for Tab {
             && self.counts.is_none()
             && self.tail.is_none()
             && self.on_close.is_some();
+        let sharp = crate::theme::sharp();
         div()
             .id(wrap_id)
             .relative()
             .flex_none()
-            .h(px(26.))
             .min_w(px(120.))
             .flex()
             .items_center()
             .gap(SPACE_1)
-            .rounded(RADIUS_2)
             .bg(tint)
             .text_color(ink)
-            .when(!self.active, |tab| tab.border_1().border_color(edge))
+            .when(!sharp, |tab| {
+                tab.h(px(26.))
+                    .rounded(radius_2())
+                    .when(!self.active, |tab| tab.border_1().border_color(edge))
+            })
+            .when(sharp, |tab| {
+                tab.h_full()
+                    .border_r_1()
+                    .border_color(t.border)
+                    .when(self.active, |tab| {
+                        tab.child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .right_0()
+                                .bottom_0()
+                                .h(px(2.))
+                                .bg(t.accent),
+                        )
+                    })
+            })
             .on_hover(keep_over)
             .child(
                 BaseButton::new(self.id)
@@ -686,7 +705,7 @@ pub fn close_button(
         .flex()
         .items_center()
         .justify_center()
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_color(t.text_tertiary)
         .hover(move |style| {
             style.text_color(t.danger).bg(gpui_kit::Hsla {

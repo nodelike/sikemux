@@ -74,7 +74,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_4)
+        .rounded(theme::radius_4())
         .shadow(t.shadow_float())
         .occlude()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

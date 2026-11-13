@@ -452,6 +452,13 @@ impl Workbench {
                     }
                     crate::ui::grain::set(&preferences, cx);
                     crate::theme::set_text_scale(preferences.ui_text_scale as f32, cx);
+                    let sharp = preferences.ui_style == sikemux_view::prefs::UiStyle::Sharp;
+                    if crate::theme::sharp() != sharp {
+                        crate::theme::set_sharp(sharp, cx);
+                        for pane in self.mod_panes.values() {
+                            pane.update(cx, |pane, cx| pane.retheme(cx));
+                        }
+                    }
                     if crate::i18n::speak(preferences.language.as_deref()) {
                         cx.refresh_windows();
                     }

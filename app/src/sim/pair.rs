@@ -168,7 +168,7 @@ impl Render for PairPhone {
                         div()
                             .self_center()
                             .p(SPACE_2)
-                            .rounded(px(8.))
+                            .rounded(crate::theme::corner(px(8.)))
                             .bg(gpui_kit::white())
                             .child(qr_picture(code))
                     }))

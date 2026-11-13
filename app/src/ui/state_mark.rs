@@ -158,13 +158,13 @@ pub fn mark_of(agent: &str, mark: Mark, cx: &App) -> AnyElement {
                     .into_any_element(),
                 Mark::Stopped => div()
                     .size(px(7. * scale))
-                    .rounded_full()
+                    .rounded(crate::theme::radius_round())
                     .border(px(1.5))
                     .border_color(tint)
                     .into_any_element(),
                 Mark::NeedsYou | Mark::Done | Mark::Failed => div()
                     .size(px(7. * scale))
-                    .rounded_full()
+                    .rounded(crate::theme::radius_round())
                     .bg(tint)
                     .into_any_element(),
             };
@@ -216,7 +216,7 @@ fn needs_you(through: f32, tint: Hsla) -> AnyElement {
                 .top(px(8. - size / 2.))
                 .left(px(8. - size / 2.))
                 .size(px(size))
-                .rounded_full()
+                .rounded(crate::theme::radius_round())
                 .border(px(1.5))
                 .border_color(tint)
                 .opacity(0.9 * (1. - grown))
@@ -260,7 +260,7 @@ impl Render for Twinkle {
                 };
                 div()
                     .size(px(2.5 * scale))
-                    .rounded(px(0.5 * scale))
+                    .rounded(crate::theme::corner(px(0.5 * scale)))
                     .bg(tint)
                     .opacity(lit)
             }))

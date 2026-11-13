@@ -308,7 +308,7 @@ pub fn dock(
         .pb(DOCK_TUCK + SPACE_1H)
         .flex()
         .flex_col()
-        .rounded_t(theme::RADIUS_3)
+        .rounded_t(theme::radius_3())
         .border_t_1()
         .border_l_1()
         .border_r_1()
@@ -397,7 +397,7 @@ fn header(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(theme::ui_text(TEXT_XS))
         .text_color(t.text_tertiary)
         .clicks(cx.listener(move |bench, _, _, cx| {
@@ -456,7 +456,11 @@ fn running(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
             None => kinds.push((kind, vec![task])),
         }
     }
-    let live = div().size(px(6.)).flex_none().rounded_full().bg(t.live);
+    let live = div()
+        .size(px(6.))
+        .flex_none()
+        .rounded(crate::theme::radius_round())
+        .bg(t.live);
     let mut words = vec![counted(
         live.into_any_element(),
         t!("{count} running", count = count),
@@ -547,7 +551,7 @@ fn stop_all(
         .px(SPACE_1H)
         .flex()
         .items_center()
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .text_size(theme::ui_text(TEXT_2XS_H))
         .text_color(ink)
         .hover(move |button| button.text_color(hover))
@@ -584,7 +588,7 @@ fn work_row(
         .flex()
         .items_center()
         .gap(SPACE_2H)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .hover(|row| row.bg(t.surface_hover))
         .child(div().flex_none().flex().child(mark))
         .child(
@@ -751,7 +755,7 @@ fn stop(
         .flex()
         .items_center()
         .justify_center()
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .text_color(t.text_disabled)
         .when(!stopping, |stop| {
             stop.hover(move |stop| stop.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
@@ -890,7 +894,7 @@ fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
         .items_center()
         .border_1()
         .border_color(t.line)
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .hover(|button| button.bg(t.surface_hover))
         .text_size(crate::theme::ui_text(TEXT_3XS_H))
         .text_color(t.text_secondary)
@@ -1022,7 +1026,7 @@ fn tinted_button(id: SharedString, label: &str, tint: Hsla, t: &Tokens) -> BaseB
         .gap(SPACE_1H)
         .border_1()
         .border_color(t.line)
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .bg(Hsla { a: 0.08, ..tint })
         .hover(move |button| button.bg(Hsla { a: 0.18, ..tint }))
         .text_size(crate::theme::ui_text(TEXT_3XS_H))
@@ -1039,7 +1043,7 @@ fn remove_button(id: SharedString, label: String, t: &Tokens) -> BaseButton {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .text_color(t.text_disabled)
         .hover(move |remove| remove.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
         .child(ui::icon(Icon::Close, 10.).text_color(t.text_disabled))
@@ -1243,7 +1247,7 @@ fn trigger_buttons(
         .flex()
         .items_center()
         .justify_center()
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
         .text_color(t.text_disabled)
         .hover(move |remove| remove.bg(Hsla { a: 0.16, ..danger }).text_color(danger))
         .on_click(remove)
@@ -1261,7 +1265,7 @@ fn trigger_buttons(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(theme::RADIUS_1)
+                    .rounded(theme::radius_1())
                     .hover(|copy| copy.bg(t.surface_hover))
                     .on_click(move |_, _, cx| {
                         cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(url.clone()))

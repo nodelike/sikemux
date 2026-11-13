@@ -31,7 +31,9 @@
 //!                                 "toast success|info|error|undo text" shows a toast saying the text;
 //!                                 "star" shows the ask for a GitHub star;
 //!                                 "settings <page>" opens settings at the page of that name;
-//!                                 "language es" draws the app in that language, as its picker does
+//!                                 "language es" draws the app in that language, as its picker does;
+//!                                 "style sharp|soft" draws in that style and "theme <id>" in that
+//!                                 theme, without changing the person's preferences
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -297,6 +299,19 @@ fn main() -> anyhow::Result<()> {
                 "activate" => window.activate_window(),
                 "language" => {
                     sikemux_gpui::i18n::speak(Some(rest.trim()).filter(|code| !code.is_empty()));
+                    cx.refresh_windows();
+                    window.draw(cx).clear(cx);
+                }
+                "style" => {
+                    theme::set_sharp(rest.trim() == "sharp", cx);
+                    window.draw(cx).clear(cx);
+                }
+                "theme" => {
+                    let preferences = sikemux_view::prefs::Preferences {
+                        theme_id: rest.trim().to_owned(),
+                        ..Default::default()
+                    };
+                    theme::apply(&sikemux_corekit::themes::palette(&preferences, None), cx);
                     cx.refresh_windows();
                     window.draw(cx).clear(cx);
                 }

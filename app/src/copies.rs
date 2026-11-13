@@ -22,7 +22,7 @@ use std::f32::consts::FRAC_PI_2;
 use crate::core::Target;
 use crate::hosts::{HostChoice, Place};
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_1, SPACE_1H, TEXT_2XS};
+use crate::theme::{radius_1, Tokens, SPACE_1H, TEXT_2XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -486,7 +486,7 @@ pub fn copy_chip(
         .gap(px(4.))
         .h(px(18.))
         .px(SPACE_1H)
-        .rounded(RADIUS_1)
+        .rounded(radius_1())
         .bg(t.surface_hover)
         .text_color(t.host)
         .hover(move |style| style.bg(t.surface_active))
@@ -544,10 +544,13 @@ pub fn copy_row(bench: &Workbench, folded: &Folded, cx: &Context<Workbench>) -> 
         .children(git.filter(|git| git.ahead > 0).map(|git| {
             ui::mono(format!("↑{}", git.ahead), crate::theme::TEXT_3XS_H, cx).text_color(t.live)
         }))
-        .children(
-            git.filter(|git| git.dirty)
-                .map(|_| div().size(px(6.)).flex_none().rounded_full().bg(t.warn)),
-        )
+        .children(git.filter(|git| git.dirty).map(|_| {
+            div()
+                .size(px(6.))
+                .flex_none()
+                .rounded(crate::theme::radius_round())
+                .bg(t.warn)
+        }))
         .child(
             ui::icon(Icon::Chevron, 9.)
                 .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))

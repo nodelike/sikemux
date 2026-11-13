@@ -400,7 +400,7 @@ pub fn render(
                     div()
                         .border_1()
                         .border_color(t.line)
-                        .rounded(theme::RADIUS_2)
+                        .rounded(theme::radius_2())
                         .text_size(crate::theme::ui_text(TEXT_XS))
                         .child(Textarea::new(&fields.body).h(px(140.)).bordered(false)),
                 )

@@ -211,7 +211,7 @@ pub(super) fn tabs(
         .w_full()
         .flex()
         .flex_col()
-        .rounded(px(10.))
+        .rounded(crate::theme::corner(px(10.)))
         .overflow_hidden()
         .border_1()
         .border_color(t.border)
@@ -233,7 +233,7 @@ fn tab_row(
         .flex_none()
         .w(px(THUMB_WIDTH))
         .h(px(THUMB_WIDTH / THUMB_KEPT_SHAPE))
-        .rounded(px(6.))
+        .rounded(crate::theme::corner(px(6.)))
         .overflow_hidden()
         .border_1()
         .border_color(t.border)
@@ -244,7 +244,7 @@ fn tab_row(
         .child(match picture {
             Some(picture) => img(picture)
                 .size_full()
-                .rounded(px(6.))
+                .rounded(crate::theme::corner(px(6.)))
                 .object_fit(ObjectFit::Cover)
                 .into_any_element(),
             None => ui::icon(Icon::Tabs, 16.)

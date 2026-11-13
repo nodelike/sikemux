@@ -24,7 +24,7 @@ use crate::chat::model_picker::Picked;
 use crate::icons::Icon;
 use crate::motion::{Curve, Ease};
 use crate::theme::{
-    self, Tokens, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4,
+    self, radius_3, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4,
     TEXT_2XS, TEXT_2XS_H, TEXT_3XS_H, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, DockMenu, IconButton};
@@ -521,7 +521,7 @@ impl RenderOnce for Composer {
                     .relative()
                     .w_full()
                     .max_w(super::column::composer(cx))
-                    .rounded(theme::RADIUS_4)
+                    .rounded(theme::radius_4())
                     .child(
                         div()
                             .relative()
@@ -538,8 +538,9 @@ impl RenderOnce for Composer {
                             } else {
                                 edge
                             })
-                            .rounded(theme::RADIUS_4)
+                            .rounded(theme::radius_4())
                             .bg(fill)
+                            .when(theme::sharp(), |frame| frame.shadow(t.shadow_float()))
                             .children(tiles)
                             .child(
                                 div()
@@ -670,7 +671,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .text_color(t.text_tertiary)
             .child(ui::icon(Icon::Folder, 12.).text_color(t.live))
@@ -695,7 +696,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             BaseButton::new("composer-project")
                 .accessibility_label(t!("Project"))
                 .min_w_0()
-                .rounded_full()
+                .rounded(crate::theme::radius_round())
                 .hover(move |style| style.bg(t.surface_hover))
                 .tooltip(ui::tooltip(strip.path.clone()))
                 .child(name(true)),
@@ -717,7 +718,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             .flex()
             .items_center()
             .gap(SPACE_1H)
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .child(match strip.host {
                 Some(_) => ui::icon(Icon::Server, 12.).flex_none().text_color(t.host),
                 None => ui::icon(Icon::Laptop, 12.)
@@ -750,7 +751,7 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
             BaseButton::new("composer-host")
                 .accessibility_label(t!("Host"))
                 .min_w_0()
-                .rounded_full()
+                .rounded(crate::theme::radius_round())
                 .hover(move |style| style.bg(t.surface_hover))
                 .child(host_name(true)),
         )
@@ -838,7 +839,7 @@ fn stash_button(fresh: usize, open: bool, toggle: Act, room: Room, cx: &App) -> 
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS_H))
         .font_weight(FontWeight::MEDIUM)
         .text_color(if open {
@@ -865,7 +866,7 @@ fn stash_button(fresh: usize, open: bool, toggle: Act, room: Room, cx: &App) -> 
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded_full()
+                    .rounded(crate::theme::radius_round())
                     .bg(t.accent)
                     .text_size(crate::theme::ui_text(TEXT_3XS_H))
                     .font_weight(FontWeight::BOLD)
@@ -961,7 +962,7 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
         .flex()
         .items_center()
         .gap(px(5.))
-        .rounded_full()
+        .rounded(crate::theme::radius_round())
         .when(!settable, |chip| chip.opacity(0.42))
         .when(settable, |chip| {
             chip.hover(move |style| {
@@ -1109,7 +1110,7 @@ fn picker_face<E: Styled + ParentElement + IntoElement>(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded_full()
+        .rounded(crate::theme::radius_round())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .font_weight(FontWeight::MEDIUM)
         .text_color(if first {
@@ -1274,7 +1275,7 @@ fn context_meter(
             .justify_center()
             .gap(SPACE_1H)
             .px(if count.is_some() { SPACE_2 } else { px(0.) })
-            .rounded_full()
+            .rounded(crate::theme::radius_round())
             .when(open, |meter| meter.bg(hover))
             .hover(move |style| style.bg(hover))
             .when(!open, |meter| {
@@ -1297,7 +1298,7 @@ fn context_meter(
                 .px(SPACE_3)
                 .pt(SPACE_2H)
                 .pb(px(11.))
-                .rounded(RADIUS_3)
+                .rounded(radius_3())
                 .bg(t.surface_overlay)
                 .border_1()
                 .border_color(t.border)
@@ -1410,7 +1411,7 @@ fn context_card(
                 div()
                     .flex_1()
                     .h(px(10.))
-                    .rounded(px(1.5))
+                    .rounded(crate::theme::corner(px(1.5)))
                     .bg(if segment < lit { signal } else { unlit })
             }),
         ))
@@ -1583,7 +1584,7 @@ fn send(
         .flex()
         .items_center()
         .justify_center()
-        .rounded_full()
+        .rounded(crate::theme::radius_round())
         .bg(t.text_primary)
         .when(!stopping && !drafted, |button| button.opacity(0.28))
         .when_some(about, |button, about| button.tooltip(ui::tooltip(about)))

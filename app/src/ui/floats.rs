@@ -16,14 +16,14 @@ use super::text;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, RADIUS_2, RADIUS_3, RADIUS_4, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS_H, TEXT_3XS_H,
+    radius_2, radius_3, radius_4, Tokens, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS_H, TEXT_3XS_H,
     TEXT_LG,
 };
 
 /// How far rows sit inside a float, so a chosen row's corners run parallel to the float's:
 /// the float's corner less its border and a row's corner.
 pub const FLOAT_INSET: f32 = 14. - 1. - 5.;
-/// The same inside a panel with the smaller [`RADIUS_3`] corners.
+/// The same inside a panel with the smaller [`radius_3()`] corners.
 pub const PANEL_INSET: f32 = 10. - 1. - 5.;
 
 /// What floats over everything else: menus, pickers, palettes.
@@ -36,7 +36,7 @@ pub fn float(cx: &App) -> Div {
         })
         .border_1()
         .border_color(t.border)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .shadow(t.shadow_float())
         .backdrop_blur(px(20.))
 }
@@ -204,7 +204,7 @@ impl MenuRow {
                                 .bottom_0()
                                 .left(-before)
                                 .right(-after)
-                                .rounded(RADIUS_2)
+                                .rounded(radius_2())
                                 .bg(ground),
                         )
                     })
@@ -246,7 +246,7 @@ impl Render for TooltipView {
             .max_w(px(360.))
             .px(px(9.))
             .py(px(5.))
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .bg(t.surface_tooltip)
             .border_1()
             .border_color(Hsla {
@@ -285,7 +285,7 @@ impl Render for CardTooltipView {
             .px(SPACE_3)
             .pt(SPACE_2H)
             .pb(px(11.))
-            .rounded(RADIUS_3)
+            .rounded(radius_3())
             .bg(t.surface_overlay)
             .border_1()
             .border_color(t.border)

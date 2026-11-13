@@ -430,7 +430,7 @@ pub fn thumb(
     let clickable = div()
         .id(id)
         .max_w(width)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .overflow_hidden()
         .clicks(move |_, window, cx| {
             bench

@@ -102,7 +102,7 @@ fn source(fence: Fence, fault: Option<SharedString>, t: &Tokens) -> AnyElement {
             Arc::new(fence.id),
             "math-card".into(),
         ))
-        .rounded(card.radius)
+        .rounded(crate::theme::corner(card.radius))
         .bg(card.ground)
         .overflow_hidden()
         .child(

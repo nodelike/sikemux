@@ -92,7 +92,7 @@ pub fn toggle(id: impl Into<SharedString>, switch: &Switch, flip: Flip, cx: &App
         .flex()
         .items_center()
         .gap(px(5.))
-        .rounded_full()
+        .rounded(crate::theme::radius_round())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(match switch {
             Switch::Always => t.accent,
@@ -150,7 +150,7 @@ pub fn note(switch: &Switch, cx: &App) -> Option<AnyElement> {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(crate::theme::RADIUS_2)
+                .rounded(crate::theme::radius_2())
                 .bg(Hsla {
                     a: 0.16,
                     ..t.accent

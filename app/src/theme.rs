@@ -2,6 +2,7 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use gpui_kit::component::theme::{Theme as KitTheme, ThemeTokens};
 use gpui_kit::{
@@ -83,10 +84,45 @@ pub const TEXT_MD: f32 = 14.;
 pub const TEXT_LG: f32 = 16.;
 pub const TEXT_XL: f32 = 20.;
 
-pub const RADIUS_1: Pixels = px(4.);
-pub const RADIUS_2: Pixels = px(5.);
-pub const RADIUS_3: Pixels = px(10.);
-pub const RADIUS_4: Pixels = px(14.);
+/// Whether every window draws in the Sharp style: square corners, hairlines, hard shadows.
+static SHARP: AtomicBool = AtomicBool::new(false);
+
+pub fn sharp() -> bool {
+    SHARP.load(Ordering::Relaxed)
+}
+
+/// A corner `soft` round in the Soft style, square in Sharp.
+pub fn corner(soft: Pixels) -> Pixels {
+    if sharp() {
+        px(0.)
+    } else {
+        soft
+    }
+}
+
+pub fn radius_1() -> Pixels {
+    corner(px(4.))
+}
+
+pub fn radius_2() -> Pixels {
+    corner(px(5.))
+}
+
+pub fn radius_3() -> Pixels {
+    corner(px(10.))
+}
+
+pub fn radius_4() -> Pixels {
+    corner(px(14.))
+}
+
+/// A round shape's corner, such as a pill's or a status dot's, which Sharp squares too.
+pub fn radius_round() -> Pixels {
+    corner(px(9999.))
+}
+
+/// How far Sharp's hard shadow is cast down and right.
+const SHARP_CAST: Pixels = px(6.);
 
 /// What a find in a terminal tints its matches with, the current one brighter, in every theme.
 const FIND_MATCH: u32 = 0x433866;
@@ -148,6 +184,8 @@ pub struct Tokens {
     /// The code editor's colours and syntax highlighting, as CSS colours [`color`] reads.
     pub editor: ThemeEditor,
     pub highlight: ThemeHighlight,
+    /// What Sharp's hard shadows are cast in: the accent on a dark theme, the ink on a light one.
+    pub cast: Hsla,
 }
 
 impl Global for Tokens {}
@@ -224,15 +262,34 @@ impl Tokens {
             terminal_match_current: hex(FIND_CURRENT).into(),
             editor: palette.theme.editor.clone(),
             highlight: palette.theme.highlight.clone(),
+            cast: color(if palette.theme.dark {
+                &k.accent
+            } else {
+                &k.ink
+            }),
         }
+    }
+
+    /// Sharp's hairlines: on a light theme they take the full ink, as printed rules do.
+    fn sharpen(mut self) -> Self {
+        if !self.dark {
+            self.border = self.text_primary;
+            self.border_strong = self.text_primary;
+            self.line = self.text_primary;
+        }
+        self
     }
 
     pub fn get(cx: &App) -> &Self {
         cx.global::<Self>()
     }
 
-    /// DESIGN.md's `--shadow-2`, for a tile raised off the surface it sits on.
+    /// DESIGN.md's `--shadow-2`, for a tile raised off the surface it sits on. Sharp keeps
+    /// tiles flat.
     pub fn shadow_raised(&self) -> Vec<BoxShadow> {
+        if sharp() {
+            return Vec::new();
+        }
         vec![
             BoxShadow {
                 color: black(0.32),
@@ -251,8 +308,18 @@ impl Tokens {
         ]
     }
 
-    /// DESIGN.md's `--shadow-4`, for anything that floats.
+    /// DESIGN.md's `--shadow-4`, for anything that floats: in Sharp, a hard copy of its
+    /// outline cast down and right.
     pub fn shadow_float(&self) -> Vec<BoxShadow> {
+        if sharp() {
+            return vec![BoxShadow {
+                color: self.cast,
+                offset: gpui_kit::point(SHARP_CAST, SHARP_CAST),
+                blur_radius: px(0.),
+                spread_radius: px(0.),
+                inset: false,
+            }];
+        }
         vec![
             BoxShadow {
                 color: black(0.44),
@@ -327,17 +394,37 @@ pub fn text_scale(cx: &App) -> f32 {
     cx.try_global::<TextScale>().map_or(1., |scale| scale.0)
 }
 
+/// The palette last applied, which a change of style draws again.
+struct Worn(Palette);
+
+impl Global for Worn {}
+
+/// Draws in the Sharp style, or the Soft one, from the next frame, in every window.
+pub fn set_sharp(on: bool, cx: &mut App) {
+    if sharp() == on {
+        return;
+    }
+    SHARP.store(on, Ordering::Relaxed);
+    let palette = cx.global::<Worn>().0.clone();
+    apply(&palette, cx);
+    cx.refresh_windows();
+}
+
 /// Draws with `palette` from the next frame, GPUI Kit's widgets too.
 pub fn apply(palette: &Palette, cx: &mut App) {
-    let tokens = Tokens::new(palette);
+    cx.set_global(Worn(palette.clone()));
+    let tokens = match sharp() {
+        true => Tokens::new(palette).sharpen(),
+        false => Tokens::new(palette),
+    };
     let scale = text_scale(cx);
     let kit = KitTheme::global_mut(cx);
     kit.font_family = SharedString::new_static(UI);
     kit.mono_font_family = SharedString::new_static(MONO);
     kit.font_size = px(REM * scale);
     kit.mono_font_size = px(11.);
-    kit.radius = RADIUS_2;
-    kit.radius_lg = RADIUS_4;
+    kit.radius = radius_2();
+    kit.radius_lg = radius_4();
     kit.background = tokens.surface;
     kit.foreground = tokens.text_primary;
     kit.muted_foreground = tokens.text_tertiary;
