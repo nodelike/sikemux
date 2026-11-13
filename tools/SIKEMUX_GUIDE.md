@@ -55,6 +55,7 @@ Safari does, so check pages there, not in a headless Chromium.
 For one area in depth, call `guide` with one of these as `topic`:
 
 - `config` — writing or fixing `sikemux.json`, and `configStatus`
+- `setup` — `setup_check`
 - `processes` — starting, trust prompts, `readyWhen`, restarting, stopping
 - `output` — `process_read` paging, `plain`, `tail`, `search`, `events_wait`
 - `ui` — `ui_open` for files, diffs, terminals and the preview
@@ -132,12 +133,16 @@ checkout gets `SIKEMUX_CHECKOUT` (`main` in the project's own folder),
 `SIKEMUX_ROOT`, `SIKEMUX_PORT` (the first of its ten), `SIKEMUX_PORT_<NAME>`
 and `env`; only a process with `port` gets `PORT`. `worktree.onRemove` runs
 before a checkout is deleted. `workspace_inspect` shows them under
-`checkout`. `setup_check` proves the setup on two fresh checkouts at once:
-the `onCreate` steps, each process with a port answering on it, the check,
-no heavy command left running after it, the `onRemove` steps, and nothing
-listening once both are gone. It answers each step with its outcome, the
-last line of a failed one and its log. The `project-setup` skill walks
-through writing and proving it.
+`checkout`. The `project-setup` skill walks through writing and proving it.
+
+## setup: Proving a project's setup
+
+Reading this topic lists `setup_check` among your tools. It proves the setup on
+two fresh checkouts at once: the `onCreate` steps, each process with a port
+answering on it, the check, no heavy command left running after it, the
+`onRemove` steps, and nothing listening once both are gone. It answers each
+step with its outcome, the last line of a failed one and its log. It uses
+`sikemux.json` as it is in the project's folder, so prove it before you commit.
 
 ## processes: Starting and stopping processes
 

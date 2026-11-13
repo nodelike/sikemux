@@ -1296,6 +1296,7 @@
     },
     {
       "name": "setup_check",
+      "offered": "setup",
       "row": {"verb": "check", "kind": "execute", "icon": "check", "target": ["the setup on fresh checkouts"]},
       "method": "setup.check",
       "description": "Prove sikemux.json's setup on two fresh checkouts: steps, processes' ports, check, removal.",

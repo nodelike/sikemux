@@ -315,6 +315,8 @@ pub fn is_browser_method(method: &str) -> bool {
 /// offers it the tools only a reviewer gets.
 pub const TOOLS_OFFER_ENV: &str = "SIKEMUX_TOOLS_OFFER";
 pub const REVIEWER_OFFER: &str = "reviewer";
+/// A tool listed for an agent only once it has read the guide's setup topic.
+pub const SETUP_OFFER: &str = "setup";
 
 /// The tools server asks this as it starts: whether its agent gets the simulator tools.
 pub const SIM_OFFERED_METHOD: &str = "sim.offered";

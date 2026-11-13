@@ -95,7 +95,7 @@ fn signoz_tool() -> Tool {
 }
 
 fn declarations() -> Vec<Value> {
-    Manifest::load().declarations(&[])
+    Manifest::load().declarations(&[], false)
 }
 
 fn field<'a>(tool: &'a Value, name: &str) -> &'a str {
@@ -105,7 +105,7 @@ fn field<'a>(tool: &'a Value, name: &str) -> &'a str {
 #[test]
 fn every_served_tool_comes_from_the_manifest() {
     let manifest = Manifest::load();
-    let served = manifest.declarations(&[]);
+    let served = manifest.declarations(&[], false);
     let names: Vec<&str> = served.iter().map(|tool| field(tool, "name")).collect();
     for expected in ["browser_navigate", "workspace_inspect", "guide"] {
         assert!(names.contains(&expected), "{expected} is not served");
@@ -125,7 +125,9 @@ fn every_served_tool_comes_from_the_manifest() {
 
 #[test]
 fn schemas_stay_lean_so_prose_lives_in_the_guide() {
-    let served = Manifest::load().offering(false, false).declarations(&[]);
+    let served = Manifest::load()
+        .offering(false, false)
+        .declarations(&[], false);
     let mut prose = 0;
     for tool in &served {
         let description = field(tool, "description");
@@ -163,8 +165,10 @@ fn server_instructions_fit_before_agents_cut_them_off() {
 #[test]
 fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
     let offered = Manifest::load().offering(false, false);
-    let bytes =
-        Value::Array(offered.declarations(&[])).to_string().len() + offered.instructions().len();
+    let bytes = Value::Array(offered.declarations(&[], false))
+        .to_string()
+        .len()
+        + offered.instructions().len();
     assert!(
         bytes <= 33_400,
         "every agent is sent {bytes} bytes of tools and instructions on each request; cut before adding"
@@ -177,7 +181,7 @@ fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
 fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() {
     let names = |manifest: Manifest| -> Vec<String> {
         manifest
-            .declarations(&[])
+            .declarations(&[], false)
             .iter()
             .map(|tool| field(tool, "name").to_owned())
             .collect()
@@ -201,7 +205,7 @@ fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() 
 
     let simulator: Vec<Value> = Manifest::load()
         .offering(true, false)
-        .declarations(&[])
+        .declarations(&[], false)
         .into_iter()
         .filter(|tool| field(tool, "name") == "sim")
         .collect();
@@ -277,7 +281,7 @@ fn every_plugin_keeps_its_tools_within_budget() {
 fn the_guide_explains_what_the_schemas_no_longer_say() {
     let manifest = Manifest::load();
     let guide = manifest.guide_text(Some("all")).expect("the whole guide");
-    for tool in manifest.declarations(&[]) {
+    for tool in manifest.declarations(&[], false) {
         let name = field(&tool, "name");
         if name == manifest.guide_name() {
             continue;
@@ -397,7 +401,7 @@ fn the_guide_opening_stays_small_and_lists_every_topic() {
         "every agent reads the guide's opening; move detail into a topic"
     );
     let topics = &manifest
-        .declarations(&[])
+        .declarations(&[], false)
         .last()
         .cloned()
         .expect("the guide")["inputSchema"]["properties"]["topic"]["enum"];
@@ -447,7 +451,7 @@ fn a_guide_topic_is_served_alone_and_an_unknown_one_lists_the_rest() {
 #[test]
 fn length_limits_are_checked_but_never_sent() {
     let manifest = Manifest::load();
-    let served = serde_json::to_string(&manifest.declarations(&[])).expect("declarations");
+    let served = serde_json::to_string(&manifest.declarations(&[], false)).expect("declarations");
     assert!(!served.contains("maxLength") && !served.contains("minLength"));
     let navigate = manifest.tool("browser_navigate").expect("browser_navigate");
     assert!(navigate

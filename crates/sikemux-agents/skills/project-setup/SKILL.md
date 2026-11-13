@@ -9,6 +9,11 @@ Agents in checkouts of their own share the project's ports, database and build m
 its `sikemux.json` says how a checkout gets its own. You write that, prove it, and commit it.
 The person decides nothing here; they are asked once to trust the new steps.
 
+## 0. Ask for the check
+
+Call `guide` with topic `setup`. That lists `setup_check` among your tools, which only an
+agent setting a project up is given.
+
 ## 1. Read the project
 
 Read what already says how it runs, before writing anything:

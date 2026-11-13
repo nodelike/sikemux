@@ -24,7 +24,7 @@ use sikemux_process::sync::Locked;
 
 use manifest::{Manifest, Tool};
 use sikemux_core::cli::protocol::{
-    PLUGINS_CHANGED_METHOD, REVIEWER_OFFER, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
+    PLUGINS_CHANGED_METHOD, REVIEWER_OFFER, SETUP_OFFER, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
     TOOLS_MANIFEST_METHOD, TOOLS_OFFER_ENV,
 };
 
@@ -35,6 +35,8 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     "2025-06-18",
     LATEST_PROTOCOL_VERSION,
 ];
+/// Told with the guide's setup topic, which lists setup_check for the agent that read it.
+const SETUP_LISTED: &str = "setup_check is now in your tools. If your list does not show it, your tools were not read again: ask the person to press Check again on the Playbook's Setup page, which runs the same check, and read its result there.";
 const PARENT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// Asking whether to list the simulator tools must not hold up the host's handshake for long.
 const OFFER_TIMEOUT: Duration = Duration::from_secs(3);
@@ -116,6 +118,8 @@ struct Offer {
     plugins: Mutex<Option<Arc<Vec<Tool>>>>,
     /// What the agent was last given by `tools/list`.
     given: Mutex<Option<Vec<Value>>>,
+    /// The agent read the guide's setup topic, so the setup tools are listed for it.
+    setup: AtomicBool,
     /// The guide as the agent was last told it reads, once the app served one.
     told_guide: Mutex<Option<String>>,
     /// Parts of the guide that changed since, to tell the agent with its
@@ -134,6 +138,7 @@ impl Offer {
             served: Mutex::default(),
             plugins: Mutex::default(),
             given: Mutex::default(),
+            setup: AtomicBool::new(false),
             guide_news: Mutex::default(),
         }
     }
@@ -148,6 +153,7 @@ impl Offer {
             served: Mutex::new(Some(Arc::new(manifest))),
             plugins: Mutex::new(plugins.map(Arc::new)),
             given: Mutex::default(),
+            setup: AtomicBool::new(false),
             guide_news: Mutex::default(),
         }
     }
@@ -240,7 +246,11 @@ impl Offer {
     }
 
     fn declarations(&self) -> Vec<Value> {
-        declarations(&self.manifest(), &held(&self.plugins).unwrap_or_default())
+        declarations(
+            &self.manifest(),
+            &held(&self.plugins).unwrap_or_default(),
+            self.setup.load(Ordering::Relaxed),
+        )
     }
 
     fn manifest(&self) -> Arc<Manifest> {
@@ -270,8 +280,8 @@ fn plugin_tools(answer: Value) -> Vec<Tool> {
         .collect()
 }
 
-fn declarations(manifest: &Manifest, plugins: &[Tool]) -> Vec<Value> {
-    manifest.declarations(plugins)
+fn declarations(manifest: &Manifest, plugins: &[Tool], setup: bool) -> Vec<Value> {
+    manifest.declarations(plugins, setup)
 }
 
 /// One request to the app: a harness method and its params.
@@ -587,7 +597,11 @@ fn initialize(manifest: &Manifest, params: &Value) -> Value {
 }
 
 fn list(offer: &Offer, relay: &Relay<'_>) -> Vec<Value> {
-    let tools = declarations(&offer.built_in(relay), &offer.plugin_tools(relay));
+    let tools = declarations(
+        &offer.built_in(relay),
+        &offer.plugin_tools(relay),
+        offer.setup.load(Ordering::Relaxed),
+    );
     *offer.given.locked() = Some(tools.clone());
     tools
 }
@@ -641,6 +655,12 @@ fn call(
     if name == offer.manifest().guide_name() {
         let topic = arguments.get("topic").and_then(Value::as_str);
         return match offer.manifest().guide_text(topic) {
+            Ok(guide) if topic == Some(SETUP_OFFER) => {
+                if !offer.setup.swap(true, Ordering::Relaxed) {
+                    tell_tools_changed();
+                }
+                content(vec![text(guide), text(SETUP_LISTED)], false)
+            }
             Ok(guide) => content(vec![text(guide)], false),
             Err(message) => invalid(&message),
         };

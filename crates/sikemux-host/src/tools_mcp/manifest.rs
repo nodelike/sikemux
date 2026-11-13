@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_core::cli::manifest::{GUIDE, TOOLS};
-use sikemux_core::cli::protocol::REVIEWER_OFFER;
+use sikemux_core::cli::protocol::{REVIEWER_OFFER, SETUP_OFFER};
 
 use super::family::{self, Chosen, Family};
 
@@ -127,6 +127,7 @@ impl Manifest {
             None => true,
             Some("simulator") => simulator,
             Some(REVIEWER_OFFER) => reviewer,
+            Some(SETUP_OFFER) => true,
             Some(_) => false,
         });
         self
@@ -285,9 +286,14 @@ impl Manifest {
 
     /// What `tools/list` gives: each family as one tool and the rest as they are, the
     /// built-in ones and the guide before the plugins'.
-    pub fn declarations(&self, plugins: &[Tool]) -> Vec<Value> {
+    /// The setup tools are listed only once `setup`, after the agent read the guide's setup topic.
+    pub fn declarations(&self, plugins: &[Tool], setup: bool) -> Vec<Value> {
         let tools = self.with(plugins);
         let (built_in, theirs) = tools.split_at(self.tools.len());
+        let built_in: Vec<&Tool> = (built_in.iter().copied())
+            .filter(|tool| setup || tool.offered.as_deref() != Some(SETUP_OFFER))
+            .collect();
+        let built_in = built_in.as_slice();
         let families = self.families_with(plugins);
         let mut declared = family::declarations(&families, built_in);
         declared.push(declaration(
