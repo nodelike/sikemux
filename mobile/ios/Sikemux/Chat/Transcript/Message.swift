@@ -96,7 +96,7 @@ struct TranscriptMessage: View {
         } else {
             VStack(alignment: .leading, spacing: 0) {
                 Parts(id: message.id, parts: shownParts, live: look.live, restored: context.leftOut[message.id])
-                    .environment(\.whyChips, message.chips ?? [])
+                    .environment(\.whyChips, WhyLink.chips(message.chips ?? [], here: context.agentId))
                 if !look.live { LeftOutLine(message: message) }
                 if let strip = look.strip { StripView(strip: strip, mine: false) }
             }

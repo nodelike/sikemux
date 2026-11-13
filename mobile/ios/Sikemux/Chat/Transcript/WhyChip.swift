@@ -6,7 +6,7 @@ extension EnvironmentValues {
 }
 
 /// What a claim in an answer rests on, as the core checked it, drawn in the line as the Mac's chip: what it is, then
-/// when. Only a chat's chip opens, to that agent's chat; the phone has nowhere to show a commit, a rule or a call.
+/// when. Only a chip of another chat opens, to that agent's chat; the phone has nowhere to show a commit, a rule or a call.
 enum WhyLink {
     static let prefix = "sikemux://why/"
     static let scheme = "sikemux-why"
@@ -31,6 +31,16 @@ enum WhyLink {
             run.link = parts.url
         }
         return run
+    }
+
+    /// The chips of an answer in `here`'s chat, where a chip of that same chat has nothing to open.
+    static func chips(_ chips: [WhyChip], here: String?) -> [WhyChip] {
+        chips.map { chip in
+            guard case .chat(let chat) = chip.open, chat.agent == here else { return chip }
+            var shown = chip
+            shown.open = .unknown
+            return shown
+        }
     }
 
     /// The agent whose chat a tapped chip opens.

@@ -6,6 +6,7 @@ import { getCalendars } from 'expo-localization';
 import { whyWords } from '@shared/chat/why';
 import type { WhyChip } from '@shared/wire.generated';
 import { HostContext } from '@/chat/hostFiles';
+import { AgentContext } from '@/chat/transcriptContext';
 import { useLanguage, useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -15,7 +16,7 @@ export const WhyChipsContext = createContext<WhyChip[] | undefined>(undefined);
 
 /**
  * What a claim in an answer rests on, as the core checked it, drawn in the line as the Mac's chip: what it is, then
- * when. Only a chat's chip opens, to that agent's chat; the phone has nowhere to show a commit, a rule or a call.
+ * when. Only a chip of another chat opens, to that agent's chat; the phone has nowhere to show a commit, a rule or a call.
  */
 export function WhyChipText({ chip }: { chip: WhyChip }) {
   const colors = useColors();
@@ -24,7 +25,8 @@ export function WhyChipText({ chip }: { chip: WhyChip }) {
   const locale = useLanguage();
   const core = useContext(HostContext);
   const { icon, key, title } = whyWords(chip, { say: t, locale, hour12: getCalendars()[0]?.uses24hourClock === false });
-  const agent = chip.open.kind === 'chat' ? chip.open.agent : undefined;
+  const here = useContext(AgentContext);
+  const agent = chip.open.kind === 'chat' && chip.open.agent !== here ? chip.open.agent : undefined;
   return (
     <Text
       style={styles.chip}

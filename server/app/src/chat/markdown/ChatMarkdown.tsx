@@ -197,10 +197,10 @@ const markdownComponents: MarkdownComponents = {
   path: ChatPath,
 };
 
-/** What each chip a sent message's draft wrote says, by the words it stands for in the text. */
 /** The `why` links the core checked in the answer being drawn. */
 export const WhyChipsContext = createContext<WhyChip[]>([]);
 
+/** What each chip a sent message's draft wrote says, by the words it stands for in the text. */
 export const SentChipsContext = createContext<ReadonlyMap<string, string>>(
   new Map(),
 );
