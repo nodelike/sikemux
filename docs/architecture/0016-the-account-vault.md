@@ -86,6 +86,15 @@ when its home goes away.
   vault key for every host the account lists, since nothing yet lets them tell a real one apart,
   so such a server could read the vault from then on. Wrapping the key only for hosts whose join
   another host saw would close that.
+- **Mods' data is kept the same way.** Each host keeps every mod's documents in its own store and
+  writes there first. The account holds the latest copy of each document, sealed under the vault
+  key with its collection and id inside. Its id on the server is an HMAC of the mod, collection and
+  id under a naming key of the mod's own, which is itself a sealed document of that mod, so ids
+  outlast a new vault key. The server sees each mod's id and its documents' sizes and times. Hosts
+  push changed documents compare-and-set, merge field by field by stamp when another host wrote
+  first, and pull what changed since a counter when the account says mods changed. After the vault
+  key is replaced, they reseal documents from their plain copies. The server cannot merge what it
+  cannot read, so every merge happens on hosts and gives the same answer on each.
 - **The host that refreshes a shared sign-in renews it ahead of time.** It seals each new access
   token into the entry before the old one runs out, and the other hosts use that token rather than
   refreshing. Whichever host writes a newer token for the same identity becomes the one that
