@@ -293,6 +293,14 @@ let goingOnCalls = [
                answer: nil, outcome: nil),
 ]
 
+/// A call for a secret, which takes no words on the island: the person answers it in Sikemux, or has none to give.
+let secretCalls = [
+    PersonCall(id: "s1", project: "/Users/me/server", kind: .access, asker: asker("a15", "Rowan", "claude"), joined: nil,
+               question: "Paste the npm token so the package can publish", context: nil, assumption: nil, options: [], pick: nil,
+               against: nil, evidence: nil, action: nil, brief: nil, place: nil, canHandBack: false, multi: nil, secret: true,
+               raisedAt: now - 60_000, state: .open, answer: nil, outcome: nil),
+]
+
 /// The workspace with each project standing as the core would put it, for the agents and calls shown.
 /// A call the sikemux project's chief asks itself, which wears Sikemux's S wherever the island draws its asker.
 let chiefCalls = [
@@ -337,7 +345,7 @@ func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
     guard let ids else { return full }
     let items = decoded.inbox.items.filter { $0.agentId.map(ids.contains) ?? ids.contains($0.id) }
     let agents = full.inbox.agents.filter { ids.contains($0.agentId) }
-    let calls = ((full.calls ?? []) + goingOnCalls + chiefCalls).filter { ids.contains($0.asker.agentId) }
+    let calls = ((full.calls ?? []) + goingOnCalls + chiefCalls + secretCalls).filter { ids.contains($0.asker.agentId) }
     return DeviceView(
         workspace: standing(full.workspace, agents: agents, calls: calls),
         attentions: full.attentions.filter { ids.contains($0.agentId) },
@@ -485,6 +493,7 @@ render("P10-money-call", agents: ["a2", "a12"], height: 420) { $0.mode = .call("
 render("P11-going-on-call", agents: ["a2", "a14"], height: 460) { $0.mode = .call("g1") }
 render("P12-access-going-on", agents: ["a2", "a14"], height: 320) { $0.mode = .call("g2") }
 render("P13-chief-call", agents: ["c1", "a2"], height: 420) { $0.mode = .call("c1q") }
+render("P14-secret-call", agents: ["a2", "a15"], height: 300) { $0.mode = .call("s1") }
 render("P9-what-runs", agents: ["a2", "a12"], height: 720, card: { $0.drafts["7"]?.actionOpen = true }) { $0.mode = .call("7") }
 render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: now + 112_000)]) {

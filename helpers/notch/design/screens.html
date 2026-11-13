@@ -683,6 +683,13 @@ function goingOn() {
                 assumption: "they run against the local mock until there is one", options: ["Skip, use the local mock"], private: true }] };
 }
 
+/** An agent asking for a secret, which the island takes no words for. */
+function asksSecret() {
+    return { id: "a15", name: "Rowan", type: "claude", title: "Publish the package", project: "server", tier: "needs", state: "blocked", clock: "1m",
+        what: "Needs you",
+        calls: [{ id: "s1", age: "1m", question: "Paste the npm token so the package can publish", options: [], secret: true }] };
+}
+
 /** The sikemux project's chief asking a call of its own, which wears Sikemux's S as its row does. */
 function chiefAsking() {
     return { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", titled: true, project: "sikemux", tier: "needs", state: "blocked", clock: "3m",
@@ -877,7 +884,7 @@ function callCard(call, card, listed = false) {
         : call.page ? `<div class="pic page">${invoice(call.page)}</div>` : `<div class="gap12"></div>`;
     const rows = call.options.map((o, i) => `<div class="opt${chosen.includes(i) ? " on" : ""}" data-option="${i}"><span class="rd"></span>${o}${
         i === call.pick ? `<span class="pick"><img src="../../../brand/mark/mark-purple.svg" alt="">pick</span>` : ""}</div>`).join("");
-    const field = call.private ? "" : `<div class="fld">${GLYPH.pencil}${card.typed ? `<span class="val">${card.typed}</span>` : hint}</div>`;
+    const field = call.private || call.secret ? "" : `<div class="fld">${GLYPH.pencil}${card.typed ? `<span class="val">${card.typed}</span>` : hint}</div>`;
     const runs = call.production && call.action
         ? `<div class="runs${card.runs ? " open" : ""}" data-runs>${GLYPH.chevronSmall}What runs</div>${card.runs ? `<div class="runs-cmd">${call.action}</div>` : ""}`
         : "";
@@ -886,16 +893,18 @@ function callCard(call, card, listed = false) {
     // The sentence shows whole or not at all: beside Not mine, Open chat and Go with this, 418 points leave no room.
     // What the asker goes on assuming takes its own line above the buttons instead.
     const goes = call.assumption ? `<p class="goes">${GLYPH.clock}<span>Until you answer, @${call.agent.name} goes on assuming ${call.assumption}</span></p>` : "";
-    const wait = call.assumption ? "" : listed || !call.handBack ? `<span class="wait">${GLYPH.clock}Nothing happens until you answer</span>` : `<span class="wait"></span>`;
+    const wait = call.assumption ? "" : listed || !(call.handBack || call.secret) ? `<span class="wait">${GLYPH.clock}Nothing happens until you answer</span>` : `<span class="wait"></span>`;
     return `<div class="call${listed ? " listed" : ""}" data-call="${call.id}">
         ${listed ? "" : `<div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}</div>`}
         <h4>${call.question}</h4>${call.context ? `<p class="ctx">${call.context}</p>` : ""}
         ${pictures}
-        <div class="rows${lit ? " lit" : ""}">${rows}${field}</div>
+        ${rows || field ? `<div class="rows${lit ? " lit" : ""}">${rows}${field}</div>` : ""}
         ${call.against ? `<p class="vs"><em>Against it:</em> ${call.against}</p>` : ""}
         ${runs}
         ${goes}<div class="foot">${wait}${
-            call.handBack ? `<button class="lnk" data-not-mine>Not mine</button>` : ""}<button class="lnk">${GLYPH.message}Open chat</button><button class="go" data-go ${ready ? "" : "disabled"}>Go with this</button></div>
+            call.handBack ? `<button class="lnk" data-not-mine>Not mine</button>` : ""}${
+            call.secret ? `<button class="lnk">I don't have one</button>` : ""}<button class="lnk">${GLYPH.message}Open chat</button>${
+            call.secret ? `<button class="go">Answer in Sikemux</button>` : `<button class="go" data-go ${ready ? "" : "disabled"}>Go with this</button>`}</div>
     </div>`;
 }
 
@@ -1480,6 +1489,9 @@ const SECTIONS = [
             { id: "P13", name: "A call the chief asks", when: "The project's chief puts a call to the person itself.",
               shows: "The same card, its asker drawn as Sikemux's S in the accent, as the chief's row is, in the card's head and in the call's row of the list; any other asker wears its own face.",
               leaves: "As P4.", opts: { agents: () => [chiefAsking(), ...only(["a2"])], mode: "call", callId: "c1q" } },
+            { id: "P14", name: "A call for a secret", when: "An agent asks for a password or a token.",
+              shows: "No field, since the island takes no secret: Answer in Sikemux opens the asker's chat, whose composer and card keep it private. Beside Open chat, I don't have one tells the agent plainly that the person has none, keeps nothing, and closes the call to had none to give; the waiting sentence gives way to it, as it does beside Not mine.",
+              leaves: "As P4.", opts: { agents: () => [asksSecret(), ...only(["a2"])], mode: "call", callId: "s1" } },
             { id: "P2", name: "Finished", when: "An agent's turn ends: its inbox item goes from working to finished or to review.",
               shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot. A turn that ran into a problem says Failed, with a red dot.",
               leaves: "Shrinks to C4 after 3 s.", opts: { agents: () => only(["a2", "a4"]), mode: "peek-done", peekAgent: "a4" } },

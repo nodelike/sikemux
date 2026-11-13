@@ -325,6 +325,12 @@ struct CallCard: View {
         if call.canHandBack {
             TextButton(title: "Not mine") { store.notMine(call) }
         }
+        if call.secret == true {
+            TextButton(title: "I don't have one") {
+                guard !draft.sending else { return }
+                store.answer(call, AnswerCallParams(id: call.id, none: true), draft: draft)
+            }
+        }
         TextButton(title: "Open chat", icon: Icons.message) { store.focus(call.asker.agentId) }
         if call.secret == true {
             GoButton(title: "Answer in Sikemux", enabled: true) { store.focus(call.asker.agentId) }
