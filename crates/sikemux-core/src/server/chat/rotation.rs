@@ -72,8 +72,8 @@ struct Inner {
     footing: Option<Footing>,
     /// A note the old session wrote while its cache was warm, and when.
     handoff: Option<(String, u64)>,
-    /// The session was found full as a turn ended; the next message starts the fresh one.
-    full: bool,
+    /// The session found full as a turn ended; its next message starts the fresh one.
+    full_session: Option<String>,
     failed_at: u64,
     /// A fresh session started and has not answered a turn yet.
     unanswered: bool,
@@ -106,7 +106,7 @@ impl State {
     pub(crate) fn rotated(&self, now: Footing) {
         let mut inner = self.inner.locked();
         inner.handoff = None;
-        inner.full = false;
+        inner.full_session = None;
         inner.footing = Some(now);
         inner.unanswered = true;
     }
@@ -133,7 +133,7 @@ impl State {
 pub(crate) struct KeptSession {
     footing: Option<Footing>,
     handoff: Option<(String, u64)>,
-    full: bool,
+    full_session: Option<String>,
     meter: cap::KeptMeter,
 }
 
@@ -142,7 +142,7 @@ pub(crate) fn kept(chat: &Chat) -> KeptSession {
     KeptSession {
         footing: inner.footing.clone(),
         handoff: inner.handoff.clone(),
-        full: inner.full,
+        full_session: inner.full_session.clone(),
         meter: chat.meter.kept(),
     }
 }
@@ -151,7 +151,7 @@ pub(crate) fn take_up(chat: &Chat, kept: KeptSession) {
     let mut inner = chat.rotation.inner.locked();
     inner.footing = kept.footing;
     inner.handoff = kept.handoff;
-    inner.full = kept.full;
+    inner.full_session = kept.full_session;
     chat.meter.take_up(kept.meter);
 }
 
@@ -174,21 +174,26 @@ fn may(core: &Core, chat: &Chat) -> bool {
     chat.capped() && on(core) && may_start_fresh(chat)
 }
 
-/// Whether, at rest after a turn, the session has grown full and its note should be taken now,
+/// Whether, at rest after a turn, `session` has grown full and its note should be taken now,
 /// while its cache is warm.
-pub(crate) fn full_at_rest(core: &Core, chat: &Chat) -> bool {
+pub(crate) fn full_at_rest(core: &Core, chat: &Chat, session: &str) -> bool {
     may(core, chat)
-        && !chat.rotation.inner.locked().full
+        && chat.rotation.inner.locked().full_session.as_deref() != Some(session)
         && chat.meter.last_call_ms() > 0
         && chat.meter.context() >= FULL_TOKENS
 }
 
-/// The session was found full and its note is taken, or could not be.
-pub(crate) fn readied(chat: &Chat, note: Option<String>) {
+/// `session` was found full and its note is taken, or could not be.
+pub(crate) fn readied(chat: &Chat, session: &str, note: Option<String>) {
     if let Some(note) = note {
         chat.rotation.note_handoff(note);
     }
-    chat.rotation.inner.locked().full = true;
+    chat.rotation.inner.locked().full_session = Some(session.to_owned());
+}
+
+/// The session was compacted or cleared, so it is no longer full.
+pub(crate) fn shrank(chat: &Chat) {
+    chat.rotation.inner.locked().full_session = None;
 }
 
 /// Why the chat's session should give way to a fresh one as a message is about to start a turn.
@@ -204,7 +209,7 @@ pub(crate) fn due(core: &Core, chat: &Chat, now: &Footing) -> Option<RotationRea
         return None;
     }
     let last_call = chat.meter.last_call_ms();
-    if rotating && inner.full {
+    if rotating && inner.full_session.as_ref() == Some(&now.session) {
         return Some(RotationReason::Full);
     }
     if last_call == 0 {

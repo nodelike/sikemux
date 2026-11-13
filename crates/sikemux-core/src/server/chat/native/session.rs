@@ -180,6 +180,7 @@ impl Told for ChatTelling {
 
     fn compacted(&self, context: u64) {
         self.chat.meter.compacted(context);
+        rotation::shrank(&self.chat);
     }
 
     fn session_used(&self, calls: Vec<ModelCall>, compactions: Vec<Compaction>) {
@@ -671,11 +672,14 @@ impl<B: Backend> Running<'_, B> {
         let Some(core) = self.chat.core.upgrade() else {
             return;
         };
-        if self.chat.state_now() != AgentState::Idle || !rotation::full_at_rest(&core, &self.chat) {
+        let session = self.state.session_id.clone();
+        if self.chat.state_now() != AgentState::Idle
+            || !rotation::full_at_rest(&core, &self.chat, &session)
+        {
             return;
         }
         let note = self.backend.handoff().await.ok();
-        rotation::readied(&self.chat, note);
+        rotation::readied(&self.chat, &session, note);
     }
 
     /// Starts a fresh session under the chat as a message is about to start a turn, when the old
@@ -1164,6 +1168,10 @@ impl<B: Backend> Running<'_, B> {
         }
         if !shown {
             self.show(&replay);
+        }
+        if self.provider == "claude" && replay.text.split_whitespace().next() == Some("/clear") {
+            rotation::shrank(chat);
+            chat.meter.started_fresh();
         }
         if !crate::server::chat::prompt::is_command(&replay.text) {
             self.rotate_if_due().await;
