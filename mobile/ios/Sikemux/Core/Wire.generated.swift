@@ -2876,6 +2876,10 @@ struct AgentBuild: Codable, Hashable, Sendable {
     var final: Bool?
     /// The other agents whose same command this one run answers, by id.
     var joined: [String]?
+    /// It waits for a thing another holds rather than for its turn; `command` then names the thing.
+    var waitsForThing: Bool?
+    /// Who holds the thing it waits for, by name; none when a program outside Sikemux does.
+    var by: String?
 }
 
 /// A thing only so many use at once, such as the app on port 3000, and who holds it.

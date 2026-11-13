@@ -336,28 +336,45 @@ impl Line {
         held
     }
 
-    /// Every heavy command running, then every one waiting in line, as clients show them.
-    pub(crate) fn shown(&self) -> Vec<AgentBuild> {
+    /// Every heavy command running, then every one waiting in line, then every run and agent
+    /// waiting for a thing another holds, as clients show them.
+    pub(crate) fn shown(&self, core: &Core) -> Vec<AgentBuild> {
         let state = self.state.locked();
-        let commands = |run: &&Run| run.kind == Kind::Command;
-        let running = state.running.iter().filter(commands).map(|run| (run, None));
+        let commands = |run: &&Run| run.kind == Kind::Command && run.wants.is_none();
+        let running = (state.running.iter())
+            .filter(|run| run.kind == Kind::Command)
+            .map(|run| (run, None));
         let waiting = (state.waiting.iter().filter(commands).enumerate())
+            .map(|(ahead, run)| (run, Some(ahead as u32)));
+        let for_things = (state.waiting.iter().enumerate())
+            .filter(|(_, run)| run.wants.is_some())
             .map(|(ahead, run)| (run, Some(ahead as u32)));
         running
             .chain(waiting)
+            .chain(for_things)
             .take(SHOWN_ROWS)
-            .map(|(run, ahead)| AgentBuild {
-                id: run.id,
-                agent_id: run.agent_id.clone(),
-                command: run.command.clone(),
-                since: run.since,
-                ahead,
-                expected_ms: run.expected.map(|size| size.took_ms),
-                before_commit: run.before_commit,
-                joined: (run.callers.iter().skip(1))
-                    .filter_map(|caller| caller.agent_id.clone())
-                    .filter(|agent| Some(agent) != run.agent_id.as_ref())
-                    .collect(),
+            .map(|(run, ahead)| {
+                let wants = run.wants.as_ref();
+                AgentBuild {
+                    id: run.id,
+                    agent_id: run.agent_id.clone(),
+                    command: match wants {
+                        Some(Wanted::InUse { label, .. } | Wanted::PortTaken { label, .. }) => {
+                            label.clone()
+                        }
+                        None => run.command.clone(),
+                    },
+                    since: run.since,
+                    ahead,
+                    expected_ms: run.expected.map(|size| size.took_ms),
+                    before_commit: run.before_commit,
+                    joined: (run.callers.iter().skip(1))
+                        .filter_map(|caller| caller.agent_id.clone())
+                        .filter(|agent| Some(agent) != run.agent_id.as_ref())
+                        .collect(),
+                    waits_for_thing: wants.is_some(),
+                    by: (wants.and_then(Wanted::holder)).map(|holder| name_of(core, holder)),
+                }
             })
             .collect()
     }

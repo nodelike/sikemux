@@ -248,6 +248,11 @@ fn waited(wait: &TurnWait, now: u64) -> Vec<String> {
             .into_iter()
             .chain(wait.expected_ms.map(about))
             .collect(),
+        TurnWaitKind::InUse => (wait.by.as_ref())
+            .map(|by| t!("in use by @{name}", name = by))
+            .into_iter()
+            .chain((gone > 0).then(|| t!("{minutes} min", minutes = gone)))
+            .collect(),
         _ => vec![match wait.expected_ms {
             Some(expected) => t!(
                 "{gone} of ~{expected} min",

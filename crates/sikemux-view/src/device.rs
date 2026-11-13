@@ -112,6 +112,12 @@ pub struct AgentBuild {
     /// The other agents whose same command this one run answers, by id.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub joined: Vec<String>,
+    /// It waits for a thing another holds rather than for its turn; `command` then names the thing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub waits_for_thing: bool,
+    /// Who holds the thing it waits for, by name; none when a program outside Sikemux does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 /// An alert about this host, or about the linked host `host` names.

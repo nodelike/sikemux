@@ -54,15 +54,21 @@ enum Stop {
 struct Groups {
     running: Vec<Heavy>,
     in_line: Vec<Heavy>,
+    in_use: Vec<Heavy>,
 }
 
 impl Groups {
-    fn labelled(self) -> [(&'static str, Vec<Heavy>); 2] {
-        [(t!("Running"), self.running), (t!("In line"), self.in_line)]
+    fn labelled(self) -> [(&'static str, Vec<Heavy>); 3] {
+        [
+            (t!("Running"), self.running),
+            (t!("In line"), self.in_line),
+            (t!("In use"), self.in_use),
+        ]
     }
 }
 
-/// The badge, while something waits its turn on this host or its core says it is overloaded.
+/// The badge, while something waits its turn on this host or for a thing in use, or its core says
+/// it is overloaded.
 pub(crate) fn chip(
     bench: &Workbench,
     roomy: bool,
@@ -149,7 +155,7 @@ fn popover(
     let t = Tokens::get(cx);
     let groups = groups(bench, load, cx);
     let said = summary(&groups);
-    let empty = groups.running.is_empty() && groups.in_line.is_empty();
+    let empty = groups.running.is_empty() && groups.in_line.is_empty() && groups.in_use.is_empty();
     let average = match load.load_average {
         Some(average) => t!(
             "load {average} · {cores} cores",
@@ -443,20 +449,41 @@ fn groups(bench: &Workbench, load: &HostLoad, cx: &App) -> Groups {
     let now = ui::time::now_ms();
     let took = |since: u64| ui::time::elapsed(now.saturating_sub(since) / 1000);
     let (held, waiting) = bench.sims.read(cx).engine().heavy();
-    let mut running: Vec<Heavy> = held
+    let waiting_count = |count: u32| (count > 0).then(|| t!("{count} waiting", count = count));
+    let sims_waiting = waiting_count(waiting.len() as u32);
+    let mut in_use: Vec<Heavy> = held
         .into_iter()
         .map(|held| Heavy {
             what: match held.booting {
                 true => t!("booting {name}", name = held.name),
                 false => held.name,
             },
-            detail: vec![t!("simulator").to_owned(), took(held.since)],
+            detail: [t!("simulator").to_owned(), took(held.since)]
+                .into_iter()
+                .chain(sims_waiting.clone())
+                .collect(),
             before_commit: false,
             place: None,
             stop: Stop::Simulator(held.agent_id.clone()),
             agents: vec![held.agent_id],
         })
         .collect();
+    in_use.extend(load.in_use.iter().map(|thing| {
+        Heavy {
+            agents: thing.agent_id.iter().cloned().collect(),
+            what: thing.label.clone(),
+            detail: (thing.until_turn_ends)
+                .then(|| t!("until its turn ends").to_owned())
+                .into_iter()
+                .chain([took(thing.since)])
+                .chain(waiting_count(thing.waiting))
+                .collect(),
+            before_commit: false,
+            place: None,
+            stop: Stop::Build(thing.id),
+        }
+    }));
+    let mut running = Vec::new();
     let mut in_line = Vec::new();
     for build in &load.builds {
         let agents: Vec<String> = (build.agent_id.iter())
@@ -482,10 +509,19 @@ fn groups(bench: &Workbench, load: &HostLoad, cx: &App) -> Groups {
                     1 => t!("next").to_owned(),
                     _ => turn_line::in_line(place),
                 };
-                let detail = [said]
-                    .into_iter()
-                    .chain(wait.map(turn_line::about))
-                    .collect();
+                let detail = match build.waits_for_thing {
+                    true => vec![
+                        said,
+                        match &build.by {
+                            Some(by) => t!("in use by @{name}", name = by),
+                            None => t!("in use").to_owned(),
+                        },
+                    ],
+                    false => [said]
+                        .into_iter()
+                        .chain(wait.map(turn_line::about))
+                        .collect(),
+                };
                 in_line.push(heavy(detail, Some(place)));
             }
             None => {
@@ -509,7 +545,11 @@ fn groups(bench: &Workbench, load: &HostLoad, cx: &App) -> Groups {
         stop: Stop::Simulator(waiting.agent_id.clone()),
         agents: vec![waiting.agent_id],
     }));
-    Groups { running, in_line }
+    Groups {
+        running,
+        in_line,
+        in_use,
+    }
 }
 
 /// What runs and waits in a line, such as `2 running, 3 in line`.
@@ -517,6 +557,7 @@ fn summary(groups: &Groups) -> SharedString {
     let parts: Vec<String> = [
         (!groups.running.is_empty()).then(|| t!("{count} running", count = groups.running.len())),
         (!groups.in_line.is_empty()).then(|| t!("{count} in line", count = groups.in_line.len())),
+        (!groups.in_use.is_empty()).then(|| t!("{count} in use", count = groups.in_use.len())),
     ]
     .into_iter()
     .flatten()

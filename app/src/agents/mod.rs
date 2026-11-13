@@ -1378,6 +1378,26 @@ const AGENT_ROW: &str = "agent-row";
 /// The hover group of a saved chat's rail row, whose unpin button shows on hover.
 const RECENT_ROW: &str = "recent-row";
 
+/// The thing an agent waits for while another holds it, cut short so the task keeps its room, with
+/// the whole name on hover.
+fn thing_waited(agent_id: &str, label: String, color: Hsla) -> impl IntoElement {
+    div()
+        .id(SharedString::from(format!("thing-waited-{agent_id}")))
+        .flex()
+        .items_center()
+        .gap(px(3.))
+        .min_w_0()
+        .tooltip(ui::tooltip(label.clone()))
+        .child(ui::icon(Icon::Hourglass, 11.).text_color(color))
+        .child(
+            ui::text(label, TEXT_2XS, FontWeight::MEDIUM)
+                .max_w(px(56.))
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis(),
+        )
+}
+
 pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
     let t = Tokens::get(cx).clone();
     (agent.subagents > 0 || agent.tasks > 0 || agent.line.is_some()).then(|| {
@@ -1413,12 +1433,13 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
             .when(agent.tasks > 0, |row| {
                 row.child(count(Icon::Command, 11., t.warn, agent.tasks))
             })
-            .when_some(agent.line.as_ref(), |row, line| {
-                row.child(labelled(
+            .when_some(agent.line.as_ref(), |row, line| match line.by {
+                Some(_) => row.child(thing_waited(&agent.id, line.what.clone(), t.warn)),
+                None => row.child(labelled(
                     Icon::Hourglass,
                     t.warn,
                     crate::turn_line::in_line(line.place),
-                ))
+                )),
             })
     })
 }

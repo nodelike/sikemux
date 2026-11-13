@@ -1,5 +1,5 @@
-//! The Playbook's Setup page: what a new checkout of the project runs, its ports and its heavy
-//! commands, and whether that was proved on a fresh checkout.
+//! The Playbook's Setup page: what a new checkout of the project runs, its ports, its heavy
+//! commands and what agents use one at a time, and whether that was proved on a fresh checkout.
 
 use std::path::PathBuf;
 
@@ -137,10 +137,12 @@ pub(super) fn page(
         cards.extend(removal_card(removed, cx));
         cards.extend(config.and_then(|config| ports_card(config, cx)));
         cards.extend(config.and_then(|config| heavy_card(config, cx)));
+        cards.extend(config.and_then(|config| one_at_a_time_card(config, cx)));
     } else {
         cards.extend(removal_card(removed, cx));
         cards.extend(config.and_then(|config| ports_card(config, cx)));
         cards.extend(config.and_then(|config| heavy_card(config, cx)));
+        cards.extend(config.and_then(|config| one_at_a_time_card(config, cx)));
         cards.push(status);
     }
     cards
@@ -448,6 +450,61 @@ fn heavy_card(config: &ProjectConfig, cx: &mut Context<Workbench>) -> Option<Any
         t!("Heavy commands"),
         None,
         Some(t!("They take turns with every agent's on this host. A check before a commit goes first.").into()),
+        false,
+        div().children(rows),
+        cx,
+    ))
+}
+
+fn one_at_a_time_card(config: &ProjectConfig, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    if config.resources.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let rows = config.resources.iter().map(|resource| {
+        let needed = |needs: &[String]| needs.contains(&resource.name);
+        let held = match config.tasks.iter().any(|task| needed(&task.needs))
+            || (config.heavy.iter().flatten()).any(|command| needed(&command.needs))
+        {
+            true => t!("held while it runs"),
+            false => t!("held for an agent's turn"),
+        };
+        let held = match resource.count {
+            0 | 1 => held.to_owned(),
+            count => format!("{} · {held}", t!("{count} at once", count = count)),
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .px(SPACE_3H)
+            .py(SPACE_2H)
+            .border_b_1()
+            .border_color(t.line_soft)
+            .child(
+                ui::icon(
+                    match resource.port {
+                        Some(_) => Icon::Globe,
+                        None => Icon::Lock,
+                    },
+                    14.,
+                )
+                .text_color(t.text_tertiary),
+            )
+            .child(
+                ui::text(resource.label.clone(), TEXT_XS_H, FontWeight::NORMAL)
+                    .text_color(t.text_primary),
+            )
+            .child(div().flex_1())
+            .child(ui::meta(held, cx))
+    });
+    Some(rows::section(
+        t!("One at a time"),
+        None,
+        Some(
+            t!("Only one agent holds it; the rest wait in line and are woken on their turn.")
+                .into(),
+        ),
         false,
         div().children(rows),
         cx,

@@ -62681,6 +62681,7 @@
         }
       }
     },
+    "One at a time": {},
     "One level less": {
       "localizations": {
         "es": {
@@ -63097,6 +63098,7 @@
         }
       }
     },
+    "Only one agent holds it; the rest wait in line and are woken on their turn.": {},
     "Only the Command Line Tools are selected, and simulators need Xcode. Install Xcode, or choose it with xcode-select.": {
       "localizations": {
         "es": {
@@ -129263,6 +129265,8 @@
         }
       }
     },
+    "held for an agent's turn": {},
+    "held while it runs": {},
     "highlights": {
       "localizations": {
         "es": {
@@ -129627,6 +129631,8 @@
         }
       }
     },
+    "in use": {},
+    "in use by @{name}": {},
     "increment": {
       "localizations": {
         "es": {
@@ -146013,6 +146019,7 @@
         }
       }
     },
+    "until its turn ends": {},
     "until {day}": {
       "localizations": {
         "es": {
@@ -151369,6 +151376,7 @@
         }
       }
     },
+    "{count} in use": {},
     "{count} latest exchanges": {
       "localizations": {
         "es": {
@@ -153606,6 +153614,7 @@
         }
       }
     },
+    "{count} waiting": {},
     "{count} will be left.": {
       "localizations": {
         "es": {
