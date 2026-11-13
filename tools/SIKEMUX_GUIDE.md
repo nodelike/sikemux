@@ -101,6 +101,13 @@ are rejected. If the project already describes its processes elsewhere, such
 as `.claude/launch.json` or a Procfile, carry those commands over rather than
 inventing new ones. Inspect again after writing to see `configErrors`.
 
+`heavy` lists commands that wait their turn on the host, by the program and
+their first words: `{ "command": "pnpm test", "final": true }`. Cargo, xcodebuild,
+gradle and swift builds already wait without it; add what CI runs that takes
+much memory or time. `final` marks a check run before a commit, which goes
+first. `{ "command": "jest", "light": true }` keeps one out, and `"heavy": []`
+turns the line off. Never list a dev server or a watcher.
+
 ## processes: Starting and stopping processes
 
 A process is a named command that runs in a terminal; each start of it is a

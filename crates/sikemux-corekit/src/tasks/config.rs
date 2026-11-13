@@ -29,6 +29,7 @@ const ROOT_FIELDS: &[&str] = &[
     "roles",
     "planFirst",
     "ship",
+    "heavy",
 ];
 const ACTION_FIELDS: &[&str] = &[
     "id",
@@ -52,6 +53,8 @@ const GENERATE_FIELDS: &[&str] = &["command", "outputs"];
 const MAX_OUTPUTS: usize = 50;
 const MAX_PLAN_FIRST: usize = 50;
 const MAX_SHIP: usize = 50;
+const HEAVY_FIELDS: &[&str] = &["command", "final", "light"];
+const MAX_HEAVY: usize = 50;
 const CHECK_FIELDS: &[&str] = &["ci"];
 const MAX_WORKFLOWS: usize = 20;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
@@ -304,6 +307,22 @@ pub struct ProjectConfig {
     /// `make deploy`, which an agent runs only once the person allows it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ship: Vec<String>,
+    /// The project's heavy commands, which wait their turn on the host beside the built-in
+    /// ones. An empty list turns the line off for the project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub heavy: Option<Vec<HeavyCommand>>,
+}
+
+/// A command that waits its turn on the host: the program and its first words.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct HeavyCommand {
+    pub command: String,
+    /// Run before a commit, so it goes ahead of other waiting runs.
+    #[serde(rename = "final", default, skip_serializing_if = "std::ops::Not::not")]
+    pub before_commit: bool,
+    /// Kept out of the line, even when the built-in list has it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub light: bool,
 }
 
 /// A standing job in a project: what its agent keeps up, and how many commits land between runs.
@@ -518,6 +537,9 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let roles = parse_roles(root.get("roles"), &mut errors);
     let plan_first = parse_plan_first(root.get("planFirst"), &mut errors);
     let ship = parse_ship(root.get("ship"), &mut errors);
+    let heavy = root
+        .get("heavy")
+        .map(|value| parse_heavy(value, &mut errors));
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -536,7 +558,20 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         roles,
         plan_first,
         ship,
+        heavy,
     })
+}
+
+/// The `heavy` list of the nearest `sikemux.json` at or above `dir`, read alone so a command
+/// asks it quickly. None when no file states one; a list that is not valid counts as none.
+pub fn heavy_near(dir: &Path) -> Option<Vec<HeavyCommand>> {
+    let source = dir
+        .ancestors()
+        .find_map(|dir| std::fs::read(dir.join(CONFIG_FILE)).ok())?;
+    let value: Value = serde_json::from_slice(&source).ok()?;
+    let mut errors = Vec::new();
+    let heavy = parse_heavy(value.get("heavy")?, &mut errors);
+    errors.is_empty().then_some(heavy)
 }
 
 pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
@@ -1444,6 +1479,60 @@ fn parse_role(
         charter: charter?,
         every: u32::try_from(every?).ok()?,
     })
+}
+
+fn parse_heavy(value: &Value, errors: &mut Vec<ConfigError>) -> Vec<HeavyCommand> {
+    let listed = match value {
+        Value::Array(listed) if listed.len() <= MAX_HEAVY => listed,
+        _ => {
+            errors.push(issue(
+                "$.heavy",
+                ConfigErrorCode::InvalidValue,
+                format!("heavy must list at most {MAX_HEAVY} commands."),
+            ));
+            return Vec::new();
+        }
+    };
+    (listed.iter().enumerate())
+        .filter_map(|(index, entry)| {
+            let path = format!("$.heavy[{index}]");
+            let Some(entry) = entry.as_object() else {
+                errors.push(issue(
+                    &path,
+                    ConfigErrorCode::InvalidType,
+                    "A heavy command must be an object with a command.",
+                ));
+                return None;
+            };
+            reject_unknown_fields(entry, HEAVY_FIELDS, &path, errors);
+            let flag = |name: &str, errors: &mut Vec<ConfigError>| match entry.get(name) {
+                None => false,
+                Some(Value::Bool(set)) => *set,
+                Some(_) => {
+                    errors.push(issue(
+                        format!("{path}.{name}"),
+                        ConfigErrorCode::InvalidType,
+                        format!("{name} must be true or false."),
+                    ));
+                    false
+                }
+            };
+            let before_commit = flag("final", errors);
+            let light = flag("light", errors);
+            let command = bounded_required(
+                entry.get("command"),
+                &format!("{path}.command"),
+                "Command",
+                512,
+                errors,
+            )?;
+            Some(HeavyCommand {
+                command,
+                before_commit,
+                light,
+            })
+        })
+        .collect()
 }
 
 fn parse_ship(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<String> {

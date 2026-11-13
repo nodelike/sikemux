@@ -84,6 +84,8 @@ Processes go in its `tasks` list. Agents can start, read and stop them too. They
 
 `ship` lists your project's own commands that put work live, such as `"ship": ["make deploy", "scripts/release.sh"]`, matched by their leading words: an agent running one waits for you to allow it first, like a deploy ([what leaves this machine](/agents/permissions/#what-leaves-this-machine)). Claude Code, Grok and Hermes catch them; other agents catch them only when the script runs a program Sikemux knows, such as `vercel`.
 
+`heavy` lists the project's heavy commands, by the program and its first words, such as `{ "command": "pnpm test", "final": true }`. `pnpm test` then matches `pnpm test --run` and not `pnpm install`. An agent running one [waits its turn](/getting-started/run/#heavy-commands-take-turns) on the host with the built-in ones, such as `cargo build`; `"final": true` marks a check run before a commit, which goes ahead of the others. `{ "command": "jest", "light": true }` keeps a command out of the line, and `"heavy": []` turns the line off for the project. Never list a dev server or a watcher, which would hold its turn until stopped. A command run by its path, such as `./gradlew`, does not wait.
+
 `planFirst` lists paths, such as `"planFirst": ["server/**", "db/schema.sql"]`, whose change Sikemux suggests planning before it starts, when what you type names one. Migrations folders, `.proto` and OpenAPI files, a top-level `server/` or `api/`, and UI folders such as `components/` count in every project without it.
 
 ### The project's check
