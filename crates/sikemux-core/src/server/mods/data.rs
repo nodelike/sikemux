@@ -36,6 +36,10 @@ const HISTORY_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 const HISTORY_BYTES: i64 = 4 * 1024 * 1024;
 /// Who a write from the mod's own page is stamped with.
 const PERSON: &str = "person";
+/// The collection the core keeps a mod's own things in, such as its badge. No page or agent can
+/// name it, as a name never starts with a dot.
+const OWN: &str = ".mod";
+const BADGE: &str = "badge";
 
 /// When, where and by whom a field was written. Stamps order by time, then by host, so every
 /// host picks the same one; `by` only records who it was.
@@ -457,11 +461,12 @@ impl Store {
                 .connection
                 .prepare_cached(
                     "SELECT collection, COUNT(*) FROM documents
-                     WHERE mod = ?1 AND value IS NOT NULL GROUP BY collection",
+                     WHERE mod = ?1 AND value IS NOT NULL AND collection != ?2
+                     GROUP BY collection",
                 )
                 .map_err(failed)?;
             let rows = statement
-                .query_map(params![id], |row| {
+                .query_map(params![id, OWN], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
                 })
                 .map_err(failed)?;
@@ -661,6 +666,110 @@ impl Store {
                 written_back(collection, document, &was, existed)
             })
             .collect()
+    }
+
+    /// The badge each mod set, by id.
+    pub(super) fn badges(&self) -> CoreResult<BTreeMap<String, String>> {
+        self.with(|open| {
+            let mut statement = open
+                .connection
+                .prepare_cached(
+                    "SELECT mod, value FROM documents
+                     WHERE collection = ?1 AND id = ?2 AND value IS NOT NULL",
+                )
+                .map_err(failed)?;
+            let rows = statement
+                .query_map(params![OWN, BADGE], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(failed)?;
+            let mut badges = BTreeMap::new();
+            for row in rows {
+                let (id, value) = row.map_err(failed)?;
+                let value: Value = serde_json::from_str(&value)?;
+                if let Some(text) = value["text"].as_str() {
+                    badges.insert(id, text.to_owned());
+                }
+            }
+            Ok(badges)
+        })
+    }
+
+    /// Keeps `badge` as the mod `id`'s badge, stamped like a document so it merges like one, but
+    /// with no history and outside the mod's counts. Answers whether it changed.
+    pub(super) fn set_badge(&self, id: &str, badge: Option<&str>, host: &str) -> CoreResult<bool> {
+        self.with(|open| {
+            let transaction = open
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(failed)?;
+            let stored: Option<String> = transaction
+                .query_row(
+                    "SELECT stamped FROM documents WHERE mod = ?1 AND collection = ?2 AND id = ?3",
+                    params![id, OWN, BADGE],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(failed)?;
+            let stored: Document = match &stored {
+                Some(stamped) => serde_json::from_str(stamped)?,
+                None => Document::default(),
+            };
+            let now = shown(&stored).and_then(|fields| fields.get("text").cloned());
+            if now.as_ref().and_then(Value::as_str) == badge {
+                return Ok(false);
+            }
+            let clock = open.clock.tick(epoch_ms());
+            let stamp = Stamp {
+                ms: clock.ms,
+                n: clock.n,
+                host: host.to_owned(),
+                by: PERSON.to_owned(),
+            };
+            let change = match badge {
+                Some(text) => Change::Set(Map::from_iter([("text".to_owned(), json!(text))])),
+                None => Change::Remove,
+            };
+            let merged = merge(stored.clone(), change.stamped(&stored, &stamp));
+            let text = shown(&merged).map(|fields| Value::Object(fields).to_string());
+            let changes: i64 = transaction
+                .query_row(
+                    "INSERT INTO mods (mod, changes, documents, bytes) VALUES (?1, 1, 0, 0)
+                     ON CONFLICT (mod) DO UPDATE SET changes = changes + 1
+                     RETURNING changes",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .map_err(failed)?;
+            transaction
+                .execute(
+                    "INSERT INTO documents (mod, collection, id, stamped, value, changed, who, ms)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                     ON CONFLICT (mod, collection, id) DO UPDATE
+                     SET stamped = excluded.stamped, value = excluded.value,
+                         changed = excluded.changed, who = excluded.who, ms = excluded.ms",
+                    params![
+                        id,
+                        OWN,
+                        BADGE,
+                        serde_json::to_string(&merged)?,
+                        text,
+                        changes,
+                        stamp.by,
+                        stamp.ms as i64
+                    ],
+                )
+                .map_err(failed)?;
+            transaction
+                .execute(
+                    "INSERT INTO clock (one, ms, n) VALUES (0, ?1, ?2)
+                     ON CONFLICT (one) DO UPDATE SET ms = excluded.ms, n = excluded.n",
+                    params![open.clock.ms as i64, open.clock.n],
+                )
+                .map_err(failed)?;
+            transaction.commit().map_err(failed)?;
+            Ok(true)
+        })
     }
 
     /// Forgets every document of the mod `id`, and their history.
@@ -876,7 +985,7 @@ fn namer(core: &Core) -> impl Fn(&str) -> Option<String> + '_ {
     }
 }
 
-fn host_key(core: &Core) -> CoreResult<String> {
+pub(super) fn host_key(core: &Core) -> CoreResult<String> {
     core.remote()
         .core_id()
         .ok_or_else(|| CoreError::from("this host's key has not loaded yet; try again"))

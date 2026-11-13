@@ -400,7 +400,7 @@ calls! { core, client, method, params;
     "undoModChange" = UndoModChange: Owner => super::mods::undo_change(&core, params).await?,
     "dismissModChange" = DismissModChange: Owner => super::mods::dismiss_change(&core, params)?,
     "allowMod" = AllowMod: Owner => super::mods::allow(&core, params).await?,
-    "setModBadge" = SetModBadge: Owner => super::mods::set_badge(&core, params)?,
+    "setModBadge" = SetModBadge: Owner => super::mods::set_badge(&core, params).await?,
     "pinMod" = PinMod: Owner => super::mods::pin(&core, params)?,
     "turnModOff" = TurnModOff: Owner => super::mods::turn_off(&core, params)?,
     "removeMod" = RemoveMod: Owner => super::mods::remove(&core, params).await?,

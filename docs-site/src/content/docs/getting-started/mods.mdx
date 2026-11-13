@@ -69,7 +69,7 @@ The page reaches Sikemux through `window.sikemux`:
 | `sikemux.read(name, params)` | Reads `name` once and resolves with the answer. |
 | `sikemux.watch(name, params, callback, { every })` | Calls `callback(value, error)` now and whenever the answer changes, only while the mod shows. Sikemux's own data is read again when it changes; a connector is read again every `every` milliseconds, a minute unless set. Returns a function that stops it. |
 | `sikemux.write(name, params)` | Makes a change, asking you first as above. |
-| `sikemux.badge(text)` | Shows a few words beside the mod's name in the rail, or none with `null`. |
+| `sikemux.badge(text)` | Shows a few words beside the mod's name in the rail, or none with `null`. The badge is kept with the mod's data, so it stays after Sikemux restarts. |
 | `sikemux.every(ms, run)` | Runs `run` every `ms` milliseconds while the mod shows. |
 | `sikemux.on("shown" \| "hidden", listener)` | Hears the mod's tab come forward or go out of sight. |
 

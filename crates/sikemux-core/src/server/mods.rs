@@ -105,7 +105,6 @@ pub(crate) struct Mods {
     folder: Option<PathBuf>,
     settled: Mutex<Settled>,
     kept: Kept,
-    badges: Mutex<BTreeMap<String, String>>,
     data: data::Store,
 }
 
@@ -116,7 +115,6 @@ impl Mods {
             folder: sikemux_process::paths::config_file("mods", ""),
             settled: Mutex::new(kept.load()),
             kept,
-            badges: Mutex::default(),
             data: data::Store::new(data_dir),
         }
     }
@@ -319,7 +317,8 @@ fn list_in(folder: &Path) -> Vec<ModInfo> {
 
 pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
     let folder = core.mods().folder()?;
-    let mut mods = blocking(move || {
+    let worker = core.clone();
+    let (mut mods, badges) = blocking(move || {
         let examples = EXAMPLES
             .iter()
             .filter_map(|(id, manifest, _)| {
@@ -332,14 +331,14 @@ pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
                 })
             })
             .collect();
-        Ok(ModList {
+        let list = ModList {
             mods: list_in(&folder),
             folder,
             examples,
-        })
+        };
+        Ok((list, worker.mods().data.badges().unwrap_or_default()))
     })
     .await?;
-    let badges = core.mods().badges.locked();
     for shown in &mut mods.mods {
         shown.allowed = core
             .mods()
@@ -393,11 +392,10 @@ pub(super) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<(
     Ok(())
 }
 
-/// Keeps the few words a mod shows beside its name until the core stops.
-pub(super) fn set_badge(core: &Core, params: BadgeParams) -> CoreResult<()> {
-    if !is_mod_id(&params.id) {
-        return Err("that is not a mod's id".into());
-    }
+/// Keeps the few words a mod shows beside its name in its own data, so they last a restart and
+/// go wherever its data goes.
+pub(super) async fn set_badge(core: &Arc<Core>, params: BadgeParams) -> CoreResult<()> {
+    let folder = shown_folder(core, &params.id)?;
     let badge = params
         .badge
         .map(|badge| {
@@ -408,15 +406,15 @@ pub(super) fn set_badge(core: &Core, params: BadgeParams) -> CoreResult<()> {
                 .collect::<String>()
         })
         .filter(|badge| !badge.is_empty());
-    let mut badges = core.mods().badges.locked();
-    let moved = match badge {
-        Some(badge) if badges.len() < MAX_MODS || badges.contains_key(&params.id) => {
-            badges.insert(params.id, badge.clone()) != Some(badge)
+    let host = data::host_key(core)?;
+    let worker = core.clone();
+    let moved = blocking(move || {
+        if !folder.is_dir() {
+            return Ok(false);
         }
-        Some(_) => false,
-        None => badges.remove(&params.id).is_some(),
-    };
-    drop(badges);
+        (worker.mods().data).set_badge(&params.id, badge.as_deref(), &host)
+    })
+    .await?;
     if moved {
         settled_changed(core);
     }
@@ -594,7 +592,6 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
         settled.off.remove(&params.id);
         settled.dismissed.remove(&params.id);
     });
-    core.mods().badges.locked().remove(&params.id);
     super::triggers::mod_removed(core, &params.id);
     settled_changed(core);
     Ok(())
