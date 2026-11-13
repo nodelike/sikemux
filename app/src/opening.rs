@@ -89,7 +89,7 @@ impl Workbench {
                     Ok(metadata) if metadata.is_file() => CliTargetKind::File,
                     _ => return None,
                 };
-                let project_root = sikemux_host::cli_client::project_root(&path, kind);
+                let project_root = sikemux_hostkit::opened::project_root(&path, kind);
                 Some((path, kind, project_root))
             })
             .take(MAX_CLI_TARGETS)

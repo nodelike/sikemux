@@ -46,6 +46,7 @@ sentry = { version = "0.49", default-features = false, features = ["contexts", "
 log = "0.4"
 sha2 = "0.11"
 sikemux-core = { path = "../sikemux-core" }
+sikemux-hostkit = { path = "../sikemux-hostkit" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 sikemux-loopback = { path = "../sikemux-loopback" }

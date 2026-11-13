@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use sikemux_client::client::{ClientError, CoreHello};
-use sikemux_core::client::{ensure_running, probe, wait_for_core};
+use sikemux_corekit::client::ensure_running;
+use sikemux_corekit::client::probe;
+use sikemux_corekit::client::wait_for_core;
 
 #[cfg(target_os = "macos")]
 use launchd as service;
@@ -57,7 +59,7 @@ pub const IDENTIFIER: &str = sikemux_process::names::APP_IDENTIFIER;
 /// What the core is started with after its socket, by the app or a login item.
 pub fn core_args(data_dir: Option<PathBuf>) -> Vec<OsString> {
     let mut args = Vec::new();
-    if let Some(endpoint) = sikemux_core::cli::endpoint::default_endpoint_path() {
+    if let Some(endpoint) = sikemux_corekit::cli::endpoint::default_endpoint_path() {
         args.extend([OsString::from("--cli-endpoint"), endpoint.into()]);
     }
     if let Some(data_dir) = data_dir {
@@ -78,7 +80,7 @@ pub fn headless_launch() -> Option<CoreLaunch> {
     };
     Some(CoreLaunch {
         binary: std::env::current_exe().ok()?.canonicalize().ok()?,
-        socket: sikemux_core::default_socket_path()?,
+        socket: sikemux_corekit::default_socket_path()?,
         log: logs.join("core.log"),
         args: core_args(Some(data)),
     })

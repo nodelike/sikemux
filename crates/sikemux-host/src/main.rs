@@ -12,7 +12,10 @@ use sikemux_host::cli_client;
 fn main() {
     let first = std::env::args_os().nth(1);
     let core = first.as_ref().is_some_and(|arg| arg == "core");
-    sikemux_host::panic_reports::record_panics(if core { "core" } else { "cli" });
+    sikemux_host::panic_reports::record_panics(
+        if core { "core" } else { "cli" },
+        sikemux_host::BUILD_COMMIT,
+    );
     #[cfg(unix)]
     if core {
         use sikemux_host::crash_reports::{self, Process};

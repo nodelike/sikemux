@@ -16,6 +16,8 @@ pub mod host_update;
 pub mod join;
 pub mod lines;
 #[cfg(unix)]
+pub mod lock;
+#[cfg(unix)]
 pub mod push;
 pub mod release_feed;
 pub mod releases;
@@ -25,6 +27,7 @@ pub mod themes;
 #[cfg(unix)]
 pub mod timeout;
 pub mod trailers;
+pub mod usage;
 #[cfg(unix)]
 pub mod waiting;
 #[cfg(unix)]

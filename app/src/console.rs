@@ -63,7 +63,7 @@ fn keep(line: String) {
     let level = if line.starts_with("thread '") && line.contains("panicked") {
         "uncaught"
     } else if line.starts_with("sikemux") {
-        sikemux_host::crash_reports::printed_error(&line);
+        sikemux_hostkit::crash_reports::printed_error(&line);
         "error"
     } else {
         "log"

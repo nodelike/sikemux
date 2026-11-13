@@ -3,13 +3,13 @@ use gpui_kit::{
     WindowOptions,
 };
 use sikemux_gpui::{console, core, icons, memory, theme, workbench, WINDOW_SIZE};
-use sikemux_host::crash_reports::{self, Process};
+use sikemux_hostkit::crash_reports::{self, Process};
 
 fn main() {
     #[cfg(target_os = "linux")]
     hand_cli_to_core();
     let began = std::time::SystemTime::now();
-    sikemux_host::panic_reports::record_panics("app");
+    sikemux_hostkit::panic_reports::record_panics("app", sikemux_host::BUILD_COMMIT);
     crash_reports::start(Process::App, None, None);
     #[cfg(target_os = "linux")]
     {
@@ -110,7 +110,7 @@ fn hand_cli_to_core() {
     if first.to_string_lossy().contains("://") {
         return;
     }
-    let Some(core) = sikemux_host::cli_paths::cli_executable_path() else {
+    let Some(core) = sikemux_hostkit::cli_paths::cli_executable_path() else {
         eprintln!("sikemux: the core is not installed beside the app");
         std::process::exit(1);
     };

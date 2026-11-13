@@ -65,6 +65,7 @@ sikemux-corekit = { path = "../crates/sikemux-corekit" }
 sikemux-git = { path = "../crates/sikemux-git" }
 sikemux-pty = { path = "../crates/sikemux-pty" }
 sikemux-host = { path = "../crates/sikemux-host", default-features = false }
+sikemux-hostkit = { path = "../crates/sikemux-hostkit" }
 sikemux-markdown = { path = "../crates/sikemux-markdown" }
 sikemux-plugin-api = { path = "../crates/sikemux-plugin-api" }
 sikemux-process = { path = "../crates/sikemux-process" }

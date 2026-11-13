@@ -10082,6 +10082,7 @@ dependencies = [
  "sikemux-git",
  "sikemux-grid",
  "sikemux-host",
+ "sikemux-hostkit",
  "sikemux-keychain",
  "sikemux-linked",
  "sikemux-markdown",
@@ -10130,6 +10131,7 @@ dependencies = [
  "sikemux-agents",
  "sikemux-client",
  "sikemux-core",
+ "sikemux-hostkit",
  "sikemux-keychain",
  "sikemux-loopback",
  "sikemux-plugin-api",
@@ -10153,6 +10155,30 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-hostkit"
+version = "0.6.1-nightly.17"
+dependencies = [
+ "backtrace",
+ "libc",
+ "log",
+ "reqwest",
+ "rustls",
+ "sentry",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sikemux-base",
+ "sikemux-client",
+ "sikemux-corekit",
+ "sikemux-process",
+ "sikemux-pty",
+ "sikemux-wire",
+ "tempfile",
+ "tokio",
  "workspace-hack",
 ]
 

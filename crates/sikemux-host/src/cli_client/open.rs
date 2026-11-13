@@ -2,6 +2,8 @@
 //! in the app's window.
 
 use super::*;
+pub use sikemux_hostkit::opened::project_root;
+pub(super) use sikemux_hostkit::opened::{enclosing_folder, git_root};
 
 pub(super) const ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -222,24 +224,6 @@ pub(super) fn infer_project_root(path: &Path, kind: CliTargetKind, cwd: &Path) -
         return cwd.to_path_buf();
     }
     enclosing_folder(path, kind).to_path_buf()
-}
-
-/// The project a path opened from outside a shell belongs to: its repository,
-/// or else the folder itself, or the folder a file sits in.
-pub fn project_root(path: &Path, kind: CliTargetKind) -> PathBuf {
-    git_root(path, kind).unwrap_or_else(|| enclosing_folder(path, kind).to_path_buf())
-}
-
-pub(super) fn git_root(path: &Path, kind: CliTargetKind) -> Option<PathBuf> {
-    sikemux_process::files::repo_root(enclosing_folder(path, kind)).map(Path::to_path_buf)
-}
-
-pub(super) fn enclosing_folder(path: &Path, kind: CliTargetKind) -> &Path {
-    if kind == CliTargetKind::Directory {
-        path
-    } else {
-        path.parent().unwrap_or(path)
-    }
 }
 
 /// The project a command run here works in: the one Sikemux started this

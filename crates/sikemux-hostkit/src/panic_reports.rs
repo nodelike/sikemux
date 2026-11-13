@@ -36,11 +36,11 @@ pub struct PanicReport {
 }
 
 /// Records every later panic in this process to the autopsy folder, hands it to Sentry, then
-/// lets it go on as before.
-pub fn record_panics(process: &'static str) {
+/// lets it go on as before. `commit` is the one the process was built from.
+pub fn record_panics(process: &'static str, commit: &'static str) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let written = write_report(process, info);
+        let written = write_report(process, commit, info);
         previous(info);
         if let Some((file, report)) = written {
             crate::crash_reports::panicked(&file, &report);
@@ -48,14 +48,18 @@ pub fn record_panics(process: &'static str) {
     }));
 }
 
-fn write_report(process: &str, info: &PanicHookInfo<'_>) -> Option<(PathBuf, PanicReport)> {
+fn write_report(
+    process: &str,
+    commit: &str,
+    info: &PanicHookInfo<'_>,
+) -> Option<(PathBuf, PanicReport)> {
     let directory = crate::hang_reports::autopsy_dir()?;
     let captured_at_ms = sikemux_process::clock::epoch_ms();
     let report = PanicReport {
         process: process.to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
-        commit: env!("SIKEMUX_BUILD_COMMIT").to_owned(),
-        captured_at: sikemux_core::accounts::live::rfc3339(captured_at_ms),
+        commit: commit.to_owned(),
+        captured_at: sikemux_corekit::accounts::live::rfc3339(captured_at_ms),
         captured_at_ms,
         thread: std::thread::current()
             .name()

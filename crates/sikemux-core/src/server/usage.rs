@@ -6,6 +6,8 @@
 
 use crate::server::parts::Parts;
 pub use sikemux_calls::usage::Step;
+use sikemux_corekit::usage::account_hash;
+pub use sikemux_corekit::usage::{do_not_track, signed_in_user, Install};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -31,28 +33,6 @@ const SECONDS_PER_DAY: u64 = 86_400;
 const HOST_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
 /// How far back an install's first report reaches into the activity it kept before.
 const FIRST_REPORT_DAYS: u64 = 400;
-
-/// What was installed: the desktop app, or the core alone on a host with no screen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Install {
-    App,
-    Host,
-}
-
-impl Install {
-    fn name(self) -> &'static str {
-        match self {
-            Install::App => "app",
-            Install::Host => "host",
-        }
-    }
-
-    /// Built by the release workflow, which sets `SIKEMUX_USAGE_REPORTING` to
-    /// the kind's name. Only such a build reports usage or updates itself.
-    pub fn published(self) -> bool {
-        !cfg!(debug_assertions) && option_env!("SIKEMUX_USAGE_REPORTING") == Some(self.name())
-    }
-}
 
 #[derive(Clone, Copy)]
 pub struct Active<'a> {
@@ -362,15 +342,6 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     }
 }
 
-/// `DO_NOT_TRACK` is set in the environment, or `CI` is, as every CI service sets it, which
-/// turns off everything that reports. A build that runs on CI machines is never a person's install.
-pub fn do_not_track() -> bool {
-    ["DO_NOT_TRACK", "CI"].into_iter().any(|name| {
-        std::env::var_os(name)
-            .is_some_and(|value| !value.is_empty() && value != "0" && value != "false")
-    })
-}
-
 /// The channel today's use counts under, or none when nothing may be sent: the person
 /// does not share usage, or no window of the app is open.
 fn reported_channel(
@@ -408,15 +379,6 @@ fn save_record(path: &Path, record: &UsageRecord) -> Result<(), String> {
 
 fn utc_day(now: SystemTime) -> u64 {
     sikemux_process::clock::epoch_ms_of(now) / 1000 / SECONDS_PER_DAY
-}
-
-/// The person the core at `socket` is signed in as, named as the usage ping names them.
-pub fn signed_in_user(socket: &Path) -> Option<String> {
-    super::remote::signed_in_account(socket).map(|account| account_hash(&account))
-}
-
-fn account_hash(account: &str) -> String {
-    hex::encode(Sha256::digest(format!("sikemux-usage|{account}")))
 }
 
 fn active_event(install_id: &str, active: &Active<'_>, platform: &Platform) -> Value {

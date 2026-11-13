@@ -4,16 +4,8 @@
 
 pub mod account;
 pub mod cli_client;
-pub mod cli_paths;
-#[cfg(unix)]
-pub mod core_start;
-pub mod crash_reports;
-pub mod environment;
-pub mod hang_reports;
 #[cfg(unix)]
 pub mod headless;
-pub mod login_item;
-pub mod panic_reports;
 pub mod plugins;
 mod problems;
 mod style;
@@ -21,20 +13,23 @@ mod style;
 pub mod update;
 
 pub use plugins::provide_to_core;
+#[cfg(unix)]
+pub use sikemux_hostkit::core_start;
+pub use sikemux_hostkit::{
+    cli_paths, crash_reports, environment, hang_reports, install_tls_crypto, login_item,
+    panic_reports,
+};
+
+/// The commit this binary and the app built beside it were built from.
+pub const BUILD_COMMIT: &str = env!("SIKEMUX_BUILD_COMMIT");
 
 /// The build of this binary and of the app built beside it, which share this
 /// crate's build script output.
 pub fn build_identity() -> sikemux_wire::protocol::BuildIdentity {
     sikemux_core::build::identity(
         env!("CARGO_PKG_VERSION"),
-        env!("SIKEMUX_BUILD_COMMIT"),
+        BUILD_COMMIT,
         env!("SIKEMUX_BUILD_TIME").parse().unwrap_or(0),
         env!("SIKEMUX_BUILD_SOURCE"),
     )
-}
-
-// reqwest is built without a TLS crypto backend of its own, so every HTTP
-// client in the app, the core and their plugins uses the one installed here.
-pub fn install_tls_crypto() {
-    let _ = rustls::crypto::ring::default_provider().install_default();
 }

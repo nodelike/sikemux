@@ -142,6 +142,8 @@ pub use turn_state::TakeStepParams;
 use crate::server::changed::ChangedCore;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::part::PartCore;
+pub use sikemux_corekit::lock::lock_holder;
+use sikemux_corekit::lock::lock_path;
 use std::collections::{HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};
 use std::os::fd::AsRawFd;
@@ -905,12 +907,6 @@ async fn within_stop_limit<T>(step: &str, stopping: impl std::future::Future<Out
     }
 }
 
-fn lock_path(socket: &Path) -> PathBuf {
-    let mut path = socket.as_os_str().to_owned();
-    path.push(".lock");
-    PathBuf::from(path)
-}
-
 /// Takes the single-instance lock and binds the socket. The lock is held for
 /// the life of the core and released by the kernel when it exits.
 fn claim_socket(socket: &Path) -> Result<(std::os::unix::net::UnixListener, File), ServerError> {
@@ -974,19 +970,6 @@ fn claim_socket(socket: &Path) -> Result<(std::os::unix::net::UnixListener, File
     lock.set_len(0)?;
     lock.write_all_at(std::process::id().to_string().as_bytes(), 0)?;
     Ok((listener, lock))
-}
-
-/// The process holding the core's single-instance lock at `socket`, so a core that stopped
-/// answering can still be found and stopped. None while nothing holds it.
-pub fn lock_holder(socket: &Path) -> Option<u32> {
-    let mut lock = File::open(lock_path(socket)).ok()?;
-    // SAFETY: flock only reads the integer fd, which `lock` keeps open.
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) } == 0 {
-        return None;
-    }
-    let mut pid = String::new();
-    std::io::Read::read_to_string(&mut lock, &mut pid).ok()?;
-    pid.trim().parse().ok().filter(|pid| *pid > 1)
 }
 
 /// Flushes shell metadata a quiet prompt left coalesced, and reads settled

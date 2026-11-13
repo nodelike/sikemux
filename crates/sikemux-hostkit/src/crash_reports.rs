@@ -22,7 +22,7 @@ use sentry::{Client, ClientOptions, Hub, Level, TransactionContext, Transport};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use sikemux_core::server::usage::{self, Install};
+use sikemux_corekit::usage::{self, Install};
 use sikemux_process::sync::Locked;
 
 use crate::panic_reports::{self, PanicReport};
@@ -140,7 +140,7 @@ fn start_sending_to(
         .name("crash-reports".into())
         .spawn(move || {
             if let Some(user) = socket
-                .or_else(sikemux_core::default_socket_path)
+                .or_else(sikemux_corekit::default_socket_path)
                 .as_deref()
                 .and_then(usage::signed_in_user)
             {
@@ -357,7 +357,7 @@ fn options(dsn: &str, process: Process, minidumps: MinidumpIntegration) -> Clien
         else {
             return Arc::new(Discard);
         };
-        let transport = match sikemux_core::http::builder().build() {
+        let transport = match sikemux_base::http::builder().build() {
             Ok(client) => transport.with_client(client),
             Err(_) => transport,
         };

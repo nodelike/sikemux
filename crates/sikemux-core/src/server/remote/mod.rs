@@ -4,6 +4,7 @@
 //! that file trusts live in the person's secret store.
 
 use serde_json::{json, Value};
+pub(crate) use sikemux_corekit::usage::remote_file as file_path;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -473,17 +474,6 @@ pub(crate) struct Remote {
     left: Notify,
     /// Cuts the wait before the next read of the network short.
     refresh: Arc<Notify>,
-}
-
-pub(crate) fn file_path(socket: &Path) -> PathBuf {
-    let mut path = socket.as_os_str().to_owned();
-    path.push(".remote.json");
-    PathBuf::from(path)
-}
-
-/// The account the core at `socket` was last signed in to, read without the core.
-pub(crate) fn signed_in_account(socket: &Path) -> Option<String> {
-    read_stored(&file_path(socket)).ok()?.owner
 }
 
 fn read_stored(path: &Path) -> CoreResult<Stored> {

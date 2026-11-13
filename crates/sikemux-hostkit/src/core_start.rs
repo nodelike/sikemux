@@ -7,9 +7,13 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use sikemux_client::client::ClientError;
-use sikemux_core::build::older_version;
-use sikemux_core::client::{await_deferred_upgrade, await_upgrade, frozen_request, probe};
-use sikemux_core::frozen::{FrozenReply, FrozenRequest};
+use sikemux_corekit::build::older_version;
+use sikemux_corekit::client::await_deferred_upgrade;
+use sikemux_corekit::client::await_upgrade;
+use sikemux_corekit::client::frozen_request;
+use sikemux_corekit::client::probe;
+use sikemux_corekit::frozen::FrozenReply;
+use sikemux_corekit::frozen::FrozenRequest;
 use sikemux_wire::protocol::BuildIdentity;
 
 use crate::login_item::{start_core, CoreLaunch};
@@ -150,7 +154,7 @@ pub async fn upgrade(
 
 /// The core that holds the lock at `socket` but does not answer there, by its process id.
 pub fn stuck(socket: &Path) -> Option<u32> {
-    let pid = sikemux_core::server::lock_holder(socket)?;
+    let pid = sikemux_corekit::lock::lock_holder(socket)?;
     probe(socket, STUCK_PROBE).is_err().then_some(pid)
 }
 
@@ -159,7 +163,7 @@ pub fn stuck(socket: &Path) -> Option<u32> {
 /// it is gone.
 pub fn end(socket: &Path, pid: u32) -> bool {
     for (signal, grace) in [(libc::SIGTERM, TERM_GRACE), (libc::SIGKILL, KILL_GRACE)] {
-        if sikemux_core::server::lock_holder(socket) != Some(pid) {
+        if sikemux_corekit::lock::lock_holder(socket) != Some(pid) {
             return true;
         }
         let Ok(id) = libc::pid_t::try_from(pid) else {
@@ -172,11 +176,11 @@ pub fn end(socket: &Path, pid: u32) -> bool {
         }
         let deadline = Instant::now() + grace;
         while Instant::now() < deadline {
-            if sikemux_core::server::lock_holder(socket) != Some(pid) {
+            if sikemux_corekit::lock::lock_holder(socket) != Some(pid) {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
     }
-    sikemux_core::server::lock_holder(socket) != Some(pid)
+    sikemux_corekit::lock::lock_holder(socket) != Some(pid)
 }

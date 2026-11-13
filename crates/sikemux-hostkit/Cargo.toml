@@ -1,0 +1,36 @@
+[package]
+name = "sikemux-hostkit"
+version.workspace = true
+edition = "2021"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+reqwest = { version = "0.13", default-features = false }
+sentry = { version = "0.49", default-features = false, features = ["contexts", "debug-images", "minidump", "release-health", "reqwest", "rustls-no-provider"] }
+sikemux-base = { path = "../sikemux-base" }
+sikemux-corekit = { path = "../sikemux-corekit" }
+sikemux-process = { path = "../sikemux-process" }
+sikemux-pty = { path = "../sikemux-pty" }
+log = "0.4"
+sha2 = "0.11"
+sikemux-wire = { path = "../sikemux-wire" }
+
+[target.'cfg(unix)'.dependencies]
+sikemux-client = { path = "../sikemux-client" }
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+backtrace = "0.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

@@ -27,9 +27,9 @@ use sikemux_client::accounts::network;
 use sikemux_client::client::{Attached, ClientError, ClientEvent, CoreClient};
 use sikemux_client::remote::SecretKey;
 use sikemux_grid::{decode_frame, decode_lines, Frame, Lines};
-use sikemux_host::cli_paths;
-use sikemux_host::core_start::{self, StartError};
-use sikemux_host::login_item::{self, CoreLaunch};
+use sikemux_hostkit::cli_paths;
+use sikemux_hostkit::core_start::{self, StartError};
+use sikemux_hostkit::login_item::{self, CoreLaunch};
 use sikemux_linked::{Happened, Linked};
 use sikemux_view::device::DeviceView;
 use sikemux_wire::protocol::{

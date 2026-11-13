@@ -23,7 +23,7 @@ pub fn cli_executable_path() -> Option<PathBuf> {
         }
     }
     let current = std::env::current_exe().ok()?;
-    let installed = Path::new(sikemux_core::host_update::INSTALLED_CORE);
+    let installed = Path::new(sikemux_corekit::host_update::INSTALLED_CORE);
     let in_appimage =
         sikemux_process::paths::env_path("APPDIR").is_some_and(|mount| current.starts_with(mount));
     if in_appimage && installed.is_file() {
@@ -123,7 +123,7 @@ mod tests {
         std::env::remove_var("SIKEMUX_CLI_ENDPOINT_PUBLISH");
 
         let published =
-            sikemux_core::cli::endpoint::default_endpoint_path().expect("an endpoint path");
+            sikemux_corekit::cli::endpoint::default_endpoint_path().expect("an endpoint path");
 
         assert_ne!(published, Path::new("/tmp/sikemux-other-instance.json"));
         std::env::remove_var("SIKEMUX_CLI_ENDPOINT");
@@ -138,7 +138,7 @@ mod tests {
         );
 
         let published =
-            sikemux_core::cli::endpoint::default_endpoint_path().expect("an endpoint path");
+            sikemux_corekit::cli::endpoint::default_endpoint_path().expect("an endpoint path");
 
         assert_eq!(published, Path::new("/tmp/sikemux-published-here.json"));
         std::env::remove_var("SIKEMUX_CLI_ENDPOINT_PUBLISH");

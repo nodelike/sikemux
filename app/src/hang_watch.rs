@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::{App, Window};
 use serde_json::json;
-use sikemux_host::hang_reports::{autopsy_dir, is_bundle, DIRECTORY_PREFIX, REPORT_FILE};
+use sikemux_hostkit::hang_reports::{autopsy_dir, is_bundle, DIRECTORY_PREFIX, REPORT_FILE};
 
 const BEAT_EVERY: Duration = Duration::from_millis(500);
 /// A window that has not answered for this long is stuck, not busy.
