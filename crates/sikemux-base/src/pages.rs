@@ -231,6 +231,25 @@ pub fn theme_rule(dark: bool, variables: &BTreeMap<String, String>) -> String {
     rule + "}"
 }
 
+/// `html` with nothing on the network open to it but `origins`, which it may fetch from and
+/// show pictures from: no frames or form posts, and pictures, fonts and media only as inlined.
+pub fn network_closed(html: &str, origins: &[String]) -> String {
+    let reached = origins.join(" ");
+    let (pictures, connect) = match reached.is_empty() {
+        true => (String::new(), "'none'"),
+        false => (format!(" {reached}"), reached.as_str()),
+    };
+    let policy = format!(
+        "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:{pictures}; font-src data: blob:; media-src data: blob:; connect-src {connect}; form-action 'none'; base-uri 'none'"
+    );
+    insert_head(
+        html,
+        &format!(
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"{policy}\"><meta http-equiv=\"x-dns-prefetch-control\" content=\"off\">"
+        ),
+    )
+}
+
 /// A page as a window shows it: `theme`, a [`theme_rule`], and the base styles
 /// ahead of everything the agent wrote, with the window's own `script` first.
 pub fn themed(html: &str, theme: &str, script: Option<&str>) -> String {

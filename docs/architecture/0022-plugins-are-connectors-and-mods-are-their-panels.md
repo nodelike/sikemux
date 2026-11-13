@@ -19,7 +19,9 @@ background, and each had to be ported to GPUI.
 - **A panel for a service is a mod.** A mod is a web page in the person's mods folder. It
   reads connector methods through the core's bridge (`sikemux-core/src/server/mods/bridge.rs`),
   and only those its `mod.json` declares. Writes are declared too and need the person's
-  approval. Credentials stay in the core, so a page only ever sees answers.
+  approval. Credentials stay in the core, so a page only ever sees answers. The page is
+  closed to the network by a Content-Security-Policy the core adds, but for the origins its
+  `mod.json` lists in `connect`, which the person approves with its writes.
 - **There is no marketplace and no third-party plugin loading.** Every plugin is written in
   this repository, as a crate in `plugins/<name>` behind a Cargo feature of the same name on
   `sikemux-host`. People turn plugins off in the app.

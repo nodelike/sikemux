@@ -20,10 +20,14 @@ pub struct ModInfo {
     /// What it may change once the person allows it, such as `agents.send`.
     #[serde(default)]
     pub writes: Vec<String>,
+    /// The origins its page may reach, such as `https://api.example.com`, once the person
+    /// allows it; nothing else on the network.
+    #[serde(default)]
+    pub connect: Vec<String>,
     /// Why it cannot be shown, such as a `mod.json` that does not read.
     #[serde(default)]
     pub problem: Option<String>,
-    /// Whether the person allowed the writes it declares.
+    /// Whether the person allowed the writes and origins it declares.
     #[serde(default)]
     pub allowed: bool,
     /// A few words the mod's page shows beside its name, such as "3 failing".
@@ -62,6 +66,9 @@ pub struct AllowParams {
     pub id: String,
     /// The writes the person was shown and allowed, or none to take the approval back.
     pub writes: Option<Vec<String>>,
+    /// The origins the person was shown and allowed with them.
+    #[serde(default)]
+    pub connect: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -78,6 +85,17 @@ pub struct ModParams {
 #[derive(Serialize, Deserialize)]
 pub struct ModPage {
     pub html: String,
+    /// What the person has yet to allow before the page may reach the network.
+    #[serde(default)]
+    pub ask: Option<ModAsk>,
+}
+
+/// Everything a mod declares it may change or reach, as the person is asked to allow it.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ModAsk {
+    pub name: String,
+    pub writes: Vec<String>,
+    pub connect: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -111,7 +129,12 @@ pub struct BridgeParams {
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BridgeWrite {
-    Ask { name: String, writes: Vec<String> },
+    Ask {
+        name: String,
+        writes: Vec<String>,
+        #[serde(default)]
+        connect: Vec<String>,
+    },
     Done(Value),
 }
 

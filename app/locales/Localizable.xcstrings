@@ -9937,6 +9937,7 @@
         }
       }
     },
+    "Allow {name} to make changes and reach the internet?": {},
     "Allow {name} to make changes?": {
       "localizations": {
         "es": {
@@ -9989,6 +9990,7 @@
         }
       }
     },
+    "Allow {name} to reach the internet?": {},
     "Allowed": {
       "localizations": {
         "es": {
@@ -30433,58 +30435,7 @@
         }
       }
     },
-    "Each mod is a folder of {folder}. A mod reads only what its mod.json names, and asks you once before it changes anything.": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cada mod es una carpeta de {folder}. Un mod solo lee lo que nombra su mod.json y te pregunta una vez antes de cambiar nada."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每个模组都是 {folder} 中的一个文件夹。模组只读取其 mod.json 列出的内容，并在更改任何内容前询问你一次。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Jeder Mod ist ein Ordner von {folder}. Ein Mod liest nur, was seine mod.json nennt, und fragt dich einmal, bevor er etwas ändert."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chaque mod est un dossier de {folder}. Un mod ne lit que ce que son mod.json nomme, et vous demande une fois avant de modifier quoi que ce soit."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "各 Mod は {folder} のフォルダです。Mod は mod.json に記載されたものだけを読み取り、何かを変更する前に一度だけ確認します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "각 모드는 {folder}의 폴더입니다. 모드는 mod.json에 지정된 항목만 읽고, 무언가를 변경하기 전에 한 번 묻습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Каждый мод — это папка в {folder}. Мод читает только то, что указано в его mod.json, и один раз спрашивает вас, прежде чем что-либо изменить."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cada mod é uma pasta de {folder}. Um mod lê só o que o mod.json dele indica e pergunta a você uma vez antes de alterar algo."
-          }
-        }
-      }
-    },
+    "Each mod is a folder of {folder}. A mod reads only what its mod.json names, and asks you once before it changes anything or reaches the internet.": {},
     "Each works on its own branch, and another agent reviews it before it lands": {
       "localizations": {
         "es": {
@@ -99979,58 +99930,7 @@
         }
       }
     },
-    "Take back writes": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deshacer escrituras"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "收回写入权限"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Schreibzugriffe zurücknehmen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Annuler les écritures"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "書き込みを取り消す"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "쓰기 되돌리기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отменить записи"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desfazer gravações"
-          }
-        }
-      }
-    },
+    "Take back approval": {},
     "Take the window you work in, in another app, to the chat as a picture with its app, title and text. Works from any app": {
       "localizations": {
         "es": {
@@ -138117,6 +138017,8 @@
         }
       }
     },
+    "reaches {origins} (allowed)": {},
+    "reaches {origins} (asks first)": {},
     "read": {
       "localizations": {
         "es": {
@@ -157052,6 +156954,8 @@
         }
       }
     },
+    "{name} asks to reach {origins}, and nowhere else. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.": {},
+    "{name} asks to {writes}, and to reach {origins} and nowhere else. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.": {},
     "{name} asks to {writes}. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.": {
       "localizations": {
         "es": {

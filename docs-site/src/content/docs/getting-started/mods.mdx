@@ -21,7 +21,7 @@ Right-click a mod's row to:
 - **Edit with an agent**.
 - **Remove** it, which moves its folder to the Trash.
 
-**Settings → Mods** lists every mod with what it reads and what it may change, and opens, turns off or removes each.
+**Settings → Mods** lists every mod with what it reads, what it may change and the sites it reaches, and opens, turns off or removes each.
 
 ### Examples
 
@@ -31,7 +31,9 @@ Sikemux ships **Pull requests**, which shows the project's open pull requests wi
 
 A mod reads only what its `mod.json` names, and never sees your sign-ins: Sikemux asks the service and hands the mod the answer.
 
-A mod that changes something, such as messaging an agent, adding a card to the agent board or re-running a CI run, names that in its `mod.json` as well. The first time it tries, Sikemux lists everything it may change and asks you once. **Allow** holds until its `mod.json` asks for more. **Take back writes** in **Settings → Mods** withdraws it.
+A mod that changes something, such as messaging an agent, adding a card to the agent board or re-running a CI run, names that in its `mod.json` as well. The first time it tries, Sikemux lists everything it may change and asks you once. **Allow** holds until its `mod.json` asks for more. **Take back approval** in **Settings → Mods** withdraws it.
+
+A mod's page is closed to the internet. It cannot fetch, post a form, open a frame or load a picture or font from anywhere, so what it reads goes nowhere else. A mod that needs a site names it in `connect`, and Sikemux asks you when you open it, listing those sites with everything it may change. Until you allow it, the page stays closed, and the approval lapses whenever its `connect` or its writes change. A link opens in your browser only when you click it.
 
 A mod whose tab is out of sight stops reading and its timers pause, so a mod left open does not slow your agents.
 
@@ -47,13 +49,16 @@ Each mod is a folder in `~/.config/sikemux/mods/`, named with lowercase letters,
   "icon": "pull-request",
   "description": "Open pull requests and their CI.",
   "reads": ["repo", "github"],
-  "writes": ["github.rerun"]
+  "writes": ["github.rerun"],
+  "connect": ["https://avatars.githubusercontent.com"]
 }
 ```
 
 `icon` is one of Sikemux's icon names, such as `dashboard`, `pull-request`, `agents`, `board`, `gauge` or `jira`.
 
-`index.html` is the page. Keep it one file: pictures and fonts beside it are folded in, other files are not. It wears your theme through CSS variables such as `--foreground`, `--muted-foreground`, `--border`, `--accent`, `--success`, `--warning` and `--destructive`, and links open in your browser.
+`connect` lists the sites the page may fetch from, open a WebSocket to and show pictures from, each as an origin: `https://` or `wss://`, a host, and maybe a port, such as `https://api.example.com:8443`. `https://*.example.com` covers every host under `example.com`, though not `example.com` itself. Anything else, such as a path or `http://`, keeps the mod from showing, and **Settings → Mods** says why. Leave it out and the page reaches nothing.
+
+`index.html` is the page. Keep it one file, with its scripts and styles inline: pictures and fonts beside it are folded in, other files are not, and nothing loads from the internet but what `connect` names. It wears your theme through CSS variables such as `--foreground`, `--muted-foreground`, `--border`, `--accent`, `--success`, `--warning` and `--destructive`, and links open in your browser.
 
 The page reaches Sikemux through `window.sikemux`:
 
