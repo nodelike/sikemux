@@ -27,8 +27,9 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
-use sikemux_core::files::{FileBytesParams, FilePreviewParams};
-use sikemux_core::server::call;
+use sikemux_calls::call;
+use sikemux_git::files::FileBytesParams;
+use sikemux_git::files::FilePreviewParams;
 
 /// How much of a file the byte view shows.
 const SHOWN_BYTES: u64 = 64 * 1024;

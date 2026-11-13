@@ -8,8 +8,9 @@ use gpui_kit::{
     div, px, Anchor, AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
+use sikemux_calls::call;
+use sikemux_calls::workspace::AgentPatch;
+use sikemux_calls::workspace::UpdateAgentParams;
 
 use crate::core::Target;
 use crate::hosts::Place;

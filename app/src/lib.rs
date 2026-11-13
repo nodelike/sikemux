@@ -102,7 +102,7 @@ pub mod xwayland_scale;
 pub use chat::changes as chat_changes;
 pub use chat::composer;
 pub use links::follow_opened;
-use sikemux_core::fuzzy;
+use sikemux_corekit::fuzzy;
 
 /// The window's size when it first opens.
 pub const WINDOW_SIZE: (f32, f32) = (1340., 880.);

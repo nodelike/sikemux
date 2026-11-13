@@ -4,8 +4,10 @@
 use gpui_kit::{
     div, AnyElement, App, ClipboardItem, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::outside::{OutsideChange, OutsideClient, Via};
+use sikemux_calls::call;
+use sikemux_calls::outside::OutsideChange;
+use sikemux_calls::outside::OutsideClient;
+use sikemux_calls::outside::Via;
 use sikemux_wire::protocol::DeviceAccess;
 
 use crate::icons::Icon;

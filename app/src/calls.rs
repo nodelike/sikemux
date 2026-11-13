@@ -14,8 +14,8 @@ use gpui_kit::{
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, StyledImage,
     Subscription, WeakEntity, Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::questions::AnswerParams;
+use sikemux_calls::call;
+use sikemux_calls::questions::AnswerParams;
 use sikemux_view::calls::{
     AnswerCallParams, CallAnswer, CallClient, CallKind, CallParams, CallResult, CallState,
     PersonCall,

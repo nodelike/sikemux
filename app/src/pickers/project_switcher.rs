@@ -20,8 +20,8 @@ use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::ui::path::tilde;
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::move_agent::MoveParams;
+use sikemux_calls::call;
+use sikemux_calls::move_agent::MoveParams;
 
 const CONTEXT: &str = "ProjectSwitcher";
 

@@ -4,7 +4,7 @@
 
 use crate::core::Target;
 use crate::workbench::actions;
-use sikemux_core::server::call;
+use sikemux_calls::call;
 use sikemux_view::prefs::PreferenceChange;
 use std::cell::Cell;
 use std::time::{Duration, Instant};

@@ -4,8 +4,8 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::{
     div, px, App, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, WeakEntity,
 };
-use sikemux_core::server::ports::PortOwner;
-use sikemux_core::server::ports::ProjectPort;
+use sikemux_calls::ports::PortOwner;
+use sikemux_calls::ports::ProjectPort;
 use sikemux_view::layout::PaneKind;
 
 use crate::icons::Icon;

@@ -5,8 +5,9 @@
 use gpui_kit::{AnyElement, App, IntoElement, SharedString, WeakEntity};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sikemux_core::server::board::BoardPassParams;
-use sikemux_core::server::call::{self, Call};
+use sikemux_calls::board::BoardPassParams;
+use sikemux_calls::call;
+use sikemux_calls::Call;
 use sikemux_view::inbox::{InboxItem, InboxKind};
 
 use crate::core::Target;

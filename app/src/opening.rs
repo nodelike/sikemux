@@ -8,8 +8,8 @@ use crate::tabs::shows;
 use crate::toast;
 use crate::workbench::Strip;
 use gpui_kit::Window;
-use sikemux_core::server::layout::HostParams;
-use sikemux_core::server::workspace::SessionChoice;
+use sikemux_calls::layout::HostParams;
+use sikemux_calls::workspace::SessionChoice;
 use sikemux_view::device::DeviceView;
 use sikemux_view::device::RecentInfo;
 use std::collections::HashSet;
@@ -19,13 +19,18 @@ use std::sync::Arc;
 
 use gpui_kit::{App, AppContext, Context, Task};
 use serde_json::{json, Value};
-use sikemux_core::cli::protocol::{
-    is_browser_method, is_sim_method, CliOpenFailure, CliOpenOutcome, CliOpenRequest,
-    CliOpenTarget, CliTargetKind, HarnessRequest, MAX_CLI_TARGETS,
-};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::AgentParams;
-use sikemux_core::server::ship::WebWriteParams;
+use sikemux_calls::call;
+use sikemux_calls::params::AgentParams;
+use sikemux_calls::ship::WebWriteParams;
+use sikemux_corekit::cli::protocol::is_browser_method;
+use sikemux_corekit::cli::protocol::is_sim_method;
+use sikemux_corekit::cli::protocol::CliOpenFailure;
+use sikemux_corekit::cli::protocol::CliOpenOutcome;
+use sikemux_corekit::cli::protocol::CliOpenRequest;
+use sikemux_corekit::cli::protocol::CliOpenTarget;
+use sikemux_corekit::cli::protocol::CliTargetKind;
+use sikemux_corekit::cli::protocol::HarnessRequest;
+use sikemux_corekit::cli::protocol::MAX_CLI_TARGETS;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
 use std::pin::Pin;
@@ -33,8 +38,8 @@ use std::pin::Pin;
 use crate::core::Ask;
 use crate::editor::OpenAt;
 use crate::workbench::Workbench;
-use sikemux_core::server::harness::pages::PageParams;
-use sikemux_core::server::layout::OpenPaths;
+use sikemux_calls::harness::PageParams;
+use sikemux_calls::layout::OpenPaths;
 
 pub type Answer = Box<dyn FnOnce(Result<Value, String>) + Send>;
 
@@ -444,7 +449,7 @@ impl Workbench {
             return answer(Ok(json!({})));
         };
         let id = request.params["id"].as_str().unwrap_or_default().to_owned();
-        if !sikemux_core::pages::is_page_id(&id) {
+        if !sikemux_base::pages::is_page_id(&id) {
             return answer(Err("that is not a page the core keeps".into()));
         }
         let page = (request.params["desk"] == true).then(|| {
@@ -640,7 +645,7 @@ impl Workbench {
     pub fn open_chief(&self, project: &str, cx: &mut Context<Self>) {
         let target = self.target();
         let opening =
-            target.request_typed::<call::OpenChief>(sikemux_core::server::chief::OpenChiefParams {
+            target.request_typed::<call::OpenChief>(sikemux_calls::chief::OpenChiefParams {
                 project: project.to_owned(),
             });
         let project = project.to_owned();

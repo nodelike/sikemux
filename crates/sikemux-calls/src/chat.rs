@@ -169,3 +169,6 @@ pub struct QueuedMessageParams {
     #[serde(default)]
     pub context: Vec<ChatContext>,
 }
+
+/// The most files one message carries.
+pub const MAX_ATTACHMENTS: usize = 32;

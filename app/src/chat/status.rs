@@ -10,9 +10,11 @@ use gpui_kit::{
     div, px, AnyElement, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
-use sikemux_core::server::agent_accounts::{Authenticate, ChatAccountsParams};
-use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::TakeStepParams;
+use sikemux_calls::agent_accounts::Authenticate;
+use sikemux_calls::agent_accounts::ChatAccountsParams;
+use sikemux_calls::call;
+use sikemux_calls::turn_state::TakeStepParams;
+use sikemux_calls::Call;
 use sikemux_view::chat::{
     ChatActivity, ChatConnection, FailureKind, ToolAction, ToolFamily, ToolIntent, ToolRow,
 };
@@ -827,7 +829,7 @@ fn other_account(
         .or_else(|| bench.accounts.current(&agent.provider))
         .cloned()?;
     let takers = crate::accounts::takers(bench, &agent.id, &on.id, cx)?;
-    let others: Vec<(sikemux_core::agent_accounts::Profile, String)> = (takers.others.iter())
+    let others: Vec<(sikemux_agents::agent_accounts::Profile, String)> = (takers.others.iter())
         .filter_map(|other| bench.accounts.profile(&other.id).cloned())
         .map(|other| {
             let status = crate::accounts::status(bench, &other).and_then(|s| s.as_ref().ok());

@@ -9,10 +9,10 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::chat::calls::QueuedParams;
-use sikemux_core::server::share::GuestMessageParams;
-use sikemux_core::server::triggers::TriggerParams;
+use sikemux_calls::call;
+use sikemux_calls::chat::QueuedParams;
+use sikemux_calls::share::GuestMessageParams;
+use sikemux_calls::triggers::TriggerParams;
 use sikemux_view::chat::{
     AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, TaskState, TriggerWhen, WorkflowAgent,
     WorkflowAgentState,
@@ -832,7 +832,7 @@ fn queued_label(message: &QueuedMessage) -> String {
 }
 
 fn agent_label(provider: &str) -> &str {
-    sikemux_core::agent_catalog::agent(provider).map_or(provider, |agent| agent.label)
+    sikemux_agents::agent_catalog::agent(provider).map_or(provider, |agent| agent.label)
 }
 
 /// What the chat's next message hands to the agent that took it over, or that starts it as a

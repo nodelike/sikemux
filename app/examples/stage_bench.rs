@@ -23,12 +23,13 @@ use common::thread_cpu_ms;
 use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Entity, Focusable, HeadlessAppContext, Keystroke,
 };
-use sikemux_core::harness::runs::RunStatus;
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::layout::{Side, SplitPane};
-use sikemux_core::server::spare::NewTerminal;
-use sikemux_core::server::tasks::TrustAnswerParams;
+use sikemux_agents::harness::runs::RunStatus;
+use sikemux_calls::call;
+use sikemux_calls::layout::Side;
+use sikemux_calls::layout::SplitPane;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::spare::NewTerminal;
+use sikemux_calls::tasks::TrustAnswerParams;
 use sikemux_gpui::hosts::Place;
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, terminal, theme, WINDOW_SIZE};

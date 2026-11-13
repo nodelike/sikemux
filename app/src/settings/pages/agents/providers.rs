@@ -11,12 +11,17 @@ use gpui_kit::{
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sikemux_core::launch::providers::{Helper, Kind};
-use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::model_providers::{
-    Check, CheckParams, ConnectParams, HelperParams, ModelProvider, ProviderParams,
-};
+use sikemux_agents::launch::providers::Helper;
+use sikemux_agents::launch::providers::Kind;
+use sikemux_calls::call;
+use sikemux_calls::model_providers::Check;
+use sikemux_calls::model_providers::CheckParams;
+use sikemux_calls::model_providers::ConnectParams;
+use sikemux_calls::model_providers::HelperParams;
+use sikemux_calls::model_providers::ModelProvider;
+use sikemux_calls::model_providers::ProviderParams;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::Call;
 
 use crate::core;
 use crate::core::Target;

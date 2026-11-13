@@ -28,9 +28,10 @@ use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
 use crate::ui;
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::files::{FileReadParams, FileWriteParams};
-use sikemux_core::server::call;
-use sikemux_core::server::open_files::ShowFiles;
+use sikemux_calls::call;
+use sikemux_calls::open_files::ShowFiles;
+use sikemux_git::files::FileReadParams;
+use sikemux_git::files::FileWriteParams;
 use sikemux_wire::protocol::ErrorKind;
 
 mod blame;

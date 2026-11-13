@@ -6,10 +6,10 @@ use gpui_kit::{
     div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::codehost::PullsParams;
-use sikemux_core::server::ports::checkout::CheckoutParams;
-use sikemux_core::server::worktree::removal::WorktreeParams;
+use sikemux_calls::call;
+use sikemux_calls::codehost::PullsParams;
+use sikemux_calls::ports::CheckoutParams;
+use sikemux_calls::worktree::WorktreeParams;
 use sikemux_plugin_api::codehost::{Pull, PullState};
 
 use crate::core::Target;

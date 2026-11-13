@@ -6,7 +6,7 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use sikemux_core::agent_accounts::Profile;
+use sikemux_agents::agent_accounts::Profile;
 
 use crate::icons::{self, Icon};
 use crate::settings::rows;
@@ -16,7 +16,7 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
-use sikemux_core::agent_accounts::BUILT_IN;
+use sikemux_agents::agent_accounts::BUILT_IN;
 
 /// The profile being written: a saved one being changed, or a new one.
 pub struct Fields {

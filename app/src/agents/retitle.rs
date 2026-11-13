@@ -2,8 +2,9 @@
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{AppContext, Context, Entity, Subscription, Window};
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
+use sikemux_calls::call;
+use sikemux_calls::workspace::AgentPatch;
+use sikemux_calls::workspace::UpdateAgentParams;
 
 use crate::core::Target;
 use crate::workbench::Workbench;

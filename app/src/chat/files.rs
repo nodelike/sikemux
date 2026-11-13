@@ -13,7 +13,8 @@ use gpui_kit::component::WindowExt;
 use gpui_kit::{App, ClipboardItem, Entity, Focusable, Pixels, Point, WeakEntity, Window};
 use gpui_transcript::{FileKind, FilePress};
 
-use sikemux_core::cli::protocol::{CliOpenTarget, CliTargetKind};
+use sikemux_corekit::cli::protocol::CliOpenTarget;
+use sikemux_corekit::cli::protocol::CliTargetKind;
 
 use super::Reading;
 use crate::core::Target;
@@ -23,8 +24,9 @@ use crate::retry::Backoff;
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
-use sikemux_core::files::{FileKind as CoreFileKind, FileKindsParams};
-use sikemux_core::server::call;
+use sikemux_calls::call;
+use sikemux_git::files::FileKind as CoreFileKind;
+use sikemux_git::files::FileKindsParams;
 use sikemux_markdown::paths::{normalized, parse, PathRef};
 
 /// How long the names a screenful asks about are gathered before they go out as one ask.

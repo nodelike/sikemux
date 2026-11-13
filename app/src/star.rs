@@ -3,8 +3,8 @@
 
 use gpui_kit::component::notification::Notification;
 use gpui_kit::{App, Context};
-use sikemux_core::server::call;
-use sikemux_core::server::usage::Step;
+use sikemux_calls::call;
+use sikemux_calls::usage::Step;
 use sikemux_view::prefs::PreferenceChange;
 
 use crate::core::Target;

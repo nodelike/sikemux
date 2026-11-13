@@ -9,10 +9,11 @@ use gpui_kit::{
     anchored, deferred, div, px, Anchor, AnyElement, Context, FontWeight, InteractiveElement,
     IntoElement, ParentElement, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::harness::runs::RunStatus;
-use sikemux_core::server::tasks::RunView;
-use sikemux_core::server::tasks::TaskView;
-use sikemux_core::tasks::results::{TestFailure, TestResults};
+use sikemux_agents::harness::runs::RunStatus;
+use sikemux_calls::tasks::RunView;
+use sikemux_calls::tasks::TaskView;
+use sikemux_corekit::tasks::results::TestFailure;
+use sikemux_corekit::tasks::results::TestResults;
 
 use crate::editor::OpenAt;
 use crate::icons::Icon;
@@ -21,8 +22,8 @@ use crate::theme::{
 };
 use crate::ui::{self, IconButton, Variant};
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::tasks::RerunParams;
+use sikemux_calls::call;
+use sikemux_calls::tasks::RerunParams;
 
 /// A finished run of the task the chip shows, with the task it ran.
 pub struct Finished<'a> {
@@ -439,7 +440,7 @@ fn project_path(bench: &Workbench) -> String {
 /// What an agent is asked when the person hands it failing tests.
 fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFailure]) -> String {
     let project = project_path(bench);
-    sikemux_core::tasks::results::fix_prompt(
+    sikemux_corekit::tasks::results::fix_prompt(
         &project,
         &crate::ui::path::file_name(Path::new(&project)),
         &finished.task.label,
@@ -451,7 +452,7 @@ fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFail
 /// What an agent is asked when a process stopped with an error.
 fn failure_fix_request(bench: &Workbench, finished: &Finished) -> String {
     let task = finished.task;
-    sikemux_core::tasks::results::stopped_prompt(
+    sikemux_corekit::tasks::results::stopped_prompt(
         &crate::ui::path::file_name(Path::new(&project_path(bench))),
         &task.label,
         &finished.stopped().unwrap_or_default(),

@@ -15,9 +15,9 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity, Window,
 };
-use sikemux_core::server::hosts::HostFound;
-use sikemux_core::server::hosts::HostReach;
-use sikemux_core::server::hosts::HostRow;
+use sikemux_calls::hosts::Found as HostFound;
+use sikemux_calls::hosts::HostRow;
+use sikemux_calls::hosts::Reach as HostReach;
 use sikemux_view::device::AccountInfo;
 use sikemux_view::host_stats::AlertLevel;
 use sikemux_view::layout::PaneKind;
@@ -37,8 +37,8 @@ use crate::theme::{
 use crate::ui::{Button, Group, IconButton, Row, Tone, Variant};
 use crate::workbench::{Strip, Workbench};
 use crate::{agents, keymap, motion, rail, tabs, ui};
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::UpdateProjectParams;
+use sikemux_calls::call;
+use sikemux_calls::workspace::UpdateProjectParams;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Edge {

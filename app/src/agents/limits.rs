@@ -14,11 +14,16 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Task, Transformation, WeakEntity, Window,
 };
-use sikemux_core::agent_accounts::usage::{ResetKind, ResetOutcome, UsageWindow};
-use sikemux_core::agent_accounts::Profile;
-use sikemux_core::server::agent_accounts::{AccountUsage, Unpicking, UsedReset, UsingReset};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
+use sikemux_agents::agent_accounts::usage::ResetKind;
+use sikemux_agents::agent_accounts::usage::ResetOutcome;
+use sikemux_agents::agent_accounts::usage::UsageWindow;
+use sikemux_agents::agent_accounts::Profile;
+use sikemux_calls::agent_accounts::AccountUsage;
+use sikemux_calls::agent_accounts::Unpicking;
+use sikemux_calls::agent_accounts::UsedReset;
+use sikemux_calls::agent_accounts::UsingReset;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
 use sikemux_view::workspace::LauncherInfo;
 
 use crate::core::Target;
@@ -232,7 +237,7 @@ impl<'a> Agent<'a> {
 /// Whether the agent has limits to show. One without accounts shows them only once the core
 /// has read some, as only some of its sign-ins have any.
 fn reports_limits(bench: &Workbench, provider: &str) -> bool {
-    let Some(agent) = sikemux_core::agent_catalog::agent(provider) else {
+    let Some(agent) = sikemux_agents::agent_catalog::agent(provider) else {
         return false;
     };
     let read = || (bench.reads.usage.iter()).any(|account| account.provider == provider);

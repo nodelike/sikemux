@@ -12,9 +12,12 @@ use gpui_kit::{
     FontWeight, Hsla, InteractiveElement, IntoElement, MouseMoveEvent, ParentElement, Pixels,
     Point, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::activity_log::{
-    ActivityDay, ActivityLevels, ActivityShare, ActivityStreaks, ActivitySummary, ActivityTotals,
-};
+use sikemux_calls::activity_log::ActivityDay;
+use sikemux_calls::activity_log::ActivityLevels;
+use sikemux_calls::activity_log::ActivityShare;
+use sikemux_calls::activity_log::ActivityStreaks;
+use sikemux_calls::activity_log::ActivitySummary;
+use sikemux_calls::activity_log::ActivityTotals;
 
 use crate::home::METRICS;
 use crate::theme::{

@@ -14,23 +14,35 @@ use gpui_kit::{
     div, img, px, AppContext, Context, Entity, Hsla, Image, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
-use sikemux_core::agent_accounts::status::AccountStatus;
-use sikemux_core::agent_accounts::{Book, Profile};
-use sikemux_core::agent_catalog::AgentKind;
-use sikemux_core::server::agent_accounts::{
-    Account as AgentAccount, AccountUsage, Adding, ChatAccounts, ChatAccountsParams, Choosing,
-    Forget, InProject, MoveChatParams, Removing, Saving, Smart, Unpicking,
-};
-use sikemux_core::server::agent_sign_in::AfterSignIn;
-use sikemux_core::server::agent_sign_in::{Account as SignInAccount, Code};
-use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::calls::NoParams;
+use sikemux_agents::agent_accounts::status::AccountStatus;
+use sikemux_agents::agent_accounts::Book;
+use sikemux_agents::agent_accounts::Profile;
+use sikemux_agents::agent_catalog::AgentKind;
+use sikemux_calls::agent_accounts::Account as AgentAccount;
+use sikemux_calls::agent_accounts::AccountUsage;
+use sikemux_calls::agent_accounts::Adding;
+use sikemux_calls::agent_accounts::ChatAccounts;
+use sikemux_calls::agent_accounts::ChatAccountsParams;
+use sikemux_calls::agent_accounts::Choosing;
+use sikemux_calls::agent_accounts::Forget;
+use sikemux_calls::agent_accounts::InProject;
+use sikemux_calls::agent_accounts::MoveChatParams;
+use sikemux_calls::agent_accounts::Removing;
+use sikemux_calls::agent_accounts::Saving;
+use sikemux_calls::agent_accounts::Smart;
+use sikemux_calls::agent_accounts::Unpicking;
+use sikemux_calls::agent_sign_in::Account as SignInAccount;
+use sikemux_calls::agent_sign_in::AfterSignIn;
+use sikemux_calls::agent_sign_in::Code;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::Call;
 
 use crate::core::{typed_call, Target};
 use crate::theme;
 use crate::theme::{SPACE_2, TEXT_3XS_H};
 use crate::workbench::Workbench;
-use sikemux_core::agent_accounts::BUILT_IN;
+use sikemux_agents::agent_accounts::BUILT_IN;
 
 /// An account's sign-in while it runs or after it failed.
 pub enum SignIn {

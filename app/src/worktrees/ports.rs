@@ -13,7 +13,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, WeakEntity, Window,
 };
-use sikemux_core::server::ports::checkout::CheckoutAbout;
+use sikemux_calls::ports::CheckoutAbout;
 
 use crate::icons::Icon;
 use crate::theme::{

@@ -13,8 +13,8 @@ use url::Url;
 use crate::core;
 use crate::toast;
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::SessionChoice;
+use sikemux_calls::call;
+use sikemux_calls::workspace::SessionChoice;
 
 /// An agent's chat a link asks to take up again.
 struct Resume {

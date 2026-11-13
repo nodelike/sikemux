@@ -6,7 +6,7 @@ use gpui_kit::{
     div, px, AnyElement, ClipboardItem, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
     ParentElement, Styled,
 };
-use sikemux_core::server::calls::NoParams;
+use sikemux_calls::params::NoParams;
 use sikemux_view::prefs::UpdateChannel;
 use sikemux_view::updates::{UpdateState, UpdateStatus};
 
@@ -17,8 +17,8 @@ use crate::screens::whats_new::RELEASES;
 use crate::theme::{Tokens, SPACE_2, SPACE_2H, SPACE_3, TEXT_SM};
 use crate::workbench::Workbench;
 use crate::{theme, ui};
-use sikemux_core::server::call;
-use sikemux_core::server::updates::UpdateInstallParams;
+use sikemux_calls::call;
+use sikemux_calls::updates::UpdateInstallParams;
 
 /// The update the core found for this app, while one is there to install.
 pub(crate) fn pending(bench: &Workbench) -> Option<&UpdateStatus> {

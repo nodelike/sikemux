@@ -13,7 +13,7 @@ use crate::sessions::for_agent::without_for_agent;
 use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
 
 const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
-pub const MAX_ATTACHMENTS: usize = 32;
+pub use sikemux_calls::chat::MAX_ATTACHMENTS;
 pub const MAX_CONTEXT_ITEMS: usize = 16;
 
 /// Whether a prompt is a slash command rather than words for the model. One

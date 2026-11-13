@@ -5,7 +5,7 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::{
     div, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, Window,
 };
-use sikemux_core::server::mods::ModInfo;
+use sikemux_calls::mods::ModInfo;
 
 use crate::icons::Icon;
 use crate::settings::index::Page::Mods;
@@ -14,8 +14,8 @@ use crate::settings::rows;
 use crate::theme::{Tokens, SPACE_1H};
 use crate::ui;
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::mods::AllowParams;
+use sikemux_calls::call;
+use sikemux_calls::mods::AllowParams;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[

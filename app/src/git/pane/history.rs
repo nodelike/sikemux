@@ -1,7 +1,7 @@
 //! A branch's history: its commits newest first, each on a lane of the graph that shows
 //! where it branched and merged, and the card that heads a commit's review.
 
-use sikemux_core::server::call;
+use sikemux_calls::call;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
@@ -16,7 +16,7 @@ use gpui_kit::{
     IntoElement, ParentElement, PathBuilder, Pixels, SharedString, StatefulInteractiveElement,
     Styled, Transformation, WeakEntity, Window,
 };
-use sikemux_core::git::log::GitCommit;
+use sikemux_agents::git::log::GitCommit;
 
 use super::GitPane;
 use crate::agents::rows::AgentRow;
@@ -29,7 +29,7 @@ use crate::theme::{
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
-use sikemux_core::server::workspace::SessionChoice;
+use sikemux_calls::workspace::SessionChoice;
 use sikemux_view::owners::AgentOwner;
 
 pub const ROW_HEIGHT: f32 = 32.;

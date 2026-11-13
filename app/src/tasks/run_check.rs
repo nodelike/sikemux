@@ -7,7 +7,7 @@ use gpui_kit::{
     div, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled,
     Window,
 };
-use sikemux_core::harness::runs::RunStatus;
+use sikemux_agents::harness::runs::RunStatus;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
@@ -17,9 +17,11 @@ use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, TEXT_2XS_H, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, Variant};
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::tasks::{TaskStartParams, TaskStarted};
-use sikemux_core::tasks::check::{Check, CheckItem};
+use sikemux_calls::call;
+use sikemux_calls::tasks::TaskStartParams;
+use sikemux_calls::tasks::TaskStarted;
+use sikemux_corekit::tasks::check::Check;
+use sikemux_corekit::tasks::check::CheckItem;
 
 /// A task held back by its checks, waiting on the person.
 pub struct RunCheck {
@@ -168,7 +170,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let text = sikemux_core::server::tasks::find_processes_prompt(name);
+        let text = sikemux_calls::tasks::find_processes_prompt(name);
         crate::send_to::send(self, to, async move { Some(text) }, window, cx);
     }
 

@@ -7,11 +7,15 @@ use gpui_kit::{
     anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Div, Entity,
     FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Stateful, Styled, Window,
 };
-use sikemux_core::agent_accounts::status::{AgentStatus, FREE_MODELS};
-use sikemux_core::server::agent_accounts::{Account, Forget, Installed};
-use sikemux_core::server::agent_updates::{UpdateAgents, Updating};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
+use sikemux_agents::agent_accounts::status::AgentStatus;
+use sikemux_agents::agent_accounts::status::FREE_MODELS;
+use sikemux_calls::agent_accounts::Account;
+use sikemux_calls::agent_accounts::Forget;
+use sikemux_calls::agent_accounts::Installed;
+use sikemux_calls::agent_updates::UpdateAgents;
+use sikemux_calls::agent_updates::Updating;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_wire::protocol::{SessionId, TerminalSpawn};
 use tokio::sync::oneshot;
@@ -52,7 +56,7 @@ impl Found {
             self.status,
             AgentStatus::Missing | AgentStatus::Broken { .. }
         );
-        (ready && sikemux_core::server::agent_updates::is_newer(latest, version)).then_some(latest)
+        (ready && sikemux_calls::agent_updates::is_newer(latest, version)).then_some(latest)
     }
 
     /// Whether an update of it waits or runs.
@@ -516,7 +520,7 @@ pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
         .chain(args.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ");
-    let variable = sikemux_core::launch::account_variable(&agent.kind);
+    let variable = sikemux_agents::launch::account_variable(&agent.kind);
     let words: Vec<String> = std::iter::once(program)
         .chain(args)
         .map(|word| quoted(&word))

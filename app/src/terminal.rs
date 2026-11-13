@@ -1,8 +1,8 @@
 //! A terminal pane: the screen the core sends, drawn by gpui-terminal-grid.
 
 use crate::workbench::Strip;
-use sikemux_core::server::spare::NewTerminal;
-use sikemux_core::server::spare::SshParams;
+use sikemux_calls::spare::NewTerminal;
+use sikemux_calls::spare::SshParams;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -25,9 +25,9 @@ use gpui_kit::{
 use gpui_terminal_grid::{
     Cursor, CursorShape, Grid, Highlight, Layout, Look, Marked, Metrics, Span, Underline,
 };
-use sikemux_core::server::attachments::KeepPastedParams;
-use sikemux_core::server::call;
-use sikemux_core::server::session::SessionParams;
+use sikemux_calls::attachments::KeepPastedParams;
+use sikemux_calls::call;
+use sikemux_calls::session::SessionParams;
 
 use sikemux_grid::{Color, Row, Screen};
 use sikemux_wire::protocol::{SessionId, SessionInfo};

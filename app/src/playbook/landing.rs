@@ -4,9 +4,10 @@
 use gpui_kit::{
     div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
-use sikemux_core::server::board::{BoardSettingsParams, Landing};
-use sikemux_core::server::call;
-use sikemux_core::server::landing::SetLandedMeansParams;
+use sikemux_calls::board::BoardSettingsParams;
+use sikemux_calls::board::Landing;
+use sikemux_calls::call;
+use sikemux_calls::landing::SetLandedMeansParams;
 use sikemux_view::playbook::{Lands, Playbook};
 use sikemux_view::turn::{Landed, LandedMeans, LandingHistory};
 

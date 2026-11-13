@@ -2,7 +2,7 @@
 //! under it while open, every card's rows in one virtualised list.
 
 use crate::git::WhoWrote;
-use sikemux_core::server::git::call as git_call;
+use sikemux_calls::git::call as git_call;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -12,7 +12,8 @@ use gpui_kit::{
     ListAlignment, ListOffset, ListState, ParentElement, Pixels, ScrollEvent, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use sikemux_core::git::status::{GitChange, GitFile};
+use sikemux_agents::git::status::GitChange;
+use sikemux_agents::git::status::GitFile;
 
 use super::pane::{status_mark, GitPane, Side};
 use super::{row, Colours, Compared, Diff, Notes, RowLook};

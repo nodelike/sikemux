@@ -20,8 +20,9 @@ use crate::theme::{Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_2, TEXT_3XS_H, TEXT
 use crate::ui;
 use crate::ui::IconButton;
 use crate::workbench::{Workbench, MAX_SPACE_NAME};
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::{SpacesParams, UpdateProjectParams};
+use sikemux_calls::call;
+use sikemux_calls::workspace::SpacesParams;
+use sikemux_calls::workspace::UpdateProjectParams;
 
 /// The icons a space can wear, as the Mac offers them.
 pub const SPACE_ICONS: [&str; 18] = [

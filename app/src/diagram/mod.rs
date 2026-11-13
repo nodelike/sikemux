@@ -3,8 +3,8 @@
 
 mod dbml;
 
-use sikemux_core::server::call;
-use sikemux_core::server::diagrams::DiagramParams;
+use sikemux_calls::call;
+use sikemux_calls::diagrams::DiagramParams;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;

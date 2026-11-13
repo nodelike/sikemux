@@ -9,8 +9,10 @@ use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::{
     div, AnyElement, App, Context, IntoElement, ParentElement, Styled, WeakEntity, Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::settling::{self, SettleParams, SnoozeParams};
+use sikemux_calls::call;
+use sikemux_calls::settling;
+use sikemux_calls::settling::SettleParams;
+use sikemux_calls::settling::SnoozeParams;
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::device::DeviceView;
 

@@ -83,3 +83,48 @@ pub struct SearchParams {
     #[serde(default)]
     pub options: SearchOptions,
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SearchRange {
+    pub start: u32,
+    pub end: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub line: u32,
+    pub text: String,
+    #[serde(default)]
+    pub truncated_text: bool,
+    pub ranges: Vec<SearchRange>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SearchFile {
+    pub path: String,
+    pub matches: Vec<SearchHit>,
+}
+
+/// One item of a search's stream: `{ "file": … }` for each file as it is found, then
+/// `{ "summary": … }`.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchFound {
+    File(SearchFile),
+    Summary(SearchSummary),
+}
+
+/// How a search went, sent after every file it found.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchSummary {
+    pub file_count: usize,
+    pub match_count: usize,
+    pub truncated: bool,
+    /// True when the search was superseded by a newer one mid-walk and
+    /// returned early. The frontend should treat results as partial.
+    #[serde(default)]
+    pub cancelled: bool,
+    pub elapsed_ms: u64,
+}

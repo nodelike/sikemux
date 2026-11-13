@@ -11,8 +11,9 @@ use crate::core::Target;
 use crate::hosts::Place;
 use crate::tabs;
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::{CloseAgentsParams, RemoveProjectParams};
+use sikemux_calls::call;
+use sikemux_calls::workspace::CloseAgentsParams;
+use sikemux_calls::workspace::RemoveProjectParams;
 use sikemux_view::prefs::TabRailPage;
 
 impl Workbench {

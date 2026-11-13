@@ -1,11 +1,11 @@
 //! What a core sent: one path per update, whichever core it came from, and what follows it.
 
-use sikemux_core::server::activity_log::ActivitySummaryParams;
-use sikemux_core::server::call;
-use sikemux_core::server::drafts::DraftsParams;
-use sikemux_core::server::git::call as git_call;
-use sikemux_core::server::ports::PortsParams;
-use sikemux_core::server::tasks::ProjectParams;
+use sikemux_calls::activity_log::ActivitySummaryParams;
+use sikemux_calls::call;
+use sikemux_calls::drafts::DraftsParams;
+use sikemux_calls::git::call as git_call;
+use sikemux_calls::ports::PortsParams;
+use sikemux_calls::tasks::ProjectParams;
 use std::path::PathBuf;
 
 use gpui_kit::Context;
@@ -18,7 +18,7 @@ use crate::hosts::Place;
 use crate::reads::Read;
 use crate::toast;
 use crate::workbench::Workbench;
-use sikemux_core::server::layout::HostParams;
+use sikemux_calls::layout::HostParams;
 
 /// What the watches that follow the front were last made for.
 #[derive(Default)]

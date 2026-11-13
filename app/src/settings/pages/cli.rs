@@ -2,9 +2,10 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{div, px, AnyElement, App, Context, Entity, ParentElement, SharedString, Styled};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::cli_install::{CliInstallState, CliInstallStatus};
+use sikemux_calls::call;
+use sikemux_calls::cli_install::CliInstallState;
+use sikemux_calls::cli_install::CliInstallStatus;
+use sikemux_calls::params::NoParams;
 
 use crate::core::Target;
 use crate::icons::Icon;

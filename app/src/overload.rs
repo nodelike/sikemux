@@ -9,8 +9,9 @@ use gpui_kit::{
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity,
     Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::calls::{GoFirstParams, StopBuildParams};
+use sikemux_calls::call;
+use sikemux_calls::params::GoFirstParams;
+use sikemux_calls::params::StopBuildParams;
 use sikemux_view::device::HostLoad;
 
 use crate::core::Target;

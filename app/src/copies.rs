@@ -9,10 +9,10 @@ use gpui_kit::{
     div, px, radians, Anchor, AnyElement, App, Context, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::hosts::chat_move::MoveChatToHostParams;
-use sikemux_core::server::layout::ActivateProjectParams;
-use sikemux_core::server::workspace::MoveProjectParams;
+use sikemux_calls::call;
+use sikemux_calls::hosts::MoveChatToHostParams;
+use sikemux_calls::layout::ActivateProjectParams;
+use sikemux_calls::workspace::MoveProjectParams;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::prefs::{PreferenceChange, ProjectSort};
 use sikemux_view::workspace::{ProjectGit, ProjectInfo};

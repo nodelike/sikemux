@@ -14,10 +14,12 @@ use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::toast;
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::calls::AgentParams;
-use sikemux_core::server::names::RenameAgentParams;
-use sikemux_core::server::workspace::{AgentPatch, PinnedParams, UpdateAgentParams};
+use sikemux_calls::call;
+use sikemux_calls::names::RenameAgentParams;
+use sikemux_calls::params::AgentParams;
+use sikemux_calls::workspace::AgentPatch;
+use sikemux_calls::workspace::PinnedParams;
+use sikemux_calls::workspace::UpdateAgentParams;
 
 /// What a link's parts escape, as a browser's encodeURIComponent does.
 const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC

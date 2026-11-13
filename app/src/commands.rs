@@ -4,22 +4,24 @@
 use crate::i18n::tr;
 use crate::workbench::actions;
 use gpui_kit::{App, Context, SharedString, Window};
-use sikemux_core::server::call;
-use sikemux_core::server::tasks::ConfigStatus;
-use sikemux_core::server::tasks::{ProjectConfigRead, ProjectParams};
-use sikemux_core::tasks::config::{ConfigLoad, Stated};
+use sikemux_calls::call;
+use sikemux_calls::tasks::ConfigStatus;
+use sikemux_calls::tasks::ProjectConfigRead;
+use sikemux_calls::tasks::ProjectParams;
+use sikemux_corekit::tasks::config::ConfigLoad;
+use sikemux_corekit::tasks::config::Stated;
 use sikemux_view::layout::PaneKind;
 use tokio::sync::oneshot;
 
-use sikemux_core::git::worktree::GitWorktree;
-use sikemux_core::server::git::call as git_call;
+use sikemux_agents::git::worktree::GitWorktree;
+use sikemux_calls::git::call as git_call;
 
 use crate::core;
 use crate::keymap;
 use crate::palette::{Row, Spec};
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::server::custom_command::RunCustomParams;
+use sikemux_calls::custom_command::RunCustomParams;
 
 const REMEMBERED: usize = 20;
 

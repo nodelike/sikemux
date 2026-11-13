@@ -3,9 +3,9 @@
 
 use crate::core::Target;
 use gpui_kit::{Context, SharedString, Window};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::themes::ThemeParams;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::themes::ThemeParams;
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 

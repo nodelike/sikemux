@@ -10,7 +10,7 @@ use gpui_kit::{
     div, px, Anchor, AnyElement, App, ClickEvent, Context, Entity, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled, Window,
 };
-use sikemux_core::agent_accounts::Profile;
+use sikemux_agents::agent_accounts::Profile;
 
 use crate::accounts::{self, SignIn};
 use crate::icons::Icon;
@@ -21,7 +21,7 @@ use crate::theme::{
 };
 use crate::ui::{self, dialog, sign_in};
 use crate::workbench::Workbench;
-use sikemux_core::agent_accounts::BUILT_IN;
+use sikemux_agents::agent_accounts::BUILT_IN;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[

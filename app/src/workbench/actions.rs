@@ -4,7 +4,7 @@
 //! `activity_log/features.rs`, so a new command is counted only once it is added there.
 
 use gpui_kit::{App, Context, Div, InteractiveElement, Stateful, Window};
-use sikemux_core::server::call;
+use sikemux_calls::call;
 use sikemux_view::layout::SplitDir;
 use tokio::sync::mpsc;
 
@@ -13,7 +13,7 @@ use crate::core::Ask;
 use crate::keymap::{Minimize, RunProjectAction, ToggleFullScreen, Zoom};
 use crate::panes::Towards;
 use crate::tabs::same_kind;
-use sikemux_core::server::calls::NoParams;
+use sikemux_calls::params::NoParams;
 
 /// A command's id, made only by its row below, so naming a command that is not there does not
 /// compile.

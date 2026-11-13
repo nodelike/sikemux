@@ -8,12 +8,13 @@ use gpui_kit::{
     Hsla, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::codehost::PullsParams;
+use sikemux_calls::call;
+use sikemux_calls::codehost::PullsParams;
 use std::collections::HashMap;
 
-use sikemux_core::git::branches::GitBranch;
-use sikemux_core::git::remote::{GitRemote, GitRemoteBranch};
+use sikemux_agents::git::branches::GitBranch;
+use sikemux_agents::git::remote::GitRemote;
+use sikemux_agents::git::remote::GitRemoteBranch;
 use sikemux_plugin_api::codehost::{PullList, PullState};
 
 use super::{row_button, GitPane, Pick, ROW_HEIGHT};
@@ -26,8 +27,8 @@ use crate::theme::{
 };
 use crate::ui;
 use serde::Serialize;
-use sikemux_core::server::call::Call;
-use sikemux_core::server::git::call as git_call;
+use sikemux_calls::git::call as git_call;
+use sikemux_calls::Call;
 
 #[derive(Clone, PartialEq)]
 pub(super) enum BranchEntry {

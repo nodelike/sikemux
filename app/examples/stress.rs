@@ -1157,7 +1157,7 @@ fn main() -> anyhow::Result<()> {
         );
         return Ok(());
     }
-    let socket = std::env::var(sikemux_core::SOCKET_ENV)
+    let socket = std::env::var(sikemux_corekit::SOCKET_ENV)
         .map_err(|_| anyhow::anyhow!("set SIKEMUX_CORE_SOCKET and a HOME of its own"))?;
     let agent = std::env::var("STRESS_AGENT")
         .map_err(|_| anyhow::anyhow!("set STRESS_AGENT to sikemux-fake-acp-agent"))?;

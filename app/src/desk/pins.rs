@@ -12,7 +12,7 @@ use gpui_kit::{Context, Hsla};
 use serde_json::{json, Value};
 use sikemux_browser::pins::{self, PinAnswer};
 use sikemux_browser::{BrowserManager, BrowserTab};
-use sikemux_core::server::call;
+use sikemux_calls::call;
 use sikemux_view::pins::{
     Pin, PinAfterParams, PinBy, PinNoteParams, PinParams, PinPictureParams, PinState,
     PlacePinParams,

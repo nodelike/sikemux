@@ -19,8 +19,9 @@ use crate::theme::{
 };
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::worktree::removal::{WorktreeParams, WorktreeReview};
+use sikemux_calls::call;
+use sikemux_calls::worktree::WorktreeParams;
+use sikemux_calls::worktree::WorktreeReview;
 
 const SHOWN_FILES: usize = 6;
 

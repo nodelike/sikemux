@@ -7,13 +7,13 @@ use gpui_kit::{
     KeyDownEvent, Modifiers, ModifiersChangedEvent, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use sikemux_core::server::call;
+use sikemux_calls::call;
 
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_2, SPACE_2H, SPACE_3, TEXT_SM};
 use crate::ui;
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::server::calls::NoParams;
+use sikemux_calls::params::NoParams;
 
 /// The modifier the person holds while stepping, which opens the place when let go.
 #[derive(Clone, Copy, PartialEq)]

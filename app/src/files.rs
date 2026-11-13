@@ -1,5 +1,5 @@
-use sikemux_core::files::FileListParams;
-use sikemux_core::server::call;
+use sikemux_calls::call;
+use sikemux_git::files::FileListParams;
 use sikemux_view::layout::OpenTab;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -21,7 +21,7 @@ use gpui_kit::{
 };
 #[cfg(feature = "drive")]
 use serde_json::json;
-use sikemux_core::git::log::GitOverview;
+use sikemux_agents::git::log::GitOverview;
 use sikemux_view::layout::PaneKind;
 
 use crate::core::Target;
@@ -34,11 +34,13 @@ use crate::theme::{
 use crate::toast;
 use crate::ui::{self, IconButton};
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::files::{
-    FileCopyIntoParams, FileCreateParams, FileListing, FilePathParams, FileRenameParams,
-};
-use sikemux_core::git::status::GitChange;
-use sikemux_core::server::layout::TabParams;
+use sikemux_agents::git::status::GitChange;
+use sikemux_calls::layout::TabParams;
+use sikemux_git::files::FileCopyIntoParams;
+use sikemux_git::files::FileCreateParams;
+use sikemux_git::files::FileListing;
+use sikemux_git::files::FilePathParams;
+use sikemux_git::files::FileRenameParams;
 use std::future::Future;
 use std::pin::Pin;
 

@@ -9,9 +9,11 @@ use gpui_kit::{
     div, px, AnyElement, App, Context, Entity, FontWeight, HoverListenerMode, InteractiveElement,
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::board::{BoardHandOffParams, BoardParams, ProjectBoard};
-use sikemux_core::server::call;
-use sikemux_core::server::codehost::PullsParams;
+use sikemux_calls::board::BoardHandOffParams;
+use sikemux_calls::board::BoardParams;
+use sikemux_calls::board::ProjectBoard;
+use sikemux_calls::call;
+use sikemux_calls::codehost::PullsParams;
 use sikemux_plugin_api::codehost::{ListedPull, PullList};
 use sikemux_view::slice::{Evidence, GateState, Proof, SliceState, Verdict};
 

@@ -4,8 +4,10 @@
 use gpui_kit::{
     AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::memory::{MemoryAddParams, MemoryUpdateParams, NewMemory};
+use sikemux_calls::call;
+use sikemux_calls::memory::MemoryAddParams;
+use sikemux_calls::memory::MemoryUpdateParams;
+use sikemux_calls::memory::NewMemory;
 use sikemux_view::chat::RuleChange;
 use sikemux_view::playbook::{Entry, Playbook};
 

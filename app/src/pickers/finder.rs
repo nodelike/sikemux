@@ -1,8 +1,8 @@
 //! ⌘P: every file in the project in front, ranked by name as the person types.
 
-use sikemux_core::server::call;
-use sikemux_core::server::project_files::ProjectFiles as ScannedFiles;
-use sikemux_core::server::project_files::ProjectFilesParams;
+use sikemux_calls::call;
+use sikemux_calls::project_files::ProjectFiles as ScannedFiles;
+use sikemux_calls::project_files::ProjectFilesParams;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;

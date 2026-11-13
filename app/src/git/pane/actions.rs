@@ -2,8 +2,8 @@
 
 use super::*;
 use serde::de::DeserializeOwned;
-use sikemux_core::server::edits::CommitParams;
-use sikemux_core::server::git::PullRequestUrlParams;
+use sikemux_calls::edits::CommitParams;
+use sikemux_calls::git::PullRequestUrlParams;
 
 /// What an operation's answer says to the person; most say nothing.
 pub(crate) trait Said {

@@ -2,8 +2,9 @@
 //! shows the decision.
 
 use gpui_kit::Context;
-use sikemux_core::server::board::goal::{OverruleParams, UndoOverruleParams};
-use sikemux_core::server::call;
+use sikemux_calls::board::OverruleParams;
+use sikemux_calls::board::UndoOverruleParams;
+use sikemux_calls::call;
 use sikemux_view::chat::{AwayDecision, OverruledDecision};
 
 use crate::core::Target;

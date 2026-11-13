@@ -18,13 +18,15 @@ use gpui_kit::{
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
     WindowControlArea,
 };
-use sikemux_core::agent_accounts::status::{AgentStatus, FREE_MODELS};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::project_roots::{ResolveParams, Resolved};
-use sikemux_core::server::usage::Step;
-use sikemux_core::sessions::found_projects::FoundProject;
-use sikemux_core::sessions::recent::MAX_PROJECTS;
+use sikemux_agents::agent_accounts::status::AgentStatus;
+use sikemux_agents::agent_accounts::status::FREE_MODELS;
+use sikemux_agents::sessions::found_projects::FoundProject;
+use sikemux_agents::sessions::recent::MAX_PROJECTS;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::project_roots::ResolveParams;
+use sikemux_calls::project_roots::Resolved;
+use sikemux_calls::usage::Step;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::prefs::PreferenceChange;
 use tokio::sync::oneshot;

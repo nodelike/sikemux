@@ -1,7 +1,7 @@
 //! Sharing a chat read-only: a link anyone signed in to Sikemux can read it from, as it
 //! happens. The core opens and keeps the share; the window lists them and asks.
 
-use sikemux_core::server::share::StopShareParams;
+use sikemux_calls::share::StopShareParams;
 use std::rc::Rc;
 
 use gpui_kit::component::WindowExt;
@@ -10,15 +10,15 @@ use gpui_kit::{
     div, px, AnyElement, ClipboardItem, Context, Div, FontWeight, InteractiveElement, IntoElement,
     ParentElement, StatefulInteractiveElement, Styled, Window,
 };
-use sikemux_core::server::share::ShareState;
-use sikemux_core::server::share::ShareView;
+use sikemux_calls::share::ShareState;
+use sikemux_calls::share::ShareView;
 
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_SM, TEXT_XS};
 use crate::ui::{self, dialog, Button, Variant};
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::share::ShareChatParams;
+use sikemux_calls::call;
+use sikemux_calls::share::ShareChatParams;
 
 const HOUR_MS: u64 = 60 * 60 * 1000;
 const LIFETIMES: [(&str, u64); 3] = [

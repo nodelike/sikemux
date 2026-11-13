@@ -1,7 +1,7 @@
 //! The throwaway world a film runs in: a core, projects, chats and activity to show.
 
 use super::*;
-use sikemux_core::sessions::claude::claude_project_dir;
+use sikemux_agents::sessions::claude::claude_project_dir;
 
 /// The throwaway core the film talks to, started by this process so a dev core trusts it.
 pub(super) struct World {
@@ -541,7 +541,7 @@ impl World {
                 let title = step.text(0)?;
                 let every: u64 = step.text(1)?.parse()?;
                 let params = json!({ "title": title, "prompt": title, "every": every });
-                sikemux_core::cli::client::attempt(
+                sikemux_corekit::cli::client::attempt(
                     &self.work.join("cli.json"),
                     &path.to_string_lossy(),
                     Some(&chat),
@@ -550,8 +550,8 @@ impl World {
                     Duration::from_secs(10),
                 )
                 .map_err(|failure| match failure {
-                    sikemux_core::cli::client::Failure::NotSent(error)
-                    | sikemux_core::cli::client::Failure::Sent(error) => anyhow!(error),
+                    sikemux_corekit::cli::client::Failure::NotSent(error)
+                    | sikemux_corekit::cli::client::Failure::Sent(error) => anyhow!(error),
                 })?;
             }
             "say" => {
@@ -601,7 +601,7 @@ impl World {
                 }
             }
             "page" => {
-                let pages = self.work.join("data").join(sikemux_core::pages::FOLDER);
+                let pages = self.work.join("data").join(sikemux_base::pages::FOLDER);
                 std::fs::create_dir_all(&pages)?;
                 std::fs::copy(
                     self.scenes.join(step.text(1)?),

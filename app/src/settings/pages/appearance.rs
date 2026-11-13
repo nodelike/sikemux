@@ -1,8 +1,8 @@
 //! How the app looks: its theme, the size of its text, the panes' grain or
 //! picture, the agents' buddies, and the window's opacity and blur.
 
-use sikemux_core::server::call;
-use sikemux_core::server::faces::FaceStyleChange;
+use sikemux_calls::call;
+use sikemux_calls::faces::FaceStyleChange;
 use sikemux_view::prefs::PreferenceChange;
 use std::rc::Rc;
 

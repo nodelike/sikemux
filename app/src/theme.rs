@@ -283,7 +283,7 @@ fn black(alpha: f32) -> Hsla {
 
 /// The agent's colour in the catalog, Sikemux's own, or a neutral one for a kind it does not list.
 pub fn brand(provider: &str) -> Hsla {
-    match sikemux_core::agent_catalog::agent(provider) {
+    match sikemux_agents::agent_catalog::agent(provider) {
         Some(agent) => color(agent.brand),
         None if provider == "sikemux" => hex(0xa277ff).into(),
         None => hex(0x8b8898).into(),
@@ -315,7 +315,7 @@ pub fn install(cx: &mut App) {
     cx.text_system()
         .set_light_text_curve(Some(LIGHT_TEXT_CURVE));
 
-    apply(&sikemux_core::server::themes::default_palette(), cx);
+    apply(&sikemux_corekit::themes::default_palette(), cx);
     let toasts = &mut KitTheme::global_mut(cx).notification;
     toasts.placement = Anchor::BottomCenter;
     toasts.width = px(520.);
@@ -554,5 +554,5 @@ pub fn page_rule(t: &Tokens, ground: Option<Hsla>) -> String {
         ("--font-sans".to_owned(), format!("{UI}, system-ui")),
         ("--font-mono".to_owned(), format!("{MONO}, ui-monospace")),
     ]);
-    sikemux_core::pages::theme_rule(t.dark, &variables)
+    sikemux_base::pages::theme_rule(t.dark, &variables)
 }

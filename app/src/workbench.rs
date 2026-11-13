@@ -2,7 +2,7 @@ use crate::keyboard::Keyboard;
 use crate::rail::DraggedRail;
 use crate::rail::Edge;
 use crate::trust::Trust;
-use sikemux_core::server::call;
+use sikemux_calls::call;
 use sikemux_view::layout::At;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -40,8 +40,8 @@ use crate::search::SearchPane;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
-use sikemux_core::server::agent_accounts::AccountUsage;
-use sikemux_core::server::layout::ActivateProjectParams;
+use sikemux_calls::agent_accounts::AccountUsage;
+use sikemux_calls::layout::ActivateProjectParams;
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
 /// Linux a page is a window of another connection, which X would otherwise leave it with.

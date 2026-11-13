@@ -2,10 +2,11 @@
 //! said once it has begun, and forking it.
 
 use super::*;
-use sikemux_core::server::call;
-use sikemux_core::server::chat::cap::KeepHistoryParams;
-use sikemux_core::server::chat::handoff::{DropHandoffParams, HandOffParams};
-use sikemux_core::server::workspace::AgentPatch;
+use sikemux_calls::call;
+use sikemux_calls::chat::DropHandoffParams;
+use sikemux_calls::chat::HandOffParams;
+use sikemux_calls::chat::KeepHistoryParams;
+use sikemux_calls::workspace::AgentPatch;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 
 impl Workbench {

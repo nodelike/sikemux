@@ -2,8 +2,9 @@
 
 use gpui_kit::component::WindowExt;
 use gpui_kit::Context;
-use sikemux_core::server::call;
-use sikemux_core::server::skill_library::{GlobalSkillAdded, Located};
+use sikemux_calls::call;
+use sikemux_calls::skill_library::GlobalSkillAdded;
+use sikemux_calls::skill_library::Located;
 
 use crate::core;
 use crate::toast;

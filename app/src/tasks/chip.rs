@@ -14,8 +14,10 @@ use gpui_kit::{
     div, px, radians, AnyElement, Context, Hsla, IntoElement, ParentElement, Render, Styled,
     Transformation, WeakEntity, Window,
 };
-use sikemux_core::server::ports::PortOwner;
-use sikemux_core::server::tasks::{RunView, Source, TaskView};
+use sikemux_calls::ports::PortOwner;
+use sikemux_calls::tasks::RunView;
+use sikemux_calls::tasks::Source;
+use sikemux_calls::tasks::TaskView;
 
 use crate::icons::Icon;
 use crate::tabs::on_bench;

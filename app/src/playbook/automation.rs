@@ -8,9 +8,11 @@ use gpui_kit::{
     div, AnyElement, Context, Entity, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::board::{BoardReviewerParams, BoardSettingsParams};
-use sikemux_core::server::call;
-use sikemux_core::server::triggers::{HoldTriggerParams, TriggerParams};
+use sikemux_calls::board::BoardReviewerParams;
+use sikemux_calls::board::BoardSettingsParams;
+use sikemux_calls::call;
+use sikemux_calls::triggers::HoldTriggerParams;
+use sikemux_calls::triggers::TriggerParams;
 use sikemux_view::chat::TriggerWhen;
 use sikemux_view::playbook::{Auto, AutoAgent, Playbook, RunsAlone};
 

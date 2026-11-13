@@ -15,14 +15,15 @@ use gpui_kit::{
     px, App, AppContext, Context, Focusable, IntoElement, ScrollHandle, SharedString, Styled, Task,
     Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::codehost::CodeHostProjectParams;
-use sikemux_core::server::codehost::TrackedContextParams;
-use sikemux_core::server::names::ClosedAgentsParams;
-use sikemux_core::server::plugins::{FailureCategory, PluginOutcome};
-use sikemux_core::server::saved::SessionSearchParams;
-use sikemux_core::server::stash::ShownStashItem;
+use sikemux_calls::call;
+use sikemux_calls::codehost::CodeHostProjectParams;
+use sikemux_calls::codehost::TrackedContextParams;
+use sikemux_calls::names::ClosedAgentsParams;
+use sikemux_calls::plugins::PluginOutcome;
+use sikemux_calls::saved::SessionSearchParams;
+use sikemux_calls::stash::ShownStashItem;
 use sikemux_plugin_api::codehost::{TrackedItem, TrackedKind};
+use sikemux_plugin_api::FailureCategory;
 use sikemux_view::workspace::ProjectInfo;
 use sikemux_wire::protocol::{ChatContext, PermissionMode};
 
@@ -304,7 +305,7 @@ impl Composing {
                 context.push(item.clone());
             }
         }
-        paths.truncate(sikemux_core::server::chat::prompt::MAX_ATTACHMENTS);
+        paths.truncate(sikemux_calls::chat::MAX_ATTACHMENTS);
         (paths, context)
     }
 }

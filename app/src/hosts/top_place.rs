@@ -22,7 +22,7 @@ use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, TEXT_XS};
 use crate::ui;
 use crate::workbench::actions;
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::server::hosts::HostUnanswered;
+use sikemux_calls::hosts::Unanswered as HostUnanswered;
 
 #[derive(Clone)]
 struct Choice {

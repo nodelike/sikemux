@@ -1,8 +1,8 @@
 //! The dialog that saves a person's own start command as one of the project's tasks,
 //! for the team in sikemux.json or for them alone, or changes one they saved.
 
-use sikemux_core::server::call;
-use sikemux_core::server::tasks::AddParams;
+use sikemux_calls::call;
+use sikemux_calls::tasks::AddParams;
 use std::rc::Rc;
 
 use gpui_kit::component::input::InputState;
@@ -11,8 +11,8 @@ use gpui_kit::{
     div, AnyElement, AppContext, Context, Entity, FontWeight, IntoElement, ParentElement,
     SharedString, Styled, Window,
 };
-use sikemux_core::server::tasks::Source;
-use sikemux_core::server::tasks::TaskView;
+use sikemux_calls::tasks::Source;
+use sikemux_calls::tasks::TaskView;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1H, SPACE_3, TEXT_2XS, TEXT_XS};

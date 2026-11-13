@@ -21,6 +21,7 @@ pub mod release_feed;
 pub mod releases;
 pub mod tasks;
 pub mod text;
+pub mod themes;
 #[cfg(unix)]
 pub mod timeout;
 pub mod trailers;

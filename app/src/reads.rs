@@ -3,24 +3,24 @@
 //! asks for its source and what follows its answer, not for its field or the site that watches it.
 
 use crate::core::Target;
-use sikemux_core::server::about::WhatsNew;
-use sikemux_core::server::account::SignInPage;
-use sikemux_core::server::calls::NoParams;
+use sikemux_calls::about::WhatsNew;
+use sikemux_calls::account::SignInPage;
+use sikemux_calls::params::NoParams;
 use std::collections::BTreeMap;
 
 use gpui_kit::Context;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sikemux_core::server::activity_log::ActivitySummary;
-use sikemux_core::server::agent_accounts::AccountUsage;
-use sikemux_core::server::drafts::Draft;
-use sikemux_core::server::hosts::HostRow;
-use sikemux_core::server::outside::OutsideView;
-use sikemux_core::server::plugins::PluginOutcome;
-use sikemux_core::server::project_roots::RootEntry;
-use sikemux_core::server::share::ShareView;
-use sikemux_core::server::ssh::SshHost;
-use sikemux_core::server::stash::ShownStash;
+use sikemux_calls::activity_log::ActivitySummary;
+use sikemux_calls::agent_accounts::AccountUsage;
+use sikemux_calls::drafts::Draft;
+use sikemux_calls::hosts::HostRow;
+use sikemux_calls::outside::OutsideView;
+use sikemux_calls::plugins::PluginOutcome;
+use sikemux_calls::project_roots::RootEntry;
+use sikemux_calls::share::ShareView;
+use sikemux_calls::ssh::SshHost;
+use sikemux_calls::stash::ShownStash;
 use sikemux_view::catalog::CatalogAgent;
 use sikemux_view::changed::Topic;
 use sikemux_view::plugins::{Listed, TokenForm};
@@ -34,8 +34,9 @@ use crate::chat::Question;
 use crate::hosts::Place;
 use crate::theme;
 use crate::workbench::Workbench;
-use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::git::call as git_call;
+use sikemux_calls::call;
+use sikemux_calls::git::call as git_call;
+use sikemux_calls::Call;
 
 /// One thing the window asks a core and acts on the answer of, kept up by a `Target::watch` or
 /// asked once by a `Target::answer`.

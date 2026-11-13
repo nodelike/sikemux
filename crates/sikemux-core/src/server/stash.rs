@@ -7,6 +7,7 @@ use super::remote_image::PictureData;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::stash::title;
 pub use sikemux_calls::stash::{
     AttachStashParams, AttachedStash, SeeParams, StashItemParams, StashKept, StashPromptParams,
     StashedPrompt,
@@ -80,31 +81,6 @@ fn epoch_ms(at: &str) -> Option<i128> {
     time::OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339)
         .ok()
         .map(|at| at.unix_timestamp_nanos())
-}
-
-/// What an item is called: its page's title, its text's first line, or its file's name.
-pub fn title(item: &StashItem) -> String {
-    fn text(said: &Option<String>) -> Option<&str> {
-        said.as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-    }
-    match item.kind {
-        StashKind::Link => text(&item.url).map(|url| {
-            (item.preview.as_ref().map(|preview| preview.title.trim()))
-                .filter(|title| !title.is_empty())
-                .unwrap_or_else(|| {
-                    url.trim_start_matches("https://")
-                        .trim_start_matches("http://")
-                })
-                .to_owned()
-        }),
-        StashKind::Text | StashKind::Prompt => {
-            text(&item.text).map(|text| text.lines().next().unwrap_or(text).to_owned())
-        }
-        _ => text(&item.name).map(str::to_owned),
-    }
-    .unwrap_or_else(|| "Untitled".to_owned())
 }
 
 /// Adds to an item what apps draw a text or prompt by: its words, and the `state` of each pull

@@ -3,12 +3,12 @@
 
 use crate::core::Target;
 use crate::hosts::Place;
-use sikemux_core::server::call;
-use sikemux_core::server::tasks::TrustAnswerParams;
+use sikemux_calls::call;
+use sikemux_calls::tasks::TrustAnswerParams;
 use std::collections::HashSet;
 
 use gpui_kit::Context;
-use sikemux_core::server::tasks::TrustQuestion;
+use sikemux_calls::tasks::TrustQuestion;
 
 use crate::workbench::Workbench;
 

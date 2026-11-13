@@ -23,9 +23,10 @@ use crate::theme::{Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_3, TEXT_2
 use crate::toast;
 use crate::ui::{self, dialog};
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::model_providers::adding::{Entered, Reading};
-use sikemux_core::server::model_providers::ModelProvider;
+use sikemux_calls::call;
+use sikemux_calls::model_providers::Entered;
+use sikemux_calls::model_providers::ModelProvider;
+use sikemux_calls::model_providers::Reading;
 use sikemux_wire::protocol::ErrorKind;
 
 /// How long typing rests before the URL and key are checked.

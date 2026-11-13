@@ -2,8 +2,9 @@
 //! from as one contained block.
 
 use super::*;
-use sikemux_core::server::call;
-use sikemux_core::server::chat::rotation::{RotationBriefParams, RotationBriefRead};
+use sikemux_calls::call;
+use sikemux_calls::chat::RotationBriefParams;
+use sikemux_calls::chat::RotationBriefRead;
 use sikemux_view::chat::{BriefSection, BriefSectionKind, RotationReason, SessionRotation};
 
 use crate::theme::{SPACE_1, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_XS_H};

@@ -1,10 +1,12 @@
-use sikemux_core::server::call;
-use sikemux_core::server::chat::calls::{ChatPageParams, ToolDetailParams};
-use sikemux_core::server::chat::find::FindAnswer;
-use sikemux_core::server::chat::find::FindParams;
-use sikemux_core::server::launching::StartParams;
-use sikemux_core::server::streams::StreamParams;
-use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
+use sikemux_calls::call;
+use sikemux_calls::chat::ChatPageParams;
+use sikemux_calls::chat::ToolDetailParams;
+use sikemux_calls::chat_find::FindAnswer;
+use sikemux_calls::chat_find::FindParams;
+use sikemux_calls::launching::StartParams;
+use sikemux_calls::streams::StreamParams;
+use sikemux_calls::workspace::AgentPatch;
+use sikemux_calls::workspace::UpdateAgentParams;
 use sikemux_view::changed::Topic;
 use sikemux_view::chat::{ChatPage, ToolDetail};
 use sikemux_view::device::HostInfo;
@@ -20,10 +22,10 @@ use std::time::{Duration, Instant};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
+use sikemux_calls::Call;
 use sikemux_client::accounts::network;
 use sikemux_client::client::{Attached, ClientError, ClientEvent, CoreClient};
 use sikemux_client::remote::SecretKey;
-use sikemux_core::server::call::Call;
 use sikemux_grid::{decode_frame, decode_lines, Frame, Lines};
 use sikemux_host::cli_paths;
 use sikemux_host::core_start::{self, StartError};
@@ -482,7 +484,7 @@ pub struct Home {
 impl Default for Home {
     fn default() -> Self {
         let folders = Folders::of_this_system();
-        let socket = sikemux_core::default_socket_path().unwrap_or_default();
+        let socket = sikemux_corekit::default_socket_path().unwrap_or_default();
         let launch = cli_paths::cli_executable_path().map(|binary| CoreLaunch {
             binary,
             socket: socket.clone(),
@@ -757,7 +759,7 @@ async fn reach_hosts(
             return None;
         }
     };
-    let relays = network::fetch(&sikemux_core::accounts::api_base())
+    let relays = network::fetch(&sikemux_corekit::accounts::api_base())
         .await
         .and_then(|network| network::usable_relays(&network))
         .unwrap_or_default();
@@ -1119,7 +1121,7 @@ impl Target {
 /// the core it starts looks for agent CLIs only on its PATH, never finding the person's own.
 /// Call it first in `main`, before any thread starts.
 pub fn search_path_only_for_own_core() {
-    if std::env::var_os(sikemux_core::SOCKET_ENV).is_some() {
+    if std::env::var_os(sikemux_corekit::SOCKET_ENV).is_some() {
         std::env::set_var(sikemux_process::vars::AGENT_SEARCH, "path");
     }
 }
@@ -1601,7 +1603,7 @@ async fn run(
                                     let launch = LaunchIdentity {
                                         version: client.hello().build.version.clone(),
                                         cli_executable: cli_paths::cli_executable_path(),
-                                        cli_endpoint: sikemux_core::cli::endpoint::default_endpoint_path(),
+                                        cli_endpoint: sikemux_corekit::cli::endpoint::default_endpoint_path(),
                                     };
                                     let spawned = client.spawn(launch, SpawnTarget::Terminal(*spawn)).await;
                                     let _ = started.send(spawned.map_err(|error| error.to_string()));

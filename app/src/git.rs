@@ -1,8 +1,8 @@
 //! Git as the window shows it: a file's diff, and what an editor's text changed since
 //! a revision.
 
-use sikemux_core::server::call;
-use sikemux_core::server::drafts::DraftsParams;
+use sikemux_calls::call;
+use sikemux_calls::drafts::DraftsParams;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::HashMap;
@@ -17,9 +17,13 @@ use gpui_kit::{
     IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled,
     StyledText, Task, Window,
 };
-use sikemux_core::git::diff::{changes, DiffRow, ROW_ADDED, ROW_DELETED, ROW_HIDDEN};
-use sikemux_core::git::log::GitOverview;
-use sikemux_core::git::status::DiscoveredRepo;
+use sikemux_agents::git::diff::changes;
+use sikemux_agents::git::diff::DiffRow;
+use sikemux_agents::git::diff::ROW_ADDED;
+use sikemux_agents::git::diff::ROW_DELETED;
+use sikemux_agents::git::diff::ROW_HIDDEN;
+use sikemux_agents::git::log::GitOverview;
+use sikemux_agents::git::status::DiscoveredRepo;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::workspace::ProjectCodeHost;
 
@@ -32,7 +36,7 @@ use crate::syntax::LineRuns;
 use crate::theme::{Tokens, TEXT_2XS};
 use crate::workbench::Workbench;
 use crate::{syntax, tabs, theme, ui};
-use sikemux_core::server::git::call as git_call;
+use sikemux_calls::git::call as git_call;
 
 /// What the Git tab holds: the local workbench pane.
 #[derive(Default)]
@@ -80,7 +84,7 @@ impl GitTab {
 }
 
 pub use pane::GitPane;
-pub use sikemux_core::git::diff::DiffKind;
+pub use sikemux_agents::git::diff::DiffKind;
 
 pub(crate) mod pane;
 pub mod repos;

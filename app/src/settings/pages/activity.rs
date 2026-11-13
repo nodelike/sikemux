@@ -9,13 +9,13 @@ use gpui_kit::{
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::{json, Map, Value};
-use sikemux_core::server::activity_log::ActivityModel;
-use sikemux_core::server::activity_log::ActivityPriceParams;
-use sikemux_core::server::activity_log::ActivityShare;
-use sikemux_core::server::activity_log::ActivitySummary;
-use sikemux_core::server::activity_log::ActivitySummaryParams;
-use sikemux_core::server::activity_log::PriceOverride;
-use sikemux_core::server::call;
+use sikemux_calls::activity_log::ActivityModel;
+use sikemux_calls::activity_log::ActivityPriceParams;
+use sikemux_calls::activity_log::ActivityShare;
+use sikemux_calls::activity_log::ActivitySummary;
+use sikemux_calls::activity_log::ActivitySummaryParams;
+use sikemux_calls::activity_log::PriceOverride;
+use sikemux_calls::call;
 
 use crate::activity_view::{self, Metric};
 use crate::core::{utc_offset_minutes, Target};

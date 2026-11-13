@@ -10,12 +10,12 @@ pub(crate) mod test_card;
 use std::collections::{HashMap, HashSet};
 
 use gpui_kit::{AppContext, Context, Entity, Window};
-use sikemux_core::server::call;
-use sikemux_core::server::harness::RunSelector;
-use sikemux_core::server::ports::PortOwner;
-use sikemux_core::server::ports::ProjectPort;
-use sikemux_core::server::tasks::RunView;
-use sikemux_core::server::tasks::TaskView;
+use sikemux_calls::call;
+use sikemux_calls::harness::RunSelector;
+use sikemux_calls::ports::PortOwner;
+use sikemux_calls::ports::ProjectPort;
+use sikemux_calls::tasks::RunView;
+use sikemux_calls::tasks::TaskView;
 
 use crate::workbench::Workbench;
 

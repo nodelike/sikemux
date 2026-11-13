@@ -18,8 +18,10 @@ use gpui_kit::{
 };
 use gpui_native_view::native_view;
 use serde_json::{json, Value};
-use sikemux_core::server::call;
-use sikemux_core::server::mcp_apps::{McpApp, McpAppParams, McpAppRequestParams};
+use sikemux_calls::call;
+use sikemux_calls::mcp_apps::McpApp;
+use sikemux_calls::mcp_apps::McpAppParams;
+use sikemux_calls::mcp_apps::McpAppRequestParams;
 use sikemux_view::chat::McpAppRef;
 
 use super::Looks;

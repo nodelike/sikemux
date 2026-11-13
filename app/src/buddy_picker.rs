@@ -18,8 +18,9 @@ use crate::theme::{
 };
 use crate::ui::{self, dialog};
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
+use sikemux_calls::call;
+use sikemux_calls::workspace::AgentPatch;
+use sikemux_calls::workspace::UpdateAgentParams;
 use sikemux_view::workspace::AgentBuddy;
 
 /// Which agent's face is being picked, and the pack whose shapes it shows.

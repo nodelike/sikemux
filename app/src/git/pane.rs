@@ -21,11 +21,13 @@ use gpui_kit::{
 };
 #[cfg(feature = "drive")]
 use serde_json::{json, Value};
-use sikemux_core::git::log::{GitCommit, GitOverview};
-use sikemux_core::git::stash::GitStash;
-use sikemux_core::git::status::{GitChange, GitFile};
-use sikemux_core::server::call;
-use sikemux_core::server::drafts::SetDraftParams;
+use sikemux_agents::git::log::GitCommit;
+use sikemux_agents::git::log::GitOverview;
+use sikemux_agents::git::stash::GitStash;
+use sikemux_agents::git::status::GitChange;
+use sikemux_agents::git::status::GitFile;
+use sikemux_calls::call;
+use sikemux_calls::drafts::SetDraftParams;
 use sikemux_view::workspace::ProjectCodeHost;
 
 use branches::{branch_card, branches_page, Branches};
@@ -60,8 +62,8 @@ use crate::workbench::Workbench;
 use actions::*;
 use keys::*;
 use serde::Serialize;
-use sikemux_core::server::call::Call;
-use sikemux_core::server::git::call as git_call;
+use sikemux_calls::git::call as git_call;
+use sikemux_calls::Call;
 use sikemux_view::owners::{
     AgentOwner, CheckoutParams, CommitLines, CommitParams, CommitsParams, Owners,
 };
@@ -481,7 +483,7 @@ impl GitPane {
     fn writer(&self) -> Option<(String, String, String)> {
         let (kind, model) = match &self.writer {
             Some((kind, model)) => (kind.clone(), Some(model.clone())),
-            None => (sikemux_core::git::ai::DEFAULT_WRITER.to_owned(), None),
+            None => (sikemux_agents::git::ai::DEFAULT_WRITER.to_owned(), None),
         };
         let (_, label, models) = self.writers.iter().find(|(writer, _, _)| *writer == kind)?;
         let model = model.or_else(|| models.first().cloned())?;

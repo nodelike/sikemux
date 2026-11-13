@@ -10,10 +10,10 @@ use gpui_kit::{Context, Window};
 
 use crate::toast;
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::worktree::removal::{
-    RemoveWorktreeParams, WorktreeParams, WorktreeRemovalInfo,
-};
+use sikemux_calls::call;
+use sikemux_calls::worktree::RemoveWorktreeParams;
+use sikemux_calls::worktree::WorktreeParams;
+use sikemux_calls::worktree::WorktreeRemovalInfo;
 
 impl Workbench {
     /// Removes an agent's worktree once the person knows what that loses: uncommitted

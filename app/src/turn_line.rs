@@ -388,7 +388,7 @@ pub fn line(
 
 /// The agent's own name for `provider`, such as Claude, as a failure names it.
 pub fn maker(provider: &str) -> &'static str {
-    sikemux_core::agent_catalog::agent(provider).map_or(t!("the agent"), |agent| agent.label)
+    sikemux_agents::agent_catalog::agent(provider).map_or(t!("the agent"), |agent| agent.label)
 }
 
 /// Whether the words count time by the second while the turn stands so.

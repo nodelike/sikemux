@@ -23,12 +23,12 @@ use crate::icons::Icon;
 use crate::page_view::{self, PageEvent, Room};
 use crate::theme::{self, Tokens};
 use crate::ui;
-use sikemux_core::server::call;
-use sikemux_core::server::harness::pages::PageParams;
+use sikemux_calls::call;
+use sikemux_calls::harness::PageParams;
 
 /// A page's height before it reports its own, when the agent gave none.
 const DEFAULT_HEIGHT: f32 = 320.;
-const MAX_HEIGHT: f32 = sikemux_core::pages::MAX_HEIGHT as f32;
+const MAX_HEIGHT: f32 = sikemux_base::pages::MAX_HEIGHT as f32;
 /// How long Open in tab stays after the pointer leaves the page, so it can be reached.
 const CHIP_LINGER: Duration = Duration::from_millis(400);
 const FADE_HEIGHT: f32 = 72.;
@@ -380,7 +380,7 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
                 });
                 return;
             }
-            let html = sikemux_core::pages::themed(&answer.html, &theme, None);
+            let html = sikemux_base::pages::themed(&answer.html, &theme, None);
             let (events, mut heard) = tokio::sync::mpsc::unbounded_channel();
             let _ = cx.update(|window, cx| {
                 let surface = page_view::open(&html, Room::Grows, events, window, cx)

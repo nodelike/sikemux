@@ -2,8 +2,8 @@
 //! its project, its worktree's branch and folder, and that branch's pull requests. A closed
 //! chat in Recent whose triggers wait for it shows them in the same card.
 
-use sikemux_core::server::call;
-use sikemux_core::server::codehost::PullsParams;
+use sikemux_calls::call;
+use sikemux_calls::codehost::PullsParams;
 use std::time::Duration;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -12,7 +12,7 @@ use gpui_kit::{
     Entity, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
     SharedString, StatefulInteractiveElement, Styled, Task,
 };
-use sikemux_core::server::triggers::TriggerParams;
+use sikemux_calls::triggers::TriggerParams;
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_view::device::RecentInfo;
 use sikemux_view::workspace::WorkspaceAgent;

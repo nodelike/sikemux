@@ -11,8 +11,8 @@ use gpui_kit::AppContext;
 
 use super::{Editors, FileKey};
 use crate::core::Target;
-use sikemux_core::files::FileBytesParams;
-use sikemux_core::server::call;
+use sikemux_calls::call;
+use sikemux_git::files::FileBytesParams;
 
 /// The most the copies take together; the oldest go first to make room.
 const CAP: u64 = 512 * 1024 * 1024;

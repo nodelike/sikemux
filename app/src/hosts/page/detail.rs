@@ -1910,8 +1910,8 @@ impl Workbench {
             move |bench, yes, _, _| {
                 if yes {
                     crate::core::Target::new(&bench.asks, place.clone())
-                        .call_typed::<sikemux_core::server::call::CloseAgents>(
-                        sikemux_core::server::workspace::CloseAgentsParams {
+                        .call_typed::<sikemux_calls::call::CloseAgents>(
+                        sikemux_calls::workspace::CloseAgentsParams {
                             agent_ids: vec![id.clone()],
                         },
                     );

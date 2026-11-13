@@ -7,8 +7,8 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement,
     PathPromptOptions, SharedString, Styled, Subscription, Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::project_roots::ResolveParams;
+use sikemux_calls::call;
+use sikemux_calls::project_roots::ResolveParams;
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::{ProjectRoot, MAX_PROJECT_DEPTH};
 

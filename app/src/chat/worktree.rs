@@ -5,10 +5,10 @@
 use std::rc::Rc;
 
 use gpui_kit::{Context, Window};
-use sikemux_core::server::call;
-use sikemux_core::server::preferences::WorktreeDefaultParams;
-use sikemux_core::server::worktree::agent::AgentWorktreeParams;
-use sikemux_core::server::worktree::agent::MadeAgentWorktree;
+use sikemux_calls::call;
+use sikemux_calls::preferences::WorktreeDefaultParams;
+use sikemux_calls::worktree::AgentWorktreeParams;
+use sikemux_calls::worktree::MadeAgentWorktree;
 use sikemux_view::workspace::ProjectInfo;
 
 use super::{Chat, ComposeStage};

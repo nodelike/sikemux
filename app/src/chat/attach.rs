@@ -18,7 +18,7 @@ use gpui_kit::{
     Window,
 };
 use gpui_transcript::FilePress;
-use sikemux_core::server::chat::prompt::MAX_ATTACHMENTS;
+use sikemux_calls::chat::MAX_ATTACHMENTS;
 use sikemux_view::chat::{
     tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
     ANSWER_URI, EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,

@@ -5,7 +5,8 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, IntoElement, ParentElement, SharedString, Styled,
 };
-use sikemux_core::server::hosts::{HostRow, HostUnanswered as Unanswered};
+use sikemux_calls::hosts::HostRow;
+use sikemux_calls::hosts::Unanswered;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
@@ -15,7 +16,7 @@ use crate::theme::{Tokens, SPACE_2H, TEXT_MD, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
-pub use sikemux_core::server::hosts::SetUpWork as SetUp;
+pub use sikemux_calls::hosts::SetUpWork as SetUp;
 
 /// What the window says of setting an SSH host up.
 pub trait Words {

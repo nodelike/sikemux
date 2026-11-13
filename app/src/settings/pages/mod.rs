@@ -42,7 +42,7 @@ pub struct State {
     /// The command a search found, which the shortcuts page opens filtered to.
     pub shortcut: Option<&'static str>,
     /// The command line's install, once the page has asked, and none until the core says.
-    pub cli: Option<Option<sikemux_core::server::cli_install::CliInstallStatus>>,
+    pub cli: Option<Option<sikemux_calls::cli_install::CliInstallStatus>>,
     pub cli_busy: bool,
 }
 

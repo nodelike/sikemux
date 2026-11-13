@@ -9,12 +9,12 @@ use grep_searcher::{BinaryDetection, Searcher, Sink, SinkMatch};
 use ignore::{DirEntry, ParallelVisitor, ParallelVisitorBuilder, WalkBuilder, WalkState};
 use rayon::prelude::*;
 use regex::bytes::RegexBuilder as BytesRegexBuilder;
-use serde::{Deserialize, Serialize};
 pub use sikemux_calls::search::SearchParams;
 pub use sikemux_calls::search::{
     FileWindow, ReplaceError, ReplaceFile, ReplaceParams, ReplaceResults, SearchOptions,
     WindowParams,
 };
+pub use sikemux_calls::search::{SearchFile, SearchFound, SearchHit, SearchRange, SearchSummary};
 use sikemux_process::sync::Locked;
 use std::collections::HashMap;
 use std::fs;
@@ -54,51 +54,6 @@ fn read_replace_file(path: &Path) -> std::io::Result<Vec<u8>> {
 }
 
 // ---- wire types --------------------------------------------------------
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct SearchRange {
-    pub start: u32,
-    pub end: u32,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchHit {
-    pub line: u32,
-    pub text: String,
-    #[serde(default)]
-    pub truncated_text: bool,
-    pub ranges: Vec<SearchRange>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct SearchFile {
-    pub path: String,
-    pub matches: Vec<SearchHit>,
-}
-
-/// One item of a search's stream: `{ "file": … }` for each file as it is found, then
-/// `{ "summary": … }`.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SearchFound {
-    File(SearchFile),
-    Summary(SearchSummary),
-}
-
-/// How a search went, sent after every file it found.
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchSummary {
-    pub file_count: usize,
-    pub match_count: usize,
-    pub truncated: bool,
-    /// True when the search was superseded by a newer one mid-walk and
-    /// returned early. The frontend should treat results as partial.
-    #[serde(default)]
-    pub cancelled: bool,
-    pub elapsed_ms: u64,
-}
 
 // ---- per-file sink -----------------------------------------------------
 

@@ -9,6 +9,7 @@ sikemux-agents = { path = "../sikemux-agents" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-git = { path = "../sikemux-git" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
+sikemux-process = { path = "../sikemux-process" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 serde = { version = "1", features = ["derive", "rc"] }

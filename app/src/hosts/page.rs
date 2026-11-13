@@ -17,8 +17,8 @@ use gpui_kit::{
     div, AnyElement, AppContext, Context, Entity, Hsla, Image, ImageFormat, InteractiveElement,
     IntoElement, ParentElement, StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::host_stats::apps::AppIconParams;
+use sikemux_calls::call;
+use sikemux_calls::host_stats::AppIconParams;
 use sikemux_view::host_stats::{HostStats, HostStatsParams, StatsSpan};
 use sikemux_view::layout::{OpenTab, PaneKind};
 

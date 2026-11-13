@@ -5,6 +5,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 pub use sikemux_calls::agent_updates::UpdateAgents;
 pub use sikemux_calls::agent_updates::Updating;
+pub use sikemux_calls::agent_updates::{is_newer, newer_first};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -355,32 +356,4 @@ pub fn release(said: &str) -> Option<String> {
                     .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
         })
         .map(str::to_owned)
-}
-
-fn parts(release: &str) -> (Vec<u64>, Option<&str>) {
-    let (numbers, pre) = match release.split_once('-') {
-        Some((numbers, pre)) => (numbers, Some(pre)),
-        None => (release.split('+').next().unwrap_or(release), None),
-    };
-    (
-        numbers
-            .split('.')
-            .map(|part| part.parse().unwrap_or(0))
-            .collect(),
-        pre,
-    )
-}
-
-/// Whether release `a` comes after release `b`.
-pub fn is_newer(a: &str, b: &str) -> bool {
-    newer_first(a, b) == std::cmp::Ordering::Less
-}
-
-fn newer_first(a: &str, b: &str) -> std::cmp::Ordering {
-    let ((a_numbers, a_pre), (b_numbers, b_pre)) = (parts(a), parts(b));
-    b_numbers.cmp(&a_numbers).then(match (a_pre, b_pre) {
-        (None, Some(_)) => std::cmp::Ordering::Less,
-        (Some(_), None) => std::cmp::Ordering::Greater,
-        (a_pre, b_pre) => b_pre.cmp(&a_pre),
-    })
 }

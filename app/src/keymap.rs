@@ -2,8 +2,8 @@
 //! with the keys the person chose in the core's preferences, else the defaults both apps read.
 //! An id no part of the app has an action for yet stays unbound.
 
-use sikemux_core::server::activity_log::CommandUsed;
-use sikemux_core::server::call;
+use sikemux_calls::activity_log::CommandUsed;
+use sikemux_calls::call;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::LazyLock;

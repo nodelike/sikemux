@@ -10,8 +10,11 @@ use gpui_kit::{
     div, px, AnyElement, App, ClipboardItem, Context, Entity, Hsla, InteractiveElement,
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::lsp::{LspDiagnostic, LspDiagnosticSeverity, LspDocumentSymbol, LspPath};
+use sikemux_calls::call;
+use sikemux_calls::lsp::LspDiagnostic;
+use sikemux_calls::lsp::LspDiagnosticSeverity;
+use sikemux_calls::lsp::LspDocumentSymbol;
+use sikemux_calls::lsp::LspPath;
 
 use super::{go, OpenAt};
 use crate::core::Target;

@@ -9,9 +9,10 @@ use gpui_kit::{
     SharedString, Styled, Subscription, Window,
 };
 use serde_json::{json, Value};
-use sikemux_core::server::call;
-use sikemux_core::server::themes::{ThemePaletteParams, ThemeParams};
-use sikemux_core::server::wallpaper::PixelsParams;
+use sikemux_calls::call;
+use sikemux_calls::themes::ThemePaletteParams;
+use sikemux_calls::themes::ThemeParams;
+use sikemux_calls::wallpaper::PixelsParams;
 use sikemux_view::prefs::PreferenceChange;
 
 use crate::core::Target;

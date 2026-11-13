@@ -1,7 +1,8 @@
 //! What the Hosts page knows of each host, gathered from its core's view and `hostStats`.
 
 use gpui_kit::{Hsla, SharedString};
-use sikemux_core::server::hosts::{HostReach, HostRow};
+use sikemux_calls::hosts::HostRow;
+use sikemux_calls::hosts::Reach as HostReach;
 use sikemux_view::device::DeviceView;
 use sikemux_view::host_stats::{
     AlertLevel, HostAlert, HostAlertKind, HostEventKind, HostMark, HostStats,

@@ -11,9 +11,9 @@ use gpui_kit::{
     ObjectFit, ParentElement, SharedString, StatefulInteractiveElement, Styled, StyledImage,
     WeakEntity,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::pictures::TurnPictureParams;
-use sikemux_core::server::turn_state::TakeStepParams;
+use sikemux_calls::call;
+use sikemux_calls::pictures::TurnPictureParams;
+use sikemux_calls::turn_state::TakeStepParams;
 use sikemux_view::shown::{PageShown, Picture as Shown, ResultRow, TurnShown, WidthShown};
 use sikemux_view::turn::{TurnPhase, TurnState, TurnStep};
 

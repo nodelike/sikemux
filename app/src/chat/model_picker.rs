@@ -25,10 +25,11 @@ use crate::theme::{
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::workbench::Workbench;
-use sikemux_core::launch::providers::Kind;
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::model_providers::{ModelProvider, ProviderParams};
+use sikemux_agents::launch::providers::Kind;
+use sikemux_calls::call;
+use sikemux_calls::model_providers::ModelProvider;
+use sikemux_calls::model_providers::ProviderParams;
+use sikemux_calls::params::NoParams;
 
 const CONTEXT: &str = "ModelPicker";
 

@@ -5,8 +5,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::{Context, SharedString, Window};
-use sikemux_core::server::agent_sign_in::LauncherParams;
-use sikemux_core::server::call;
+use sikemux_calls::agent_sign_in::LauncherParams;
+use sikemux_calls::call;
 use sikemux_view::workspace::LauncherInfo;
 use sikemux_wire::protocol::{AgentStatus, PermissionMode};
 

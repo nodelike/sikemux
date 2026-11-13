@@ -6,8 +6,8 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
-use sikemux_core::agent_accounts::status::AgentStatus;
-use sikemux_core::server::agent_updates::Updating;
+use sikemux_agents::agent_accounts::status::AgentStatus;
+use sikemux_calls::agent_updates::Updating;
 
 use crate::agents::setup::{
     installing, run, signing_in, status_label, update, update_everywhere, Found, Setup, Sheet,

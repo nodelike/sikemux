@@ -13,9 +13,9 @@ use gpui_kit::{
     AppContext, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
     Task, Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::chat::calls::QueuedParams;
-use sikemux_core::server::chat::queue::QueuedMessageParams as QueuedMessage;
+use sikemux_calls::call;
+use sikemux_calls::chat::QueuedMessageParams as QueuedMessage;
+use sikemux_calls::chat::QueuedParams;
 use sikemux_view::prefs::MidTurnSend;
 use sikemux_wire::protocol::PermissionMode;
 
@@ -23,7 +23,8 @@ use super::*;
 use crate::chat::{Answering, Chat, Question};
 use crate::core::ChatAsk;
 use crate::ui::list_picker::{Choose, Close, Next, Previous};
-use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
+use sikemux_calls::workspace::AgentPatch;
+use sikemux_calls::workspace::UpdateAgentParams;
 
 /// Puts `text` at the end of the draft after a blank line, keeping what it holds, chips
 /// and all, with the caret after it.

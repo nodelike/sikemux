@@ -11,12 +11,17 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, Window,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::vault::shown::{
-    AllowParams, RecoverParams, RevokeParams, ShownHost, ShownSignIn, ShownStatus, ShownUse,
-    ShownVault, UsesParams,
-};
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::vault::AllowParams;
+use sikemux_calls::vault::RecoverParams;
+use sikemux_calls::vault::RevokeParams;
+use sikemux_calls::vault::ShownHost;
+use sikemux_calls::vault::ShownSignIn;
+use sikemux_calls::vault::ShownStatus;
+use sikemux_calls::vault::ShownUse;
+use sikemux_calls::vault::ShownVault;
+use sikemux_calls::vault::UsesParams;
 
 use crate::core::Target;
 use crate::settings::rows::{self, Choice};

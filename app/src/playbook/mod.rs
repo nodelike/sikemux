@@ -13,8 +13,13 @@ mod setup;
 pub(crate) use decisions::{overrule, undo_overrule};
 pub(crate) use rules::{restore as restore_rule, retire as undo_rule};
 
-use sikemux_core::server::tasks::{ProjectConfigRead, ProjectParams, TrustProjectParams};
-use sikemux_core::tasks::config::{ConfigError, ConfigLoad, ProjectCheck, Stated};
+use sikemux_calls::tasks::ProjectConfigRead;
+use sikemux_calls::tasks::ProjectParams;
+use sikemux_calls::tasks::TrustProjectParams;
+use sikemux_corekit::tasks::config::ConfigError;
+use sikemux_corekit::tasks::config::ConfigLoad;
+use sikemux_corekit::tasks::config::ProjectCheck;
+use sikemux_corekit::tasks::config::Stated;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::prefs::PreferenceChange;
@@ -28,9 +33,9 @@ use gpui_kit::{
     div, px, AnyElement, AppContext, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use sikemux_core::server::playbook::PlaybookParams;
-use sikemux_core::server::tasks::Source;
-use sikemux_core::server::tasks::TaskView;
+use sikemux_calls::playbook::PlaybookParams;
+use sikemux_calls::tasks::Source;
+use sikemux_calls::tasks::TaskView;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::playbook::Playbook;
 use sikemux_view::workspace::ProjectInfo;
@@ -44,11 +49,12 @@ use crate::theme::{
 };
 use crate::ui::{self, Button, Field, IconButton, Variant};
 use crate::workbench::Workbench;
-use sikemux_core::git::status::DiscoveredRepo;
-use sikemux_core::server::call;
-use sikemux_core::server::git::call as git_call;
-use sikemux_core::server::tasks::{RemoveTaskParams, SetCheckParams};
-use sikemux_core::server::workspace::UpdateProjectParams;
+use sikemux_agents::git::status::DiscoveredRepo;
+use sikemux_calls::call;
+use sikemux_calls::git::call as git_call;
+use sikemux_calls::tasks::RemoveTaskParams;
+use sikemux_calls::tasks::SetCheckParams;
+use sikemux_calls::workspace::UpdateProjectParams;
 
 #[derive(Clone, Copy, Default, PartialEq)]
 enum Page {
@@ -92,7 +98,7 @@ pub struct PlaybookTab {
     /// The repositories directly inside the project's folder.
     repos: Option<Vec<DiscoveredRepo>>,
     /// What a new checkout of the project runs, and its last check on fresh checkouts.
-    setup: Option<sikemux_core::server::setup_check::SetupState>,
+    setup: Option<sikemux_calls::setup::SetupState>,
     check: Entity<InputState>,
     /// The name of a place the person adds, and what it is recognised by.
     place_name: Entity<InputState>,

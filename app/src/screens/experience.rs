@@ -3,8 +3,8 @@
 //! the first two are due.
 
 use gpui_kit::{div, AnyElement, Context, IntoElement, Window};
-use sikemux_core::server::call;
-use sikemux_core::server::usage::Step;
+use sikemux_calls::call;
+use sikemux_calls::usage::Step;
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::Preferences;
 

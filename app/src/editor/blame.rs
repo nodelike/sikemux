@@ -12,8 +12,8 @@ use gpui_kit::{
 use super::{lsp, FileKey};
 use crate::theme;
 use crate::workbench::Workbench;
-use sikemux_core::git::blame::BlameCommit;
-use sikemux_core::server::git::call as git_call;
+use sikemux_agents::git::blame::BlameCommit;
+use sikemux_calls::git::call as git_call;
 
 /// How long typing pauses before the lines are blamed again.
 const DEBOUNCE: Duration = Duration::from_millis(1200);

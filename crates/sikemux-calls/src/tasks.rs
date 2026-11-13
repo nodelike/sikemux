@@ -204,3 +204,15 @@ pub struct TaskList {
     /// The task to offer first: the one the person has running, else the first.
     pub default: Option<String>,
 }
+
+const FIND_TASKS: &str = "Read the README, AGENTS.md, Makefile, package.json and any scripts in folders like tool/, bin/ or scripts/.
+Then add a process for each command people really use (starting the app, running the tests, building) to sikemux.json's \"tasks\" list at the project root:
+each process has an \"id\", a \"label\", a \"command\" and, when it runs in a subfolder, a \"cwd\". Keep everything already in sikemux.json.
+Call guide with the config topic first for the format. Do not start long-running commands; tell me which processes you added and why.";
+
+/// What an agent is asked to find how a project is run and save it as processes.
+pub fn find_processes_prompt(name: &str) -> String {
+    format!(
+        "Find how {name} is run, tested and built, and save those as Sikemux processes.\n{FIND_TASKS}"
+    )
+}

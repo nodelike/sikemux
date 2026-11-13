@@ -15,10 +15,11 @@ use gpui_kit::{
     Window,
 };
 use serde_json::Value;
-use sikemux_core::accounts::protocol::Device;
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::outside::{OutsideAnswer, OutsideWaiting};
+use sikemux_calls::call;
+use sikemux_calls::outside::OutsideAnswer;
+use sikemux_calls::outside::OutsideWaiting;
+use sikemux_calls::params::NoParams;
+use sikemux_corekit::accounts::protocol::Device;
 use sikemux_wire::protocol::{AllowedDevice, DeviceAccess, PendingDevice};
 
 use crate::core::{typed_call, Ask, RemoteAsk, Target};

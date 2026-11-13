@@ -16,13 +16,16 @@ use gpui_kit::{
     Styled, StyledImage, WeakEntity, Window,
 };
 use serde_json::json;
-use sikemux_core::accounts::protocol::{StashItem, StashKind, StashPreview};
-use sikemux_core::server::call;
-use sikemux_core::server::stash::AttachStashParams;
-use sikemux_core::server::stash::ShownStashItem;
-use sikemux_core::server::stash::ShownStashLink;
-use sikemux_core::server::stash::StashPromptParams;
-use sikemux_core::server::stash::{SeeParams, StashItemParams};
+use sikemux_calls::call;
+use sikemux_calls::stash::AttachStashParams;
+use sikemux_calls::stash::SeeParams;
+use sikemux_calls::stash::ShownStashItem;
+use sikemux_calls::stash::ShownStashLink;
+use sikemux_calls::stash::StashItemParams;
+use sikemux_calls::stash::StashPromptParams;
+use sikemux_corekit::accounts::protocol::StashItem;
+use sikemux_corekit::accounts::protocol::StashKind;
+use sikemux_corekit::accounts::protocol::StashPreview;
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -106,7 +109,7 @@ fn epoch_ms(at: &str) -> Option<i64> {
         .map(|at| at.timestamp_millis())
 }
 
-pub use sikemux_core::server::stash::title;
+pub use sikemux_calls::stash::title;
 
 /// Where a link goes, how many files a prompt carries or how large a file is, then how long ago it
 /// was stashed.

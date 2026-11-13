@@ -10,17 +10,20 @@ use std::collections::HashMap;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, Context, SharedString};
-use sikemux_core::git::log::GitOverview;
-use sikemux_core::git::status::ProjectRepo;
-use sikemux_core::server::activity_log::ActivitySummary;
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::hosts::{HostAliasParams, HostReach, HostRow};
-use sikemux_core::server::mods::ModList;
-use sikemux_core::server::ports::ProjectPort;
-use sikemux_core::server::remote::ApprovalSetting;
-use sikemux_core::server::tasks::TrustQuestion;
-use sikemux_core::server::tasks::{RunView, TaskList};
+use sikemux_agents::git::log::GitOverview;
+use sikemux_agents::git::status::ProjectRepo;
+use sikemux_calls::activity_log::ActivitySummary;
+use sikemux_calls::call;
+use sikemux_calls::hosts::AliasParams as HostAliasParams;
+use sikemux_calls::hosts::HostRow;
+use sikemux_calls::hosts::Reach as HostReach;
+use sikemux_calls::mods::ModList;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::ports::ProjectPort;
+use sikemux_calls::remote::ApprovalSetting;
+use sikemux_calls::tasks::RunView;
+use sikemux_calls::tasks::TaskList;
+use sikemux_calls::tasks::TrustQuestion;
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_view::device::DeviceView;
 use sikemux_view::host_stats::{AlertLevel, HostAlert, HostAlertKind};
@@ -34,13 +37,15 @@ use crate::icons::Icon;
 use crate::reads::Drafts;
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::server::account::devices::DeviceParams;
-use sikemux_core::server::hosts::install::InstallParams;
-use sikemux_core::server::hosts::open::OpenOnParams;
-use sikemux_core::server::hosts::transfer::{SendParams, SessionSent};
-use sikemux_core::server::layout::{ActivateProjectParams, HostParams};
-use sikemux_core::server::spare::NewTerminal;
-use sikemux_core::server::updates::HostUpdatesParams;
+use sikemux_calls::account::DeviceParams;
+use sikemux_calls::hosts::InstallParams;
+use sikemux_calls::hosts::OpenOnParams;
+use sikemux_calls::hosts::SendParams;
+use sikemux_calls::hosts::SessionSent;
+use sikemux_calls::layout::ActivateProjectParams;
+use sikemux_calls::layout::HostParams;
+use sikemux_calls::spare::NewTerminal;
+use sikemux_calls::updates::HostUpdatesParams;
 use sikemux_view::updates::{UpdateOutcomeState, UpdateState, UpdateStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
@@ -95,7 +100,7 @@ pub struct Feed {
     pub worktree_pulls: Option<PullList>,
     pub worktree_merged: Option<bool>,
     /// The checkout in front's name, ports and environment.
-    pub checkout: Option<sikemux_core::server::ports::checkout::CheckoutAbout>,
+    pub checkout: Option<sikemux_calls::ports::CheckoutAbout>,
     /// Whether it asks the person before a new device joins, once it has said.
     pub approval: Option<bool>,
     /// Whether this app is connected to it now, for an account host.
@@ -637,7 +642,7 @@ impl Workbench {
         }
         feed.diagnosis_asked = Some(std::time::Instant::now());
         let asked = Target::here(&self.asks).request_typed::<call::HostDiagnosis>(
-            sikemux_core::server::diagnosis::DiagnosisParams { host },
+            sikemux_calls::diagnosis::DiagnosisParams { host },
         );
         cx.spawn(async move |bench, cx| {
             let Ok(diagnosis) = asked.await else {

@@ -11,14 +11,14 @@ use gpui_kit::{
     div, App, Context, Div, Entity, FontWeight, HighlightStyle, ParentElement, Styled, StyledText,
     Subscription,
 };
-use sikemux_core::sessions::said::FoundLine;
+use sikemux_agents::sessions::said::FoundLine;
 use sikemux_view::device::RecentInfo;
 use std::collections::HashMap;
 
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::RecentChatsParams;
-use sikemux_core::sessions::recent::RecentCursor;
+use sikemux_agents::sessions::recent::RecentCursor;
+use sikemux_calls::call;
+use sikemux_calls::workspace::RecentChatsParams;
 
 /// The rail's filter of recent chats: its field, and what is typed there in lower case.
 pub struct Filter {

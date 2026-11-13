@@ -11,8 +11,8 @@ use gpui_kit::{
     div, px, Anchor, AnyElement, App, Context, Image, IntoElement, ParentElement, SharedString,
     Styled,
 };
-use sikemux_core::agent_accounts::status::AccountStatus;
-use sikemux_core::agent_accounts::Profile;
+use sikemux_agents::agent_accounts::status::AccountStatus;
+use sikemux_agents::agent_accounts::Profile;
 use std::rc::Rc;
 
 use crate::accounts;

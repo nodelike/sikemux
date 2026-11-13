@@ -13,8 +13,10 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use sikemux_core::server::call;
-use sikemux_core::server::plugins::{Disabled, PluginCall, StreamCall};
+use sikemux_calls::call;
+use sikemux_calls::plugins::Disabled;
+use sikemux_calls::plugins::PluginCall;
+use sikemux_calls::plugins::StreamCall;
 use sikemux_view::plugins::Listed;
 
 use crate::core::Target;

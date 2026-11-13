@@ -14,12 +14,20 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{DefinitionProvider, Rope, RopeExt};
 use gpui_kit::{App, AppContext, Context, Task, Window};
 use lsp_types::{LocationLink, Position, Range, ShowDocumentParams, Uri};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::lsp::{
-    LspChange, LspClaim, LspDocument, LspKind, LspLanguage, LspLocation, LspLocations, LspOpen,
-    LspPos, LspProject, LspSave, LspServer,
-};
+use sikemux_calls::call;
+use sikemux_calls::lsp::LspChange;
+use sikemux_calls::lsp::LspClaim;
+use sikemux_calls::lsp::LspDocument;
+use sikemux_calls::lsp::LspKind;
+use sikemux_calls::lsp::LspLanguage;
+use sikemux_calls::lsp::LspLocation;
+use sikemux_calls::lsp::LspLocations;
+use sikemux_calls::lsp::LspOpen;
+use sikemux_calls::lsp::LspPos;
+use sikemux_calls::lsp::LspProject;
+use sikemux_calls::lsp::LspSave;
+use sikemux_calls::lsp::LspServer;
+use sikemux_calls::params::NoParams;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::FileKey;

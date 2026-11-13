@@ -8,11 +8,15 @@ use gpui_kit::{
     div, px, AnyElement, App, Context, Entity, FontWeight, Hsla, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::setup_check::{
-    Outcome, SetupParams, SetupRun, SetupState, SetupStep, StepKind,
-};
-use sikemux_core::tasks::config::{ProjectConfig, WorktreeHook};
+use sikemux_calls::call;
+use sikemux_calls::setup::Outcome;
+use sikemux_calls::setup::SetupParams;
+use sikemux_calls::setup::SetupRun;
+use sikemux_calls::setup::SetupState;
+use sikemux_calls::setup::SetupStep;
+use sikemux_calls::setup::StepKind;
+use sikemux_corekit::tasks::config::ProjectConfig;
+use sikemux_corekit::tasks::config::WorktreeHook;
 
 use super::PlaybookTab;
 use crate::icons::Icon;

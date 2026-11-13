@@ -10,6 +10,8 @@ testing = []
 
 [dependencies]
 sikemux-base = { path = "../sikemux-base" }
+sikemux-grid = { path = "../sikemux-grid" }
+base64 = "0.22"
 sikemux-process = { path = "../sikemux-process" }
 globset = "0.4"
 hex = "0.4"

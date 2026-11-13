@@ -12,8 +12,8 @@ use gpui_kit::{
     WeakEntity, Window,
 };
 use serde_json::{json, Value};
-use sikemux_core::server::mods::follows;
-pub use sikemux_core::server::mods::Moved;
+use sikemux_calls::mods::follows;
+pub use sikemux_calls::mods::Moved;
 use sikemux_view::layout::PaneKind;
 
 use crate::core::Target;
@@ -22,8 +22,12 @@ use crate::page_view::{PageEvent, Room};
 use crate::theme::{Tokens, TEXT_XS};
 use crate::workbench::{Strip, Workbench};
 use crate::{page_view, theme};
-use sikemux_core::server::call;
-use sikemux_core::server::mods::{AllowParams, BadgeParams, BridgeParams, BridgeWrite, ModParams};
+use sikemux_calls::call;
+use sikemux_calls::mods::AllowParams;
+use sikemux_calls::mods::BadgeParams;
+use sikemux_calls::mods::BridgeParams;
+use sikemux_calls::mods::BridgeWrite;
+use sikemux_calls::mods::ModParams;
 
 const BRIDGE: &str = include_str!("mod_pane/bridge.js");
 /// How long a burst of changes gathers before the watches it moved read again.
@@ -163,7 +167,7 @@ impl ModPane {
     fn present(&mut self, html: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.watches.clear();
         self.generation += 1;
-        let html = sikemux_core::pages::themed(html, &theme_rule(cx), Some(BRIDGE));
+        let html = sikemux_base::pages::themed(html, &theme_rule(cx), Some(BRIDGE));
         if let Some(page) = &self.page {
             page.show(&html);
             return;

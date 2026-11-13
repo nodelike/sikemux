@@ -23,11 +23,11 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_native_view::{native_view, Frame, NativeSurface, Surface};
+use sikemux_agents::harness::runs::RunStatus;
 use sikemux_browser::{
     BrowserBounds, BrowserDownload, BrowserManager, BrowserShortcut, BrowserSnapshot, Host,
     ParentView,
 };
-use sikemux_core::harness::runs::RunStatus;
 use sikemux_process::sync::Locked;
 use sikemux_view::device::DeviceView;
 use sikemux_view::goals::{AgentDesk, DeskTerminal};
@@ -224,12 +224,12 @@ enum Heard {
 impl Desks {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (heard, hearing) = mpsc::unbounded_channel();
-        sikemux_core::runtime::set(runtime().handle().clone());
+        sikemux_base::runtime::set(runtime().handle().clone());
         let home = sikemux_process::paths::config_dir();
         let page_files = Arc::new(PageFiles {
             folder: home
                 .as_ref()
-                .map(|home| home.join(sikemux_core::pages::FOLDER).join("tabs")),
+                .map(|home| home.join(sikemux_base::pages::FOLDER).join("tabs")),
             theme: Mutex::new(
                 cx.try_global::<Tokens>()
                     .map(desk_theme)
@@ -579,7 +579,7 @@ impl PageFiles {
             .ok_or("Sikemux has no folder to keep pages in")?;
         std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
         let path = folder.join(format!("{name}.html"));
-        let themed = sikemux_core::pages::themed(html, &self.theme.locked(), None);
+        let themed = sikemux_base::pages::themed(html, &self.theme.locked(), None);
         std::fs::write(&path, themed).map_err(|error| error.to_string())?;
         self.engine()?.local_file_url(&path)
     }
@@ -657,7 +657,7 @@ impl Workbench {
         }
         self.desk_news.sent = Some(params.clone());
         let told = crate::core::Target::here(&self.asks)
-            .request_typed::<sikemux_core::server::call::SetDesks>(params);
+            .request_typed::<sikemux_calls::call::SetDesks>(params);
         cx.foreground_executor()
             .spawn(async move {
                 let _ = told.await;
@@ -1458,9 +1458,9 @@ impl Workbench {
         };
         let page = self
             .chat_target(agent)
-            .request_typed::<sikemux_core::server::call::ReadPage>(
-                sikemux_core::server::harness::pages::PageParams { id: id.to_owned() },
-            );
+            .request_typed::<sikemux_calls::call::ReadPage>(sikemux_calls::harness::PageParams {
+                id: id.to_owned(),
+            });
         let files = self.desks.read(cx).page_files.clone();
         self.open_agent(agent, cx);
         if !self.desk_open_anywhere(agent) {

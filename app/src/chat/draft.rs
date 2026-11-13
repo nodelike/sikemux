@@ -10,9 +10,9 @@ use std::time::Duration;
 
 use gpui_kit::base::input::{InlineToken, InputContent};
 use gpui_kit::{App, Context, Focusable, Window};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::AgentParams;
-use sikemux_core::server::drafts::SetDraftParams;
+use sikemux_calls::call;
+use sikemux_calls::drafts::SetDraftParams;
+use sikemux_calls::params::AgentParams;
 use sikemux_view::chat::{chat_draft_key, DraftExtra, DraftToken, QUOTE_MAX, REPLY_URI};
 use sikemux_wire::protocol::ChatContext;
 

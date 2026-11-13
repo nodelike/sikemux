@@ -1,10 +1,11 @@
 //! What's New: the notes of the release running here, who made it and how much went
 //! into it, beside a sky in the release's colours.
 
-use sikemux_core::releases::ReleaseNotes as Notes;
-use sikemux_core::server::about::{AvatarsParams, NotesParams};
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
+use sikemux_calls::about::AvatarsParams;
+use sikemux_calls::about::NotesParams;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_corekit::releases::ReleaseNotes as Notes;
 use sikemux_view::updates::Contributor;
 use std::collections::HashMap;
 use std::rc::Rc;

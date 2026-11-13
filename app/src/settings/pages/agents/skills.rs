@@ -9,10 +9,15 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement,
     PathPromptOptions, SharedString, Styled, Subscription, Window,
 };
-use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::skill_library::{Located, Named, NewSkill, SkillsOverview, Source};
-use sikemux_core::skills::Skill;
+use sikemux_agents::skills::Skill;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::skill_library::Located;
+use sikemux_calls::skill_library::Named;
+use sikemux_calls::skill_library::NewSkill;
+use sikemux_calls::skill_library::SkillsOverview;
+use sikemux_calls::skill_library::Source;
+use sikemux_calls::Call;
 
 use crate::core;
 use crate::settings::rows;

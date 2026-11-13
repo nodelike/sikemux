@@ -9,9 +9,9 @@ use gpui_kit::{
     div, px, Anchor, AnyElement, App, Context, Div, FontWeight, IntoElement, ParentElement,
     SharedString, Styled,
 };
-use sikemux_core::server::account::devices::DeviceParams;
-use sikemux_core::server::call;
-use sikemux_core::server::calls::NoParams;
+use sikemux_calls::account::DeviceParams;
+use sikemux_calls::call;
+use sikemux_calls::params::NoParams;
 use sikemux_wire::protocol::{
     DeviceAccess, DeviceInfo, HeldTrust, NotificationState, RemoteStatus,
 };

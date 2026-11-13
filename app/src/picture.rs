@@ -1,9 +1,10 @@
 //! A picture shown properly: over the whole window, as large as the window lets it
 //! be, with a way to keep a copy in Downloads.
 
-use sikemux_core::server::account::AccountPictureParams;
-use sikemux_core::server::remote_image::{ImageParams, PictureData};
-use sikemux_core::server::stash::StashItemParams;
+use sikemux_calls::account::AccountPictureParams;
+use sikemux_calls::remote_image::ImageParams;
+use sikemux_calls::remote_image::PictureData;
+use sikemux_calls::stash::StashItemParams;
 use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -27,8 +28,9 @@ use crate::theme;
 use crate::theme::{SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_SM, TEXT_XS};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
-use sikemux_core::files::{FileCopyIntoParams, FileWriteBytesParams};
-use sikemux_core::server::call;
+use sikemux_calls::call;
+use sikemux_git::files::FileCopyIntoParams;
+use sikemux_git::files::FileWriteBytesParams;
 
 /// A picture from a file, one an agent sent as bytes, or one on the web.
 #[derive(Clone)]

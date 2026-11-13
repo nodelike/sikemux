@@ -6,8 +6,11 @@ use gpui_kit::{
     div, px, AnyElement, App, Context, Entity, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled,
 };
-use sikemux_core::server::call;
-use sikemux_core::server::places::{AddPlaceParams, PlaceLevelParams, PlacesParams, SeenParams};
+use sikemux_calls::call;
+use sikemux_calls::places::AddPlaceParams;
+use sikemux_calls::places::PlaceLevelParams;
+use sikemux_calls::places::PlacesParams;
+use sikemux_calls::places::SeenParams;
 use sikemux_view::places::{Level, Place, PlaceKind, PlaceStats, Places, Recognise, Seen};
 
 use super::said::{self, Action, Moment};

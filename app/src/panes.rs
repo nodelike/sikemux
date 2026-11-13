@@ -20,7 +20,8 @@ use crate::text_size::Surface;
 use crate::theme::SPACE_1;
 use crate::workbench::{Strip, Workbench};
 use crate::{motion, ui};
-use sikemux_core::server::{call, layout};
+use sikemux_calls::call;
+use sikemux_calls::layout;
 
 /// The room between two panes, which is also where a divider is dragged.
 pub const GAP: f32 = 10.;
@@ -862,7 +863,7 @@ impl Workbench {
         };
         let tab = tab.id.clone();
         let core = self.target();
-        let params = sikemux_core::server::chat::side::SideChatParams {
+        let params = sikemux_calls::chat::SideChatParams {
             agent_id: agent.to_owned(),
             text: Some(text).filter(|text| !text.trim().is_empty()),
         };

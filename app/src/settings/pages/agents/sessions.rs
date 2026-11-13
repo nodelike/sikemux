@@ -6,8 +6,9 @@ use gpui_kit::{
     div, AnyElement, App, Context, Entity, InteractiveElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::names::{NameTheme, NameThemeParams};
+use sikemux_calls::names::NameTheme;
+use sikemux_calls::names::NameThemeParams;
+use sikemux_calls::params::NoParams;
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::{MidTurnSend, RailDensity, ScreenReader};
 use sikemux_wire::protocol::PermissionMode;
@@ -16,8 +17,8 @@ use crate::settings::rows::{self, Choice};
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM};
 use crate::ui;
 use crate::workbench::Workbench;
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::DefaultsParams;
+use sikemux_calls::call;
+use sikemux_calls::workspace::DefaultsParams;
 
 /// What a search finds on this page.
 pub(in crate::settings) const NOTIFICATIONS: &[crate::settings::index::Entry] = &[

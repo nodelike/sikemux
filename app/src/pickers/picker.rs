@@ -1,12 +1,12 @@
 //! ⌘O, ⌘⇧S and ⌘⇧O: the projects with the folders under the person's project
 //! roots, the SSH hosts, or both.
 
-use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::project_roots::ScanParams;
+use sikemux_calls::params::NoParams;
+use sikemux_calls::project_roots::ScanParams;
 use std::path::Path;
 
 use gpui_kit::{Context, PathPromptOptions, Window};
-use sikemux_core::server::ssh::SshHost;
+use sikemux_calls::ssh::SshHost;
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -15,10 +15,13 @@ use crate::reads::Read;
 use crate::toast;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::server::call;
-use sikemux_core::server::move_agent::{MoveParams, MoveToFolder};
-use sikemux_core::server::new_project::{self, CloneProjectParams, NewProjectParams};
-use sikemux_core::server::workspace::AddProjectParams;
+use sikemux_calls::call;
+use sikemux_calls::move_agent::MoveParams;
+use sikemux_calls::move_agent::MoveToFolder;
+use sikemux_calls::new_project;
+use sikemux_calls::new_project::CloneProjectParams;
+use sikemux_calls::new_project::NewProjectParams;
+use sikemux_calls::workspace::AddProjectParams;
 use sikemux_view::workspace::ProjectInfo;
 
 const PROJECT: &str = "project:";

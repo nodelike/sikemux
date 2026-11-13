@@ -2,7 +2,7 @@
 //! it off, remove it, or ask an agent to make or change one.
 
 use gpui_kit::{Context, Window};
-use sikemux_core::server::mods::ModInfo;
+use sikemux_calls::mods::ModInfo;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
 use tokio::sync::oneshot;
@@ -10,10 +10,13 @@ use tokio::sync::oneshot;
 use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
 use crate::workbench::{Strip, Workbench};
-use sikemux_core::server::call;
-use sikemux_core::server::chat::calls::PromptChatParams;
-use sikemux_core::server::mods::{change_prompt, make_prompt};
-use sikemux_core::server::mods::{ModParams, OffParams, PinModParams};
+use sikemux_calls::call;
+use sikemux_calls::chat::PromptChatParams;
+use sikemux_calls::mods::change_prompt;
+use sikemux_calls::mods::make_prompt;
+use sikemux_calls::mods::ModParams;
+use sikemux_calls::mods::OffParams;
+use sikemux_calls::mods::PinModParams;
 
 /// The palette's row that asks an agent for a new mod.
 const MAKE: &str = "mods:make";

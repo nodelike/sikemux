@@ -1,8 +1,8 @@
 //! An agent as the rails and tabs show it, and which agents each place lists.
 
 use gpui_kit::{AnyElement, App};
-use sikemux_core::server::call;
-use sikemux_core::server::workspace::PinnedParams;
+use sikemux_calls::call;
+use sikemux_calls::workspace::PinnedParams;
 use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::inbox::{AgentShown, RemoteAgent, TeamLink};
 use sikemux_view::layout::PaneKind;

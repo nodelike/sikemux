@@ -4,9 +4,11 @@
 
 use crate::workbench::actions;
 use gpui_kit::component::input::AnyInputState;
-use sikemux_core::server::call;
-use sikemux_core::server::search::{ReplaceParams, SearchParams, WindowParams};
-use sikemux_core::server::streams::SearchStreamParams;
+use sikemux_calls::call;
+use sikemux_calls::search::ReplaceParams;
+use sikemux_calls::search::SearchParams;
+use sikemux_calls::search::WindowParams;
+use sikemux_calls::streams::SearchStreamParams;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
@@ -27,9 +29,13 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, StyledText, Subscription, Task, WeakEntity, Window,
 };
 use serde_json::Value;
-use sikemux_core::server::search::{
-    FileWindow, ReplaceResults, SearchFile, SearchFound, SearchHit, SearchOptions, SearchSummary,
-};
+use sikemux_calls::search::FileWindow;
+use sikemux_calls::search::ReplaceResults;
+use sikemux_calls::search::SearchFile;
+use sikemux_calls::search::SearchFound;
+use sikemux_calls::search::SearchHit;
+use sikemux_calls::search::SearchOptions;
+use sikemux_calls::search::SearchSummary;
 
 use crate::core::{Streaming, Target};
 use crate::editor::OpenAt;
