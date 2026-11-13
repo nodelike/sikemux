@@ -7,8 +7,15 @@ use std::collections::HashSet;
 
 /// For each line added to `path`, given its old and new text, the files
 /// `tree` (every path in the commit) would need and lacks, as "what names
-/// it: what is missing".
-pub fn missing(path: &str, old: &[u8], new: &[u8], tree: &HashSet<String>) -> Vec<String> {
+/// it: what is missing". A file `ignored` says git ignores, such as
+/// generated build output, never counts as missing.
+pub fn missing(
+    path: &str,
+    old: &[u8],
+    new: &[u8],
+    tree: &HashSet<String>,
+    ignored: impl Fn(&str) -> bool,
+) -> Vec<String> {
     let (Ok(old), Ok(new)) = (std::str::from_utf8(old), std::str::from_utf8(new)) else {
         return Vec::new();
     };
@@ -33,7 +40,10 @@ pub fn missing(path: &str, old: &[u8], new: &[u8], tree: &HashSet<String>) -> Ve
             None
         };
         if let Some((said, files)) = wants {
-            if !files.iter().any(|file| tree.contains(file)) {
+            if !files
+                .iter()
+                .any(|file| tree.contains(file) || ignored(file))
+            {
                 lacking.push(format!(
                     "{path} adds {said}, but {} is not in this commit",
                     files[0]
@@ -179,6 +189,7 @@ mod tests {
             b"mod seen;\n",
             b"mod seen;\npub(crate) mod tasks;\n",
             &tree,
+            |_| false,
         );
         assert_eq!(
             rust,
@@ -189,6 +200,7 @@ mod tests {
             b"",
             b"import { onCoreChanged } from \"./coreChanged\";\nimport { core } from \"./core\";\n",
             &tree,
+            |_| false,
         );
         assert_eq!(
             script,
@@ -206,12 +218,20 @@ mod tests {
         .into_iter()
         .map(str::to_owned)
         .collect();
-        assert!(missing("crates/core/tests/chat.rs", b"", b"mod folded;\n", &tree).is_empty());
+        assert!(missing(
+            "crates/core/tests/chat.rs",
+            b"",
+            b"mod folded;\n",
+            &tree,
+            |_| false
+        )
+        .is_empty());
         assert!(missing(
             "src/App.tsx",
             b"",
             b"import markUrl from \"../brand/mark/mark-white.svg?url\";\nexport const root = new URL('../../../', import.meta.url);\n",
             &tree,
+            |_| false,
         )
         .is_empty());
     }

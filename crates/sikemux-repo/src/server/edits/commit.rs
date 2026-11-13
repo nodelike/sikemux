@@ -641,7 +641,9 @@ fn unresolved(diff: &Diff, changes: &[Change]) -> Result<Vec<String>, String> {
             None => Vec::new(),
         };
         let new = change.content.as_deref().unwrap_or_default();
-        lacking.extend(named::missing(&change.path, &old, new, &tree));
+        lacking.extend(named::missing(&change.path, &old, new, &tree, |file| {
+            git(&diff.top, &["check-ignore", "-q", "--no-index", file]).is_ok()
+        }));
     }
     Ok(lacking)
 }
