@@ -367,8 +367,8 @@ pub(crate) fn restore(core: &Arc<Core>) {
 /// viewing it can open, and the names and work of a lead's workers.
 const NOT_SHARED: [&str; 2] = ["shown", "results"];
 
-/// `payload` without what a share does not carry of a chat's head, read and written again only
-/// when it holds any of it.
+/// `payload` without what a share does not carry, read and written again only when it holds any
+/// of it.
 fn unshown(payload: &[u8]) -> Cow<'_, [u8]> {
     let holds = |name: &str| {
         let quoted = format!("\"{name}\"");
@@ -376,19 +376,21 @@ fn unshown(payload: &[u8]) -> Cow<'_, [u8]> {
             .windows(quoted.len())
             .any(|window| window == quoted.as_bytes())
     };
-    if !NOT_SHARED.iter().any(|name| holds(name)) {
+    if !(NOT_SHARED.iter().chain(&["ruleChange", "chips"])).any(|name| holds(name)) {
         return Cow::Borrowed(payload);
     }
     let Ok(mut value) = serde_json::from_slice::<Value>(payload) else {
         return Cow::Borrowed(payload);
     };
-    strip_heads(&mut value);
+    strip_unshared(&mut value);
     serde_json::to_vec(&value).map_or(Cow::Borrowed(payload), Cow::Owned)
 }
 
-/// Takes what a share does not carry out of every chat head in `value`: a view's head, and the
-/// fields a head change sets.
-fn strip_heads(value: &mut Value) {
+/// Takes out of `value` what a share does not carry: from every chat head, a view's head and the
+/// fields a head change sets; a rule change, which holds the person's rule in their words, so its
+/// row is a plain titled notice; and where each `why` chip opens, which becomes the unknown kind.
+/// A chip's address still names what it points at.
+fn strip_unshared(value: &mut Value) {
     match value {
         Value::Object(fields) => {
             let head_change = fields.get("op").and_then(Value::as_str) == Some("head");
@@ -401,11 +403,26 @@ fn strip_heads(value: &mut Value) {
                     head.remove(name);
                 }
             }
-            fields.values_mut().for_each(strip_heads);
+            fields.remove("ruleChange");
+            if let Some(Value::Array(chips)) = fields.get_mut("chips") {
+                for chip in chips.iter_mut().filter_map(Value::as_object_mut) {
+                    if chip.contains_key("href") && chip.contains_key("kind") {
+                        chip.insert("open".into(), serde_json::json!({ "kind": "unknown" }));
+                    }
+                }
+            }
+            fields.values_mut().for_each(strip_unshared);
         }
-        Value::Array(items) => items.iter_mut().for_each(strip_heads),
+        Value::Array(items) => items.iter_mut().for_each(strip_unshared),
         _ => {}
     }
+}
+
+/// `reply` as a viewer is sent it, without what a share does not carry.
+fn shared_reply(reply: &ShareReply) -> Option<Vec<u8>> {
+    let mut value = serde_json::to_value(reply).ok()?;
+    strip_unshared(&mut value);
+    serde_json::to_vec(&value).ok()
 }
 
 /// A snapshot: the chat as it stands, from its last turns, without what a share does not carry.
@@ -416,8 +433,8 @@ fn snapshot(
     mut attachment: ChatAttachment,
 ) -> ShareFrame {
     match &mut attachment {
-        ChatAttachment::Live { view, .. } => strip_heads(view),
-        ChatAttachment::Resumed { changes, .. } => strip_heads(changes),
+        ChatAttachment::Live { view, .. } => strip_unshared(view),
+        ChatAttachment::Resumed { changes, .. } => strip_unshared(changes),
         ChatAttachment::Missing => {}
     }
     let info = core.chats().get(agent_id).map(|chat| chat.info());
@@ -545,7 +562,7 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
         ShareAsk::Message { text, name, .. } => guest_wrote(&core, &agent_id, name, text).err(),
     };
     reply.error = failed;
-    let sealed = seal.seal(&serde_json::to_vec(&reply).ok()?)?;
+    let sealed = seal.seal(&shared_reply(&reply)?)?;
     Some(ToLink::Send(
         crate::accounts::share::ShareClientMessage::Answer(crate::accounts::share::ShareAnswer {
             share: id,
@@ -684,4 +701,90 @@ pub struct StopShareParams {
 
 pub(crate) fn share_chat_for(core: &Arc<Core>, params: ShareChatParams) -> CoreResult<ShareView> {
     share_chat(core, &params.agent_id, params.lifetime_ms, params.title)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sikemux_view::chat::{
+        AgentNotice, ChatMessage, ChatPage, ChatPart, NoticeSeverity, RuleChange, WhyChip, WhyKind,
+        WhyOpen,
+    };
+
+    fn answer() -> ChatMessage {
+        let notice = AgentNotice {
+            severity: NoticeSeverity::Info,
+            title: "Rule changed".into(),
+            description: None,
+            goal: None,
+            rule: None,
+            overruled: None,
+            week: None,
+            rule_change: Some(RuleChange {
+                project: "storefront".into(),
+                rule: 7,
+                text: "never ship on fridays".into(),
+                commit: None,
+                was: Some("avoid shipping late in the week".into()),
+                by: "Rohan".into(),
+                restored: false,
+                back_by: None,
+            }),
+        };
+        let chip = WhyChip {
+            href: "sikemux://why/commit/c0ffee1234".into(),
+            kind: WhyKind::Change,
+            at: Some(1_700_000_000_000),
+            landed: true,
+            open: WhyOpen::Commit {
+                sha: "c0ffee1234".into(),
+            },
+        };
+        let part = ChatPart::AgentNotice {
+            id: "p1".into(),
+            notice,
+        };
+        serde_json::from_value(serde_json::json!({
+            "id": "m1", "role": "assistant", "parts": [part], "chips": [chip],
+        }))
+        .unwrap()
+    }
+
+    /// What a share sent holds no rule words, its chips open nothing, and what the page draws stays.
+    fn check(shared: &[u8]) {
+        let row: Value = serde_json::from_slice(shared).unwrap();
+        let text = row.to_string();
+        for private in ["never ship on fridays", "late in the week", "ruleChange"] {
+            assert!(
+                !text.contains(private),
+                "{private} reached the share: {text}"
+            );
+        }
+        let chips = text.matches("\"open\":{\"kind\":\"unknown\"}").count();
+        assert_eq!(chips, 1, "a chip still opens something: {text}");
+        for drawn in [
+            "Rule changed",
+            "\"kind\":\"change\"",
+            "\"landed\":true",
+            "1700000000000",
+        ] {
+            assert!(text.contains(drawn), "{drawn} left the share: {text}");
+        }
+    }
+
+    #[test]
+    fn a_share_carries_no_rule_words_and_its_chips_open_nothing() {
+        let event = serde_json::json!({"type": "event", "event": {"kind": "chat",
+            "rows": [{"op": "put", "row": answer()}]}});
+        check(&unshown(&serde_json::to_vec(&event).unwrap()));
+        let reply = ShareReply {
+            id: 1,
+            page: Some(ChatPage {
+                rows: vec![answer()],
+                ..ChatPage::default()
+            }),
+            ..ShareReply::default()
+        };
+        check(&shared_reply(&reply).unwrap());
+    }
 }
