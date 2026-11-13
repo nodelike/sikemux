@@ -90,9 +90,9 @@ pub struct Composing {
     pub view: Entity<ComposerView>,
     pub secret: Entity<TextareaState>,
     pub secret_focused: bool,
-    /// The draft's words answer a call for a secret, so once that call closes they are dropped,
-    /// never sent to the agent or kept.
-    pub answering_secret: bool,
+    /// While the draft's words answer a call for a secret, the draft as it was when that call
+    /// came. Once it closes, words typed for it are dropped, never sent to the agent or kept.
+    pub secret_since: Option<String>,
     pub hint: SharedString,
     /// What the agent predicts the person sends next, while the empty draft offers it.
     pub suggested: Option<SharedString>,
@@ -1194,7 +1194,7 @@ impl Workbench {
             view,
             secret,
             secret_focused: false,
-            answering_secret: false,
+            secret_since: None,
             mic,
             hint: SharedString::default(),
             suggested: None,
@@ -1352,11 +1352,14 @@ impl Workbench {
         let Some(composing) = chat.composer.as_mut() else {
             return;
         };
-        let answered_secret =
-            std::mem::replace(&mut composing.answering_secret, typed == Typed::Secret)
-                && typed != Typed::Secret;
-        if answered_secret {
-            (composing.draft).update(cx, |draft, cx| draft.set_value("", window, cx));
+        match typed {
+            Typed::Secret => {
+                let draft = &composing.draft;
+                (composing.secret_since).get_or_insert_with(|| draft.read(cx).value().to_string());
+            }
+            _ => {
+                composing.left_secret(window, cx);
+            }
         }
         let suggested = suggested.filter(|suggested| {
             composing.attachments.is_empty()
@@ -1456,10 +1459,10 @@ impl Workbench {
         if let Some((draft, outgoing)) = typed {
             let text = draft.read(cx).value().trim().to_owned();
             let secret = self.typed_goes(agent, cx) == Typed::Secret;
-            let answered_secret = (self.composing(agent))
-                .is_some_and(|composing| composing.answering_secret && !secret);
-            if answered_secret {
-                draft.update(cx, |draft, cx| draft.set_value("", window, cx));
+            let dropped = !secret
+                && (self.composing_mut(agent))
+                    .is_some_and(|composing| composing.left_secret(window, cx));
+            if dropped {
                 self.keep_draft(agent, cx);
                 return cx.notify();
             }
