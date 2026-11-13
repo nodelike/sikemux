@@ -603,7 +603,7 @@ pub(super) fn trouble(
         head.connection,
         ChatConnection::Error | ChatConnection::Stopped
     );
-    if dropped && !chat.is_empty(cx) {
+    if dropped && !chat.is_new(cx) {
         let why = (head.ended.as_ref()).and_then(|ended| ended.message.clone());
         let mut parts = vec![t!("the session dropped").to_owned()];
         parts.extend(why);

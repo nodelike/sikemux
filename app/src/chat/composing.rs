@@ -584,7 +584,7 @@ pub(super) fn composer(
             .iter()
             .find(|saved| saved.id == agent.id)
     });
-    let fresh = chat.is_empty(cx)
+    let fresh = chat.is_new(cx)
         && saved.is_some_and(|saved| saved.resume_id.is_none() && saved.worktree.is_none());
     let strip = saved.map(|saved| strip(bench, agent, saved, fresh, head, cx));
     composer = composer.notice(None);

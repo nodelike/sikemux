@@ -27,7 +27,7 @@ impl Workbench {
             .iter()
             .find(|project| project.id == saved.project)?;
         let chat = self.chats.open.get(agent);
-        let started = saved.resume_id.is_some() || chat.is_none_or(|chat| !chat.is_empty(cx));
+        let started = saved.resume_id.is_some() || chat.is_none_or(|chat| !chat.is_new(cx));
         let preparing = chat
             .and_then(|chat| chat.composer.as_ref())
             .and_then(|composing| match &composing.stage {

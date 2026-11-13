@@ -110,8 +110,7 @@ fn agent_shown(
                 .iter()
                 .any(|saved| saved.id == agent.id && saved.resume_id.is_some())
         });
-        let away = (chat.state.as_ref()).is_some_and(|head| head.away.is_some());
-        let welcome = (chat.is_empty(cx) && !away).then(|| {
+        let welcome = chat.is_new(cx).then(|| {
             let placed = chat.placed();
             chat::status::connection_note(agent, chat, resumes, cx)
                 .unwrap_or_else(|| welcome(bench, Some(agent), placed, cx).into_any_element())

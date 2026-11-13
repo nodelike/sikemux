@@ -1234,8 +1234,10 @@ impl Chat {
         self.state.as_ref().is_some_and(|head| head.running)
     }
 
-    pub fn is_empty(&self, cx: &App) -> bool {
+    /// Nothing has been said in it and no While you were away card stands in it.
+    pub fn is_new(&self, cx: &App) -> bool {
         self.transcript.read(cx).rows().is_empty()
+            && (self.state.as_ref()).is_none_or(|head| head.away.is_none())
     }
 
     /// The account smart accounts started the chat on, and why.
@@ -1555,7 +1557,7 @@ pub fn pane(
         .filter(|switch| !matches!(switch, crate::worktrees::switch::Switch::Choosing { .. }));
     let empty_note = worktree
         .as_ref()
-        .filter(|_| chat.is_empty(cx))
+        .filter(|_| chat.is_new(cx))
         .and_then(|switch| crate::worktrees::switch::note(switch, cx));
     let bench_handle = cx.weak_entity();
     chat.activity_line
