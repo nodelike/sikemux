@@ -532,6 +532,8 @@ export interface LivePong {
 export interface LivePush {
   type: "push";
   ref: PushRef;
+  /** Stays the same when the host sends this push again after losing the connection before its answer, so the server delivers it once and answers a repeat with the first result. */
+  id?: string;
   /** The phone's device key. */
   to: DeviceKey;
   kind: PushKind;

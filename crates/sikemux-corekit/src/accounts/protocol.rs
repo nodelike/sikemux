@@ -470,6 +470,9 @@ pub struct LivePong {}
 #[serde(rename_all = "camelCase")]
 pub struct LivePush {
     pub r#ref: PushRef,
+    /// Stays the same when the host sends this push again after losing the connection before its answer, so the server delivers it once and answers a repeat with the first result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     /// The phone's device key.
     pub to: DeviceKey,
     pub kind: PushKind,

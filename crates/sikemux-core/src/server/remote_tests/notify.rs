@@ -108,7 +108,7 @@ impl Host {
     fn sent(&self) -> Vec<(Push, NotificationCard)> {
         let outbox = self.core.remote().outbox();
         let pushes = outbox.waiting();
-        outbox.take();
+        outbox.take(usize::MAX);
         pushes
             .into_iter()
             .map(|push| {

@@ -14,6 +14,7 @@ use time::format_description::well_known::Rfc3339;
 use time::macros::format_description;
 use time::OffsetDateTime;
 use tokio::sync::{watch, Notify};
+use tokio::time::Instant;
 
 use super::protocol::{
     AccountEvent, LiveAck, LiveApp, LiveCloseCode, LiveDeviceMessage, LiveHello, LiveLeave,
@@ -23,6 +24,9 @@ use super::socket::{self, send, Closed, Failures, Frame, Socket};
 use sikemux_wire::accounts::protocol::RevokeReason;
 
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
+/// The server closes a connection that sends more than 20 messages a second,
+/// so pushes leave room for acknowledgements and pongs.
+const PUSHES_PER_SECOND: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Want {
@@ -79,7 +83,8 @@ pub struct Push {
 
 /// Pushes waiting for the live connection, and those sent but not yet
 /// answered. Each goes out with a `ref` one higher than the last, and its
-/// answer carries it back.
+/// answer carries it back. Each keeps the id it was posted with when it goes
+/// out again, so the server delivers it only once.
 #[derive(Default)]
 pub struct Outbox {
     state: Mutex<OutboxState>,
@@ -89,8 +94,13 @@ pub struct Outbox {
 #[derive(Default)]
 struct OutboxState {
     last_ref: i64,
-    waiting: VecDeque<Push>,
-    sent: BTreeMap<i64, Push>,
+    waiting: VecDeque<Posted>,
+    sent: BTreeMap<i64, Posted>,
+}
+
+struct Posted {
+    id: String,
+    push: Push,
 }
 
 impl Outbox {
@@ -99,11 +109,14 @@ impl Outbox {
     pub fn post(&self, push: Push) {
         let now = epoch_ms();
         let mut state = self.state.locked();
-        state.waiting.retain(|waiting| {
+        state.waiting.retain(|Posted { push: waiting, .. }| {
             waiting.expires_at > now
                 && !(waiting.to == push.to && waiting.collapse_id == push.collapse_id)
         });
-        state.waiting.push_back(push);
+        state.waiting.push_back(Posted {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            push,
+        });
         drop(state);
         self.ready.notify_one();
     }
@@ -113,21 +126,31 @@ impl Outbox {
     pub fn withdraw(&self, to: &str, collapse_id: &str) -> bool {
         let mut state = self.state.locked();
         let before = state.waiting.len();
-        state
-            .waiting
-            .retain(|waiting| !(waiting.to == to && waiting.collapse_id == collapse_id));
+        state.waiting.retain(|Posted { push: waiting, .. }| {
+            !(waiting.to == to && waiting.collapse_id == collapse_id)
+        });
         state.waiting.len() != before
     }
 
     pub fn waiting(&self) -> Vec<Push> {
-        self.state.locked().waiting.iter().cloned().collect()
+        let state = self.state.locked();
+        state
+            .waiting
+            .iter()
+            .map(|posted| posted.push.clone())
+            .collect()
     }
 
-    pub fn take(&self) -> Vec<LivePush> {
+    /// Up to `most` pushes to send now, oldest first.
+    pub fn take(&self, most: usize) -> Vec<LivePush> {
         let now = epoch_ms();
         let mut state = self.state.locked();
         let mut taken = Vec::new();
-        while let Some(push) = state.waiting.pop_front() {
+        while taken.len() < most {
+            let Some(posted) = state.waiting.pop_front() else {
+                break;
+            };
+            let push = &posted.push;
             if push.expires_at <= now {
                 continue;
             }
@@ -135,6 +158,7 @@ impl Outbox {
             let r#ref = state.last_ref;
             taken.push(LivePush {
                 r#ref,
+                id: Some(posted.id.clone()),
                 to: push.to.clone(),
                 kind: push.kind,
                 collapse_id: push.collapse_id.clone(),
@@ -142,13 +166,17 @@ impl Outbox {
                 blob: push.blob.clone(),
                 expires_at: rfc3339(push.expires_at),
             });
-            state.sent.insert(r#ref, push);
+            state.sent.insert(r#ref, posted);
         }
         taken
     }
 
+    fn has_waiting(&self) -> bool {
+        !self.state.locked().waiting.is_empty()
+    }
+
     fn answered(&self, r#ref: i64) -> Option<Push> {
-        self.state.locked().sent.remove(&r#ref)
+        Some(self.state.locked().sent.remove(&r#ref)?.push)
     }
 
     /// The connection dropped before these were answered, so they go out
@@ -156,13 +184,12 @@ impl Outbox {
     fn unanswered(&self) {
         let mut state = self.state.locked();
         let sent = std::mem::take(&mut state.sent);
-        for push in sent.into_values().rev() {
-            if !state
-                .waiting
-                .iter()
-                .any(|waiting| waiting.to == push.to && waiting.collapse_id == push.collapse_id)
-            {
-                state.waiting.push_front(push);
+        for posted in sent.into_values().rev() {
+            let push = &posted.push;
+            if !state.waiting.iter().any(|Posted { push: waiting, .. }| {
+                waiting.to == push.to && waiting.collapse_id == push.collapse_id
+            }) {
+                state.waiting.push_front(posted);
             }
         }
     }
@@ -220,7 +247,14 @@ pub async fn run<A: Account>(
         outbox.unanswered();
         let wait = match ended {
             Ended::Done => continue,
-            Ended::Retry { hint, was_live } => failures.wait(hint, was_live),
+            Ended::Retry {
+                hint,
+                was_live,
+                why,
+            } => {
+                eprintln!("sikemux core: the account's live connection ended: {why}");
+                failures.wait(hint, was_live)
+            }
         };
         account.link(Link::Offline);
         tokio::select! {
@@ -240,11 +274,41 @@ enum Ended {
     Retry {
         hint: Option<Duration>,
         was_live: bool,
+        why: String,
     },
 }
 
-async fn flush(socket: &mut Socket, outbox: &Outbox) -> bool {
-    for push in outbox.take() {
+/// Holds pushes to [`PUSHES_PER_SECOND`], so a burst of them, or those going
+/// out again after a reconnect, never gets the connection closed.
+struct Pace {
+    since: Instant,
+    sent: usize,
+}
+
+impl Pace {
+    fn new() -> Self {
+        Self {
+            since: Instant::now(),
+            sent: 0,
+        }
+    }
+
+    fn allowed(&mut self) -> usize {
+        if self.since.elapsed() >= Duration::from_secs(1) {
+            *self = Self::new();
+        }
+        PUSHES_PER_SECOND.saturating_sub(self.sent)
+    }
+
+    fn next(&self) -> Instant {
+        self.since + Duration::from_secs(1)
+    }
+}
+
+/// Sends what the pace allows. False when a send failed.
+async fn flush(socket: &mut Socket, outbox: &Outbox, pace: &mut Pace) -> bool {
+    for push in outbox.take(pace.allowed()) {
+        pace.sent += 1;
         if !send(socket, &LiveDeviceMessage::Push(push)).await {
             return false;
         }
@@ -259,19 +323,23 @@ async fn session<A: Account>(
     outbox: &Outbox,
     changed: &mut watch::Receiver<()>,
 ) -> Ended {
-    let retry = |hint, was_live| Ended::Retry { hint, was_live };
+    let retry = |hint, was_live, why: &str| Ended::Retry {
+        hint,
+        was_live,
+        why: why.to_owned(),
+    };
     let Some(mut socket) = socket::connect(url).await else {
-        return retry(None, false);
+        return retry(None, false, "could not connect");
     };
     let nonce = socket::challenge(&mut socket, |message| match message {
         LiveServerMessage::Challenge(challenge) => Some(challenge.nonce),
         _ => None,
     });
     let Some(nonce) = nonce.await else {
-        return retry(None, false);
+        return retry(None, false, "no challenge came");
     };
     let Some((key, signature)) = account.sign_live(&nonce) else {
-        return retry(None, false);
+        return retry(None, false, "no key to sign the hello with");
     };
     let hello = LiveDeviceMessage::Hello(LiveHello {
         role: LiveRole::Host,
@@ -281,20 +349,30 @@ async fn session<A: Account>(
         app: Some(app.clone()),
     });
     if !send(&mut socket, &hello).await {
-        return retry(None, false);
+        return retry(None, false, "could not send the hello");
     }
 
     let mut ready = false;
     let mut leaving = false;
     let mut hint = None;
     let mut silence = socket::HEARTBEAT * 2;
+    let mut pace = Pace::new();
+    let mut held = false;
     loop {
         let frame = tokio::select! {
             frame = socket::next_frame(&mut socket, silence) => frame,
-            _ = outbox.ready.notified(), if ready && !leaving => {
-                if !flush(&mut socket, outbox).await {
-                    return retry(hint, ready);
+            _ = outbox.ready.notified(), if ready && !leaving && !held => {
+                if !flush(&mut socket, outbox, &mut pace).await {
+                    return retry(hint, ready, "could not send a push");
                 }
+                held = outbox.has_waiting();
+                continue;
+            }
+            _ = tokio::time::sleep_until(pace.next()), if held && !leaving => {
+                if !flush(&mut socket, outbox, &mut pace).await {
+                    return retry(hint, ready, "could not send a push");
+                }
+                held = outbox.has_waiting();
                 continue;
             }
             gone = changed.changed() => {
@@ -314,8 +392,12 @@ async fn session<A: Account>(
         let message = match frame {
             Frame::Server(message) => message,
             Frame::Other => continue,
-            Frame::Closed(code) => {
-                return match code.and_then(|code| LiveCloseCode::from_code(code.into())) {
+            Frame::Closed(close) => {
+                let why = close.to_string();
+                return match close
+                    .code()
+                    .and_then(|code| LiveCloseCode::from_code(code.into()))
+                {
                     Some(LiveCloseCode::Unauthenticated) if !ready => {
                         account.removed(None);
                         Ended::Done
@@ -325,12 +407,12 @@ async fn session<A: Account>(
                         Ended::Done
                     }
                     Some(LiveCloseCode::Replaced) => {
-                        retry(socket::wait_after(Closed::Replaced, hint), ready)
+                        retry(socket::wait_after(Closed::Replaced, hint), ready, &why)
                     }
                     Some(LiveCloseCode::OverLimit) => {
-                        retry(socket::wait_after(Closed::OverLimit, hint), ready)
+                        retry(socket::wait_after(Closed::OverLimit, hint), ready, &why)
                     }
-                    _ => retry(hint, ready),
+                    _ => retry(hint, ready, &why),
                 };
             }
         };
@@ -344,7 +426,9 @@ async fn session<A: Account>(
                     leaving = true;
                     send(&mut socket, &LiveDeviceMessage::Leave(LiveLeave {})).await
                 } else {
-                    flush(&mut socket, outbox).await
+                    let flushed = flush(&mut socket, outbox, &mut pace).await;
+                    held = outbox.has_waiting();
+                    flushed
                 }
             }
             LiveServerMessage::Events(batch) => {
@@ -387,7 +471,7 @@ async fn session<A: Account>(
             _ => true,
         };
         if !answered {
-            return retry(hint, ready);
+            return retry(hint, ready, "could not answer the server");
         }
     }
 }

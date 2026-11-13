@@ -971,6 +971,12 @@ export const schema = {
       properties: {
         type: { const: "push" },
         ref: { $ref: "#/$defs/PushRef" },
+        id: {
+          description:
+            "Stays the same when the host sends this push again after losing the connection before its answer, so the server delivers it once and answers a repeat with the first result.",
+          type: "string",
+          pattern: "^[0-9a-f]{32}$",
+        },
         to: {
           description: "The phone's device key.",
           $ref: "#/$defs/DeviceKey",

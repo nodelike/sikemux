@@ -248,6 +248,11 @@ export abstract class ChallengedSocket<
       this.messageWindow = { started: now, count: 0 };
     this.messageWindow.count += 1;
     if (this.messageWindow.count > limits.perSecond) {
+      if (this.phase !== "closing")
+        this.log.info(
+          { perSecond: limits.perSecond },
+          `closed a ${this.kind.name} connection sending too many messages`,
+        );
       this.close(codes.overLimit, "too many messages");
       return;
     }

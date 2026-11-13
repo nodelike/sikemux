@@ -217,8 +217,8 @@ async fn session(
             frame = socket::next_frame(&mut socket, silence) => match frame {
                 Frame::Server(message) => message,
                 Frame::Other => continue,
-                Frame::Closed(code) => {
-                    let code = code.and_then(|code| ShareCloseCode::from_code(code.into()));
+                Frame::Closed(close) => {
+                    let code = close.code().and_then(|code| ShareCloseCode::from_code(code.into()));
                     return match code {
                         Some(ShareCloseCode::Replaced) => {
                             retry(socket::wait_after(Closed::Replaced, hint), open)

@@ -209,8 +209,11 @@ async fn session(core: &Arc<Core>, url: &str) -> Ended {
         let message = match socket::next_frame(&mut socket, silence).await {
             Frame::Server(message) => message,
             Frame::Other => continue,
-            Frame::Closed(code) => {
-                return match code.and_then(|code| HookCloseCode::from_code(code.into())) {
+            Frame::Closed(close) => {
+                return match close
+                    .code()
+                    .and_then(|code| HookCloseCode::from_code(code.into()))
+                {
                     Some(HookCloseCode::Idle | HookCloseCode::Unauthenticated) => Ended::Done,
                     Some(HookCloseCode::Replaced) => {
                         retry(socket::wait_after(Closed::Replaced, hint), open)

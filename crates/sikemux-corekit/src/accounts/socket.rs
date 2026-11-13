@@ -57,19 +57,49 @@ pub async fn send(socket: &mut Socket, message: &impl Serialize) -> bool {
 
 pub enum Frame<T> {
     Server(T),
-    /// With the close code, when the server sent one.
-    Closed(Option<u16>),
+    Closed(Close),
     Other,
+}
+
+#[derive(Debug)]
+pub enum Close {
+    /// The server closed with this code and reason.
+    Server(u16, String),
+    /// Nothing came within the wait.
+    Silent,
+    /// The connection ended without a close from the server.
+    Broken(String),
+}
+
+impl Close {
+    pub fn code(&self) -> Option<u16> {
+        match self {
+            Close::Server(code, _) => Some(*code),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Close {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Close::Server(code, reason) => write!(f, "the server closed it ({code} {reason})"),
+            Close::Silent => f.write_str("the server went silent"),
+            Close::Broken(why) => write!(f, "the connection broke ({why})"),
+        }
+    }
 }
 
 /// The next frame, or closed when none came within `wait`.
 pub async fn next_frame<T: DeserializeOwned>(socket: &mut Socket, wait: Duration) -> Frame<T> {
     let message = match tokio::time::timeout(wait, socket.next()).await {
         Ok(Some(Ok(message))) => message,
-        _ => return Frame::Closed(None),
+        Ok(Some(Err(error))) => return Frame::Closed(Close::Broken(error.to_string())),
+        Ok(None) => return Frame::Closed(Close::Broken("it ended".into())),
+        Err(_) => return Frame::Closed(Close::Silent),
     };
-    if let Some((code, _)) = message.as_close() {
-        return Frame::Closed(Some(code.into()));
+    if let Some((code, reason)) = message.as_close() {
+        return Frame::Closed(Close::Server(code.into(), reason.to_owned()));
     }
     match message.as_text().map(serde_json::from_str) {
         Some(Ok(message)) => Frame::Server(message),

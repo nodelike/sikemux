@@ -17,6 +17,8 @@ interface PushLimits {
   giveUpMs: number;
   /** The longest Retry-After the sender honours; a longer one gives up instead. */
   maxRetryAfterMs: number;
+  /** How many pushes, by id, are remembered so one sent again is answered without going out twice. */
+  remembered: number;
 }
 
 const PUSH_LIMITS: PushLimits = {
@@ -25,7 +27,11 @@ const PUSH_LIMITS: PushLimits = {
   retryDelaysMs: [1_000, 2_000, 4_000],
   giveUpMs: 60_000,
   maxRetryAfterMs: 30_000,
+  remembered: 20_000,
 };
+
+/** Results worth trying again rather than answering a repeat with. */
+const PASSING: ReadonlySet<PushResult> = new Set(["throttled", "failed"]);
 
 /** A token that failed this many times in a row, with no success in 30 days, is deleted. */
 const FAILURES_BEFORE_FORGETTING = 20;
@@ -57,6 +63,11 @@ export class Pusher {
   private readonly limits: PushLimits;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
+  /** By sender and push id, oldest first, until each push expires. */
+  private readonly answered = new Map<
+    string,
+    { result: Promise<PushResult>; expiresAt: number }
+  >();
 
   constructor(options: PusherOptions) {
     this.db = options.db;
@@ -68,7 +79,38 @@ export class Pusher {
     this.sleep = options.sleep ?? sleep;
   }
 
-  async push(sender: Sender, push: LivePush): Promise<PushResult> {
+  /**
+   * A host that lost its connection before the answer sends the push again with the same id;
+   * that gets the first one's answer instead of reaching the phone twice.
+   */
+  push(sender: Sender, push: LivePush): Promise<PushResult> {
+    if (!push.id) return this.deliver(sender, push);
+    const id = `${sender.key}:${push.id}`;
+    const earlier = this.answered.get(id);
+    if (earlier && earlier.expiresAt > this.now()) {
+      this.log.info(
+        { from: sender.key.slice(0, 8), to: push.to.slice(0, 8) },
+        "pushed already",
+      );
+      return earlier.result;
+    }
+    const result = this.deliver(sender, push);
+    this.answered.delete(id);
+    this.answered.set(id, { result, expiresAt: Date.parse(push.expiresAt) });
+    for (const oldest of this.answered.keys()) {
+      if (this.answered.size <= this.limits.remembered) break;
+      this.answered.delete(oldest);
+    }
+    const forget = () => {
+      if (this.answered.get(id)?.result === result) this.answered.delete(id);
+    };
+    result.then((answer) => {
+      if (PASSING.has(answer)) forget();
+    }, forget);
+    return result;
+  }
+
+  private async deliver(sender: Sender, push: LivePush): Promise<PushResult> {
     const started = this.now();
     const expiresAt = Date.parse(push.expiresAt);
     const facts = {

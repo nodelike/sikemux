@@ -466,7 +466,7 @@ fn a_newer_alert_for_the_same_card_replaces_one_still_waiting() {
     assert_eq!(waiting[1].blob, "BBBB");
     assert!(outbox.withdraw("phone", &"b".repeat(32)));
     assert!(!outbox.withdraw("phone", &"b".repeat(32)));
-    let taken = outbox.take();
+    let taken = outbox.take(usize::MAX);
     assert_eq!(taken.len(), 1, "an expired push never goes out");
     assert_eq!(taken[0].r#ref, 1);
 }
@@ -528,7 +528,8 @@ async fn a_push_left_unanswered_goes_out_again_on_the_next_connection() {
     peer.send(json!({ "type": "ping" })).await;
     assert_eq!(peer.receive().await, json!({ "type": "pong" }));
     outbox.post(push("phone", "a", later()));
-    assert_eq!(peer.receive().await["ref"], 1);
+    let first = peer.receive().await;
+    assert_eq!(first["ref"], 1);
     peer.send(json!({ "type": "bye", "reconnectAfterMs": 10 }))
         .await;
     peer.close(1012).await;
@@ -539,9 +540,36 @@ async fn a_push_left_unanswered_goes_out_again_on_the_next_connection() {
     let again = peer.receive().await;
     assert_eq!(again["ref"], 2);
     assert_eq!(again["collapseId"], "a".repeat(32));
+    assert_eq!(
+        again["id"], first["id"],
+        "the server can tell it already has it"
+    );
     let newer = peer.receive().await;
     assert_eq!(newer["ref"], 3);
+    assert_ne!(newer["id"], first["id"]);
     assert_eq!(newer["collapseId"], "b".repeat(32));
+
+    *account.want.lock().unwrap() = Want::Stop;
+    changed.send(()).unwrap();
+    finished(task).await;
+}
+
+#[tokio::test]
+async fn a_burst_of_pushes_stays_under_the_servers_message_limit() {
+    let server = Server::new().await;
+    let account = Fake::new(Want::Stay);
+    let outbox = Arc::new(Outbox::default());
+    for card in ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"] {
+        outbox.post(push("phone", card, later()));
+    }
+    let (task, changed) = spawn_with(&account, &server, outbox.clone());
+    let mut peer = server.greet(&account).await;
+    peer.ready(0).await;
+    let started = std::time::Instant::now();
+    for _ in 0..12 {
+        assert_eq!(peer.receive().await["type"], "push");
+    }
+    assert!(started.elapsed() >= Duration::from_millis(900));
 
     *account.want.lock().unwrap() = Want::Stop;
     changed.send(()).unwrap();
