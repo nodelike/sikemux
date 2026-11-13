@@ -15,6 +15,7 @@ import { checkStashFiles, StashFiles } from "./stash/files.ts";
 import { purgeHookDeliveries } from "./hooks/purge.ts";
 import { purgeStash } from "./stash/purge.ts";
 import { purgeVaultUses } from "./vault/purge.ts";
+import { purgeModRemovals } from "./mods/purge.ts";
 import {
   promoteUpdate,
   publishUpdate,
@@ -124,6 +125,7 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
       await purgeStash(database.db, config.stashDir, log);
       await purgeHookDeliveries(database.db, log);
       await purgeVaultUses(database.db, log);
+      await purgeModRemovals(database.db, log);
     });
   },
   "publish-update": updateCommand(

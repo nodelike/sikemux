@@ -243,6 +243,31 @@ export interface Tables {
     first_at: ColumnType<Date, string, never>;
     last_at: ColumnType<Date, string, never>;
   };
+  mod_counters: {
+    user_id: string;
+    seq: ColumnType<string, never, number>;
+    sealed_bytes: ColumnType<string, never, number>;
+    cleared_seq: ColumnType<string, never, never>;
+  };
+  mod_documents: {
+    user_id: string;
+    mod_id: string;
+    doc_id: string;
+    generation: number;
+    sealed: string;
+    removed: boolean;
+    revision: number;
+    seq: ColumnType<string, number, number>;
+    updated_by: string;
+    updated_at: ColumnType<Date, never, Date>;
+  };
+  mod_purges: {
+    user_id: string;
+    seq: ColumnType<string, number, never>;
+    mod_id: string;
+    purged_by: string;
+    purged_at: CreatedAt;
+  };
   audit: {
     id: Generated<string>;
     user_id: string | null;
