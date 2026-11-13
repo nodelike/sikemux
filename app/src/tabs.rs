@@ -39,6 +39,10 @@ const BAR_HEIGHT: f32 = 36.;
 /// The tabs' row under the bar, with the gutter above it and a little less below.
 const TAB_ROW_HEIGHT: f32 = 42.;
 
+/// How wide the window is, in points, before the bar's chips keep their words; narrower,
+/// they keep only their marks so they stay clear of the place in the middle.
+const ROOMY_BAR: f32 = 1360.;
+
 /// How tall the bar and, when a place has tabs, the row of them under it stand.
 pub fn top_height(bench: &Workbench) -> f32 {
     BAR_HEIGHT
@@ -56,7 +60,12 @@ fn strip_with_tabs(bench: &Workbench) -> Option<Strip> {
 
 /// The bar, holding the window buttons, where the window is and the chips, then the
 /// project's tabs on a row of their own from the window's left edge to its right.
-pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
+pub fn top_bar(
+    bench: &Workbench,
+    window: &Window,
+    cx: &mut Context<Workbench>,
+) -> impl IntoElement {
+    let roomy = window.viewport_size().width >= px(ROOMY_BAR);
     let t = Tokens::get(cx).clone();
     let tabs = strip_with_tabs(bench).map(|strip| strip_tabs(bench, &strip, cx));
     let bar = div()
@@ -83,7 +92,7 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                 .gap(SPACE_2)
                 .pr(SPACE_4)
                 .children(
-                    crate::overload::chip(bench, cx)
+                    crate::overload::chip(bench, roomy, cx)
                         .map(|chip| [chip, separator(cx)])
                         .into_iter()
                         .flatten(),

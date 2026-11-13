@@ -62,7 +62,11 @@ impl Groups {
 }
 
 /// The badge, while something waits its turn on this host or its core says it is overloaded.
-pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+pub(crate) fn chip(
+    bench: &Workbench,
+    roomy: bool,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
     let load = bench.this_view()?.load.as_ref()?;
     let groups = groups(bench, load, cx);
     let waiting = groups.in_line.len();
@@ -94,9 +98,12 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                             ..t.warn
                         })
                         .child(div().size(px(6.)).rounded_full().bg(t.warn))
-                        .child(
-                            ui::text(overloaded(), TEXT_XS, FontWeight::MEDIUM).text_color(t.warn),
-                        ),
+                        .when(roomy, |chip| {
+                            chip.child(
+                                ui::text(overloaded(), TEXT_XS, FontWeight::MEDIUM)
+                                    .text_color(t.warn),
+                            )
+                        }),
                     waiting => chip
                         .bg(match open {
                             true => t.surface_chosen,
@@ -105,7 +112,10 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                         .child(ui::icon(Icon::Hourglass, 12.).text_color(t.warn))
                         .child(
                             ui::text(
-                                t!("{count} in line", count = waiting),
+                                match roomy {
+                                    true => t!("{count} in line", count = waiting),
+                                    false => waiting.to_string(),
+                                },
                                 TEXT_XS,
                                 FontWeight::MEDIUM,
                             )

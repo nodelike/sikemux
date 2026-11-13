@@ -749,7 +749,7 @@ impl Parts {
             };
         Self {
             top: part(
-                |bench, _, cx| tabs::top_bar(bench, cx).into_any_element(),
+                |bench, window, cx| tabs::top_bar(bench, window, cx).into_any_element(),
                 true,
             ),
             rail: part(
