@@ -10,6 +10,7 @@ sikemux-grid = { path = "../sikemux-grid" }
 sikemux-wire = { path = "../sikemux-wire" }
 portable-pty = "0.9"
 alacritty_terminal = "0.25"
+base64 = "0.22"
 memchr = "2"
 regex = "1"
 serde = { version = "1", features = ["derive"] }

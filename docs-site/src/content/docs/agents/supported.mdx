@@ -29,6 +29,14 @@ Each agent's page covers how to install it and sign in, how Sikemux runs it, and
 | Muse | `muse serve`, Muse's session protocol |
 | Pi | `pi --mode rpc`, Pi's own RPC mode |
 
+## In a terminal tab
+
+An agent run in a terminal tab says whether it is working, waiting on you or done by itself when it speaks the [Program Status Protocol](https://www.superlogical.com/rex/docs/build/program-status) (OSC 7501), and the rail, the island and your phone show what it says. Any other agent's state is read from its screen. To try it, run this in an agent's terminal tab, and it shows as waiting on you:
+
+```sh
+printf '\e]7501;state=blocked:kind=permission\e\\'
+```
+
 ## Where Sikemux looks
 
 Sikemux finds an agent on your `PATH`, and in `~/.local/bin`, `~/Library/pnpm`, `~/.npm/bin` and `~/.bun/bin`, plus each agent's own folder: `~/.claude/local` and `~/.claude/bin` for Claude, `~/.opencode/bin` for OpenCode, `~/.grok/bin` for Grok, and the ChatGPT app for Codex. Before using one, it checks that the program runs.

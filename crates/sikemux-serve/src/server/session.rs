@@ -18,6 +18,7 @@ use portable_pty::{Child, ExitStatus, NativePtySystem, PtySize, PtySystem};
 use sikemux_process::sync::Locked;
 use sikemux_pty::output_log::OutputLog;
 use sikemux_pty::process::SpawnedChildGuard;
+use sikemux_pty::program_status::{self, ProgramStatus};
 use sikemux_pty::screen::Screen;
 use sikemux_pty::shell::ShellLaunchIntegration;
 use sikemux_pty::shell_protocol::ShellProtocolParser;
@@ -175,6 +176,10 @@ impl Session {
         capacity_permit: CapacityPermit,
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<InputJob>) {
         let (input, input_jobs) = mpsc::unbounded_channel();
+        let mut parts = parts;
+        if parts.agent.is_some() {
+            parts.screen.status = Some(ProgramStatus::default());
+        }
         let reported = parts.exit.is_some();
         if let (Some(pid), Some(agent_id), false) = (parts.pid, &parts.owner.agent_id, reported) {
             super::callers::started(pid, agent_id);
@@ -907,10 +912,21 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
         .as_mut()
         .map(|shell| shell.process_for_events(bytes, output_now_ms))
         .unwrap_or_default();
-    let replies = screen.process(bytes, &(core.above().terminal_colors)(core));
+    let status = screen
+        .status
+        .as_mut()
+        .map(|status| status.process(bytes))
+        .unwrap_or_default();
+    let mut replies = screen.process(bytes, &(core.above().terminal_colors)(core));
+    if status.asked {
+        replies.extend_from_slice(program_status::FEATURE_REPLY);
+    }
     if let Some(agent) = session.agent.as_ref() {
         agent.note_parsed();
     }
+    let program_report = status
+        .changed
+        .then(|| agent::ProgramReport::of(screen.status.as_ref()));
     screen.title_from_cwd();
     let retitled = screen.take_title_change().is_some();
     answer_line_waiters(session, &screen);
@@ -918,6 +934,9 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
         type_waiting(session, &screen);
     }
     drop(screen);
+    if let (Some(agent), Some(report)) = (session.agent.as_ref(), program_report) {
+        agent::note_program_status(core, agent, report);
+    }
     session.frames.notify.notify_one();
     reply_to_program(session, replies);
     if retitled && !session.title_pending.swap(true, Ordering::AcqRel) {

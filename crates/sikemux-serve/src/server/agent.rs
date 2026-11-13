@@ -14,6 +14,7 @@ use sikemux_pty::agent_detection::{
     AgentDetection, AgentDetectionState, AgentKind, DetectionConfidence, DetectionExplain,
     DetectionInput, ManifestRegistry,
 };
+use sikemux_pty::program_status::{ProgramStatus, ReportedState};
 
 use sikemux_wire::protocol::{AgentState, AgentStateEvent, Event};
 
@@ -22,6 +23,7 @@ use super::session::Session;
 use super::{Core, CoreResult};
 
 const ACTIVITY_SETTLE: Duration = Duration::from_secs(2);
+const MAX_REPORTED_MESSAGE_CHARS: usize = 120;
 /// How long an agent at rest must keep printing before that counts as a turn
 /// it began by itself rather than a redraw of its screen.
 const OUTPUT_MAKES_A_TURN: Duration = Duration::from_secs(5);
@@ -87,6 +89,8 @@ pub struct AgentActivity {
     kind: Option<AgentKind>,
     armed: AtomicBool,
     state: AtomicU8,
+    /// The program says its own state over OSC 7501, so its screen is not read.
+    reports_itself: AtomicBool,
     /// Set by an explicit kill: a replacement may already be running, so this
     /// one must not report anything more.
     silenced: AtomicBool,
@@ -117,6 +121,7 @@ impl AgentActivity {
             kind: agent_type.and_then(AgentKind::from_label),
             armed: AtomicBool::new(initial_prompt_submitted),
             state: AtomicU8::new(AgentState::Unknown as u8),
+            reports_itself: AtomicBool::new(false),
             silenced: AtomicBool::new(false),
             last_published: AtomicU64::new(0),
             idle_confirmations: AtomicU8::new(0),
@@ -170,9 +175,18 @@ impl AgentActivity {
         AgentState::from_u8(self.state.load(Ordering::Acquire))
     }
 
-    /// What it was last published doing, for an agent of a kind the core reads.
+    /// Its state is known: the core reads its kind's screens, or it says it.
+    fn readable(&self) -> bool {
+        self.kind.is_some() || self.reports_itself()
+    }
+
+    fn reports_itself(&self) -> bool {
+        self.reports_itself.load(Ordering::Acquire)
+    }
+
+    /// What it was last published doing, for an agent whose state is known.
     pub fn state(&self) -> Option<AgentState> {
-        self.kind.map(|_| self.state_now())
+        self.readable().then(|| self.state_now())
     }
 
     /// It is at work on a turn, or waits on the person in the middle of one.
@@ -182,7 +196,7 @@ impl AgentActivity {
 
     /// Its screen shows it waiting for a prompt.
     pub fn idle(&self) -> bool {
-        self.kind.is_some() && self.state_now() == AgentState::Idle
+        self.readable() && self.state_now() == AgentState::Idle
     }
 
     pub fn silence(&self) {
@@ -287,6 +301,9 @@ pub fn note_input(core: &Core, session: &Session, bytes: &[u8]) {
         .store(core.uptime_ms(), Ordering::Relaxed);
     agent.idle_confirmations.store(0, Ordering::Release);
     agent.revision.fetch_add(1, Ordering::AcqRel);
+    if agent.reports_itself() {
+        return;
+    }
     agent.publish(
         core,
         AgentState::Working,
@@ -302,7 +319,7 @@ pub fn note_input(core: &Core, session: &Session, bytes: &[u8]) {
 /// a redraw, such as Claude's after each turn, unless it keeps going or its
 /// screen shows it at work.
 pub fn note_output(core: &Core, agent: &AgentActivity) {
-    if agent.kind.is_none() || !agent.armed.load(Ordering::Acquire) {
+    if agent.kind.is_none() || !agent.armed.load(Ordering::Acquire) || agent.reports_itself() {
         return;
     }
     agent.idle_confirmations.store(0, Ordering::Release);
@@ -328,7 +345,7 @@ pub fn note_output(core: &Core, agent: &AgentActivity) {
 }
 
 pub fn note_exit(core: &Core, agent: &AgentActivity, status: Option<&ExitStatus>) {
-    if agent.kind.is_none() {
+    if !agent.readable() {
         return;
     }
     let reason = match status {
@@ -340,6 +357,62 @@ pub fn note_exit(core: &Core, agent: &AgentActivity, status: Option<&ExitStatus>
         ),
     };
     agent.publish(core, AgentState::Stopped, "process", "high", reason, None);
+}
+
+/// What a program's own OSC 7501 reports come to, or None once it cleared
+/// them all.
+pub struct ProgramReport(Option<(AgentState, String)>);
+
+impl ProgramReport {
+    pub fn of(status: Option<&ProgramStatus>) -> Self {
+        let Some((status, record)) = status.and_then(|status| Some((status, status.headline()?)))
+        else {
+            return Self(None);
+        };
+        let state = match record.state {
+            ReportedState::Working => AgentState::Working,
+            ReportedState::Blocked => AgentState::Blocked,
+            ReportedState::Idle | ReportedState::Done | ReportedState::Error => AgentState::Idle,
+        };
+        let mut reason = format!(
+            "{} reports {}",
+            status.app_of(record).unwrap_or("the program"),
+            record.state.word()
+        );
+        if let Some(on) = record.blocked_on {
+            reason.push_str(" on ");
+            reason.push_str(on.word());
+        }
+        if let Some(msg) = record.msg.as_deref() {
+            reason.push_str(": ");
+            reason.extend(
+                msg.chars()
+                    .filter(|ch| !invisible_formatting(*ch))
+                    .take(MAX_REPORTED_MESSAGE_CHARS),
+            );
+        }
+        Self(Some((state, reason)))
+    }
+}
+
+/// Text direction overrides and zero-width marks, which could make a
+/// program's message read as something else.
+fn invisible_formatting(ch: char) -> bool {
+    matches!(ch, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}')
+}
+
+/// A program that reports its own state is taken at its word; once it
+/// clears every report its screen is read again.
+pub fn note_program_status(core: &Core, agent: &AgentActivity, report: ProgramReport) {
+    let Some((state, reason)) = report.0 else {
+        agent.reports_itself.store(false, Ordering::Release);
+        agent.invalidate_detection();
+        agent.revision.fetch_add(1, Ordering::AcqRel);
+        return;
+    };
+    agent.reports_itself.store(true, Ordering::Release);
+    agent.idle_confirmations.store(0, Ordering::Release);
+    agent.publish(core, state, "program", "high", reason, None);
 }
 
 fn detection_input<'a>(recent: &'a str, title: &'a str) -> DetectionInput<'a> {
@@ -363,6 +436,9 @@ pub fn takes_prompt(core: &Core, session: &Session) -> bool {
     let Some(agent) = session.agent.as_ref().filter(|agent| agent.idle()) else {
         return false;
     };
+    if agent.reports_itself() {
+        return true;
+    }
     let Some(detection) = screen_now(core, session) else {
         return false;
     };
@@ -384,6 +460,13 @@ pub fn takes_prompt(core: &Core, session: &Session) -> bool {
 /// Whether the agent's screen shows it asking the person something now, such
 /// as for a permission.
 pub fn asks_now(core: &Core, session: &Session) -> bool {
+    if let Some(agent) = session
+        .agent
+        .as_ref()
+        .filter(|agent| agent.reports_itself())
+    {
+        return agent.state_now() == AgentState::Blocked;
+    }
     screen_now(core, session)
         .is_some_and(|detection| matches!(detection.state, AgentDetectionState::Blocked))
 }
@@ -409,6 +492,9 @@ pub fn poll(core: &Core, session: &Session, now: u64) {
     let Some(kind) = agent.kind else {
         return;
     };
+    if agent.reports_itself() {
+        return;
+    }
     if !agent.armed.load(Ordering::Acquire)
         || now.saturating_sub(session.last_activity_ms.load(Ordering::Relaxed))
             < ACTIVITY_SETTLE.as_millis() as u64

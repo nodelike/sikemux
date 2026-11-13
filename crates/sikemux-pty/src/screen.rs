@@ -1,5 +1,6 @@
 use sikemux_grid::TerminalColors;
 
+use crate::program_status::ProgramStatus;
 use crate::shell_protocol::{ShellMetadataSnapshot, ShellProtocolParser, SshLink};
 use crate::terminal::{Processed, Terminal, HISTORY_LINES, IDLE_HISTORY_LINES};
 
@@ -15,6 +16,8 @@ pub struct Screen {
     /// The folder a shell last reported, which names its terminal.
     titled_cwd: Option<String>,
     pub shell: Option<ShellProtocolParser>,
+    /// What the program says it is doing, read only for agents' terminals.
+    pub status: Option<ProgramStatus>,
 }
 
 impl Screen {
@@ -25,6 +28,7 @@ impl Screen {
             title_changed: false,
             titled_cwd: None,
             shell: shell.then(ShellProtocolParser::default),
+            status: None,
         }
     }
 

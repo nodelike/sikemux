@@ -3,6 +3,7 @@ pub mod error;
 pub mod launch;
 pub mod output_log;
 pub mod process;
+pub mod program_status;
 pub mod screen;
 pub mod shell;
 pub mod shell_protocol;
