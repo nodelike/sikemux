@@ -30,7 +30,6 @@ use sikemux_view::calls::{
 };
 use sikemux_view::inbox::{InboxRaised, RaisedFor};
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
-use sikemux_wire::protocol::ChatContext;
 use sikemux_wire::protocol::WindowCall;
 
 use super::activity::Activity;
@@ -392,8 +391,6 @@ impl Question {
 #[serde(rename_all = "camelCase")]
 struct QuestionsRecord {
     open: Vec<Question>,
-    #[serde(default)]
-    replies: Vec<ReplyQuestion>,
 }
 
 /// A question the person answered, kept until its asker reads the answer.
@@ -404,109 +401,9 @@ struct Answered {
     answer: Option<String>,
 }
 
-/// One thing an agent asked the person in the reply its turn ended with, rather than with a
-/// tool; a reply that asks several things makes one of these for each. An offer a yes or a no
-/// answers is not one: it shows as how the agent's turn left things. Nothing holds the agent on
-/// them, and its next turn takes them back.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ReplyQuestion {
-    id: String,
-    agent_id: String,
-    name: String,
-    cli: String,
-    project: String,
-    text: String,
-    /// The options of a choice the reply leaves to the person, the agent's pick marked.
-    choices: Vec<QuestionChoice>,
-    /// The person's answer, held until every question of the same reply has one, so the
-    /// agent hears them all in one message.
-    given: Option<String>,
-    /// The files given with it.
-    given_paths: Vec<String>,
-    at: u64,
-}
-
-impl ReplyQuestion {
-    fn waits(&self) -> bool {
-        self.given.is_none()
-    }
-
-    fn view(&self) -> AgentQuestion {
-        AgentQuestion {
-            id: self.id.clone(),
-            agent_id: self.agent_id.clone(),
-            name: self.name.clone(),
-            cli: self.cli.clone(),
-            project: self.project.clone(),
-            asked: self.text.clone(),
-            text: self.text.clone(),
-            header: None,
-            choices: self.choices.clone(),
-            multi: false,
-            blocked: false,
-            assumption: None,
-            secret: false,
-            at: self.at,
-            state: QuestionState::Open,
-            via_note: None,
-            secret_note: None,
-            answer: None,
-            ticket: None,
-            production: false,
-        }
-    }
-
-    fn call(&self) -> PersonCall {
-        let (options, pick) = call_options(&self.choices);
-        PersonCall {
-            id: self.id.clone(),
-            project: self.project.clone(),
-            kind: CallKind::Taste,
-            asker: CallAsker {
-                agent_id: self.agent_id.clone(),
-                name: self.name.clone(),
-                cli: self.cli.clone(),
-                chief: false,
-            },
-            joined: Vec::new(),
-            asked_for: None,
-            question: self.text.clone(),
-            context: None,
-            assumption: None,
-            options,
-            pick,
-            against: None,
-            evidence: Vec::new(),
-            action: None,
-            brief: None,
-            place: None,
-            can_hand_back: true,
-            multi: false,
-            secret: false,
-            raised_at: self.at,
-            state: CallState::Open,
-            answer: None,
-            outcome: None,
-        }
-    }
-
-    fn answered(&self) -> messages::Answered {
-        messages::Answered {
-            question: self.text.clone(),
-            asker: self.name.clone(),
-            asker_id: self.agent_id.clone(),
-            cli: self.cli.clone(),
-            secret: false,
-        }
-    }
-}
-
 #[derive(Default)]
 struct State {
     open: Vec<Question>,
-    /// The questions of each agent's latest reply, in the order it asked them.
-    reply_questions: Vec<ReplyQuestion>,
     /// The rule each agent was last sent back to over what it offered, so the same rule does not
     /// send it back again until a turn ends offering nothing a rule is about.
     followed_rules: HashMap<String, String>,
@@ -614,7 +511,6 @@ impl Questions {
                 None => known,
             }
         });
-        record.replies.retain(|question| known(&question.agent_id));
         let secrets = data_dir.map(|dir| dir.join(SECRETS));
         if let Some(entries) = secrets
             .as_deref()
@@ -649,9 +545,8 @@ impl Questions {
             secrets,
             pictures,
             state: Mutex::new(State {
-                dirty: !record.open.is_empty() || !record.replies.is_empty(),
+                dirty: !record.open.is_empty(),
                 open: record.open,
-                reply_questions: record.replies,
                 keeper,
                 ..State::default()
             }),
@@ -737,12 +632,10 @@ impl Questions {
         Ok(())
     }
 
-    /// The open questions changed, or those asked in replies: the window is told, and they are
-    /// kept.
+    /// The open questions changed: the window is told, and they are kept.
     fn changed(&self, state: &mut State) {
         self.kept.save(&QuestionsRecord {
             open: state.open.clone(),
-            replies: state.reply_questions.clone(),
         });
         let waiting = state
             .open
@@ -754,21 +647,17 @@ impl Questions {
     }
 
     /// The questions of `agent_id` the person answers by writing to it, which its next turn takes
-    /// back: those it stopped for, then those its last reply asked.
-    pub(crate) fn answered_by_writing(&self, agent_id: &str) -> (Vec<String>, Vec<String>) {
-        let state = self.state.locked();
-        let stopped = (state.open.iter()).filter(|question| {
-            question.agent_id == agent_id
-                && question.blocked
-                && question.asks_person()
-                && question.approval.is_none()
-        });
-        let replied =
-            (state.reply_questions.iter()).filter(|question| question.agent_id == agent_id);
-        (
-            stopped.map(|question| question.id.clone()).collect(),
-            replied.map(|question| question.id.clone()).collect(),
-        )
+    /// back: those it stopped for.
+    pub(crate) fn answered_by_writing(&self, agent_id: &str) -> Vec<String> {
+        (self.state.locked().open.iter())
+            .filter(|question| {
+                question.agent_id == agent_id
+                    && question.blocked
+                    && question.asks_person()
+                    && question.approval.is_none()
+            })
+            .map(|question| question.id.clone())
+            .collect()
     }
 
     /// Whether what the person types to `agent_id` may answer an open question whose answer is
@@ -781,17 +670,7 @@ impl Questions {
     }
 
     pub(crate) fn is_open(&self, id: &str) -> bool {
-        let state = self.state.locked();
-        (state.open.iter().map(|question| &question.id))
-            .chain(state.reply_questions.iter().map(|question| &question.id))
-            .any(|open| open == id)
-    }
-
-    /// Whether `id` is a card of an agent's reply that holds its answer already, which goes to
-    /// the agent with the last of its cards.
-    pub(crate) fn holds_answer(&self, id: &str) -> bool {
-        (self.state.locked().reply_questions.iter())
-            .any(|question| question.id == id && !question.waits())
+        (self.state.locked().open.iter()).any(|question| question.id == id)
     }
 
     pub(crate) fn blocks_on_person(&self, agent_id: &str) -> bool {
@@ -807,14 +686,6 @@ impl Questions {
                 question.agent_id == agent_id && question.blocked && question.asks_person()
             })
             .map(|question| question.id.clone())
-    }
-
-    /// Whether a question the agent asked, with the question tool or in its last reply, waits
-    /// on the person.
-    pub(crate) fn asks_person(&self, agent_id: &str) -> bool {
-        self.blocks_on_person(agent_id)
-            || (self.state.locked().reply_questions.iter())
-                .any(|question| question.agent_id == agent_id && question.waits())
     }
 
     /// Whether the agent stopped to wait for the answer to a question.
@@ -836,8 +707,8 @@ impl Questions {
             .any(|question| question.agent_id == agent_id)
     }
 
-    /// The questions put to the person, with a tool or in a reply, oldest first: of those an
-    /// agent waits on, only its latest.
+    /// The questions put to the person, oldest first: of those an agent waits on, only its
+    /// latest.
     pub(crate) fn for_person(&self) -> Vec<ForPerson> {
         let state = self.state.locked();
         let asked = (state.open.iter())
@@ -883,24 +754,7 @@ impl Questions {
                 }),
                 pick: recommended_of(&question.choices),
             });
-        let replied = (state.reply_questions.iter())
-            .filter(|question| question.waits())
-            .map(|question| ForPerson {
-                id: question.id.clone(),
-                agent_id: question.agent_id.clone(),
-                text: question.text.clone(),
-                blocked: true,
-                assumption: None,
-                access: false,
-                answers: (question.choices.iter())
-                    .map(|choice| choice.label.clone())
-                    .collect(),
-                pictures: Vec::new(),
-                at: question.at,
-                raised: None,
-                pick: recommended_of(&question.choices),
-            });
-        let questions: Vec<ForPerson> = asked.chain(replied).collect();
+        let questions: Vec<ForPerson> = asked.collect();
         let waits = |question: &ForPerson| question.assumption.is_none() || question.blocked;
         let mut latest: HashMap<&str, (u64, &str)> = HashMap::new();
         for question in questions.iter().filter(|question| waits(question)) {
@@ -916,20 +770,13 @@ impl Questions {
             .collect()
     }
 
-    pub(crate) fn asks_in_reply(&self, agent_id: &str) -> bool {
-        (self.state.locked().reply_questions.iter()).any(|question| question.agent_id == agent_id)
-    }
-
-    /// The agent began another turn, as when the person wrote to it. A question it asked in the
-    /// reply its last turn ended with no longer waits, nor does one it stopped for, unless the
-    /// call it raised is still `open`: a call waits until the person answers it. An assumption
-    /// it went on with, and a plugin call waiting for the person's approval, still wait.
+    /// The agent began another turn, as when the person wrote to it. A question it stopped for
+    /// no longer waits, unless the call it raised is still `open`: a call waits until the person
+    /// answers it. An assumption it went on with, and a plugin call waiting for the person's
+    /// approval, still wait.
     pub(crate) fn turn_started(&self, agent_id: &str, open: &[String]) {
         let mut state = self.state.locked();
-        let (replies, before) = (state.reply_questions.len(), state.open.len());
-        state
-            .reply_questions
-            .retain(|question| question.agent_id != agent_id || open.contains(&question.id));
+        let before = state.open.len();
         state.open.retain(|question| {
             let waited_on = question.blocked && question.asks_person();
             question.agent_id != agent_id
@@ -937,7 +784,7 @@ impl Questions {
                 || question.approval.is_some()
                 || open.contains(&question.id)
         });
-        if state.open.len() != before || state.reply_questions.len() != replies {
+        if state.open.len() != before {
             self.changed(&mut state);
         }
     }
@@ -2014,16 +1861,11 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
     )
 }
 
-/// The chat's turn ended by itself, so what its reply asks the person waits on them as a
-/// question, in place of one it asked so before, its options and pick read from the reply. A
-/// turn another agent's message started is between the two of them, and a question that says
-/// nothing without the chat stays in the chat. An offer a yes or a no answers does not: the
-/// agent is sent back to it when a project rule covers it, and otherwise it only shows as how
+/// The chat's turn ended by itself: an offer of more work in its reply, which a yes or a no
+/// answers, sends the agent back when a project rule covers it, and otherwise only shows as how
 /// the turn left things. An agent with a lead, here or on a linked host, or that Auto runs,
-/// answers to them instead, and one with a question, an answer or a message still on its way, or
-/// at work again already, is not done. The questions' lock is held across the last look, so a
-/// turn that starts meanwhile takes the question back.
-pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
+/// answers to them instead, and one with a message still on its way is not done.
+pub(crate) fn offers_in_reply(core: &Arc<Core>, agent_id: &str) {
     let Some(chat) = core.chats().get(agent_id) else {
         return;
     };
@@ -2038,65 +1880,12 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
     let Some(reply) = chat.feed.last_answer() else {
         return;
     };
-    let (offers, asks): (Vec<Ask>, Vec<Ask>) =
-        asked_in(&reply).into_iter().partition(|ask| ask.polar);
-    let name = (named.as_ref()).map_or_else(|| agent_id.to_owned(), |named| named.name.clone());
+    let offers = (asked_in(&reply).into_iter())
+        .filter(|ask| ask.polar)
+        .map(|offer| offer.text);
     let project = (named.map(|named| named.project))
         .unwrap_or_else(|| core.workspaces().project_of(&chat.launch.cwd));
-    follow_rule(
-        core,
-        agent_id,
-        &project,
-        offers.into_iter().map(|offer| offer.text),
-    );
-    if (chat.feed.turn_prompt().as_deref())
-        .and_then(messages::sent_by_agent)
-        .is_some()
-    {
-        return;
-    }
-    let asks: Vec<Ask> = (asks.into_iter()).filter(|ask| !leans(&ask.text)).collect();
-    if asks.is_empty() {
-        return;
-    }
-    let at = epoch_ms();
-    let asked = (asks.into_iter().take(MAX_OPEN_PER_AGENT)).map(|ask| ReplyQuestion {
-        id: format!("reply-{}", uuid::Uuid::new_v4().simple()),
-        agent_id: agent_id.to_owned(),
-        name: name.clone(),
-        cli: chat.provider().to_owned(),
-        project: project.clone(),
-        text: clipped(&ask.text, MAX_QUESTION_BYTES),
-        choices: ask.choice.map(reply_choices).unwrap_or_default(),
-        given: None,
-        given_paths: Vec::new(),
-        at,
-    });
-    let questions = &core.harness().questions;
-    let mut state = questions.state.locked();
-    let asking = (state.open.iter())
-        .chain(state.answered.iter().map(|answered| &answered.question))
-        .any(|question| question.agent_id == agent_id);
-    if asking || chat.working() {
-        return;
-    }
-    state
-        .reply_questions
-        .retain(|asked| asked.agent_id != agent_id);
-    state.reply_questions.extend(asked);
-    questions.changed(&mut state);
-}
-
-/// A choice the reply leaves to the person, as the options they pick from.
-fn reply_choices(choice: Choice) -> Vec<QuestionChoice> {
-    (choice.options.iter())
-        .map(|option| QuestionChoice {
-            label: clipped(option, MAX_LABEL_CHARS),
-            detail: None,
-            picture: None,
-            recommended: choice.pick.as_ref() == Some(option),
-        })
-        .collect()
+    follow_rule(core, agent_id, &project, offers);
 }
 
 /// The first offer of more work in an agent's reply, which a yes or a no answers.
@@ -2145,24 +1934,15 @@ fn follow_rule(
 /// The open questions and the answers their askers have not read, for the
 /// app, the notch and phones.
 pub(crate) fn views(core: &Core) -> Vec<AgentQuestion> {
-    let (open, answered, reply_questions) = {
+    let (open, answered) = {
         let state = core.harness().questions.state.locked();
-        (
-            state.open.clone(),
-            state.answered.clone(),
-            state.reply_questions.clone(),
-        )
+        (state.open.clone(), state.answered.clone())
     };
-    views_of(core, open, answered, reply_questions)
+    views_of(core, open, answered)
 }
 
-/// Each question's view, then each asked in a reply, with the ticket of the card its asker holds.
-fn views_of(
-    core: &Core,
-    open: Vec<Question>,
-    answered: Vec<Answered>,
-    reply_questions: Vec<ReplyQuestion>,
-) -> Vec<AgentQuestion> {
+/// Each question's view, with the ticket of the card its asker holds.
+fn views_of(core: &Core, open: Vec<Question>, answered: Vec<Answered>) -> Vec<AgentQuestion> {
     let open = (open.iter())
         .filter(|question| !(question.relayed.is_some() && question.relay_taken))
         .map(Question::view);
@@ -2173,11 +1953,6 @@ fn views_of(
         view
     });
     open.chain(answered)
-        .chain(
-            (reply_questions.iter())
-                .filter(|question| question.waits())
-                .map(ReplyQuestion::view),
-        )
         .map(|mut view| {
             view.ticket = super::board::ticket_of_agent(core, &view.agent_id);
             view
@@ -2245,20 +2020,6 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
         .answers
         .iter_mut()
         .for_each(AnswerParams::written_out);
-    let (reply_questions, answers): (Vec<AnswerParams>, Vec<AnswerParams>) = {
-        let state = core.harness().questions.state.locked();
-        (params.answers.into_iter()).partition(|given| {
-            state
-                .reply_questions
-                .iter()
-                .any(|question| question.id == given.id)
-        })
-    };
-    answer_replies(core, reply_questions).await?;
-    if answers.is_empty() {
-        return Ok(());
-    }
-    let params = AnswersParams { answers };
     let taken = {
         let mut state = core.harness().questions.state.locked();
         let mut taken = Vec::with_capacity(params.answers.len());
@@ -2405,117 +2166,6 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
         Some(error) => Err(error),
         None => Ok(()),
     }
-}
-
-/// The person's answers to what agents asked in their replies, typed or one of the one-tap
-/// answers. Each is held until every question of its reply has one; then the agent hears them
-/// all in one message, each answer with the question it answers.
-async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<(), String> {
-    if given.is_empty() {
-        return Ok(());
-    }
-    let questions = &core.harness().questions;
-    let ready: Vec<(String, Vec<ReplyQuestion>)> = {
-        let mut state = questions.state.locked();
-        let mut answers: Vec<(String, String, Vec<String>)> = Vec::with_capacity(given.len());
-        for given in &given {
-            let question = (state.reply_questions.iter())
-                .find(|question| question.id == given.id && question.waits())
-                .ok_or("That has been answered already")?;
-            let text = match given.choice {
-                Some(choice) => (question.choices.get(choice))
-                    .map(|choice| choice.label.clone())
-                    .ok_or("That choice is not one of the question's")?,
-                None => reply_text(given)?,
-            };
-            answers.push((question.id.clone(), text, given.paths.clone()));
-        }
-        let mut askers: Vec<String> = Vec::new();
-        for (id, text, paths) in answers {
-            if let Some(question) = (state.reply_questions.iter_mut()).find(|kept| kept.id == id) {
-                question.given = Some(text);
-                question.given_paths = paths;
-                if !askers.contains(&question.agent_id) {
-                    askers.push(question.agent_id.clone());
-                }
-            }
-        }
-        askers.retain(|asker| {
-            (state.reply_questions.iter())
-                .filter(|question| question.agent_id == *asker)
-                .all(|question| !question.waits())
-        });
-        let ready = askers
-            .into_iter()
-            .map(|asker| {
-                let (theirs, rest) = std::mem::take(&mut state.reply_questions)
-                    .into_iter()
-                    .partition(|question| question.agent_id == asker);
-                state.reply_questions = rest;
-                (asker, theirs)
-            })
-            .collect();
-        questions.changed(&mut state);
-        ready
-    };
-    let note = "The person answered what you asked as your last turn ended; go on with it.";
-    for (asker, answered) in ready {
-        let sent = (answered.iter())
-            .map(|question| {
-                let text = question.given.clone().unwrap_or_default();
-                let paths = question.given_paths.clone();
-                (question.answered(), text, note.to_owned(), paths)
-            })
-            .collect();
-        if let Err(error) = messages::answer(core, asker.clone(), sent).await {
-            let mut state = questions.state.locked();
-            if state
-                .reply_questions
-                .iter()
-                .all(|kept| kept.agent_id != asker)
-            {
-                let reopened = answered.into_iter().map(|question| ReplyQuestion {
-                    given: None,
-                    given_paths: Vec::new(),
-                    ..question
-                });
-                state.reply_questions.extend(reopened);
-                questions.changed(&mut state);
-            }
-            return Err(error);
-        }
-    }
-    Ok(())
-}
-
-/// The answers the person gave to what the agent asked in its last reply, each beside its
-/// question, when the person writes to it before answering every question: they go with what
-/// the person wrote, and the questions left unanswered no longer wait.
-pub(crate) fn held_answers(core: &Core, agent_id: &str) -> Vec<ChatContext> {
-    let questions = &core.harness().questions;
-    let theirs: Vec<ReplyQuestion> = {
-        let mut state = questions.state.locked();
-        let (theirs, rest) = std::mem::take(&mut state.reply_questions)
-            .into_iter()
-            .partition(|question| question.agent_id == agent_id);
-        state.reply_questions = rest;
-        if !theirs.is_empty() {
-            questions.changed(&mut state);
-        }
-        theirs
-    };
-    (theirs.into_iter())
-        .filter_map(|question| {
-            let answered = format!("{}: {}", question.given?, question.text);
-            Some(ChatContext {
-                uri: format!("{}{}", sikemux_view::chat::ANSWER_URI, question.id),
-                text: format!(
-                    "{answered}\n\nThe person gave this answer to what you asked as your last turn ended, then wrote to you; go on with both."
-                ),
-                title: answered,
-            })
-        })
-        .collect()
 }
 
 /// The person's answer, copied to the lead a question went to first.
@@ -2667,16 +2317,6 @@ fn reply_text(params: &AnswerParams) -> Result<String, String> {
     }
 }
 
-/// The first question of each agent's reply, which a phone is told of once for all of them.
-fn first_of_each_reply(asked: &[ReplyQuestion]) -> impl Iterator<Item = &ReplyQuestion> {
-    asked.iter().enumerate().filter_map(|(at, question)| {
-        let first = !asked[..at]
-            .iter()
-            .any(|earlier| earlier.agent_id == question.agent_id);
-        first.then_some(question)
-    })
-}
-
 /// Moves on questions their lead left, drops those of agents that are gone,
 /// and tells the window and phones what changed. Runs when questions or the
 /// agents change, and again when a lead's time to answer runs out.
@@ -2688,7 +2328,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
         }
         if state.open.is_empty()
             && state.answered.is_empty()
-            && state.reply_questions.is_empty()
             && state.told_phones.is_empty()
             && state.shown_devices.is_empty()
             && !state.dirty
@@ -2704,12 +2343,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 .iter()
                 .chain(state.answered.iter().map(|answered| &answered.question))
                 .map(|question| question.agent_id.clone())
-                .chain(
-                    state
-                        .reply_questions
-                        .iter()
-                        .map(|question| question.agent_id.clone()),
-                )
                 .collect(),
             state
                 .open
@@ -2760,11 +2393,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
         state
             .answered
             .retain(|answered| !gone.contains(&answered.question.agent_id));
-        let reply_questions = state.reply_questions.len();
-        state
-            .reply_questions
-            .retain(|question| !gone.contains(&question.agent_id));
-        let replies_gone = state.reply_questions.len() != reply_questions;
         let mut changed = state.open.len() != before || state.answered.len() != answered;
         for question in &mut state.open {
             let Stage::Lead {
@@ -2814,10 +2442,8 @@ pub(crate) fn settle(core: &Arc<Core>) {
         state.open = open;
         changed |= !stands.is_empty() || !left.is_empty();
         standing = stands;
-        if changed || replies_gone {
-            core.harness().questions.changed(&mut state);
-        }
         if changed {
+            core.harness().questions.changed(&mut state);
             core.boards().wake.now();
         }
     }
@@ -2879,11 +2505,6 @@ fn tell_phones(core: &Core) {
             .iter()
             .filter(|question| question.listed_for_devices())
             .map(|question| (question.id.clone(), question.agent_id.clone()))
-            .chain(
-                (state.reply_questions.iter())
-                    .filter(|question| question.waits())
-                    .map(|question| (question.id.clone(), question.agent_id.clone())),
-            )
             .collect();
         let changed: HashSet<String> = shown
             .iter()
@@ -2911,15 +2532,6 @@ fn tell_phones(core: &Core) {
                 );
                 (question.id.clone(), asking)
             })
-            .chain(first_of_each_reply(&state.reply_questions).map(|question| {
-                let asking = Asking::new(
-                    &question.agent_id,
-                    &question.name,
-                    &question.text,
-                    question.at,
-                );
-                (question.id.clone(), asking)
-            }))
             .collect();
         let asked: Vec<(String, Asking)> = (now.iter())
             .filter(|(id, _)| !state.told_phones.contains_key(*id))
@@ -2960,13 +2572,9 @@ fn tell_phones(core: &Core) {
 fn tell_calls(core: &Core) {
     let wanted = {
         let state = core.harness().questions.state.locked();
-        let asked = (state.open.iter())
+        (state.open.iter())
             .filter(|question| question.listed_for_devices())
-            .map(|question| (question.call(), question.allows()));
-        let replied = (state.reply_questions.iter())
-            .filter(|question| question.waits())
-            .map(|question| (question.call(), None));
-        (asked.chain(replied))
+            .map(|question| (question.call(), question.allows()))
             .map(|(call, yes)| person_calls::Wanted {
                 source: person_calls::Source::Question(call.id.clone()),
                 call,
@@ -3068,7 +2676,7 @@ async fn left_to_asker(core: &Arc<Core>, question: &Question) {
 /// opened that has not had them.
 fn tell_window(core: &Arc<Core>) {
     let window = core.window().client_id();
-    let (open, answered, reply_questions) = {
+    let (open, answered) = {
         let mut state = core.harness().questions.state.locked();
         if !state.dirty && state.told_window == window {
             return;
@@ -3082,13 +2690,9 @@ fn tell_window(core: &Arc<Core>) {
         if window.is_none() {
             return;
         }
-        (
-            state.open.clone(),
-            state.answered.clone(),
-            state.reply_questions.clone(),
-        )
+        (state.open.clone(), state.answered.clone())
     };
-    let views = views_of(core, open, answered, reply_questions);
+    let views = views_of(core, open, answered);
     let request = json!({
         "id": "agent-questions",
         "project": "/",
@@ -3118,7 +2722,6 @@ fn tell_window(core: &Arc<Core>) {
 
 #[cfg(test)]
 mod tests {
-    use super::reply::{Ask, Choice};
     use super::{Question, Questions};
     use sikemux_process::sync::Locked;
 
@@ -3236,76 +2839,6 @@ mod tests {
         assert_eq!(
             asked_in("We could cache it.\n\nThoughts?"),
             vec![("We could cache it. Thoughts?".to_owned(), false)]
-        );
-    }
-
-    fn choice(text: &str, options: &[&str], pick: Option<&str>) -> Ask {
-        Ask {
-            text: text.to_owned(),
-            polar: false,
-            choice: Some(Choice {
-                options: options.iter().map(|option| (*option).to_owned()).collect(),
-                pick: pick.map(str::to_owned),
-            }),
-        }
-    }
-
-    /// The endings of three replies whose choice between two mockups never reached Needs you.
-    const OTHER_OPEN_CALL: &str = "Want me to make it automatic and remove the prompt, or drop \
-        chat-to-goal tracking entirely? Your A/B pick on the Home mockup is still the other open \
-        call.";
-    const LEANING: &str = "Two Home mockups are on your desk.\n\n\
-        - **A** — one board for every goal\n\
-        - **B** — goals split by project\n\n\
-        Which one? I'm leaning A. I won't touch the layout until you pick.";
-    const SAY_A_OR_B: &str =
-        "Say \"A\" (my pick) or \"B\" and I'll start teammates on the redesign…";
-    const PICK_ONE: &str = "Two Home mockups are on your desk.\n\n\
-        ### A: one board\n\nEvery goal on one board.\n\n\
-        ### B: by project\n\nGoals split by project.\n\n\
-        Pick one, or point at what you'd change.";
-
-    #[test]
-    fn a_choice_left_in_prose_is_asked_with_its_options_and_the_agents_pick() {
-        assert_eq!(
-            super::asked_in(OTHER_OPEN_CALL),
-            vec![choice(
-                "Want me to make it automatic and remove the prompt, or drop chat-to-goal \
-                 tracking entirely? Your A/B pick on the Home mockup is still the other open call.",
-                &[
-                    "Make it automatic and remove the prompt",
-                    "Drop chat-to-goal tracking entirely"
-                ],
-                None,
-            )]
-        );
-        assert_eq!(
-            super::asked_in(LEANING),
-            vec![choice(
-                "Which one? I'm leaning A. I won't touch the layout until you pick.",
-                &["A", "B"],
-                Some("A"),
-            )]
-        );
-        assert_eq!(
-            super::asked_in(SAY_A_OR_B),
-            vec![choice(
-                "Say \"A\" (my pick) or \"B\" and I'll start teammates on the redesign…",
-                &["A", "B"],
-                Some("A"),
-            )]
-        );
-        assert_eq!(
-            super::asked_in(PICK_ONE),
-            vec![choice(
-                "Pick one, or point at what you'd change.",
-                &["A", "B"],
-                None
-            )]
-        );
-        assert_eq!(
-            asked_in("Run make dev to get your build back. Then say if it looks right."),
-            Vec::new()
         );
     }
 }

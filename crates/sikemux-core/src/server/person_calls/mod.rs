@@ -998,87 +998,70 @@ pub(crate) fn close_left(core: &Core, gone: impl Fn(&str) -> bool) {
 /// The longest answer typed in a chat that a call keeps.
 const MAX_WRITTEN_CHARS: usize = 2000;
 
-/// The person wrote to `agent_id` in its chat, which answers there the calls its next turn takes
-/// back. Every call its last reply raised is answered, since that turn takes them all back. A
-/// call it stopped for, one of taste, money or access, is answered only when it is the one call
-/// waiting there that writing can answer; with several, none is, and they stay open. The words
-/// reach only this chat, so a call other agents also wait on stays open for them. A production
-/// call is never answered by writing, and nothing typed while a secret or an access call waits
-/// on what the person says to this agent is kept on any call, since the words may be the
-/// password. Answers which kind of call the words answered, for the chat's record of them.
+/// The person wrote to `agent_id` in its chat, which answers there the call its next turn takes
+/// back: one it stopped for, of taste, money or access, when it is the one call waiting there
+/// that writing can answer; with several, none is, and they stay open. The words reach only this
+/// chat, so a call other agents also wait on stays open for them. A production call is never
+/// answered by writing, and nothing typed while a secret or an access call waits on what the
+/// person says to this agent is kept on any call, since the words may be the password. Answers
+/// which kind of call the words answered, for the chat's record of them.
 pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
-    let (stopped, replied) = core.harness().questions.answered_by_writing(agent_id);
-    if stopped.is_empty() && replied.is_empty() {
+    let stopped = core.harness().questions.answered_by_writing(agent_id);
+    if stopped.is_empty() {
         return None;
     }
     let asked_hidden = core.harness().questions.hears_hidden(agent_id);
-    let asked_in = |kept: &Kept, questions: &[String]| {
-        kept.sources()
-            .any(|source| matches!(source, Source::Question(id) if questions.contains(id)))
-    };
     let mut book = core.person_calls().book.locked();
     let answerable: Vec<&Kept> = (book.iter())
         .filter(|kept| {
             let call = &kept.call;
-            (asked_in(kept, &stopped) || asked_in(kept, &replied))
+            kept.sources()
+                .any(|source| matches!(source, Source::Question(id) if stopped.contains(id)))
                 && call.state == CallState::Open
                 && call.kind != CallKind::Production
                 && !call.secret
         })
         .collect();
-    let answered: Vec<String> = match answerable.as_slice() {
-        [kept] => vec![kept.call.id.clone()],
-        several => (several.iter())
-            .filter(|kept| asked_in(kept, &replied))
-            .map(|kept| kept.call.id.clone())
-            .collect(),
-    };
-    if answered.is_empty() {
+    let [only] = answerable.as_slice() else {
         return None;
-    }
+    };
     let hidden = asked_hidden || waits_on_hidden(&book, agent_id);
-    for id in answered {
-        let Some(kept) = kept(&book, &id) else {
-            continue;
-        };
-        let call = &kept.call;
-        let shared = std::iter::once(&call.asker)
-            .chain(&call.joined)
-            .any(|asker| asker.agent_id != agent_id);
-        let entries: Vec<Entry> = if shared {
-            (kept.sources())
-                .filter(|source| {
-                    matches!(source, Source::Question(id) if stopped.contains(id) || replied.contains(id))
-                })
-                .map(|source| Entry::Left {
-                    id: id.clone(),
-                    source: source.clone(),
-                    at: epoch_ms(),
-                })
-                .collect()
-        } else {
-            let words = clipped(text.trim(), MAX_WRITTEN_CHARS);
-            let answer = CallAnswer {
-                option: None,
-                options: Vec::new(),
-                note: None,
-                words: Some(words).filter(|words| !words.is_empty() && !hidden),
-                by: CallClient::Chat,
+    let call = &only.call;
+    let id = call.id.clone();
+    let shared = std::iter::once(&call.asker)
+        .chain(&call.joined)
+        .any(|asker| asker.agent_id != agent_id);
+    let entries: Vec<Entry> = if shared {
+        (only.sources())
+            .filter(|source| matches!(source, Source::Question(id) if stopped.contains(id)))
+            .map(|source| Entry::Left {
+                id: id.clone(),
+                source: source.clone(),
                 at: epoch_ms(),
-                waited_ms: epoch_ms().saturating_sub(call.raised_at),
-            };
-            let outcome = outcome(CallResult::Heard);
-            vec![
-                Entry::Answered {
-                    id: id.clone(),
-                    answer,
-                },
-                Entry::Came { id, outcome },
-            ]
+            })
+            .collect()
+    } else {
+        let words = clipped(text.trim(), MAX_WRITTEN_CHARS);
+        let answer = CallAnswer {
+            option: None,
+            options: Vec::new(),
+            note: None,
+            words: Some(words).filter(|words| !words.is_empty() && !hidden),
+            by: CallClient::Chat,
+            at: epoch_ms(),
+            waited_ms: epoch_ms().saturating_sub(call.raised_at),
         };
-        for entry in entries {
-            core.person_calls().write(&mut book, entry);
-        }
+        let outcome = outcome(CallResult::Heard);
+        vec![
+            Entry::Answered {
+                id: id.clone(),
+                answer,
+            },
+            Entry::Came { id, outcome },
+        ]
+    };
+    for entry in entries {
+        core.person_calls().write(&mut book, entry);
     }
     drop(book);
     core.person_calls().changed(core);
@@ -1692,10 +1675,6 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
                 ),
             };
             tell(core, &call, &text).await;
-            core.person_calls().settle(id, CallResult::Heard);
-            return;
-        }
-        if (questions.iter()).all(|question| core.harness().questions.holds_answer(question)) {
             core.person_calls().settle(id, CallResult::Heard);
             return;
         }

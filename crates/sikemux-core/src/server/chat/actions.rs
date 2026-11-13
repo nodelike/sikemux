@@ -244,7 +244,6 @@ pub(crate) fn prompt(
     });
     crate::server::workspace::retitle(core, agent_id, title, true);
     let chat = core.chats().running(agent_id)?;
-    context.extend(crate::server::questions::held_answers(core, agent_id));
     context.extend(crate::server::board::chat_goal::take_note(core, agent_id));
     context.extend(
         crate::server::turn_state::now(core, agent_id)

@@ -913,8 +913,6 @@ pub const EARLIER_URI: &str = "sikemux://earlier/";
 pub const WOKEN_URI: &str = "sikemux://woken/";
 /// Something from the person's stash, by its id.
 pub const STASH_URI: &str = "sikemux://stash/";
-/// An answer the person gave to a question asked in an agent's reply.
-pub const ANSWER_URI: &str = "sikemux://answer/";
 /// An earlier answer the person replies to, by its message id; its text is the words quoted.
 pub const REPLY_URI: &str = "sikemux://reply/";
 /// What a side chat is told about the chat it was opened beside, by that chat's agent id.

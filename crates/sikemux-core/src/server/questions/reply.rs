@@ -47,16 +47,6 @@ pub(super) struct Ask {
     pub text: String,
     /// A yes or a no answers it.
     pub polar: bool,
-    /// It asks the person to choose.
-    pub choice: Option<Choice>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(super) struct Choice {
-    /// The options the reply names, none when it names fewer than two.
-    pub options: Vec<String>,
-    /// The option the agent says it would take.
-    pub pick: Option<String>,
 }
 
 /// What an agent's reply asks the person, in its own words, one ask for each paragraph or list
@@ -70,7 +60,6 @@ pub(super) struct Choice {
 /// its paragraph, or the paragraph before when it stands alone, which is what it asks about.
 /// A yes or a no does not answer a paragraph that also asks something open, such as "Who owns it?".
 pub(super) fn asked_in(reply: &str) -> Vec<Ask> {
-    let named = options_named_in(reply);
     let mut found: Vec<Ask> = Vec::new();
     let mut earlier: Vec<String> = Vec::new();
     let mut said: Option<String> = None;
@@ -89,7 +78,7 @@ pub(super) fn asked_in(reply: &str) -> Vec<Ask> {
             sentence.trim_end_matches([')', '"']).ends_with('?') && bare_ask(sentence).is_none()
         }));
         let asked_here = earlier.len() > known;
-        let Some(ask) = last_ask(&paragraph, &named) else {
+        let Some(ask) = last_ask(&paragraph) else {
             continue;
         };
         let Some(takes_yes_or_no) = bare_ask(&ask.text) else {
@@ -102,12 +91,11 @@ pub(super) fn asked_in(reply: &str) -> Vec<Ask> {
         match meant {
             Some(question) => {
                 found.retain(|asked| &asked.text != question);
-                let choice = choice_of(question, &[], &named);
-                let polar = choice.is_none() && (takes_yes_or_no || answers_yes_or_no(question));
+                let polar =
+                    !is_choice(question) && (takes_yes_or_no || answers_yes_or_no(question));
                 found.push(Ask {
                     text: question.clone(),
                     polar,
-                    choice,
                 });
             }
             None => {
@@ -118,36 +106,11 @@ pub(super) fn asked_in(reply: &str) -> Vec<Ask> {
                 found.push(Ask {
                     text: shown,
                     polar: takes_yes_or_no && !asked_here,
-                    choice: None,
                 });
             }
         }
     }
     found
-}
-
-/// Words that point back at something a question does not name itself.
-const POINTING: [&str; 5] = ["it", "them", "they", "these", "those"];
-
-/// Whether a question leans on what came before it, so it says nothing without the chat: it
-/// points back with a word such as "them", or ends on "this" or "that", and names nothing
-/// itself, such as a file, a command or a name.
-pub(super) fn leans(sentence: &str) -> bool {
-    let words: Vec<&str> = (sentence.split_whitespace())
-        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()))
-        .filter(|word| !word.is_empty())
-        .collect();
-    let lower: Vec<String> = words.iter().map(|word| word.to_lowercase()).collect();
-    let points = lower.iter().any(|word| POINTING.contains(&word.as_str()))
-        || lower
-            .last()
-            .is_some_and(|last| last == "this" || last == "that");
-    let names = words.iter().enumerate().any(|(at, word)| {
-        word.contains(['.', '/', '_', '#', '@', '-'])
-            || word.chars().any(|c| c.is_ascii_digit())
-            || (at > 0 && *word != "I" && word.starts_with(char::is_uppercase))
-    });
-    points && !names
 }
 
 /// The reply's paragraphs and list items, as one line each. Code, quotes, headings and table
@@ -208,7 +171,7 @@ pub(super) const OPEN_ASKS: [&str; 9] = [
 /// The paragraph's last sentence, without its emphasis, when it asks the person something, offers
 /// more or asks them to choose, read after a lead-in such as "Next step:". Only remarks on the
 /// choice may follow it, which show with it.
-pub(super) fn last_ask(paragraph: &str, named: &[String]) -> Option<Ask> {
+pub(super) fn last_ask(paragraph: &str) -> Option<Ask> {
     let paragraph = paragraph.trim();
     let mut sentences = sentences_of(paragraph);
     let remarks = (sentences.iter().rev())
@@ -232,13 +195,11 @@ pub(super) fn last_ask(paragraph: &str, named: &[String]) -> Option<Ask> {
     if !asks && !leaves && !chooses(&sentence) {
         return None;
     }
-    let choice = choice_of(&sentence, &tail, named);
-    let polar = choice.is_none() && answers_yes_or_no(&sentence);
+    let polar = !is_choice(&sentence) && answers_yes_or_no(&sentence);
     let text = std::iter::once(sentence).chain(tail).collect::<Vec<_>>();
     Some(Ask {
         text: text.join(" "),
         polar,
-        choice,
     })
 }
 
@@ -337,211 +298,14 @@ fn chooses(sentence: &str) -> bool {
     CHOOSING.iter().any(|opening| asked.starts_with(opening)) || picks || names_two
 }
 
-/// What a sentence asks the person to choose between, with the remarks after it, when it asks
-/// them to choose: it tells them to, or asks which, or asks one thing or another.
-fn choice_of(sentence: &str, remarks: &[String], named: &[String]) -> Option<Choice> {
+/// Whether a sentence asks the person to choose: it tells them to, or asks which, or asks one
+/// thing or another.
+fn is_choice(sentence: &str) -> bool {
     let lower = sentence.to_lowercase();
     let asked = after_lead_in(&lower);
     let question = sentence.trim_end_matches([')', '"']).ends_with('?');
     let either = asked.contains(" or ") && !asked.starts_with("if you");
-    if !chooses(sentence) && !(question && (asked.starts_with("which ") || either)) {
-        return None;
-    }
-    let (mut options, mut pick) = quoted(sentence);
-    if options.len() < 2 {
-        (options, pick) = either_or(sentence);
-    }
-    if options.len() < 2 {
-        options = named.to_vec();
-    }
-    if options.len() < 2 {
-        options.clear();
-    }
-    options.truncate(super::MAX_CHOICES);
-    let preferred = (remarks.iter()).find_map(|remark| {
-        let lower = remark.to_lowercase();
-        let preferred = preference_of(&lower)?;
-        (options.iter())
-            .find(|option| refers_to(preferred, option))
-            .cloned()
-    });
-    pick = pick.filter(|pick| options.contains(pick)).or(preferred);
-    Some(Choice { options, pick })
-}
-
-/// Whether what the agent prefers, in lower case, names the option, such as "a" for "Option A".
-fn refers_to(preferred: &str, option: &str) -> bool {
-    let option = option.to_lowercase();
-    option == preferred
-        || option.ends_with(&format!(" {preferred}"))
-        || preferred.ends_with(&format!(" {option}"))
-}
-
-/// How the agent marks the option it would take, right after it.
-const PICK_MARKS: [&str; 4] = ["(my pick)", "(recommended)", "(my vote)", "(preferred)"];
-
-/// The options a sentence puts in quotes, and the one it marks as its pick.
-fn quoted(sentence: &str) -> (Vec<String>, Option<String>) {
-    let mut options = Vec::new();
-    let mut pick = None;
-    let mut rest = sentence;
-    while let Some(open) = rest.find(['"', '“']) {
-        let after = &rest[open..];
-        let quote = after.chars().next().map_or(1, char::len_utf8);
-        let after = &after[quote..];
-        let Some(close) = after.find(['"', '”']) else {
-            break;
-        };
-        let option = after[..close].trim();
-        rest = &after[close..];
-        rest = &rest[rest.chars().next().map_or(1, char::len_utf8)..];
-        if option.is_empty() {
-            continue;
-        }
-        if marks_pick(rest) {
-            pick = Some(option.to_owned());
-        }
-        options.push(option.to_owned());
-    }
-    (options, pick)
-}
-
-fn marks_pick(after: &str) -> bool {
-    let after = after.trim_start().to_lowercase();
-    PICK_MARKS.iter().any(|mark| after.starts_with(mark))
-}
-
-/// The options of a sentence that names them one or the other, as in "Want me to cache it, or
-/// drop it?", and the one it marks as its pick. None when what it asks opens with a question
-/// word or points elsewhere, as "Pick one" does.
-fn either_or(sentence: &str) -> (Vec<String>, Option<String>) {
-    let body = sentence.rsplit(": ").next().unwrap_or(sentence);
-    let openings = OFFERS.iter().copied().chain([
-        "choose between ",
-        "decide between ",
-        "choose ",
-        "pick ",
-        "say ",
-        "go with ",
-    ]);
-    let body = (openings.into_iter())
-        .find_map(|opening| strip_prefix_ignoring_case(body, opening))
-        .unwrap_or(body);
-    let lower = body.to_ascii_lowercase();
-    let first = (lower.split_whitespace().next())
-        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()));
-    let points_elsewhere = ["one", "which", "either", "between"]
-        .iter()
-        .any(|word| first == Some(word));
-    if points_elsewhere || OPEN_ASKS.iter().any(|opening| lower.starts_with(opening)) {
-        return (Vec::new(), None);
-    }
-    let end = [
-        ", and i'll",
-        " and i'll",
-        " and i will",
-        ", so i ",
-        " so i ",
-        ", then i'll",
-    ]
-    .iter()
-    .filter_map(|words| lower.find(words))
-    .min()
-    .unwrap_or(body.len());
-    let body = body[..end].trim_end_matches(['?', '.', '!', '…', ' ']);
-    let mut pick = None;
-    let options: Vec<String> = (body.split(" or "))
-        .map(|option| {
-            let option = option.trim().trim_end_matches(',').trim();
-            let marked = PICK_MARKS
-                .iter()
-                .find_map(|mark| strip_suffix_ignoring_case(option, mark));
-            let option = capitalised(marked.unwrap_or(option).trim());
-            if marked.is_some() {
-                pick = Some(option.clone());
-            }
-            option
-        })
-        .collect();
-    if options.iter().any(String::is_empty) {
-        return (Vec::new(), None);
-    }
-    (options, pick)
-}
-
-/// Words that name an option on a line of its own, such as "Option A" or "Mockup B".
-const OPTION_WORDS: [&str; 6] = [
-    "option ", "mockup ", "layout ", "plan ", "variant ", "design ",
-];
-
-/// The options a reply lays out as lines of their own, such as "**A** — one board" and
-/// "**B** — two columns", in order; none when it lays out fewer than two.
-fn options_named_in(reply: &str) -> Vec<String> {
-    let mut named: Vec<String> = Vec::new();
-    let mut fenced = false;
-    for line in reply.lines() {
-        let line = line.trim();
-        if line.starts_with("```") || line.starts_with("~~~") {
-            fenced = !fenced;
-        }
-        if fenced {
-            continue;
-        }
-        let line = line.trim_start_matches('#').trim_start();
-        let line = plain(list_item(line).unwrap_or(line));
-        if let Some(label) = option_label(&line).filter(|label| !named.contains(label)) {
-            named.push(label);
-        }
-    }
-    if named.len() < 2 {
-        named.clear();
-    }
-    named
-}
-
-/// The label a line opens with when it lays out an option: a capital from A to H, or a word such
-/// as "Option" with a letter or a number, then a colon, a dash, a stop or a bracket.
-fn option_label(line: &str) -> Option<String> {
-    let lower = line.to_ascii_lowercase();
-    let worded =
-        (OPTION_WORDS.iter()).find_map(|word| lower.strip_prefix(word).map(|_| word.len()));
-    let start = worded.unwrap_or(0);
-    let mark = line.get(start..)?;
-    let length = mark
-        .find(|c: char| !c.is_ascii_alphanumeric())
-        .unwrap_or(mark.len());
-    let token = &mark[..length];
-    let letter = token.len() == 1 && ('A'..='H').contains(&token.chars().next()?);
-    let numbered =
-        worded.is_some() && !token.is_empty() && token.chars().all(|c| c.is_ascii_digit());
-    if !letter && !numbered {
-        return None;
-    }
-    let after = &mark[length..];
-    let separated = [":", " —", " –", " - ", ")", ". "]
-        .iter()
-        .any(|separator| after.starts_with(separator))
-        || after.is_empty() && worded.is_some();
-    separated.then(|| line[..start + length].to_owned())
-}
-
-fn strip_prefix_ignoring_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
-    let head = text.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix)
-        .then(|| &text[prefix.len()..])
-}
-
-fn strip_suffix_ignoring_case<'a>(text: &'a str, suffix: &str) -> Option<&'a str> {
-    let at = text.len().checked_sub(suffix.len())?;
-    let tail = text.get(at..)?;
-    tail.eq_ignore_ascii_case(suffix).then(|| &text[..at])
-}
-
-fn capitalised(text: &str) -> String {
-    let mut chars = text.chars();
-    chars.next().map_or_else(String::new, |first| {
-        first.to_uppercase().chain(chars).collect()
-    })
+    chooses(sentence) || (question && (asked.starts_with("which ") || either))
 }
 
 /// The paragraph's sentences, without their emphasis.

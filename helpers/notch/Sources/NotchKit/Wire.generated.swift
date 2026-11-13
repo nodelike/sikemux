@@ -468,9 +468,9 @@ enum InboxTier: String, Codable, Hashable {
 enum InboxKind: String, Codable, Hashable {
     /// Answer with the chat's permission reply, naming `requestId`.
     case permission
-    /// What the agent waits on the person to answer, asked with a tool or in
-    /// the reply its turn ended with, as `detail` says: one at most for each
-    /// agent, the latest. Answer with `answerQuestion`, naming `questionId`.
+    /// What the agent waits on the person to answer, asked with a tool, as
+    /// `detail` says: one at most for each agent, the latest. Answer with
+    /// `answerQuestion`, naming `questionId`.
     case question
     /// An agent in a terminal waits for the person to type.
     case input

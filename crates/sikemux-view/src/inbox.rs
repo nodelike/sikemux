@@ -82,9 +82,9 @@ pub struct ShipHold {
 pub enum InboxKind {
     /// Answer with the chat's permission reply, naming `requestId`.
     Permission,
-    /// What the agent waits on the person to answer, asked with a tool or in
-    /// the reply its turn ended with, as `detail` says: one at most for each
-    /// agent, the latest. Answer with `answerQuestion`, naming `questionId`.
+    /// What the agent waits on the person to answer, asked with a tool, as
+    /// `detail` says: one at most for each agent, the latest. Answer with
+    /// `answerQuestion`, naming `questionId`.
     Question,
     /// An agent in a terminal waits for the person to type.
     Input,

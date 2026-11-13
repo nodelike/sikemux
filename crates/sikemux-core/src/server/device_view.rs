@@ -166,7 +166,7 @@ impl DeviceViewCore for Core {
     }
 
     fn needs_person(&self, agent_id: &str) -> bool {
-        self.harness().questions.asks_person(agent_id)
+        self.harness().questions.blocks_on_person(agent_id)
             || self.ship().holds(agent_id)
             || self
                 .chats()

@@ -1137,13 +1137,8 @@ agents it started, and only what follows reaches the person.
   and the person's card leads with them. For choices drawn on one mockup page,
   give each its own element and take each picture with `page_preview` and
   `selector`, so a card shows that choice and nothing around it.
-- A question ending your reply can show away from this chat, so it must say what
-  is being decided, never only "Is that okay?".
-- A choice for the person always goes through `ask`, never only in your reply.
-  A reply that leaves one, such as "Which one? I'm leaning A." or "Say A or B",
-  sends you back once to ask it with `header`, `choices` with the one you
-  recommend first, and `pick`; ending the turn without `ask` again puts it to the
-  person with the options your reply named.
+- A question in your reply stays in this chat, where the person answers it as an
+  ordinary message. A decision that is the person's goes through `ask`.
 - The person sees every decision in the log and can overrule it. If they do, the
   agent that goes by it gets a message: stop going by it and undo what rests on it.
 - A decision never passes a hold. A push, merge, deploy, publish or production

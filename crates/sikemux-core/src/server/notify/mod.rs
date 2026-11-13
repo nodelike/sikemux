@@ -549,8 +549,7 @@ fn apply(core: &Core, signal: Signal, now: u64) {
             let started = core.notify().state.locked().turns.remove(&agent_id);
             let long =
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
-            let asking = core.harness().questions.waits_on_answer(&agent_id)
-                || core.harness().questions.asks_in_reply(&agent_id);
+            let asking = core.harness().questions.waits_on_answer(&agent_id);
             let waits = super::turn_state::set_a_wake(core, &agent_id);
             if long && !cancelled && !asking && !waits {
                 if let Some(draft) = finished(core, &agent_id, now) {

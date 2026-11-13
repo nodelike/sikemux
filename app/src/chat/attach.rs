@@ -21,7 +21,7 @@ use gpui_transcript::FilePress;
 use sikemux_calls::chat::MAX_ATTACHMENTS;
 use sikemux_view::chat::{
     tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
-    ANSWER_URI, EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
+    EARLIER_URI, REPLY_URI, SIDE_URI, STASH_URI, WOKEN_URI,
 };
 use sikemux_view::chat::{ChatMessage, SentContext, WhyChip, WhyKind, WhyOpen, WHY_URI};
 use sikemux_wire::protocol::ChatContext;
@@ -1308,7 +1308,7 @@ fn tracked(uri: &str) -> Option<(Icon, &str)> {
 }
 
 /// A context item's chip: `#12 Title` for an issue or pull request, its title for an
-/// earlier chat, an answer or anything else.
+/// earlier chat or anything else.
 fn context_chip(
     id: String,
     uri: &str,
@@ -1326,9 +1326,7 @@ fn context_chip(
         ),
         None if uri.starts_with(EARLIER_URI) => (Icon::Message, title.to_owned()),
         None if uri.starts_with(STASH_URI) => (Icon::Text, title.to_owned()),
-        None if uri.starts_with(ANSWER_URI) || uri.starts_with(SIDE_URI) => {
-            (Icon::Message, title.to_owned())
-        }
+        None if uri.starts_with(SIDE_URI) => (Icon::Message, title.to_owned()),
         None if uri.starts_with(REPLY_URI) => (Icon::Reply, title.to_owned()),
         None if web => (
             Icon::Globe,
@@ -1340,12 +1338,10 @@ fn context_chip(
     Attachment::new()
         .id(SharedString::from(id))
         .with_size(gpui_kit::component::Size::Small)
-        .tooltip(
-            match uri.starts_with(ANSWER_URI) || uri.starts_with(REPLY_URI) {
-                true => title.clone(),
-                false => uri.to_owned(),
-            },
-        )
+        .tooltip(match uri.starts_with(REPLY_URI) {
+            true => title.clone(),
+            false => uri.to_owned(),
+        })
         .media(AttachmentMedia::new().child(site_icon(uri, web, icon, asks, t)))
         .content(AttachmentContent::new().title(AttachmentTitle::new(title)))
 }

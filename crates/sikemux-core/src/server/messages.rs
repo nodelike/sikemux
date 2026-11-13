@@ -736,15 +736,6 @@ pub(crate) fn called_now(core: &Core, agent_id: &str) -> String {
     called(&core.names().name_or_id(agent_id), agent_id)
 }
 
-/// The agent that sent `prompt`, when it is a message from another agent rather than from
-/// Sikemux or the person.
-pub(crate) fn sent_by_agent(prompt: &str) -> Option<String> {
-    let opening = prompt.trim_start().strip_prefix("<agent-message ")?;
-    let (_, rest) = opening.split_once(" agent-id=\"")?;
-    let (id, _) = rest.split_once('"')?;
-    Sender::of(id).is_none().then(|| id.to_owned())
-}
-
 /// The task a lead gives an agent it started, as that agent reads it.
 pub(crate) fn task(
     core: &Core,
