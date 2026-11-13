@@ -224,7 +224,8 @@ pub(super) fn of_program(program: &str, words: &[String], cwd: &Path) -> Option<
     }
     let entry = project
         .iter()
-        .find(|entry| !entry.light && matching(&entry.command));
+        .filter(|entry| !entry.light && matching(&entry.command))
+        .max_by_key(|entry| entry.command.split_whitespace().count());
     let built_in = BUILT_IN.iter().find(|built_in| {
         matching(built_in.command) && !built_in.unless.iter().any(|unless| has_any(words, unless))
     });

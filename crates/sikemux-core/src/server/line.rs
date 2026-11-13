@@ -71,17 +71,22 @@ struct Run {
     /// The most memory its processes held together, then what they hold now.
     peak: u64,
     holds: u64,
+    /// Whether its processes were measured since it started.
+    measured_once: bool,
 }
 
 impl Run {
-    /// How much more memory it is expected to take than it holds now.
-    fn growth(&self) -> u64 {
-        let expected = match (self.expected, self.in_line) {
+    fn expected_peak(&self) -> u64 {
+        match (self.expected, self.in_line) {
             (Some(size), _) => size.peak,
             (None, true) => UNSEEN_BYTES,
             (None, false) => 0,
-        };
-        expected.saturating_sub(self.holds)
+        }
+    }
+
+    /// How much more memory it is expected to take than it holds now.
+    fn growth(&self) -> u64 {
+        self.expected_peak().saturating_sub(self.holds)
     }
 }
 
@@ -211,12 +216,14 @@ impl Line {
         if self.looking.swap(true, Ordering::AcqRel) {
             return;
         }
-        let core = Arc::downgrade(core);
+        let mut core = Arc::downgrade(core);
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(LOOK_EVERY).await;
-                if !look(&core) {
-                    return;
+                let looked = super::connection::blocking(move || Ok(look(&core))).await;
+                match looked {
+                    Ok(Some(next)) => core = next,
+                    _ => return,
                 }
             }
         });
@@ -254,24 +261,25 @@ fn why_not_yet(state: &State, first: &Run, room: &Room) -> Option<String> {
         }
     }
     let now = epoch_ms();
-    let just_started =
-        (state.running.iter()).any(|run| now.saturating_sub(run.since) < UNSEEN_APART_MS);
-    (first.expected.is_none() && just_started)
-        .then(|| "commands never measured start 20 s apart".to_owned())
+    let young = |run: &&Run| now.saturating_sub(run.since) < UNSEEN_APART_MS;
+    if first.expected.is_none() && state.running.iter().any(|run| young(&run)) {
+        return Some("commands never measured start 20 s apart".to_owned());
+    }
+    (state.running.iter().filter(young))
+        .any(|run| !run.measured_once || run.expected.is_some_and(|size| run.holds > size.peak))
+        .then(|| "the last one started has not shown how much it takes yet".to_owned())
 }
 
-/// Takes the measure of every running command's processes. False once none runs, and the
-/// looking stops.
-fn look(core: &Weak<Core>) -> bool {
-    let Some(core) = core.upgrade() else {
-        return false;
-    };
+/// Takes the measure of every running command's processes, and hands back what to look at
+/// next time. None once none runs, and the looking stops.
+fn look(weak: &Weak<Core>) -> Option<Weak<Core>> {
+    let core = weak.upgrade()?;
     let line = core.line();
     let pids: Vec<(u64, u32)> = {
         let state = line.state.locked();
         if state.running.is_empty() {
             line.looking.store(false, Ordering::Release);
-            return false;
+            return None;
         }
         (state.running.iter())
             .filter_map(|run| Some((run.id, run.pid?)))
@@ -286,9 +294,10 @@ fn look(core: &Weak<Core>) -> bool {
         if let Some(run) = state.running.iter_mut().find(|run| run.id == id) {
             run.holds = holds;
             run.peak = run.peak.max(holds);
+            run.measured_once = true;
         }
     }
-    true
+    Some(weak.clone())
 }
 
 /// The memory `root` and every process under it hold together.
@@ -339,6 +348,7 @@ impl Turn {
             in_line,
             peak: 0,
             holds: 0,
+            measured_once: false,
         };
         match in_line {
             true => {
