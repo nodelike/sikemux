@@ -14,6 +14,7 @@ mod profile;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::account::AccountPictureParams;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -518,11 +519,6 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
         return Err(crate::accounts::refusal(response).await);
     }
     Ok(user_id)
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct AccountPictureParams {
-    pub hash: String,
 }
 
 /// Where the browser goes to sign in.

@@ -82,4 +82,18 @@ crate::calls! {
     "vaultRecover" VaultRecover (crate::vault::RecoverParams) -> ();
     "vaultUses" VaultUses (crate::vault::UsesParams) -> Vec<crate::vault::ShownUse>;
     "themeFromPixels" ThemeFromPixels (crate::wallpaper::PixelsParams) -> sikemux_view::theme::Theme;
+    "accountPicture" AccountPicture (crate::account::AccountPictureParams) -> Option<crate::remote_image::PictureData>;
+    "lsp.claim" LspClaim (crate::lsp::LspClaim) -> Vec<String>;
+    "lsp.install" LspInstall (crate::lsp::LspLanguage) -> String;
+    "lsp.start" LspStart (crate::lsp::LspServer) -> ();
+    "lsp.stop" LspStop (crate::lsp::LspProject) -> ();
+    "lsp.open" LspOpen (crate::lsp::LspOpen) -> crate::lsp::LspOpened;
+    "lsp.change" LspChange (crate::lsp::LspChange) -> ();
+    "lsp.changeIncremental" LspChangeIncremental (crate::lsp::LspIncrementalChange) -> ();
+    "lsp.save" LspSave (crate::lsp::LspSave) -> ();
+    "lsp.close" LspClose (crate::lsp::LspDocument) -> ();
+    "lsp.symbols" LspSymbols (crate::lsp::LspDocument) -> Vec<crate::lsp::LspDocumentSymbol>;
+    "lsp.diagnostics" LspDiagnostics (crate::lsp::LspPath) -> Vec<crate::lsp::LspDiagnosticsPayload>;
+    "answerOutside" AnswerOutside (crate::outside::OutsideAnswer) -> crate::outside::OutsideView;
+    "changeOutside" ChangeOutside (crate::outside::OutsideChange) -> crate::outside::OutsideView;
 }
