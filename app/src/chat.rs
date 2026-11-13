@@ -15,10 +15,10 @@ use gpui_kit::base::{Button as BaseButton, Scrollbar};
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, px, relative, AnyElement, AnyView, App, AppContext, Context, Div, Entity,
-    Focusable, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding,
-    ParentElement, Radians, Render, SharedString, StatefulInteractiveElement, StyleRefinement,
-    Styled, Subscription, Transformation, WeakEntity, Window,
+    AnyElement, AnyView, App, AppContext, Context, Div, Entity, Focusable, FontWeight,
+    HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement, Radians,
+    Render, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Subscription,
+    Transformation, WeakEntity, Window, actions, div, px, relative,
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
@@ -27,7 +27,7 @@ use gpui_transcript::{
 use looks::*;
 use questions::*;
 use rows::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sikemux_view::catalog::ChatDriver;
 use sikemux_view::chat::{
     AgentLetter, AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole,
@@ -50,8 +50,8 @@ use crate::tabs::shows;
 use crate::theme::Tokens;
 use crate::ui::shimmer::shimmer;
 use crate::ui::{Button, IconButton, Variant};
-use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::Workbench;
+use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::worktrees::switch::Switch;
 use crate::{motion, syntax, theme, ui};
 
@@ -78,7 +78,7 @@ mod mention;
 mod mermaid;
 mod moving;
 mod rotation;
-pub(crate) use attach::{named, named_agents, pill, site_icon, Made, Mention, SNIP_NAME};
+pub(crate) use attach::{Made, Mention, SNIP_NAME, named, named_agents, pill, site_icon};
 pub use mention::Tray;
 mod meta;
 pub mod model_picker;
@@ -97,10 +97,10 @@ pub(crate) use installing::installs_moved;
 mod worktree;
 
 pub use attach::lasting;
-pub use composing::{dictate, ComposeStage, ComposerView, Composing, Sent};
+pub use composing::{ComposeStage, ComposerView, Composing, Sent, dictate};
 pub(crate) use mention::{AGENT, FILE, TRACKED};
 pub(crate) use meta::clock;
-pub use questions::{question_keys, Answering, Question};
+pub use questions::{Answering, Question, question_keys};
 
 /// Turns asked for each time the reader nears the top of what is held.
 const PAGE_TURNS: u32 = 20;
@@ -665,6 +665,9 @@ pub struct Chat {
     /// Out of sight long enough to stop following the core, which it attaches to again from
     /// its mark once it shows.
     pub resting: bool,
+    /// When the person sent the first message of this new chat, so its welcome leaves rather
+    /// than vanishing; a chat filled by its own history never has one.
+    first_sent: Cell<Option<std::time::Instant>>,
 }
 
 impl Chat {
@@ -808,6 +811,7 @@ impl Chat {
             _found: found,
             finding: None,
             plan_open: false,
+            first_sent: Cell::new(None),
             activity_line,
             announcer: cx.new(|_| announce::Announcer::default()),
             calls,
@@ -1234,6 +1238,25 @@ impl Chat {
         self.state.as_ref().is_some_and(|head| head.running)
     }
 
+    /// Notes that the person is sending this new chat its first message, which starts its
+    /// welcome leaving.
+    pub(crate) fn sending_first(&self, cx: &App) {
+        if self.is_new(cx) && self.first_sent.get().is_none() {
+            self.first_sent.set(Some(std::time::Instant::now()));
+        }
+    }
+
+    /// How far the welcome has gone, from 0 while the chat is new to 1 as it finishes leaving
+    /// after the person's first message; none once it has left, or when the chat is not new.
+    pub fn welcome_gone(&self, cx: &App) -> Option<f32> {
+        let Some(sent) = self.first_sent.get() else {
+            return self.is_new(cx).then_some(0.);
+        };
+        let leaves = crate::motion::WELCOME_LEAVES;
+        let through = sent.elapsed().as_secs_f32() / leaves.duration.as_secs_f32();
+        (through < 1. && !cx.reduce_motion()).then(|| leaves.at(through))
+    }
+
     /// Nothing has been said in it and no While you were away card stands in it.
     pub fn is_new(&self, cx: &App) -> bool {
         self.transcript.read(cx).rows().is_empty()
@@ -1585,7 +1608,6 @@ pub fn pane(
                 .into_any_element(),
         ),
     };
-    let welcoming = welcome.is_some();
     let list = chat.transcript.read(cx).list().clone();
     // The scrollbar shows whenever its list moves, and a list following the latest rows moves
     // with every streamed line; only a reader who scrolled up has a thumb, as on the Mac.
@@ -1840,7 +1862,19 @@ pub fn pane(
             });
             composing.view.clone().into_element().isolated()
         }))
-        .when(welcoming, |pane| pane.child(div().flex_1()))
+        .child({
+            let gone = chat.welcome_gone(cx);
+            crate::motion::replay(
+                SharedString::from(format!("composer-rise:{id}")),
+                chat.first_sent.get(),
+                crate::motion::WELCOME_LEAVES,
+                move |_| {
+                    let mut room = div();
+                    room.style().flex_grow = Some(gone.map_or(0., |gone| 1. - gone));
+                    room.into_any_element()
+                },
+            )
+        })
         .when(composing && cx.has_active_drag(), |pane| {
             let hint =
                 attach::drop_hint(t!("Drop files or folders into this session"), id, bench, cx);

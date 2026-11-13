@@ -12,9 +12,9 @@ use gpui_kit::base::animation::cubic_bezier;
 use gpui_kit::base::motion::Interpolate;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, radians, Animation, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId,
-    Hsla, InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels,
-    Point, Rgba, SharedString, Styled, Svg, Transformation, Window,
+    Animation, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId, Hsla,
+    InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels, Point,
+    Rgba, SharedString, Styled, Svg, Transformation, Window, div, px, radians,
 };
 
 /// How a value moves to a new target: over how long, on which curve, and whether it moves
@@ -127,8 +127,9 @@ pub const TEXT_SWAP: Ease = Ease::new(140, Curve::OUT);
 /// A small control coming up over what it floats on, and going again, as the way back to a
 /// chat's latest message.
 pub const POP_UP: Ease = Ease::new(150, Curve::OUT);
-/// A new chat's glow handing over to the pane field once its first message is sent.
-pub const GROUND_SWAP: Ease = Ease::new(500, Curve::CSS);
+/// A new chat's welcome leaving once its first message is sent, at the rails' pace: the
+/// composer settling to the bottom, the welcome fading and the glow handing over to the pane field.
+pub const WELCOME_LEAVES: Ease = RAIL_DRAWER;
 
 /// The angle of a fold's chevron, open or shut.
 pub fn fold_angle(open: bool) -> f32 {

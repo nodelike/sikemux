@@ -1423,6 +1423,13 @@ impl Workbench {
         if preparing || self.hold_for_install(agent, cx) {
             return;
         }
+        if let Some(chat) = self.chats.open.get(agent) {
+            let typed = (chat.composer.as_ref())
+                .is_some_and(|composing| !composing.draft.read(cx).value().trim().is_empty());
+            if typed {
+                chat.sending_first(cx);
+            }
+        }
         if self.starts_in_worktree(agent, cx) {
             let text = self
                 .chats

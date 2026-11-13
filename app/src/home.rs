@@ -7,15 +7,15 @@ use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
+    Anchor, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
 };
 
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_2XS, TEXT_SM, TEXT_XL, TEXT_XS,
-    TEXT_XS_H,
+    self, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_2XS, TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H,
+    Tokens,
 };
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Variant};
 
@@ -93,24 +93,24 @@ pub fn agent_view(
         .as_ref()
         .filter(|_| project.is_some())
         .map(|agent| pane_header(bench, agent, tab, view, cx));
-    let glowing = welcoming(bench, agent.as_ref(), cx);
+    let glow = welcoming(bench, agent.as_ref(), cx);
     let shown = agent_shown(bench, agent.as_ref(), cx);
-    under_header(header, shown, (view, glowing), cx)
+    under_header(header, shown, glow, cx)
 }
 
-/// Whether an agent's view opens on the welcome: a chat with nothing said in it yet.
-fn welcoming(bench: &Workbench, agent: Option<&AgentRow>, cx: &App) -> bool {
+/// How strong a new chat's glow is in an agent's view: whole while nothing is said in it, and
+/// falling to nothing as its welcome leaves after the person's first message.
+fn welcoming(bench: &Workbench, agent: Option<&AgentRow>, cx: &App) -> f32 {
     let Some(agent) = agent else {
-        return true;
+        return 1.;
     };
     if bench.in_terminal(&agent.id) {
-        return false;
+        return 0.;
     }
-    bench
-        .chats
-        .open
-        .get(&agent.id)
-        .is_none_or(|chat| chat.is_new(cx))
+    match bench.chats.open.get(&agent.id) {
+        Some(chat) => chat.welcome_gone(cx).map_or(0., |gone| 1. - gone),
+        None => 1.,
+    }
 }
 
 /// What an agent's view shows under its header.
@@ -138,39 +138,34 @@ fn agent_shown(
                 .iter()
                 .any(|saved| saved.id == agent.id && saved.resume_id.is_some())
         });
-        let welcome = chat.is_new(cx).then(|| {
+        let welcome = chat.welcome_gone(cx).map(|gone| {
             let placed = chat.placed();
-            chat::status::connection_note(agent, chat, resumes, cx)
-                .unwrap_or_else(|| welcome(bench, Some(agent), placed, cx).into_any_element())
+            chat::status::connection_note(agent, chat, resumes, cx).unwrap_or_else(|| {
+                welcome(bench, Some(agent), placed, 1. - gone, cx).into_any_element()
+            })
         });
         return chat::pane(bench, agent, chat, welcome, cx).into_any_element();
     }
-    centred(welcome(bench, agent, None, cx))
+    centred(welcome(bench, agent, None, 1., cx))
         .size_full()
         .into_any_element()
 }
 
-/// An agent pane: its header across the top, and what it shows below it, over the glow of a
-/// new chat while the view, by its id, is `glowing`, and the pane field once it is not.
+/// An agent pane: its header across the top, and what it shows below it, over a new chat's
+/// glow as strong as `glow`, from 0 to 1, crossing over to the pane field as it falls.
 fn under_header(
     header: Option<impl IntoElement>,
     shown: impl IntoElement,
-    (view, glowing): (&str, bool),
+    glow: f32,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    if glowing {
+    if glow > 0. {
         GLOWING.set(true);
     }
-    let ground = crate::ui::grain::pane_ground(cx);
     ui::pane_frame(cx)
         .flex()
         .flex_col()
-        .child(crate::motion::animated(
-            SharedString::from(format!("pane-ground:{view}")),
-            if glowing { 1. } else { 0. },
-            crate::motion::GROUND_SWAP,
-            ground,
-        ))
+        .child(crate::ui::grain::pane_ground(cx)(glow))
         .children(header)
         .child(div().flex_1().min_h_0().p(px(ui::AGENT_INSET)).child(shown))
         .into_any_element()
@@ -254,6 +249,7 @@ pub fn welcome(
     bench: &Workbench,
     agent: Option<&AgentRow>,
     placed: Option<&AccountMove>,
+    shown: f32,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
     let project = bench.project().map(|project| project.name.clone());
@@ -261,7 +257,7 @@ pub fn welcome(
     let under = div()
         .w_full()
         .children(placed.map(|placed| smart_pick(bench, placed, provider, cx)));
-    welcome_over(project.unwrap_or_default(), under, cx)
+    welcome_over(project.unwrap_or_default(), under, shown, cx)
         .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
         .mx(px(22.))
 }
@@ -318,22 +314,29 @@ fn smart_pick(
 }
 
 /// Sikemux's mark in dots, asking what is being made in `project`, over `under`, as wide as it
-/// is given.
-pub fn welcome_over(project: impl Into<SharedString>, under: impl IntoElement, cx: &App) -> Div {
+/// is given and as solid as `shown`, from 0 to 1.
+pub fn welcome_over(
+    project: impl Into<SharedString>,
+    under: impl IntoElement,
+    shown: f32,
+    cx: &App,
+) -> Div {
     div()
         .w_full()
         .flex()
         .flex_col()
         .items_center()
         .gap(SPACE_6)
-        .child(logo(cx))
+        .opacity(shown)
+        .child(logo(shown, cx))
         .child(greeting(project.into(), cx))
         .child(div().w_full().child(under))
 }
 
-/// Sikemux's mark in dots of the accent, as the setup's poster draws it.
-fn logo(cx: &App) -> AnyElement {
-    match crate::ui::grain::poster_mark(1., LOGO_DOTS, cx) {
+/// Sikemux's mark in dots of the accent, as the setup's poster draws it, its dots thinning
+/// away as `shown` falls to 0.
+fn logo(shown: f32, cx: &App) -> AnyElement {
+    match crate::ui::grain::poster_mark(shown, LOGO_DOTS, cx) {
         Some(mark) => mark.size(px(LOGO_SIZE)).into_any_element(),
         None => ui::icon(Icon::Logo, LOGO_SIZE)
             .text_color(Tokens::get(cx).accent)
