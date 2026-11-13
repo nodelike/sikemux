@@ -25,7 +25,7 @@ pub(super) struct SealedCopy {
 
 /// Something the account sent, in the order it gave it. A place is a server revision and the
 /// vault key generation it was sealed under.
-pub(super) enum Arrival {
+pub(super) enum Incoming {
     /// Every document of the mod went from the account.
     Purge(String),
     Naming {
@@ -395,7 +395,7 @@ impl Store {
     /// documents now read differently, as change paths.
     pub(super) fn take_in(
         &self,
-        arrivals: Vec<Arrival>,
+        arrivals: Vec<Incoming>,
         now: u64,
     ) -> CoreResult<(BTreeSet<String>, Vec<MergedIn>)> {
         self.changing(|transaction, clock| {
@@ -404,16 +404,16 @@ impl Store {
             let mut merged = Vec::new();
             for arrival in arrivals {
                 match arrival {
-                    Arrival::Purge(module) => {
+                    Incoming::Purge(module) => {
                         paths.extend(paths_of(transaction, &module)?);
                         books.forget(&module);
                         forget(transaction, &module)?;
                     }
-                    Arrival::Naming { module, key, place } => {
+                    Incoming::Naming { module, key, place } => {
                         named(transaction, &module, &key, place)?
                     }
-                    Arrival::Unnamed(module) => unnamed(transaction, &module)?,
-                    Arrival::Document {
+                    Incoming::Unnamed(module) => unnamed(transaction, &module)?,
+                    Incoming::Document {
                         module,
                         sid,
                         collection,
@@ -440,7 +440,7 @@ impl Store {
                             });
                         }
                     }
-                    Arrival::Unopened(copy) => {
+                    Incoming::Unopened(copy) => {
                         if held(transaction, &copy)? {
                             continue;
                         }
@@ -462,7 +462,7 @@ impl Store {
                             )
                             .map_err(failed)?;
                     }
-                    Arrival::Unreadable(module, sid) => opened(transaction, &module, &sid)?,
+                    Incoming::Unreadable(module, sid) => opened(transaction, &module, &sid)?,
                 }
             }
             books.save(transaction)?;

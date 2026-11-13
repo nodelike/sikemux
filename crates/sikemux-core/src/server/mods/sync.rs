@@ -38,7 +38,7 @@ use crate::accounts::protocol::{AccountEvent, AccountEventType};
 use crate::accounts::vault::{
     ModDocument, ModDocumentPut, ModsPulled, ModsPurged, ModsPush, ModsPushed,
 };
-use rows::{Arrival, MergedIn, Outgoing, SealedCopy, Sent};
+use rows::{Incoming, MergedIn, Outgoing, SealedCopy, Sent};
 
 /// A burst of writes, such as an agent's list of them, goes in one push.
 const SETTLE: Duration = Duration::from_secs(2);
@@ -173,13 +173,13 @@ fn open(key: &Key, copy: &SealedCopy) -> Option<Sealed> {
 
 /// What a document from the account comes to here: opened when this host holds the key it was
 /// sealed under, kept sealed to try again when it does not.
-fn arrival((key, generation): (&Key, i64), copy: SealedCopy) -> Arrival {
+fn arrival((key, generation): (&Key, i64), copy: SealedCopy) -> Incoming {
     if copy.generation != generation {
-        return Arrival::Unopened(copy);
+        return Incoming::Unopened(copy);
     }
     let place = (copy.revision, copy.generation);
     match (open(key, &copy), copy.sid == NAMING_ID) {
-        (Some(Sealed::Naming { key }), true) => Arrival::Naming {
+        (Some(Sealed::Naming { key }), true) => Incoming::Naming {
             module: copy.module,
             key,
             place,
@@ -191,7 +191,7 @@ fn arrival((key, generation): (&Key, i64), copy: SealedCopy) -> Arrival {
                 document,
             }),
             false,
-        ) => Arrival::Document {
+        ) => Incoming::Document {
             module: copy.module,
             sid: copy.sid,
             collection,
@@ -204,7 +204,7 @@ fn arrival((key, generation): (&Key, i64), copy: SealedCopy) -> Arrival {
                 "sikemux core: mod {} document {} does not open with the vault key; skipped",
                 copy.module, copy.sid
             );
-            Arrival::Unreadable(copy.module, copy.sid)
+            Incoming::Unreadable(copy.module, copy.sid)
         }
     }
 }
@@ -289,7 +289,7 @@ async fn round(core: &Arc<Core>) -> CoreResult<Next> {
     }
     let worker = core.clone();
     let retried = blocking(move || worker.mods().data.unopened(generation)).await?;
-    let arrivals: Vec<Arrival> = (retried.into_iter())
+    let arrivals: Vec<Incoming> = (retried.into_iter())
         .map(|copy| arrival(sealing, copy))
         .collect();
     take_in(core, arrivals).await?;
@@ -304,7 +304,7 @@ async fn round(core: &Arc<Core>) -> CoreResult<Next> {
 }
 
 /// Takes in what the account sent, in the order it gives, and tells open panes what changed.
-async fn take_in(core: &Arc<Core>, arrivals: Vec<Arrival>) -> CoreResult<()> {
+async fn take_in(core: &Arc<Core>, arrivals: Vec<Incoming>) -> CoreResult<()> {
     if arrivals.is_empty() {
         return Ok(());
     }
@@ -382,9 +382,9 @@ async fn pull(core: &Arc<Core>, sealing: (&Key, i64), mut since: i64) -> CoreRes
                 .collect();
             own
         };
-        let mut arrivals: Vec<(i64, Arrival)> = (pulled.purges.into_iter())
+        let mut arrivals: Vec<(i64, Incoming)> = (pulled.purges.into_iter())
             .filter(|purge| !own.contains(&purge.seq))
-            .map(|purge| (purge.seq, Arrival::Purge(purge.r#mod)))
+            .map(|purge| (purge.seq, Incoming::Purge(purge.r#mod)))
             .collect();
         arrivals.extend(
             (pulled.documents.into_iter())
@@ -504,10 +504,10 @@ async fn name(core: &Arc<Core>, sealing: (&Key, i64)) -> CoreResult<Option<Durat
         Answer::Wait(wait) => return Ok(Some(wait)),
         Answer::Full => return Ok(Some(ACCOUNT_FULL)),
     };
-    let mut arrivals: Vec<Arrival> = (pushed.stored.iter())
+    let mut arrivals: Vec<Incoming> = (pushed.stored.iter())
         .filter_map(|stored| {
             let (_, naming) = keys.iter().find(|(module, _)| *module == stored.r#mod)?;
-            Some(Arrival::Naming {
+            Some(Incoming::Naming {
                 module: stored.r#mod.clone(),
                 key: naming.clone(),
                 place: (stored.revision, generation),
@@ -517,7 +517,7 @@ async fn name(core: &Arc<Core>, sealing: (&Key, i64)) -> CoreResult<Option<Durat
     for conflict in pushed.conflicts {
         arrivals.push(match conflict.current {
             Some(current) => arrival(sealing, copy_of(current)),
-            None => Arrival::Unnamed(conflict.r#mod),
+            None => Incoming::Unnamed(conflict.r#mod),
         });
     }
     take_in(core, arrivals).await?;
