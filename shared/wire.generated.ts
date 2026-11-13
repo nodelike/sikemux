@@ -4789,6 +4789,8 @@ export interface CatalogAgent {
     accounts: boolean;
     /** The app can read how much of its plan is used. */
     usage: boolean;
+    /** It runs free models with no account or key, so it works before any sign-in. */
+    freeModels?: boolean;
     /** The app can delete a saved chat from its own history. */
     deletableChats: boolean;
     /** It can also name a saved session by its transcript's path. */

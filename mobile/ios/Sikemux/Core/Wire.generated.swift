@@ -7199,6 +7199,8 @@ struct CatalogAgent: Codable, Hashable, Sendable {
     var accounts: Bool
     /// The app can read how much of its plan is used.
     var usage: Bool
+    /// It runs free models with no account or key, so it works before any sign-in.
+    var freeModels: Bool?
     /// The app can delete a saved chat from its own history.
     var deletableChats: Bool
     /// It can also name a saved session by its transcript's path.
