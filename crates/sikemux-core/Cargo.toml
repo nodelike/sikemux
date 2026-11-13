@@ -12,6 +12,7 @@ host-addresses-file = []
 [dependencies]
 sikemux-agents = { path = "../sikemux-agents" }
 sikemux-base = { path = "../sikemux-base" }
+sikemux-calls = { path = "../sikemux-calls" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-drivers = { path = "../sikemux-drivers" }
 sikemux-process = { path = "../sikemux-process" }

@@ -9826,6 +9826,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sikemux-calls"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sikemux-view",
+ "workspace-hack",
+]
+
+[[package]]
 name = "sikemux-client"
 version = "0.1.0"
 dependencies = [
@@ -9882,6 +9891,7 @@ dependencies = [
  "sha2 0.11.0",
  "sikemux-agents",
  "sikemux-base",
+ "sikemux-calls",
  "sikemux-client",
  "sikemux-corekit",
  "sikemux-drivers",

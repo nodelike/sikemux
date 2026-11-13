@@ -10,6 +10,7 @@ on:
       - "mobile/**"
       - "crates/sikemux-mobile/**"
       - "crates/sikemux-core/**"
+      - "crates/sikemux-calls/**"
       - "crates/sikemux-corekit/**"
       - "crates/sikemux-git/**"
       - "crates/sikemux-agents/**"

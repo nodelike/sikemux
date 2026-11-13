@@ -24,7 +24,18 @@ const CORE_PARTS = [
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const MARKDOWN = "crates/sikemux-markdown/src";
 const BASE = "crates/sikemux-base/src";
-const CRATES = [WIRE, VIEW, CORE, ...CORE_PARTS, PLUGIN_API, MARKDOWN, BASE];
+/** The methods clients call typed, with what each takes and answers. */
+const CALLS = "crates/sikemux-calls/src";
+const CRATES = [
+  WIRE,
+  VIEW,
+  CORE,
+  CALLS,
+  ...CORE_PARTS,
+  PLUGIN_API,
+  MARKDOWN,
+  BASE,
+];
 const SOURCES = (
   await Promise.all(
     CRATES.map((crate) => readdir(resolve(root, crate), { recursive: true })),
@@ -846,8 +857,15 @@ function coreCalls() {
       ...text.matchAll(
         /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?):\s*[A-Z]\w*(?:,\s*\w+(?:\([^)]*\))?)*\s*=>/gm,
       ),
-    ].map(([, method, takes, gives]) => [method, { takes, gives }]),
+    ].map(([, method, takes, gives]) => [method, { takes, gives, file }]),
   );
+  for (const [index, declared] of SOURCES.entries()) {
+    if (!declared.startsWith(CALLS)) continue;
+    for (const [, method, takes, gives] of texts[index].matchAll(
+      /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?);$/gm,
+    ))
+      rows.set(method, { takes, gives, file: declared });
+  }
   return PHONE_CALLS.map((method) => {
     const row = rows.get(method);
     if (!row)
@@ -856,8 +874,8 @@ function coreCalls() {
       );
     return {
       method,
-      takes: parseType(row.takes, file),
-      gives: parseType(row.gives, file),
+      takes: parseType(row.takes, row.file),
+      gives: parseType(row.gives, row.file),
     };
   });
 }

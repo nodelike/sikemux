@@ -72,18 +72,16 @@ impl Row {
 /// Each method once: its [`Row`] and what it runs. A method whose params and answer are
 /// named, as `"m" Marker (Params) -> Answer`, runs on its params read as that type and
 /// answers that type, which clients are generated to call it with, and is `call::Marker` to
-/// a client in Rust. The `git.*` methods have the same rows in `git.rs`.
+/// a client in Rust. A method whose marker and types sikemux-calls declares is named there,
+/// as `"m" = module::Marker`. The `git.*` methods have the same rows in `git.rs`.
 macro_rules! calls {
     ($core:ident, $client:ident, $method:ident, $params:ident;
-     $($name:literal $($marker:ident ($takes:ty) -> $gives:ty)?: $needs:ident $(, $flag:ident $(($arg:expr))?)* => $run:expr,)*) => {
+     $($name:literal $(= $module:ident :: $moved:ident)? $($marker:ident ($takes:ty) -> $gives:ty)?: $needs:ident $(, $flag:ident $(($arg:expr))?)* => $run:expr,)*) => {
         /// The methods that name their params and answer, one type each, for a client
         /// in Rust to call them typed.
         pub mod call {
-            pub trait Call {
-                const METHOD: &'static str;
-                type Params;
-                type Answer;
-            }
+            pub use sikemux_calls::Call;
+            $($(pub use sikemux_calls::$module::$moved;)?)*
 
             $($(pub struct $marker;)?)*
         }
@@ -121,7 +119,7 @@ macro_rules! calls {
             // Each method's future lives on the heap, so the dispatch's own frame never carries a
             // method's whole chain on a worker thread's stack.
             match $method {
-                $($name => Box::pin(async move { calls!(@run $params, $run $(, $takes, $gives)?) }).await,)*
+                $($name => Box::pin(async move { calls!(@run $params, $run $(, $takes, $gives)? $(, <call::$moved as call::Call>::Params, <call::$moved as call::Call>::Answer)?) }).await,)*
                 method => super::git::call(&$core, &$client.peer, method, $params).await,
             }
         }
@@ -424,8 +422,8 @@ calls! { core, client, method, params;
     "vaultRecoverySaved" VaultRecoverySaved (NoParams) -> (): Owner => super::vault::shown::recovery_saved(&core).await?,
     "vaultRecover" VaultRecover (super::vault::shown::RecoverParams) -> (): Owner => super::vault::shown::recover(&core, params).await?,
     "vaultUses" VaultUses (super::vault::shown::UsesParams) -> Vec<super::vault::shown::ShownUse>: Owner => super::vault::shown::uses(&core, params).await?,
-    "drafts" Drafts (Option<super::drafts::DraftsParams>) -> std::collections::BTreeMap<String, super::drafts::Draft>: Watch => core.drafts().get(params.unwrap_or_default().keys.as_deref()),
-    "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
+    "drafts" = drafts::Drafts: Watch => core.drafts().get(params.unwrap_or_default().keys.as_deref()),
+    "setDraft" = drafts::SetDraft: Owner => super::drafts::set(&core, params)?,
     "diagramLayout" DiagramLayout (super::diagrams::DiagramParams) -> super::diagrams::DiagramLayout: Owner => super::diagrams::layout(&core, params),
     "setDiagramLayout" SetDiagramLayout (super::diagrams::DiagramParams) -> Value: Owner => super::diagrams::set_layout(&core, params)?,
     "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> Preferences: Owner => super::preferences::set(&core, params)?,
