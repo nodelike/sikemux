@@ -677,6 +677,7 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
         ));
     }
     let mut person_lines = Vec::new();
+    let mut quoted_answers: HashSet<(String, String)> = HashSet::new();
     let calls = super::person_calls::history(core, &path).unwrap_or_default();
     let asked_by_chief = |call: &PersonCall| {
         call.asker.agent_id == chief || call.joined.iter().any(|joined| joined.agent_id == chief)
@@ -709,10 +710,17 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
                         .unwrap_or_else(|| "picked an option".to_owned());
                     format!("- answered {asker}'s call {question}: {picked}")
                 }
-                (None, Some(words)) => format!(
-                    "- answered {asker}'s call {question}: in their words {}",
-                    quoted(words)
-                ),
+                (None, Some(words))
+                    if quoted_answers.insert((call.asker.agent_id.clone(), words.clone())) =>
+                {
+                    format!(
+                        "- answered {asker}'s call {question}: in their words {}",
+                        quoted(words)
+                    )
+                }
+                (None, Some(_)) => {
+                    format!("- answered {asker}'s call {question}: in the same words")
+                }
                 (None, None) => format!("- answered {asker}'s call {question}"),
             };
             person_lines.push((answer.at, line));
@@ -721,7 +729,7 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
     let wrote: Vec<String> = (wrote.into_iter())
         .filter(|agent| agents.contains(agent))
         .collect();
-    person_lines.extend(typed_since(core, &wrote, feeds, since));
+    person_lines.extend(typed_since(core, &wrote, feeds, since, &quoted_answers));
     let notes: Vec<(u64, String)> = (notes.into_iter())
         .map(|(at, text)| (at, format!("- {text}")))
         .collect();
@@ -751,6 +759,7 @@ fn typed_since(
     wrote: &[String],
     feeds: Vec<(String, String)>,
     since: u64,
+    quoted_answers: &HashSet<(String, String)>,
 ) -> Vec<(u64, String)> {
     let mut feeds: Vec<(String, String)> = (feeds.into_iter())
         .filter(|(agent, _)| wrote.contains(agent))
@@ -785,6 +794,10 @@ fn typed_since(
                 continue;
             }
             let line = match said.words {
+                Some(words) if quoted_answers.contains(&(agent.clone(), words.clone())) => format!(
+                    "- wrote to {}, the words that answered its call",
+                    called(core, agent)
+                ),
                 Some(words) => format!("- wrote to {}: {}", called(core, agent), quoted(&words)),
                 None => format!("- wrote to {}", called(core, agent)),
             };

@@ -1706,14 +1706,18 @@ pub(crate) fn history(core: &Core, project: &str) -> Option<Vec<PersonCall>> {
 }
 
 /// The calls of `project` the person answered from `from` to `to`, read from its whole record:
-/// whether each answer was the asker's pick. A call handed back was not answered, and letting an
-/// assumption stand picked nothing.
+/// whether each answer was the asker's pick, chosen or typed as its label. A call handed back was
+/// not answered, and letting an assumption stand picked nothing.
 pub(crate) fn answered_since(core: &Core, project: &str, from: u64, to: u64) -> Vec<bool> {
     (history(core, project).unwrap_or_default().into_iter())
         .filter(|call| !handed_back(call))
         .filter_map(|call| {
             let answer = (call.answer.as_ref()).filter(|answer| (from..to).contains(&answer.at))?;
-            Some(call.pick.is_some() && answer.option == call.pick)
+            let pick = (call.options.iter()).find(|option| Some(&option.id) == call.pick.as_ref());
+            let typed_pick = (answer.words.as_deref().zip(pick)).is_some_and(|(words, pick)| {
+                words.trim().to_lowercase() == pick.label.trim().to_lowercase()
+            });
+            Some((call.pick.is_some() && answer.option == call.pick) || typed_pick)
         })
         .collect()
 }
