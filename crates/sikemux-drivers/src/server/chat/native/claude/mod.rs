@@ -622,8 +622,13 @@ impl Backend for Claude {
         let from_settings = settings
             .get("model")
             .and_then(Value::as_str)
-            .and_then(|named| config::settings_model(&mut models, named));
-        let chosen = wanted.filter(|model| config::offers_model(&models, model));
+            .and_then(|named| config::named_model(&mut models, named));
+        let chosen = wanted.map(|model| {
+            config::named_model(&mut models, &model).unwrap_or_else(|| {
+                config::provider_model(&mut models, &model);
+                model
+            })
+        });
         let resumed = match (&chosen, &launch.resume_id) {
             (None, Some(id)) => {
                 let (launch, id) = (launch.clone(), id.clone());

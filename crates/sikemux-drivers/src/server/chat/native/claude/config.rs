@@ -150,10 +150,10 @@ pub fn saved_window(setup: &Value, launched_with: Option<&str>, used: u64) -> u6
     }
 }
 
-/// Makes room in the list for the model the person's settings name, such as
-/// `opus[1m]`, which Claude Code runs but does not list: a row like the one it
-/// extends, named for its larger context. Answers with the row's value.
-pub(crate) fn settings_model(models: &mut Vec<Value>, named: &str) -> Option<String> {
+/// The row for a model named by its full id, such as `claude-sonnet-5-5`, or by a
+/// name Claude Code runs but does not list, such as `opus[1m]`: for the latter a row
+/// like the one it extends, named for its larger context. Answers with the row's value.
+pub(crate) fn named_model(models: &mut Vec<Value>, named: &str) -> Option<String> {
     if find(models, named).is_some() {
         return Some(named.to_owned());
     }
@@ -174,7 +174,7 @@ pub(crate) fn settings_model(models: &mut Vec<Value>, named: &str) -> Option<Str
     Some(named.to_owned())
 }
 
-/// Lists a model another provider serves, which Claude Code itself does not.
+/// Lists a model Claude Code itself does not, such as one another provider serves.
 pub(crate) fn provider_model(models: &mut Vec<Value>, value: &str) {
     if find(models, value).is_none() {
         models.push(json!({ "value": value, "displayName": value }));
@@ -386,7 +386,7 @@ mod tests {
     fn a_settings_model_with_a_larger_context_gets_its_own_row() {
         let mut models = models();
         assert_eq!(
-            settings_model(&mut models, "opus[1m]").as_deref(),
+            named_model(&mut models, "opus[1m]").as_deref(),
             Some("opus[1m]")
         );
         let options = options(&models, "opus[1m]", "high", false);
@@ -394,15 +394,12 @@ mod tests {
         assert_eq!(row["value"], "opus[1m]");
         assert_eq!(row["name"], "Opus 5.5 (1M context)");
         assert_eq!(options[1]["currentValue"], "high");
+        assert_eq!(named_model(&mut models, "haiku").as_deref(), Some("haiku"));
         assert_eq!(
-            settings_model(&mut models, "haiku").as_deref(),
-            Some("haiku")
-        );
-        assert_eq!(
-            settings_model(&mut models, "claude-opus-5-5").as_deref(),
+            named_model(&mut models, "claude-opus-5-5").as_deref(),
             Some("default")
         );
-        assert_eq!(settings_model(&mut models, "gpt-9"), None);
+        assert_eq!(named_model(&mut models, "gpt-9"), None);
     }
 
     #[test]

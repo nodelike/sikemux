@@ -704,6 +704,17 @@ async fn a_new_claude_chat_shows_the_model_its_settings_choose() {
     assert_eq!(start.setup["configOptions"][0]["currentValue"], "small");
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_claude_chat_started_on_a_full_model_id_shows_that_model() {
+    let config = tempfile::tempdir().expect("config");
+    let core = TestCore::start();
+    let (client, _chat) = core.connect("claude-worker").await;
+    let mut launch = claude_launch("claude-worker", config.path());
+    launch.model = Some("fake-small".into());
+    let start = client.acp_start(launch).await.expect("start");
+    assert_eq!(start.setup["configOptions"][0]["currentValue"], "small");
+}
+
 /// Runs the real `claude` named by `SIKEMUX_LIVE_CLAUDE` on a few short Haiku
 /// turns: `cargo test -p sikemux-core --test native live_claude -- --ignored`.
 #[tokio::test(flavor = "multi_thread")]
