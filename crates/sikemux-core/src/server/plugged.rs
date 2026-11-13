@@ -14,7 +14,7 @@ use sikemux_plugin_api::FailureCategory;
 pub mod manifest;
 use manifest::Manifest;
 
-use super::parts::Parts;
+use super::repo_state::RepoParts;
 use super::Core;
 
 /// One line of a plugin stream on the tool endpoint.
@@ -88,7 +88,7 @@ impl std::fmt::Debug for Provided {
 
 /// The plugins this core was started with, none in tests.
 pub(crate) fn provided(core: &Core) -> Option<Provided> {
-    core.config().plugins
+    core.plugins()
 }
 
 pub(crate) fn plugins(core: &Core, plugin: &str) -> Result<&'static dyn Plugins, PluginFailure> {

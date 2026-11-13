@@ -4,7 +4,7 @@
 //! those of a file something the record does not know of changed, are left
 //! without an owner.
 
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};

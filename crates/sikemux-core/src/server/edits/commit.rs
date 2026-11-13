@@ -3,8 +3,8 @@
 //! moves only if no one moved it meanwhile. The checkout's files stay as they
 //! are, and the shared index takes in only what was committed.
 
-use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::os::unix::fs::PermissionsExt;

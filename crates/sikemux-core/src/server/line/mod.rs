@@ -10,6 +10,7 @@ mod things;
 
 use crate::server::chat_state::ChatParts;
 use crate::server::remote_state::RemoteParts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

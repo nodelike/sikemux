@@ -2,7 +2,7 @@
 //! the last sound one and the failing one in the integration checkout, for a
 //! bounded time, one project's step at a time.
 
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

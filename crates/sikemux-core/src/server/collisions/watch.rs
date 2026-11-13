@@ -2,7 +2,7 @@
 //! edit tool reported, by the person, a command or an agent in a terminal,
 //! is seen as it happens.
 
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, Weak};

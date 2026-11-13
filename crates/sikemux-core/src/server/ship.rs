@@ -10,7 +10,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::ship::{HoldParams, WebWriteParams};
 use std::collections::{HashMap, HashSet, VecDeque};

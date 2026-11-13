@@ -1,7 +1,7 @@
 //! Whose work an agent's own git command would take in or throw away, for the
 //! git guard to refuse it by.
 
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

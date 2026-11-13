@@ -11,6 +11,7 @@ use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{

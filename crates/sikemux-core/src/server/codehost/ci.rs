@@ -2,7 +2,7 @@
 //! a pushed branch or a CI trigger waits on, once however many wait, and tells them all when
 //! its runs move.
 
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};

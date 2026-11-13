@@ -7,7 +7,7 @@
 mod log;
 
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

@@ -5,7 +5,7 @@
 //! model sees it. Another vendor's transcript never goes to the one asked.
 
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

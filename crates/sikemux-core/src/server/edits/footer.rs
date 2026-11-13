@@ -3,8 +3,8 @@
 //! agent's own `git commit` through the git shim.
 
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
+use crate::server::repo_state::RepoParts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;

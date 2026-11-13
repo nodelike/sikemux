@@ -105,6 +105,7 @@ pub(crate) use sikemux_remote::server::remote_state;
 pub(crate) use sikemux_serve::server::reaper;
 mod repo_above;
 mod repo_events;
+mod repo_state;
 mod requests;
 mod roster;
 pub(crate) use sikemux_remote::server::runtime_file;
@@ -476,8 +477,22 @@ impl ServerCore for Core {
                     joins: Default::default(),
                     remote_above: base::remote_above(),
                 }) as sikemux_kernel::Parts,
-                Box::new(parts::Fields {
+                Box::new(repo_state::RepoFields {
+                    plugins: config.plugins,
                     repo_above: base::repo_above(),
+                    ship: ship::Ships::default(),
+                    person_calls,
+                    places: places::store::Store::new(data_dir),
+                    repo_events: repo_events::RepoEvents::default(),
+                    landing: landing::Histories::default(),
+                    land_queue: Default::default(),
+                    code_host_lists: Default::default(),
+                    ci: Default::default(),
+                    edits: edits::Edits::new(data_dir, me.clone()),
+                    collisions: collisions::Collisions::new(me.clone()),
+                    checks: Default::default(),
+                }) as sikemux_kernel::Parts,
+                Box::new(parts::Fields {
                     config,
                     manifest_folder: Mutex::new(None),
                     ports: ports::Ports::new(data_dir),
@@ -492,8 +507,6 @@ impl ServerCore for Core {
                     settling: settling::Settling::default(),
                     stalls: stalls::Stalls::default(),
                     lifecycle: lifecycle::Lifecycle::default(),
-                    ship: ship::Ships::default(),
-                    person_calls,
                     pins: pins::Pins::new(data_dir),
                     build_outputs: Default::default(),
                     line: line::Line::new(data_dir),
@@ -501,12 +514,8 @@ impl ServerCore for Core {
                     device_view: device_view::DeviceViews::default(),
                     host_watch: host_stats::HostWatch::default(),
                     boards: board::Boards::new(data_dir),
-                    places: places::store::Store::new(data_dir),
                     goal_summaries: goal_summary::Summaries::new(data_dir),
                     goals: goals::Goals::default(),
-                    repo_events: repo_events::RepoEvents::default(),
-                    landing: landing::Histories::default(),
-                    land_queue: Default::default(),
                     pictures: pictures::Pictures::new(data_dir),
                     memory: memory::Memory::new(data_dir),
                     triggers: triggers::Triggers::new(data_dir),
@@ -515,12 +524,7 @@ impl ServerCore for Core {
                     remote_images: remote_image::RemoteImages::default(),
                     tasks: tasks::Tasks::new(data_dir),
                     git: git::Projects::default(),
-                    code_host_lists: Default::default(),
                     layouts: layout::Layouts::new(data_dir),
-                    ci: Default::default(),
-                    edits: edits::Edits::new(data_dir, me.clone()),
-                    collisions: collisions::Collisions::new(me.clone()),
-                    checks: Default::default(),
                     inbox: inbox::Turns::new(data_dir),
                     hosts,
                     mods: mods::Mods::new(data_dir),

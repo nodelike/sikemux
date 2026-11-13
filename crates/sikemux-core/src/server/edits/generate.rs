@@ -6,8 +6,8 @@
 //! the generators in a checkout they share, where they would read the other
 //! agents' work in progress.
 
-use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
+use crate::server::repo_state::RepoParts;
 use std::path::Path;
 use std::time::Duration;
 use uuid::Uuid;

@@ -4,6 +4,7 @@
 //! broke goes on one card.
 
 use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};

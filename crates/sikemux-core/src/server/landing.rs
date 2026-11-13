@@ -2,7 +2,7 @@
 //! Playbook's Landing page; until then it is read from how the project's latest changes reached
 //! its branch, once an hour at most.
 
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 pub use sikemux_calls::landing::LandedMeansParams;
 pub use sikemux_calls::landing::SetLandedMeansParams;
 use std::collections::HashMap;

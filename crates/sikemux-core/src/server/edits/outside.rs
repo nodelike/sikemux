@@ -6,7 +6,7 @@
 //! after its last change, kept in [`Priors`].
 
 use crate::server::chat_state::ChatParts;
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::serving::ServeCore;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeSet, HashMap, HashSet};

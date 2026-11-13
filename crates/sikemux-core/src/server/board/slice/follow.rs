@@ -3,6 +3,7 @@
 use super::*;
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 
 /// The card `agent` works now on `board`, when that is a slice in progress.
 pub(crate) fn working_slice(board: &Board, agent: &str) -> Option<u64> {

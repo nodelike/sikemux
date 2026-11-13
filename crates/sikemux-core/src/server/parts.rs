@@ -5,6 +5,7 @@ use super::connection::ClientId as GoneClient;
 use super::part::Part;
 use crate::server::chat_state::ChatParts;
 use crate::server::remote_state::RemoteParts;
+use crate::server::repo_state::RepoParts;
 use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::PathBuf;
@@ -16,14 +17,12 @@ use tokio::sync::Notify;
 use super::{ports, streams, themes, ServerConfig};
 
 use super::{
-    board, checks, chief, codehost, collisions, device_view, edits, git, goal_summary, goals,
-    harness, hooks, host_stats, hosts, inbox, landing, layout, lifecycle, line, memory, mods,
-    outside, person_calls, pictures, pins, places, remote_image, repo_events, session_watch,
-    settling, ship, spare, stalls, tasks, tools, triggers, updates, worktree, Core,
+    board, chief, device_view, git, goal_summary, goals, harness, hooks, host_stats, hosts, inbox,
+    layout, lifecycle, line, memory, mods, outside, pictures, pins, remote_image, session_watch,
+    settling, spare, stalls, tasks, tools, triggers, updates, worktree, Core,
 };
 
 pub(crate) struct Fields {
-    pub(super) repo_above: super::repo_above::RepoAbove,
     pub(super) config: ServerConfig,
     pub(super) manifest_folder: Mutex<Option<PathBuf>>,
     pub(super) ports: ports::Ports,
@@ -42,11 +41,6 @@ pub(crate) struct Fields {
     pub(super) settling: settling::Settling,
     pub(super) stalls: stalls::Stalls,
     pub(super) lifecycle: lifecycle::Lifecycle,
-    /// Agents' actions that leave this machine, held for the person.
-    pub(super) ship: ship::Ships,
-    /// The decisions put to the person.
-    pub(super) person_calls: person_calls::PersonCalls,
-    pub(super) places: places::store::Store,
     pub(super) pins: pins::Pins,
     pub(super) build_outputs: worktree::build_output::BuildOutputs,
     /// Builds agents start, taking turns.
@@ -57,24 +51,15 @@ pub(crate) struct Fields {
     pub(super) boards: board::Boards,
     pub(super) goal_summaries: goal_summary::Summaries,
     pub(super) goals: goals::Goals,
-    pub(super) repo_events: repo_events::RepoEvents,
     pub(super) memory: memory::Memory,
     pub(super) triggers: triggers::Triggers,
-    pub(super) landing: landing::Histories,
-    pub(super) land_queue: edits::queue::LandQueue,
     pub(super) pictures: pictures::Pictures,
     pub(super) spares: spare::Spares,
     pub(super) updates: updates::Updates,
     pub(super) remote_images: remote_image::RemoteImages,
     pub(super) tasks: tasks::Tasks,
     pub(super) git: git::Projects,
-    /// The code-host lists clients look at, kept and read again while they do.
-    pub(super) code_host_lists: codehost::Lists,
     pub(super) layouts: layout::Layouts,
-    pub(super) ci: codehost::ci::Ci,
-    pub(super) edits: edits::Edits,
-    pub(super) collisions: collisions::Collisions,
-    pub(super) checks: checks::ProjectChecks,
     pub(super) inbox: inbox::Turns,
     /// Hosts linked with this one, and the agents of teams shared with them.
     pub(super) hosts: hosts::Hosts,
@@ -83,7 +68,6 @@ pub(crate) struct Fields {
 }
 
 pub(crate) trait Parts {
-    fn repo_above(&self) -> &super::repo_above::RepoAbove;
     fn config(&self) -> &ServerConfig;
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
     fn ports(&self) -> &ports::Ports;
@@ -98,9 +82,6 @@ pub(crate) trait Parts {
     fn settling(&self) -> &settling::Settling;
     fn stalls(&self) -> &stalls::Stalls;
     fn lifecycle(&self) -> &lifecycle::Lifecycle;
-    fn ship(&self) -> &ship::Ships;
-    fn person_calls(&self) -> &person_calls::PersonCalls;
-    fn places(&self) -> &places::store::Store;
     fn pins(&self) -> &pins::Pins;
     fn build_outputs(&self) -> &worktree::build_output::BuildOutputs;
     fn line(&self) -> &line::Line;
@@ -110,23 +91,15 @@ pub(crate) trait Parts {
     fn boards(&self) -> &board::Boards;
     fn goal_summaries(&self) -> &goal_summary::Summaries;
     fn goals(&self) -> &goals::Goals;
-    fn repo_events(&self) -> &repo_events::RepoEvents;
     fn memory(&self) -> &memory::Memory;
     fn triggers(&self) -> &triggers::Triggers;
-    fn landing(&self) -> &landing::Histories;
-    fn land_queue(&self) -> &edits::queue::LandQueue;
     fn pictures(&self) -> &pictures::Pictures;
     fn spares(&self) -> &spare::Spares;
     fn updates(&self) -> &updates::Updates;
     fn remote_images(&self) -> &remote_image::RemoteImages;
     fn tasks(&self) -> &tasks::Tasks;
     fn git(&self) -> &git::Projects;
-    fn code_host_lists(&self) -> &codehost::Lists;
     fn layouts(&self) -> &layout::Layouts;
-    fn ci(&self) -> &codehost::ci::Ci;
-    fn edits(&self) -> &edits::Edits;
-    fn collisions(&self) -> &collisions::Collisions;
-    fn checks(&self) -> &checks::ProjectChecks;
     fn inbox(&self) -> &inbox::Turns;
     fn hosts(&self) -> &hosts::Hosts;
     fn mods(&self) -> &mods::Mods;
@@ -134,10 +107,6 @@ pub(crate) trait Parts {
 }
 
 impl Parts for Core {
-    fn repo_above(&self) -> &super::repo_above::RepoAbove {
-        &self.kept::<Fields>().repo_above
-    }
-
     fn config(&self) -> &ServerConfig {
         &self.kept::<Fields>().config
     }
@@ -194,18 +163,6 @@ impl Parts for Core {
         &self.kept::<Fields>().lifecycle
     }
 
-    fn ship(&self) -> &ship::Ships {
-        &self.kept::<Fields>().ship
-    }
-
-    fn person_calls(&self) -> &person_calls::PersonCalls {
-        &self.kept::<Fields>().person_calls
-    }
-
-    fn places(&self) -> &places::store::Store {
-        &self.kept::<Fields>().places
-    }
-
     fn pins(&self) -> &pins::Pins {
         &self.kept::<Fields>().pins
     }
@@ -242,24 +199,12 @@ impl Parts for Core {
         &self.kept::<Fields>().goals
     }
 
-    fn repo_events(&self) -> &repo_events::RepoEvents {
-        &self.kept::<Fields>().repo_events
-    }
-
     fn memory(&self) -> &memory::Memory {
         &self.kept::<Fields>().memory
     }
 
     fn triggers(&self) -> &triggers::Triggers {
         &self.kept::<Fields>().triggers
-    }
-
-    fn landing(&self) -> &landing::Histories {
-        &self.kept::<Fields>().landing
-    }
-
-    fn land_queue(&self) -> &edits::queue::LandQueue {
-        &self.kept::<Fields>().land_queue
     }
 
     fn pictures(&self) -> &pictures::Pictures {
@@ -286,28 +231,8 @@ impl Parts for Core {
         &self.kept::<Fields>().git
     }
 
-    fn code_host_lists(&self) -> &codehost::Lists {
-        &self.kept::<Fields>().code_host_lists
-    }
-
     fn layouts(&self) -> &layout::Layouts {
         &self.kept::<Fields>().layouts
-    }
-
-    fn ci(&self) -> &codehost::ci::Ci {
-        &self.kept::<Fields>().ci
-    }
-
-    fn edits(&self) -> &edits::Edits {
-        &self.kept::<Fields>().edits
-    }
-
-    fn collisions(&self) -> &collisions::Collisions {
-        &self.kept::<Fields>().collisions
-    }
-
-    fn checks(&self) -> &checks::ProjectChecks {
-        &self.kept::<Fields>().checks
     }
 
     fn inbox(&self) -> &inbox::Turns {

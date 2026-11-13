@@ -12,7 +12,7 @@ pub(crate) mod store;
 pub(crate) mod work;
 
 use crate::server::changed::ChangedCore;
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::places::{AddPlaceParams, PlaceLevelParams, PlacesParams, SeenParams};
 use std::path::Path;

@@ -7,7 +7,7 @@
 //! failed check is traced to the land that broke it, which goes back to its
 //! agent as a message while the rest stay in line.
 
-use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};

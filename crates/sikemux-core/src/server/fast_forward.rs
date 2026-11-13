@@ -3,7 +3,7 @@
 //! checkout, only when it has no changes, no untracked files, no commits of its own and no
 //! merge or rebase under way, and no agent is at work in it. Anything else, it leaves alone.
 
-use super::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

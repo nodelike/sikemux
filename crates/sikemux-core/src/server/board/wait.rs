@@ -7,6 +7,7 @@
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, VecDeque};
 
