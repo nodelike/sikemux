@@ -6,6 +6,7 @@
 mod session;
 
 use crate::server::chat_state::ChatParts;
+use sikemux_drivers::server::chat::native::session::Told;
 use sikemux_drivers::server::chat::native::{acp, claude, codex, muse, pi, process};
 
 use std::sync::Arc;
@@ -87,17 +88,21 @@ pub fn show_saved(chat: &Arc<Chat>) {
     if !shows_saved(chat.provider()) {
         return;
     }
-    if chat
+    let shown = chat
         .saved_shown
-        .swap(true, std::sync::atomic::Ordering::AcqRel)
-    {
+        .swap(true, std::sync::atomic::Ordering::AcqRel);
+    if shown && chat.feed.reach(&session).is_none() {
         return;
     }
     chat.saved_reading.send_replace(true);
     let chat = chat.clone();
     tokio::task::spawn_blocking(move || {
         let sink = session::ChatTelling::new(chat.clone());
-        let shown = match driver(chat.provider()) {
+        // What the chat shows already ends where the session stood; only what came after is read.
+        if shown {
+            sink.hush();
+        }
+        let replayed = match driver(chat.provider()) {
             Some(ChatDriver::Claude) => claude::replay_saved(&chat.launch, &session, &sink),
             Some(ChatDriver::Acp { .. }) => acp::replay_saved(&chat.launch, &session, &sink),
             Some(ChatDriver::Codex | ChatDriver::Muse | ChatDriver::Pi) | None => Err(format!(
@@ -105,9 +110,9 @@ pub fn show_saved(chat: &Arc<Chat>) {
                 chat.provider()
             )),
         };
-        if let Err(error) = shown {
+        if let Err(error) = replayed {
             chat.saved_shown
-                .store(false, std::sync::atomic::Ordering::Release);
+                .store(shown, std::sync::atomic::Ordering::Release);
             eprintln!(
                 "sikemux core: could not show {}'s saved chat: {error}",
                 chat.agent_id()
