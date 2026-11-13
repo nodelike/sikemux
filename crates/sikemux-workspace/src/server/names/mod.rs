@@ -1386,6 +1386,21 @@ pub fn set_name_theme(core: &Core, params: NameThemeParams) -> NameThemeParams {
     params
 }
 
+/// An agent as a note to another agent names it: its name with its id beside
+/// it, since a name can pass to another agent once it closes.
+pub fn called(name: &str, agent_id: &str) -> String {
+    if name == agent_id {
+        agent_id.to_owned()
+    } else {
+        format!("{name} ({agent_id})")
+    }
+}
+
+/// [`called`] for an agent by its id, under the name it has now.
+pub fn called_now(core: &crate::server::Core, agent_id: &str) -> String {
+    called(&core.names().name_or_id(agent_id), agent_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -678,7 +678,7 @@ pub(crate) fn read_target(
     fields.insert("cli".into(), target.cli.clone().into());
     fields.insert(
         "status".into(),
-        roster::status_word(target.standing(core)).into(),
+        roster::status_word(crate::server::roster::standing(target, core)).into(),
     );
     Ok(answer)
 }
@@ -725,7 +725,7 @@ pub(crate) fn waited(
     for agent in wanted {
         let waited = match roster::resolve(core, &agents, agent, &project, caller) {
             Ok(target) => Waited {
-                status: Some(target.standing(core)),
+                status: Some(crate::server::roster::standing(&target, core)),
                 name: target.name.unwrap_or_else(|| target.agent_id.clone()),
                 project: target.project,
                 agent_id: target.agent_id,
@@ -774,7 +774,7 @@ fn refreshed(core: &Core, waited: &[Waited]) -> Vec<Waited> {
             |known| match agents.iter().find(|agent| agent.agent_id == known.agent_id) {
                 Some(agent) => Waited {
                     name: agent.name.clone().unwrap_or_else(|| known.name.clone()),
-                    status: Some(agent.standing(core)),
+                    status: Some(crate::server::roster::standing(agent, core)),
                     ..known.clone()
                 },
                 None => Waited {

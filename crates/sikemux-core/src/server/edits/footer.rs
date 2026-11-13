@@ -6,6 +6,7 @@ use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeCore;
+use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -25,7 +26,6 @@ use crate::cli::protocol::HarnessRequest;
 use crate::server::callers::{self, CommitGrant};
 use crate::server::connection::blocking;
 use crate::server::repo_events::CommitMade;
-use crate::server::saved;
 use crate::server::Core;
 use crate::trailers::{self, Agent, Commit, PendingNote};
 
@@ -279,7 +279,7 @@ pub(super) fn agent(core: &Core, author: &Author) -> Agent {
         model: chat
             .and_then(|chat| chat.current_launch().model)
             .or_else(|| author.model.clone()),
-        sikemux: Some(core.config().build.version.clone()),
+        sikemux: Some(core.build().version.clone()),
         session: core.names().last_session(&author.agent_id),
         chat: author.agent_id.clone(),
     }
@@ -307,7 +307,7 @@ pub(super) fn known(core: &Core, dir: &Path, agent_id: &str) -> Option<Agent> {
         cli,
         cli_version: chat.as_ref().and_then(|chat| chat.cli_version()),
         model: chat.and_then(|chat| chat.current_launch().model),
-        sikemux: Some(core.config().build.version.clone()),
+        sikemux: Some(core.build().version.clone()),
         session: core.names().last_session(agent_id),
         chat: agent_id.to_owned(),
     })
@@ -413,10 +413,9 @@ fn recorded(core: &Core, project: &str, agent: &Agent) -> bool {
             .edits()
             .matching(project, |edit| edit.agent_id == chat)
             .is_empty()
-        || agent
-            .session
-            .as_deref()
-            .is_some_and(|session| saved::locate(core, session, Some(&agent.cli)).is_ok())
+        || agent.session.as_deref().is_some_and(|session| {
+            (core.repo_above().saved_locate)(core, session, Some(&agent.cli)).is_ok()
+        })
 }
 
 #[derive(Deserialize)]

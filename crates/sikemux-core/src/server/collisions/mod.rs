@@ -726,7 +726,7 @@ impl Collisions {
             return;
         }
         state.claim_notes.insert(key, now);
-        let name = |id: &str| super::messages::called_now(core, id);
+        let name = |id: &str| crate::server::names::called_now(core, id);
         let (agent_name, holder_name) = (name(agent), name(&holder));
         let file = shown(path, project);
         let minutes = now.saturating_sub(held_at) / 60_000;
@@ -828,7 +828,7 @@ impl Collisions {
                 .heads
                 .insert(project.clone(), at.clone());
             if before.is_some_and(|before| before != at) {
-                core.harness().note_repository(&project, "git.moved");
+                (core.repo_above().harness_note_repository)(&core, &project, "git.moved");
             }
             super::checks::head_moved(&core, &project, &dir);
         });
@@ -1088,7 +1088,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     for (to, text) in notes {
         let core = core.clone();
         tokio::spawn(async move {
-            if let Err(error) = super::messages::from_sikemux(&core, to, text).await {
+            if let Err(error) = (core.repo_above().messages_from_sikemux)(&core, to, text).await {
                 eprintln!(
                     "sikemux core: a note about shared files did not reach its agent: {error}"
                 );
@@ -1131,7 +1131,7 @@ fn warn(
         return;
     }
     let writer_name = name(writer);
-    let owner_called = super::messages::called_now(core, owner);
+    let owner_called = crate::server::names::called_now(core, owner);
     tell(
         state,
         owner,
@@ -1172,7 +1172,7 @@ impl Collisions {
         } = change;
         let at = written.at;
         let project = core.workspaces().project_of(&path);
-        let listed = super::roster::listed(core);
+        let listed = (core.repo_above().roster_listed)(core);
         let (shells, terminals) = self.writers(core, &listed, &project, &path, written);
         let writer = match (shells.len(), terminals.len()) {
             (1, 0) => shells.first().cloned().map(|agent| (agent, true)),
@@ -1307,7 +1307,7 @@ impl Collisions {
             return false;
         }
         let project = core.workspaces().project_of(path);
-        let listed = super::roster::listed(core);
+        let listed = (core.repo_above().roster_listed)(core);
         unclaimed.into_iter().any(|written| {
             let (shells, terminals) = self.writers(core, &listed, &project, path, written);
             !shells.contains(agent_id) && !terminals.contains(agent_id)
@@ -1321,7 +1321,7 @@ impl Collisions {
     pub(crate) fn writers(
         &self,
         core: &Core,
-        listed: &[super::roster::Listed],
+        listed: &[super::listed::Listed],
         project: &str,
         place: &Path,
         written: Written,
@@ -1362,7 +1362,7 @@ impl Collisions {
     pub(crate) fn at_work(
         &self,
         core: &Core,
-        listed: &[super::roster::Listed],
+        listed: &[super::listed::Listed],
         project: &str,
         place: &Path,
         at: u64,
@@ -1424,14 +1424,14 @@ fn in_background(core: &Core, project: &str, place: &Path) -> BTreeSet<String> {
 /// The terminal agents in `project` working now, in the checkout holding `place`.
 fn terminals_at_work(
     core: &Core,
-    listed: &[super::roster::Listed],
+    listed: &[super::listed::Listed],
     project: &str,
     place: &Path,
 ) -> BTreeSet<String> {
     listed
         .iter()
         .filter(|agent| {
-            agent.reach == super::roster::Reach::Terminal
+            agent.reach == super::listed::Reach::Terminal
                 && agent.project == project
                 && agent.status == sikemux_wire::protocol::AgentStatus::Working
         })

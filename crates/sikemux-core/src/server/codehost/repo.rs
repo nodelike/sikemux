@@ -1,7 +1,6 @@
 //! AutoPull requests and their checks on the project's code host, through its
 //! plugin and the person's own sign-in to it, and what reviewers say on them.
 
-use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -11,11 +10,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::log;
-use crate::server::board::AutoPull;
-use crate::server::plugins::{self, CodeHostSpec, FailureCategory, PluginFailure, Provided};
+use crate::server::plugged::{self, manifest::CodeHostSpec, Provided};
 use crate::server::workspace::project_of;
 use crate::server::Core;
+use sikemux_calls::plugins::PluginFailure;
 use sikemux_plugin_api::codehost::{Repo as RemoteRepo, Resolved};
+use sikemux_plugin_api::FailureCategory;
 use sikemux_view::workspace::{CodeHostChoice, ProjectCodeHost, ProjectPull, PullChecks};
 
 /// A code host the core reaches through its plugin, as the plugin's manifest
@@ -62,7 +62,7 @@ impl Host {
 }
 
 fn hosts(core: &Core) -> impl Iterator<Item = Host> {
-    plugins::manifests(core).into_iter().filter_map(|manifest| {
+    plugged::manifests(core).into_iter().filter_map(|manifest| {
         Some(Host {
             plugin: &manifest.id,
             spec: manifest.code_host.as_ref()?,
@@ -103,7 +103,7 @@ impl Repo {
 impl AutoPull {
     fn repo(&self, core: &Core) -> Result<Repo, String> {
         Ok(Repo {
-            plugins: core.config().plugins,
+            plugins: plugged::provided(core),
             host: host(core, &self.host)?,
             owner: self.owner.clone(),
             name: self.name.clone(),
@@ -114,7 +114,7 @@ impl AutoPull {
 
 impl Repo {
     pub(crate) async fn call(&self, method: &str, more: Value) -> Result<Value, PluginFailure> {
-        plugins::call_on(self.plugins, self.host.plugin(), method, self.params(more)).await
+        plugged::call_on(self.plugins, self.host.plugin(), method, self.params(more)).await
     }
 }
 
@@ -155,7 +155,7 @@ async fn locate(
 ) -> Option<(Host, String, String)> {
     for host in hosts(core) {
         let Ok(found) =
-            plugins::call(core, host.plugin(), "resolveRemote", json!({ "url": url })).await
+            plugged::call(core, host.plugin(), "resolveRemote", json!({ "url": url })).await
         else {
             continue;
         };
@@ -195,7 +195,7 @@ pub(crate) async fn find(
     let pick = picks.get(host.plugin()).cloned().unwrap_or_default();
     let account = match pick.account {
         Some(account) => Some(account),
-        None => plugins::call(
+        None => plugged::call(
             core,
             host.plugin(),
             "accountFor",
@@ -212,7 +212,7 @@ pub(crate) async fn find(
         ));
     }
     Ok(Repo {
-        plugins: core.config().plugins,
+        plugins: plugged::provided(core),
         host,
         owner,
         name,
@@ -319,7 +319,7 @@ pub(crate) async fn shown(
 pub(crate) async fn compare_url(core: &Core, url: &str, branch: &str) -> Result<String, String> {
     for host in hosts(core) {
         let Ok(found) =
-            plugins::call(core, host.plugin(), "resolveRemote", json!({ "url": url })).await
+            plugged::call(core, host.plugin(), "resolveRemote", json!({ "url": url })).await
         else {
             continue;
         };
@@ -865,7 +865,7 @@ mod tests {
     use super::*;
 
     fn host(manifest: &str) -> Host {
-        let manifest = plugins::Manifest::from_json(manifest).expect("a manifest");
+        let manifest = plugged::manifest::Manifest::from_json(manifest).expect("a manifest");
         let spec = manifest.code_host.expect("a code host");
         Host {
             plugin: "sikemux.test",
@@ -918,4 +918,15 @@ mod tests {
             }
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutoPull {
+    pub host: String,
+    pub owner: String,
+    pub name: String,
+    pub number: u64,
+    pub url: String,
+    pub account: Option<String>,
 }

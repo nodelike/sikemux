@@ -6,6 +6,7 @@
 //! The person answers in the asker's chat, the notch or Sikemux's rail, and the
 //! first answer reaches the asker as a message.
 
+pub(crate) use super::person_calls::{attached, without_attached};
 use crate::server::activity::ActivityCore;
 use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
@@ -1999,19 +2000,6 @@ impl AnswerParamsExt for AnswerParams {
             .filter(|part| !part.is_empty());
         self.answer = Some(parts.collect::<Vec<_>>().join("\n\n"));
     }
-}
-
-/// The files given with an answer as its text lists them.
-pub(crate) fn attached(paths: &[String]) -> String {
-    let listed: Vec<String> = paths.iter().map(|path| format!("- {path}")).collect();
-    format!("Attached:\n{}", listed.join("\n"))
-}
-
-/// An answer's text without its list of `paths`, for an agent that takes the files themselves.
-pub(crate) fn without_attached(text: &str, paths: &[String]) -> String {
-    let list = attached(paths);
-    let text = text.replacen(&format!("\n\n{list}"), "", 1);
-    text.replacen(&list, "", 1).trim().to_owned()
 }
 
 /// The person's answers to questions asked together. Each asker gets all of

@@ -78,8 +78,11 @@ mod tidy;
 mod wait;
 mod workflows;
 
+pub(crate) use super::checks::CheckRan;
+pub(crate) use super::checks::CiCard;
 use super::checks::{project_check, Checker, NoCheck};
-pub(crate) use auto::AutoPull;
+pub(crate) use super::codehost::repo::AutoPull;
+pub(crate) use super::repo_events::DeployRan;
 use auto::AutoRun;
 pub use auto::{
     BoardReviewerParams, BoardSettings, BoardSettingsParams, CardPull, CardRun, Landing,
@@ -92,12 +95,12 @@ pub use goal::AssertParams;
 pub(crate) use hand_off::hand_off;
 pub use hand_off::{BoardHandOffParams, HandOnParams, HandedOff};
 pub(crate) use lease::{person_hand_on, person_resume};
-pub(crate) use record::{record_check, CheckRan};
+pub(crate) use record::record_check;
 pub(crate) use slice::{
     check_stands, follow, gate_key, gate_words, person_note, person_pass, screenshot_taken,
     slice_screenshots,
 };
-pub(crate) use slice::{turn_pictures, verdict_on, DeployRan};
+pub(crate) use slice::{turn_pictures, verdict_on};
 pub use slice::{BoardNoteParams, BoardPassParams};
 use steps::Step;
 pub use steps::{BoardProposalParams, PlacesProposal};
@@ -1920,12 +1923,6 @@ pub(crate) fn add_for_trigger(
 
 pub(crate) fn triggers_changed(core: &Core, project: &str) {
     core.changed(What::ReadIn(Topic::Boards, Some(project), None));
-}
-
-/// The open card that holds a project's failing CI, which is that failure's one work item.
-pub(crate) struct CiCard {
-    pub label: String,
-    pub owner: Option<String>,
 }
 
 /// The latest commits of `project`'s unfinished slices that still wait for the check to pass

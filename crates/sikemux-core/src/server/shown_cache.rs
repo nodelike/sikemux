@@ -16,9 +16,9 @@ use tokio::sync::Notify;
 use tokio::task::JoinSet;
 
 use super::connection::ClientId;
-use super::plugins::PluginFailure;
 use super::Core;
 use crate::backoff::Backoff;
+use sikemux_calls::plugins::PluginFailure;
 
 /// A read no connection shows any more is kept this long after it was asked for.
 const GRACE: Duration = Duration::from_secs(60);

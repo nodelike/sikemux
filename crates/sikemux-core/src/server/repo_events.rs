@@ -11,7 +11,6 @@ use sikemux_process::sync::Locked;
 use sikemux_view::slice::{CheckRun, Verdict};
 use tokio::sync::Notify;
 
-use super::board::DeployRan;
 use super::Core;
 
 /// Told events the board has not read yet, past which the oldest go.
@@ -73,7 +72,7 @@ pub(crate) struct CommitMade<'a> {
 /// The one event a commit is, however it was made: the board hears of it in order with the rest
 /// of the project's events, and what else follows from it follows from here.
 pub(crate) fn commit_made(core: &Core, made: CommitMade<'_>) {
-    super::board::backup::committed(core, made.agent);
+    (core.repo_above().board_committed)(core, made.agent);
     let (project, on_branch) = core.workspaces().project_checkout(made.top);
     if on_branch {
         let mut agents: Vec<String> = crate::trailers::agents(made.message)
@@ -91,8 +90,8 @@ pub(crate) fn commit_made(core: &Core, made: CommitMade<'_>) {
         };
         core.checks()
             .wait_for(project.clone(), std::path::PathBuf::from(&project), commit);
-        super::board::roles::landed(core, &project);
-        super::chief::landed(core, &project, made.agent, made.message);
+        (core.repo_above().board_landed)(core, &project);
+        (core.repo_above().chief_landed)(core, &project, made.agent, made.message);
     }
     core.repo_events().tell(RepoEvent::Committed {
         project,
@@ -174,4 +173,17 @@ impl RepoEvents {
             self.told.notified().await;
         }
     }
+}
+
+/// What ran toward an environment, and how it went.
+pub(crate) struct DeployRan {
+    pub environment: String,
+    pub what: String,
+    /// None when it ran in a way the core can't follow to its end.
+    pub verdict: Option<Verdict>,
+    pub output: String,
+    /// The person allowed it, which passes the environment's step once it went.
+    pub by_person: bool,
+    /// The commit it deployed, as its checkout was when it went.
+    pub head: Option<String>,
 }

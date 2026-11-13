@@ -13,7 +13,7 @@ use super::commit::{in_checkout, names};
 use super::owners::{git, traced};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
-use crate::server::roster::{listed, Reach};
+use crate::server::listed::Reach;
 use crate::server::workspace::project_of;
 use crate::server::Core;
 
@@ -43,7 +43,7 @@ pub(crate) fn others(
     }
     if paths.is_empty() {
         others.extend(
-            listed(core)
+            (core.repo_above().roster_listed)(core)
                 .into_iter()
                 .filter(|agent| matches!(agent.reach, Reach::Chat | Reach::Terminal))
                 .filter(|agent| agent.agent_id != agent_id)

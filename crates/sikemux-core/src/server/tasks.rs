@@ -4,6 +4,7 @@
 //! wrote, and what stops a task from starting.
 
 use super::access::Peer;
+pub(crate) use super::trust_ask::{Grant, TrustAsk, TrustedConfig, TrustedTask};
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
@@ -65,22 +66,6 @@ const MAX_RERUNS: usize = 16;
 const INSTALL_WAIT: Duration = Duration::from_secs(10 * 60);
 const INSTALL_OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 
-/// What an agent asked to find the project's processes is told, after the line naming the project.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TrustedConfig {
-    path: String,
-    fingerprint: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TrustedTask {
-    project: String,
-    cwd: String,
-    command: String,
-}
-
 /// Commands the person trusts on this host, newest last.
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -99,18 +84,6 @@ struct Granted<T> {
     answered_by: Option<String>,
 }
 
-/// What a start asks the person before it runs commands someone else wrote.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TrustAsk {
-    title: String,
-    body: String,
-    commands: Vec<TrustCommand>,
-    confirm_label: String,
-    #[serde(skip)]
-    grant: Grant,
-}
-
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Asked {
@@ -121,12 +94,6 @@ struct Asked {
     execution_id: Option<String>,
     #[serde(flatten)]
     ask: TrustAsk,
-}
-
-#[derive(Clone, Debug)]
-enum Grant {
-    Config(TrustedConfig),
-    Personal(TrustedTask),
 }
 
 #[derive(Default)]

@@ -23,6 +23,7 @@ use super::{
 };
 
 pub(crate) struct Fields {
+    pub(super) repo_above: super::repo_above::RepoAbove,
     pub(super) config: ServerConfig,
     pub(super) manifest_folder: Mutex<Option<PathBuf>>,
     pub(super) ports: ports::Ports,
@@ -82,6 +83,7 @@ pub(crate) struct Fields {
 }
 
 pub(crate) trait Parts {
+    fn repo_above(&self) -> &super::repo_above::RepoAbove;
     fn config(&self) -> &ServerConfig;
     fn manifest_folder(&self) -> &Mutex<Option<PathBuf>>;
     fn ports(&self) -> &ports::Ports;
@@ -132,6 +134,10 @@ pub(crate) trait Parts {
 }
 
 impl Parts for Core {
+    fn repo_above(&self) -> &super::repo_above::RepoAbove {
+        &self.kept::<Fields>().repo_above
+    }
+
     fn config(&self) -> &ServerConfig {
         &self.kept::<Fields>().config
     }

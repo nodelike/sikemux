@@ -300,7 +300,7 @@ async fn met(core: &Core, park: &Park) -> Option<String> {
                 let status = roster::listed(core)
                     .into_iter()
                     .find(|agent| &agent.agent_id == agent_id)
-                    .map(|agent| agent.standing(core));
+                    .map(|agent| crate::server::roster::standing(&agent, core));
                 return until.already(status).then(|| {
                     let status = status.map_or("gone", roster::status_word);
                     format!("@{name} is {status} now. agent_read shows what it said.")

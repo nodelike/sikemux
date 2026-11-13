@@ -20,10 +20,13 @@ use std::path::PathBuf;
 use sikemux_view::prefs::PreferenceChange;
 
 use super::activity_log::{transcript_of, Place};
+use super::agent_now::AgentNowCore;
 use super::chat_above::ChatAbove;
 use super::launching;
 use super::notch;
 use super::remote_above::RemoteAbove;
+use super::repo_above::RepoAbove;
+use super::roster;
 use super::workspace_above::WorkspaceAbove;
 use super::ServerCore;
 use super::{
@@ -324,6 +327,73 @@ pub(super) fn remote_above() -> RemoteAbove {
         person_calls_open_call: person_calls::open_call,
         person_calls_raised_open: person_calls::raised_open,
         turn_state_set_a_wake: turn_state::set_a_wake,
+    }
+}
+
+pub(super) fn repo_above() -> RepoAbove {
+    RepoAbove {
+        board_check_stands: board::check_stands,
+        board_health_of: board::health_of,
+        board_project_at: board::project_at,
+        board_committed: board::backup::committed,
+        board_landed: board::roles::landed,
+        chief_all: chief::all,
+        chief_landed: chief::landed,
+        questions_asks_production: questions::asks_production,
+        questions_cli_of: questions::cli_of,
+        roster_listed: roster::listed,
+        messages_from_sikemux: |core, to, text| Box::pin(messages::from_sikemux(core, to, text)),
+        messages_for_person: |core, to, text| Box::pin(messages::for_person(core, to, text)),
+        messages_for_person_waiting: |core, to, text| {
+            Box::pin(messages::for_person_waiting(core, to, text))
+        },
+        messages_work_from_sikemux: |core, to, text, why| {
+            Box::pin(messages::work_from_sikemux(core, to, text, why))
+        },
+        messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
+        worktree_merge_queue: |core, project, commit| {
+            Box::pin(worktree::agent::merge_queue(core, project, commit))
+        },
+        worktree_integration: |core, project, commit| {
+            Box::pin(worktree::agent::integration(core, project, commit))
+        },
+        build_outputs_landed: |core, agent| core.build_outputs().landed(agent),
+        worktree_busy: worktree::removal::busy,
+        agent_running: |core, agent| core.agent_now(agent).running(),
+        tasks_config_needs: tasks::config_needs,
+        tasks_ask_person: |core, project, ask, execution_id| {
+            Box::pin(tasks::ask_person(core, project, ask, execution_id))
+        },
+        saved_locate: saved::locate,
+        board_waiting_on_ci: board::waiting_on_ci,
+        board_ci_moved: board::ci_moved,
+        triggers_waiting_on_ci: triggers::waiting_on_ci,
+        triggers_ci_moved: triggers::ci_moved,
+        git_pending_pulls: git::pending_pulls,
+        git_ci_moved: git::ci_moved,
+        board_landed_set: board::landed_set,
+        board_person_settings: |core, params| Box::pin(board::person_settings(core, params)),
+        board_mirror_places: board::mirror_places,
+        board_landing: board::landing,
+        board_record_check: board::record_check,
+        board_ci_ruled: board::ci_ruled,
+        board_unbuilt_heads: board::unbuilt_heads,
+        board_ci_card: board::ci_card,
+        harness_note_repository: |core, project, kind| {
+            core.harness().note_repository(project, kind)
+        },
+        questions_hears_hidden: |core, agent| core.harness().questions.hears_hidden(agent),
+        questions_answered_by_writing: |core, agent| {
+            core.harness().questions.answered_by_writing(agent)
+        },
+        questions_is_open: |core, id| core.harness().questions.is_open(id),
+        questions_answer: |core, params| Box::pin(questions::answer(core, params)),
+        questions_answer_all: |core, params| Box::pin(questions::answer_all(core, params)),
+        questions_hand_back: |core, id| Box::pin(questions::hand_back(core, id)),
+        plugins_caller_of: plugins::caller_of,
+        plugins_run_agent_tool: |core, name, arguments, deploy| {
+            Box::pin(plugins::run_agent_tool(core, name, arguments, deploy))
+        },
     }
 }
 

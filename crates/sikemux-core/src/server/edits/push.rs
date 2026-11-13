@@ -104,7 +104,7 @@ pub(super) fn push(
             if let Some(made_by) = committer::of(core, dir, commit) {
                 return Ok((
                     is_me(&made_by.chat, made_by.session.as_deref()),
-                    crate::server::messages::called(&made_by.name, &made_by.chat),
+                    crate::server::names::called(&made_by.name, &made_by.chat),
                 ));
             }
         }
@@ -112,7 +112,7 @@ pub(super) fn push(
             .iter()
             .any(|agent| is_me(&agent.chat, agent.session.as_deref()));
         let names: Vec<String> = (agents.iter())
-            .map(|agent| crate::server::messages::called(&agent.name, &agent.chat))
+            .map(|agent| crate::server::names::called(&agent.name, &agent.chat))
             .collect();
         Ok((mine, names.join(", ")))
     };

@@ -24,8 +24,8 @@ use crate::server::checks;
 use crate::server::connection::blocking;
 use crate::server::merge_queue::{self, Blame, Lane, Next, Waiter};
 use crate::server::repo_events::RepoEvent;
-use crate::server::worktree::{self, AgentWorktree};
 use crate::server::Core;
+use sikemux_view::workspace::AgentWorktree;
 
 const ATTEMPTS: usize = 4;
 /// Files that change how every crate builds.
@@ -199,7 +199,7 @@ fn send_back(core: &Arc<Core>, key: &Key, waiting: &Waiting, why: &str) {
 fn tell(core: &Arc<Core>, agent: &str, text: String) {
     let (core, agent) = (core.clone(), agent.to_owned());
     tokio::spawn(async move {
-        if let Err(error) = crate::server::messages::from_sikemux(&core, agent, text).await {
+        if let Err(error) = (core.repo_above().messages_from_sikemux)(&core, agent, text).await {
             eprintln!("sikemux core: a note about a land did not reach its agent: {error}");
         }
     });
@@ -295,7 +295,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     let repairing = red.as_deref() == Some(tip.as_str());
     let _turn = merge_queue::checkout_turn().await;
     let (from, to) = (tip.clone(), stacked.top().to_owned());
-    let command = match worktree::agent::merge_queue(core, &key.0, &to).await {
+    let command = match (core.repo_above().worktree_merge_queue)(core, &key.0, &to).await {
         Ok(checkout) => {
             let repo = key.0.clone();
             blocking(move || rust_check(&repo, &checkout, &from, &to).map_err(Into::into))
@@ -521,9 +521,9 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
     for laid in &stacked.laid {
         let waiting = &laid.waiting;
         let stays = land::follow(&waiting.worktree.path, &waiting.head, &laid.tip);
-        core.build_outputs().landed(&waiting.agent);
+        (core.repo_above().build_outputs_landed)(core, &waiting.agent);
         let subject = git(repo, &["log", "-1", "--format=%s", &laid.tip]).unwrap_or_default();
-        crate::server::chief::landed(core, &project, &waiting.agent, &subject);
+        (core.repo_above().chief_landed)(core, &project, &waiting.agent, &subject);
         core.repo_events().tell(RepoEvent::Landed {
             project: project.clone(),
             agent: waiting.agent.clone(),

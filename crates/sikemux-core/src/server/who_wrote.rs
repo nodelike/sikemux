@@ -2,6 +2,7 @@
 //! the agent sessions a commit's signed footer names, else the person git
 //! names as its author and the pull request it came in through.
 
+use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, HashMap};
@@ -22,8 +23,8 @@ use super::edits::commit::repo_below;
 use super::edits::note::{self, Note, Wrote};
 use super::edits::{commit_lines, owners_at};
 use super::edits::{footer, git};
-use super::roster::{self, Listed, Reach};
-use super::{saved, Core, CoreResult};
+use super::listed::{Listed, Reach};
+use super::{Core, CoreResult};
 
 mod ci;
 
@@ -74,7 +75,7 @@ fn saved_session(core: &Core, cli: &str, session_id: &str) -> Option<TitleAndPro
     if let Some(saved) = cache.locked().get(&key) {
         return saved.clone();
     }
-    let saved = saved::locate(core, session_id, Some(cli))
+    let saved = (core.repo_above().saved_locate)(core, session_id, Some(cli))
         .ok()
         .map(|saved| (saved.title, saved.project.to_string_lossy().into_owned()));
     remember(cache, &key, &saved);
@@ -183,7 +184,7 @@ pub(crate) async fn call(
                 .iter()
                 .map(|(commit, agents)| (commit.as_str(), agents.as_slice())),
         );
-        let listed = roster::listed(&core);
+        let listed = (core.repo_above().roster_listed)(&core);
         Ok(found
             .into_iter()
             .map(|(commit, agents)| {
@@ -550,7 +551,7 @@ fn uncommitted_by(core: &Core, top: &Path, path: &str, asked: Option<&Lines>) ->
     let Some(file) = owners.files.iter().find(|file| file.path == path) else {
         return Vec::new();
     };
-    let listed = roster::listed(core);
+    let listed = (core.repo_above().roster_listed)(core);
     let mut by: BTreeMap<usize, Vec<u64>> = BTreeMap::new();
     for run in &file.lines {
         let lines = (run.start..run.start + run.count).filter(|line| {
@@ -797,7 +798,7 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         } else {
             describe(&top, &hashes)?
         };
-        let listed = roster::listed(&core);
+        let listed = (core.repo_above().roster_listed)(&core);
         let agents: Vec<(Described, Vec<Agent>)> = described
             .into_iter()
             .map(|commit| {

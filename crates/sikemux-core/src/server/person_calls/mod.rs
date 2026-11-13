@@ -27,9 +27,9 @@ use super::access::Peer;
 use super::activity_log::ActivityLog;
 use super::changed::What;
 use super::chat::Answered;
-use super::questions::AnswerParams;
-use super::{messages, questions, ship, Core, CoreError, CoreResult};
+use super::{ship, Core, CoreError, CoreResult};
 use crate::text::clipped;
+use sikemux_calls::questions::{AnswerParams, AnswersParams};
 
 /// How long an answered or closed call stays in the device view.
 const SHOWN_AFTER_MS: u64 = 24 * 60 * 60 * 1000;
@@ -747,7 +747,7 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
 /// as well answer in the lead's chat. Such a question counts with no call open here, as when a
 /// linked host took it to put to the person there.
 pub(crate) fn hides_typed(core: &Core, agent_id: &str) -> bool {
-    core.harness().questions.hears_hidden(agent_id)
+    (core.repo_above().questions_hears_hidden)(core, agent_id)
         || waits_on_hidden(&core.person_calls().book.locked(), agent_id)
 }
 
@@ -1006,11 +1006,11 @@ const MAX_WRITTEN_CHARS: usize = 2000;
 /// person says to this agent is kept on any call, since the words may be the password. Answers
 /// which kind of call the words answered, for the chat's record of them.
 pub(crate) fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
-    let stopped = core.harness().questions.answered_by_writing(agent_id);
+    let stopped = (core.repo_above().questions_answered_by_writing)(core, agent_id);
     if stopped.is_empty() {
         return None;
     }
-    let asked_hidden = core.harness().questions.hears_hidden(agent_id);
+    let asked_hidden = (core.repo_above().questions_hears_hidden)(core, agent_id);
     let mut book = core.person_calls().book.locked();
     let answerable: Vec<&Kept> = (book.iter())
         .filter(|kept| {
@@ -1234,8 +1234,8 @@ async fn deliver(
     let answer = call.answer.as_ref().ok_or(GONE)?;
     let listed = || match (&typed, paths.is_empty()) {
         (_, true) => typed.clone(),
-        (Some(typed), false) => Some(format!("{typed}\n\n{}", questions::attached(&paths))),
-        (None, false) => Some(questions::attached(&paths)),
+        (Some(typed), false) => Some(format!("{typed}\n\n{}", attached(&paths))),
+        (None, false) => Some(attached(&paths)),
     };
     match source {
         Source::Question(_) => {
@@ -1257,7 +1257,7 @@ async fn deliver(
                     fine: lets_stand,
                     ..AnswerParams::default()
                 };
-                match questions::answer(core, params).await {
+                match (core.repo_above().questions_answer)(core, params).await {
                     Ok(()) => reached = true,
                     Err(error) => failed = failed.or(Some(error)),
                 }
@@ -1279,7 +1279,12 @@ async fn deliver(
             }
             if let Some(typed) = listed() {
                 let text = format!("The person added: {typed}");
-                let _ = messages::for_person(core, call.asker.agent_id.clone(), text).await;
+                let _ = (core.repo_above().messages_for_person)(
+                    core,
+                    call.asker.agent_id.clone(),
+                    text,
+                )
+                .await;
             }
         }
         Source::Raised if call.place.is_some() => call_answered(core, call, listed()).await,
@@ -1359,13 +1364,15 @@ const PRODUCTION_ONLY_ON_ITS_CALL: &str = "This asks for a change to production,
 pub(crate) async fn answer_questions(
     core: &Arc<Core>,
     peer: &Peer,
-    given: questions::AnswersParams,
+    given: AnswersParams,
 ) -> CoreResult<()> {
-    if (given.answers.iter()).any(|params| questions::asks_production(core, &params.id)) {
+    if (given.answers.iter())
+        .any(|params| (core.repo_above().questions_asks_production)(core, &params.id))
+    {
         return Err(PRODUCTION_ONLY_ON_ITS_CALL.into());
     }
-    let questions = &core.harness().questions;
-    if !(given.answers.iter()).all(|params| questions.is_open(&params.id)) {
+    if !(given.answers.iter()).all(|params| (core.repo_above().questions_is_open)(core, &params.id))
+    {
         return Err(gone());
     }
     let answered: Vec<&str> = given
@@ -1431,10 +1438,10 @@ pub(crate) async fn answer_questions(
             }
         }
     }
-    match questions::answer_all(core, given).await {
+    match (core.repo_above().questions_answer_all)(core, given).await {
         Ok(()) => {
             for params in joined {
-                let _ = questions::answer(core, params).await;
+                let _ = (core.repo_above().questions_answer)(core, params).await;
             }
             for id in &taken {
                 core.person_calls().settle(id, CallResult::Heard);
@@ -1540,7 +1547,7 @@ pub(crate) async fn not_mine(core: &Arc<Core>, peer: &Peer, params: CallParams) 
         Source::Question(_) => {
             let mut handed = Err(GONE.to_owned());
             for id in core.person_calls().questions_of(&call.id) {
-                let back = questions::hand_back(core, &id).await;
+                let back = (core.repo_above().questions_hand_back)(core, &id).await;
                 handed = handed.or(back);
             }
             handed
@@ -1631,7 +1638,7 @@ fn call_any(core: &Core, id: &str) -> Option<PersonCall> {
 async fn tell(core: &Arc<Core>, call: &PersonCall, text: &str) {
     for asker in std::iter::once(&call.asker).chain(&call.joined) {
         let to = asker.agent_id.clone();
-        let _ = messages::for_person_waiting(core, to, text.to_owned()).await;
+        let _ = (core.repo_above().messages_for_person_waiting)(core, to, text.to_owned()).await;
     }
 }
 
@@ -1662,7 +1669,8 @@ async fn redeliver(core: &Arc<Core>, id: &str) {
     }
     if let Source::Question(_) = source {
         let questions = core.person_calls().questions_of(id);
-        let open = (questions.iter()).any(|question| core.harness().questions.is_open(question));
+        let open = (questions.iter())
+            .any(|question| (core.repo_above().questions_is_open)(core, question));
         if !open {
             let text = match said(&call, typed.clone()) {
                 Some(said) => format!(
@@ -1726,7 +1734,7 @@ pub(crate) fn handed_back(call: &PersonCall) -> bool {
 
 /// Every call the device view shows, each asker marked when it is a project's chief.
 pub(crate) fn shown(core: &Core) -> Vec<PersonCall> {
-    let chiefs = crate::server::chief::all(core);
+    let chiefs = (core.repo_above().chief_all)(core);
     let mut calls = core.person_calls().shown();
     for call in &mut calls {
         for asker in std::iter::once(&mut call.asker).chain(call.joined.iter_mut()) {
@@ -1734,4 +1742,17 @@ pub(crate) fn shown(core: &Core) -> Vec<PersonCall> {
         }
     }
     calls
+}
+
+/// The files given with an answer as its text lists them.
+pub(crate) fn attached(paths: &[String]) -> String {
+    let listed: Vec<String> = paths.iter().map(|path| format!("- {path}")).collect();
+    format!("Attached:\n{}", listed.join("\n"))
+}
+
+/// An answer's text without its list of `paths`, for an agent that takes the files themselves.
+pub(crate) fn without_attached(text: &str, paths: &[String]) -> String {
+    let list = attached(paths);
+    let text = text.replacen(&format!("\n\n{list}"), "", 1);
+    text.replacen(&list, "", 1).trim().to_owned()
 }

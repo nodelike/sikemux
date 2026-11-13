@@ -4,6 +4,7 @@
 //! A busy chat takes it into its turn when it can; an agent that cannot gets
 //! the messages waiting for it together once its turn ends.
 
+pub(crate) use super::names::{called, called_now};
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
@@ -721,21 +722,6 @@ fn wrapped(letter: &Letter) -> String {
         attribute(&note),
         letter.text.replace("</agent-message", "&lt;/agent-message"),
     )
-}
-
-/// An agent as a note to another agent names it: its name with its id beside
-/// it, since a name can pass to another agent once it closes.
-pub(crate) fn called(name: &str, agent_id: &str) -> String {
-    if name == agent_id {
-        agent_id.to_owned()
-    } else {
-        format!("{name} ({agent_id})")
-    }
-}
-
-/// [`called`] for an agent by its id, under the name it has now.
-pub(crate) fn called_now(core: &Core, agent_id: &str) -> String {
-    called(&core.names().name_or_id(agent_id), agent_id)
 }
 
 /// The task a lead gives an agent it started, as that agent reads it.

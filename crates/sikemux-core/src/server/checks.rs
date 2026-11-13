@@ -416,7 +416,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     for (to, text) in notes {
         let core = core.clone();
         tokio::spawn(async move {
-            if let Err(error) = super::messages::from_sikemux(&core, to, text).await {
+            if let Err(error) = (core.repo_above().messages_from_sikemux)(&core, to, text).await {
                 eprintln!("sikemux core: a note about a check did not reach its agent: {error}");
             }
         });
@@ -524,7 +524,7 @@ async fn run_batch(
         .iter()
         .flat_map(|commit| commit.agents.iter().cloned())
         .collect();
-    let outcome = match crate::server::worktree::agent::integration(&core, &dir, &newest).await {
+    let outcome = match (core.repo_above().worktree_integration)(&core, &dir, &newest).await {
         Ok(checkout) if needs_trust(&core, &project, &dir, &checkout, &commits, named).await => {
             Err("sikemux.json is not trusted yet, so the check did not run. The person is asked to trust it, and the check runs again if they do".to_owned())
         }
@@ -592,7 +592,7 @@ async fn run_batch(
     };
     if ran.passed || !named {
         core.checks().state.locked().running.remove(&project);
-        crate::server::board::record_check(
+        (core.repo_above().board_record_check)(
             &core,
             &project,
             &check_ran(&commits, &ran, &Hunted::NotTried),
@@ -659,7 +659,7 @@ async fn run_batch(
             .flatten();
     let digest = report::digest(&ran.text, log.as_deref());
     blame(&core, &project, &command, &commits, &digest, &hunted).await;
-    crate::server::board::record_check(&core, &project, &check_ran(&commits, &ran, &hunted));
+    (core.repo_above().board_record_check)(&core, &project, &check_ran(&commits, &ran, &hunted));
     {
         let mut state = core.checks().state.locked();
         state.running.remove(&project);
@@ -668,17 +668,13 @@ async fn run_batch(
     core.checks().wake.now();
 }
 
-fn check_ran<'a>(
-    commits: &'a [Commit],
-    ran: &'a Ran,
-    hunted: &'a Hunted,
-) -> crate::server::board::CheckRan<'a> {
+fn check_ran<'a>(commits: &'a [Commit], ran: &'a Ran, hunted: &'a Hunted) -> CheckRan<'a> {
     let (culprit_agents, found, steps): (&[String], bool, u32) = match hunted {
         Hunted::Found { agents, steps, .. } => (agents, true, *steps),
         Hunted::Unknown { steps, .. } => (&[], false, *steps),
         Hunted::NotTried => (&[], false, 0),
     };
-    crate::server::board::CheckRan {
+    CheckRan {
         took_ms: ran.took_ms,
         passed: ran.passed,
         authors: commits
@@ -710,7 +706,7 @@ async fn needs_trust(
             let check = named
                 .then(|| {
                     let load = crate::tasks::config::load(&dir);
-                    super::tasks::config_needs(&owner, &load)
+                    (owner.repo_above().tasks_config_needs)(&owner, &load)
                 })
                 .flatten();
             check.or_else(|| crate::server::edits::generate::trust_needed(&owner, &dir, &checkout))
@@ -729,7 +725,7 @@ async fn needs_trust(
     if first {
         let (core, project, dir) = (core.clone(), project.to_owned(), dir.to_owned());
         tokio::spawn(async move {
-            let trusted = super::tasks::ask_person(&core, &project, ask, None).await;
+            let trusted = (core.repo_above().tasks_ask_person)(&core, &project, ask, None).await;
             let mut state = core.checks().state.locked();
             let commits = state.awaiting_trust.remove(&project).unwrap_or_default();
             if trusted {
@@ -927,10 +923,12 @@ async fn wait_for_ci(
             let overdue = now.saturating_sub(since) >= CI_START_WAIT_MS;
             let checks = codehost::commit_checks(repo, None, tip, &workflows).await;
             match &checks {
-                Ok(CiChecks::Passed) => crate::server::board::ci_ruled(&core, &project, tip, &[]),
+                Ok(CiChecks::Passed) => {
+                    (core.repo_above().board_ci_ruled)(&core, &project, tip, &[])
+                }
                 Ok(CiChecks::Failed(_)) => {
                     if let Some(failed) = codehost::failed_jobs(repo, tip, &workflows).await {
-                        crate::server::board::ci_ruled(&core, &project, tip, &failed);
+                        (core.repo_above().board_ci_ruled)(&core, &project, tip, &failed);
                     }
                 }
                 _ => {}
@@ -1089,7 +1087,7 @@ async fn vouched_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Co
 /// The latest commits of the board's slices that still wait for the check and that `tip` holds,
 /// which its passing run stands for, as most commits get no CI run of their own.
 async fn slices_held_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Commit> {
-    let heads = crate::server::board::unbuilt_heads(core, project);
+    let heads = (core.repo_above().board_unbuilt_heads)(core, project);
     if heads.is_empty() {
         return Vec::new();
     }
@@ -1213,7 +1211,8 @@ fn ended(
         Verdict::Failed
     };
     core.repo_events().tell(checked(Some(verdict), output));
-    core.harness().note_repository(
+    (core.repo_above().harness_note_repository)(
+        core,
         project,
         if passed {
             "check.passed"
@@ -1238,7 +1237,7 @@ fn newly_told(core: &Core, project: &str, agent: &str) -> bool {
 }
 
 fn someone(core: &Core, agent: &str) -> String {
-    format!("@{}", super::messages::called_now(core, agent))
+    format!("@{}", crate::server::names::called_now(core, agent))
 }
 
 /// Tells who should mend a failing check: the agent whose commit broke it when that is known,
@@ -1264,7 +1263,7 @@ async fn blame(
         "The project's check, {command}, failed on {}.",
         crate::git::short(newest)
     );
-    if let Some(card) = crate::server::board::ci_card(core, project) {
+    if let Some(card) = (core.repo_above().board_ci_card)(core, project) {
         let holder = card.owner.as_deref().map(|owner| someone(core, owner));
         let who = holder.unwrap_or_else(|| format!("card {}", card.label));
         for agent in authors
@@ -1289,7 +1288,7 @@ async fn blame(
         .get(project)
         .and_then(|failing| failing.owner.clone());
     let owner = match owner {
-        Some(owner) if crate::server::messages::reachable(core, &owner).await => Some(owner),
+        Some(owner) if (core.repo_above().messages_reachable)(core, &owner).await => Some(owner),
         _ => None,
     };
     if let Some(owner) = owner {
@@ -1314,7 +1313,7 @@ async fn blame(
     );
     let mut elected = None;
     for candidate in candidates {
-        if crate::server::messages::reachable(core, candidate).await {
+        if (core.repo_above().messages_reachable)(core, candidate).await {
             elected = Some(candidate.clone());
             break;
         }
@@ -1368,14 +1367,15 @@ async fn tell_others(
 
 async fn send_work(core: &Arc<Core>, to: String, text: String) {
     if let Err(error) =
-        super::messages::work_from_sikemux(core, to, text, "over the project's check").await
+        (core.repo_above().messages_work_from_sikemux)(core, to, text, "over the project's check")
+            .await
     {
         eprintln!("sikemux core: a failed check did not reach the agent mending it: {error}");
     }
 }
 
 async fn send_note(core: &Arc<Core>, to: String, text: String) {
-    if let Err(error) = super::messages::from_sikemux(core, to, text).await {
+    if let Err(error) = (core.repo_above().messages_from_sikemux)(core, to, text).await {
         eprintln!("sikemux core: a note about a check did not reach its agent: {error}");
     }
 }
@@ -1494,7 +1494,7 @@ pub(crate) async fn run_in_queue(
     agent: &str,
 ) -> Result<QueueRun, String> {
     use crate::server::edits::generate::refresh;
-    let checkout = crate::server::worktree::agent::merge_queue(core, dir, commit).await?;
+    let checkout = (core.repo_above().worktree_merge_queue)(core, dir, commit).await?;
     let (owner, dir, command) = (core.clone(), dir.to_owned(), command.to_owned());
     let seed = sample_seed(agent);
     let env = before_commit(agent);
@@ -1654,4 +1654,34 @@ pub(crate) fn head_moved(core: &Arc<Core>, project: &str, dir: &Path) {
     };
     core.checks()
         .wait_for(project.to_owned(), dir.to_owned(), commit);
+}
+
+/// One run of a project's check, for the run records of the agents it took in.
+pub(crate) struct CheckRan<'a> {
+    pub took_ms: u64,
+    pub passed: bool,
+    pub authors: Vec<&'a String>,
+    pub culprit_agents: &'a [String],
+    pub found: bool,
+    pub searched: bool,
+    pub steps: u32,
+    pub text: &'a str,
+}
+
+impl CheckRan<'_> {
+    /// Whether `agent`'s work is what broke the check: the commit found was
+    /// theirs, or nobody could be found and only their commits were in the run.
+    pub(crate) fn broken_by(&self, agent: &str) -> bool {
+        !self.passed
+            && match self.found {
+                true => self.culprit_agents.iter().any(|named| named == agent),
+                false => self.authors.iter().all(|author| author.as_str() == agent),
+            }
+    }
+}
+
+/// The open card that holds a project's failing CI, which is that failure's one work item.
+pub(crate) struct CiCard {
+    pub label: String,
+    pub owner: Option<String>,
 }

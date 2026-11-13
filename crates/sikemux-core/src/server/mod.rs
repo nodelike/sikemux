@@ -63,6 +63,7 @@ pub mod launching;
 pub mod layout;
 mod lifecycle;
 mod line;
+mod listed;
 pub(crate) use sikemux_serve::server::local_peer;
 pub(crate) use sikemux_serve::server::log_times;
 pub mod lsp;
@@ -89,6 +90,7 @@ pub mod pictures;
 mod pins;
 pub mod places;
 pub mod playbook;
+mod plugged;
 pub mod plugins;
 pub mod ports;
 pub(crate) use sikemux_serve::server::prepare;
@@ -101,6 +103,7 @@ pub(crate) use sikemux_remote::server::remote_above;
 pub use sikemux_remote::server::remote_image;
 pub(crate) use sikemux_remote::server::remote_state;
 pub(crate) use sikemux_serve::server::reaper;
+mod repo_above;
 mod repo_events;
 mod requests;
 mod roster;
@@ -133,6 +136,7 @@ pub mod triggers;
 pub mod turn_state;
 pub mod updates;
 pub(crate) use sikemux_serve::server::updating;
+mod trust_ask;
 mod upgrade;
 pub mod usage;
 pub use sikemux_remote::server::vault;
@@ -473,6 +477,7 @@ impl ServerCore for Core {
                     remote_above: base::remote_above(),
                 }) as sikemux_kernel::Parts,
                 Box::new(parts::Fields {
+                    repo_above: base::repo_above(),
                     config,
                     manifest_folder: Mutex::new(None),
                     ports: ports::Ports::new(data_dir),

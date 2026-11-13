@@ -14,109 +14,25 @@ use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::plugins::{Disabled, PluginCall, StreamCall};
 pub use sikemux_calls::plugins::{PluginFailure, PluginOutcome};
 use std::collections::BTreeMap;
-use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
 
 use serde::de::IgnoredAny;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 pub use sikemux_plugin_api::FailureCategory;
 use sikemux_plugin_api::SignInStatus;
 use sikemux_view::plugins::Listed;
 
-mod manifest;
-pub use manifest::{AgentTool, CodeHostSpec, Compare, Manifest, ToolFamily};
+pub use super::plugged::manifest::{AgentTool, CodeHostSpec, Compare, Manifest, ToolFamily};
+pub(crate) use super::plugged::{call, call_on, explain, manifest, manifests, plugins};
+pub use super::plugged::{Answer, Gated, Listing, Plugins, Provided, Sink, StreamEvent};
 
 use crate::cli::protocol::HarnessRequest;
 
 use super::changed::Topic;
 use super::connection::ClientConn;
 use super::{Core, CoreError, CoreResult};
-
-/// One line of a plugin stream on the tool endpoint.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum StreamEvent {
-    Item { value: Value },
-    End,
-    Error { error: PluginFailure },
-}
-
-pub type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, PluginFailure>> + Send + 'a>>;
-pub type Listing<'a> = Pin<Box<dyn Future<Output = Vec<Value>> + Send + 'a>>;
-/// Takes a stream's next item; false once nobody reads them, which ends it.
-pub type Sink = Box<dyn Fn(Value) -> bool + Send + Sync>;
-
-/// A plugin tool whose every call the person approves first: `check` answers
-/// what they are asked, and `method` runs once they approve.
-pub struct Gated {
-    pub plugin: String,
-    pub method: String,
-    pub check: String,
-}
-
-pub trait Plugins: Send + Sync {
-    fn manifests(&self) -> Vec<&Manifest>;
-    fn set_disabled(&self, ids: Vec<String>);
-    fn disabled(&self) -> Vec<String>;
-    /// Hands a waiting browser sign-in the address the browser came back to on
-    /// another machine.
-    fn relay_sign_in(&self, landed: &str) -> Result<(), String>;
-    fn offers_agent_tools(&self, plugin: &str) -> bool;
-    /// What the plugins set for an agent or terminal started in `project`.
-    fn agent_environment(&self, project: &Path) -> BTreeMap<String, String>;
-    fn call<'a>(&'a self, plugin: &'a str, method: &'a str, params: Value) -> Answer<'a, Value>;
-    /// Runs until the stream ends. Dropping the answer stops it.
-    fn stream<'a>(
-        &'a self,
-        plugin: &'a str,
-        method: &'a str,
-        params: Value,
-        sink: Sink,
-    ) -> Answer<'a, ()>;
-    /// The tools an agent in a repository with these git remotes is offered.
-    fn agent_tools<'a>(&'a self, remotes: &'a [String]) -> Listing<'a>;
-    /// The tool an agent knows by `name`, when the person approves each call to it.
-    fn gated(&self, name: &str) -> Option<Gated>;
-    fn call_agent_tool<'a>(&'a self, name: &'a str, arguments: Value) -> Answer<'a, Value>;
-    /// Each plugin's sign-ins, for the account vault, with the folder the plugin keeps them in.
-    fn vault_books(
-        &self,
-    ) -> Vec<(
-        String,
-        PathBuf,
-        &'static dyn sikemux_plugin_api::vault::Book,
-    )> {
-        Vec::new()
-    }
-}
-
-/// The plugins the binary that runs the core provides. They live as long as
-/// the process does.
-#[derive(Clone, Copy)]
-pub struct Provided(pub &'static dyn Plugins);
-
-impl std::fmt::Debug for Provided {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Provided")
-    }
-}
-
-fn plugins(core: &Core, plugin: &str) -> Result<&'static dyn Plugins, PluginFailure> {
-    present(core.config().plugins, plugin)
-}
-
-fn present(plugins: Option<Provided>, plugin: &str) -> Result<&'static dyn Plugins, PluginFailure> {
-    plugins.map(|provided| provided.0).ok_or_else(|| {
-        PluginFailure::new(
-            plugin,
-            FailureCategory::NotInstalled,
-            format!("Sikemux's {plugin} plugin is not available to its background process"),
-        )
-    })
-}
 
 /// What the plugins set for an agent, terminal or task started in `cwd`,
 /// asked of the project that holds it.
@@ -126,25 +42,6 @@ pub(crate) fn agent_environment(core: &Core, cwd: &Path) -> BTreeMap<String, Str
     };
     let project = super::workspace::project_of(cwd, &core.workspaces().project_paths());
     plugins.agent_environment(Path::new(&project))
-}
-
-pub(crate) async fn call(
-    core: &Core,
-    plugin: &str,
-    method: &str,
-    params: Value,
-) -> Result<Value, PluginFailure> {
-    call_on(core.config().plugins, plugin, method, params).await
-}
-
-/// Calls `method` of `plugin` among `plugins`, for what holds them without the core.
-pub(crate) async fn call_on(
-    plugins: Option<Provided>,
-    plugin: &str,
-    method: &str,
-    params: Value,
-) -> Result<Value, PluginFailure> {
-    present(plugins, plugin)?.call(plugin, method, params).await
 }
 
 /// A call from a plugin's pane. A pane signing in or out changes what its
@@ -177,19 +74,6 @@ pub(crate) fn tell_agents_if_theirs(core: &Core, plugin: &str) {
     {
         core.harness().plugins_changed();
     }
-}
-
-pub(crate) fn manifests(core: &Core) -> Vec<&'static Manifest> {
-    core.config()
-        .plugins
-        .map(|Provided(plugins)| plugins.manifests())
-        .unwrap_or_default()
-}
-
-pub(crate) fn manifest(core: &Core, plugin: &str) -> Option<&'static Manifest> {
-    manifests(core)
-        .into_iter()
-        .find(|manifest| manifest.id == plugin)
 }
 
 /// `plugin` ran `method`; when that is a code host's write, what the core keeps of the host
@@ -540,23 +424,6 @@ fn tool_ran(core: &Arc<Core>, tool: &str) {
     });
     if let Some((plugin, method)) = found {
         wrote(core, plugin, method, &Value::Null);
-    }
-}
-
-/// An agent cannot sign in on the person's behalf, so a signed-out plugin says
-/// who can fix it and where.
-pub(crate) fn explain(failure: &PluginFailure) -> String {
-    let signed_out = matches!(
-        failure.category,
-        FailureCategory::Unconfigured | FailureCategory::Auth
-    ) || matches!(failure.status, Some(401 | 403));
-    if signed_out {
-        format!(
-            "{} is not signed in ({}). Ask the person to sign in from its pane in Sikemux, then try again; do not switch to another tool or MCP server for it.",
-            failure.plugin, failure.message
-        )
-    } else {
-        format!("{}: {}", failure.plugin, failure.message)
     }
 }
 

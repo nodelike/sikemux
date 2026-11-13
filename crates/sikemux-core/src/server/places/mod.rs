@@ -30,7 +30,7 @@ pub(crate) use place::{Passes, Place, GITHUB_RELEASES};
 use super::access::Peer;
 use super::changed::{Topic, What};
 use super::connection::blocking;
-use super::{board, Core, CoreResult};
+use super::{Core, CoreResult};
 use crate::ship::Ship;
 
 /// Actions seen that no place covers, past which the one heard of longest ago goes.
@@ -54,7 +54,7 @@ pub(crate) fn change<R>(
     change: impl FnOnce(&mut store::Kept) -> Result<R, String>,
 ) -> Result<R, String> {
     let (answer, kept, changed) = core.places().change(project, change)?;
-    board::mirror_places(core, project, kept.places, kept.confirmed);
+    (core.repo_above().board_mirror_places)(core, project, kept.places, kept.confirmed);
     if changed {
         core.changed(What::Read(Topic::Playbook));
     }
@@ -344,13 +344,11 @@ pub(crate) fn proposed_words(place: &Place) -> String {
     }
 }
 
-use board::project_at;
-
 /// The person reads a project's places.
 pub(crate) async fn read(core: &Arc<Core>, params: PlacesParams) -> CoreResult<Places> {
     let core = core.clone();
     blocking(move || {
-        let project = project_at(&core, &params.project)?;
+        let project = (core.repo_above().board_project_at)(&core, &params.project)?;
         Ok(of(&core, &project))
     })
     .await
@@ -366,7 +364,7 @@ pub(crate) async fn set_level(
     let core = core.clone();
     let from = tapped_on(peer);
     blocking(move || {
-        let project = project_at(&core, &params.project)?;
+        let project = (core.repo_above().board_project_at)(&core, &params.project)?;
         tapped(&core, &project, |kept| {
             let confirmed = kept.confirmed.is_some();
             let place = (kept.places.iter_mut())
@@ -431,7 +429,7 @@ fn by_tap() -> Learned {
 pub(crate) async fn confirm(core: &Arc<Core>, params: PlacesParams) -> CoreResult<Places> {
     let core = core.clone();
     blocking(move || {
-        let project = project_at(&core, &params.project)?;
+        let project = (core.repo_above().board_project_at)(&core, &params.project)?;
         tapped(&core, &project, |kept| {
             kept.confirmed = Some(epoch_ms());
             Ok(())
@@ -450,7 +448,7 @@ pub(crate) async fn add(
     let core = core.clone();
     let from = tapped_on(peer);
     blocking(move || {
-        let project = project_at(&core, &params.project)?;
+        let project = (core.repo_above().board_project_at)(&core, &params.project)?;
         tapped(&core, &project, |kept| {
             let mut place =
                 place::new_place(&params.name, params.production, params.recognise, None);
@@ -474,7 +472,7 @@ pub(crate) async fn count_as_production(
     let core = core.clone();
     let from = tapped_on(peer);
     blocking(move || {
-        let project = project_at(&core, &params.project)?;
+        let project = (core.repo_above().board_project_at)(&core, &params.project)?;
         tapped(&core, &project, |kept| {
             let at = (kept.unplaced.iter())
                 .position(|unplaced| unplaced.seen.id == params.seen)

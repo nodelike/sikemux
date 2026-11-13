@@ -383,7 +383,7 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
             .iter()
             .filter_map(|agent_id| {
                 let status = match listed.iter().find(|local| &local.agent_id == agent_id) {
-                    Some(local) => local.standing(&core),
+                    Some(local) => crate::server::roster::standing(local, &core),
                     None if super::super::board::elsewhere::leads_a_run(&core, agent_id) => {
                         AgentStatus::Working
                     }

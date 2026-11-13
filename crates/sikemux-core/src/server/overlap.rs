@@ -1,6 +1,7 @@
 //! The files a new agent's brief names that other open agents are already
 //! changing, so the lead hears of it while it can still merge or order the work.
 
+use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -8,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::edits::{git, owners_at};
-use super::roster::{self, Reach};
+use super::listed::Reach;
 use super::Core;
 
 /// Names too common to say which file a brief means without its folder.
@@ -30,7 +31,7 @@ pub(crate) fn of_brief(core: &Core, caller: &str, brief: &str) -> Option<Value> 
     if named.is_empty() {
         return None;
     }
-    let agents = roster::listed(core);
+    let agents = (core.repo_above().roster_listed)(core);
     let project = agents
         .iter()
         .find(|agent| agent.agent_id == caller)?

@@ -22,6 +22,7 @@ pub(crate) use shots::*;
 pub(crate) use spots::*;
 pub(crate) use words::*;
 
+use super::DeployRan;
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -2242,19 +2243,6 @@ pub(super) fn settle_ladders(board: &mut Board) {
             slice.take_ladder(ladder_of(&settings));
         }
     }
-}
-
-/// What ran toward an environment, and how it went.
-pub(crate) struct DeployRan {
-    pub environment: String,
-    pub what: String,
-    /// None when it ran in a way the core can't follow to its end.
-    pub verdict: Option<Verdict>,
-    pub output: String,
-    /// The person allowed it, which passes the environment's step once it went.
-    pub by_person: bool,
-    /// The commit it deployed, as its checkout was when it went.
-    pub head: Option<String>,
 }
 
 /// A deploy `agent` took ended: the card it works now keeps it as evidence

@@ -8,6 +8,7 @@ use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
+pub(crate) use sikemux_process::procs::lowest_priority;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -1002,19 +1003,6 @@ fn measure_disk_parts(core: &Arc<Core>) {
         });
     if spawned.is_err() {
         watch.measuring.store(false, Ordering::Release);
-    }
-}
-
-pub(crate) fn lowest_priority() {
-    #[cfg(target_os = "macos")]
-    // SAFETY: changes only this thread's priority, which throttles its disk reads too.
-    unsafe {
-        libc::setpriority(libc::PRIO_DARWIN_THREAD, 0, libc::PRIO_DARWIN_BG);
-    }
-    #[cfg(target_os = "linux")]
-    // SAFETY: on Linux a thread's nice value is its own; 0 names the calling thread.
-    unsafe {
-        libc::setpriority(libc::PRIO_PROCESS, 0, 19);
     }
 }
 

@@ -217,7 +217,7 @@ async fn wait(core: &Arc<Core>, args: &Value) -> Result<Value, String> {
                 Ok((
                     target.name.clone(),
                     target.agent_id.clone(),
-                    target.standing(&core),
+                    crate::server::roster::standing(&target, &core),
                 ))
             })
             .await

@@ -1,6 +1,7 @@
 //! What a card's Auto run did and which of the board's switches were on for
 //! it, so a run with a switch can be compared with one without.
 
+use super::CheckRan;
 use crate::server::parts::Parts;
 use std::collections::BTreeMap;
 
@@ -82,30 +83,6 @@ pub(super) struct RunRecord {
     /// The cards those runs added, and those they closed as no longer listed.
     pub reservoir_added: u32,
     pub reservoir_closed: u32,
-}
-
-/// One run of a project's check, for the run records of the agents it took in.
-pub(crate) struct CheckRan<'a> {
-    pub took_ms: u64,
-    pub passed: bool,
-    pub authors: Vec<&'a String>,
-    pub culprit_agents: &'a [String],
-    pub found: bool,
-    pub searched: bool,
-    pub steps: u32,
-    pub text: &'a str,
-}
-
-impl CheckRan<'_> {
-    /// Whether `agent`'s work is what broke the check: the commit found was
-    /// theirs, or nobody could be found and only their commits were in the run.
-    pub(super) fn broken_by(&self, agent: &str) -> bool {
-        !self.passed
-            && match self.found {
-                true => self.culprit_agents.iter().any(|named| named == agent),
-                false => self.authors.iter().all(|author| author.as_str() == agent),
-            }
-    }
 }
 
 /// Adds `ran` to the latest run record of each agent it took in.

@@ -2,6 +2,7 @@
 //! the board starts an agent of its own in a git worktree of its own, a
 //! few at once, and ships its work when its turn ends.
 
+pub(crate) use super::AutoPull;
 use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
@@ -138,17 +139,6 @@ impl BoardSettingsExt for BoardSettings {
         }
         Ok(settings)
     }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AutoPull {
-    pub host: String,
-    pub owner: String,
-    pub name: String,
-    pub number: u64,
-    pub url: String,
-    pub account: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

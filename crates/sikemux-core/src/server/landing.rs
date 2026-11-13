@@ -29,7 +29,7 @@ pub(crate) struct Histories(Mutex<HashMap<String, (u64, Option<LandingHistory>)>
 /// so only for a caller that may wait on git.
 pub(crate) fn means_now(core: &Core, project: &str) -> LandedMeans {
     let history = history(core, project);
-    match super::board::landed_set(core, project) {
+    match (core.repo_above().board_landed_set)(core, project) {
         Some(means) => LandedMeans {
             means,
             chosen: true,
@@ -49,7 +49,7 @@ pub(crate) fn means_now(core: &Core, project: &str) -> LandedMeans {
 pub(crate) async fn landed_means(core: &Arc<Core>, project: String) -> CoreResult<LandedMeans> {
     let core = core.clone();
     blocking(move || {
-        let project = super::board::project_at(&core, &project)?;
+        let project = (core.repo_above().board_project_at)(&core, &project)?;
         Ok(means_now(&core, &project))
     })
     .await
@@ -60,9 +60,9 @@ pub(crate) async fn set_landed_means(
     core: &Arc<Core>,
     params: SetLandedMeansParams,
 ) -> CoreResult<LandedMeans> {
-    super::board::person_settings(
+    (core.repo_above().board_person_settings)(
         core,
-        super::board::BoardSettingsParams {
+        sikemux_calls::board::BoardSettingsParams {
             project: params.project.clone(),
             landed: Some(params.means),
             ..Default::default()

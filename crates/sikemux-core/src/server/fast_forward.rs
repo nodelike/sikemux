@@ -3,6 +3,7 @@
 //! checkout, only when it has no changes, no untracked files, no commits of its own and no
 //! merge or rebase under way, and no agent is at work in it. Anything else, it leaves alone.
 
+use super::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -11,10 +12,9 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 
 use super::connection::blocking;
-use super::host_stats::lowest_priority;
-use super::worktree::removal::busy;
 use super::Core;
 use crate::git::Git;
+use sikemux_process::procs::lowest_priority;
 
 /// How long after the core starts it first looks, then how often it looks again.
 const FIRST_LOOK: Duration = Duration::from_secs(2 * 60);
@@ -147,7 +147,7 @@ fn default_branch_upstream(checkout: &Path) -> Option<(String, String)> {
 /// it, and no merge or rebase under way.
 fn untouched(core: &Core, checkout: &Path) -> bool {
     let agents_busy = (core.workspaces().agent_ids().into_iter())
-        .filter(|id| busy(core, id))
+        .filter(|id| (core.repo_above().worktree_busy)(core, id))
         .filter_map(|id| core.workspaces().agent(&id))
         .any(|agent| agent.cwd.starts_with(checkout));
     if agents_busy {

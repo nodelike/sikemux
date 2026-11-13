@@ -682,3 +682,17 @@ mod tests {
         assert_eq!(name.as_deref(), Some("sleep"));
     }
 }
+
+/// Puts the calling thread at the lowest priority, which throttles its disk reads too.
+pub fn lowest_priority() {
+    #[cfg(target_os = "macos")]
+    // SAFETY: changes only this thread's priority, which throttles its disk reads too.
+    unsafe {
+        libc::setpriority(libc::PRIO_DARWIN_THREAD, 0, libc::PRIO_DARWIN_BG);
+    }
+    #[cfg(target_os = "linux")]
+    // SAFETY: on Linux a thread's nice value is its own; 0 names the calling thread.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+    }
+}

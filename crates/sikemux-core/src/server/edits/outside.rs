@@ -21,7 +21,7 @@ use sikemux_process::sync::Locked;
 use super::prior::{text_of, Before, Priors, MAX_FILE_BYTES};
 use super::{changed, line_count, owners::run, Edit, Store};
 use crate::server::collisions::{Written, GRACE_MS};
-use crate::server::roster::{listed, Listed};
+use crate::server::listed::Listed;
 use crate::server::wake::sooner;
 use crate::server::Core;
 use sikemux_wire::protocol::AgentStatus;
@@ -307,7 +307,7 @@ impl Outside {
                 next = sooner(next, Some(worked_at + IDLE_MS));
                 continue;
             }
-            let agents = agents.get_or_insert_with(|| listed(core));
+            let agents = agents.get_or_insert_with(|| (core.repo_above().roster_listed)(core));
             let mid_turn = {
                 let tops = self.tops.locked();
                 agents.iter().any(|agent| {
@@ -583,7 +583,7 @@ fn look_at(
     if changes.is_empty() {
         return;
     }
-    let listed = agents.get_or_insert_with(|| listed(core));
+    let listed = agents.get_or_insert_with(|| (core.repo_above().roster_listed)(core));
     let changes = changes
         .into_iter()
         .map(|(edit, [first, last])| {
@@ -727,7 +727,7 @@ fn record(
                     }
                     None => {
                         edit.cli = agents
-                            .get_or_insert_with(|| listed(core))
+                            .get_or_insert_with(|| (core.repo_above().roster_listed)(core))
                             .iter()
                             .find(|agent| agent.agent_id == agent_id)
                             .map_or_else(|| "terminal".to_owned(), |agent| agent.cli.clone());

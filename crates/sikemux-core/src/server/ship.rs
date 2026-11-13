@@ -8,7 +8,6 @@
 //! deploy to an environment the project marked safe goes without asking, and
 //! one that goes is followed to its end and kept as evidence on the slice.
 
-use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
@@ -26,16 +25,17 @@ use sikemux_process::sync::Locked;
 use sikemux_view::inbox::{ShipHold, ShipKind};
 use sikemux_view::slice::Verdict;
 
-use super::board::{self, auto::Landing, DeployRan};
 use super::person_calls::Raise;
 use super::places::push::{self, Reach};
 use super::places::{self, work, Goes, Judged};
-use super::plugins::Provided;
+use super::plugged::Provided;
+use super::repo_events::DeployRan;
 use super::repo_events::RepoEvent;
-use super::{messages, person_calls, plugins, questions, Core, CoreResult};
+use super::{person_calls, plugged, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
 use crate::ship::{Looks, Ship, Target, ToolShip};
+use sikemux_calls::board::Landing;
 use sikemux_view::calls::{
     CallAsker, CallKind, CallOption, CallOutcome, CallPlace, CallResult, CallState, PersonCall,
 };
@@ -307,7 +307,7 @@ fn check_call(
             Reach::Branches => return Ok(None),
             Reach::Project => {}
             Reach::Tags(names) => {
-                if board::landing(core, &project) != Landing::Core {
+                if (core.repo_above().board_landing)(core, &project) != Landing::Core {
                     return hold(core, agent_id, &project, ship, cwd, call, None);
                 }
                 let name = match names.as_slice() {
@@ -339,7 +339,7 @@ fn check_call(
         }
     }
     if matches!(ship.kind, ShipKind::Push | ShipKind::Merge) {
-        if board::landing(core, &project) == Landing::Core {
+        if (core.repo_above().board_landing)(core, &project) == Landing::Core {
             return Ok(None);
         }
         return hold(core, agent_id, &project, ship, cwd, call, None);
@@ -377,7 +377,7 @@ fn check_call(
         }
         Goes::OnceChecked => {
             let head = Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok();
-            match board::check_stands(core, &project, agent_id, head.as_deref()) {
+            match (core.repo_above().board_check_stands)(core, &project, agent_id, head.as_deref()) {
                 Ok(()) => Ok(deploy(why, None, None)),
                 Err(why) => Err(format!(
                     "Not yet: `{}` lands in {}, which goes once the project's check passes, and {why}. Run it again once it has; the person needn't be asked.",
@@ -493,7 +493,9 @@ fn settle_covering(core: &Core, call: &str, asking: &str) {
     }
     let gone: Vec<String> = (on_call.into_iter())
         .filter(|agent| agent != asking)
-        .filter(|agent| !core.agent_now(agent).running() && core.workspaces().closed(agent))
+        .filter(|agent| {
+            !(core.repo_above().agent_running)(core, agent) && core.workspaces().closed(agent)
+        })
         .collect();
     if gone.is_empty() {
         return;
@@ -572,7 +574,7 @@ fn call_asking(
         kind: CallKind::Production,
         asker: CallAsker {
             agent_id: agent_id.to_owned(),
-            cli: questions::cli_of(core, agent_id),
+            cli: (core.repo_above().questions_cli_of)(core, agent_id),
             name: name.clone(),
             chief: false,
         },
@@ -769,7 +771,7 @@ fn tell_soon(core: &Core, agent_id: &str, text: String) {
     };
     if let Ok(runtime) = tokio::runtime::Handle::try_current() {
         runtime.spawn(async move {
-            let _ = messages::for_person(&core, agent_id, text).await;
+            let _ = (core.repo_above().messages_for_person)(&core, agent_id, text).await;
         });
     }
 }
@@ -1056,7 +1058,7 @@ pub(crate) fn ran_call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Val
 async fn tool_target(core: &Arc<Core>, name: &str, arguments: &Value) -> Option<Target> {
     match name {
         "rundeck_run" => {
-            let place = plugins::call(core, RUNDECK, "agentJobPlace", arguments.clone())
+            let place = plugged::call(core, RUNDECK, "agentJobPlace", arguments.clone())
                 .await
                 .ok()?;
             Some(Target::RundeckJob {
@@ -1086,7 +1088,7 @@ async fn tool_target(core: &Arc<Core>, name: &str, arguments: &Value) -> Option<
             let target = match arguments["target"].as_str() {
                 Some(target) => target.to_owned(),
                 None => {
-                    let read = plugins::call(core, VERCEL, "deployment", arguments.clone())
+                    let read = plugged::call(core, VERCEL, "deployment", arguments.clone())
                         .await
                         .ok()?;
                     read["target"].as_str()?.to_owned()
@@ -1116,9 +1118,9 @@ pub(crate) async fn check_tool(
     let kind = match when {
         ToolShip::Always(kind) => kind,
         ToolShip::ProductionDatabase => {
-            let asked = plugins::call(core, DATABASE, "agentWritesProduction", arguments.clone())
+            let asked = plugged::call(core, DATABASE, "agentWritesProduction", arguments.clone())
                 .await
-                .map_err(|failure| plugins::explain(&failure))?;
+                .map_err(|failure| plugged::explain(&failure))?;
             if asked != true {
                 return Ok(None);
             }
@@ -1131,7 +1133,7 @@ pub(crate) async fn check_tool(
     let call = ToolCall {
         name: name.to_owned(),
         arguments: arguments.clone(),
-        caller: plugins::caller_of(core, request),
+        caller: (core.repo_above().plugins_caller_of)(core, request),
     };
     tokio::task::spawn_blocking(move || {
         check_call(
@@ -1255,7 +1257,7 @@ pub(crate) fn tool_ran(core: &Arc<Core>, deploy: Deploy, tool: &str, answer: Res
 /// Reads a deploy tool's run until it ends, within `FOLLOW_LOOKS`. No verdict
 /// when the core did not see the end.
 async fn followed(core: &Arc<Core>, tool: &str, mut answer: Value) -> (Option<Verdict>, String) {
-    let Some(Provided(plugins)) = core.config().plugins else {
+    let Some(Provided(plugins)) = plugged::provided(core) else {
         return (None, answer_words(&answer));
     };
     let mut reading = tool.to_owned();
@@ -1318,7 +1320,9 @@ pub(crate) async fn ended(
         lines.push("Sikemux did not see how it ended.".to_owned());
     }
     if verdict == Some(Verdict::Passed) {
-        if let Some(address) = board::health_of(&core, &deploy.project, &deploy.environment) {
+        if let Some(address) =
+            (core.repo_above().board_health_of)(&core, &deploy.project, &deploy.environment)
+        {
             let (health, said) = health_of(&address).await;
             healthy = Some(health == Verdict::Passed);
             verdict = Some(health);
@@ -1465,7 +1469,9 @@ pub(crate) async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Op
             continue;
         }
         told.push(&asker.agent_id);
-        let delivered = messages::for_person(core, asker.agent_id.clone(), text.clone()).await;
+        let delivered =
+            (core.repo_above().messages_for_person)(core, asker.agent_id.clone(), text.clone())
+                .await;
         let heard = delivered
             .is_ok_and(|told| matches!(told["delivery"].as_str(), Some("steered" | "newTurn")));
         if heard {
@@ -1515,14 +1521,21 @@ fn run_held(core: &Arc<Core>, hold: Hold, call: ToolCall, allowed: String) {
         person_calls::set_outcome(core, &hold.token, went(CallResult::NotShipped));
         let text = format!("{allowed}, but {error}. Call it again to be asked again.");
         let core = core.clone();
-        tokio::spawn(async move { messages::for_person_waiting(&core, hold.agent_id, text).await });
+        tokio::spawn(async move {
+            (core.repo_above().messages_for_person_waiting)(&core, hold.agent_id, text).await
+        });
         return;
     }
     let core = core.clone();
     tokio::spawn(async move {
         let ran = as_caller(
             call.caller,
-            plugins::run_agent_tool(&core, &call.name, call.arguments, hold.deploy),
+            (core.repo_above().plugins_run_agent_tool)(
+                &core,
+                &call.name,
+                call.arguments,
+                hold.deploy,
+            ),
         )
         .await;
         let result = match ran {
@@ -1539,7 +1552,7 @@ fn run_held(core: &Arc<Core>, hold: Hold, call: ToolCall, allowed: String) {
             }
             Err(error) => format!("{allowed}, and Sikemux ran it for you, but it failed: {error}"),
         };
-        let _ = messages::for_person(&core, hold.agent_id, text).await;
+        let _ = (core.repo_above().messages_for_person)(&core, hold.agent_id, text).await;
     });
 }
 
@@ -1558,7 +1571,7 @@ async fn permitted(
         call,
         heard: false,
     });
-    let told = messages::for_person(core, agent_id.clone(), text).await;
+    let told = (core.repo_above().messages_for_person)(core, agent_id.clone(), text).await;
     let heard =
         told.is_ok_and(|told| matches!(told["delivery"].as_str(), Some("steered" | "newTurn")));
     if heard {
@@ -1580,7 +1593,7 @@ pub(crate) async fn refuse(core: &Arc<Core>, params: HoldParams) -> CoreResult<(
         "The person did not allow `{}`. Do not run it; if your work needed it, say so in your answer.",
         hold.ship.what
     );
-    let _ = messages::for_person(core, hold.agent_id, text).await;
+    let _ = (core.repo_above().messages_for_person)(core, hold.agent_id, text).await;
     Ok(())
 }
 
@@ -1658,7 +1671,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         kind: CallKind::Production,
         asker: CallAsker {
             agent_id: hold.agent_id.clone(),
-            cli: questions::cli_of(core, &hold.agent_id),
+            cli: (core.repo_above().questions_cli_of)(core, &hold.agent_id),
             name,
             chief: false,
         },

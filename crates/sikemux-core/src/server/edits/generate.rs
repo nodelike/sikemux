@@ -6,6 +6,7 @@
 //! the generators in a checkout they share, where they would read the other
 //! agents' work in progress.
 
+use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use std::path::Path;
 use std::time::Duration;
@@ -15,7 +16,7 @@ use super::footer::known;
 use super::land::{apply, steps};
 use super::owners::{git, run};
 use super::push::line;
-use crate::server::tasks::TrustAsk;
+use crate::server::trust_ask::TrustAsk;
 use crate::server::Core;
 use crate::tasks::config::{self, ConfigLoad, GenerateConfig};
 use crate::trailers::{self, Agent, Commit};
@@ -44,7 +45,7 @@ pub(crate) fn trust_needed(core: &Core, project: &Path, checkout: &Path) -> Opti
         return None;
     };
     config.generate.as_ref()?;
-    crate::server::tasks::config_needs(
+    (core.repo_above().tasks_config_needs)(
         core,
         &ConfigLoad::Valid {
             path: project

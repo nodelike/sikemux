@@ -4,7 +4,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
-use crate::server::parts::Parts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::skill_library::{
     GlobalSkillAdded, Located, Named, NewSkill, OwnSkills, SkillsOverview, Source,
 };
@@ -112,8 +112,7 @@ async fn on_library<T: Send + 'static>(
     work: impl FnOnce(&Path) -> CoreResult<T> + Send + 'static,
 ) -> CoreResult<T> {
     let data_dir = core
-        .config()
-        .data_dir
+        .data_dir()
         .clone()
         .ok_or_else(|| CoreError::from("this host keeps no skills"))?;
     blocking(move || work(&data_dir)).await

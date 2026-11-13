@@ -36,44 +36,19 @@ pub(crate) fn terminal_folder(core: &Core, session: &SessionInfo) -> Option<std:
     Some(core.workspaces().project_info(id)?.path)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Reach {
-    Chat,
-    Asleep,
-    Terminal,
-    Stopped,
-    /// Through the linked host it runs on.
-    Remote,
-}
+pub(crate) use super::listed::{Listed, Reach};
 
-#[derive(Clone)]
-pub(crate) struct Listed {
-    pub agent_id: String,
-    pub name: Option<String>,
-    pub project: String,
-    pub cli: String,
-    pub title: Option<String>,
-    pub model: Option<String>,
-    pub status: AgentStatus,
-    parent: Option<String>,
-    active_at: Option<u64>,
-    rank: u32,
-    pub reach: Reach,
-}
-
-impl Listed {
-    /// Its status, with an agent at rest that has a task or messages waiting
-    /// for it counted as about to start its next turn.
-    pub(crate) fn standing(&self, core: &Core) -> AgentStatus {
-        let resting = matches!(
-            self.status,
-            AgentStatus::Idle | AgentStatus::Done | AgentStatus::Asleep
-        );
-        if resting && core.harness().mailbox.has_waiting(&self.agent_id) {
-            AgentStatus::Starting
-        } else {
-            self.status
-        }
+/// An agent's status, with one at rest that has a task or messages waiting
+/// for it counted as about to start its next turn.
+pub(crate) fn standing(agent: &Listed, core: &Core) -> AgentStatus {
+    let resting = matches!(
+        agent.status,
+        AgentStatus::Idle | AgentStatus::Done | AgentStatus::Asleep
+    );
+    if resting && core.harness().mailbox.has_waiting(&agent.agent_id) {
+        AgentStatus::Starting
+    } else {
+        agent.status
     }
 }
 
@@ -251,7 +226,7 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                 .get(&agent.agent_id)
                 .is_none_or(|foreign| core.hosts().reachable(&foreign.host));
             let status = if reachable {
-                status_word(agent.standing(core))
+                status_word(standing(agent, core))
             } else {
                 "out of reach"
             };

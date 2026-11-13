@@ -28,11 +28,12 @@ pub(crate) mod repo;
 
 use super::changed::Topic;
 use super::connection::ClientId;
-use super::plugins::{FailureCategory, PluginFailure, PluginOutcome as Answer};
 use super::shown_cache::{self, ShownCache, Shows};
 use super::workspace::project_of;
 use super::Core;
 use repo::{of_project, Repo, RepoId};
+use sikemux_calls::plugins::{PluginFailure, PluginOutcome as Answer};
+use sikemux_plugin_api::FailureCategory;
 
 /// A list read this recently is answered as it is.
 const FRESH: Duration = Duration::from_secs(60);

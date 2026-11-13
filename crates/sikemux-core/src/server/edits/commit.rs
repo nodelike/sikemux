@@ -269,7 +269,7 @@ fn push_or_tell(
         };
         if let Some(runtime) = runtime {
             runtime.spawn(async move {
-                let _ = crate::server::messages::from_sikemux(&owner, agent, text).await;
+                let _ = (owner.repo_above().messages_from_sikemux)(&owner, agent, text).await;
             });
         }
     });
@@ -873,7 +873,7 @@ impl Planner<'_> {
                 .filter(|at| self.theirs(**at))
                 .map(|at| {
                     let writer = &self.owners.authors[*at];
-                    crate::server::messages::called(&writer.name, &writer.agent_id)
+                    crate::server::names::called(&writer.name, &writer.agent_id)
                 })
                 .collect();
             let mut by: BTreeSet<String> = by.into_iter().map(|at| self.name(at)).collect();
