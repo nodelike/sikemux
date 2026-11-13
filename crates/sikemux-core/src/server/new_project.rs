@@ -4,6 +4,7 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
+use crate::server::workspace::AddProjectParamsExt;
 pub use sikemux_calls::new_project::{CloneProjectParams, NewProjectParams};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

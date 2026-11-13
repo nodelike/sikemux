@@ -10,6 +10,7 @@ use crate::server::changed::What;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::ServerCore;
+pub use sikemux_calls::workspace::AddProjectParams;
 pub use sikemux_calls::workspace::{
     CloseAgentsParams, DefaultsParams, MoveProjectParams, RemoveProjectParams, SpacesParams,
     UpdateProjectParams,
@@ -1386,15 +1387,14 @@ impl Workspaces {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-pub struct AddProjectParams {
-    pub path: PathBuf,
-    pub name: Option<String>,
-    pub id: Option<String>,
+pub(crate) trait AddProjectParamsExt: Sized {
+    fn at(path: PathBuf) -> Self;
+
+    fn named(path: PathBuf, name: String) -> Self;
 }
 
-impl AddProjectParams {
-    pub(crate) fn at(path: PathBuf) -> Self {
+impl AddProjectParamsExt for AddProjectParams {
+    fn at(path: PathBuf) -> Self {
         Self {
             path,
             name: None,
@@ -1402,7 +1402,7 @@ impl AddProjectParams {
         }
     }
 
-    pub(crate) fn named(path: PathBuf, name: String) -> Self {
+    fn named(path: PathBuf, name: String) -> Self {
         Self {
             path,
             name: Some(name),

@@ -11,6 +11,7 @@ use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
+pub use sikemux_calls::questions::{AnswerParams, AnswersParams};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -2183,28 +2184,6 @@ fn views_of(
         .collect()
 }
 
-#[derive(Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AnswerParams {
-    pub id: String,
-    #[serde(default)]
-    pub answer: Option<String>,
-    /// Files attached to `answer`, by where the host keeps them.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub paths: Vec<String>,
-    /// What was sent with `answer`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub context: Vec<ChatContext>,
-    #[serde(default)]
-    pub choice: Option<usize>,
-    /// The choices picked on a question that takes several.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub choices: Option<Vec<usize>>,
-    /// The assumption the agent went on is right.
-    #[serde(default)]
-    pub fine: bool,
-}
-
 /// The person's answer: the first one wins, and reaches the asker as a
 /// message.
 pub(crate) async fn answer(core: &Arc<Core>, params: AnswerParams) -> Result<(), String> {
@@ -2217,15 +2196,14 @@ pub(crate) async fn answer(core: &Arc<Core>, params: AnswerParams) -> Result<(),
     .await
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct AnswersParams {
-    pub answers: Vec<AnswerParams>,
-}
-
-impl AnswerParams {
+pub(crate) trait AnswerParamsExt: Sized {
     /// Writes the files and context into `answer`: what was typed, the files, then the context,
     /// so the agent reads the same text whichever client answered. The files stay, for a chat to
     /// take as it takes the composer's.
+    fn written_out(&mut self);
+}
+
+impl AnswerParamsExt for AnswerParams {
     fn written_out(&mut self) {
         let context = std::mem::take(&mut self.context);
         if self.paths.is_empty() && context.is_empty() {

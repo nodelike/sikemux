@@ -4,11 +4,11 @@
 
 use crate::server::parts::Parts;
 pub use sikemux_calls::landing::LandedMeansParams;
+pub use sikemux_calls::landing::SetLandedMeansParams;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::turn::{Landed, LandedMeans, LandingHistory};
@@ -53,15 +53,6 @@ pub(crate) async fn landed_means(core: &Arc<Core>, project: String) -> CoreResul
         Ok(means_now(&core, &project))
     })
     .await
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetLandedMeansParams {
-    pub project: String,
-    /// None goes back to what the project's history says.
-    #[serde(default)]
-    pub means: Option<Landed>,
 }
 
 /// The person sets what counts as landed in the project.

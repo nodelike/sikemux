@@ -8,6 +8,9 @@ pub use sikemux_calls::agent_accounts::{
     Account, Authenticate, ChatAccounts, ChatAccountsParams, Choosing, Forget, InProject,
     MoveChatParams, MovedChat, NamedAccount, Picked, Removing, Smart, StayedChat, Unpicking,
 };
+pub use sikemux_calls::agent_accounts::{
+    AccountUsage, Adding, Installed, Saving, UsedReset, UsingReset,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, Once};
@@ -26,18 +29,6 @@ use crate::launch::account_environment;
 use crate::launch::discovery;
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ChatAccount;
-
-#[derive(Serialize, Deserialize)]
-pub struct Saving {
-    pub profile: Profile,
-}
-
-/// The agent whose pin to take away.
-#[derive(Serialize, Deserialize)]
-pub struct Adding {
-    pub provider: String,
-    pub name: String,
-}
 
 /// The program the account's agent runs as, found afresh.
 async fn program(core: &Core, account: &Account) -> CoreResult<PathBuf> {
@@ -622,22 +613,6 @@ pub(super) async fn usage(core: &Arc<Core>, account: Account) -> CoreResult<usag
     Ok(usage::usage(&account.provider, &program, config_path).await?)
 }
 
-/// The account whose limit reset to spend, by the launcher its usage row names.
-#[derive(Serialize, Deserialize)]
-pub struct UsingReset {
-    pub launcher: String,
-    /// The reset to spend, by its kind's id; none spends the one the agent would.
-    #[serde(default)]
-    pub kind: Option<String>,
-}
-
-/// What spending a reset did, and the resets the account holds after it.
-#[derive(Serialize, Deserialize)]
-pub struct UsedReset {
-    pub outcome: usage::ResetOutcome,
-    pub left: Option<u32>,
-}
-
 /// Spends one of the account's limit resets and reads its limits again, telling clients.
 pub(super) async fn use_reset(core: &Arc<Core>, using: UsingReset) -> CoreResult<UsedReset> {
     let Some(found) = (core.workspaces().usage_accounts().into_iter())
@@ -722,41 +697,7 @@ pub(super) fn chat_accounts(core: &Core, chat: ChatAccountsParams) -> CoreResult
     })
 }
 
-/// How much of its plan an account has used, as the core last read it.
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountUsage {
-    /// The launcher that starts agents on the account.
-    pub launcher: String,
-    pub provider: String,
-    /// The account as the agent picker names it.
-    pub label: String,
-    pub signed_in: bool,
-    /// Its plan and rolling windows as its CLI last reported them, however long ago.
-    pub usage: Option<usage::Usage>,
-    /// When that reading was taken, in Unix milliseconds.
-    pub read_at: Option<u64>,
-    /// Why the latest lookup found no reading.
-    pub problem: Option<String>,
-    /// Whether smart accounts would start the agent's next new chat on it.
-    #[serde(default)]
-    pub next: bool,
-}
-
 /// How old a reading may grow before it says so: three of the app's reads missed.
-const READING_STALE_AFTER_MS: u64 = 15 * 60 * 1000;
-
-impl AccountUsage {
-    /// Whether its numbers are old news at `now_ms`: the last lookup failed, or the reading
-    /// is well past the next one due.
-    pub fn is_stale(&self, now_ms: u64) -> bool {
-        self.problem.is_some()
-            || self
-                .read_at
-                .is_some_and(|read| now_ms.saturating_sub(read) >= READING_STALE_AFTER_MS)
-    }
-}
-
 /// Keeps the plan limits a chat's agent reported on the account `account_id` as that account's
 /// reading, telling clients when it changed.
 pub(crate) fn note_live(
@@ -886,40 +827,6 @@ fn mark_next(core: &Core, found: &mut [AccountUsage]) {
                 .is_some_and(|next| Some(next.id.as_str()) == id);
         }
     }
-}
-
-/// An agent Sikemux can run, as this host has it on the account the person chose for it.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Installed {
-    #[serde(rename = "type")]
-    pub kind: String,
-    pub label: String,
-    pub command: String,
-    pub available: bool,
-    pub error: Option<String>,
-    /// The programs passed over on the way to the one found.
-    pub warning: Option<String>,
-    pub profile_id: Option<String>,
-    pub config_path: Option<String>,
-    pub default_model: Option<String>,
-    pub default_effort: Option<String>,
-    pub status: status::AgentStatus,
-    /// The release of its CLI installed here, when the CLI names one.
-    #[serde(default)]
-    pub version: Option<String>,
-    /// The releases its chats run now, newest first.
-    #[serde(default)]
-    pub running: Vec<String>,
-    /// The newest release out.
-    #[serde(default)]
-    pub latest: Option<String>,
-    /// How an update the person asked for goes.
-    #[serde(default)]
-    pub updating: Option<super::agent_updates::Updating>,
-    /// The models updating to the newest release lets it run, by name.
-    #[serde(default)]
-    pub unlocks: Vec<String>,
 }
 
 /// The agents found on this host, each on the account chosen for it. An agent that

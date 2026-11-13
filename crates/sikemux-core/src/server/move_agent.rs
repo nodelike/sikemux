@@ -4,6 +4,7 @@
 //! terminal agent starts again there when it is next shown.
 
 use crate::server::parts::Parts;
+use crate::server::workspace::AddProjectParamsExt;
 use crate::server::ServerCore;
 pub use sikemux_calls::move_agent::{MoveParams, MoveToFolder};
 use std::sync::Arc;

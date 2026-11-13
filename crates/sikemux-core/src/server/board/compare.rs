@@ -25,7 +25,13 @@ struct Side {
     minutes: Vec<u64>,
 }
 
-impl Side {
+pub(crate) trait SideExt: Sized {
+    fn add(&mut self, record: &RunRecord);
+
+    fn view(self) -> Value;
+}
+
+impl SideExt for Side {
     fn add(&mut self, record: &RunRecord) {
         self.runs += 1;
         self.trips += record.progress_trips;

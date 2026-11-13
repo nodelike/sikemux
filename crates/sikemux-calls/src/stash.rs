@@ -1,4 +1,7 @@
 use serde::{Deserialize, Serialize};
+use sikemux_corekit::accounts::protocol::StashItem;
+use sikemux_corekit::accounts::protocol::StashLink;
+use sikemux_corekit::accounts::protocol::StashTaken;
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize)]
@@ -57,4 +60,50 @@ pub struct StashPromptParams {
 #[derive(Serialize, Deserialize)]
 pub struct StashedPrompt {
     pub id: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListParams {
+    #[serde(default)]
+    pub taken: Option<StashTaken>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+}
+
+/// The stash as the apps draw it: none while this host is signed out.
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownStash {
+    pub signed_in: bool,
+    pub items: Vec<ShownStashItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    pub seen_at: Option<String>,
+}
+
+/// An item as the server keeps it, with what apps draw a text or prompt by: its `words`, its
+/// text with the links to pages taken out, and the state of each pull request or issue it
+/// links to.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownStashItem {
+    #[serde(flatten)]
+    pub item: StashItem,
+    /// What it is called: its page's title, its text's first line, or its file's name.
+    pub title: String,
+    /// It was stashed since the person last looked, on any device.
+    pub fresh: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub links: Option<Vec<ShownStashLink>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct ShownStashLink {
+    #[serde(flatten)]
+    pub link: StashLink,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
 }

@@ -4,13 +4,13 @@
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 pub use sikemux_calls::agent_updates::UpdateAgents;
+pub use sikemux_calls::agent_updates::Updating;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::sync::Locked;
 use sikemux_process::user_environment;
@@ -32,21 +32,6 @@ const LOOKUP_TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// How often the line an updater last printed is passed on while it runs.
 const SAID_EVERY: Duration = Duration::from_secs(1);
-
-/// How an update the person asked for is going. One that finished is no longer listed.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(tag = "state", rename_all = "camelCase")]
-pub enum Updating {
-    /// Waiting for another agent's update to finish.
-    Queued,
-    /// The updater runs; `said` is the last line it printed.
-    Running {
-        said: Option<String>,
-    },
-    Failed {
-        reason: String,
-    },
-}
 
 fn updates() -> &'static Mutex<HashMap<String, Updating>> {
     static UPDATES: LazyLock<Mutex<HashMap<String, Updating>>> = LazyLock::new(Default::default);

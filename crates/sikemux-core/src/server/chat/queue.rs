@@ -3,12 +3,13 @@
 //! ends, unless the person steers them in sooner or takes one back.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::chat::QueuedMessageParams;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use sikemux_wire::protocol::ChatContext;
 
@@ -30,16 +31,6 @@ pub(crate) struct Queued {
     pub context: Vec<ChatContext>,
     #[serde(skip)]
     pub whose: Whose,
-}
-
-/// A message as the person wrote it.
-#[derive(Serialize, Deserialize)]
-pub struct QueuedMessageParams {
-    pub text: String,
-    #[serde(default)]
-    pub paths: Vec<String>,
-    #[serde(default)]
-    pub context: Vec<ChatContext>,
 }
 
 impl Queued {

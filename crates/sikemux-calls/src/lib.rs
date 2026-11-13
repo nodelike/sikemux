@@ -68,6 +68,7 @@ pub mod ports;
 pub mod preferences;
 pub mod project_files;
 pub mod project_roots;
+pub mod questions;
 pub mod remote;
 pub mod remote_image;
 pub mod saved;

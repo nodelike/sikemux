@@ -6,11 +6,13 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
+use crate::server::workspace::AddProjectParamsExt;
 use crate::server::ServerCore;
 pub use sikemux_calls::layout::{
     ActivateProjectParams, HostParams, OpenPaths, PaneParams, PathOpened, ResizeSplit, TabParams,
     TabsParams,
 };
+pub use sikemux_calls::layout::{Side, SplitPane};
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -18,7 +20,6 @@ use std::future::Future;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::{CliOpenTarget, CliTargetKind};
@@ -1229,35 +1230,6 @@ pub(crate) fn activate_project(core: &Core, params: ActivateProjectParams) -> Co
         bring_forward(layout, &At::project(&params.project));
         Ok(())
     })
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Side {
-    Left,
-    Right,
-    Top,
-    Bottom,
-    /// Behind the view, as one more tab of a stack.
-    Stack,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SplitPane {
-    #[serde(flatten)]
-    pub at: At,
-    pub tab: String,
-    /// The view the new one goes beside, by id.
-    pub pane: String,
-    pub side: Side,
-    pub kind: Option<PaneKind>,
-    pub target: Option<String>,
-    /// A tab of the same strip whose pane moves into the split, closing the tab.
-    pub from_tab: Option<String>,
-    /// Leaves the strip's tab in front where it is, for a split the person did not ask for.
-    #[serde(default)]
-    pub keep_front: bool,
 }
 
 /// Puts a view beside one of a tab's views: a new view of `kind` showing

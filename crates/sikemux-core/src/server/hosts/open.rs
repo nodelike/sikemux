@@ -3,6 +3,7 @@
 //! remote with its own sign-in, or takes it from this host as a git bundle when
 //! it cannot, and adds it to its projects. Only committed work goes over.
 
+use crate::server::workspace::AddProjectParamsExt;
 pub use sikemux_calls::hosts::OpenOnParams;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

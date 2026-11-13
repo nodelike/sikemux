@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sikemux_corekit::cli::protocol::CliOpenTarget;
 use sikemux_view::layout::At;
+use sikemux_view::layout::PaneKind;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,4 +84,33 @@ pub struct ResizeSplit {
     pub split: String,
     /// Each pane's share, in any unit; the core keeps them in thousandths.
     pub sizes: Vec<u16>,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Side {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    /// Behind the view, as one more tab of a stack.
+    Stack,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SplitPane {
+    #[serde(flatten)]
+    pub at: At,
+    pub tab: String,
+    /// The view the new one goes beside, by id.
+    pub pane: String,
+    pub side: Side,
+    pub kind: Option<PaneKind>,
+    pub target: Option<String>,
+    /// A tab of the same strip whose pane moves into the split, closing the tab.
+    pub from_tab: Option<String>,
+    /// Leaves the strip's tab in front where it is, for a split the person did not ask for.
+    #[serde(default)]
+    pub keep_front: bool,
 }

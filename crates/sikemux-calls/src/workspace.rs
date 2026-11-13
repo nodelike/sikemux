@@ -70,3 +70,10 @@ pub struct PinChatParams {
     pub recent: String,
     pub pinned: bool,
 }
+
+#[derive(Deserialize, Serialize)]
+pub struct AddProjectParams {
+    pub path: PathBuf,
+    pub name: Option<String>,
+    pub id: Option<String>,
+}

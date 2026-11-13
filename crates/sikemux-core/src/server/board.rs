@@ -1079,7 +1079,11 @@ struct Adding {
     ci: Option<failing::Broke>,
 }
 
-impl Adding {
+pub(crate) trait AddingExt: Sized {
+    fn from_params(params: &Value) -> Result<Self, String>;
+}
+
+impl AddingExt for Adding {
     fn from_params(params: &Value) -> Result<Self, String> {
         let title = match params.get("title") {
             Some(Value::String(title)) => title_of(title)?,

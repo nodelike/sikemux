@@ -6,13 +6,13 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 pub use sikemux_calls::agent_sign_in::Page;
+pub use sikemux_calls::agent_sign_in::{Account, Code};
 pub use sikemux_calls::agent_sign_in::{AfterSignIn, LauncherParams};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
@@ -29,15 +29,15 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const SIGN_IN_TAIL: usize = 12;
 const MAX_PATH_CHARS: usize = 4_096;
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Account {
-    pub agent: AgentKind,
-    pub executable_path: Option<String>,
-    pub config_path: Option<String>,
+pub(crate) trait AccountExt: Sized {
+    fn check(&self) -> CoreResult<()>;
+
+    fn key(&self) -> String;
+
+    async fn command(&self) -> CoreResult<Command>;
 }
 
-impl Account {
+impl AccountExt for Account {
     fn check(&self) -> CoreResult<()> {
         let long = |path: &Option<String>| {
             path.as_ref()
@@ -272,14 +272,6 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
         Ok(None) => Err("Sign-in stopped".into()),
         Err(_) => Err("Sign-in timed out".into()),
     }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Code {
-    #[serde(flatten)]
-    pub account: Account,
-    pub code: String,
 }
 
 /// Hands a running sign-in the code its page showed, for a CLI that asks

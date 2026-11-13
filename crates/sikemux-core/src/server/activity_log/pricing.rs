@@ -1,5 +1,5 @@
 use crate::launch::model_feed::{Cost, Model, Snapshot};
-use serde::{Deserialize, Serialize};
+pub use sikemux_calls::activity_log::{ModelRate, PriceOverride, PricingInfo, Rates};
 use std::collections::HashMap;
 
 /// Bare family names could be any generation, and synthetic messages were never billed.
@@ -12,24 +12,15 @@ const UNPRICEABLE: [&str; 6] = [
     "fable",
 ];
 
-/// USD per token.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Rates {
-    pub input: f64,
-    pub output: f64,
-    pub cache_read: f64,
-    pub cache_write: f64,
+pub(crate) trait ModelRateExt: Sized {
+    fn at(&self, speed: &str) -> Rates;
+
+    /// A speed missing its cache rates keeps the standard speed's ratio to input.
+    fn of(model: &Model) -> Option<Self>;
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct ModelRate {
-    pub standard: Rates,
-    pub fast: Option<Rates>,
-    pub ultrafast: Option<Rates>,
-}
-
-impl ModelRate {
-    pub(crate) fn at(&self, speed: &str) -> Rates {
+impl ModelRateExt for ModelRate {
+    fn at(&self, speed: &str) -> Rates {
         match speed {
             "fast" => self.fast,
             "ultrafast" => self.ultrafast,
@@ -38,7 +29,6 @@ impl ModelRate {
         .unwrap_or(self.standard)
     }
 
-    /// A speed missing its cache rates keeps the standard speed's ratio to input.
     fn of(model: &Model) -> Option<Self> {
         let standard = rates(model.cost?, None)?;
         let speed = |name| rates(model.cost_at(name)?, Some(&standard));
@@ -67,41 +57,6 @@ fn rates(cost: Cost, standard: Option<&Rates>) -> Option<Rates> {
         cache_read: cache(cost.cache_read, |rates| rates.cache_read),
         cache_write: cache(cost.cache_write, |rates| rates.cache_write),
     })
-}
-
-/// A price the person entered, in USD per million tokens.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PriceOverride {
-    pub input: f64,
-    pub output: f64,
-    pub cache_read: Option<f64>,
-    pub cache_write: Option<f64>,
-}
-
-impl PriceOverride {
-    fn rate(&self) -> ModelRate {
-        let per_token = |value: f64| value.max(0.0) / 1_000_000.0;
-        let rates = Rates {
-            input: per_token(self.input),
-            output: per_token(self.output),
-            cache_read: per_token(self.cache_read.unwrap_or(self.input)),
-            cache_write: per_token(self.cache_write.unwrap_or(self.input)),
-        };
-        ModelRate {
-            standard: rates,
-            fast: None,
-            ultrafast: None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Default, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PricingInfo {
-    pub fetched_at_ms: Option<i64>,
-    /// The person's own prices, by model.
-    pub overrides: HashMap<String, PriceOverride>,
 }
 
 pub(crate) struct Prices {

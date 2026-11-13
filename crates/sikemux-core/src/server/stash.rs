@@ -11,6 +11,7 @@ pub use sikemux_calls::stash::{
     AttachStashParams, AttachedStash, SeeParams, StashItemParams, StashKept, StashPromptParams,
     StashedPrompt,
 };
+pub use sikemux_calls::stash::{ListParams, ShownStash, ShownStashItem, ShownStashLink};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -18,14 +19,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ChatContext;
 
 use crate::accounts::protocol::{
-    AccountEvent, AccountEventType, StashItem, StashKind, StashLink, StashList, StashSeen,
-    StashTaken, StashTarget, StashUpdate,
+    AccountEvent, AccountEventType, StashItem, StashKind, StashList, StashSeen, StashTaken,
+    StashTarget, StashUpdate,
 };
 
 use super::account::api::{as_host, host_request, host_send, Upload};
@@ -44,52 +44,6 @@ use words::*;
 const MAX_ITEM_BYTES: u64 = 25 * 1024 * 1024;
 /// The largest picture fetched only to be shown small.
 const MAX_PICTURE_BYTES: u64 = 8 * 1024 * 1024;
-
-#[derive(Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ListParams {
-    #[serde(default)]
-    taken: Option<StashTaken>,
-    #[serde(default)]
-    cursor: Option<String>,
-}
-
-/// The stash as the apps draw it: none while this host is signed out.
-#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShownStash {
-    pub signed_in: bool,
-    pub items: Vec<ShownStashItem>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-    pub seen_at: Option<String>,
-}
-
-/// An item as the server keeps it, with what apps draw a text or prompt by: its `words`, its
-/// text with the links to pages taken out, and the state of each pull request or issue it
-/// links to.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShownStashItem {
-    #[serde(flatten)]
-    pub item: StashItem,
-    /// What it is called: its page's title, its text's first line, or its file's name.
-    pub title: String,
-    /// It was stashed since the person last looked, on any device.
-    pub fresh: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub links: Option<Vec<ShownStashLink>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub words: Option<String>,
-}
-
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-pub struct ShownStashLink {
-    #[serde(flatten)]
-    pub link: StashLink,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<String>,
-}
 
 /// One page of the account's stash, newest first; by default only what has not been used.
 pub(crate) async fn list(core: &Core, params: ListParams) -> CoreResult<ShownStash> {

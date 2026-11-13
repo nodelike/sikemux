@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_agents::harness::runs::Run;
+use sikemux_corekit::tasks::check::Check;
 use sikemux_corekit::tasks::config::ConfigLoad;
 use sikemux_corekit::tasks::config::TrustCommand;
 use sikemux_corekit::tasks::results::TestResults;
@@ -108,4 +109,33 @@ pub struct SetCheckParams {
 pub struct RemoveTaskParams {
     pub project: String,
     pub task_id: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskStartParams {
+    pub project: String,
+    pub task_id: String,
+    /// Start whatever the checks found.
+    #[serde(default)]
+    pub force: bool,
+    /// Install what the checks found missing and move the app off a taken
+    /// port first.
+    #[serde(default)]
+    pub fix: bool,
+}
+
+/// The person starts a task: it replaces the one their project is running.
+/// Answers the checks that stopped it, or the run it started.
+/// What asking for a task to start did.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged, rename_all_fields = "camelCase")]
+pub enum TaskStarted {
+    /// Its checks hold it back, and the person decides.
+    Held {
+        checks: Vec<Check>,
+    },
+    Running {
+        execution_id: String,
+    },
 }

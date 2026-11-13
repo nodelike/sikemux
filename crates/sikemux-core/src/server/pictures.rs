@@ -621,6 +621,7 @@ pub(crate) fn results(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::workspace::AddProjectParamsExt;
 
     fn set(project: String, agent: &str) -> Set {
         Set {

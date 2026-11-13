@@ -12,6 +12,7 @@ pub use sikemux_calls::tasks::{
     ProjectConfigRead, ProjectParams, RerunParams, RerunStarted, RunView, TrustAnswerParams,
     TrustProjectParams, TrustQuestion,
 };
+pub use sikemux_calls::tasks::{TaskStartParams, TaskStarted};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -898,20 +899,6 @@ pub(crate) async fn launch(
     Ok(preview_url)
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskStartParams {
-    pub project: String,
-    pub task_id: String,
-    /// Start whatever the checks found.
-    #[serde(default)]
-    pub force: bool,
-    /// Install what the checks found missing and move the app off a taken
-    /// port first.
-    #[serde(default)]
-    pub fix: bool,
-}
-
 fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Result<(), String> {
     for check in found.iter().filter(|check| !check.item.ok()) {
         match &check.item {
@@ -957,21 +944,6 @@ fn install_dependencies(cwd: &Path, install: &str) -> Result<(), String> {
         "{install} failed: {}",
         String::from_utf8_lossy(&output.stderr).trim()
     ))
-}
-
-/// The person starts a task: it replaces the one their project is running.
-/// Answers the checks that stopped it, or the run it started.
-/// What asking for a task to start did.
-#[derive(Serialize, Deserialize)]
-#[serde(untagged, rename_all_fields = "camelCase")]
-pub enum TaskStarted {
-    /// Its checks hold it back, and the person decides.
-    Held {
-        checks: Vec<Check>,
-    },
-    Running {
-        execution_id: String,
-    },
 }
 
 pub(crate) async fn start(core: &Arc<Core>, params: TaskStartParams) -> CoreResult<TaskStarted> {

@@ -1,65 +1,13 @@
 //! What the chat's own methods take, and what they do with more than one part of a chat.
 
 use crate::server::parts::Parts;
+pub use sikemux_calls::chat::{
+    ChatLeftOutParams, ChatPageParams, EditParams, PromptChatParams, QueuedParams, ToolDetailParams,
+};
 use std::sync::Arc;
-
-use serde::{Deserialize, Serialize};
 
 use crate::server::{Core, CoreResult};
 use sikemux_wire::protocol::ChatContext;
-
-/// A page of a chat's rows: those before or after an event, or around the row holding one.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatPageParams {
-    pub agent_id: String,
-    pub feed: String,
-    pub before: Option<u64>,
-    pub after: Option<u64>,
-    pub around: Option<u64>,
-    /// A subagent's rows rather than the chat's own.
-    pub session: Option<String>,
-    pub turns: Option<u32>,
-}
-
-impl ChatPageParams {
-    /// The page of `feed` nothing narrows yet.
-    pub fn new(agent_id: &str, feed: String) -> Self {
-        Self {
-            agent_id: agent_id.to_owned(),
-            feed,
-            before: None,
-            after: None,
-            around: None,
-            session: None,
-            turns: None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolDetailParams {
-    pub agent_id: String,
-    pub tool_call_id: String,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatLeftOutParams {
-    pub agent_id: String,
-    pub message_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EditParams {
-    agent_id: String,
-    message_id: String,
-    text: String,
-    #[serde(default)]
-    paths: Vec<String>,
-}
 
 /// Takes the chat back to before the message and sends the new text in its place, as the
 /// window's own edit does, starting the chat first when it was stopped.
@@ -108,32 +56,6 @@ pub(crate) async fn steer_chat(
     let whose = super::Whose::typed_to(core, agent_id);
     let steered = super::steer(core, agent_id, text, paths, context, whose).await?;
     Ok(steered.word().to_owned())
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PromptChatParams {
-    pub(crate) agent_id: String,
-    #[serde(default)]
-    pub(crate) message_id: Option<String>,
-    pub(crate) text: String,
-    #[serde(default)]
-    pub(crate) paths: Vec<String>,
-    #[serde(default)]
-    pub(crate) context: Vec<ChatContext>,
-}
-
-impl PromptChatParams {
-    /// Plain words for `agent_id`, with nothing attached.
-    pub fn new(agent_id: String, text: String) -> Self {
-        Self {
-            agent_id,
-            message_id: None,
-            text,
-            paths: Vec::new(),
-            context: Vec::new(),
-        }
-    }
 }
 
 /// Whether the message must wait for its chat, or a chat it names, to wake, rather than going
@@ -200,14 +122,4 @@ pub(crate) async fn prompt_chat(core: &Arc<Core>, mut params: PromptChatParams) 
         super::wake_for_prompt(core, &params.agent_id, &mut params.context).await?;
     }
     prompt_awake(core, params)
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QueuedParams {
-    pub agent_id: String,
-    pub ids: Vec<String>,
-    /// A message sent with them, after them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<super::queue::QueuedMessageParams>,
 }
