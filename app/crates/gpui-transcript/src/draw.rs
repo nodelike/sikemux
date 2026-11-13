@@ -1558,7 +1558,7 @@ impl Draw<'_> {
             .text_color(style.ink)
             .flex()
             .children(gutter)
-            .child(div().flex_1().min_w_0().child(text));
+            .child(div().flex_1().when(wrapped, |text| text.min_w_0()).child(text));
         div()
             .relative()
             .child(lines)
