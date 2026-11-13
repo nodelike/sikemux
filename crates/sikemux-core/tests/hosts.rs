@@ -267,6 +267,7 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
     let spawn = json!({
         "host": "studio",
         "cli": "opencode",
+        "uncommitted": true,
         "prompt": "run cat b.txt && printf done > c.txt && git add c.txt && git -c user.name=W -c user.email=w@example.com commit -qm worker",
     });
     lead_app

@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -270,9 +270,11 @@ impl Chat {
     }
 
     /// Takes in the next event, and answers the number of the frame it
-    /// applied, when the event was one of this chat's.
-    async fn pump(&mut self) -> Option<u64> {
-        let Ok(event) = tokio::time::timeout(self.wait, self.events.recv()).await else {
+    /// applied, when the event was one of this chat's. Gives up once this chat
+    /// has been quiet for `wait` since `heard`, however busy the other events are.
+    async fn pump(&mut self, heard: &mut Instant) -> Option<u64> {
+        let quiet_until = tokio::time::Instant::from_std(*heard + self.wait);
+        let Ok(event) = tokio::time::timeout_at(quiet_until, self.events.recv()).await else {
             panic!(
                 "timed out waiting for the chat, which holds {:#?}",
                 self.folded.view
@@ -295,22 +297,25 @@ impl Chat {
             }
             self.floor = None;
         }
+        *heard = Instant::now();
         self.folded.frames += 1;
         self.folded.apply(&changes);
         Some(seq)
     }
 
     pub async fn next_frame(&mut self) -> u64 {
+        let mut heard = Instant::now();
         loop {
-            if let Some(seq) = self.pump().await {
+            if let Some(seq) = self.pump(&mut heard).await {
                 return seq;
             }
         }
     }
 
     pub async fn until(&mut self, mut found: impl FnMut(&Folded) -> bool) -> &Folded {
+        let mut heard = Instant::now();
         while !found(&self.folded) {
-            self.pump().await;
+            self.pump(&mut heard).await;
         }
         &self.folded
     }
