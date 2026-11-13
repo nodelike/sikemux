@@ -159,14 +159,20 @@ pub(crate) fn take_up(chat: &Chat, kept: KeptSession) {
 
 /// The session the chat runs on now. A session it already knew keeps the footing it started
 /// on. A fresh one it had not moved to yet is let go, with the meter's reading of the session
-/// it goes on in.
+/// it goes on in. Another session the chat knew nothing of, such as one a hand-off or a new
+/// core started, has made no call of its own yet, whatever the meter kept says.
 pub(crate) fn runs_on(chat: &Chat, now: Footing) {
     let mut inner = chat.rotation.inner.locked();
     if let Some(fresh) = (inner.fresh).take_if(|fresh| fresh.footing.session != now.session) {
         chat.meter.take_up(fresh.meter);
     }
-    if (inner.footing.as_ref()).is_none_or(|was| was.session != now.session) {
-        inner.footing = Some(now);
+    match &inner.footing {
+        Some(was) if was.session == now.session => {}
+        Some(_) => {
+            chat.meter.started_fresh();
+            inner.footing = Some(now);
+        }
+        None => inner.footing = Some(now),
     }
 }
 
