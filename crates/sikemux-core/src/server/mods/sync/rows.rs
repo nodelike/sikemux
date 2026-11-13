@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use super::super::super::CoreResult;
 use super::super::data::{
     counts_of, failed, forget, keep_version, merge, save_clock, save_counts, shown, Clock, Counts,
-    Document, Open, Stamp, Store,
+    Document, Stamp, Store,
 };
 use super::{sid_of, FUTURE_MS, NAMING_ID};
 use crate::accounts::vault::ModStored;
@@ -353,51 +353,39 @@ impl Store {
         &self,
         work: impl FnOnce(&rusqlite::Transaction<'_>, &mut Clock) -> CoreResult<T>,
     ) -> CoreResult<T> {
-        self.with(|Open { connection, clock }| {
-            let transaction = connection.transaction().map_err(failed)?;
-            let done = work(&transaction, clock)?;
-            save_clock(&transaction, *clock)?;
+        self.with(|open| {
+            let transaction = open.connection.transaction().map_err(failed)?;
+            let done = work(&transaction, &mut open.clock)?;
+            save_clock(&transaction, open.clock)?;
             transaction.commit().map_err(failed)?;
             Ok(done)
         })
     }
 
-    /// Where this host's reading of `account`'s changes stands. A host that moved to another
-    /// account starts over and sends everything it keeps to the new one.
-    pub(super) fn joined(&self, account: &str) -> CoreResult<i64> {
-        self.changing(|transaction, _| {
-            let synced: Option<(String, i64)> = transaction
-                .query_row("SELECT account, seq FROM synced", [], |row| {
-                    Ok((row.get(0)?, row.get(1)?))
-                })
+    /// Where this host's reading of `account`'s changes stands, or none while the store holds
+    /// another account's copy.
+    pub(super) fn cursor(&self, account: &str) -> CoreResult<Option<i64>> {
+        self.with(|open| {
+            if open.account.as_deref() != Some(account) {
+                return Ok(None);
+            }
+            let seq = open
+                .connection
+                .query_row("SELECT seq FROM synced", [], |row| row.get(0))
                 .optional()
                 .map_err(failed)?;
-            match synced {
-                Some((kept, seq)) if kept == account => return Ok(seq),
-                Some(_) => transaction
-                    .execute_batch(
-                        "DELETE FROM namings;
-                         DELETE FROM unopened;
-                         UPDATE documents SET revision = 0, generation = 0, dirty = 1, sid = NULL;",
-                    )
-                    .map_err(failed)?,
-                None => {}
-            }
-            transaction
-                .execute(
-                    "INSERT INTO synced (one, account, seq) VALUES (0, ?1, 0)
-                     ON CONFLICT (one) DO UPDATE SET account = excluded.account, seq = 0",
-                    params![account],
-                )
-                .map_err(failed)?;
-            Ok(0)
+            Ok(Some(seq.unwrap_or(0)))
         })
     }
 
     pub(super) fn pulled_to(&self, seq: i64) -> CoreResult<()> {
         self.changing(|transaction, _| {
             transaction
-                .execute("UPDATE synced SET seq = ?1", params![seq])
+                .execute(
+                    "INSERT INTO synced (one, seq) VALUES (0, ?1)
+                     ON CONFLICT (one) DO UPDATE SET seq = excluded.seq",
+                    params![seq],
+                )
                 .map_err(failed)?;
             Ok(())
         })
@@ -572,6 +560,36 @@ impl Store {
         })
     }
 
+    /// After a pull the server started over holding less than this host had read, so it lost its
+    /// record: every naming key and document this host keeps goes to it again as new, and sealed
+    /// copies it no longer lists are forgotten.
+    pub(super) fn send_all_again(&self, listed: &HashSet<(String, String)>) -> CoreResult<()> {
+        self.changing(|transaction, _| {
+            let unlisted: Vec<(String, String)> = {
+                let mut statement = transaction
+                    .prepare_cached("SELECT mod, sid FROM unopened")
+                    .map_err(failed)?;
+                let rows = statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(failed)?;
+                rows.collect::<rusqlite::Result<Vec<(String, String)>>>()
+                    .map_err(failed)?
+                    .into_iter()
+                    .filter(|copy| !listed.contains(copy))
+                    .collect()
+            };
+            for (module, sid) in unlisted {
+                opened(transaction, &module, &sid)?;
+            }
+            transaction
+                .execute_batch(
+                    "UPDATE namings SET revision = 0, generation = 0;
+                     UPDATE documents SET revision = 0, generation = 0, dirty = 1;",
+                )
+                .map_err(failed)
+        })
+    }
+
     /// The documents kept sealed under the vault key generation `generation`, to open now.
     pub(super) fn unopened(&self, generation: i64) -> CoreResult<Vec<SealedCopy>> {
         self.with(|open| {
@@ -668,15 +686,15 @@ impl Store {
         })
     }
 
-    /// The naming keys the account keeps sealed under a vault key older than `generation`,
-    /// with the revision each is at.
+    /// The naming keys the account does not hold, or keeps sealed under a vault key older than
+    /// `generation`, with the revision each is at.
     pub(super) fn stale_namings(&self, generation: i64) -> CoreResult<Vec<(String, String, i64)>> {
         self.with(|open| {
             let mut statement = open
                 .connection
                 .prepare_cached(
                     "SELECT mod, key, revision FROM namings
-                     WHERE revision > 0 AND generation < ?1
+                     WHERE (revision = 0 OR generation < ?1)
                      AND mod NOT IN (SELECT mod FROM purging)",
                 )
                 .map_err(failed)?;
@@ -698,11 +716,11 @@ impl Store {
             let mut statement = connection
                 .prepare_cached(
                     "SELECT d.mod, d.collection, d.id, d.stamped, d.revision, d.changed, n.key
-                     FROM documents d JOIN namings n ON n.mod = d.mod
+                     FROM documents d JOIN namings n ON n.mod = d.mod AND n.revision > 0
                      WHERE d.dirty = 1 AND d.mod NOT IN (SELECT mod FROM purging)
                      UNION ALL
                      SELECT d.mod, d.collection, d.id, d.stamped, d.revision, d.changed, n.key
-                     FROM documents d JOIN namings n ON n.mod = d.mod
+                     FROM documents d JOIN namings n ON n.mod = d.mod AND n.revision > 0
                      WHERE d.dirty = 0 AND d.revision > 0 AND d.generation < ?1
                      AND d.mod NOT IN (SELECT mod FROM purging)
                      LIMIT ?2",

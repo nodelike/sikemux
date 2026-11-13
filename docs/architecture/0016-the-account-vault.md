@@ -94,7 +94,12 @@ when its home goes away.
   push changed documents compare-and-set, merge field by field by stamp when another host wrote
   first, and pull what changed since a counter when the account says mods changed. After the vault
   key is replaced, they reseal documents from their plain copies. The server cannot merge what it
-  cannot read, so every merge happens on hosts and gives the same answer on each.
+  cannot read, so every merge happens on hosts and gives the same answer on each. Each
+  account's copy is a file of its own on the host, so data that synced with one account is never
+  shown under or sent to another; data made while signed out goes to the next account signed in.
+  A server that answers with less than a host already read has lost its record, and hosts send
+  theirs back; only a host away longer than removals are kept drops what the server no longer
+  lists.
 - **The host that refreshes a shared sign-in renews it ahead of time.** It seals each new access
   token into the entry before the old one runs out, and the other hosts use that token rather than
   refreshing. Whichever host writes a newer token for the same identity becomes the one that

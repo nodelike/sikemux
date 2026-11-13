@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -26,6 +26,8 @@ use super::super::workspace_state::WorkspaceParts;
 use super::super::{Core, CoreError, CoreResult};
 use super::schema;
 
+/// What the host keeps while no account is signed in; what goes in it moves into the next
+/// account that signs in.
 const DATABASE: &str = "mods.sqlite3";
 const MAX_DOCUMENT_BYTES: usize = 60 * 1024;
 const MAX_MOD_BYTES: i64 = 16 * 1024 * 1024;
@@ -261,18 +263,128 @@ impl Clock {
 pub(super) struct Open {
     pub(super) connection: Connection,
     pub(super) clock: Clock,
+    /// The account whose copy this is, or none for what the host keeps signed out.
+    pub(super) account: Option<String>,
 }
 
+/// Each account's documents are kept in a file of their own, so what synced with one account
+/// is never shown under, or sent to, another; it comes back when that account signs in again.
 pub(crate) struct Store {
-    path: Option<PathBuf>,
+    dir: Option<PathBuf>,
+    core: OnceLock<Weak<Core>>,
     open: Mutex<Option<Open>>,
+}
+
+fn path_of(dir: &Path, account: Option<&str>) -> PathBuf {
+    match account {
+        None => dir.join(DATABASE),
+        Some(account) => {
+            let safe: String = (account.chars())
+                .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+                .collect();
+            dir.join(format!("mods-{safe}.sqlite3"))
+        }
+    }
+}
+
+/// Moves what the host kept signed out into `target`, merged field by field into what the
+/// account holds, to be sent to it. The history of those changes stays behind.
+fn take_loose(target: &mut Open, loose: &Path) -> CoreResult<()> {
+    if !loose.exists() {
+        return Ok(());
+    }
+    let mut loose = open(loose, None).map_err(failed)?;
+    let kept: Vec<(String, String, String, String, String, i64)> = {
+        let mut statement = loose
+            .connection
+            .prepare("SELECT mod, collection, id, stamped, who, ms FROM documents")
+            .map_err(failed)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            })
+            .map_err(failed)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(failed)?
+    };
+    if kept.is_empty() {
+        return Ok(());
+    }
+    let transaction = target.connection.transaction().map_err(failed)?;
+    let mut counts: BTreeMap<String, Counts> = BTreeMap::new();
+    for (module, collection, id, stamped, who, ms) in kept {
+        let stored: Option<String> = transaction
+            .query_row(
+                "SELECT stamped FROM documents WHERE mod = ?1 AND collection = ?2 AND id = ?3",
+                params![module, collection, id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(failed)?;
+        let ours: Document = match &stored {
+            Some(stamped) => serde_json::from_str(stamped)?,
+            None => Document::default(),
+        };
+        let merged = merge(ours.clone(), serde_json::from_str(&stamped)?);
+        let merged_text = serde_json::to_string(&merged)?;
+        let value = shown(&merged).map(|fields| Value::Object(fields).to_string());
+        if !counts.contains_key(&module) {
+            counts.insert(module.clone(), counts_of(&transaction, &module)?);
+        }
+        let mod_counts = counts.get_mut(&module).expect("just inserted");
+        mod_counts.documents += i64::from(value.is_some()) - i64::from(shown(&ours).is_some());
+        mod_counts.bytes += merged_text.len() as i64 - stored.map_or(0, |s| s.len()) as i64;
+        mod_counts.changes += 1;
+        transaction
+            .execute(
+                "INSERT INTO documents (mod, collection, id, stamped, value, changed, who, ms, dirty)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)
+                 ON CONFLICT (mod, collection, id) DO UPDATE
+                 SET stamped = excluded.stamped, value = excluded.value,
+                     changed = excluded.changed, who = excluded.who, ms = excluded.ms, dirty = 1",
+                params![
+                    module,
+                    collection,
+                    id,
+                    merged_text,
+                    value,
+                    mod_counts.changes,
+                    who,
+                    ms
+                ],
+            )
+            .map_err(failed)?;
+    }
+    for (module, mod_counts) in &counts {
+        save_counts(&transaction, module, mod_counts)?;
+    }
+    let (ms, n) = (loose.clock.ms, loose.clock.n);
+    if (ms, n) > (target.clock.ms, target.clock.n) {
+        target.clock = Clock { ms, n };
+    }
+    save_clock(&transaction, target.clock)?;
+    transaction.commit().map_err(failed)?;
+    let cleared = loose.connection.transaction().map_err(failed)?;
+    cleared
+        .execute_batch(
+            "DELETE FROM documents; DELETE FROM mods; DELETE FROM history; DELETE FROM purging;
+             DELETE FROM namings; DELETE FROM unopened;",
+        )
+        .map_err(failed)?;
+    cleared.commit().map_err(failed)
 }
 
 pub(super) fn failed(error: rusqlite::Error) -> CoreError {
     CoreError::from(format!("the mods' data could not be reached: {error}"))
 }
 
-fn open(path: &Path) -> rusqlite::Result<Open> {
+fn open(path: &Path, account: Option<String>) -> rusqlite::Result<Open> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -327,7 +439,6 @@ fn open(path: &Path) -> rusqlite::Result<Open> {
          );
          CREATE TABLE IF NOT EXISTS synced (
              one INTEGER PRIMARY KEY CHECK (one = 0),
-             account TEXT NOT NULL,
              seq INTEGER NOT NULL
          );
          CREATE TABLE IF NOT EXISTS namings (
@@ -355,7 +466,11 @@ fn open(path: &Path) -> rusqlite::Result<Open> {
         })
         .optional()?
         .unwrap_or_default();
-    Ok(Open { connection, clock })
+    Ok(Open {
+        connection,
+        clock,
+        account,
+    })
 }
 
 fn version_of(row: &rusqlite::Row<'_>, names: Names<'_>) -> rusqlite::Result<Version> {
@@ -475,17 +590,35 @@ pub(super) fn keep_version(
 impl Store {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         Self {
-            path: data_dir.map(|dir| dir.join(DATABASE)),
+            dir: data_dir.map(Path::to_path_buf),
+            core: OnceLock::new(),
             open: Mutex::new(None),
         }
     }
 
+    /// Follows the account `core` is signed in to from now on.
+    pub(super) fn attach(&self, core: &Arc<Core>) {
+        let _ = self.core.set(Arc::downgrade(core));
+    }
+
+    /// The account whose copy is read and written now.
+    pub(super) fn account(&self) -> Option<String> {
+        self.core.get()?.upgrade()?.remote().owner()
+    }
+
     pub(super) fn with<T>(&self, work: impl FnOnce(&mut Open) -> CoreResult<T>) -> CoreResult<T> {
-        let path = (self.path.as_ref())
+        let dir = (self.dir.as_ref())
             .ok_or_else(|| CoreError::from("this host keeps no data for mods"))?;
+        let account = self.account();
         let mut cache = self.open.locked();
-        if cache.is_none() {
-            *cache = Some(open(path).map_err(failed)?);
+        if cache.as_ref().map(|open| &open.account) != Some(&account) {
+            *cache = None;
+            let mut opened =
+                open(&path_of(dir, account.as_deref()), account.clone()).map_err(failed)?;
+            if account.is_some() {
+                take_loose(&mut opened, &path_of(dir, None))?;
+            }
+            *cache = Some(opened);
         }
         match cache.as_mut() {
             Some(open) => work(open),

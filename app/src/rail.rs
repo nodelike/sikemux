@@ -786,6 +786,9 @@ fn mods(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 .when(shown.problem.is_some(), |row| {
                     row.status(Some(ui::dot(Tone::Failed, cx)))
                 })
+                .when(shown.problem.is_none() && shown.note.is_some(), |row| {
+                    row.status(Some(ui::dot(Tone::Pending, cx)))
+                })
                 .on_click(cx.listener(move |bench, _, _, _| bench.open_mod(&id, &name)));
             let (bench, shown, project) = (cx.weak_entity(), shown.clone(), project.clone());
             with_menu(

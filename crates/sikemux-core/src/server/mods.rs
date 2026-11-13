@@ -280,6 +280,7 @@ fn info(id: String, folder: &Path) -> ModInfo {
             writes: manifest.writes,
             connect: manifest.connect,
             problem: None,
+            note: None,
             allowed: false,
             badge: None,
             project: None,
@@ -294,6 +295,7 @@ fn info(id: String, folder: &Path) -> ModInfo {
             writes: Vec::new(),
             connect: Vec::new(),
             problem: Some(problem),
+            note: None,
             allowed: false,
             badge: None,
             project: None,
@@ -348,6 +350,7 @@ pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
             .mods()
             .allowed(&shown.id, &shown.writes, &shown.connect);
         shown.badge = badges.get(&shown.id).cloned();
+        shown.note = core.mods().sync.problem(&shown.id);
         let settled = core.mods().settled.locked();
         shown.project = settled.pinned.get(&shown.id).cloned();
         shown.off = settled.off.contains(&shown.id);
@@ -678,6 +681,7 @@ pub(crate) fn watch(core: &Arc<Core>) {
 impl super::part::Part for Mods {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         watch(core);
+        self.data.attach(core);
         vec![tokio::spawn(sync::run(Arc::downgrade(core)))]
     }
 

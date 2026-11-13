@@ -124,10 +124,15 @@ pub fn render(
         ),
         false => div()
             .children(mods.iter().map(|shown| {
-                rows::row_with(
+                let t = Tokens::get(cx);
+                let about = match (&shown.problem, &shown.note) {
+                    (None, Some(note)) => rows::about_line(note.clone().into(), t.warn),
+                    _ => rows::about_line(about(shown), t.text_tertiary),
+                };
+                rows::row_parts(
                     Some(ui::picture(crate::mods::icon(shown), 16., ink)),
                     shown.name.clone(),
-                    Some(about(shown)),
+                    Some(about),
                     controls(shown, this),
                     cx,
                 )

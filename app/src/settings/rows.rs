@@ -180,16 +180,18 @@ pub fn row_with(
     control: impl IntoElement,
     cx: &App,
 ) -> Div {
-    let t = Tokens::get(cx);
-    let about = about.map(|about| {
-        div()
-            .text_size(crate::theme::ui_text(TEXT_2XS_H))
-            .line_height(crate::theme::ui_text(TEXT_LG))
-            .text_color(t.text_tertiary)
-            .child(about)
-            .into_any_element()
-    });
+    let about = about.map(|about| about_line(about, Tokens::get(cx).text_tertiary));
     row_parts(mark, label.into(), about, control, cx)
+}
+
+/// The line under a row's name, in `color`.
+pub fn about_line(about: SharedString, color: Hsla) -> AnyElement {
+    div()
+        .text_size(crate::theme::ui_text(TEXT_2XS_H))
+        .line_height(crate::theme::ui_text(TEXT_LG))
+        .text_color(color)
+        .child(about)
+        .into_any_element()
 }
 
 /// How narrow a row's name and its line may get before the control moves under them, so a line such

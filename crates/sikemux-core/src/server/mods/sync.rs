@@ -74,12 +74,24 @@ pub(crate) struct Sync {
     purged: Mutex<BTreeSet<i64>>,
     last_push: Mutex<Option<Instant>>,
     swept_at: Mutex<u64>,
+    /// The account this host last synced with; nothing is sent once it is signed in to another.
+    account: Mutex<Option<String>>,
+    /// The mods whose changes the account had no room for, as their problem says.
+    full: Mutex<BTreeSet<String>>,
 }
 
 impl Sync {
     /// A document changed here, so the account hears of it in a moment.
     pub(super) fn changed(&self) {
         self.wake.notify_one();
+    }
+
+    /// Why the mod `id`'s changes are not reaching the account's other hosts, if they are not.
+    pub(super) fn problem(&self, id: &str) -> Option<String> {
+        self.full.locked().contains(id).then(|| {
+            "Not syncing: this account's mod data is full. Remove a mod's data to make room."
+                .to_owned()
+        })
     }
 
     fn pull_soon(&self) {
@@ -251,10 +263,24 @@ async fn round(core: &Arc<Core>) -> CoreResult<Next> {
     let Some((account, generation, key)) = core.vault().key() else {
         return Ok(Next::Later(KEYLESS));
     };
+    let sync = &core.mods().sync;
+    if core.remote().owner().as_deref() != Some(account.as_str()) {
+        return Ok(Next::Later(KEYLESS));
+    }
+    let moved = sync.account.locked().as_deref() != Some(account.as_str());
+    if moved {
+        *sync.account.locked() = Some(account.clone());
+        sync.purged.locked().clear();
+        sync.pull.store(true, Ordering::Release);
+        if !std::mem::take(&mut *sync.full.locked()).is_empty() {
+            super::settled_changed(core);
+        }
+    }
     let sealing = (&key, generation);
     let worker = core.clone();
-    let since = blocking(move || worker.mods().data.joined(&account)).await?;
-    let sync = &core.mods().sync;
+    let Some(since) = blocking(move || worker.mods().data.cursor(&account)).await? else {
+        return Ok(Next::Later(KEYLESS));
+    };
     if sync.pull.swap(false, Ordering::AcqRel) {
         if let Err(error) = pull(core, sealing, since).await {
             sync.pull.store(true, Ordering::Release);
@@ -321,16 +347,19 @@ fn announce(core: &Core, paths: BTreeSet<String>) {
     }
 }
 
-/// Reads what changed since `since`, a page at a time. When the server starts over, every
-/// document this host keeps that the pages did not list goes, unless it holds a change of this
-/// host's not sent yet.
+/// Reads what changed since `since`, a page at a time. When the server starts over because this
+/// host was away longer than it keeps removals, every document this host keeps that the pages
+/// did not list goes, unless it holds a change of this host's not sent yet. When it starts over
+/// because it holds less than this host already read, it lost its record, so nothing goes and
+/// this host sends everything it keeps back.
 async fn pull(core: &Arc<Core>, sealing: (&Key, i64), mut since: i64) -> CoreResult<()> {
+    let read_to = since;
     let mut listed: Option<HashSet<(String, String)>> = None;
     loop {
         let path = format!("/v1/mods/documents?since={since}");
         let pulled: ModsPulled = match ask(core, Method::GET, &path, None).await? {
             Answer::Got(pulled) => pulled,
-            Answer::Wait(_) => {
+            Answer::Wait(_) | Answer::Full => {
                 return Err(
                     "the accounts server asked to wait before reading the mods' data".into(),
                 )
@@ -377,10 +406,18 @@ async fn pull(core: &Arc<Core>, sealing: (&Key, i64), mut since: i64) -> CoreRes
         }
     }
     if let Some(listed) = listed {
+        let lost = read_to > since;
+        if lost {
+            eprintln!("sikemux core: the account's mod data is behind what this host read; sending this host's copy back");
+        }
         let worker = core.clone();
         let paths = blocking(move || {
-            let paths = worker.mods().data.drop_unlisted(&listed)?;
-            worker.mods().data.pulled_to(since)?;
+            let data = &worker.mods().data;
+            let paths = match lost {
+                true => data.send_all_again(&listed).map(|()| BTreeSet::new())?,
+                false => data.drop_unlisted(&listed)?,
+            };
+            data.pulled_to(since)?;
             Ok(paths)
         })
         .await?;
@@ -414,6 +451,7 @@ async fn purge(core: &Arc<Core>) -> CoreResult<Option<Duration>> {
                 core.mods().sync.purged.locked().insert(purged.seq);
             }
             Answer::Wait(wait) => return Ok(Some(wait)),
+            Answer::Full => return Ok(Some(ACCOUNT_FULL)),
         }
         let worker = core.clone();
         blocking(move || worker.mods().data.purged(&module)).await?;
@@ -464,6 +502,7 @@ async fn name(core: &Arc<Core>, sealing: (&Key, i64)) -> CoreResult<Option<Durat
     let pushed = match send_push(core, generation, documents).await? {
         Answer::Got(pushed) => pushed,
         Answer::Wait(wait) => return Ok(Some(wait)),
+        Answer::Full => return Ok(Some(ACCOUNT_FULL)),
     };
     let mut arrivals: Vec<Arrival> = (pushed.stored.iter())
         .filter_map(|stored| {
@@ -540,6 +579,7 @@ async fn push(core: &Arc<Core>, sealing: (&Key, i64)) -> CoreResult<Next> {
     let pushed = match send_push(core, generation, documents).await? {
         Answer::Got(pushed) => pushed,
         Answer::Wait(wait) => return Ok(Next::Later(wait)),
+        Answer::Full => return Ok(Next::Later(ACCOUNT_FULL)),
     };
     let conflicted = !pushed.conflicts.is_empty();
     let mut arrivals = Vec::new();
@@ -577,23 +617,37 @@ async fn send_push(
         tokio::time::sleep(wait).await;
     }
     *core.mods().sync.last_push.locked() = Some(Instant::now());
+    let modules: BTreeSet<String> = (documents.iter())
+        .map(|document| document.r#mod.clone())
+        .collect();
     let push = ModsPush {
         generation,
         documents,
     };
-    ask(
-        core,
-        Method::POST,
-        "/v1/mods/documents",
-        Some(serde_json::to_value(push)?),
-    )
-    .await
+    let path = "/v1/mods/documents";
+    let answer = ask(core, Method::POST, path, Some(serde_json::to_value(push)?)).await?;
+    let shown = {
+        let mut full = core.mods().sync.full.locked();
+        let before = full.len();
+        match answer {
+            Answer::Full => full.extend(modules),
+            Answer::Got(_) => full.retain(|module| !modules.contains(module)),
+            Answer::Wait(_) => {}
+        }
+        full.len() != before
+    };
+    if shown {
+        super::settled_changed(core);
+    }
+    Ok(answer)
 }
 
 enum Answer<T> {
     Got(T),
     /// The server asked this host to wait this long before trying again.
     Wait(Duration),
+    /// The account holds all the sealed mod data it may.
+    Full,
 }
 
 async fn ask<T: DeserializeOwned>(
@@ -610,6 +664,10 @@ async fn ask<T: DeserializeOwned>(
             content_type: "application/json".into(),
             headers: Vec::new(),
         });
+    let synced = core.mods().sync.account.locked().clone();
+    if synced.is_none() || core.remote().owner() != synced {
+        return Err("this host's account changed; the mods' data waits for the next round".into());
+    }
     let response = host_send_any(core, method, path, body).await?;
     let status = response.status();
     if status.is_success() {
@@ -637,7 +695,7 @@ async fn ask<T: DeserializeOwned>(
         }
         413 => {
             eprintln!("sikemux core: the account holds all the mod data it may: {said}");
-            Ok(Answer::Wait(ACCOUNT_FULL))
+            Ok(Answer::Full)
         }
         _ => Err(format!("the accounts server answered {status}: {said}").into()),
     }

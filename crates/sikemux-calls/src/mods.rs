@@ -27,6 +27,10 @@ pub struct ModInfo {
     /// Why it cannot be shown, such as a `mod.json` that does not read.
     #[serde(default)]
     pub problem: Option<String>,
+    /// Something wrong that leaves it working, such as its data not reaching the account's other
+    /// hosts.
+    #[serde(default)]
+    pub note: Option<String>,
     /// Whether the person allowed the writes and origins it declares.
     #[serde(default)]
     pub allowed: bool,
