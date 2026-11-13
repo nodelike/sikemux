@@ -3,7 +3,6 @@
 
 use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,7 +18,6 @@ use super::{
 use crate::git::{main_checkout, Git};
 use crate::server::changed::What;
 use crate::server::connection::blocking;
-use crate::server::custom_command::{self, CommandParams};
 use crate::server::ports::checkout;
 use crate::server::{launching, tasks, Core, CoreResult};
 use crate::tasks::config::{self, ConfigLoad, WorktreeHook};
@@ -522,21 +520,25 @@ pub(crate) async fn run_hooks(
     cwd: &Path,
     env: Vec<(String, String)>,
 ) -> Option<Failed> {
-    let mut env: HashMap<String, String> = env.into_iter().collect();
-    env.insert(vars::PROJECT.to_owned(), cwd.to_string_lossy().into_owned());
+    let mut env = env;
+    env.push((vars::PROJECT.to_owned(), cwd.to_string_lossy().into_owned()));
     for hook in hooks {
-        let ran = custom_command::run(CommandParams {
-            command: hook.command,
-            cwd: Some(cwd.to_path_buf()),
-            env: env.clone(),
+        let (command, cwd, env) = (hook.command.clone(), cwd.to_owned(), env.clone());
+        let ran = blocking(move || {
+            let log =
+                std::env::temp_dir().join(format!("sikemux-step-{}.log", uuid::Uuid::new_v4()));
+            let ran = crate::server::setup_check::shell(&command, &cwd, &env, &log);
+            let printed = std::fs::read_to_string(&log).unwrap_or_default();
+            let _ = std::fs::remove_file(&log);
+            Ok((ran, printed))
         })
         .await;
         let output = match ran {
-            Ok(result) if result.code == 0 => continue,
-            Ok(result) => match result.output.trim() {
-                "" => format!("exit {}", result.code),
-                output => {
-                    let lines: Vec<&str> = output.lines().collect();
+            Ok((Ok(()), _)) => continue,
+            Ok((Err(why), printed)) => match printed.trim() {
+                "" => why,
+                printed => {
+                    let lines: Vec<&str> = printed.lines().collect();
                     lines[lines.len().saturating_sub(FAILED_LINES)..].join("\n")
                 }
             },

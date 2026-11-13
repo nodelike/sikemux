@@ -21,8 +21,9 @@ pub(super) fn config_ask(
     }
 }
 
-/// What the person must trust before `config` runs, or none. A checkout's copy of the
-/// project's file counts as trusted while it holds the bytes the person trusted there.
+/// What the person must trust before `config` runs, or none. The file counts as trusted under
+/// any path that leads to it, and a checkout's copy of the project's file while it holds the
+/// bytes the person trusted there.
 pub(crate) fn config_needs(core: &Core, config: &ConfigLoad) -> Option<TrustAsk> {
     let ConfigLoad::Valid {
         path,
@@ -34,16 +35,19 @@ pub(crate) fn config_needs(core: &Core, config: &ConfigLoad) -> Option<TrustAsk>
         return None;
     };
     let ask = config_ask(path, fingerprint, config);
-    let as_projects = || {
-        let own = crate::server::ports::checkout::projects_own(core, Path::new(path))?;
+    let trusted_at = |file: &Path| {
         let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
-        let own = real(&own);
+        let file = real(file);
         let state = core.tasks().state.locked();
-        Some(state.trust.configs.iter().any(|known| {
-            known.trusted.fingerprint == *fingerprint && real(Path::new(&known.trusted.path)) == own
-        }))
+        state.trust.configs.iter().any(|known| {
+            known.trusted.fingerprint == *fingerprint
+                && real(Path::new(&known.trusted.path)) == file
+        })
     };
-    let trusted = core.tasks().trusts(&ask.grant) || as_projects() == Some(true);
+    let trusted = core.tasks().trusts(&ask.grant)
+        || trusted_at(Path::new(path))
+        || crate::server::ports::checkout::projects_own(core, Path::new(path))
+            .is_some_and(|own| trusted_at(&own));
     (trust.requires_approval && !trusted).then_some(ask)
 }
 
