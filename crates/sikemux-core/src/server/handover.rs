@@ -1129,7 +1129,7 @@ impl Child for AdoptedChild {
 mod tests {
     use serde_json::json;
 
-    use super::migrate;
+    use super::{migrate, RESUME_FORMAT};
 
     #[test]
     fn current_state_is_left_as_it_is_and_unknown_formats_are_refused() {
@@ -1172,7 +1172,7 @@ mod tests {
         assert!(!carried.contains("hiddenCall"), "{carried}");
         assert!(carried.contains("run the vault tests"), "{carried}");
         assert_eq!(state["liveChats"][0]["session"]["lastPrompt"], json!(null));
-        assert_eq!(state["format"], json!(10));
+        assert_eq!(state["format"], json!(RESUME_FORMAT));
     }
 
     /// A terminal setting a host up must come back locked: a record that cannot
@@ -1201,6 +1201,6 @@ mod tests {
             setup,
             vec![json!(true), json!(false), json!(false), json!(false)]
         );
-        assert_eq!(migrated["format"], json!(9));
+        assert_eq!(migrated["format"], json!(RESUME_FORMAT));
     }
 }
