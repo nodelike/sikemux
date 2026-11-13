@@ -2118,6 +2118,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             (Some(approval), ..) => super::approvals::settle(core, approval, given.choice)
                 .await
                 .map(|done| (text, Some(done), false)),
+            (None, ..) if given.none => Ok((text, Some(NONE_TO_GIVE.to_owned()), false)),
             (None, true, Some(typed)) => kept_privately(core, &question, typed).await.map(|note| {
                 match picked_labels(&question, &given) {
                     Some(picked) => (format!("{picked}\n\n{note}"), None, true),
@@ -2294,6 +2295,12 @@ fn answered(question: &Question, question_text: &str, private: bool) -> messages
     }
 }
 
+/// The person's answer when they have none of the secret asked for, as the chat shows it.
+const HAVE_NONE: &str = "I don't have one.";
+
+/// What the agent is told when the person has none of the secret it asked for.
+const NONE_TO_GIVE: &str = "The person has none to give. Go on without it if you can; if you cannot, stop and say plainly what is blocked without it. Should they find one later, ask for it again as a secret question, never in the chat.";
+
 /// What the agent is told in place of the secret the person answered with.
 fn secret_note(path: &Path) -> String {
     let path = path.display();
@@ -2305,6 +2312,23 @@ fn secret_note(path: &Path) -> String {
 /// What the person's answer says, or none when they only agreed with the
 /// assumption the agent went on.
 fn answer_text(question: &Question, params: &AnswerParams) -> Result<Option<String>, String> {
+    if params.none {
+        let given = params
+            .answer
+            .as_deref()
+            .is_some_and(|text| !text.trim().is_empty())
+            || params.choice.is_some()
+            || params.choices.is_some()
+            || !params.paths.is_empty()
+            || params.fine;
+        return match (question.secret, given) {
+            (true, false) => Ok(Some(HAVE_NONE.to_owned())),
+            (true, true) => Err("Having none to give takes no words, choice or files".into()),
+            (false, _) => {
+                Err("Only a question for a secret can be answered with none to give".into())
+            }
+        };
+    }
     if params.fine {
         return match question.assumption {
             Some(_) => Ok(None),

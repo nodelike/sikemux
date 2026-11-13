@@ -807,6 +807,7 @@ async fn answer_on_the_card(core: &Arc<Core>, id: &str) {
         words: None,
         fine: false,
         paths: Vec::new(),
+        none: false,
     };
     crate::server::person_calls::answer(core, &Peer::App, params)
         .await

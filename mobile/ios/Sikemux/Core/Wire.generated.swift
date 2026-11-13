@@ -2505,6 +2505,8 @@ struct CallAnswer: Codable, Hashable, Sendable {
     var note: String?
     /// The person's answer in their own words, with no option picked.
     var words: String?
+    /// The person has none of what a call for a secret asked for.
+    var none: Bool?
     var by: CallClient
     var at: Int
     /// How long the call waited on the person.
@@ -7777,6 +7779,8 @@ struct AnswerCallParams: Codable, Hashable, Sendable {
     var fine: Bool?
     /// Files attached to the note or the words, by where the host keeps them.
     var paths: [String]?
+    /// The person has none of what a call for a secret asks for.
+    var none: Bool?
 }
 
 struct PairingAnswer: Codable, Hashable, Sendable {
@@ -7797,6 +7801,8 @@ struct AnswerParams: Codable, Hashable, Sendable {
     var choices: [Int]?
     /// The assumption the agent went on is right.
     var fine: Bool?
+    /// The person has none of what a question for a secret asks for.
+    var none: Bool?
 }
 
 struct AttachStashParams: Codable, Hashable, Sendable {

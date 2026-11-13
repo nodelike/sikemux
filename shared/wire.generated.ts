@@ -1577,6 +1577,8 @@ export interface CallAnswer {
     note?: string;
     /** The person's answer in their own words, with no option picked. */
     words?: string;
+    /** The person has none of what a call for a secret asked for. */
+    none?: boolean;
     by: CallClient;
     at: number;
     /** How long the call waited on the person. */
@@ -5140,6 +5142,8 @@ export interface AnswerCallParams {
     fine?: boolean;
     /** Files attached to the note or the words, by where the host keeps them. */
     paths?: string[];
+    /** The person has none of what a call for a secret asks for. */
+    none?: boolean;
 }
 
 export interface PairingAnswer {
@@ -5160,6 +5164,8 @@ export interface AnswerParams {
     choices?: number[];
     /** The assumption the agent went on is right. */
     fine?: boolean;
+    /** The person has none of what a question for a secret asks for. */
+    none?: boolean;
 }
 
 export interface AttachStashParams {

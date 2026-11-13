@@ -1082,6 +1082,8 @@ struct AnswerParams: Codable, Hashable {
     var choices: [Int]?
     /// The assumption the agent went on is right.
     var fine: Bool = false
+    /// The person has none of what a question for a secret asks for.
+    var none: Bool?
 }
 
 /// What answers a call: an option, with a note, or the person's own words, with any files.
@@ -1096,6 +1098,8 @@ struct AnswerCallParams: Codable, Hashable {
     var fine: Bool?
     /// Files attached to the note or the words, by where the host keeps them.
     var paths: [String]?
+    /// The person has none of what a call for a secret asks for.
+    var none: Bool?
 }
 
 struct CallParams: Codable, Hashable {

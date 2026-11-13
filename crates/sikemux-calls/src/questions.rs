@@ -21,6 +21,9 @@ pub struct AnswerParams {
     /// The assumption the agent went on is right.
     #[serde(default)]
     pub fine: bool,
+    /// The person has none of what a question for a secret asks for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub none: bool,
 }
 
 #[derive(Serialize, Deserialize)]

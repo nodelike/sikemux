@@ -119,6 +119,9 @@ pub struct CallAnswer {
     /// The person's answer in their own words, with no option picked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub words: Option<String>,
+    /// The person has none of what a call for a secret asked for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub none: bool,
     pub by: CallClient,
     pub at: u64,
     /// How long the call waited on the person.
@@ -255,6 +258,9 @@ pub struct AnswerCallParams {
     /// Files attached to the note or the words, by where the host keeps them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paths: Vec<String>,
+    /// The person has none of what a call for a secret asks for.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub none: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

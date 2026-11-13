@@ -343,6 +343,74 @@ async fn an_edit_while_an_access_call_waits_answers_it_privately() {
     );
 }
 
+/// A person with none of the secret a call asks for says so on its card: the agent hears it
+/// plainly, and nothing is kept for it to read.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_secret_the_person_has_none_of_keeps_no_file_and_the_agent_hears_it_plainly() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    let asked = worker
+        .tool(
+            "agent.ask",
+            json!({ "question": "Paste the npm token so the package can publish", "secret": true }),
+        )
+        .await;
+    let id = asked
+        .split("\"questionId\":\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or_else(|| panic!("{asked}"))
+        .to_owned();
+    app.call("answerCall", json!({ "id": id, "none": true }))
+        .await
+        .expect("answered with none to give");
+    worker
+        .chat
+        .until(|chat| chat.text().contains("The person has none to give"))
+        .await;
+    assert!(
+        !worker.chat.text().contains("kept it out"),
+        "{}",
+        worker.chat.text()
+    );
+    let secrets = root.join("data").join("agent-secrets");
+    let kept = std::fs::read_dir(&secrets).map_or(0, |kept| kept.count());
+    assert_eq!(
+        kept, 0,
+        "a file was kept for a secret the person has none of"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn only_the_chief_retires_a_persons_rule_as_now_a_check_and_agents_only_on_their_word() {
     let root = tempfile::Builder::new()

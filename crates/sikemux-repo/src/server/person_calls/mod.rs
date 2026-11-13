@@ -1014,6 +1014,7 @@ pub fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
             options: Vec::new(),
             note: None,
             words: Some(words).filter(|words| !words.is_empty()),
+            none: false,
             by: CallClient::Chat,
             at: epoch_ms(),
             waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1083,6 +1084,25 @@ fn answer_of(
         return Err("that call takes one option".into());
     }
     let picked = params.option.is_some() || !params.options.is_empty();
+    if params.none {
+        if !call.secret {
+            return Err("only a call for a secret can be answered with none to give".into());
+        }
+        if params.fine || picked || words.is_some() || note.is_some() {
+            return Err("having none to give takes no option or words".into());
+        }
+        let answer = CallAnswer {
+            option: None,
+            options: Vec::new(),
+            note: None,
+            words: None,
+            none: true,
+            by: client,
+            at: epoch_ms(),
+            waited_ms: epoch_ms().saturating_sub(call.raised_at),
+        };
+        return Ok((answer, None));
+    }
     if params.fine {
         if call.assumption.is_none() || !call.options.is_empty() {
             return Err("only a call whose asker goes on with an assumption, and offers no options, can be let stand".into());
@@ -1095,6 +1115,7 @@ fn answer_of(
             options: Vec::new(),
             note: None,
             words: None,
+            none: false,
             by: client,
             at: epoch_ms(),
             waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1120,6 +1141,7 @@ fn answer_of(
         options: params.options.clone(),
         note: note.filter(|_| !call.keeps_words_private()),
         words: words.filter(|_| !call.keeps_words_private()),
+        none: false,
         by: client,
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1203,7 +1225,8 @@ async fn deliver(
             let lets_stand = call.assumption.is_some()
                 && answer.option.is_none()
                 && answer.options.is_empty()
-                && typed.is_none();
+                && typed.is_none()
+                && !answer.none;
             let mut reached = false;
             let mut failed = None;
             for id in core.person_calls().questions_of(&call.id) {
@@ -1215,6 +1238,7 @@ async fn deliver(
                     choices: (!answer.options.is_empty())
                         .then(|| answer.options.iter().filter_map(index).collect()),
                     fine: lets_stand,
+                    none: answer.none,
                     ..AnswerParams::default()
                 };
                 match (core.repo_above().questions_answer)(core, params).await {
@@ -1381,6 +1405,7 @@ async fn answer_questions_by(
                 choice: params.choice,
                 choices: params.choices.clone(),
                 fine: params.fine,
+                none: params.none,
                 ..AnswerParams::default()
             });
         }
@@ -1403,6 +1428,7 @@ async fn answer_questions_by(
                         .collect(),
                     note: typed.clone().filter(|_| picked),
                     words: typed.filter(|_| !picked),
+                    none: params.none,
                     by,
                     at: epoch_ms(),
                     waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1457,6 +1483,7 @@ async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> C
         options: Vec::new(),
         note: None,
         words: None,
+        none: false,
         by: client,
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1483,6 +1510,7 @@ pub async fn answer_hold(
         options: Vec::new(),
         note: None,
         words: None,
+        none: false,
         by,
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1519,6 +1547,7 @@ pub async fn not_mine(core: &Arc<Core>, peer: &Peer, params: CallParams) -> Core
         options: Vec::new(),
         note: None,
         words: None,
+        none: false,
         by: client,
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
