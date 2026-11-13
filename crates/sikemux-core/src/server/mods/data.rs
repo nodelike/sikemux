@@ -460,7 +460,8 @@ fn open(path: &Path, account: Option<String>) -> rusqlite::Result<Open> {
              mod TEXT PRIMARY KEY,
              matched TEXT,
              own INTEGER NOT NULL DEFAULT 0,
-             note TEXT
+             note TEXT,
+             seen TEXT
          ) WITHOUT ROWID;
          CREATE TABLE IF NOT EXISTS file_uploads (
              mod TEXT NOT NULL,

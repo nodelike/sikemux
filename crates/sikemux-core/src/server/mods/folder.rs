@@ -129,6 +129,15 @@ fn walk(folder: &Path) -> std::io::Result<Vec<(String, PathBuf, u64, u64)>> {
     Ok(found)
 }
 
+/// What `stats` are known by, to tell cheaply whether a folder changed since it was last looked at.
+pub(super) fn stats_digest(stats: &Stats) -> String {
+    let mut hasher = Sha256::new();
+    for (path, (size, ms)) in stats {
+        hasher.update(format!("{path}\0{size}\0{ms}\0").as_bytes());
+    }
+    hex::encode(hasher.finalize())
+}
+
 pub(super) fn stats(folder: &Path) -> Stats {
     walk(folder)
         .unwrap_or_default()
@@ -226,7 +235,7 @@ pub(super) fn swap(mods: &Path, id: &str, staged: &Path, lost: bool) -> Result<(
         return std::fs::rename(staged, &folder).map_err(|error| error.to_string());
     }
     if lost {
-        trash::delete(&folder).map_err(|error| error.to_string())?;
+        to_trash(&folder)?;
         return std::fs::rename(staged, &folder).map_err(|error| error.to_string());
     }
     if let Ok(entries) = std::fs::read_dir(&folder) {
@@ -247,6 +256,10 @@ pub(super) fn swap(mods: &Path, id: &str, staged: &Path, lost: bool) -> Result<(
     }
     let _ = std::fs::remove_dir_all(&old);
     Ok(())
+}
+
+pub(super) fn to_trash(folder: &Path) -> Result<(), String> {
+    trash::delete(folder).map_err(|error| error.to_string())
 }
 
 /// The mod ids of every folder in `mods`.

@@ -18,6 +18,8 @@ pub(super) const FILES: &str = ".files";
 pub(super) struct Matched {
     pub digest: Option<String>,
     pub own: bool,
+    /// The sizes and times of the folder's files when this host last looked, as a digest.
+    pub seen: Option<String>,
 }
 
 impl Store {
@@ -60,12 +62,13 @@ impl Store {
             let found = open
                 .connection
                 .query_row(
-                    "SELECT matched, own FROM folders WHERE mod = ?1",
+                    "SELECT matched, own, seen FROM folders WHERE mod = ?1",
                     params![id],
                     |row| {
                         Ok(Matched {
                             digest: row.get(0)?,
                             own: row.get(1)?,
+                            seen: row.get(2)?,
                         })
                     },
                 )
@@ -91,6 +94,19 @@ impl Store {
                      ON CONFLICT (mod) DO UPDATE
                      SET matched = excluded.matched, own = excluded.own, note = excluded.note",
                     params![id, digest, own, note],
+                )
+                .map_err(failed)?;
+            Ok(())
+        })
+    }
+
+    pub(super) fn set_seen(&self, id: &str, seen: &str) -> CoreResult<()> {
+        self.with(|open| {
+            open.connection
+                .execute(
+                    "INSERT INTO folders (mod, seen) VALUES (?1, ?2)
+                     ON CONFLICT (mod) DO UPDATE SET seen = excluded.seen",
+                    params![id, seen],
                 )
                 .map_err(failed)?;
             Ok(())

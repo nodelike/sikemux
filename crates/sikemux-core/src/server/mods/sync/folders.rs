@@ -35,6 +35,7 @@ const DROP_AFTER_MS: u64 = 10 * 60 * 1000;
 const AWAITING: Duration = Duration::from_secs(30);
 const LOST: &str =
     "Changed on another host at the same time; this host's older copy went to the Trash.";
+const FOREIGN: &str = "this mod belongs to another account";
 const FILES_FULL: &str =
     "Not syncing: this account's mod files are full. Remove a mod to make room.";
 
@@ -80,9 +81,21 @@ pub(super) async fn step(core: &Arc<Core>) -> CoreResult<Option<Duration>> {
         let (worker, root) = (core.clone(), mods.clone());
         let every = blocking(move || {
             clear_leftovers(&root);
+            let data = &worker.mods().data;
             let mut every: BTreeSet<String> = folder::ids(&root).into_iter().collect();
-            every.extend(worker.mods().data.shared_mods()?);
-            Ok(every)
+            every.extend(data.shared_mods()?);
+            let mut moved = BTreeSet::new();
+            for id in every {
+                let matched = data.matched(&id)?;
+                let shared = data
+                    .shared(&id)?
+                    .map(|(shared, _)| folder::digest(&shared.files));
+                let seen = folder::stats_digest(&folder::stats(&root.join(&id)));
+                if matched.seen.as_deref() != Some(seen.as_str()) || shared != matched.digest {
+                    moved.insert(id);
+                }
+            }
+            Ok(moved)
         })
         .await?;
         sync.folders.locked().extend(every);
@@ -140,11 +153,44 @@ async fn one(core: &Arc<Core>, mods: &Path, id: &str) -> CoreResult<Outcome> {
     let Some((local, stats, shared, matched)) = read else {
         return Ok(Outcome::Wait(super::SETTLE));
     };
-    let decided = decide(
-        &local,
-        shared.as_ref().map(|(shared, at)| (shared, *at)),
-        &matched,
-    );
+    let account = core.mods().sync.account.locked().clone();
+    let foreign = (core.mods().owner(id)).is_some_and(|owner| Some(owner) != account);
+    let decided = match foreign {
+        true => decide_foreign(&local, shared.is_some()),
+        false => decide(
+            &local,
+            shared.as_ref().map(|(shared, at)| (shared, *at)),
+            &matched,
+        ),
+    };
+    let adopted = !foreign || matches!(decided, Action::Apply { .. });
+    let outcome = act(core, mods, id, decided, (local, stats), (shared, matched)).await?;
+    if matches!(outcome, Outcome::Done) {
+        let (worker, folder, module) = (core.clone(), mods.join(id), id.to_owned());
+        let there = blocking(move || {
+            let stats = folder::stats(&folder);
+            worker
+                .mods()
+                .data
+                .set_seen(&module, &folder::stats_digest(&stats))?;
+            Ok(folder.is_dir())
+        })
+        .await?;
+        if let (true, true, Some(account)) = (adopted, there, &account) {
+            core.mods().set_owner(id, Some(account));
+        }
+    }
+    Ok(outcome)
+}
+
+async fn act(
+    core: &Arc<Core>,
+    mods: &Path,
+    id: &str,
+    decided: Action,
+    (local, stats): (Local, folder::Stats),
+    (shared, matched): (Option<(Shared, u64)>, Matched),
+) -> CoreResult<Outcome> {
     match (decided, local, shared) {
         (Action::Agree { own }, Local::Whole(scan), _) => {
             agreed(core, id, &scan, own).await?;
@@ -167,6 +213,17 @@ async fn one(core: &Arc<Core>, mods: &Path, id: &str) -> CoreResult<Outcome> {
             Ok(Outcome::Done)
         }
         _ => Ok(Outcome::Done),
+    }
+}
+
+/// What to do with a folder that followed another account than this host's: the account's copy
+/// of the same mod takes its place, and with none it stays here, not syncing.
+fn decide_foreign(local: &Local, shared: bool) -> Action {
+    match (shared, local) {
+        (true, Local::Absent) => Action::Apply { lost: false },
+        (true, _) => Action::Apply { lost: true },
+        (false, Local::Absent) => Action::Nothing,
+        (false, _) => Action::Unsyncable(FOREIGN.to_owned()),
     }
 }
 
@@ -561,7 +618,7 @@ pub(super) async fn purged(core: &Arc<Core>, modules: Vec<String>) -> CoreResult
         for module in modules {
             let folder = mods.join(&module);
             if folder.exists() {
-                if let Err(error) = trash::delete(&folder) {
+                if let Err(error) = folder::to_trash(&folder) {
                     eprintln!("sikemux core: mod {module} was removed on another host, and its folder here could not go to the Trash: {error}");
                 }
             }
@@ -569,6 +626,9 @@ pub(super) async fn purged(core: &Arc<Core>, modules: Vec<String>) -> CoreResult
         Ok(())
     })
     .await?;
+    for module in &shown {
+        core.mods().set_owner(module, None);
+    }
     core.mods().sync.folders.locked().extend(shown);
     super::super::settled_changed(core);
     Ok(())

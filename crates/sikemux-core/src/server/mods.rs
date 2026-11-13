@@ -46,6 +46,7 @@ const EXAMPLES: [(&str, &str, &str); 1] = [(
 
 const MANIFEST: &str = "mod.json";
 const SETTLED: &str = "mods.json";
+const OWNERS: &str = "mod-folders.json";
 const MAX_BADGE_CHARS: usize = 24;
 const PAGE: &str = "index.html";
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
@@ -106,10 +107,20 @@ struct Settled {
     dismissed: BTreeMap<String, i64>,
 }
 
+/// The account each mod's folder follows, by id, kept for the host since the mods folder is one
+/// for every account. A folder with none has not followed one yet.
+#[derive(Default, Serialize, Deserialize)]
+struct Owners {
+    #[serde(default)]
+    accounts: BTreeMap<String, String>,
+}
+
 pub(crate) struct Mods {
     folder: Option<PathBuf>,
     settled: Mutex<Settled>,
     kept: Kept,
+    owners: Mutex<Owners>,
+    owners_kept: Kept,
     data: data::Store,
     sync: sync::Sync,
 }
@@ -117,10 +128,13 @@ pub(crate) struct Mods {
 impl Mods {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, SETTLED);
+        let owners_kept = Kept::new(data_dir, OWNERS);
         Self {
             folder: sikemux_process::paths::config_file("mods", ""),
             settled: Mutex::new(kept.load()),
             kept,
+            owners: Mutex::new(owners_kept.load()),
+            owners_kept,
             data: data::Store::new(data_dir),
             sync: sync::Sync::default(),
         }
@@ -147,6 +161,25 @@ impl Mods {
         let mut settled = self.settled.locked();
         change(&mut settled);
         self.kept.save_soon(&*settled);
+    }
+
+    /// The account the mod `id`'s folder follows.
+    fn owner(&self, id: &str) -> Option<String> {
+        self.owners.locked().accounts.get(id).cloned()
+    }
+
+    fn set_owner(&self, id: &str, account: Option<&str>) {
+        let mut owners = self.owners.locked();
+        let changed = match account {
+            Some(account) => {
+                (owners.accounts.insert(id.to_owned(), account.to_owned())).as_deref()
+                    != Some(account)
+            }
+            None => owners.accounts.remove(id).is_some(),
+        };
+        if changed {
+            self.owners_kept.save_soon(&*owners);
+        }
     }
 
     fn folder(&self) -> CoreResult<PathBuf> {
@@ -595,7 +628,7 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
     let folder = mod_folder(core, &params.id)?;
     let (worker, id) = (core.clone(), params.id.clone());
     blocking(move || {
-        trash::delete(&folder).map_err(|error| CoreError::from(error.to_string()))?;
+        folder::to_trash(&folder).map_err(CoreError::from)?;
         worker.mods().data.clear(&id)
     })
     .await?;
@@ -606,6 +639,7 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
         settled.off.remove(&params.id);
         settled.dismissed.remove(&params.id);
     });
+    core.mods().set_owner(&params.id, None);
     super::triggers::mod_removed(core, &params.id);
     core.mods().sync.changed();
     settled_changed(core);
@@ -694,5 +728,6 @@ impl super::part::Part for Mods {
 
     fn flush(&self) {
         self.kept.flush();
+        self.owners_kept.flush();
     }
 }
