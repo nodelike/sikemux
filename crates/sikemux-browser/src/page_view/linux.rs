@@ -10,7 +10,7 @@ use webkit2gtk::{
 };
 use wry::WebViewExtUnix;
 
-use super::{PageEvent, Room, BOOTSTRAP};
+use super::{PageEvent, Room, BOOTSTRAP, PERSON_LINKS, PERSON_LINKS_WORLD, PERSON_LINK_CATCHER};
 use crate::linux::{gtk_thread, on_gtk, Clip, Held, Page, X11Parent};
 
 /// The page's view in a clip window of its own, which the app places, and the address
@@ -45,9 +45,17 @@ impl PageView {
         };
         let (html, events): (String, Events) = (html.to_owned(), Arc::new(events));
         let (sender, receiver) = std::sync::mpsc::channel();
-        let loads = base.clone();
+        let (loads, trusts_page_links) = (base.clone(), room.trusts_page_links());
         on_gtk(move || {
-            let opened = open(c_ulong::from(parent), &html, fills, loads, ground, events);
+            let opened = open(
+                c_ulong::from(parent),
+                &html,
+                fills,
+                trusts_page_links,
+                loads,
+                ground,
+                events,
+            );
             let _ = sender.send(opened.map(Held::new));
         });
         let held = receiver
@@ -91,11 +99,13 @@ impl PageView {
 }
 
 /// Makes the page's view with no storage, loads `html` from `base` once the page's script can
-/// report, and lets the page go nowhere: a link the person clicks is reported instead.
+/// report, and lets the page go nowhere: a link the person clicks is reported instead. Unless
+/// it `trusts_page_links`, a link the page's own script reports or goes to is not.
 fn open(
     parent: c_ulong,
     html: &str,
     fills: bool,
+    trusts_page_links: bool,
     base: Option<String>,
     ground: [u8; 3],
     events: Events,
@@ -128,10 +138,31 @@ fn open(
     let heard = events.clone();
     scripts.connect_script_message_received(Some("sikemux"), move |_, result| {
         let text = result.js_value().map(|value| value.to_str());
-        if let Some(event) = text.as_deref().and_then(PageEvent::read) {
+        let event = text
+            .as_deref()
+            .and_then(PageEvent::read)
+            .filter(|event| trusts_page_links || !matches!(event, PageEvent::Link(_)));
+        if let Some(event) = event {
             heard(event);
         }
     });
+    if !trusts_page_links {
+        scripts.add_script(&UserScript::for_world(
+            PERSON_LINK_CATCHER,
+            UserContentInjectedFrames::TopFrame,
+            UserScriptInjectionTime::Start,
+            PERSON_LINKS_WORLD,
+            &[],
+            &[],
+        ));
+        scripts.register_script_message_handler_in_world(PERSON_LINKS, PERSON_LINKS_WORLD);
+        let heard = events.clone();
+        scripts.connect_script_message_received(Some(PERSON_LINKS), move |_, result| {
+            if let Some(url) = result.js_value().map(|value| value.to_str()) {
+                heard(PageEvent::Link(url.into()));
+            }
+        });
+    }
     let loaded = super::loads_as(base.as_deref()).to_owned();
     webview.connect_decide_policy(move |_, decision, kind| {
         if kind != PolicyDecisionType::NavigationAction {
@@ -149,7 +180,7 @@ fn open(
             .map(|url| url.to_string())
             .unwrap_or_default();
         let kind = action.navigation_type();
-        if kind == NavigationType::LinkClicked && url.starts_with("http") {
+        if trusts_page_links && kind == NavigationType::LinkClicked && url.starts_with("http") {
             events(PageEvent::Link(url.clone()));
         }
         if super::stays(&url, &loaded, kind == NavigationType::Other) {

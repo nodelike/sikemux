@@ -4,24 +4,27 @@ use std::rc::Rc;
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::{define_class, msg_send, DefinedClass, MainThreadMarker, MainThreadOnly};
+use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSEventPhase, NSImage, NSView};
 use objc2_foundation::{
     NSError, NSNumber, NSObject, NSObjectNSKeyValueCoding, NSObjectProtocol, NSPoint, NSRect,
     NSSize, NSString, NSURL,
 };
 use objc2_web_kit::{
-    WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate, WKNavigationType,
-    WKScriptMessage, WKScriptMessageHandler, WKSnapshotConfiguration, WKUserContentController,
-    WKUserScript, WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
+    WKContentWorld, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
+    WKNavigationType, WKScriptMessage, WKScriptMessageHandler, WKSnapshotConfiguration,
+    WKUserContentController, WKUserScript, WKUserScriptInjectionTime, WKWebView,
+    WKWebViewConfiguration, WKWebsiteDataStore,
 };
 
-use super::{PageEvent, Room, BOOTSTRAP};
+use super::{PageEvent, Room, BOOTSTRAP, PERSON_LINKS, PERSON_LINKS_WORLD, PERSON_LINK_CATCHER};
 
 pub struct PageIvars {
     events: Rc<dyn Fn(PageEvent)>,
     /// The address the page's text is read from.
     loaded: String,
+    /// Whether a link the page reports, or goes to, is taken as one the person clicked.
+    trusts_page_links: bool,
 }
 
 define_class!(
@@ -41,11 +44,17 @@ define_class!(
         #[unsafe(method(userContentController:didReceiveScriptMessage:))]
         fn received(&self, _controller: &WKUserContentController, message: &WKScriptMessage) {
             // SAFETY: main thread, and WebKit keeps `message` alive for the call.
-            let body = unsafe { message.body() };
+            let (name, body) = unsafe { (message.name().to_string(), message.body()) };
             let Some(text) = body.downcast_ref::<NSString>().map(|text| text.to_string()) else {
                 return;
             };
-            if let Some(event) = PageEvent::read(&text) {
+            let event = match name == PERSON_LINKS {
+                true => Some(PageEvent::Link(text)),
+                false => PageEvent::read(&text).filter(|event| {
+                    self.ivars().trusts_page_links || !matches!(event, PageEvent::Link(_))
+                }),
+            };
+            if let Some(event) = event {
                 (self.ivars().events)(event);
             }
         }
@@ -74,7 +83,10 @@ define_class!(
                 )
             };
             let stays = super::stays(&url, &self.ivars().loaded, kind == WKNavigationType::Other);
-            if kind == WKNavigationType::LinkActivated && url.starts_with("http") {
+            if self.ivars().trusts_page_links
+                && kind == WKNavigationType::LinkActivated
+                && url.starts_with("http")
+            {
                 (self.ivars().events)(PageEvent::Link(url));
             }
             handler.call((if stays {
@@ -146,6 +158,20 @@ define_class!(
     }
 );
 
+/// Turns off WebRTC, whose connections no Content-Security-Policy governs, by WebKit's own
+/// private switch, as it offers no public one.
+fn close_peer_connections(configuration: &WKWebViewConfiguration) {
+    // SAFETY: main thread, as the configuration is only made there; the setter is sent only
+    // when WebKit has it, and takes a BOOL.
+    unsafe {
+        let preferences = configuration.preferences();
+        let setter = sel!(_setPeerConnectionEnabled:);
+        if preferences.respondsToSelector(setter) {
+            let _: () = msg_send![&*preferences, _setPeerConnectionEnabled: false];
+        }
+    }
+}
+
 /// A still as Core Graphics holds it, which is never changed once made, so any thread may read it.
 struct Picture(Retained<objc2_core_graphics::CGImage>);
 
@@ -198,6 +224,7 @@ impl PageView {
         let messages = mtm.alloc::<PageMessages>().set_ivars(PageIvars {
             events: events.clone(),
             loaded: super::loads_as(loaded.as_deref()).to_owned(),
+            trusts_page_links: room.trusts_page_links(),
         });
         // SAFETY: NSObject's `init` takes nothing and returns the object it was sent to.
         let messages: Retained<PageMessages> = unsafe { msg_send![super(messages), init] };
@@ -220,6 +247,25 @@ impl PageView {
                 ProtocolObject::from_ref(&*messages),
                 &NSString::from_str("sikemux"),
             );
+            if !room.trusts_page_links() {
+                let world =
+                    WKContentWorld::worldWithName(&NSString::from_str(PERSON_LINKS_WORLD), mtm);
+                let script =
+                    WKUserScript::initWithSource_injectionTime_forMainFrameOnly_inContentWorld(
+                        WKUserScript::alloc(mtm),
+                        &NSString::from_str(PERSON_LINK_CATCHER),
+                        WKUserScriptInjectionTime::AtDocumentStart,
+                        true,
+                        &world,
+                    );
+                controller.addUserScript(&script);
+                controller.addScriptMessageHandler_contentWorld_name(
+                    ProtocolObject::from_ref(&*messages),
+                    &world,
+                    &NSString::from_str(PERSON_LINKS),
+                );
+                close_peer_connections(&configuration);
+            }
             let frame = NSRect::new(NSPoint::ZERO, NSSize::new(1.0, 1.0));
             let view: Retained<PageWebView> = msg_send![
                 super(PageWebView::alloc(mtm).set_ivars(WebIvars {
@@ -329,7 +375,7 @@ impl Drop for PageView {
             self.view
                 .configuration()
                 .userContentController()
-                .removeScriptMessageHandlerForName(&NSString::from_str("sikemux"));
+                .removeAllScriptMessageHandlers();
         }
     }
 }
