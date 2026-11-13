@@ -26,7 +26,7 @@ use super::super::Respond;
 use super::file_link;
 use super::json::text;
 use super::models::Models;
-use super::parts::{parts, picture, Part};
+use super::parts::{inline_picture, parts, Part};
 use super::pending::{Answered, Purpose};
 use super::process::{Lines, Process, Reading, Released, Writer};
 use super::rpc::{error_text, Rpc, ANSWER_WAIT};
@@ -364,18 +364,14 @@ async fn subagent_histories(rpc: &Rpc, items: &[Value]) -> HashMap<String, Vec<V
 /// A file the person attached, as Muse's input for it: the picture itself
 /// when it is one Muse can look at, otherwise a link to it.
 fn attachment(name: &str, uri: &str) -> Value {
-    let image = picture(uri).and_then(|(path, media_type)| {
-        if std::fs::metadata(&path).ok()?.len() > MAX_IMAGE_BYTES {
-            return None;
-        }
-        let bytes = std::fs::read(&path).ok()?;
-        Some(json!({
+    match inline_picture(uri, MAX_IMAGE_BYTES) {
+        Some((media_type, data)) => json!({
             "type": "image",
             "mediaType": media_type,
-            "base64Data": base64::engine::general_purpose::STANDARD.encode(bytes),
-        }))
-    });
-    image.unwrap_or_else(|| json!({ "type": "text", "text": file_link(Some(name), uri) }))
+            "base64Data": data,
+        }),
+        None => json!({ "type": "text", "text": file_link(Some(name), uri) }),
+    }
 }
 
 fn input(parts: Vec<Part>) -> Vec<Value> {

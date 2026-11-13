@@ -9,10 +9,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    CancelNotification, Error as AcpError, Implementation, InitializeRequest, InitializeResponse,
-    LoadSessionRequest, McpServer, NewSessionRequest, PromptRequest, RequestPermissionOutcome,
-    RequestPermissionResponse, ResumeSessionRequest, SelectedPermissionOutcome,
-    SetSessionConfigOptionRequest, SetSessionModeRequest, AGENT_METHOD_NAMES, CLIENT_METHOD_NAMES,
+    CancelNotification, ContentBlock, Error as AcpError, ImageContent, Implementation,
+    InitializeRequest, InitializeResponse, LoadSessionRequest, McpServer, NewSessionRequest,
+    PromptRequest, RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
+    SelectedPermissionOutcome, SetSessionConfigOptionRequest, SetSessionModeRequest,
+    AGENT_METHOD_NAMES, CLIENT_METHOD_NAMES,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,7 @@ use crate::server::chat::prompt::{command_parts, prompt_blocks};
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::Respond;
+use super::parts::inline_picture;
 use super::pending::{Answered, Purpose};
 use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
@@ -131,6 +133,31 @@ fn server_names(launch: &ChatLaunch) -> Arc<[String]> {
 fn describe(error: &Value) -> String {
     serde_json::from_value::<AcpError>(error.clone())
         .map_or_else(|_| error_text(error), |error| error.to_string())
+}
+
+/// The largest picture handed to an ACP agent as itself. Agents differ in
+/// whether they shrink pictures, so this stays within what the model takes as sent.
+const MAX_IMAGE_BYTES: u64 = 3_750_000;
+
+/// `blocks` with each attached picture also handed over as the picture itself,
+/// after its link, for an agent that takes pictures.
+fn with_pictures(blocks: Vec<ContentBlock>, images: bool) -> Vec<ContentBlock> {
+    if !images {
+        return blocks;
+    }
+    let mut sent = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        let picture = match &block {
+            ContentBlock::ResourceLink(link) => inline_picture(&link.uri, MAX_IMAGE_BYTES),
+            _ => None,
+        };
+        sent.push(block);
+        sent.extend(
+            picture
+                .map(|(media_type, data)| ContentBlock::Image(ImageContent::new(data, media_type))),
+        );
+    }
+    sent
 }
 
 fn params(message: impl Serialize) -> Result<Value, String> {
@@ -295,6 +322,8 @@ struct Kept {
     setup: Value,
     steering: bool,
     embedded_context: bool,
+    /// Whether the agent takes attached pictures as pictures.
+    images: bool,
     can_load: bool,
     /// Whether the session's models are picked through `session/set_model`
     /// rather than as a config option.
@@ -482,6 +511,7 @@ impl Acp {
             prompt.context,
             self.kept.embedded_context,
         )?;
+        let blocks = with_pictures(blocks, self.kept.images);
         let steer = air::Steer::new(self.kept.session_id.clone(), blocks);
         self.driver
             .rpc
@@ -571,6 +601,7 @@ impl Backend for Acp {
                     .agent_capabilities
                     .prompt_capabilities
                     .embedded_context,
+                images: initialized.agent_capabilities.prompt_capabilities.image,
                 can_load: !matches!(reopens, Reopens::No),
             },
         };
@@ -598,6 +629,7 @@ impl Backend for Acp {
             prompt.context,
             self.kept.embedded_context,
         )?;
+        let blocks = with_pictures(blocks, self.kept.images);
         let request = PromptRequest::new(self.kept.session_id.clone(), blocks);
         self.driver.turns.locked().prompted = turn;
         self.driver.rpc.send_for(

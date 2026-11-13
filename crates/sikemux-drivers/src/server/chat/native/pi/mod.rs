@@ -14,7 +14,6 @@ mod wire;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_fold::update::{self, notice};
@@ -33,7 +32,7 @@ use super::commands as shared_commands;
 use super::file_link;
 use super::json::text;
 use super::models::Models;
-use super::parts::{parts, picture, Part};
+use super::parts::{inline_picture, parts, Part};
 use super::pending::{Answered, Purpose};
 use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, RpcState, ANSWER_WAIT};
@@ -466,20 +465,17 @@ fn extension_env(launch: &ChatLaunch) -> Vec<(String, String)> {
 }
 
 fn attachment(name: &str, uri: &str, takes_images: bool) -> Result<String, Value> {
-    let image = takes_images
-        .then(|| picture(uri))
+    match takes_images
+        .then(|| inline_picture(uri, MAX_IMAGE_BYTES))
         .flatten()
-        .and_then(|(path, media_type)| {
-            if std::fs::metadata(&path).ok()?.len() > MAX_IMAGE_BYTES {
-                return None;
-            }
-            Some(json!({
-                "type": "image",
-                "data": base64::engine::general_purpose::STANDARD.encode(std::fs::read(&path).ok()?),
-                "mimeType": media_type,
-            }))
-        });
-    image.map_or_else(|| Ok(file_link(Some(name), uri)), Err)
+    {
+        Some((media_type, data)) => Err(json!({
+            "type": "image",
+            "data": data,
+            "mimeType": media_type,
+        })),
+        None => Ok(file_link(Some(name), uri)),
+    }
 }
 
 /// A message as Pi takes it: the words, with what was attached after them so a

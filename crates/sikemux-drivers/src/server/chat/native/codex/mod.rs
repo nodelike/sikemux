@@ -280,7 +280,7 @@ fn input(parts: Vec<Part>, images: bool) -> Vec<Value> {
         .map(|part| match part {
             Part::Text(said) => text(said),
             Part::File { name, uri } => match picture(&uri).filter(|_| images) {
-                Some((path, _)) => json!({ "type": "localImage", "path": path }),
+                Some(path) => json!({ "type": "localImage", "path": path }),
                 None => text(file_link(Some(&name), &uri)),
             },
             Part::Context { uri, text: body } => text(format!(

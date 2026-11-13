@@ -16,10 +16,10 @@ use sikemux_wire::protocol::BuildIdentity;
 
 /// The format of the state a core hands to its replacement. A core only
 /// replaces itself with a binary that reads its format.
-pub const RESUME_FORMAT: u32 = 10;
+pub const RESUME_FORMAT: u32 = 11;
 
 /// Every hand-over format a core of this build takes over from.
-pub const READS_FORMATS: [u32; 7] = [4, 5, 6, 7, 8, 9, RESUME_FORMAT];
+pub const READS_FORMATS: [u32; 8] = [4, 5, 6, 7, 8, 9, 10, RESUME_FORMAT];
 
 pub const UPGRADE_INFO_ARG: &str = "--upgrade-info";
 

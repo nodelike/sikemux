@@ -547,7 +547,19 @@ fn migrate(mut state: Value) -> Result<Value, String> {
                 data_format::scrub_carried(&mut state);
                 state["format"] = Value::from(10);
             }
-            10 => return Ok(state),
+            10 => {
+                // Format 10 cores handed an ACP agent attached pictures only as
+                // links, so they never kept whether it takes pictures.
+                let chats = state.get_mut("liveChats").and_then(Value::as_array_mut);
+                for chat in chats.into_iter().flatten() {
+                    let backend = chat.get_mut("backend").and_then(Value::as_object_mut);
+                    if let Some(backend) = backend.filter(|b| b.contains_key("embeddedContext")) {
+                        backend.insert("images".into(), json!(false));
+                    }
+                }
+                state["format"] = Value::from(11);
+            }
+            11 => return Ok(state),
             other => return Err(format!("it is in format {other}, not {RESUME_FORMAT}")),
         }
     }
@@ -1134,14 +1146,14 @@ mod tests {
     #[test]
     fn current_state_is_left_as_it_is_and_unknown_formats_are_refused() {
         let current = json!({
-            "format": 10,
+            "format": RESUME_FORMAT,
             "chats": [{ "launch": {}, "startedBy": "phone", "launcher": "claude", "notice": null }],
             "liveChats": [],
             "harness": { "mailbox": { "waiting": {} }, "questions": { "open": [] } },
         });
         assert_eq!(migrate(current.clone()).expect("migrate"), current);
         assert!(migrate(json!({ "format": 3 })).is_err());
-        assert!(migrate(json!({ "format": 11 })).is_err());
+        assert!(migrate(json!({ "format": RESUME_FORMAT + 1 })).is_err());
         assert!(migrate(json!({})).is_err());
     }
 

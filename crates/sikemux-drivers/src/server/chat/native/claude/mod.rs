@@ -35,7 +35,7 @@ use super::super::cap;
 use super::super::feed::Reach;
 use super::super::Respond;
 use super::file_link;
-use super::parts::{parts, Part};
+use super::parts::{inline_picture, parts, Part};
 use super::pending::Purpose;
 use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
@@ -282,8 +282,13 @@ fn mcp_config(tools: &[McpServer]) -> Option<String> {
     (!tools.is_empty()).then(|| json!({ "mcpServers": tools }).to_string())
 }
 
+/// The largest picture handed to Claude as itself: the API takes ten megabytes
+/// of one once it is base64, and Claude Code shrinks it before sending.
+const MAX_IMAGE_BYTES: u64 = 7 * 1024 * 1024;
+
 /// What the person wrote, as the content of a Claude user message. Files go
-/// as links Claude reads itself, and handed-over text follows the message.
+/// as links, each picture followed by the picture itself so Claude sees it
+/// without reading the file, and handed-over text follows the message.
 fn content(prompt: &Prompt) -> Result<Vec<Value>, String> {
     let text = |text: String| json!({ "type": "text", "text": text });
     let mut content = Vec::new();
@@ -291,7 +296,15 @@ fn content(prompt: &Prompt) -> Result<Vec<Value>, String> {
     for part in parts(prompt)? {
         match part {
             Part::Text(said) => content.push(text(said)),
-            Part::File { name, uri } => content.push(text(file_link(Some(&name), &uri))),
+            Part::File { name, uri } => {
+                content.push(text(file_link(Some(&name), &uri)));
+                if let Some((media_type, data)) = inline_picture(&uri, MAX_IMAGE_BYTES) {
+                    content.push(json!({
+                        "type": "image",
+                        "source": { "type": "base64", "media_type": media_type, "data": data },
+                    }));
+                }
+            }
             Part::Context { uri, text: body } => {
                 content.push(text(file_link(None, &uri)));
                 handed.push(text(format!("\n{}", context_text(&uri, &body))));
