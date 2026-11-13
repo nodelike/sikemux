@@ -248,7 +248,7 @@ fn asleep_in_terminal(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Work
         )
 }
 
-/// What a chat opens on before its first message: the agent's face asking what is being made in
+/// What a chat opens on before its first message: Sikemux's logo asking what is being made in
 /// the project, over the account smart accounts `placed` it on.
 pub fn welcome(
     bench: &Workbench,
@@ -256,16 +256,12 @@ pub fn welcome(
     placed: Option<&AccountMove>,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
-    let mark = match agent {
-        Some(agent) => agent.mark(32., cx),
-        None => ui::mark("claude", 32.),
-    };
     let project = bench.project().map(|project| project.name.clone());
     let provider = agent.map_or("claude", |agent| agent.provider.as_str());
     let under = div()
         .w_full()
         .children(placed.map(|placed| smart_pick(bench, placed, provider, cx)));
-    welcome_over(mark, project.unwrap_or_default(), under, cx)
+    welcome_over(project.unwrap_or_default(), under, cx)
         .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
         .mx(px(22.))
 }
@@ -312,64 +308,67 @@ fn smart_pick(
         }))
 }
 
-/// Sikemux's logo over an agent's face, by `mark`, asking what is being made in `project`, over
-/// `under`, as wide as it is given.
-pub fn welcome_over(
-    mark: AnyElement,
-    project: impl Into<SharedString>,
-    under: impl IntoElement,
-    cx: &App,
-) -> Div {
+/// Sikemux's mark in dots, asking what is being made in `project`, over `under`, as wide as it
+/// is given.
+pub fn welcome_over(project: impl Into<SharedString>, under: impl IntoElement, cx: &App) -> Div {
     div()
         .w_full()
         .flex()
         .flex_col()
         .items_center()
         .gap(SPACE_6)
-        .child(ui::icon(Icon::Logo, 88.).text_color(Tokens::get(cx).accent))
-        .child(greeting(mark, project.into(), cx))
+        .child(logo(cx))
+        .child(greeting(project.into(), cx))
         .child(div().w_full().child(under))
 }
 
-/// An agent's face asking what is being made in the project.
-fn greeting(mark: AnyElement, project: SharedString, cx: &App) -> impl IntoElement {
+/// Sikemux's mark in dots of the accent, as the setup's poster draws it.
+fn logo(cx: &App) -> AnyElement {
+    match crate::ui::grain::poster_mark(1., LOGO_DOTS, cx) {
+        Some(mark) => mark.size(px(LOGO_SIZE)).into_any_element(),
+        None => ui::icon(Icon::Logo, LOGO_SIZE)
+            .text_color(Tokens::get(cx).accent)
+            .into_any_element(),
+    }
+}
+
+const LOGO_SIZE: f32 = 110.;
+/// How far apart the mark's dots are, in points.
+const LOGO_DOTS: f32 = 2.;
+
+/// Asking what is being made in the project.
+fn greeting(project: SharedString, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let asked = crate::i18n::tr(n!("What are we making in {project}?"));
     let (before, after) = asked
         .split_once("{project}")
         .unwrap_or(("What are we making in", "?"));
-    div()
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(SPACE_3)
-        .child(div().flex().child(mark))
-        .child(
-            div()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .text_size(theme::ui_text(TEXT_XL))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(t.text_primary)
-                .child(before.trim_end())
-                .child(
-                    ui::icon(Icon::Folder, 17.)
-                        .ml(SPACE_2)
-                        .mr(SPACE_1H)
-                        .text_color(t.live),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .font_family(theme::MONO)
-                        .font_weight(FontWeight::NORMAL)
-                        .text_size(theme::ui_text(18.))
-                        .child(project),
-                )
-                .child(after),
-        )
+    div().flex().items_center().justify_center().child(
+        div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .text_size(theme::ui_text(TEXT_XL))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(t.text_primary)
+            .child(before.trim_end())
+            .child(
+                ui::icon(Icon::Folder, 17.)
+                    .ml(SPACE_2)
+                    .mr(SPACE_1H)
+                    .text_color(t.live),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .font_family(theme::MONO)
+                    .font_weight(FontWeight::NORMAL)
+                    .text_size(theme::ui_text(18.))
+                    .child(project),
+            )
+            .child(after),
+    )
 }
 
 /// The welcome in the middle of the space it is given, across and down.
