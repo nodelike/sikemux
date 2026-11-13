@@ -295,6 +295,20 @@ struct CallDock: View {
                     }
                     Text(CallWords.kept(call.asker.name)).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary)
                 }
+                if call.secret == true && canAnswer {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Button(CallWords.haveNone) {
+                            Haptics.tap()
+                            fieldFocused = false
+                            calls.answer(call, AnswerCallParams(id: call.id, none: true), report: report)
+                        }
+                        .font(Theme.ui(13, .medium))
+                        .foregroundStyle(palette.secondary)
+                        .frame(minHeight: 32)
+                        .disabled(draft.sending)
+                    }
+                }
             }
             .padding(.top, 6)
         }

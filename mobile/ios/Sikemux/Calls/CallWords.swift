@@ -242,6 +242,8 @@ enum CallWords {
     static let secretField = String(localized: "Type or paste it…")
     static let goWithThis = String(localized: "Go with this")
     static let notMine = String(localized: "Not mine")
+    /// Tells the asker of a call for a secret that the person has none to give.
+    static let haveNone = String(localized: "I don't have one")
     static let whatRuns = String(localized: "What runs")
     /// What the asker goes on with until the person answers, above Go with this.
     static func goesOn(_ name: String, _ assumption: String) -> String {
@@ -411,6 +413,7 @@ enum CallWords {
         case .heard, .unknown, nil: break
         }
         guard let answer = call.answer else { return String(localized: "closed") }
+        if answer.none == true { return String(localized: "had none to give") }
         let picked = answer.option.map { [$0] } ?? answer.options ?? []
         if call.keepsWordsPrivate, picked.isEmpty { return String(localized: "answered, kept private") }
         if answer.words != nil { return String(localized: "in your words") }
