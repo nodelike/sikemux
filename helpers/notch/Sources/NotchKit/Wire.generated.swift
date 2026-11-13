@@ -588,6 +588,8 @@ struct AgentShown: Codable, Hashable {
     let failed: Bool
     /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
     let nextTrigger: Int?
+    /// The heavy command it started that waits for its turn on the host, while it waits.
+    let line: InLine?
     /// When the agent was last named with `@` or messaged by another agent.
     let calledAt: Int?
     /// The face it wears, as the workspace's agent does; none while it shows
@@ -805,6 +807,12 @@ enum Remedy: String, Codable, Hashable {
     init(from decoder: Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// Where an agent's heavy command stands in the host's line.
+struct InLine: Codable, Hashable {
+    /// Its place, 1 for next.
+    let place: Int
 }
 
 /// The face an agent wears, drawn by each client from the same art.

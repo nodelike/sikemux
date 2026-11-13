@@ -56,6 +56,12 @@ enum Icons {
         IconShape(d: "M12 14L15 11", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M4 14a8 8 0 1 0 16 0a8 8 0 1 0 -16 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
+    static let hourglass = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "M5 22h14", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M5 2h14", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+    ])
     static let server = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M4 2h16a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2v-4a2 2 0 0 1 2 -2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M4 14h16a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2v-4a2 2 0 0 1 2 -2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),

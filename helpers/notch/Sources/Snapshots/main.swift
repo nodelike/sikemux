@@ -53,6 +53,7 @@ let fixture = #"""
     {"agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front", "title": "Bump Astro to 6", "turn": {"state": "done", "since": AGO(70), "done": {"changes": "landed", "checks": "pass"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(1080)},
     {"agentId": "a10", "name": "Pine", "cli": "claude", "projectName": "server", "title": "Rotate the signing keys", "turn": {"state": "failed", "since": AGO(300), "failed": {"why": "other", "said": "The keychain refused the new key"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a11", "name": "Moss", "cli": "claude", "projectName": "sikemux", "title": "Tidy the changelog", "turn": {"state": "stopped", "since": AGO(900), "stopped": {"left": "Tidy the 0.6 section"}}, "group": "done", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a20", "name": "Moss", "cli": "claude", "projectName": "sikemux", "title": "Tidy the changelog", "turn": {"state": "waiting", "since": AGO(903), "wait": {"kind": "line", "what": "cargo test", "startedAt": AGO(90), "place": 2, "expectedMs": 240000}}, "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "line": {"what": "cargo test", "place": 2, "expectedMs": 240000}},
     {"agentId": "a2", "name": "Flint", "cli": "codex", "projectName": "server", "title": "Refactor the auth middleware", "turn": {"state": "working", "since": AGO(252)}, "group": "working", "failed": false, "subagents": 3, "tasks": 0},
     {"agentId": "a3", "name": "Wren", "cli": "opencode", "projectName": "sikemux", "reconnecting": 3, "title": "Draft the notch spec", "turn": {"state": "working", "since": AGO(48)}, "group": "working", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a5", "name": "Heron", "cli": "claude", "projectName": "sikemux", "title": "Profile the terminal flood", "turn": {"state": "waiting", "since": AGO(180), "wait": {"kind": "ci", "what": "CI on the flood fix", "startedAt": AGO(180), "expectedMs": 420000}}, "group": "idle", "failed": false, "subagents": 0, "tasks": 2},
@@ -133,7 +134,7 @@ func catalogueFaces() -> [AgentFace] {
 }
 let faces = arguments.contains("--faces") ? catalogueFaces() : []
 let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumerated().map { index, agent in
-    AgentShown(agentId: agent.agentId, chief: agent.chief, name: agent.name, cli: agent.cli, title: agent.title, session: agent.session, group: agent.group, turn: agent.turn, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, calledAt: agent.calledAt,
+    AgentShown(agentId: agent.agentId, chief: agent.chief, name: agent.name, cli: agent.cli, title: agent.title, session: agent.session, group: agent.group, turn: agent.turn, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, line: agent.line, calledAt: agent.calledAt,
                face: faces[index % faces.count], projectName: agent.projectName, reconnecting: agent.reconnecting,
                snoozedUntil: nil, settledAt: nil)
 }
@@ -462,7 +463,7 @@ render("C1-idle", agents: [])
 render("C7-subagents-and-shells", agents: ["a2", "a5"])
 render("O5-finished", agents: ["a2", "a4", "a10", "a11"], height: 340) { $0.mode = .open }
 render("O6-host-alerts", agents: ["a2", "a4", "a11", "host-alert:here:memory", "host-alert:forge:cpu"], height: 320) { $0.mode = .open }
-render("O7-mac-busy", agents: ["a2", "a4", "a11"], load: overloaded, height: 300) { $0.mode = .open }
+render("O7-mac-busy", agents: ["a2", "a20", "a4"], load: overloaded, height: 300) { $0.mode = .open }
 render("C2-working", agents: ["a2", "a3"])
 render("C3-needs-you")
 render("C4-done", agents: ["a4", "a10", "a11"])

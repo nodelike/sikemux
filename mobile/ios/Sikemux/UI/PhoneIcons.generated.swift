@@ -113,12 +113,6 @@ extension Icons {
         IconShape(d: "M22 12a10 10 0 1 1 -20 0a10 10 0 1 1 20 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M10 9h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1v-4a1 1 0 0 1 1 -1z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
-    static let hourglass = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
-        IconShape(d: "M5 22h14", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
-        IconShape(d: "M5 2h14", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
-        IconShape(d: "M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
-        IconShape(d: "M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
-    ])
     static let image = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M11 9a2 2 0 1 1 -4 0a2 2 0 1 1 4 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),

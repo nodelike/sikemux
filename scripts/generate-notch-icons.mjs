@@ -36,6 +36,7 @@ const LINE_ICONS = {
   stack: "IconStack",
   globe: "IconGlobe",
   timer: "IconTimer",
+  hourglass: "IconHourglass",
   server: "IconServer",
   pencil: "IconPencil",
   clock: "IconClock",

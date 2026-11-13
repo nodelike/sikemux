@@ -133,6 +133,33 @@ struct ShellCount: View {
     }
 }
 
+/// Where a heavy command the agent started stands in the host's line: "2nd in line".
+struct LinePlace: View {
+    let place: Int
+
+    var body: some View {
+        HStack(spacing: 3) {
+            IconView(icon: Icons.hourglass, size: 11).foregroundStyle(Theme.warn)
+            Text(Self.words(place)).font(Theme.ui(11, .medium)).monospacedDigit().foregroundStyle(Theme.ink)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.words(place))
+    }
+
+    static func words(_ place: Int) -> String {
+        guard place > 1 else { return "next in line" }
+        let suffix = switch (place % 100, place % 10) {
+        case (11...13, _): "th"
+        case (_, 1): "st"
+        case (_, 2): "nd"
+        case (_, 3): "rd"
+        default: "th"
+        }
+        return "\(place)\(suffix) in line"
+    }
+}
+
 private struct Dot: View {
     let colour: Color
 

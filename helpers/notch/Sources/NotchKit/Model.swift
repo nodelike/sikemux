@@ -90,6 +90,7 @@ struct Entry: Identifiable, Equatable {
     /// Subagents, and shells or monitors, its agent still has going.
     var subagents: Int { agent?.subagents ?? 0 }
     var tasks: Int { agent?.tasks ?? 0 }
+    var inLine: Int? { agent?.line?.place }
     /// When its agent was last named with `@` or messaged by another agent.
     var calledAt: Int? { agent?.calledAt }
     /// It is its project's chief, @Chief.
