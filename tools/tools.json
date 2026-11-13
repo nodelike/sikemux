@@ -1482,7 +1482,7 @@
       "name": "mod_read",
       "row": {"verb": "read", "kind": "read", "icon": "dashboard", "target": ["{mod}/{collection}/{id}", "{mod}/{collection}", "{mod}"]},
       "method": "mod.read",
-      "description": "Read a mod's data; with only mod, its collections, schemas and counts.",
+      "description": "Read a mod's collections, or their documents.",
       "properties": {
         "mod": {
           "type": "string"
@@ -1494,7 +1494,6 @@
           "type": "string"
         },
         "after": {
-          "description": "List after this id",
           "type": "string"
         }
       },
@@ -1506,18 +1505,15 @@
       "name": "mod_write",
       "row": {"verb": "change", "kind": "edit", "icon": "dashboard", "target": ["{mod}"]},
       "method": "mod.write",
-      "description": "Write a mod's data, checked against its schemas; all or none.",
+      "description": "Write a mod's data, all or none.",
       "properties": {
         "mod": {
           "type": "string"
         },
         "writes": {
           "type": "array",
-          "minItems": 1,
-          "maxItems": 100,
           "items": {
             "type": "object",
-            "additionalProperties": false,
             "properties": {
               "collection": {
                 "type": "string"
@@ -1526,11 +1522,9 @@
                 "type": "string"
               },
               "set": {
-                "description": "The whole document",
                 "type": "object"
               },
               "patch": {
-                "description": "JSON Merge Patch",
                 "type": "object"
               },
               "remove": {
