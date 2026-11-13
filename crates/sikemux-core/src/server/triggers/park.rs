@@ -54,6 +54,8 @@ enum On {
         name: String,
         until: String,
     },
+    /// Its heavy command's turn on the host, which the line itself says has come.
+    Line { cwd: String, command: String },
 }
 
 /// What setting a park found: it already happened, or what to wait on and how to show it.
@@ -67,6 +69,7 @@ impl Park {
         match self.on {
             On::Process { .. } => TurnWaitKind::Process,
             On::Agent { .. } => TurnWaitKind::Agent,
+            On::Line { .. } => TurnWaitKind::Line,
         }
     }
 
@@ -92,6 +95,7 @@ impl Park {
                 ..
             } => format!("{shown} had not printed {text:?}"),
             On::Agent { name, until, .. } => format!("@{name} had not reached {until}"),
+            On::Line { command, .. } => format!("`{command}` was still in line"),
         };
         format!("Timed out: after {minutes} min {what}. Look with process_read or agent_read, then park again or carry on.")
     }
@@ -198,9 +202,30 @@ pub(super) async fn set(core: &Arc<Core>, request: &HarnessRequest) -> Result<Pa
     }
 }
 
+impl Park {
+    /// A park on `command`'s turn in line, run in `cwd` of `project`.
+    pub(super) fn in_line(core: &Core, project: &str, cwd: &str, command: &str) -> Self {
+        Park {
+            project: project.to_owned(),
+            on: On::Line {
+                cwd: cwd.to_owned(),
+                command: command.to_owned(),
+            },
+            since: epoch_ms(),
+            after: core.harness().journal_cursor(project),
+        }
+    }
+
+    /// Whether it waits on `command`'s turn in line, run in `cwd`.
+    pub(super) fn is_line(&self, at: &str, run: &str) -> bool {
+        matches!(&self.on, On::Line { cwd, command } if cwd == at && command == run)
+    }
+}
+
 /// What happened, once what the park waits on has.
 async fn met(core: &Core, park: &Park) -> Option<String> {
     match &park.on {
+        On::Line { .. } => None,
         On::Process {
             execution_id,
             shown,

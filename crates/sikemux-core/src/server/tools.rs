@@ -350,43 +350,111 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
     write(&mut writer, &response).await;
 }
 
-/// Gives a heavy command its turn once the host has room, saying while it waits, and
-/// holds the turn until the command closes the connection.
+/// Gives a heavy command its turn once the host has room, saying while it waits, and holds
+/// the turn until the command closes the connection. A caller of a command already running
+/// follows its output instead, and an agent's own command that would wait long is sent away.
 async fn build(
     core: &Arc<Core>,
     reader: &mut BufReader<OwnedReadHalf>,
     writer: &mut OwnedWriteHalf,
     request: crate::cli::protocol::BuildRequest,
 ) {
+    use super::line::Place;
+    let may_come_back = request.may_come_back;
     let turn = super::line::Turn::ask(core, request);
     let mut told = false;
+    let mut following = false;
     loop {
-        match turn.place() {
-            super::line::Place::Running => break,
-            super::line::Place::Waiting {
+        let answer = match turn.place() {
+            Place::Running { log } => {
+                if write(writer, &CliServerResponse::Building { log }).await {
+                    hold(&turn, reader, writer).await;
+                }
+                return;
+            }
+            Place::Following { log } if !following => {
+                following = true;
+                Some(CliServerResponse::Joined { log })
+            }
+            Place::Following { .. } => None,
+            Place::Ended { code, log } => {
+                if let (false, Some(log)) = (following, log) {
+                    if !write(writer, &CliServerResponse::Joined { log }).await {
+                        return;
+                    }
+                }
+                write(writer, &CliServerResponse::Ended { code }).await;
+                return;
+            }
+            Place::Waiting {
                 ahead,
                 running,
                 why,
+                expected_ms,
             } if !told => {
                 told = true;
-                let queued = CliServerResponse::Queued {
-                    ahead,
-                    building: running,
-                    why,
-                };
-                if !write(writer, &queued).await {
-                    return;
+                let long = expected_ms.filter(|ms| *ms > super::line::COME_BACK_AFTER_MS);
+                match long.filter(|_| may_come_back) {
+                    Some(ms) => match turn.send_away(ahead, ms) {
+                        Some(said) => {
+                            write(writer, &CliServerResponse::Parked { said }).await;
+                            return;
+                        }
+                        None => Some(CliServerResponse::Queued {
+                            ahead,
+                            building: running,
+                            why,
+                        }),
+                    },
+                    None => Some(CliServerResponse::Queued {
+                        ahead,
+                        building: running,
+                        why,
+                    }),
                 }
             }
-            super::line::Place::Waiting { .. } => {}
+            Place::Waiting { .. } => None,
+        };
+        if let Some(answer) = answer {
+            if !write(writer, &answer).await {
+                return;
+            }
         }
         tokio::select! {
             () = turn.changed() => {}
             () = closed(reader) => return,
         }
     }
-    if write(writer, &CliServerResponse::Building).await {
-        closed(reader).await;
+}
+
+/// Holds a heavy command's turn while it runs: hears that what it built runs now and how it
+/// ended, and tells it when the core stops it.
+async fn hold(
+    turn: &super::line::Turn,
+    reader: &mut BufReader<OwnedReadHalf>,
+    writer: &mut OwnedWriteHalf,
+) {
+    use crate::cli::protocol::BuildNote;
+    let mut lines = (&mut *reader).lines();
+    let mut told_stop = false;
+    loop {
+        if let (false, Some(why)) = (told_stop, turn.stopped()) {
+            told_stop = true;
+            if !write(writer, &CliServerResponse::Stopped { why }).await {
+                return;
+            }
+        }
+        tokio::select! {
+            line = lines.next_line() => match line {
+                Ok(Some(line)) => match serde_json::from_str::<BuildNote>(&line) {
+                    Ok(BuildNote::Released) => turn.released(),
+                    Ok(BuildNote::Exited { code }) => turn.exited(code),
+                    Err(_) => {}
+                },
+                _ => return,
+            },
+            () = turn.changed() => {}
+        }
     }
 }
 

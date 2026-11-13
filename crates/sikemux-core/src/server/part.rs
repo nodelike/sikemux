@@ -35,7 +35,7 @@ pub(crate) fn on_wake(
 
 /// Walking every part of the core.
 pub(crate) trait PartCore {
-    fn parts(&self) -> [&dyn Part; 34];
+    fn parts(&self) -> [&dyn Part; 35];
 
     /// Every feature's tasks, to end when the core stops.
     fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
@@ -47,7 +47,7 @@ pub(crate) trait PartCore {
 }
 
 impl PartCore for Core {
-    fn parts(&self) -> [&dyn Part; 34] {
+    fn parts(&self) -> [&dyn Part; 35] {
         [
             self.harness(),
             self.outside(),
@@ -64,6 +64,7 @@ impl PartCore for Core {
             self.spares(),
             self.device_view(),
             self.host_watch(),
+            self.line(),
             self.lifecycle(),
             self.updates(),
             self.changes(),

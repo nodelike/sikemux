@@ -467,7 +467,7 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         return code.unwrap_or(1);
     }
     if let Some(heavy) = super::heavy::of_program(program, &words, &cwd) {
-        return super::heavy::run(program, &real, &args, &words, &cwd, heavy);
+        return super::in_line::run(program, &real, &args, &words, &cwd, heavy);
     }
     let mut command = sikemux_process::user_environment::command(&real);
     if program == "cargo" {

@@ -81,6 +81,20 @@ impl Session {
             .map_err(|error| format!("cannot configure the Sikemux connection: {error}"))
     }
 
+    /// A second handle on the same connection, to read from one thread while another writes.
+    pub fn try_clone(&self) -> Result<Session, String> {
+        let stream = (self.reader.get_ref().try_clone())
+            .map_err(|error| format!("cannot share the Sikemux connection: {error}"))?;
+        Ok(Session {
+            reader: BufReader::new(stream),
+        })
+    }
+
+    /// Ends the connection for every handle on it.
+    pub fn close(&self) {
+        let _ = self.reader.get_ref().shutdown(std::net::Shutdown::Both);
+    }
+
     pub fn send(&mut self, command: &impl Serialize) -> Result<(), String> {
         let mut frame = serde_json::to_vec(command).map_err(|error| error.to_string())?;
         frame.push(b'\n');

@@ -283,6 +283,12 @@ impl Edits {
         self.store.outside.top_of(core, agent_id)
     }
 
+    /// Whether no file changed in the checkout `path` is in since `since`, in Unix milliseconds.
+    /// None when nobody watches that checkout, so it cannot say.
+    pub(crate) fn unchanged_since(&self, path: &Path, since: u64) -> Option<bool> {
+        self.store.outside.unchanged_since(path, since)
+    }
+
     pub(crate) fn saved(&self, path: PathBuf) {
         let _ = self.jobs.send(Job::Saved(path));
     }

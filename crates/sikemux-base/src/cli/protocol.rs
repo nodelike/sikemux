@@ -171,6 +171,30 @@ pub struct BuildRequest {
     /// Runs at once while it is measured, unless it was seen to take a lot of memory before.
     #[serde(default)]
     pub watched: bool,
+    /// The agent typed it itself, so it may be told to come back when its turn comes rather
+    /// than wait where it is.
+    #[serde(default)]
+    pub may_come_back: bool,
+    /// Its output is not a terminal, so it can be copied for another caller of the same command.
+    #[serde(default)]
+    pub copies_output: bool,
+    /// When it first asked, in Unix milliseconds, which keeps its place when it asks again
+    /// after the core restarted.
+    #[serde(default)]
+    pub asked_at: Option<u64>,
+    /// The `process_start` run it belongs to.
+    #[serde(default)]
+    pub execution_id: Option<String>,
+}
+
+/// What a heavy command tells the core once it has its turn.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BuildNote {
+    /// What it built now runs, which needs no turn: a test binary, say.
+    Released,
+    /// It ended with this exit code.
+    Exited { code: i32 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -212,8 +236,27 @@ pub enum CliServerResponse {
         building: usize,
         why: String,
     },
-    /// The heavy command may run now.
-    Building,
+    /// The heavy command may run now, copying its output to `log` when one is given.
+    Building {
+        #[serde(default)]
+        log: Option<String>,
+    },
+    /// It does not run now: `said` tells the agent when it will be woken to run it again.
+    Parked {
+        said: String,
+    },
+    /// The same command already runs for another caller: its output is at `log`.
+    Joined {
+        log: String,
+    },
+    /// The run a joined caller follows ended, with its exit code when it said one.
+    Ended {
+        code: Option<i32>,
+    },
+    /// The core stopped the command, for the reason `why` gives.
+    Stopped {
+        why: String,
+    },
     Error {
         message: String,
     },

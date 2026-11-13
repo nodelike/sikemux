@@ -67,6 +67,8 @@ struct Seen {
     command_began: Option<u64>,
     /// What git ignores: whole folders, or single files.
     ignored: Vec<PathBuf>,
+    /// When a file git does not ignore last changed, in Unix milliseconds.
+    last_change: u64,
 }
 
 impl Seen {
@@ -91,6 +93,7 @@ impl Seen {
         if self.ignored.iter().any(|ignored| path.starts_with(ignored)) {
             return;
         }
+        self.last_change = now;
         if self.changed.len() < MAX_WAITING || self.changed.contains_key(&path) {
             if let std::collections::hash_map::Entry::Vacant(entry) = self.changed.entry(path) {
                 let changed = Written::of(entry.key(), now);
@@ -193,6 +196,17 @@ impl Outside {
         }
         tops.insert(agent_id.to_owned(), top.clone());
         top
+    }
+
+    /// Whether no file git does not ignore changed in the watched checkout `path` is in since
+    /// `since`. None when that checkout is not watched.
+    pub(super) fn unchanged_since(&self, path: &Path, since: u64) -> Option<bool> {
+        let checkouts = self.checkouts.locked();
+        let (_, checkout) = (checkouts.iter())
+            .filter(|(top, _)| path.starts_with(top))
+            .max_by_key(|(top, _)| top.as_os_str().len())?;
+        let last_change = checkout.seen.locked().last_change;
+        Some(last_change < since)
     }
 
     /// The watched checkout `path` is in, by its top folder, with its project.

@@ -155,6 +155,14 @@ while it still runs returns that run. Use this for dev servers and watchers
 rather than background shell jobs: you can read their output, see when they
 exit, and they stop with the project.
 
+A heavy command, such as a build or a test suite, waits for its turn on the
+host, wherever it runs. Run in your shell, one with a long wait ends at once
+with `Not started: … in line`, and Sikemux messages you to run it again when its
+turn comes; do other work or end your turn meanwhile, and never loop on it. The
+same command run again in the same checkout shows the output of the run
+already going. Started with `process_start`, it waits in line, its answer has
+`inLine`, and you park on its exit with `trigger_add`.
+
 The key is what makes a retry safe. Reusing a key returns the original
 execution rather than starting a second one, and it keeps doing so after that
 execution has finished. Pick one key per logical attempt and reuse it when a

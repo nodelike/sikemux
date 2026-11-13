@@ -995,6 +995,78 @@ pub(crate) fn for_playbook(core: &Core, project: &str) -> Vec<RunsAlone> {
     lines.into_iter().map(|(_, line)| line).collect()
 }
 
+/// Parks `agent_id` on its heavy command `command`, run in `cwd` of `project`, until its turn
+/// on the host comes, replacing a park on the same command it had.
+pub(crate) fn park_in_line(
+    core: &Arc<Core>,
+    agent_id: &str,
+    project: &str,
+    cwd: &str,
+    command: &str,
+) {
+    line_left(core, agent_id, cwd, command);
+    let now = epoch_ms();
+    let at = now + park::DEFAULT_TIMEOUT_SECONDS * 1000;
+    let park = park::Park::in_line(core, project, cwd, command);
+    let trigger = core.triggers().change(|state| {
+        state.next_id += 1;
+        let trigger = Trigger {
+            id: state.next_id,
+            agent_id: agent_id.to_owned(),
+            board: None,
+            title: format!("{command} in line"),
+            prompt: format!("Your turn for `{command}` came on this host."),
+            when: TriggerWhen::Once { at },
+            next_at: Some(at),
+            hook_id: None,
+            paused: None,
+            ci: None,
+            park: Some(park),
+            check: None,
+            stopped: None,
+            set: Some(learned(core, Some(agent_id))),
+            held: Vec::new(),
+            dropped: 0,
+        };
+        state.triggers.push(trigger.clone());
+        trigger
+    });
+    show(core, &trigger);
+}
+
+/// Wakes `agent_id`, parked on its heavy command `command` run in `cwd`, now that its turn came.
+pub(crate) fn line_turn_came(core: &Arc<Core>, agent_id: &str, cwd: &str, command: &str) {
+    let parked = |trigger: &Trigger| {
+        trigger.agent_id == agent_id
+            && (trigger.park.as_ref()).is_some_and(|park| park.is_line(cwd, command))
+    };
+    let Some(mut trigger) = remove_where(core, parked) else {
+        return;
+    };
+    trigger.prompt = format!(
+        "Your turn for `{command}` came on this host. Run it again now, in {cwd}: the host keeps room for it for {} s, then gives the room to the next in line.",
+        super::line::ROOM_KEPT_MS / 1000
+    );
+    tokio::spawn(fire(
+        core.clone(),
+        Firing {
+            trigger,
+            late: None,
+            last: true,
+            request: None,
+        },
+    ));
+}
+
+/// Takes away the park `agent_id` had on its heavy command `command` run in `cwd`, which it
+/// runs again now.
+pub(crate) fn line_left(core: &Arc<Core>, agent_id: &str, cwd: &str, command: &str) {
+    remove_where(core, |trigger: &Trigger| {
+        trigger.agent_id == agent_id
+            && (trigger.park.as_ref()).is_some_and(|park| park.is_line(cwd, command))
+    });
+}
+
 /// Removes trigger `id` at the person's word, saying whether there was one.
 pub(crate) fn remove(core: &Arc<Core>, id: u64) -> bool {
     remove_where(core, |trigger| trigger.id == id).is_some()
