@@ -1,5 +1,6 @@
 //! The first-run setup over the whole window: an agent that works, then the projects to open.
-//! On a real first run nothing leaves it but finishing, and only finishing counts it done.
+//! On a real first run nothing leaves it but finishing, and only finishing counts it done. When
+//! an agent is already signed in and its history names projects, it finishes by itself.
 
 use std::cell::Cell;
 use std::path::Path;
@@ -21,6 +22,7 @@ use sikemux_core::agent_accounts::status::{AgentStatus, FREE_MODELS};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::project_roots::{ResolveParams, Resolved};
+use sikemux_core::server::usage::Step;
 use sikemux_core::sessions::found_projects::FoundProject;
 use sikemux_core::sessions::recent::MAX_PROJECTS;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
@@ -100,6 +102,14 @@ const NAME_SHARE: f32 = 0.62;
 const MARK_BOX: f32 = 1.36;
 const MARK_TO_NAME: f32 = 16.;
 
+/// Whether a first run finishes by itself, once what it needs is known.
+#[derive(Clone, Copy, PartialEq)]
+enum Shortcut {
+    Undecided,
+    Taken,
+    Declined,
+}
+
 /// Whether the mark is still resolving in, the first thing the setup does.
 #[derive(Clone, Copy)]
 enum Beat {
@@ -166,6 +176,7 @@ pub struct Welcome {
     root: FocusHandle,
     /// A real first run, which has no way out but finishing.
     required: bool,
+    shortcut: Shortcut,
     stage: Stage,
     at: Option<Stop>,
     git_missing: bool,
@@ -201,6 +212,10 @@ impl Welcome {
         Self {
             root: cx.focus_handle(),
             required,
+            shortcut: match required {
+                true => Shortcut::Undecided,
+                false => Shortcut::Declined,
+            },
             stage: Stage::Agents,
             at: None,
             git_missing: false,
@@ -421,6 +436,42 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
     }
     if !welcome.root.contains_focused(window, cx) {
         welcome.root.focus(window, cx);
+    }
+    take_shortcut(bench, window, cx);
+}
+
+/// Opens the app straight away on a first run where an agent is signed in and its history
+/// names projects: the suggested ones, or else the newest, on a new chat with that agent. Once
+/// the person has done anything in the setup it stays theirs to finish.
+fn take_shortcut(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    let Some(welcome) = welcome_in(bench) else {
+        return;
+    };
+    if welcome.shortcut != Shortcut::Undecided {
+        return;
+    }
+    let touched = welcome.at.is_some() || welcome.stage != Stage::Agents;
+    let ready = found_agents(bench).iter().any(is_ready);
+    let decided = match (&bench.agent_setup.found, welcome.looking) {
+        _ if touched || bench.agent_setup.busy() => Some(Shortcut::Declined),
+        (None, _) | (_, true) => None,
+        (Some(_), false) if !ready || welcome.rows.is_empty() => Some(Shortcut::Declined),
+        (Some(_), false) => start_agent(bench)
+            .filter(|agent| is_ready(agent))
+            .map(|_| Shortcut::Taken),
+    };
+    let Some(decided) = decided else {
+        return;
+    };
+    let Some(welcome) = welcome_of(bench) else {
+        return;
+    };
+    welcome.shortcut = decided;
+    if decided == Shortcut::Taken {
+        if welcome.ticked().next().is_none() {
+            welcome.rows[0].ticked = true;
+        }
+        cx.defer_in(window, finish);
     }
 }
 
@@ -929,6 +980,11 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
         let _ = bench.update(cx, |bench, cx| {
             if opened.is_some() {
                 crate::settings::set(bench, PreferenceChange::LastAgentType(kind));
+            }
+            if let Some(welcome) = welcome_in(bench).filter(|welcome| welcome.required) {
+                let skipped = welcome.shortcut == Shortcut::Taken;
+                Target::here(&bench.asks)
+                    .call_typed::<call::FirstRunStep>(Step::SetupFinished { skipped });
             }
             leave(bench, cx);
             bench.activate_project(&project);

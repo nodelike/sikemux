@@ -117,6 +117,8 @@ pub struct Preferences {
     pub notifications_introduced: bool,
     /// The person was told once that terminals keep running after Sikemux quits.
     pub kept_running_notice_shown: bool,
+    /// The person was asked once for a star on GitHub.
+    pub star_asked: bool,
     /// Panes show a dithered texture behind them.
     pub pane_shader: bool,
     /// A picture every pane dithers in place of the texture.
@@ -252,6 +254,7 @@ preference_changes! {
     LastSeenVersion last_seen_version: String,
     NotificationsIntroduced notifications_introduced: bool,
     KeptRunningNoticeShown kept_running_notice_shown: bool,
+    StarAsked star_asked: bool,
     PaneShader pane_shader: bool,
     PaneImage pane_image: Option<String>,
     PaneImageFollowsOmarchy pane_image_follows_omarchy: bool,
@@ -431,6 +434,7 @@ impl Default for Preferences {
             last_seen_version: String::new(),
             notifications_introduced: false,
             kept_running_notice_shown: false,
+            star_asked: false,
             pane_shader: true,
             pane_image: None,
             pane_image_follows_omarchy: false,

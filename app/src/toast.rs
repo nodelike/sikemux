@@ -25,8 +25,8 @@ const LEFT: Pixels = px(10.);
 const RIGHT: Pixels = px(24.);
 const BORDER: Pixels = px(1.);
 const WIDEST: Pixels = px(520.);
-/// Room for the Undo button and the gaps around it.
-const UNDO: Pixels = px(66.);
+/// Room for a toast's button, such as Undo, and the gaps around it.
+const BUTTON: Pixels = px(66.);
 /// What a window keeps clear on each side of its toasts.
 const MARGIN: Pixels = px(16.);
 
@@ -56,19 +56,26 @@ pub fn undoable(
     text: impl Into<SharedString>,
     undo: impl Fn(&mut Window, &mut App) + 'static,
 ) -> Notification {
-    let undo = Rc::new(undo);
-    toast_with(Kind::Info, text.into(), UNDO)
-        .action(move |_, _, cx| {
-            let undo = undo.clone();
-            Button::new("undo")
-                .label(t!("Undo"))
-                .ghost()
-                .on_click(cx.listener(move |note, _, window, cx| {
-                    undo(window, cx);
-                    note.dismiss(window, cx);
-                }))
-        })
-        .autohide(true)
+    acting(text, t!("Undo"), undo).autohide(true)
+}
+
+/// Says `text` with a button that does `act` and puts the toast away.
+pub fn acting(
+    text: impl Into<SharedString>,
+    label: &'static str,
+    act: impl Fn(&mut Window, &mut App) + 'static,
+) -> Notification {
+    let act = Rc::new(act);
+    toast_with(Kind::Info, text.into(), BUTTON).action(move |_, _, cx| {
+        let act = act.clone();
+        Button::new("act")
+            .label(label)
+            .ghost()
+            .on_click(cx.listener(move |note, _, window, cx| {
+                act(window, cx);
+                note.dismiss(window, cx);
+            }))
+    })
 }
 
 #[derive(Clone, Copy)]

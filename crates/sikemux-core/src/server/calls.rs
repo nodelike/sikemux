@@ -282,6 +282,7 @@ calls! { core, client, method, params;
     "agentAccounts" AgentAccounts (NoParams) -> crate::agent_accounts::Book: Full, any_program => core.workspaces().accounts().unwrap_or_default().with_built_ins(),
     "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
     "installedAgents": Full, any_program => answer(agent_accounts::installed(&core).await?),
+    "firstRunStep" FirstRunStep (super::usage::Step) -> (): Full => super::usage::reach(&core, params),
     "agentSetup" AgentSetup (NoParams) -> Vec<agent_accounts::Installed>: Full, any_program => agent_accounts::setup(&core).await?,
     "updateAgents" UpdateAgents (super::agent_updates::UpdateAgents) -> (): Full, any_program => super::agent_updates::update(&core, params).await?,
     "agentAvailability" AgentAvailability (agent_accounts::Account) -> agent_accounts::Availability: Full, any_program => {

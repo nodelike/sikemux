@@ -29,6 +29,7 @@
 //!                                 and whether they are disabled or checked (null where the menu does not say,
 //!                                 as Kit's items do not), and separators as {"separator":true};
 //!                                 "toast success|info|error text" shows a toast saying the text;
+//!                                 "star" shows the ask for a GitHub star;
 //!                                 "settings <page>" opens settings at the page of that name;
 //!                                 "language es" draws the app in that language, as its picker does
 
@@ -291,6 +292,7 @@ fn main() -> anyhow::Result<()> {
                     };
                     window.push_notification(note, cx);
                 }
+                "star" => window.push_notification(sikemux_gpui::star::note(|_| {}), cx),
                 "activate" => window.activate_window(),
                 "language" => {
                     sikemux_gpui::i18n::speak(Some(rest.trim()).filter(|code| !code.is_empty()));

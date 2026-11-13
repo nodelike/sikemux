@@ -76,6 +76,7 @@ mod sim;
 mod skills_added;
 mod snapshot;
 mod space_editor;
+pub mod star;
 mod stash;
 mod swipe;
 mod syntax;

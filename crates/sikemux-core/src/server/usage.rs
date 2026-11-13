@@ -1,11 +1,13 @@
 //! One anonymous `app_active` event a day for each install, and once a UTC day
 //! is over, how much its agents did that day: tokens by agent and model,
-//! turns, sessions and commits, never which projects or what was said. Only
-//! builds the release workflow publishes send anything; local builds stay silent.
+//! turns, sessions and commits, never which projects or what was said. A new
+//! install also sends each first-run step once, so its funnel can be followed.
+//! Only builds the release workflow publishes send anything; local builds stay silent.
 
 use crate::server::parts::Parts;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
@@ -69,6 +71,8 @@ struct UsageRecord {
     /// The last whole day whose activity was reported, or passed over while
     /// the person did not share usage.
     last_activity_day: Option<u64>,
+    #[serde(default)]
+    funnel: Vec<Reached>,
 }
 
 impl UsageRecord {
@@ -77,9 +81,80 @@ impl UsageRecord {
             install_id: uuid::Uuid::new_v4().to_string(),
             last_reported_day: None,
             last_activity_day: None,
+            funnel: Vec::new(),
+        }
+    }
+
+    fn reached(&self, event: &str) -> Option<&Reached> {
+        self.funnel.iter().find(|reached| reached.event == event)
+    }
+}
+
+/// A step a new install takes on its way to using Sikemux. Each is sent once per install.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "step", rename_all = "camelCase")]
+pub enum Step {
+    /// The first-run setup opened.
+    SetupStarted,
+    /// An agent here is installed and signed in.
+    AgentReady { agent: String },
+    /// The setup finished; `skipped` when it opened the app by itself, an agent being ready.
+    SetupFinished { skipped: bool },
+    /// The person sent a chat its first message.
+    FirstMessage,
+    /// The app was used on a UTC day after the one its setup started on.
+    SecondDay,
+    /// The app asked for a GitHub star.
+    StarAsked,
+    /// The person opened GitHub from that ask.
+    StarOpened,
+}
+
+impl Step {
+    fn event(&self) -> &'static str {
+        match self {
+            Step::SetupStarted => "setup_started",
+            Step::AgentReady { .. } => "agent_ready",
+            Step::SetupFinished { .. } => "setup_finished",
+            Step::FirstMessage => "first_message",
+            Step::SecondDay => "second_day",
+            Step::StarAsked => "star_asked",
+            Step::StarOpened => "star_opened",
+        }
+    }
+
+    fn bit(&self) -> u8 {
+        1 << match self {
+            Step::SetupStarted => 0,
+            Step::AgentReady { .. } => 1,
+            Step::SetupFinished { .. } => 2,
+            Step::FirstMessage => 3,
+            Step::SecondDay => 4,
+            Step::StarAsked => 5,
+            Step::StarOpened => 6,
+        }
+    }
+
+    fn properties(&self) -> Value {
+        match self {
+            Step::AgentReady { agent } => json!({ "agent": agent }),
+            Step::SetupFinished { skipped } => json!({ "skipped": skipped }),
+            _ => json!({}),
         }
     }
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Reached {
+    event: String,
+    at_ms: u64,
+    properties: Value,
+    sent: bool,
+}
+
+/// The steps this run already took or passed over, so a step heard often costs one load.
+static TAKEN: AtomicU8 = AtomicU8::new(0);
 
 struct Platform {
     os: &'static str,
@@ -171,14 +246,125 @@ async fn pass_over_activity(data_dir: &Path) -> Result<(), String> {
     save_record(&path, &record)
 }
 
+/// Notes that this install took `step`, the first time it does, for the next report to send.
+pub(crate) fn reach(core: &Arc<Core>, step: Step) {
+    let bit = step.bit();
+    if TAKEN.fetch_or(bit, Ordering::Relaxed) & bit != 0 || reporting_install().is_none() {
+        return;
+    }
+    if do_not_track() || !core.preferences().get().share_usage_data {
+        return;
+    }
+    let Some(data_dir) = core.config().data_dir.clone() else {
+        return;
+    };
+    let core = core.clone();
+    tokio::spawn(async move {
+        match note_step(&data_dir, step).await {
+            Ok(true) => core.usage_wake().notify_one(),
+            Ok(false) => {}
+            Err(error) => eprintln!("sikemux core: {error}"),
+        }
+    });
+}
+
+async fn note_step(data_dir: &Path, step: Step) -> Result<bool, String> {
+    let _one_at_a_time = IN_FLIGHT.lock().await;
+    let path = data_dir.join("usage.json");
+    let mut record = load_record(&path)?;
+    if record.reached(step.event()).is_some() {
+        return Ok(false);
+    }
+    record.funnel.push(Reached {
+        event: step.event().to_owned(),
+        at_ms: sikemux_process::clock::epoch_ms_of(SystemTime::now()),
+        properties: step.properties(),
+        sent: false,
+    });
+    save_record(&path, &record)?;
+    Ok(true)
+}
+
+/// Sends the first-run steps not sent yet, taking the second day first when today is one.
+async fn report_funnel(data_dir: &Path, active: &Active<'_>) -> Result<(), String> {
+    let _one_at_a_time = IN_FLIGHT.lock().await;
+    let path = data_dir.join("usage.json");
+    let mut record = load_record(&path)?;
+    let now = SystemTime::now();
+    let today = utc_day(now);
+    let started = record
+        .reached(Step::SetupStarted.event())
+        .map(|reached| reached.at_ms / 1000 / SECONDS_PER_DAY);
+    if let Some(started) = started.filter(|started| *started < today) {
+        if record.reached(Step::SecondDay.event()).is_none() {
+            record.funnel.push(Reached {
+                event: Step::SecondDay.event().to_owned(),
+                at_ms: sikemux_process::clock::epoch_ms_of(now),
+                properties: json!({ "days_since_setup": today - started }),
+                sent: false,
+            });
+        }
+    }
+    if record.funnel.iter().all(|reached| reached.sent) {
+        return Ok(());
+    }
+    let platform = platform();
+    let batch: Vec<Value> = (record.funnel.iter())
+        .filter(|reached| !reached.sent)
+        .map(|reached| funnel_event(&record.install_id, active, &platform, reached))
+        .collect();
+    client()
+        .map_err(|error| error.to_string())?
+        .post(BATCH_ENDPOINT)
+        .json(&json!({ "api_key": PROJECT_TOKEN, "batch": batch }))
+        .send()
+        .await
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| format!("first-run report: {error}"))?;
+    for reached in &mut record.funnel {
+        reached.sent = true;
+    }
+    save_record(&path, &record)
+}
+
+fn funnel_event(
+    install_id: &str,
+    active: &Active<'_>,
+    platform: &Platform,
+    reached: &Reached,
+) -> Value {
+    let mut properties = common_properties(active, platform);
+    if let (Some(properties), Value::Object(own)) =
+        (properties.as_object_mut(), reached.properties.clone())
+    {
+        properties.extend(own);
+    }
+    let timestamp = time::OffsetDateTime::from_unix_timestamp((reached.at_ms / 1000) as i64)
+        .ok()
+        .and_then(|at| {
+            at.format(&time::format_description::well_known::Rfc3339)
+                .ok()
+        });
+    json!({
+        "event": reached.event,
+        "distinct_id": install_id,
+        "timestamp": timestamp,
+        "uuid": event_id(install_id, &reached.event, 0, &properties),
+        "properties": properties,
+    })
+}
+
+fn reporting_install() -> Option<Install> {
+    [Install::App, Install::Host]
+        .into_iter()
+        .find(|install| install.published())
+}
+
 /// Counts this install active once a UTC day while the person shares usage: an
 /// app's core on a day one of its windows is open, a host's core on a day it
 /// runs. `DO_NOT_TRACK` or `CI` in the core's environment turns it off as well.
 pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
-    let Some(install) = [Install::App, Install::Host]
-        .into_iter()
-        .find(|install| install.published())
-    else {
+    let Some(install) = reporting_install() else {
         return;
     };
     if do_not_track() {
@@ -221,6 +407,9 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
         let log = core.activity_log().clone();
         let days = move |first: u64, end: u64| log.reported_days(first as i64, end as i64);
         if let Err(error) = report_activity(&data_dir, &active, days).await {
+            eprintln!("sikemux core: {error}");
+        }
+        if let Err(error) = report_funnel(&data_dir, &active).await {
             eprintln!("sikemux core: {error}");
         }
     }

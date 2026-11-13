@@ -1,9 +1,11 @@
 ---
 title: First launch
-description: "The two-step setup: a working agent, then your projects."
+description: "The two-step setup: a working agent, then your projects. Skipped when an agent is already signed in."
 ---
 
 The first time Sikemux opens it walks you through a short setup: **Agents**, then **Projects**. The steps are required, and quitting midway brings the setup back next launch.
+
+If an agent is already installed and signed in, and its saved chats name folders you work in, there is no setup: Sikemux adds the suggested projects (or your most recent one), opens a new chat in the first on that agent, and lists the project's past chats in the side rail to pick up where you left off.
 
 The left half of the window welcomes you, says where you stand and holds the button that moves on. The right half is the step. The first time it appears the Sikemux mark resolves in over a moment, and any key skips that.
 
@@ -34,3 +36,7 @@ The field above the list narrows it as you type, and Return ticks the first matc
 **Open Sikemux** adds your projects, finishes the setup and opens a new chat in the first ticked project on the first agent that works, ready ones before those only installed,, ready to type in. If a project can't be added, the setup stays open and says which one. If you used **Continue anyway** and no agent works, it opens the app without a chat.
 
 You can look at the setup again from the command deck (`⌘⇧P`, then **Show welcome**) or from **Settings → About**. Once you've finished it the first time, `esc` closes it.
+
+## Later
+
+After a chat's turn finishes for the first time with Sikemux in front, a note asks once for a star on GitHub. **Star** opens the repository; closing the note is enough to say no, and it never comes back.

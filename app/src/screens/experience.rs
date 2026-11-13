@@ -3,9 +3,12 @@
 //! the first two are due.
 
 use gpui_kit::{div, AnyElement, Context, IntoElement, Window};
+use sikemux_core::server::call;
+use sikemux_core::server::usage::Step;
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::Preferences;
 
+use crate::core::Target;
 use crate::screens::{diagnostics, welcome, whats_new};
 use crate::workbench::Workbench;
 
@@ -55,6 +58,9 @@ pub fn whats_new_read(bench: &mut Workbench, unseen: bool, cx: &mut Context<Work
 pub fn open_welcome(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     close_shown(bench, cx);
     let required = !bench.preferences().onboarding_complete;
+    if required {
+        Target::here(&bench.asks).call_typed::<call::FirstRunStep>(Step::SetupStarted);
+    }
     bench.overlays.experience = Some(Experience::Welcome(welcome::Welcome::new(required, cx)));
     welcome::opened(bench, cx);
     crate::ui::grain::sky_shown(true, cx);

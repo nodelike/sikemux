@@ -328,6 +328,7 @@ pub(super) async fn run(
                 context,
             }) => {
                 core.ship().person_spoke(&agent_id);
+                super::usage::reach(&core, super::usage::Step::FirstMessage);
                 let params = chat_calls::PromptChatParams {
                     agent_id,
                     message_id,

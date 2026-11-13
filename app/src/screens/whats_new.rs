@@ -218,6 +218,7 @@ fn show_notes(
     }
 }
 
+pub const REPO: &str = "https://github.com/nodelike/sikemux";
 pub const RELEASES: &str = "https://github.com/nodelike/sikemux/releases";
 
 /// The notes as they read under the screen's own heading, without the release's title.

@@ -5333,6 +5333,8 @@ struct Preferences: Codable, Hashable, Sendable {
     var notificationsIntroduced: Bool
     /// The person was told once that terminals keep running after Sikemux quits.
     var keptRunningNoticeShown: Bool
+    /// The person was asked once for a star on GitHub.
+    var starAsked: Bool
     /// Panes show a dithered texture behind them.
     var paneShader: Bool
     /// A picture every pane dithers in place of the texture.

@@ -1098,6 +1098,12 @@ pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
 pub(super) async fn setup(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
     let mut agents = setup_list(installed(core).await?);
     super::agent_updates::add_versions(core, &mut agents);
+    if let Some(ready) =
+        (agents.iter()).find(|agent| matches!(agent.status, status::AgentStatus::Ready { .. }))
+    {
+        let agent = ready.kind.clone();
+        super::usage::reach(core, super::usage::Step::AgentReady { agent });
+    }
     Ok(agents)
 }
 

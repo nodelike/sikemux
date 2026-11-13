@@ -3465,6 +3465,8 @@ export interface Preferences {
     notificationsIntroduced: boolean;
     /** The person was told once that terminals keep running after Sikemux quits. */
     keptRunningNoticeShown: boolean;
+    /** The person was asked once for a star on GitHub. */
+    starAsked: boolean;
     /** Panes show a dithered texture behind them. */
     paneShader: boolean;
     /** A picture every pane dithers in place of the texture. */

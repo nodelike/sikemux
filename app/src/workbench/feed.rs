@@ -85,7 +85,13 @@ impl Workbench {
                 match news {
                     ChatNews::Found { asked, found } => self.found(&agent, asked, found, cx),
                     news => match self.chats.open.get_mut(&agent) {
-                        Some(chat) => chat.hear(&agent, news, cx),
+                        Some(chat) => {
+                            let was_running = chat.running();
+                            chat.hear(&agent, news, cx);
+                            if was_running && !chat.running() {
+                                crate::star::turn_finished(self, cx);
+                            }
+                        }
                         None => return,
                     },
                 }

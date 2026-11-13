@@ -31880,6 +31880,58 @@
         }
       }
     },
+    "Enjoying Sikemux? A star on GitHub helps others find it.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "¿Te gusta Sikemux? Una estrella en GitHub ayuda a que otros lo encuentren."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "喜欢 Sikemux 吗？在 GitHub 上点个星，能帮别人找到它。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gefällt dir Sikemux? Ein Stern auf GitHub hilft anderen, es zu finden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikemux vous plaît ? Une étoile sur GitHub aide d’autres personnes à le trouver."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikemux を気に入りましたか？GitHub のスターが、ほかの人が見つける助けになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sikemux가 마음에 드시나요? GitHub 별은 다른 사람들이 찾는 데 도움이 됩니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нравится Sikemux? Звезда на GitHub помогает другим его найти."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gostando do Sikemux? Uma estrela no GitHub ajuda outras pessoas a encontrá-lo."
+          }
+        }
+      }
+    },
     "Enter a word, symbol, or pattern above. Expand Replace to edit matching text.": {
       "localizations": {
         "es": {
@@ -94957,6 +95009,58 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "As alterações preparadas são mantidas. Isso não pode ser desfeito."
+          }
+        }
+      }
+    },
+    "Star": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dar estrella"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "点星"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stern geben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettre une étoile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スターを付ける"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "별 주기"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поставить звезду"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dar estrela"
           }
         }
       }
