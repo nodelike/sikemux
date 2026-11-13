@@ -234,6 +234,10 @@ async fn hand_task(
         checkout,
         cwd,
     } = started;
+    let title = (core.boards().state.locked().boards.get(&project))
+        .and_then(|board| board.card(card).ok())
+        .map(|held| held.title.clone());
+    workspace::retitle(core, agent, title, true);
     let set_up = agent::set_up(core, &checkout.repo, Some(agent), &cwd).await;
     let checked = {
         let (owner, project) = (core.clone(), project.clone());

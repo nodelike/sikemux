@@ -833,22 +833,26 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
     };
     until_titled(chief.clone(), "Plan the launch week").await;
 
-    for (id, named) in [
-        (&chief, "Chief of widget first message"),
-        (&worker, "Inbox sorted by Claude"),
-    ] {
-        let session = agent(id.clone()).await["resumeId"]
-            .as_str()
-            .expect("its session")
-            .to_owned();
-        let line = json!({ "type": "ai-title", "aiTitle": named, "sessionId": session });
-        std::fs::write(
-            sessions.join(format!("{session}.jsonl")),
-            format!("{line}\n"),
-        )
-        .expect("Claude's title");
-    }
+    let claude_titles = |id: String, named: &'static str| {
+        let (agent, sessions) = (&agent, &sessions);
+        async move {
+            let session = agent(id).await["resumeId"]
+                .as_str()
+                .expect("its session")
+                .to_owned();
+            let line = json!({ "type": "ai-title", "aiTitle": named, "sessionId": session });
+            std::fs::write(
+                sessions.join(format!("{session}.jsonl")),
+                format!("{line}\n"),
+            )
+            .expect("Claude's title");
+        }
+    };
+    claude_titles(chief.clone(), "Chief of widget first message").await;
+    claude_titles(worker.clone(), "Inbox sorted by Claude").await;
     until_titled(worker.clone(), "Inbox sorted by Claude").await;
+    claude_titles(worker.clone(), "Inbox sorted again").await;
+    until_titled(worker.clone(), "Inbox sorted again").await;
     assert_eq!(
         titled(&agent(chief.clone()).await).as_deref(),
         Some("Plan the launch week")
