@@ -36,6 +36,7 @@ const FLAGS = [
   "featured",
   "accounts",
   "usage",
+  "freeModels",
   "deletableChats",
   "resumesByPath",
   "relocatableSessions",

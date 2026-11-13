@@ -7,7 +7,7 @@ use gpui_kit::{
     anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Div, Entity,
     FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Stateful, Styled, Window,
 };
-use sikemux_core::agent_accounts::status::AgentStatus;
+use sikemux_core::agent_accounts::status::{AgentStatus, FREE_MODELS};
 use sikemux_core::server::agent_accounts::{Account, Forget, Installed};
 use sikemux_core::server::agent_updates::{UpdateAgents, Updating};
 use sikemux_core::server::call;
@@ -28,6 +28,8 @@ pub struct Found {
     pub kind: String,
     pub label: String,
     pub about: String,
+    /// It runs free models with no account or key.
+    pub free_models: bool,
     install: Option<String>,
     login: Option<Vec<String>>,
     /// Where its program is, once found.
@@ -263,6 +265,7 @@ fn found_of(bench: &Workbench, listed: Vec<Installed>) -> Vec<Found> {
             let entry = bench.reads.catalog.kind(&agent.kind);
             Found {
                 about: entry.map(|entry| entry.about.clone()).unwrap_or_default(),
+                free_models: entry.is_some_and(|entry| entry.free_models),
                 install: entry.and_then(|entry| entry.install.clone()),
                 login: entry.and_then(|entry| entry.login.clone()),
                 program: agent.available.then_some(agent.command),
@@ -475,6 +478,7 @@ pub fn status_label(status: &AgentStatus) -> &'static str {
         AgentStatus::Ready { account } => match account.as_deref() {
             Some("apiKey") => t!("Ready · API key"),
             Some("subscription") => t!("Ready · subscription"),
+            Some(FREE_MODELS) => t!("Ready · free models"),
             _ => t!("Ready"),
         },
         AgentStatus::Unknown => t!("Found"),

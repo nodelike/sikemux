@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
-use crate::acp::failure::Failure;
+use crate::acp::failure::{sounds_offline, Failure};
 use crate::acp::pickers;
 use crate::acp::{air, native, permission_mode_id};
 use crate::agent_catalog::ChatDriver;
@@ -59,6 +59,29 @@ pub fn replay_saved(launch: &ChatLaunch, session: &str, sink: &Telling) -> Resul
     }
     Ok(())
 }
+
+/// Whether the chat runs on its agent's own free models, which come and go, rather than on a
+/// provider Sikemux routes it to.
+fn on_free_models(launch: &ChatLaunch) -> bool {
+    launch.model_provider.is_none()
+        && crate::agent_catalog::agent(&launch.provider).is_some_and(|entry| entry.free_models)
+}
+
+/// A turn the agent refused while on its free models, said with what the person can do next.
+fn free_model_failure(said: String) -> TurnEnd {
+    if sounds_offline(&said) {
+        return TurnEnd::Refused(said);
+    }
+    TurnEnd::Failed {
+        failure: Failure {
+            details: Some(said),
+            ..Failure::other(FREE_MODEL_FAILED)
+        },
+        response: None,
+    }
+}
+
+const FREE_MODEL_FAILED: &str = "The model didn't answer. Free models come and go: pick another in the model menu, or chat with an agent you're signed in to.";
 
 fn compact_word(launch: &ChatLaunch) -> &'static str {
     match crate::agent_catalog::agent(&launch.provider).and_then(|entry| entry.chat.as_ref()) {
@@ -133,6 +156,7 @@ struct Driver {
     servers: Arc<[String]>,
     /// The agent's own name for its compaction command.
     compact: &'static str,
+    free_models: bool,
 }
 
 impl Driver {
@@ -171,6 +195,7 @@ impl Driver {
                 failure: Failure::sign_in(error_text(&error)),
                 response: None,
             },
+            Err(error) if self.free_models => free_model_failure(describe(&error)),
             Err(error) => TurnEnd::Refused(describe(&error)),
         };
         self.sink.end_turn(turn, end);
@@ -492,6 +517,7 @@ impl Backend for Acp {
             turns: Arc::default(),
             servers: server_names(launch),
             compact: compact_word(launch),
+            free_models: on_free_models(launch),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         let failed = |error: String| process.start_error(error);
@@ -694,6 +720,7 @@ impl Backend for Acp {
             turns: Arc::new(Mutex::new(state.turns)),
             servers: server_names(launch),
             compact: compact_word(launch),
+            free_models: on_free_models(launch),
         };
         let (reading, _) = Reading::start(driver.clone(), lines);
         Ok(Self {

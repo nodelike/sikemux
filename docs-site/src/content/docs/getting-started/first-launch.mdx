@@ -13,6 +13,8 @@ Tab and the arrows move between tiles and rows, Space ticks a project or runs an
 
 Each agent Sikemux can set up gets a tile saying where it stands: **Ready**, **Installed**, **Signed out**, **Not installed** or **Won't start**. The step needs one agent that works; **Continue** becomes available as soon as one does. You can change which agent a chat uses later, in its composer.
 
+No Claude or Codex plan? OpenCode's tile reads **Not installed · free**: **Install** it and it is **Ready · free models**, with no account or key, so you can Continue and chat straight away. Its free models change often and some of their providers keep your prompts to improve them, which the tile says.
+
 A tile that needs something offers it: **Install** and **Reinstall** run the agent's own installer, and **Sign in** runs its own sign-in, in a terminal under the tiles where you can watch it. If one fails, the left half says why and **Try again** appears on the tile. With the keys on a tile, Return runs what it offers and the left half shows the exact command first; on a tile with nothing to do, or with no tile picked, Return continues. **Check again**, offered while no agent works, reads every agent's status afresh, which also happens when you come back to the window.
 
 If an install or sign-in ends and still no agent works, for example on a machine with no network, **Continue anyway** appears so you are never locked out.

@@ -35,6 +35,9 @@ pub struct CatalogAgent {
     pub accounts: bool,
     /// The app can read how much of its plan is used.
     pub usage: bool,
+    /// It runs free models with no account or key, so it works before any sign-in.
+    #[serde(default)]
+    pub free_models: bool,
     /// The app can delete a saved chat from its own history.
     pub deletable_chats: bool,
     /// It can also name a saved session by its transcript's path.

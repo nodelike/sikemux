@@ -17,6 +17,7 @@ pub(crate) fn view() -> Vec<CatalogAgent> {
             featured: agent.featured,
             accounts: agent.accounts,
             usage: agent.usage,
+            free_models: agent.free_models,
             deletable_chats: agent.deletable_chats,
             resumes_by_path: agent.resumes_by_path,
             relocatable_sessions: agent.relocatable_sessions,

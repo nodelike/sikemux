@@ -17,7 +17,7 @@ use gpui_kit::{
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
     WindowControlArea,
 };
-use sikemux_core::agent_accounts::status::AgentStatus;
+use sikemux_core::agent_accounts::status::{AgentStatus, FREE_MODELS};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::project_roots::{ResolveParams, Resolved};
@@ -1404,7 +1404,9 @@ fn agent_tile(
     let busy = bench.agent_setup.busy();
     let (edge, left) = (room.fit(40., 10.), room.fit(44., 14.));
     let (name_size, word_size) = (room.fit(30., 16.), room.fit(17., 13.));
-    let labels = (name_size + word_size) * LABEL_LINE;
+    let note = on_free_models(agent).then(|| t!("Free models may keep your prompts"));
+    let note_size = room.fit(14., 11.);
+    let labels = (name_size + word_size + note.map_or(0., |_| note_size)) * LABEL_LINE;
     let target = room
         .fit(46., 28.)
         .min((size.1 - edge * 2. - labels - MARK_TO_NAME) / MARK_BOX);
@@ -1440,9 +1442,13 @@ fn agent_tile(
         pill_bottom: pill_label.map_or(0., |_| room.fit(36., 8.) + room.fit(34., 26.)),
         running: state.running,
     };
-    let screen_reader = match pill_label {
-        Some(label) => format!("{}, {}, {label}", agent.label, state.word),
+    let said = match note {
+        Some(note) => format!("{}, {}, {note}", agent.label, state.word),
         None => format!("{}, {}", agent.label, state.word),
+    };
+    let screen_reader = match pill_label {
+        Some(label) => format!("{said}, {label}"),
+        None => said,
     };
     let pill = state.action.map(|(label, _)| {
         let this = this.clone();
@@ -1520,7 +1526,15 @@ fn agent_tile(
                         .whitespace_nowrap()
                         .text_color(state.ink)
                         .child(state.word),
-                ),
+                )
+                .children(note.map(|note| {
+                    div()
+                        .text_size(theme::ui_text(note_size))
+                        .line_height(relative(LABEL_LINE))
+                        .whitespace_nowrap()
+                        .text_color(t.text_secondary)
+                        .child(note)
+                })),
         )
         .children(pill)
         .when(keyed, |tile| {
@@ -2101,7 +2115,13 @@ fn agents_say(
         _ if usable_agents(bench) > 0 => t!("Choose who does the work.").to_owned(),
         _ => match &keyed {
             Some(state) => state.sentence.clone(),
-            None => t!("Install or sign in to one agent to continue.").to_owned(),
+            None => match listed_agents(bench).iter().find(|agent| agent.free_models) {
+                Some(free) => t!(
+                    "Install or sign in to one agent to continue. {agent} is free with no account.",
+                    agent = free.label
+                ),
+                None => t!("Install or sign in to one agent to continue.").to_owned(),
+            },
         },
     };
     let command = keyed.and_then(|state| {
@@ -2319,6 +2339,16 @@ pub fn render(
         .into_any_element()
 }
 
+/// Whether the agent is offered, or runs, on free models only, whose providers may keep what
+/// is sent to them.
+fn on_free_models(agent: &Found) -> bool {
+    match &agent.status {
+        AgentStatus::Missing => agent.free_models,
+        AgentStatus::Ready { account } => account.as_deref() == Some(FREE_MODELS),
+        _ => false,
+    }
+}
+
 /// How a tile reads for what its agent is doing, in this screen's own words.
 struct TileState {
     word: &'static str,
@@ -2381,6 +2411,11 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         };
     }
     let (word, density, state) = match &agent.status {
+        AgentStatus::Ready { account } if account.as_deref() == Some(FREE_MODELS) => (
+            t!("Ready · free models"),
+            DENSITY_READY,
+            t!("{agent} is ready on its free models.", agent = label),
+        ),
         AgentStatus::Ready { .. } => (
             t!("Ready"),
             DENSITY_READY,
@@ -2409,6 +2444,20 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
                 Some(_) => t!("Signed out. Return opens {agent}'s sign-in.", agent = label),
                 None => t!(
                     "Signed out. Sign in from inside {agent}, then Check again.",
+                    agent = label
+                ),
+            },
+        ),
+        AgentStatus::Missing if agent.free_models => (
+            t!("Not installed · free"),
+            DENSITY_MISSING,
+            match next {
+                Some(_) => t!(
+                    "Free with no account. Return installs {agent}.",
+                    agent = label
+                ),
+                None => t!(
+                    "Free with no account. Install {agent} yourself, then Check again.",
                     agent = label
                 ),
             },

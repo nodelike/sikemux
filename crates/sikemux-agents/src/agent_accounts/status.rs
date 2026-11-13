@@ -273,8 +273,12 @@ fn without_escapes(text: &str) -> String {
     plain
 }
 
+/// The `account` of an agent that is ready only on its free models, with no sign-in or key.
+pub const FREE_MODELS: &str = "freeModels";
+
 /// `opencode auth list` ends with a count such as "1 credentials". A provider key in the
-/// environment counts as well, since OpenCode reads those without a stored credential.
+/// environment counts as well, since OpenCode reads those without a stored credential. With
+/// neither, OpenCode still runs its own free models, unless they are turned off.
 fn opencode_status<'a>(
     listing: &str,
     environment: impl IntoIterator<Item = (&'a str, &'a str)>,
@@ -293,16 +297,26 @@ fn opencode_status<'a>(
     if stored.is_some_and(|count| count > 0) {
         return AgentStatus::Ready { account: None };
     }
-    let has_key = environment
+    let set: Vec<(&str, &str)> = environment
         .into_iter()
-        .any(|(name, value)| OPENCODE_KEY_VARIABLES.contains(&name) && !value.trim().is_empty());
-    if has_key {
+        .filter(|(_, value)| !value.trim().is_empty())
+        .collect();
+    if set
+        .iter()
+        .any(|(name, _)| OPENCODE_KEY_VARIABLES.contains(name))
+    {
         return AgentStatus::Ready {
             account: Some("apiKey".into()),
         };
     }
+    let free_models_off = set.iter().any(|(name, value)| {
+        *name == "OPENCODE_DISABLE_FREE_MODELS" && !matches!(value.trim(), "0" | "false")
+    });
     match stored {
-        Some(_) => AgentStatus::SignedOut,
+        Some(_) if free_models_off => AgentStatus::SignedOut,
+        Some(_) => AgentStatus::Ready {
+            account: Some(FREE_MODELS.into()),
+        },
         None => AgentStatus::Unknown,
     }
 }
@@ -655,7 +669,18 @@ echo '{"loggedIn":false,"authMethod":"none"}'; exit 1"#,
             AgentStatus::Ready { account: None }
         );
         let none = "┌  Credentials ~/.local/share/opencode/auth.json\n│\n└  0 credentials\n";
-        assert_eq!(opencode_status(none, []), AgentStatus::SignedOut);
+        let free = AgentStatus::Ready {
+            account: Some(FREE_MODELS.into()),
+        };
+        assert_eq!(opencode_status(none, []), free);
+        assert_eq!(
+            opencode_status(none, [("OPENCODE_DISABLE_FREE_MODELS", "1")]),
+            AgentStatus::SignedOut
+        );
+        assert_eq!(
+            opencode_status(none, [("OPENCODE_DISABLE_FREE_MODELS", "0")]),
+            free
+        );
         assert_eq!(
             opencode_status(none, [("OPENAI_API_KEY", "sk-test")]),
             AgentStatus::Ready {
@@ -664,7 +689,7 @@ echo '{"loggedIn":false,"authMethod":"none"}'; exit 1"#,
         );
         assert_eq!(
             opencode_status(none, [("OPENAI_API_KEY", " "), ("PATH", "/bin")]),
-            AgentStatus::SignedOut
+            free
         );
         assert_eq!(opencode_status("something else", []), AgentStatus::Unknown);
     }

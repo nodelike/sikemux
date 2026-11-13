@@ -36873,6 +36873,162 @@
         }
       }
     },
+    "Free models may keep your prompts": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los modelos gratuitos pueden guardar tus mensajes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "免费模型可能会保留你的提示词"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kostenlose Modelle können deine Eingaben speichern"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les modèles gratuits peuvent conserver vos messages"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無料モデルはプロンプトを保存することがあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "무료 모델은 프롬프트를 보관할 수 있습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бесплатные модели могут сохранять ваши запросы"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelos gratuitos podem guardar seus prompts"
+          }
+        }
+      }
+    },
+    "Free with no account. Install {agent} yourself, then Check again.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gratis y sin cuenta. Instala {agent} tú mismo y vuelve a comprobar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "免费，无需账户。请自行安装 {agent}，然后重新检查。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kostenlos, ohne Konto. Installiere {agent} selbst und prüfe dann erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gratuit, sans compte. Installez {agent} vous-même, puis vérifiez à nouveau."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無料、アカウント不要。{agent} を自分でインストールしてから、もう一度確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "무료이며 계정이 필요 없습니다. {agent}을(를) 직접 설치한 뒤 다시 확인하세요."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бесплатно, без аккаунта. Установите {agent} сами, затем проверьте снова."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grátis e sem conta. Instale o {agent} você mesmo e verifique de novo."
+          }
+        }
+      }
+    },
+    "Free with no account. Return installs {agent}.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gratis y sin cuenta. Retorno instala {agent}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "免费，无需账户。按回车键安装 {agent}。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kostenlos, ohne Konto. Return installiert {agent}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gratuit, sans compte. Entrée installe {agent}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無料、アカウント不要。Return で {agent} をインストールします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "무료이며 계정이 필요 없습니다. Return을 누르면 {agent}을(를) 설치합니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Бесплатно, без аккаунта. Return устанавливает {agent}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Grátis e sem conta. Return instala o {agent}."
+          }
+        }
+      }
+    },
     "Fri": {
       "localizations": {
         "es": {
@@ -42695,6 +42851,58 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Instale ou faça login em um agente para continuar."
+          }
+        }
+      }
+    },
+    "Install or sign in to one agent to continue. {agent} is free with no account.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instala o inicia sesión en un agente para continuar. {agent} es gratis y sin cuenta."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安装或登录一个智能体以继续。{agent} 免费且无需账户。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installiere einen Agenten oder melde dich bei einem an, um fortzufahren. {agent} ist kostenlos, ohne Konto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Installez un agent ou connectez-vous à un agent pour continuer. {agent} est gratuit, sans compte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "続けるには、エージェントを1つインストールするかサインインしてください。{agent} は無料でアカウント不要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계속하려면 에이전트 하나를 설치하거나 로그인하세요. {agent}은(는) 무료이며 계정이 필요 없습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чтобы продолжить, установите агента или войдите в него. {agent} бесплатен и не требует аккаунта."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Instale ou entre em um agente para continuar. O {agent} é grátis e sem conta."
           }
         }
       }
@@ -59911,6 +60119,58 @@
         }
       }
     },
+    "Not installed · free": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No instalado · gratis"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未安装 · 免费"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht installiert · kostenlos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non installé · gratuit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未インストール · 無料"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설치 안 됨 · 무료"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не установлен · бесплатно"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não instalado · grátis"
+          }
+        }
+      }
+    },
     "Not installed. Install {agent} yourself, then Check again.": {
       "localizations": {
         "es": {
@@ -74001,6 +74261,58 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Pronto · chave de API"
+          }
+        }
+      }
+    },
+    "Ready · free models": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Listo · modelos gratuitos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "就绪 · 免费模型"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereit · kostenlose Modelle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prêt · modèles gratuits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "準備完了 · 無料モデル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "준비됨 · 무료 모델"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Готово · бесплатные модели"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pronto · modelos gratuitos"
           }
         }
       }
@@ -111759,58 +112071,6 @@
         }
       }
     },
-    "View activity": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ver actividad"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "查看活动"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aktivität ansehen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Voir l'activité"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "アクティビティを表示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "활동 보기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать активность"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ver atividade"
-          }
-        }
-      }
-    },
     "Virtual devices": {
       "localizations": {
         "es": {
@@ -147949,6 +148209,58 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "{agent} não é um agente que o Sikemux conhece"
+          }
+        }
+      }
+    },
+    "{agent} is ready on its free models.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} está listo con sus modelos gratuitos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} 已可使用其免费模型。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} ist mit seinen kostenlosen Modellen bereit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} est prêt avec ses modèles gratuits."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} は無料モデルで使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent}은(는) 무료 모델로 준비되었습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "{agent} готов к работе на бесплатных моделях."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O {agent} está pronto com os modelos gratuitos."
           }
         }
       }

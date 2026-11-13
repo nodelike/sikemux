@@ -33,6 +33,10 @@ opencode auth login
 
 Sikemux reads OpenCode as signed in when `opencode auth list` shows a credential, or when your shell sets an API key for one of its providers.
 
+## Free models
+
+With neither, OpenCode still runs the free models its own service offers, with no account, and Sikemux shows it as **Ready · free models**. OpenCode picks the model; the chat's model menu lists the others. They are free for a limited time and change often, and some of their providers keep your prompts to improve the model; [OpenCode's model list](https://opencode.ai/docs/console/models/) says which. When one fails, the chat says so and suggests another model or a signed-in agent. Set `OPENCODE_DISABLE_FREE_MODELS=1` in your shell to turn them off, and Sikemux then shows OpenCode as signed out.
+
 ## How Sikemux runs it
 
 A chat runs `opencode acp`, OpenCode's [Agent Client Protocol](https://agentclientprotocol.com) mode. OpenCode has no YOLO mode, so it always runs with its own approvals.
