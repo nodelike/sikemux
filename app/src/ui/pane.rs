@@ -3,15 +3,16 @@ use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, relative, AnyElement, App, ClickEvent, Div, ElementId, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, RenderOnce, SharedString, Stateful, StatefulInteractiveElement,
-    Styled, Window,
+    div, px, relative, AnyElement, App, ClickEvent, Div, ElementId, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, RenderOnce, SharedString, Stateful,
+    StatefulInteractiveElement, Styled, Window,
 };
 use smallvec::SmallVec;
 
 use super::{mark_box, meta, text};
 use crate::theme::{
-    Tokens, RADIUS_3, RADIUS_4, SPACE_0, SPACE_2, SPACE_3, SPACE_3H, TEXT_SM, TEXT_XS,
+    Tokens, RADIUS_3, RADIUS_4, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_SM,
+    TEXT_XS,
 };
 
 /// How far an agent pane's contents sit inside its frame, as on the Mac.
@@ -32,6 +33,36 @@ pub fn pane_frame(cx: &App) -> Div {
         .border_1()
         .border_color(Tokens::get(cx).border)
         .rounded(RADIUS_3)
+}
+
+/// A bar across the top of a pane saying something about what it shows, in `tone`, with the
+/// actions it offers at the end.
+pub fn notice_bar(
+    text: impl Into<SharedString>,
+    tone: Hsla,
+    actions: impl IntoIterator<Item = impl IntoElement>,
+    cx: &App,
+) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
+        .px(SPACE_3)
+        .py(SPACE_1H)
+        .border_b_1()
+        .border_color(t.border)
+        .bg(t.surface_sunken)
+        .text_size(crate::theme::ui_text(TEXT_XS))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_color(tone)
+                .font_weight(FontWeight::MEDIUM)
+                .child(text.into()),
+        )
+        .children(actions)
 }
 
 /// A detail panel that floats over the right of a page, which stays in view behind it.

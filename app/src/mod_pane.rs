@@ -28,6 +28,7 @@ use sikemux_calls::mods::BadgeParams;
 use sikemux_calls::mods::BridgeParams;
 use sikemux_calls::mods::BridgeWrite;
 use sikemux_calls::mods::ModAsk;
+use sikemux_calls::mods::ModChange;
 use sikemux_calls::mods::ModParams;
 
 const BRIDGE: &str = include_str!("mod_pane/bridge.js");
@@ -68,6 +69,10 @@ pub struct ModPane {
     /// The writes and origins the person was last asked to allow on opening the page, so the
     /// page reading again does not ask again.
     asked: Option<(Vec<String>, Vec<String>)>,
+    /// The last change to the mod's data, when an agent made it.
+    change: Option<ModChange>,
+    /// Why undoing that change failed.
+    undo_failed: Option<SharedString>,
 }
 
 impl ModPane {
@@ -91,6 +96,8 @@ impl ModPane {
             gathering: false,
             generation: 0,
             asked: None,
+            change: None,
+            undo_failed: None,
         }
     }
 
@@ -134,6 +141,7 @@ impl ModPane {
     /// The mod's data in `collections` changed, or in any of them without: the data watches
     /// on those read again once the pane shows.
     pub fn data_moved(&mut self, collections: Option<&[&str]>, cx: &mut Context<Self>) {
+        self.read_change(cx);
         let mut any = false;
         for watch in self.watches.values_mut() {
             let collection = watch.params["collection"].as_str().unwrap_or_default();
@@ -189,7 +197,79 @@ impl ModPane {
         .detach();
     }
 
+    /// Reads who made the last change to the mod's data, for the bar that offers to undo it.
+    fn read_change(&mut self, cx: &mut Context<Self>) {
+        let read = self.core.request_typed::<call::ModChanged>(ModParams {
+            id: self.id.clone(),
+        });
+        cx.spawn(async move |this, cx| {
+            let change = read.await.ok().flatten();
+            let _ = this.update(cx, |pane, cx| {
+                pane.undo_failed = None;
+                pane.change = change;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn undo(&mut self, cx: &mut Context<Self>) {
+        let Some(change) = self.change.clone() else {
+            return;
+        };
+        let params = json!({
+            "collection": change.collection,
+            "id": change.id,
+            "version": change.version,
+        });
+        let undo = self
+            .core
+            .request_typed::<call::ModWrite>(self.asking("data.undo", params));
+        cx.spawn(async move |this, cx| {
+            let answer = undo.await;
+            let _ = this.update(cx, |pane, cx| match answer {
+                Ok(_) => pane.read_change(cx),
+                Err(error) => {
+                    pane.undo_failed = Some(error.into());
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
+    fn change_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let change = self.change.as_ref()?;
+        let t = Tokens::get(cx);
+        let (said, tone) = match &self.undo_failed {
+            Some(failed) => (failed.clone(), t.warn),
+            None => {
+                let who = change
+                    .name
+                    .as_ref()
+                    .map_or_else(|| t!("an agent").to_owned(), |name| format!("@{name}"));
+                let said = t!(
+                    "Changed by {who} · {ago}",
+                    who = who,
+                    ago = crate::ui::time::ago(change.at)
+                );
+                (said.into(), t.text_secondary)
+            }
+        };
+        let pane = cx.weak_entity();
+        let undo = crate::ui::Button::new(
+            SharedString::from(format!("mod-undo-{}", self.id)),
+            t!("Undo"),
+            crate::ui::Variant::Outline,
+        )
+        .on_click(move |_, _, cx| {
+            let _ = pane.update(cx, |pane, cx| pane.undo(cx));
+        });
+        Some(crate::ui::notice_bar(said, tone, [undo], cx).into_any_element())
+    }
+
     fn present(&mut self, html: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.read_change(cx);
         self.watches.clear();
         self.generation += 1;
         let html = sikemux_base::pages::themed(html, &theme_rule(cx), Some(BRIDGE));
@@ -550,7 +630,12 @@ impl Render for ModPane {
             .into_any_element(),
             (None, None) => div().size_full().into_any_element(),
         };
-        div().size_full().child(drawn)
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .children(self.change_bar(cx))
+            .child(div().flex_1().min_h_0().child(drawn))
     }
 }
 
