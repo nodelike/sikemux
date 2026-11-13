@@ -85,17 +85,13 @@ security-framework-sys = { version = "2", features = ["OSX_10_15"] }
 simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp", "std"] }
 smallvec = { version = "1", default-features = false, features = ["const_new"] }
 tokio-util = { version = "0.7", features = ["codec", "io-util", "rt"] }
-toml_datetime = { version = "1", default-features = false, features = ["serde", "std"] }
-toml_parser = { version = "1", default-features = false, features = ["std"] }
 tracing = { version = "0.1", default-features = false, features = ["log"] }
 zeroize = { version = "1", features = ["derive"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 data-encoding = { version = "2", default-features = false, features = ["alloc"] }
 libc = { version = "0.2" }
+once_cell = { version = "1" }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", default-features = false, features = ["visit"] }
-toml_datetime = { version = "1" }
-toml_parser = { version = "1" }
-winnow = { version = "1" }
 
 ### END HAKARI SECTION

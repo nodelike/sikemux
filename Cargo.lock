@@ -13729,12 +13729,9 @@ dependencies = [
  "time-macros",
  "tokio-rustls",
  "tokio-util",
- "toml_datetime 1.1.1+spec-1.1.0",
- "toml_parser",
  "tracing",
  "url",
  "uuid",
- "winnow 1.0.4",
  "zeroize",
 ]
 
