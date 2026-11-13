@@ -19,7 +19,7 @@ use sikemux_calls::mods::AllowParams;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[
-    section(Mods, "Mods", "mods mod panel panels html page dashboard widget custom make own approve allow writes take back turn off remove pin"),
+    section(Mods, "Mods", "mods mod panel panels html page dashboard widget custom make own approve allow writes connect network internet origins take back turn off remove pin"),
 ];
 
 /// What a mod reads and may change, as its row says it.
@@ -36,6 +36,13 @@ fn about(shown: &ModInfo) -> SharedString {
         said.push(match shown.allowed {
             true => t!("changes {names} (allowed)", names = names),
             false => t!("changes {names} (asks first)", names = names),
+        });
+    }
+    if !shown.connect.is_empty() {
+        let origins = shown.connect.join(", ");
+        said.push(match shown.allowed {
+            true => t!("reaches {origins} (allowed)", origins = origins),
+            false => t!("reaches {origins} (asks first)", origins = origins),
         });
     }
     if shown.project.is_some() {
@@ -66,13 +73,15 @@ fn controls(shown: &ModInfo, this: &Entity<Workbench>) -> AnyElement {
             })
         });
     let (taking, taken) = (this.clone(), shown.id.clone());
-    let take_back = (shown.allowed && !shown.writes.is_empty()).then(|| {
-        button("take-back", t!("Take back writes")).on_click(move |_, _, cx| {
+    let asks = !shown.writes.is_empty() || !shown.connect.is_empty();
+    let take_back = (shown.allowed && asks).then(|| {
+        button("take-back", t!("Take back approval")).on_click(move |_, _, cx| {
             let id = taken.clone();
             taking.update(cx, |bench, _| {
                 bench.target().call_typed::<call::AllowMod>(AllowParams {
                     id: id.clone(),
                     writes: None,
+                    connect: Vec::new(),
                 })
             })
         })
@@ -127,7 +136,7 @@ pub fn render(
     };
     let folder = list.map(|list| {
         t!(
-            "Each mod is a folder of {folder}. A mod reads only what its mod.json names, and asks you once before it changes anything.",
+            "Each mod is a folder of {folder}. A mod reads only what its mod.json names, and asks you once before it changes anything or reaches the internet.",
             folder = list.folder.display()
         )
     });

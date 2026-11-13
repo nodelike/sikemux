@@ -207,10 +207,14 @@ pub(in super::super) async fn write(
         )
         .into());
     }
-    if !core.mods().allowed(&asked.id, &manifest.writes) {
+    if !core
+        .mods()
+        .allowed(&asked.id, &manifest.writes, &manifest.connect)
+    {
         return Ok(BridgeWrite::Ask {
             name: manifest.name,
             writes: manifest.writes,
+            connect: manifest.connect,
         });
     }
     let done = run(core, client, wanted.reach, asked.params, asked.project).await?;

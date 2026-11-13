@@ -27,6 +27,7 @@ use sikemux_calls::mods::AllowParams;
 use sikemux_calls::mods::BadgeParams;
 use sikemux_calls::mods::BridgeParams;
 use sikemux_calls::mods::BridgeWrite;
+use sikemux_calls::mods::ModAsk;
 use sikemux_calls::mods::ModParams;
 
 const BRIDGE: &str = include_str!("mod_pane/bridge.js");
@@ -64,6 +65,9 @@ pub struct ModPane {
     gathering: bool,
     /// Counts the pages shown, so an answer meant for one shown before is dropped.
     generation: u64,
+    /// The writes and origins the person was last asked to allow on opening the page, so the
+    /// page reading again does not ask again.
+    asked: Option<(Vec<String>, Vec<String>)>,
 }
 
 impl ModPane {
@@ -86,6 +90,7 @@ impl ModPane {
             watches: BTreeMap::new(),
             gathering: false,
             generation: 0,
+            asked: None,
         }
     }
 
@@ -170,9 +175,11 @@ impl ModPane {
                 pane.reading = false;
                 match answer {
                     Ok(answer) => {
-                        let html = answer.html.as_str();
                         pane.problem = None;
-                        pane.present(html, window, cx);
+                        pane.present(&answer.html, window, cx);
+                        if let Some(asking) = answer.ask {
+                            pane.ask_on_open(asking, cx);
+                        }
                     }
                     Err(problem) => pane.problem = Some(problem.into()),
                 }
@@ -289,8 +296,17 @@ impl ModPane {
         cx.spawn(async move |this, cx| {
             let answer = write.await;
             let _ = this.update(cx, |pane, cx| match answer {
-                Ok(BridgeWrite::Ask { name, writes }) => {
-                    pane.ask((generation, id), name, writes, asked, cx)
+                Ok(BridgeWrite::Ask {
+                    name,
+                    writes,
+                    connect,
+                }) => {
+                    let asking = ModAsk {
+                        name,
+                        writes,
+                        connect,
+                    };
+                    pane.ask(asking, Some(((generation, id), asked)), cx)
                 }
                 Ok(BridgeWrite::Done(done)) => pane.answer_to(generation, id, Ok(done)),
                 Err(error) => pane.answer_to(generation, id, Err(error)),
@@ -299,32 +315,29 @@ impl ModPane {
         .detach();
     }
 
-    fn ask(
-        &self,
-        (generation, id): (u64, u64),
-        name: String,
-        writes: Vec<String>,
-        asked: BridgeParams,
-        cx: &mut Context<Self>,
-    ) {
-        let listed: Vec<String> = writes.iter().map(|write| said(write)).collect();
-        let body = t!(
-            "{name} asks to {writes}. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.",
-            name = name,
-            writes = listed.join(", ")
-        );
+    /// Asks the person, once for what the mod declares now, to let the page reach the origins
+    /// it names; until they do, its page is closed to the network.
+    fn ask_on_open(&mut self, asking: ModAsk, cx: &mut Context<Self>) {
+        let declared = (asking.writes.clone(), asking.connect.clone());
+        if self.asked.as_ref() != Some(&declared) {
+            self.asked = Some(declared);
+            self.ask(asking, None, cx);
+        }
+    }
+
+    /// Asks the person to allow all `asking` declares, then runs the write `pending` waits on.
+    fn ask(&self, asking: ModAsk, pending: Option<Pending>, cx: &mut Context<Self>) {
+        let (title, body) = asked_of(&asking);
         let pane = cx.weak_entity();
         let _ = self.bench.update(cx, |bench, cx| {
             bench.confirm(
-                t!("Allow {name} to make changes?", name = name),
+                title,
                 body,
                 t!("Allow"),
                 false,
                 move |_, allowed, _, cx| {
-                    let (writes, asked) = (writes.clone(), asked.clone());
-                    let _ = pane.update(cx, |pane, cx| {
-                        pane.allowed((generation, id), allowed, writes, asked, cx)
-                    });
+                    let (asking, pending) = (asking.clone(), pending.clone());
+                    let _ = pane.update(cx, |pane, cx| pane.allowed(allowed, asking, pending, cx));
                 },
                 cx,
             )
@@ -333,23 +346,34 @@ impl ModPane {
 
     fn allowed(
         &mut self,
-        (generation, id): (u64, u64),
         allowed: bool,
-        writes: Vec<String>,
-        asked: BridgeParams,
+        asking: ModAsk,
+        pending: Option<Pending>,
         cx: &mut Context<Self>,
     ) {
         if !allowed {
-            let refused = Err("the person did not allow this mod's writes".into());
-            return self.answer_to(generation, id, refused);
+            if let Some(((generation, id), _)) = pending {
+                let refused = Err("the person did not allow this mod's writes".into());
+                self.answer_to(generation, id, refused);
+            }
+            return;
         }
         let allow = self.core.request_typed::<call::AllowMod>(AllowParams {
             id: self.id.clone(),
-            writes: Some(writes),
+            writes: Some(asking.writes),
+            connect: asking.connect.clone(),
         });
+        let reaches = !asking.connect.is_empty();
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
-            let answer = match allow.await {
+            let allowed = allow.await;
+            if reaches && allowed.is_ok() {
+                let _ = this.update(cx, |pane, cx| pane.files_moved(cx));
+            }
+            let Some(((generation, id), asked)) = pending else {
+                return;
+            };
+            let answer = match allowed {
                 Ok(_) => core.request_typed::<call::ModWrite>(asked).await,
                 Err(error) => Err(error),
             };
@@ -446,6 +470,44 @@ fn outcome(answer: Result<Value, String>) -> String {
     match answer {
         Ok(value) => format!("null,{value}"),
         Err(error) => format!("{},null", json!(error)),
+    }
+}
+
+/// A write the page waits on while the person is asked: which page and request it answers, and
+/// the write.
+type Pending = ((u64, u64), BridgeParams);
+
+/// The title and words the person is asked to allow `asking` with.
+fn asked_of(asking: &ModAsk) -> (String, String) {
+    let name = &asking.name;
+    let writes: Vec<String> = asking.writes.iter().map(|write| said(write)).collect();
+    let (writes, origins) = (writes.join(", "), asking.connect.join(", "));
+    match (writes.is_empty(), origins.is_empty()) {
+        (false, true) => (
+            t!("Allow {name} to make changes?", name = name),
+            t!(
+                "{name} asks to {writes}. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.",
+                name = name,
+                writes = writes
+            ),
+        ),
+        (true, _) => (
+            t!("Allow {name} to reach the internet?", name = name),
+            t!(
+                "{name} asks to reach {origins}, and nowhere else. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.",
+                name = name,
+                origins = origins
+            ),
+        ),
+        (false, false) => (
+            t!("Allow {name} to make changes and reach the internet?", name = name),
+            t!(
+                "{name} asks to {writes}, and to reach {origins} and nowhere else. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.",
+                name = name,
+                writes = writes,
+                origins = origins
+            ),
+        ),
     }
 }
 

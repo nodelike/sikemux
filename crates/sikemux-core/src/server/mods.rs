@@ -11,7 +11,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::parts::Parts;
 pub use sikemux_calls::mods::{
-    AllowParams, BadgeParams, ModExample, ModInfo, ModList, ModPage, ModParams, OffParams,
+    AllowParams, BadgeParams, ModAsk, ModExample, ModInfo, ModList, ModPage, ModParams, OffParams,
     PinModParams,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -62,6 +62,8 @@ struct Manifest {
     reads: Vec<String>,
     #[serde(default)]
     writes: Vec<String>,
+    #[serde(default)]
+    connect: Vec<String>,
 }
 
 /// What the person decided about the mods, kept in the data folder rather than beside the mods,
@@ -72,6 +74,9 @@ struct Settled {
     /// The writes the person allowed each mod, by id.
     #[serde(default)]
     allowed: BTreeMap<String, Vec<String>>,
+    /// The origins the person allowed each mod's page to reach with those writes, by id.
+    #[serde(default)]
+    connects: BTreeMap<String, Vec<String>>,
     /// The project folder each pinned mod shows in, by id.
     #[serde(default)]
     pinned: BTreeMap<String, String>,
@@ -99,15 +104,17 @@ impl Mods {
         }
     }
 
-    /// Whether the person allowed `writes`, all a mod declares, for the mod `id`.
-    fn allowed(&self, id: &str, writes: &[String]) -> bool {
-        writes.is_empty()
-            || self
-                .settled
-                .locked()
-                .allowed
-                .get(id)
-                .is_some_and(|allowed| allowed == writes)
+    /// Whether the person allowed `writes` and `connect`, all a mod declares, for the mod `id`.
+    fn allowed(&self, id: &str, writes: &[String], connect: &[String]) -> bool {
+        if writes.is_empty() && connect.is_empty() {
+            return true;
+        }
+        let settled = self.settled.locked();
+        settled
+            .allowed
+            .get(id)
+            .is_some_and(|allowed| allowed == writes)
+            && settled.connects.get(id).map_or(&[][..], Vec::as_slice) == connect
     }
 
     fn is_off(&self, id: &str) -> bool {
@@ -165,7 +172,58 @@ fn read_manifest(folder: &Path) -> Result<Manifest, String> {
         declared.sort();
         declared.dedup();
     }
+    manifest.connect = manifest
+        .connect
+        .iter()
+        .map(|entry| origin(entry))
+        .collect::<Result<_, _>>()?;
+    manifest.connect.truncate(MAX_DECLARED);
+    manifest.connect.sort();
+    manifest.connect.dedup();
     Ok(manifest)
+}
+
+/// `entry` as an origin a mod's page may reach: `https://` or `wss://`, a host whose first
+/// label may be `*` for any one below it, and maybe a port.
+fn origin(entry: &str) -> Result<String, String> {
+    let shown: String = entry.chars().take(80).collect();
+    let bad = || {
+        format!(
+            "\"{shown}\" in its {MANIFEST}'s connect is not an origin such as https://api.example.com"
+        )
+    };
+    let entry = entry.trim().to_ascii_lowercase();
+    let (scheme, rest) = entry.split_once("://").ok_or_else(bad)?;
+    let (host, port) = match rest.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (rest, None),
+    };
+    let port_fits = |port: &str| {
+        port.bytes().all(|byte| byte.is_ascii_digit())
+            && port.parse::<u16>().is_ok_and(|port| port > 0)
+    };
+    let label_fits = |label: &str| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    };
+    let (named, least) = match host.strip_prefix("*.") {
+        Some(named) => (named, 2),
+        None => (host, 1),
+    };
+    let fits = matches!(scheme, "https" | "wss")
+        && port.is_none_or(port_fits)
+        && host.len() <= 253
+        && named.split('.').count() >= least
+        && named.split('.').all(label_fits);
+    match fits {
+        true => Ok(entry),
+        false => Err(bad()),
+    }
 }
 
 fn info(id: String, folder: &Path) -> ModInfo {
@@ -181,6 +239,7 @@ fn info(id: String, folder: &Path) -> ModInfo {
             description: manifest.description,
             reads: manifest.reads,
             writes: manifest.writes,
+            connect: manifest.connect,
             problem: None,
             allowed: false,
             badge: None,
@@ -194,6 +253,7 @@ fn info(id: String, folder: &Path) -> ModInfo {
             description: String::new(),
             reads: Vec::new(),
             writes: Vec::new(),
+            connect: Vec::new(),
             problem: Some(problem),
             allowed: false,
             badge: None,
@@ -244,7 +304,9 @@ pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
     .await?;
     let badges = core.mods().badges.locked();
     for shown in &mut mods.mods {
-        shown.allowed = core.mods().allowed(&shown.id, &shown.writes);
+        shown.allowed = core
+            .mods()
+            .allowed(&shown.id, &shown.writes, &shown.connect);
         shown.badge = badges.get(&shown.id).cloned();
         let settled = core.mods().settled.locked();
         shown.project = settled.pinned.get(&shown.id).cloned();
@@ -258,25 +320,36 @@ fn settled_changed(core: &Core) {
     core.changed(What::ReadIn(Topic::Mods, None, Some(Vec::new())));
 }
 
-/// Keeps what the person decided about a mod's writes. An approval holds only for the writes
-/// the mod declares now, so one shown before its `mod.json` changed is turned down.
+/// Keeps what the person decided about a mod's writes and the origins it reaches. An approval
+/// holds only for what the mod declares now, so one shown before its `mod.json` changed is
+/// turned down.
 pub(super) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<()> {
     match params.writes {
         Some(mut writes) => {
             let folder = mod_folder(core, &params.id)?;
             let manifest =
                 blocking(move || read_manifest(&folder).map_err(CoreError::from)).await?;
-            writes.sort();
-            writes.dedup();
-            if writes != manifest.writes {
-                return Err("this mod's writes changed since; open it again to be asked".into());
+            let mut connect = params.connect;
+            for declared in [&mut writes, &mut connect] {
+                declared.sort();
+                declared.dedup();
+            }
+            if writes != manifest.writes || connect != manifest.connect {
+                return Err(
+                    "what this mod asks for changed since; open it again to be asked".into(),
+                );
             }
             core.mods().settle(|settled| {
-                settled.allowed.insert(params.id, writes);
+                settled.allowed.insert(params.id.clone(), writes);
+                match connect.is_empty() {
+                    true => settled.connects.remove(&params.id),
+                    false => settled.connects.insert(params.id, connect),
+                };
             });
         }
         None => core.mods().settle(|settled| {
             settled.allowed.remove(&params.id);
+            settled.connects.remove(&params.id);
         }),
     }
     settled_changed(core);
@@ -314,17 +387,31 @@ pub(super) fn set_badge(core: &Core, params: BadgeParams) -> CoreResult<()> {
 }
 
 /// A mod's page with every local picture and font it names inlined, so a client on another
-/// host shows it as this one does.
+/// host shows it as this one does, and closed to the network but for the origins the person
+/// allowed it.
 pub(super) async fn page(core: &Arc<Core>, params: ModParams) -> CoreResult<ModPage> {
     let folder = shown_folder(core, &params.id)?;
-    blocking(move || {
-        if let Some(problem) = info(params.id, &folder).problem {
+    let id = params.id.clone();
+    let (html, shown) = blocking(move || {
+        let shown = info(params.id, &folder);
+        if let Some(problem) = &shown.problem {
             return Err(CoreError::from(format!("this mod cannot show: {problem}")));
         }
-        let html = crate::pages::build(&folder.join(PAGE))?;
-        Ok(ModPage { html })
+        Ok((crate::pages::build(&folder.join(PAGE))?, shown))
     })
-    .await
+    .await?;
+    let allowed = core.mods().allowed(&id, &shown.writes, &shown.connect);
+    let reaches = match allowed {
+        true => shown.connect.as_slice(),
+        false => &[],
+    };
+    let html = crate::pages::network_closed(&html, reaches);
+    let ask = (!allowed && !shown.connect.is_empty()).then_some(ModAsk {
+        name: shown.name,
+        writes: shown.writes,
+        connect: shown.connect,
+    });
+    Ok(ModPage { html, ask })
 }
 
 fn mod_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
@@ -417,6 +504,7 @@ pub(super) async fn remove(core: &Arc<Core>, params: ModParams) -> CoreResult<()
     .await?;
     core.mods().settle(|settled| {
         settled.allowed.remove(&params.id);
+        settled.connects.remove(&params.id);
         settled.pinned.remove(&params.id);
         settled.off.remove(&params.id);
     });
