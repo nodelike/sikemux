@@ -55,7 +55,7 @@ pub struct AccountEvent {
     pub id: EventId,
     pub r#type: AccountEventType,
     pub at: String,
-    /// The device the event is about. Only on device events.
+    /// The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key: Option<DeviceKey>,
     /// That device's role. Only on device events.
@@ -89,6 +89,8 @@ pub enum AccountEventType {
     StashSeen,
     #[serde(rename = "vault.changed")]
     VaultChanged,
+    #[serde(rename = "mods.changed")]
+    ModsChanged,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,

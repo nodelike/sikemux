@@ -867,6 +867,85 @@
           "body": "VaultUses"
         }
       }
+    },
+    {
+      "method": "post",
+      "path": "/v1/mods/documents",
+      "operationId": "pushModDocuments",
+      "summary": "Store the mod documents this host changed, each only if its revision is still the server's",
+      "auth": "host",
+      "request": "ModsPush",
+      "responses": {
+        "200": {
+          "description": "What was stored and what conflicted. When anything was stored, the account's other hosts hear mods.changed.",
+          "body": "ModsPushed"
+        },
+        "400": {
+          "description": "A document is named twice.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "This host does not hold the vault key at that generation.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one.",
+          "body": "ApiError"
+        },
+        "413": {
+          "description": "Storing the push would take the account past 64 MiB of sealed mod documents, or the request is over 4 MiB.",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "This host pushed more than 30 times in the last minute.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/mods/documents",
+      "operationId": "pullModDocuments",
+      "summary": "The mod documents and purges after a seq, a page at a time",
+      "auth": "host",
+      "query": {
+        "since": "ModSeqParam"
+      },
+      "responses": {
+        "200": {
+          "description": "Up to 500 documents or 4 MiB of sealed text, oldest first, with the purges among them.",
+          "body": "ModsPulled"
+        },
+        "400": {
+          "description": "since is missing.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/mods/{mod}/documents",
+      "operationId": "purgeModDocuments",
+      "summary": "Remove every document of one mod from the account, when the person removes the mod",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "Purged. The account's other hosts hear mods.changed and see the purge in their next pull.",
+          "body": "ModsPurged"
+        },
+        "400": {
+          "description": "The mod id is not valid.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        }
+      }
     }
   ]
 }

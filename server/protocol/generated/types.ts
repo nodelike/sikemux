@@ -36,7 +36,7 @@ export interface AccountEvent {
   id: EventId;
   type: AccountEventType;
   at: string;
-  /** The device the event is about. Only on device events. */
+  /** The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own. */
   key?: DeviceKey;
   /** That device's role. Only on device events. */
   role?: DeviceRole;
@@ -55,7 +55,8 @@ export type AccountEventType =
   | "stash.changed"
   | "stash.removed"
   | "stash.seen"
-  | "vault.changed";
+  | "vault.changed"
+  | "mods.changed";
 export const accountEventTypeValues: readonly AccountEventType[] = [
   "device.added",
   "device.changed",
@@ -66,6 +67,7 @@ export const accountEventTypeValues: readonly AccountEventType[] = [
   "stash.removed",
   "stash.seen",
   "vault.changed",
+  "mods.changed",
 ];
 
 /** The name, email and picture the account signed in with, for a host to show who it belongs to. */
@@ -598,6 +600,96 @@ export interface MinimumVersions {
   linux: ChannelVersions;
   ios: ChannelVersions;
   android: ChannelVersions;
+}
+
+/** A document the push did not store, because another host wrote it first or it was purged. */
+export interface ModConflict {
+  mod: ModId;
+  id: ModDocumentId;
+  /** The server's copy, for the host to merge and push again at its revision, or null when the server holds none: push again at revision 0. */
+  current: ModDocument | null;
+}
+
+/** The latest sealed copy of one mod document. */
+export interface ModDocument {
+  mod: ModId;
+  id: ModDocumentId;
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  /** The document was removed; the sealed copy is its marker. */
+  removed: boolean;
+  revision: VaultRevision;
+  seq: ModSeq;
+  updatedBy: DeviceKey;
+  updatedAt: string;
+}
+
+/** A mod document's id, which the host derives from its collection and id under the vault key, in lowercase hex. The server never sees either. */
+export type ModDocumentId = string;
+
+/** One document a host stores, built on the revision it last saw. */
+export interface ModDocumentPut {
+  mod: ModId;
+  id: ModDocumentId;
+  sealed: VaultSealed;
+  removed: boolean;
+  /** The document's revision as the host last saw it, or 0 for one the server does not hold. */
+  revision: number;
+}
+
+/** A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash. */
+export type ModId = string;
+
+/** A mod whose documents were all removed from the account, at that seq. */
+export interface ModPurge {
+  mod: ModId;
+  seq: ModSeq;
+}
+
+/** Where a change stands in the account's mod changes. Every stored document and purge takes the next one, so a host asks for what changed after the last it saw. */
+export type ModSeq = number;
+
+/** A ModSeq in a query string. */
+export type ModSeqParam = string;
+
+/** What changed after the seq asked for, oldest first. Apply documents and purges together in seq order. */
+export interface ModsPulled {
+  documents: ModDocument[];
+  purges: ModPurge[];
+  /** The seq to ask after next time. */
+  next: ModSeq;
+  /** The page was full: ask again after next straight away. */
+  more: boolean;
+  /** The seq asked for is older than removals the server has since forgotten, or newer than any it gave, so this answer starts over from 0. Once the last page arrives, drop every local document these pages did not list. */
+  reset: boolean;
+}
+
+export interface ModsPurged {
+  /** The purge's seq. */
+  seq: ModSeq;
+}
+
+/** Documents a host changed since its last push. Each is stored only if its revision is still the server's. */
+export interface ModsPush {
+  /** The generation of the key every document is sealed under, which must be current. */
+  generation: VaultGeneration;
+  /** Each document once, at most 4 MiB of request in all. */
+  documents: ModDocumentPut[];
+}
+
+export interface ModsPushed {
+  /** The account's latest seq after the push. */
+  seq: ModSeq;
+  stored: ModStored[];
+  conflicts: ModConflict[];
+}
+
+/** A document the push stored. */
+export interface ModStored {
+  mod: ModId;
+  id: ModDocumentId;
+  revision: VaultRevision;
+  seq: ModSeq;
 }
 
 /** How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release. */
@@ -1289,6 +1381,19 @@ export interface Definitions {
   LiveRole: LiveRole;
   LiveServerMessage: LiveServerMessage;
   MinimumVersions: MinimumVersions;
+  ModConflict: ModConflict;
+  ModDocument: ModDocument;
+  ModDocumentId: ModDocumentId;
+  ModDocumentPut: ModDocumentPut;
+  ModId: ModId;
+  ModPurge: ModPurge;
+  ModSeq: ModSeq;
+  ModSeqParam: ModSeqParam;
+  ModsPulled: ModsPulled;
+  ModsPurged: ModsPurged;
+  ModsPush: ModsPush;
+  ModsPushed: ModsPushed;
+  ModStored: ModStored;
   Network: Network;
   PendingHost: PendingHost;
   Platform: Platform;

@@ -1924,6 +1924,178 @@
           }
         }
       }
+    },
+    "/v1/mods/documents": {
+      "post": {
+        "operationId": "pushModDocuments",
+        "summary": "Store the mod documents this host changed, each only if its revision is still the server's",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ModsPush" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What was stored and what conflicted. When anything was stored, the account's other hosts hear mods.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModsPushed" }
+              }
+            }
+          },
+          "400": {
+            "description": "A document is named twice.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "This host does not hold the vault key at that generation.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The generation is not the current one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "413": {
+            "description": "Storing the push would take the account past 64 MiB of sealed mod documents, or the request is over 4 MiB.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "This host pushed more than 30 times in the last minute.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "pullModDocuments",
+        "summary": "The mod documents and purges after a seq, a page at a time",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/ModSeqParam" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Up to 500 documents or 4 MiB of sealed text, oldest first, with the purges among them.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModsPulled" }
+              }
+            }
+          },
+          "400": {
+            "description": "since is missing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mods/{mod}/documents": {
+      "delete": {
+        "operationId": "purgeModDocuments",
+        "summary": "Remove every document of one mod from the account, when the person removes the mod",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "mod",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Purged. The account's other hosts hear mods.changed and see the purge in their next pull.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModsPurged" }
+              }
+            }
+          },
+          "400": {
+            "description": "The mod id is not valid.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1988,7 +2160,7 @@
           "type": { "$ref": "#/components/schemas/AccountEventType" },
           "at": { "type": "string", "format": "date-time" },
           "key": {
-            "description": "The device the event is about. Only on device events.",
+            "description": "The device the event is about, on device events. On mods.changed, the host that wrote, which never hears its own.",
             "$ref": "#/components/schemas/DeviceKey"
           },
           "role": {
@@ -2018,7 +2190,8 @@
           "stash.changed",
           "stash.removed",
           "stash.seen",
-          "vault.changed"
+          "vault.changed",
+          "mods.changed"
         ]
       },
       "AccountProfile": {
@@ -2967,6 +3140,191 @@
           "android": { "$ref": "#/components/schemas/ChannelVersions" }
         },
         "required": ["macos", "linux", "ios", "android"],
+        "additionalProperties": false
+      },
+      "ModConflict": {
+        "description": "A document the push did not store, because another host wrote it first or it was purged.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "id": { "$ref": "#/components/schemas/ModDocumentId" },
+          "current": {
+            "description": "The server's copy, for the host to merge and push again at its revision, or null when the server holds none: push again at revision 0.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/ModDocument" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["mod", "id", "current"],
+        "additionalProperties": false
+      },
+      "ModDocument": {
+        "description": "The latest sealed copy of one mod document.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "id": { "$ref": "#/components/schemas/ModDocumentId" },
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "removed": {
+            "description": "The document was removed; the sealed copy is its marker.",
+            "type": "boolean"
+          },
+          "revision": { "$ref": "#/components/schemas/VaultRevision" },
+          "seq": { "$ref": "#/components/schemas/ModSeq" },
+          "updatedBy": { "$ref": "#/components/schemas/DeviceKey" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "mod",
+          "id",
+          "generation",
+          "sealed",
+          "removed",
+          "revision",
+          "seq",
+          "updatedBy",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "ModDocumentId": {
+        "description": "A mod document's id, which the host derives from its collection and id under the vault key, in lowercase hex. The server never sees either.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "ModDocumentPut": {
+        "description": "One document a host stores, built on the revision it last saw.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "id": { "$ref": "#/components/schemas/ModDocumentId" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "removed": { "type": "boolean" },
+          "revision": {
+            "description": "The document's revision as the host last saw it, or 0 for one the server does not hold.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999999999
+          }
+        },
+        "required": ["mod", "id", "sealed", "removed", "revision"],
+        "additionalProperties": false
+      },
+      "ModId": {
+        "description": "A mod's id: the name of its folder, in lowercase letters, digits and dashes, not starting with a dash.",
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+      },
+      "ModPurge": {
+        "description": "A mod whose documents were all removed from the account, at that seq.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "seq": { "$ref": "#/components/schemas/ModSeq" }
+        },
+        "required": ["mod", "seq"],
+        "additionalProperties": false
+      },
+      "ModSeq": {
+        "description": "Where a change stands in the account's mod changes. Every stored document and purge takes the next one, so a host asks for what changed after the last it saw.",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "ModSeqParam": {
+        "description": "A ModSeq in a query string.",
+        "type": "string",
+        "pattern": "^(0|[1-9][0-9]{0,15})$"
+      },
+      "ModsPulled": {
+        "description": "What changed after the seq asked for, oldest first. Apply documents and purges together in seq order.",
+        "type": "object",
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModDocument" }
+          },
+          "purges": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModPurge" }
+          },
+          "next": {
+            "description": "The seq to ask after next time.",
+            "$ref": "#/components/schemas/ModSeq"
+          },
+          "more": {
+            "description": "The page was full: ask again after next straight away.",
+            "type": "boolean"
+          },
+          "reset": {
+            "description": "The seq asked for is older than removals the server has since forgotten, or newer than any it gave, so this answer starts over from 0. Once the last page arrives, drop every local document these pages did not list.",
+            "type": "boolean"
+          }
+        },
+        "required": ["documents", "purges", "next", "more", "reset"],
+        "additionalProperties": false
+      },
+      "ModsPurged": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "description": "The purge's seq.",
+            "$ref": "#/components/schemas/ModSeq"
+          }
+        },
+        "required": ["seq"],
+        "additionalProperties": false
+      },
+      "ModsPush": {
+        "description": "Documents a host changed since its last push. Each is stored only if its revision is still the server's.",
+        "type": "object",
+        "properties": {
+          "generation": {
+            "description": "The generation of the key every document is sealed under, which must be current.",
+            "$ref": "#/components/schemas/VaultGeneration"
+          },
+          "documents": {
+            "description": "Each document once, at most 4 MiB of request in all.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModDocumentPut" },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": ["generation", "documents"],
+        "additionalProperties": false
+      },
+      "ModsPushed": {
+        "type": "object",
+        "properties": {
+          "seq": {
+            "description": "The account's latest seq after the push.",
+            "$ref": "#/components/schemas/ModSeq"
+          },
+          "stored": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModStored" }
+          },
+          "conflicts": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ModConflict" }
+          }
+        },
+        "required": ["seq", "stored", "conflicts"],
+        "additionalProperties": false
+      },
+      "ModStored": {
+        "description": "A document the push stored.",
+        "type": "object",
+        "properties": {
+          "mod": { "$ref": "#/components/schemas/ModId" },
+          "id": { "$ref": "#/components/schemas/ModDocumentId" },
+          "revision": { "$ref": "#/components/schemas/VaultRevision" },
+          "seq": { "$ref": "#/components/schemas/ModSeq" }
+        },
+        "required": ["mod", "id", "revision", "seq"],
         "additionalProperties": false
       },
       "Network": {
