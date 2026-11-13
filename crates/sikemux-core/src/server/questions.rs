@@ -651,13 +651,20 @@ impl Questions {
             .collect()
     }
 
-    /// Whether what the person types to `agent_id` may answer an open question whose answer is
-    /// never kept: one it asked, or one a worker of its asked that went to it first. A question
-    /// a linked host took to put to the person there has no call here, and counts all the same.
-    pub(crate) fn hears_hidden(&self, agent_id: &str) -> bool {
-        (self.state.locked().open.iter()).any(|question| {
-            question.hides_answer() && (question.agent_id == agent_id || question.went_to(agent_id))
-        })
+    /// The open question whose answer is never kept that what the person types to `agent_id`
+    /// answers, where its chat shows it and its composer says so: the oldest it asked of the
+    /// person, or one `docked` in the chat's away block. One still with its asker's lead is not
+    /// the person's yet. A question a linked host took to put to the person there has no call
+    /// here, and counts all the same.
+    pub(crate) fn hidden_for(&self, agent_id: &str, docked: &[String]) -> Option<String> {
+        (self.state.locked().open.iter())
+            .filter(|question| {
+                question.hides_answer()
+                    && question.asks_person()
+                    && (question.agent_id == agent_id || docked.contains(&question.id))
+            })
+            .min_by_key(|question| question.at)
+            .map(|question| question.id.clone())
     }
 
     pub(crate) fn is_open(&self, id: &str) -> bool {
@@ -1060,6 +1067,11 @@ fn raise_of(
     }
     if needs_choice && choices.len() < 2 {
         missing.push("choices: at least two options".to_owned());
+    }
+    if !needs_choice && choices.is_empty() {
+        missing.push(
+            "choices: at least one that needs no credential, such as \"Skip, use something else\", so the person is never stuck; what they type reaches you only as a private file".to_owned(),
+        );
     }
     if needs_choice && pick.is_none() {
         missing.push("pick: the choice you would take".to_owned());
@@ -2015,7 +2027,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
         core.harness().questions.changed(&mut state);
     };
     // Each answer as the asker gets it, with what was done about it when that is not the answer itself.
-    let mut letters: Vec<(Question, String, Option<String>, Vec<String>)> = Vec::new();
+    let mut letters: Vec<Letter> = Vec::new();
     for (question, given, text) in taken {
         if let Some(host) = &question.from_host {
             let params = serde_json::to_value(&given).map_err(|error| error.to_string())?;
@@ -2038,27 +2050,34 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             }
             continue;
         }
-        let told = match (&question.approval, question.secret) {
-            (Some(approval), _) => super::approvals::settle(core, approval, given.choice)
+        let typed = (given.answer.clone())
+            .map(|typed| without_attached(&typed, &given.paths))
+            .filter(|typed| !typed.trim().is_empty());
+        let told = match (&question.approval, question.hides_answer(), typed) {
+            (Some(approval), ..) => super::approvals::settle(core, approval, given.choice)
                 .await
-                .map(|done| (text, Some(done))),
-            (None, true) => {
-                tokio::task::spawn_blocking(move || sikemux_keychain::reference::resolve(&text))
-                    .await
-                    .map_err(|error| error.to_string())
-                    .flatten()
-                    .and_then(|secret| core.harness().questions.keep_secret(&question, &secret))
-                    .map(|path| (secret_note(&path), None))
-            }
-            (None, false) => Ok((text, None)),
+                .map(|done| (text, Some(done), false)),
+            (None, true, Some(typed)) => kept_privately(core, &question, typed).await.map(|note| {
+                match picked_labels(&question, &given) {
+                    Some(picked) => (format!("{picked}\n\n{note}"), None, true),
+                    None => (note, None, true),
+                }
+            }),
+            (None, ..) => Ok((text, None, false)),
         };
         match told {
-            Ok((text, done)) => letters.push((question, text, done, given.paths)),
+            Ok((text, done, private)) => letters.push(Letter {
+                question,
+                text,
+                done,
+                paths: given.paths,
+                private,
+            }),
             Err(error) => {
                 reopen(
                     letters
                         .into_iter()
-                        .map(|(question, ..)| question)
+                        .map(|letter| letter.question)
                         .chain([question])
                         .collect(),
                 );
@@ -2068,19 +2087,26 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
     }
     let mut askers: Vec<&str> = letters
         .iter()
-        .map(|(question, ..)| question.agent_id.as_str())
+        .map(|letter| letter.question.agent_id.as_str())
         .collect();
     askers.sort_unstable();
     askers.dedup();
     let mut failed = None;
     for asker in askers {
-        let own: Vec<&(Question, String, Option<String>, Vec<String>)> = letters
+        let own: Vec<&Letter> = letters
             .iter()
-            .filter(|(question, ..)| question.agent_id == asker)
+            .filter(|letter| letter.question.agent_id == asker)
             .collect();
         let sent = own
             .iter()
-            .map(|(question, text, done, paths)| {
+            .map(|letter| {
+                let Letter {
+                    question,
+                    text,
+                    done,
+                    paths,
+                    private,
+                } = letter;
                 let note = match (done, &question.assumption) {
                     (Some(done), _) => done.clone(),
                     (None, Some(assumption)) => format!(
@@ -2089,7 +2115,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                     (None, None) => "The person answered the question you asked; go on with it.".to_owned(),
                 };
                 (
-                    answered(question, &question.asked),
+                    answered(question, &question.asked, *private),
                     text.clone(),
                     note,
                     paths.clone(),
@@ -2102,15 +2128,15 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             Err(error) => {
                 reopen(
                     own.into_iter()
-                        .map(|(question, ..)| question.clone())
+                        .map(|letter| letter.question.clone())
                         .collect(),
                 );
                 failed = Some(error);
                 continue;
             }
         }
-        for (question, text, ..) in own {
-            copy_to_lead(core, question, text).await;
+        for letter in own.into_iter().filter(|letter| !letter.private) {
+            copy_to_lead(core, &letter.question, &letter.text).await;
         }
     }
     match failed {
@@ -2119,15 +2145,65 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
     }
 }
 
+/// An answer as its asker is told it, and whether what the person typed went to a private file.
+struct Letter {
+    question: Question,
+    text: String,
+    done: Option<String>,
+    paths: Vec<String>,
+    private: bool,
+}
+
+/// What the person typed for a question whose answer is never kept, put in a file only their
+/// account can open: what the asker is told in its place.
+async fn kept_privately(
+    core: &Arc<Core>,
+    question: &Question,
+    typed: String,
+) -> Result<String, String> {
+    let secret = tokio::task::spawn_blocking(move || sikemux_keychain::reference::resolve(&typed))
+        .await
+        .map_err(|error| error.to_string())
+        .flatten()?;
+    let path = core.harness().questions.keep_secret(question, &secret)?;
+    Ok(secret_note(&path))
+}
+
+/// The labels of the choices picked in `given`, when it picked any.
+fn picked_labels(question: &Question, given: &AnswerParams) -> Option<String> {
+    let labels: Vec<&str> = (given.choice.iter())
+        .chain(given.choices.iter().flatten())
+        .filter_map(|&choice| Some(question.choices.get(choice)?.label.as_str()))
+        .collect();
+    (!labels.is_empty()).then(|| labels.join(", "))
+}
+
+/// The person's words to `agent_id` while a question whose answer is never kept waits on what
+/// they say to it: they answer that question privately and never reach the agent as a message,
+/// whichever client sent them. Says whether they did.
+pub(crate) fn answer_typed(core: &Arc<Core>, agent_id: &str, text: &str) -> bool {
+    if text.trim().is_empty() {
+        return false;
+    }
+    let docked = super::chief::away_calls(core, agent_id);
+    let Some(id) = core.harness().questions.hidden_for(agent_id, &docked) else {
+        return false;
+    };
+    let (core, text) = (core.clone(), text.to_owned());
+    tokio::spawn(async move {
+        if let Err(error) = person_calls::answer_typed(&core, id, text).await {
+            eprintln!("sikemux core: a private answer typed in the chat was not taken: {error}");
+        }
+    });
+    true
+}
+
 /// The person's answer, copied to the lead a question went to first.
 async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str) {
-    if let (
-        false,
-        Stage::Person {
-            lead: Some((lead_id, _)),
-            ..
-        },
-    ) = (question.secret, &question.stage)
+    if let Stage::Person {
+        lead: Some((lead_id, _)),
+        ..
+    } = &question.stage
     {
         let note = format!(
             "The person answered {}'s question, which went to you first. {} has the answer too.",
@@ -2137,7 +2213,7 @@ async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str) {
             core,
             lead_id.clone(),
             vec![(
-                answered(question, &question.text),
+                answered(question, &question.text, false),
                 text.to_owned(),
                 note,
                 Vec::new(),
@@ -2147,13 +2223,13 @@ async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str) {
     }
 }
 
-fn answered(question: &Question, question_text: &str) -> messages::Answered {
+fn answered(question: &Question, question_text: &str, private: bool) -> messages::Answered {
     messages::Answered {
         question: question_text.to_owned(),
         asker: question.name.clone(),
         asker_id: question.agent_id.clone(),
         cli: question.cli.clone(),
-        secret: question.secret,
+        secret: private,
     }
 }
 
@@ -2615,7 +2691,7 @@ pub(crate) async fn hand_back(core: &Arc<Core>, id: &str) -> Result<(), String> 
 async fn left_to_asker(core: &Arc<Core>, question: &Question) {
     let note = "Nobody else decides this one: the person handed it back.".to_owned();
     let letter = (
-        answered(question, &question.asked),
+        answered(question, &question.asked, false),
         LEFT_TO_ASKER.to_owned(),
         note,
         Vec::new(),
@@ -2677,7 +2753,8 @@ mod tests {
     use sikemux_process::sync::Locked;
 
     #[test]
-    fn a_question_another_host_took_still_hides_what_is_typed_to_its_asker_and_its_lead() {
+    fn a_question_another_host_took_still_takes_what_is_typed_to_its_asker_and_where_it_is_docked()
+    {
         let taken: Question = serde_json::from_value(serde_json::json!({
             "id": "question-1",
             "agentId": "worker",
@@ -2700,9 +2777,36 @@ mod tests {
         assert!(!taken.listed_for_devices(), "it has no call on this host");
         let questions = Questions::new(None, |_| true);
         questions.state.locked().open.push(taken);
-        assert!(questions.hears_hidden("worker"));
-        assert!(questions.hears_hidden("lead"));
-        assert!(!questions.hears_hidden("bystander"));
+        assert!(questions.hidden_for("worker", &[]).is_some());
+        assert!(questions.hidden_for("lead", &[]).is_none());
+        let docked = ["question-1".to_owned()];
+        assert!(questions.hidden_for("chief", &docked).is_some());
+    }
+
+    /// Read in #228: a led worker's access question opens with its lead, where no composer says
+    /// it keeps what is typed private, so a message to the worker then was taken as its answer.
+    #[test]
+    fn a_question_still_with_its_lead_takes_nothing_typed_to_its_asker() {
+        let with_lead: Question = serde_json::from_value(serde_json::json!({
+            "id": "question-2",
+            "agentId": "worker",
+            "name": "Worker",
+            "cli": "claude",
+            "project": "widget",
+            "asked": "Which token does staging take?",
+            "text": "Which token does staging take?",
+            "choices": [{ "label": "Skip, use the mock" }],
+            "blocked": true,
+            "assumption": null,
+            "secret": false,
+            "at": 1,
+            "stage": { "stage": "lead", "leadId": "lead", "leadName": "Lead", "endedAt": null },
+            "raise": { "reason": "access", "breaks": "the deploy" },
+        }))
+        .expect("a question");
+        let questions = Questions::new(None, |_| true);
+        questions.state.locked().open.push(with_lead);
+        assert!(questions.hidden_for("worker", &[]).is_none());
     }
 
     #[tokio::test]

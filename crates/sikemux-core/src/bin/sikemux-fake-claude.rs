@@ -48,6 +48,9 @@
 //! `FAKE_CLAUDE_SETTINGS_MODEL` the model its settings choose, and
 //! `FAKE_CLAUDE_MODELS`, a JSON list, the models it lists in place of its own.
 //!
+//! Asked once with `--print`, it keeps what it was sent in `fake-claude-asked.txt` where it runs
+//! and answers with nothing.
+//!
 //! An account is its `CLAUDE_CONFIG_DIR`: `auth status --json` prints its
 //! `fake-account.json`, or a signed-out status when there is none, and a usage
 //! request answers with its `fake-usage.json`, or no limits.
@@ -753,6 +756,16 @@ fn main() {
         let status =
             account_file("fake-account.json").unwrap_or_else(|| json!({ "loggedIn": false }));
         println!("{status}");
+        return;
+    }
+    if args.iter().any(|arg| arg == "--print") {
+        let mut asked = String::new();
+        let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut asked);
+        let _ = std::fs::write("fake-claude-asked.txt", &asked);
+        println!(
+            "{}",
+            json!({ "type": "result", "subtype": "success", "result": "{}" })
+        );
         return;
     }
     let resume = flag(&args, "resume");

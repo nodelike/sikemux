@@ -97,14 +97,13 @@ pub struct ChatAbove {
     /// The agent did something besides messaging other agents, which ends any
     /// loop it was in: the messages held between it and another agent go on.
     pub messages_worked: fn(&Core, &str),
-    /// Whether what the person types to `agent_id` may answer a call whose words are never kept: one
-    /// it waits on, or a question it asked or a worker of its asked through it, which the person may
-    /// as well answer in the lead's chat. Such a question counts with no call open here, as when a
-    /// linked host took it to put to the person there.
-    pub person_calls_hides_typed: fn(&Core, &str) -> bool,
     /// What the plugins set for an agent, terminal or task started in `cwd`,
     /// asked of the project that holds it.
     pub plugins_agent_environment: fn(&Core, &Path) -> BTreeMap<String, String>,
+    /// Takes what the person typed to `agent_id` as the private answer to a question whose words
+    /// are never kept, while one waits on what they say to it, in place of a message. Says
+    /// whether it did.
+    pub questions_answer_typed: fn(&Arc<Core>, &str, &str) -> bool,
     /// Takes a question asked with a CLI's own tool, such as Claude's
     /// AskUserQuestion or Codex's request_user_input, into the same questions,
     /// and says what the agent is told in place of an answer.

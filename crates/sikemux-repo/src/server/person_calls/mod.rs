@@ -732,33 +732,12 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
         && one.assumption.is_some() == other.assumption.is_some()
 }
 
-/// Whether what the person types to `agent_id` may answer a call whose words are never kept: one
-/// it waits on, or a question it asked or a worker of its asked through it, which the person may
-/// as well answer in the lead's chat. Such a question counts with no call open here, as when a
-/// linked host took it to put to the person there.
-pub fn hides_typed(core: &Core, agent_id: &str) -> bool {
-    (core.repo_above().questions_hears_hidden)(core, agent_id)
-        || waits_on_hidden(&core.person_calls().book.locked(), agent_id)
-}
-
-fn waits_on_hidden(book: &Book, agent_id: &str) -> bool {
-    (book.iter())
-        .map(|kept| &kept.call)
-        .any(|call| waits_on(call, agent_id) && call.state == CallState::Open && hides_words(call))
-}
-
-/// What the person types to a secret or an access call is never kept: it may be a password or a
-/// token.
-pub fn hides_words(call: &PersonCall) -> bool {
-    call.secret || call.kind == CallKind::Access
-}
-
 /// Whether the person let the assumption of `call` stand: Go with this with nothing picked or
 /// typed. An answer typed to a secret or an access call is recorded the same way, so it never is.
 pub fn let_stand(call: &PersonCall) -> bool {
     (call.answer.as_ref()).is_some_and(|answer| {
         call.assumption.is_some()
-            && !hides_words(call)
+            && !call.keeps_words_private()
             && answer.option.is_none()
             && answer.options.is_empty()
             && answer.words.is_none()
@@ -992,15 +971,14 @@ const MAX_WRITTEN_CHARS: usize = 2000;
 /// back: one it stopped for, of taste, money or access, when it is the one call waiting there
 /// that writing can answer; with several, none is, and they stay open. The words reach only this
 /// chat, so a call other agents also wait on stays open for them. A production call is never
-/// answered by writing, and nothing typed while a secret or an access call waits on what the
-/// person says to this agent is kept on any call, since the words may be the password. Answers
-/// which kind of call the words answered, for the chat's record of them.
+/// answered by writing, nor a secret or an access call, whose typed answer the core takes
+/// privately before it reaches the chat. Answers whether the words answered a call, for the
+/// chat's record of them.
 pub fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
     let stopped = (core.repo_above().questions_answered_by_writing)(core, agent_id);
     if stopped.is_empty() {
         return None;
     }
-    let asked_hidden = (core.repo_above().questions_hears_hidden)(core, agent_id);
     let mut book = core.person_calls().book.locked();
     let answerable: Vec<&Kept> = (book.iter())
         .filter(|kept| {
@@ -1009,13 +987,12 @@ pub fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
                 .any(|source| matches!(source, Source::Question(id) if stopped.contains(id)))
                 && call.state == CallState::Open
                 && call.kind != CallKind::Production
-                && !call.secret
+                && !call.keeps_words_private()
         })
         .collect();
     let [only] = answerable.as_slice() else {
         return None;
     };
-    let hidden = asked_hidden || waits_on_hidden(&book, agent_id);
     let call = &only.call;
     let id = call.id.clone();
     let shared = std::iter::once(&call.asker)
@@ -1036,7 +1013,7 @@ pub fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
             option: None,
             options: Vec::new(),
             note: None,
-            words: Some(words).filter(|words| !words.is_empty() && !hidden),
+            words: Some(words).filter(|words| !words.is_empty()),
             by: CallClient::Chat,
             at: epoch_ms(),
             waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1055,10 +1032,7 @@ pub fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
     }
     drop(book);
     core.person_calls().changed(core);
-    Some(match hidden {
-        true => Answered::HiddenCall,
-        false => Answered::Call,
-    })
+    Some(Answered::Call)
 }
 
 /// A client drew the call.
@@ -1144,8 +1118,8 @@ fn answer_of(
     let answer = CallAnswer {
         option,
         options: params.options.clone(),
-        note: note.filter(|_| !hides_words(call)),
-        words: words.filter(|_| !hides_words(call)),
+        note: note.filter(|_| !call.keeps_words_private()),
+        words: words.filter(|_| !call.keeps_words_private()),
         by: client,
         at: epoch_ms(),
         waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1317,11 +1291,10 @@ pub const HOLD_ALWAYS: &str = "always";
 /// the call's, and drawing the call is taken as given, since only a client that drew it has its id.
 fn answered_before(
     core: &Core,
-    peer: &Peer,
+    (peer, client): (&Peer, CallClient),
     source: &Source,
     answer: impl FnOnce(&PersonCall, CallClient) -> CallAnswer,
 ) -> CoreResult<Option<String>> {
-    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
     let Some(id) = core.person_calls().id_of(source) else {
         let settled =
             (core.person_calls().book.locked().iter()).any(|kept| raised_by(kept, source));
@@ -1350,6 +1323,28 @@ const PRODUCTION_ONLY_ON_ITS_CALL: &str = "This asks for a change to production,
 pub async fn answer_questions(
     core: &Arc<Core>,
     peer: &Peer,
+    given: AnswersParams,
+) -> CoreResult<()> {
+    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
+    answer_questions_by(core, (peer, client), given).await
+}
+
+/// What the person typed in the chat of an agent that waits on question `id`, whose words are
+/// never kept: it answers that question, as written in the chat, and never reaches the agent.
+pub async fn answer_typed(core: &Arc<Core>, id: String, text: String) -> CoreResult<()> {
+    let given = AnswersParams {
+        answers: vec![AnswerParams {
+            id,
+            answer: Some(text),
+            ..AnswerParams::default()
+        }],
+    };
+    answer_questions_by(core, (&Peer::Local, CallClient::Chat), given).await
+}
+
+async fn answer_questions_by(
+    core: &Arc<Core>,
+    by: (&Peer, CallClient),
     given: AnswersParams,
 ) -> CoreResult<()> {
     if (given.answers.iter())
@@ -1394,12 +1389,12 @@ pub async fn answer_questions(
     for params in &given.answers {
         let taken_now = answered_before(
             core,
-            peer,
+            by.clone(),
             &Source::Question(params.id.clone()),
             |call, by| {
                 let option = |index: usize| call.options.get(index).map(|option| option.id.clone());
                 let typed = (params.answer.clone())
-                    .filter(|text| !text.trim().is_empty() && !hides_words(call));
+                    .filter(|text| !text.trim().is_empty() && !call.keeps_words_private());
                 let picked = params.choice.is_some() || params.choices.is_some();
                 CallAnswer {
                     option: params.choice.and_then(option),
@@ -1482,7 +1477,8 @@ pub async fn answer_hold(
         return answer_gate(core, peer, &params.hold, option).await;
     }
     let source = Source::Hold(params.hold.clone());
-    let taken = answered_before(core, peer, &source, |call, by| CallAnswer {
+    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
+    let taken = answered_before(core, (peer, client), &source, |call, by| CallAnswer {
         option: Some(option.to_owned()),
         options: Vec::new(),
         note: None,

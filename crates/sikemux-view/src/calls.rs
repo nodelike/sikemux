@@ -227,6 +227,14 @@ pub struct PersonCall {
     pub outcome: Option<CallOutcome>,
 }
 
+impl PersonCall {
+    /// What the person types for it is never kept or passed on in the open, since it may be a
+    /// password or a token: a secret's, or an access call's. Its asker reads it from a private file.
+    pub fn keeps_words_private(&self) -> bool {
+        self.secret || self.kind == CallKind::Access
+    }
+}
+
 /// What answers a call: an option, with a note, or the person's own words, with any files.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,7 +1,8 @@
 #![cfg(unix)]
 
-//! A real core and fake agents: what the person types in a lead's chat while its worker's access
-//! call is open is never kept on another call the same words answer.
+//! A real core and fake agents: while a worker's access call, which its lead passed on, is open,
+//! what the person writes to the lead or to the chief reaches them as usual and leaves the call
+//! open, since neither chat shows the call or says it keeps what is typed private.
 
 mod folded;
 
@@ -45,6 +46,7 @@ fn start_core(dir: &Path, socket: &Path) -> KilledOnDrop {
         .env("HOME", dir.join("home"))
         .env("SHELL", "/bin/sh")
         .env("PATH", "/usr/bin:/bin")
+        .env("FAKE_ACP_DIR", dir.join("acp"))
         .env(sikemux_process::vars::AGENT_SEARCH, "path")
         .stdin(Stdio::null())
         .stdout(log.try_clone().expect("log"))
@@ -80,6 +82,11 @@ impl Agent {
             .start_chat("opencode:fake".into(), "widget".into(), None)
             .await
             .expect("an agent starts");
+        Self::open(socket, &id).await
+    }
+
+    async fn open(socket: &Path, id: &str) -> Self {
+        let id = id.to_owned();
         let (client, events) = CoreClient::connect(socket).await.expect("connect");
         let mut chat = Chat::new(events, &id);
         chat.wait = WAIT;
@@ -114,7 +121,7 @@ impl Agent {
 }
 
 fn raise(question: &str) -> Value {
-    json!({ "question": question, "reason": "access", "breaks": "the deploy" })
+    json!({ "question": question, "reason": "access", "breaks": "the deploy", "choices": ["Skip, use the mock"] })
 }
 
 /// The calls' log, every line the core has written so far.
@@ -187,7 +194,7 @@ async fn core_with_project(root: &Path) -> (KilledOnDrop, CoreClient) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn words_typed_to_a_lead_beside_its_workers_access_call_are_kept_nowhere() {
+async fn messages_to_a_lead_and_the_chief_beside_a_workers_access_call_reach_them() {
     let root = tempfile::Builder::new()
         .prefix("answered-in-chat")
         .tempdir_in("/tmp")
@@ -219,25 +226,23 @@ async fn words_typed_to_a_lead_beside_its_workers_access_call_are_kept_nowhere()
         .await;
     raised(&root, token);
 
-    let plan = "Which plan should the Widget host run on?";
-    let money = json!({
-        "question": plan,
-        "reason": "money",
-        "choices": ["Small", "Large"],
-        "pick": "Small",
-        "breaks": "the launch",
-    });
-    let typed = format!("tool agent.ask {money}\nuse hunter2now for the widget deploy");
-    lead.says(&typed, "hunter2now").await;
-    raised(&root, plan);
-
-    let answered = |log: &str| log.matches("\"event\":\"answered\"").count();
-    let before = answered(&calls_log(&root));
-    lead.says("hunter2now is the one", "hunter2now").await;
-    let log = log_once(
-        &root,
-        "the lead's own call is answered in the chat",
-        |log| answered(log) > before,
+    let heard = lead
+        .says("what is the status of the deploy?", "echo:")
+        .await;
+    assert!(heard.contains("status of the deploy"), "{heard}");
+    let opened = app
+        .call("openChief", json!({ "project": "widget" }))
+        .await
+        .expect("the chief opens");
+    let chief_id = opened["agentId"].as_str().expect("its id").to_owned();
+    let mut chief = Agent::open(&socket, &chief_id).await;
+    chief.chat.until(|chat| chat.turns_ended() >= 1).await;
+    let heard = chief.says("how far along is the widget?", "echo:").await;
+    assert!(heard.contains("how far along"), "{heard}");
+    let log = calls_log(&root);
+    assert!(!log.contains("\"event\":\"answered\""), "{log}");
+    assert!(
+        !root.join("data").join("agent-secrets").exists(),
+        "nothing was taken as the worker's answer"
     );
-    assert!(!log.contains("hunter2now"), "{log}");
 }

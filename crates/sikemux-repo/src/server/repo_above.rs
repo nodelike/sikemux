@@ -130,8 +130,6 @@ pub struct RepoAbove {
     pub board_ci_card: fn(&Core, &str) -> Option<CiCard>,
     /// Notes in the project's journal that its repository moved, by the kind of move.
     pub harness_note_repository: fn(&Core, &str, &str),
-    /// Whether the agent asked, or was sent, a question whose answer stays hidden.
-    pub questions_hears_hidden: fn(&Core, &str) -> bool,
     /// The agent's open questions that writing to it answers.
     pub questions_answered_by_writing: fn(&Core, &str) -> Vec<String>,
     /// Whether the question still waits for its answer.

@@ -3,6 +3,7 @@
 
 #![allow(dead_code)]
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
@@ -360,4 +361,27 @@ impl Chat {
         self.said = text.len();
         text[from..].to_owned()
     }
+}
+
+/// Every file under `dir` that holds `words`, but for the private files answers wait in.
+pub fn holding(dir: &Path, words: &str) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.ends_with("agent-secrets") {
+            continue;
+        }
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if kind.is_dir() {
+            found.extend(holding(&path, words));
+        } else if kind.is_file()
+            && std::fs::read(&path)
+                .is_ok_and(|bytes| String::from_utf8_lossy(&bytes).contains(words))
+        {
+            found.push(path);
+        }
+    }
+    found
 }

@@ -920,17 +920,12 @@ fn typed_since(
     let mut lines = Vec::new();
     let mut heard: HashSet<String> = HashSet::new();
     for (agent, feed) in &feeds {
-        let mut kept_back = false;
         for said in super::why::persons_said_in(core, feed) {
             let Some(at) = said.at.filter(|at| *at >= since) else {
                 continue;
             };
             heard.insert(agent.clone());
             if said.command {
-                continue;
-            }
-            if said.hidden {
-                kept_back = true;
                 continue;
             }
             let line = match said.words {
@@ -942,15 +937,6 @@ fn typed_since(
                 None => format!("- wrote to {}", called(core, agent)),
             };
             lines.push((at, line));
-        }
-        if kept_back {
-            lines.push((
-                since,
-                format!(
-                    "- wrote to {} while a secret or access call was open there; Sikemux does not pass those words on",
-                    called(core, agent)
-                ),
-            ));
         }
     }
     for agent in wrote.iter().filter(|agent| !heard.contains(*agent)) {
@@ -1143,6 +1129,14 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
         until_answered: !shown.calls.is_empty(),
         shown,
     })
+}
+
+/// The calls open in the away block the chief `agent` shows now, by id; none when it shows none.
+pub(crate) fn away_calls(core: &Core, agent: &str) -> Vec<String> {
+    (core.chiefs().state.locked().seats.get(agent))
+        .and_then(|seat| seat.away.as_ref())
+        .map(|away| away.shown.calls.clone())
+        .unwrap_or_default()
 }
 
 fn open_calls(calls: &[PersonCall], path: &str) -> Vec<String> {

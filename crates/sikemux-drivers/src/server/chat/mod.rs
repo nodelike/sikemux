@@ -24,8 +24,6 @@ pub type Respond = Box<dyn FnOnce(Option<String>) + Send>;
 #[serde(rename_all = "camelCase")]
 pub enum Answered {
     Call,
-    /// One whose words are never kept: they may be a password or a token.
-    HiddenCall,
 }
 
 pub fn restart_notice(title: &str, description: &str) -> Value {

@@ -720,11 +720,8 @@ fn persons_said(core: &Core, agent: &str) -> Vec<(String, Pointer, Option<u64>)>
 pub(crate) struct Said {
     pub index: u64,
     pub at: Option<u64>,
-    /// What they typed, as one line; none when it may be a secret, answered a call whose words
-    /// are never kept, or holds no words of theirs.
+    /// What they typed, as one line; none when it may be a secret or holds no words of theirs.
     pub words: Option<String>,
-    /// It answered a call whose words are never kept.
-    pub hidden: bool,
     /// It was a slash command.
     pub command: bool,
 }
@@ -737,15 +734,11 @@ pub(crate) fn persons_said_in(core: &Core, feed: &str) -> Vec<Said> {
         return Vec::new();
     };
     (history::persons_prompts(dir, feed, MAX_CHAT_BYTES as u64).into_iter())
-        .map(|said| {
-            let hidden = said.answered == Some(super::chat::Answered::HiddenCall);
-            Said {
-                index: said.index,
-                at: said.at,
-                words: (!hidden).then(|| persons(&said.text)).flatten(),
-                hidden,
-                command: super::chat::prompt::is_command(&said.text),
-            }
+        .map(|said| Said {
+            index: said.index,
+            at: said.at,
+            words: persons(&said.text),
+            command: super::chat::prompt::is_command(&said.text),
         })
         .collect()
 }

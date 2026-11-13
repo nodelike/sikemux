@@ -175,16 +175,6 @@ impl Whose {
         answered: None,
     };
 
-    /// The person's own words to `agent_id` as they arrive: hidden while it waits on a call
-    /// whose words are never kept.
-    pub fn typed_to(core: &Core, agent_id: &str) -> Self {
-        let hidden = (core.chat_above().person_calls_hides_typed)(core, agent_id);
-        Self {
-            person: true,
-            answered: hidden.then_some(Answered::HiddenCall),
-        }
-    }
-
     pub fn of(person: bool) -> Self {
         Self {
             person,
@@ -1075,24 +1065,15 @@ impl Chat {
         }
     }
 
-    /// Puts a prompt in the chat's record, its words marked as hidden while the agent waits on a
-    /// call to the person whose words are never kept: the person may be typing a password or a
-    /// token, whether or not it answers that call.
+    /// Puts a prompt in the chat's record.
     pub fn record_prompt(
         &self,
         message_id: Option<&str>,
         text: &str,
         paths: &[String],
         context: &[ChatContext],
-        mut whose: Whose,
+        whose: Whose,
     ) {
-        let hidden = whose.person
-            && (self.core.upgrade()).is_some_and(|core| {
-                (core.chat_above().person_calls_hides_typed)(&core, self.agent_id())
-            });
-        if hidden {
-            whose.answered = Some(Answered::HiddenCall);
-        }
         self.feed.prompted(message_id, text, paths, context, whose);
     }
 

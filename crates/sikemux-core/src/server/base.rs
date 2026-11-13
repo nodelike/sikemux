@@ -295,8 +295,8 @@ pub(super) fn chat_above() -> ChatAbove {
         messages_person_wrote: messages::person_wrote,
         messages_used_tool: messages::used_tool,
         messages_worked: messages::worked,
-        person_calls_hides_typed: person_calls::hides_typed,
         plugins_agent_environment: plugins::agent_environment,
+        questions_answer_typed: questions::answer_typed,
         questions_ask_from_cli: questions::ask_from_cli,
         questions_offers_in_reply: questions::offers_in_reply,
         questions_withdraw_dialogs: questions::withdraw_dialogs,
@@ -402,7 +402,6 @@ pub(super) fn repo_above() -> RepoAbove {
         harness_note_repository: |core, project, kind| {
             core.harness().note_repository(project, kind)
         },
-        questions_hears_hidden: |core, agent| core.harness().questions.hears_hidden(agent),
         questions_answered_by_writing: |core, agent| {
             core.harness().questions.answered_by_writing(agent)
         },

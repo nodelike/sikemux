@@ -624,6 +624,6 @@ async fn send(core: &Arc<Core>, pin: &Pin, words: &str, markup: Option<&str>) ->
         words.to_owned(),
         Vec::new(),
         context,
-        super::chat::Whose::typed_to(core, &pin.agent_id),
+        super::chat::Whose::PERSON,
     )
 }

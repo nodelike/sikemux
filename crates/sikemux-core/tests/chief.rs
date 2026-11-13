@@ -58,6 +58,7 @@ fn start_core(dir: &Path, socket: &Path) -> KilledOnDrop {
         .env("HOME", dir.join("home"))
         .env("SHELL", "/bin/sh")
         .env("PATH", "/usr/bin:/bin")
+        .env("FAKE_ACP_DIR", dir.join("acp"))
         .env(sikemux_process::vars::AGENT_SEARCH, "path")
         .stdin(Stdio::null())
         .stdout(log.try_clone().expect("log"))
@@ -128,10 +129,32 @@ impl Agent {
     async fn tool(&mut self, method: &str, params: Value) -> String {
         self.says(&format!("tool {method} {params}"), "tool ").await
     }
+
+    /// Sends `text` as the person, then waits until the agent has said `reply` `times` times.
+    async fn types_then_hears(&mut self, text: &str, reply: &str, times: usize) {
+        self.client
+            .ask(ask::AcpPrompt {
+                agent_id: self.id.clone(),
+                message_id: Some(uuid::Uuid::new_v4().to_string()),
+                text: text.to_owned(),
+                paths: Vec::new(),
+                context: Vec::new(),
+            })
+            .await
+            .expect("prompt");
+        self.chat
+            .until(|chat| chat.text().matches(reply).count() >= times)
+            .await;
+    }
 }
 
+/// What the agent is told in place of words the person typed for a call whose words are never kept.
+const KEPT_OUT: &str = "kept it out of this conversation";
+
+/// QA 2026-11-13: what the person typed while an access call waited reached the agent as a message,
+/// so its session record held it and the goal's summary was asked to write from it.
 #[tokio::test(flavor = "multi_thread")]
-async fn words_that_answer_an_access_call_never_reach_the_chief() {
+async fn words_typed_while_an_access_call_waits_reach_neither_the_agent_nor_any_record() {
     let root = tempfile::Builder::new()
         .prefix("chief")
         .tempdir_in("/tmp")
@@ -178,13 +201,14 @@ async fn words_that_answer_an_access_call_never_reach_the_chief() {
             json!({
                 "question": "Which token does staging take?",
                 "reason": "access",
+                "choices": ["Skip, use the mock"],
                 "breaks": "the deploy",
             }),
         )
         .await;
     assert!(asked.contains("tool answered"), "{asked}");
     worker
-        .says("the password is hunter2 for staging", "echo:")
+        .types_then_hears("the password is hunter2 for staging", KEPT_OUT, 1)
         .await;
 
     let still_open = worker
@@ -193,6 +217,7 @@ async fn words_that_answer_an_access_call_never_reach_the_chief() {
             json!({
                 "question": "Which key signs the release?",
                 "reason": "access",
+                "choices": ["Skip, use the mock"],
                 "breaks": "the release",
                 "blocked": false,
                 "assumption": "none yet",
@@ -200,7 +225,9 @@ async fn words_that_answer_an_access_call_never_reach_the_chief() {
         )
         .await;
     assert!(still_open.contains("tool answered"), "{still_open}");
-    worker.says("meanwhile the key is swordfish", "echo:").await;
+    worker
+        .types_then_hears("meanwhile the key is swordfish", KEPT_OUT, 2)
+        .await;
 
     let answered = std::fs::read_dir(root.join("data").join("person-calls"))
         .expect("the calls' log")
@@ -211,28 +238,109 @@ async fn words_that_answer_an_access_call_never_reach_the_chief() {
                 .any(|line| line.contains("\"event\":\"answered\""))
         });
     assert!(answered, "the access call typed to is recorded as answered");
-    for words in ["hunter2", "swordfish"] {
-        let marked = prompt_holding(&root, words);
-        assert!(marked.contains("\"answered\":\"hiddenCall\""), "{marked}");
-    }
     let digest = chief.says("context", "What happened").await;
-    assert!(
-        digest.contains("while a secret or access call was open there"),
-        "{digest}"
-    );
     assert!(!digest.contains("hunter2"), "{digest}");
     assert!(!digest.contains("swordfish"), "{digest}");
+    for words in ["hunter2", "swordfish"] {
+        assert!(
+            !worker.chat.text().contains(words),
+            "the agent heard {words}"
+        );
+        assert_eq!(
+            folded::holding(&root, words),
+            Vec::<std::path::PathBuf>::new(),
+            "{words}"
+        );
+    }
 }
 
-/// The line of the chats' records that holds the prompt the person typed with `words`.
-fn prompt_holding(root: &Path, words: &str) -> String {
-    std::fs::read_dir(root.join("data").join("chat-history"))
-        .expect("the chats' records")
-        .flatten()
-        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
-        .flat_map(|record| record.lines().map(str::to_owned).collect::<Vec<_>>())
-        .find(|line| line.contains(words) && line.contains("\"kind\":\"prompt\""))
-        .unwrap_or_else(|| panic!("no prompt holding {words} in the records"))
+/// QA 2026-11-13: editing an earlier message while an access call waited sent the new words to
+/// the agent as the edited message.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edit_while_an_access_call_waits_answers_it_privately() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "fake",
+        "name": "Fake",
+        "provider": "opencode",
+        "accent": "#a277ff",
+        "executablePath": FAKE_AGENT,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let (worker_id, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    let message_id = uuid::Uuid::new_v4().to_string();
+    worker
+        .client
+        .ask(ask::AcpPrompt {
+            agent_id: worker_id.clone(),
+            message_id: Some(message_id.clone()),
+            text: "hello there".to_owned(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt");
+    worker
+        .chat
+        .until(|chat| chat.text().contains("echo: hello there"))
+        .await;
+    let asked = worker
+        .tool(
+            "agent.ask",
+            json!({
+                "question": "Which token does staging take?",
+                "reason": "access",
+                "choices": ["Skip, use the mock"],
+                "breaks": "the deploy",
+            }),
+        )
+        .await;
+    assert!(asked.contains("tool answered"), "{asked}");
+    worker
+        .client
+        .ask(ask::AcpEdit {
+            agent_id: worker_id.clone(),
+            message_id,
+            text: "the token is swordfish2".to_owned(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("edit");
+    worker
+        .chat
+        .until(|chat| chat.text().contains(KEPT_OUT))
+        .await;
+    assert!(
+        !worker.chat.text().contains("swordfish2"),
+        "the agent heard it"
+    );
+    assert_eq!(
+        folded::holding(&root, "swordfish2"),
+        Vec::<std::path::PathBuf>::new()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1056,4 +1164,140 @@ fn number_after(text: &str, key: &str) -> Option<u64> {
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(digits.len());
     digits[..end].parse().ok()
+}
+
+/// QA 2026-11-13: a passphrase typed while a worker's access call waited was sent to the model
+/// that writes the goal's summary, as something the person said.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_goals_summary_is_never_written_from_words_typed_for_an_access_call() {
+    let root = tempfile::Builder::new()
+        .prefix("qa228")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    let claude = root.join("claude");
+    let bin = root.join("bin");
+    for dir in [
+        root.join("home"),
+        claude.clone(),
+        bin.clone(),
+        project.clone(),
+    ] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    std::os::unix::fs::symlink(FAKE_CLAUDE, bin.join("claude")).expect("claude on PATH");
+    std::fs::write(
+        claude.join("fake-account.json"),
+        json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "qa@example.com", "subscriptionType": "max" }).to_string(),
+    )
+    .expect("account");
+    let script = root.join("script.json");
+    std::fs::write(&script, json!([
+        { "when": "open the vault card", "steps": [
+            { "tool": "mcp__sikemux-tools__board_add", "call": "board.add", "input": { "title": "Vault tests", "claim": true } },
+            { "say": "Card taken." } ] },
+        { "when": "ask for the passphrase", "steps": [
+            { "tool": "mcp__sikemux-tools__ask", "call": "agent.ask", "input": {
+                "question": "What is the passphrase for the staging vault?", "reason": "access", "choices": ["Skip, use the mock"], "blocked": false,
+                "assumption": "the tests skip the vault until there is one", "breaks": "the vault tests never run without it." } },
+            { "say": "Asked." } ] },
+        { "when": "kept it out of this conversation", "steps": [ { "say": "Noted." } ] },
+    ]).to_string()).expect("script");
+    let socket = root.join("core.sock");
+    let log = std::fs::File::create(root.join("core.log")).expect("log");
+    let endpoint = root.join("cli.json");
+    let child = sikemux_process::user_environment::command(CORE)
+        .arg("core")
+        .arg("--socket")
+        .arg(&socket)
+        .arg("--cli-endpoint")
+        .arg(&endpoint)
+        .arg("--data-dir")
+        .arg(root.join("data"))
+        .arg("--idle-exit-secs")
+        .arg("600")
+        .env("HOME", root.join("home"))
+        .env("SHELL", "/bin/sh")
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("FAKE_CLAUDE_SCRIPT", &script)
+        .env(sikemux_process::vars::AGENT_SEARCH, "path")
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().expect("log"))
+        .stderr(log)
+        .spawn()
+        .expect("core");
+    let _core = KilledOnDrop(child);
+    let deadline = Instant::now() + WAIT;
+    while probe(&socket, Duration::from_secs(1)).is_err() || !endpoint.exists() {
+        assert!(Instant::now() < deadline, "the core never answered");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    app.call(
+        "setAgentAccounts",
+        json!({ "profiles": [{
+        "id": "builtin-claude", "name": "Claude", "provider": "claude", "accent": "#d97757",
+        "executablePath": FAKE_CLAUDE, "configPath": claude,
+    }] }),
+    )
+    .await
+    .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "pi", "name": "pi", "path": project }),
+    )
+    .await
+    .expect("project");
+    let (worker_id, _) = app
+        .start_chat("claude:builtin-claude".into(), "pi".into(), None)
+        .await
+        .expect("worker");
+    let mut worker = Agent::open(&socket, &worker_id).await;
+    worker.says("open the vault card", "Card taken.").await;
+    worker.says("ask for the passphrase", "Asked.").await;
+    worker
+        .types_then_hears(
+            "the passphrase is correct horse battery staple",
+            "Noted.",
+            1,
+        )
+        .await;
+    app.call(
+        "goalSummary",
+        json!({ "project": project, "card": 1, "refresh": true, "again": true }),
+    )
+    .await
+    .expect("the summary is asked for");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let asked = loop {
+        let mut found = Vec::new();
+        find_named(&root, "fake-claude-asked.txt", &mut found);
+        if let Some(path) = found.first() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            break std::fs::read_to_string(path).unwrap_or_default();
+        }
+        assert!(Instant::now() < deadline, "the summary was never asked for");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    };
+    assert!(
+        asked.contains("Vault tests"),
+        "the summary was asked of the goal: {asked}"
+    );
+    assert!(!asked.contains("correct horse"), "{asked}");
+    assert_eq!(
+        folded::holding(&root, "correct horse"),
+        Vec::<std::path::PathBuf>::new()
+    );
+}
+
+fn find_named(dir: &Path, name: &str, found: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            find_named(&path, name, found);
+        } else if path.file_name().is_some_and(|file| file == name) {
+            found.push(path);
+        }
+    }
 }
