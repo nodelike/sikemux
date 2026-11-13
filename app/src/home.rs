@@ -7,15 +7,15 @@ use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    Anchor, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, div, px,
+    div, px, Anchor, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::theme::{
-    self, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_2XS, TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H,
-    Tokens,
+    self, Tokens, SPACE_1H, SPACE_2, SPACE_3, SPACE_6, TEXT_2XS, TEXT_SM, TEXT_XL, TEXT_XS,
+    TEXT_XS_H,
 };
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Variant};
 

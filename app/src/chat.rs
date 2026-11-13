@@ -15,10 +15,10 @@ use gpui_kit::base::{Button as BaseButton, Scrollbar};
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    AnyElement, AnyView, App, AppContext, Context, Div, Entity, Focusable, FontWeight,
-    HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement, Radians,
-    Render, SharedString, StatefulInteractiveElement, StyleRefinement, Styled, Subscription,
-    Transformation, WeakEntity, Window, actions, div, px, relative,
+    actions, div, px, relative, AnyElement, AnyView, App, AppContext, Context, Div, Entity,
+    Focusable, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding,
+    ParentElement, Radians, Render, SharedString, StatefulInteractiveElement, StyleRefinement,
+    Styled, Subscription, Transformation, WeakEntity, Window,
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
@@ -27,7 +27,7 @@ use gpui_transcript::{
 use looks::*;
 use questions::*;
 use rows::*;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sikemux_view::catalog::ChatDriver;
 use sikemux_view::chat::{
     AgentLetter, AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole,
@@ -50,8 +50,8 @@ use crate::tabs::shows;
 use crate::theme::Tokens;
 use crate::ui::shimmer::shimmer;
 use crate::ui::{Button, IconButton, Variant};
-use crate::workbench::Workbench;
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
+use crate::workbench::Workbench;
 use crate::worktrees::switch::Switch;
 use crate::{motion, syntax, theme, ui};
 
@@ -78,7 +78,7 @@ mod mention;
 mod mermaid;
 mod moving;
 mod rotation;
-pub(crate) use attach::{Made, Mention, SNIP_NAME, named, named_agents, pill, site_icon};
+pub(crate) use attach::{named, named_agents, pill, site_icon, Made, Mention, SNIP_NAME};
 pub use mention::Tray;
 mod meta;
 pub mod model_picker;
@@ -97,10 +97,10 @@ pub(crate) use installing::installs_moved;
 mod worktree;
 
 pub use attach::lasting;
-pub use composing::{ComposeStage, ComposerView, Composing, Sent, dictate};
+pub use composing::{dictate, ComposeStage, ComposerView, Composing, Sent};
 pub(crate) use mention::{AGENT, FILE, TRACKED};
 pub(crate) use meta::clock;
-pub use questions::{Answering, Question, question_keys};
+pub use questions::{question_keys, Answering, Question};
 
 /// Turns asked for each time the reader nears the top of what is held.
 const PAGE_TURNS: u32 = 20;

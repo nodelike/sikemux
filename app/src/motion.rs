@@ -12,9 +12,9 @@ use gpui_kit::base::animation::cubic_bezier;
 use gpui_kit::base::motion::Interpolate;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    Animation, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId, Hsla,
-    InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels, Point,
-    Rgba, SharedString, Styled, Svg, Transformation, Window, div, px, radians,
+    div, px, radians, Animation, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId,
+    Hsla, InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels,
+    Point, Rgba, SharedString, Styled, Svg, Transformation, Window,
 };
 
 /// How a value moves to a new target: over how long, on which curve, and whether it moves
