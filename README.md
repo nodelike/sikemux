@@ -47,6 +47,12 @@ macOS 11+ on Apple Silicon, or Linux on x86_64 and arm64. The `.dmg`, `.deb`, `.
 - **Any machine.** Run chats and terminals on any host on your account. Turn an SSH host into one in a click.
 - **A real editor around it.** Code editor, terminals, Git and search, with 450+ themes.
 
+## Is it free?
+
+Yes. Sikemux is free and MIT-licensed, and it needs no account on your own computer. It runs the Claude Code, Codex and other subscriptions you already pay for, or free models if you have none. We don't resell models or take a cut.
+
+**How does it stay alive?** Nothing is for sale today. Sikemux is built by people who use it all day. If we charge later, it will be for things that cost us money to run, such as a machine we host for your agents, sync between your computers, and team features. The app you download stays free and MIT, and the licence means nobody can take that back, us included.
+
 ## Build from source
 
 Needs [Rust](https://www.rust-lang.org/tools/install), Node.js 22+ and [pnpm](https://pnpm.io/).
