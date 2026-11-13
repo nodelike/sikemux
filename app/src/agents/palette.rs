@@ -144,14 +144,26 @@ impl Workbench {
         let kind_of = |provider: &str| self.reads.catalog.kind(provider);
         let mut rows = Vec::new();
         let mut sign_ins = Vec::new();
-        for launcher in self.launchers().iter().chain(self.terminal_launchers()) {
+        let mut one_per_agent: Vec<&LauncherInfo> = Vec::new();
+        for launcher in self.launchers() {
+            if one_per_agent
+                .iter()
+                .all(|seen| seen.provider != launcher.provider)
+            {
+                one_per_agent.push(
+                    self.launcher_of_kind(&launcher.provider)
+                        .unwrap_or(launcher),
+                );
+            }
+        }
+        for launcher in one_per_agent.into_iter().chain(self.terminal_launchers()) {
             let kind = kind_of(&launcher.provider);
             let signs_in = kind.is_some_and(|kind| kind.accounts || kind.login.is_some());
             let bypasses = kind.is_some_and(|kind| kind.bypass);
             let new = || {
                 Row::new(
                     format!("{NEW}{}", launcher.id),
-                    t!("+ new {agent}", agent = launcher.label),
+                    t!("+ new {agent}", agent = self.agent_name(&launcher.provider)),
                 )
                 .unarmed(!bypasses)
             };
