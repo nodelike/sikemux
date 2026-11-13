@@ -33,6 +33,8 @@ A mod reads only what its `mod.json` names, and never sees your sign-ins: Sikemu
 
 A mod that changes something, such as messaging an agent, adding a card to the agent board or re-running a CI run, names that in its `mod.json` as well. The first time it tries, Sikemux lists everything it may change and asks you once. **Allow** holds until its `mod.json` asks for more. **Take back writes** in **Settings → Mods** withdraws it.
 
+A mod keeps its own data with no declaration and no asking, since it can reach only its own (see [Keeping data](#keeping-data)). Removing a mod forgets its data too.
+
 A mod whose tab is out of sight stops reading and its timers pause, so a mod left open does not slow your agents.
 
 ## Writing one by hand
@@ -80,3 +82,18 @@ What a mod reads, each named in `reads`:
 | `github.pulls`, `gitlab.runs`, `jira_search`… | A connector you are signed in to, by its method or by its agent tool's full name. Declare the connector, such as `github` or `jira`. |
 
 What a mod may change, each named in `writes`: `agents.send` (`{ agent, text }`, as if you wrote it), `board.add`, `board.update`, and a connector's own changes, such as `github.rerun` or `jira_comment`.
+
+## Keeping data
+
+A mod keeps its own documents on your host, apart from its folder, so they stay when the page changes and an edit to the page never loses them. Each document is a JSON object, named by a collection and an id, such as `("posts", "2026-11-13")`.
+
+| Call | What it does |
+| ---- | ------------ |
+| `sikemux.data.get(collection, id)` | Resolves with the document, or `null`. |
+| `sikemux.data.list(collection)` | Resolves with the collection's documents as `[{ id, doc }]`, ordered by id. |
+| `sikemux.data.set(collection, id, doc)` | Replaces the document whole, and resolves with it. |
+| `sikemux.data.patch(collection, id, patch)` | Changes some of its fields as a JSON Merge Patch: a field set to `null` goes. Makes the document if it has none. Resolves with the document after. |
+| `sikemux.data.remove(collection, id)` | Removes the document. |
+| `sikemux.watch("data", { collection }, callback)` | Calls `callback(documents)` now and whenever the collection changes, as `list` gives it, from any pane or window. |
+
+Collections and ids are 1 to 64 letters, digits, dashes, underscores or dots, not starting with a dot. Sikemux keeps a record of when each field of a document last changed, and of fields taken out, and that record counts toward its size: a document holds at most 60 KiB with it, and a mod at most 10,000 documents and 16 MiB. Setting a document whole drops the record of fields taken out before. A document with no fields left is removed.

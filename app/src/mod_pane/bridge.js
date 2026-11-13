@@ -55,6 +55,13 @@
         post({ op: "unwatch", id });
       };
     },
+    data: Object.freeze({
+      get: (collection, id) => ask("read", "data.get", { collection, id }),
+      list: (collection) => ask("read", "data.list", { collection }),
+      set: (collection, id, doc) => ask("write", "data.set", { collection, id, doc }),
+      patch: (collection, id, patch) => ask("write", "data.patch", { collection, id, patch }),
+      remove: (collection, id) => ask("write", "data.remove", { collection, id }),
+    }),
     badge: (text) => post({ op: "badge", text: text == null ? null : String(text) }),
     every,
     get shown() {
