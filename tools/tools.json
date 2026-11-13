@@ -1703,7 +1703,7 @@
           "maxLength": 4096
         },
         "resume": {
-          "description": "sessionId to reopen",
+          "description": "sessionId to reopen, or a worker's name that closed on a linked host",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096

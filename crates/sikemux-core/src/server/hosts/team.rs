@@ -16,6 +16,8 @@ use sikemux_wire::protocol::{AgentStatus, Attention};
 use super::super::kept::Kept;
 
 const FILE: &str = "host-team.json";
+/// How many closed workers on linked hosts are kept, so their leads can reopen them there.
+const MAX_CLOSED: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -100,6 +102,9 @@ pub(crate) struct Tree {
 struct Record {
     agents: Vec<Foreign>,
     trees: Vec<Tree>,
+    /// Workers on linked hosts that closed there, newest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    closed: Vec<Foreign>,
 }
 
 pub(crate) struct Team {
@@ -186,12 +191,53 @@ impl Team {
         })
     }
 
+    /// A worker closed on its host: it is kept among the closed, which its lead may reopen.
+    pub(crate) fn close(&self, agent_id: &str) -> Option<Foreign> {
+        self.change(|record| {
+            let index = (record.agents.iter()).position(|agent| agent.agent_id == agent_id)?;
+            let gone = record.agents.remove(index);
+            if gone.role == Role::Worker {
+                record
+                    .closed
+                    .retain(|closed| closed.agent_id != gone.agent_id);
+                record.closed.insert(0, gone.clone());
+                record.closed.truncate(MAX_CLOSED);
+            }
+            Some(gone)
+        })
+    }
+
+    /// The newest closed worker of `lead` with the id or name `wanted`, on `host` when given,
+    /// that is not running again.
+    pub(crate) fn closed_worker(
+        &self,
+        lead: &str,
+        wanted: &str,
+        host: Option<&str>,
+    ) -> Option<Foreign> {
+        let record = self.record.locked();
+        (record.closed.iter())
+            .filter(|closed| {
+                !record
+                    .agents
+                    .iter()
+                    .any(|agent| agent.agent_id == closed.agent_id)
+            })
+            .find(|closed| {
+                closed.parent.as_deref() == Some(lead)
+                    && host.is_none_or(|host| closed.host == host)
+                    && (closed.agent_id == wanted || closed.name.eq_ignore_ascii_case(wanted))
+            })
+            .cloned()
+    }
+
     pub(crate) fn remove_host(&self, host: &str) -> Vec<Foreign> {
         self.change(|record| {
             let (gone, kept) = std::mem::take(&mut record.agents)
                 .into_iter()
                 .partition(|agent| agent.host == host);
             record.agents = kept;
+            record.closed.retain(|closed| closed.host != host);
             gone
         })
     }
@@ -252,6 +298,10 @@ impl Team {
                 tree.sent = None;
             }
         });
+    }
+
+    pub(crate) fn retain_trees(&self, keep: impl Fn(&Tree) -> bool) {
+        self.change(|record| record.trees.retain(|tree| keep(tree)));
     }
 
     pub(crate) fn remove_tree(&self, agent_id: &str) -> Option<Tree> {

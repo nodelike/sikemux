@@ -260,10 +260,12 @@ fn tell(
     });
 }
 
-/// An agent here was closed: its checkout's record goes, and so does a lead on another host
-/// that has no other worker here.
+/// An agent here was closed: a lead on another host that has no other worker here goes. Its
+/// checkout's record stays while this host keeps the session it ran, so its lead can reopen it.
 fn local_gone(core: &Core, agent_id: &str) {
-    core.hosts().team.remove_tree(agent_id);
+    core.hosts()
+        .team
+        .retain_trees(|tree| core.names().ran_session(&tree.agent_id).is_some());
     let Some(lead) = core.names().get(agent_id).and_then(|named| named.parent) else {
         return;
     };
@@ -300,11 +302,30 @@ pub(super) struct HappenedParams {
 }
 
 /// What the host a teammate runs on said of it: its status, and all it shows of it when it
-/// sent that.
+/// sent that, with the name it goes by there once the person renamed it.
 fn heard(foreign: &mut Foreign, status: AgentStatus, said: Option<Said>) {
     foreign.status = status;
+    let renamed = (said.as_ref())
+        .and_then(|said| said.shown.name.as_deref())
+        .filter(|name| *name != foreign.name);
+    if let Some(name) = renamed {
+        foreign.name = name.to_owned();
+    }
     if said.is_some() {
         foreign.said = said;
+    }
+}
+
+/// What the host a teammate runs on said of it, and the name this host calls it by follows
+/// its name there.
+fn hear(core: &Core, agent_id: &str, status: AgentStatus, said: Option<Said>) {
+    let mut name = None;
+    core.hosts().team.update(agent_id, |foreign| {
+        heard(foreign, status, said);
+        name = Some(foreign.name.clone());
+    });
+    if let Some(name) = name.filter(|name| core.names().name(agent_id).as_ref() != Some(name)) {
+        core.names().set_name(agent_id, &name);
     }
 }
 
@@ -323,12 +344,12 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
         kind => Happened::of(kind),
     };
     let closed = params.kind == Happened::Gone.kind();
-    core.hosts().team.update(&foreign.agent_id, |foreign| {
-        if params.said.is_none() {
+    if params.said.is_none() {
+        core.hosts().team.update(&foreign.agent_id, |foreign| {
             foreign.active_at = Some(epoch_ms());
-        }
-        heard(foreign, params.status, params.said);
-    });
+        });
+    }
+    hear(core, &foreign.agent_id, params.status, params.said);
     if let Some(happened) = happened {
         core.harness()
             .note_agent(&foreign.project, happened.kind(), &foreign.agent_id);
@@ -341,7 +362,7 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
             core.note_linked_turn_ended(&foreign.agent_id);
         }
         if closed && !super::super::board::elsewhere::holds(core, &foreign.agent_id) {
-            core.hosts().team.remove(&foreign.agent_id);
+            core.hosts().team.close(&foreign.agent_id);
             pin(core);
         }
     }
@@ -508,9 +529,7 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
         match present.get(&foreign.agent_id) {
             None if foreign.pending.is_some() => {}
             Some((status, said)) => {
-                core.hosts().team.update(&foreign.agent_id, |foreign| {
-                    heard(foreign, *status, said.clone());
-                });
+                hear(core, &foreign.agent_id, *status, said.clone());
             }
             None => {
                 core.harness().note_agent(
@@ -518,7 +537,7 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
                     Happened::Gone.kind(),
                     &foreign.agent_id,
                 );
-                core.hosts().team.remove(&foreign.agent_id);
+                core.hosts().team.close(&foreign.agent_id);
                 if let (Role::Worker, Some(lead)) = (foreign.role, foreign.parent.clone()) {
                     let host = name_of(core, host);
                     let why = match was_away {

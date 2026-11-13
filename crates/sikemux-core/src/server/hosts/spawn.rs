@@ -39,10 +39,10 @@ use super::team::{Foreign, Role, Tree};
 use super::{call, find, name_of, post, Failed, Sending, Stands};
 
 /// Under the minute an agent's tool call may take.
-const SPAWN_WAIT: Duration = Duration::from_secs(50);
+pub(super) const SPAWN_WAIT: Duration = Duration::from_secs(50);
 /// How often a host is asked again whether a worker it may be starting has started.
 const PENDING_AGAIN: Duration = Duration::from_secs(20);
-const MAX_PROMPT_BYTES: usize = 64 * 1024;
+pub(super) const MAX_PROMPT_BYTES: usize = 64 * 1024;
 
 fn text<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params
@@ -63,8 +63,8 @@ pub(crate) async fn spawn(
         .clone()
         .ok_or("agent_spawn needs the calling agent's id")?;
     let params = &request.params;
-    if text(params, "resume").is_some() {
-        return Err("resume reopens a session on this host; leave out host".into());
+    if let Some(wanted) = text(params, "resume") {
+        return super::reopen::reopen(core, request, Some(host), wanted, prompt).await;
     }
     if text(params, "mode") == Some("terminal") {
         return Err("an agent on another host runs as a chat; leave out mode".into());
@@ -314,11 +314,7 @@ pub(crate) async fn hand_over(
     let answer = match started {
         Ok(answer) => answer,
         Err(Failed::Unknown(_) | Failed::Retry(_)) => {
-            let host = link.id.clone();
-            let (core, agent_id) = (core.clone(), agent_id.clone());
-            tokio::spawn(
-                async move { settle_pending(&core, &host, &agent_id, PENDING_AGAIN).await },
-            );
+            settle_later(core, &link.id, &agent_id);
             return Ok(Handed {
                 name: given,
                 answer: Value::Null,
@@ -338,7 +334,7 @@ pub(crate) async fn hand_over(
 }
 
 /// The worker started there, under the name its answer gives.
-fn started_as(core: &Core, agent_id: &str, given: &str, answer: &Value) -> String {
+pub(super) fn started_as(core: &Core, agent_id: &str, given: &str, answer: &Value) -> String {
     let name = answer["name"].as_str().unwrap_or(given).to_owned();
     if name != given {
         core.names().set_name(agent_id, &name);
@@ -351,7 +347,7 @@ fn started_as(core: &Core, agent_id: &str, given: &str, answer: &Value) -> Strin
     name
 }
 
-fn not_started(core: &Core, agent_id: &str) {
+pub(super) fn not_started(core: &Core, agent_id: &str) {
     if let Some(worker) = core.hosts().team.remove(agent_id) {
         core.harness()
             .note_agent(&worker.project, Happened::Gone.kind(), agent_id);
@@ -359,6 +355,12 @@ fn not_started(core: &Core, agent_id: &str) {
     core.names().forget(agent_id);
     pin(core);
     super::changed(core);
+}
+
+/// Finds out in the background whether the worker `agent_id` started on `host`.
+pub(super) fn settle_later(core: &Arc<Core>, host: &str, agent_id: &str) {
+    let (core, host, agent_id) = (core.clone(), host.to_owned(), agent_id.to_owned());
+    tokio::spawn(async move { settle_pending(&core, &host, &agent_id, PENDING_AGAIN).await });
 }
 
 /// Holds a worker's place among those whose start is asked after, until dropped.
@@ -536,38 +538,7 @@ pub(super) async fn start_here(
     tree.auto = params.auto;
     let project = core.workspaces().project_of(&cwd);
     let lead = &params.lead;
-    if core.hosts().team.get(&lead.agent_id).is_none() {
-        core.hosts().team.add(Foreign {
-            agent_id: lead.agent_id.clone(),
-            host: host.to_owned(),
-            name: lead.name.clone(),
-            cli: lead.cli.clone(),
-            project: project.clone(),
-            parent: None,
-            role: Role::Lead,
-            status: AgentStatus::Working,
-            said: None,
-            active_at: Some(epoch_ms()),
-            repo: None,
-            landed: None,
-            landed_head: None,
-            branch: None,
-            pending: None,
-        });
-        core.names().adopt(
-            Adopted {
-                agent_id: &lead.agent_id,
-                name: &lead.name,
-                project: project.clone(),
-                parent: None,
-                provider: &lead.cli,
-                reports: true,
-                depth: lead.depth,
-            },
-            core.open_agents(),
-        );
-    }
-    pin(core);
+    take_lead(core, host, lead, &project);
     core.hosts().team.add_tree(tree.clone());
     let plan = ForHost {
         agent_id: params.agent_id.clone(),
@@ -589,6 +560,7 @@ pub(super) async fn start_here(
         cwd,
         prompt: params.prompt.clone(),
         launcher,
+        resume: None,
     };
     let started = {
         let core = core.clone();
@@ -702,6 +674,42 @@ fn in_words(ms: u64) -> String {
         90..=2879 => format!("{} h", minutes / 60),
         _ => format!("{} days", minutes / 1440),
     }
+}
+
+/// The lead on `host` of a worker starting here is one of this host's team, named as it is there.
+pub(super) fn take_lead(core: &Core, host: &str, lead: &LeadParams, project: &str) {
+    if core.hosts().team.get(&lead.agent_id).is_none() {
+        core.hosts().team.add(Foreign {
+            agent_id: lead.agent_id.clone(),
+            host: host.to_owned(),
+            name: lead.name.clone(),
+            cli: lead.cli.clone(),
+            project: project.to_owned(),
+            parent: None,
+            role: Role::Lead,
+            status: AgentStatus::Working,
+            said: None,
+            active_at: Some(epoch_ms()),
+            repo: None,
+            landed: None,
+            landed_head: None,
+            branch: None,
+            pending: None,
+        });
+        core.names().adopt(
+            Adopted {
+                agent_id: &lead.agent_id,
+                name: &lead.name,
+                project: project.to_owned(),
+                parent: None,
+                provider: &lead.cli,
+                reports: true,
+                depth: lead.depth,
+            },
+            core.open_agents(),
+        );
+    }
+    pin(core);
 }
 
 /// Before a worker here reports to its lead on another host, its commits

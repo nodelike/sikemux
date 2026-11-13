@@ -1005,11 +1005,15 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                                 .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
                                 && super::roster::reaches(&core, agent, &project, &from)
                     };
-                    return match core.names().closed_worker(&from, wanted) {
-                        Some(ran) if answers.is_none() && !agents.iter().any(named) => {
-                            Ok(Found::Closed(wanted.to_owned(), ran))
-                        }
-                        _ => Err(why.into()),
+                    if answers.is_some() || agents.iter().any(named) {
+                        return Err(why.into());
+                    }
+                    if let Some(ran) = core.names().closed_worker(&from, wanted) {
+                        return Ok(Found::Closed(wanted.to_owned(), ran));
+                    }
+                    return match super::hosts::reopen::closed_elsewhere(&core, &from, wanted) {
+                        Some(worker) => Ok(Found::ClosedElsewhere(worker.name)),
+                        None => Err(why.into()),
                     };
                 }
             };
@@ -1049,6 +1053,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     let (target, letter) = match found {
         Found::Open(target, letter) => (target, *letter),
         Found::Closed(name, ran) => return reopen(core, request, &name, ran).await,
+        Found::ClosedElsewhere(name) => return reopen_elsewhere(core, request, &name).await,
     };
     let from = letter.from_id.clone();
     if target.reach == Reach::Remote {
@@ -1068,6 +1073,27 @@ enum Found {
     Open(Listed, Box<Letter>),
     /// A closed agent the sender led, by the name it was sent to.
     Closed(String, super::names::RanSession),
+    /// A worker of the sender's that closed on a linked host, by its name.
+    ClosedElsewhere(String),
+}
+
+/// Reopens on its host a worker of the sender's that closed on a linked host, with the message
+/// as its task.
+async fn reopen_elsewhere(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+    name: &str,
+) -> Result<Value, String> {
+    let text = message_text(&request.params)?;
+    let opened = super::hosts::reopen::reopen(core, request, None, name, text)
+        .await
+        .map_err(|why| format!("{name} had closed, and reopening it failed: {why}"))?;
+    Ok(json!({
+        "to": opened["name"],
+        "agentId": opened["agentId"],
+        "delivery": "reopened",
+        "note": format!("{name} had closed, so Sikemux reopened its session on {}; it gets this as its task once it is ready.", opened["host"].as_str().unwrap_or("its host")),
+    }))
 }
 
 /// Takes up again the session of a closed agent the sender led, with the message as its task.

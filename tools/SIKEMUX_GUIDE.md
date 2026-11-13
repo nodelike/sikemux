@@ -1367,7 +1367,7 @@ the agent there, on that host's own sign-in for `cli`, never yours; a refusal
 lists the linked hosts with each one's memory and cores. That host picks the account as it does for a new chat
 there, and refuses at once when `cli` is signed in to no account there or
 every account is at its limit, saying when one is free again and which other
-clis it can start. It runs as a chat, so leave out `mode`, `resume` and
+clis it can start. It runs as a chat, so leave out `mode` and
 `provider`. It works in a checkout of its own of your project there, on a
 branch of its own cut from your commit; your folder must be in a git
 repository. Your unpushed commits go with it, but what is not committed stays
@@ -1396,6 +1396,11 @@ such as research, docs or eval runs. Tell its agent to keep scripts and notes
 in its checkout, not the temporary folder, which a reboot can empty, and to wait
 with `process_start` and `trigger_add`, not background shell loops, which stop
 after two hours.
+
+A worker of yours that closed on another host reopens there: call
+`agent_spawn` with `resume` set to its name or `agentId`, with `host` or
+without, or `agent_send` to its name. It takes up its session again in its
+checkout there, and its commits keep coming back to the same branch here.
 
 ### Finding and resuming an earlier session
 

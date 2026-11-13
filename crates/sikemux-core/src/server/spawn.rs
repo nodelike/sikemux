@@ -274,6 +274,8 @@ pub(crate) struct ForHost {
     pub prompt: String,
     /// The account's launcher it starts on, as this host picked it.
     pub launcher: Option<String>,
+    /// The session it ran before it closed, which it takes up again.
+    pub resume: Option<Saved>,
 }
 
 /// Starts a worker for a lead on a linked host, on this host's own sign-in
@@ -298,6 +300,10 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
     )?;
     if let Some(effort) = plan.effort.clone() {
         launch.effort = Some(effort);
+    }
+    if let Some(saved) = &plan.resume {
+        saved::same_account(&plan.provider, &launch, saved)?;
+        launch.resume_id = Some(saved.session_id.clone());
     }
     if let Some(mode) = plan
         .mode
@@ -550,6 +556,11 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             return Err("resume reopens the session as a chat; leave mode out".into())
         }
         Some(_) => return Err("mode must be chat or terminal".into()),
+    }
+    if let (Some(wanted), Some(lead)) = (&resume, &request.agent_id) {
+        if super::hosts::reopen::closed_elsewhere(core, lead, wanted).is_some() {
+            return super::hosts::reopen::reopen(core, request, None, wanted, prompt).await;
+        }
     }
     let saved = match resume {
         Some(session_id) => {

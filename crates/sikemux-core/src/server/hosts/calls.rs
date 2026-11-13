@@ -13,8 +13,8 @@ use super::super::Core;
 use super::link::{Answer, Kind, Received, Refusal};
 use super::receipts::Stands;
 use super::{
-    answered, chat_move, code, copies, introduction, machine, not_linked, open, route, spawn,
-    transfer,
+    answered, chat_move, code, copies, introduction, machine, not_linked, open, reopen, route,
+    spawn, transfer,
 };
 
 /// One ask between hosts: what it is called and what it carries, shared by the host asking
@@ -39,6 +39,7 @@ macro_rules! host_asks {
 
 host_asks! {
     Spawn "spawn" spawn::SpawnParams;
+    Reopen "reopen" reopen::ReopenParams;
     OpenProject "openProject" open::OpenParams;
     TakeSession "takeSession" transfer::Take;
     UntakeSession "untakeSession" transfer::Untake;
@@ -162,6 +163,7 @@ async fn dispatch(
             Ok(Value::Null)
         }
         Spawn::METHOD => spawn::start_here(core, host, read::<Spawn>(params)?, body).await,
+        Reopen::METHOD => reopen::reopen_here(core, host, read::<Reopen>(params)?).await,
         OpenProject::METHOD => open::open_here(core, read::<OpenProject>(params)?, body).await,
         TakeSession::METHOD => transfer::take_here(core, read::<TakeSession>(params)?, body).await,
         UntakeSession::METHOD => transfer::untake_here(core, read::<UntakeSession>(params)?).await,
