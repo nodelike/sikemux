@@ -72,6 +72,8 @@ An agent can set a trigger on its own chat, to be sent a prompt later: once, suc
 
 Its triggers are listed above the composer, each with when it next fires. **×** removes one. When a trigger fires, its prompt arrives in the chat in a bubble at the left under the trigger's name, and an agent that was asleep wakes for it. A time that passes while the host is off fires once the host is back: a one-time trigger always, a repeating one only within 15 minutes of its time.
 
+A trigger can also fire on a [mod's](/getting-started/mods/#agents) data: each time someone other than the agent adds or changes documents in one of the mod's collections, naming them.
+
 An agent that pushed can end its turn on CI instead of watching it: its trigger fires once CI on that commit ends, with how it went. When the CI ends, you get one notification, but none on a phone that has that chat open.
 
 The same goes for anything else an agent waits on. Rather than checking again and again, each check a turn that costs tokens, it parks on a build or other run it started, ending its turn until the run finishes or prints what it waits for, or on another agent, until that agent finishes or asks you something. Sikemux starts its next turn when that happens, saying what happened, or after a timeout, two hours unless the agent sets another. While it waits, the chat says what on.

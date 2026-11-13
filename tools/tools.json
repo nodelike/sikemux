@@ -2558,6 +2558,14 @@
           "description": "Instead of a time: fire once this agent gets to until",
           "type": "string"
         },
+        "mod": {
+          "description": "Instead of a time: fire when others add or change documents in this mod/collection",
+          "type": "string"
+        },
+        "where": {
+          "description": "With mod: top-level fields a document must equal",
+          "type": "object"
+        },
         "until": {
           "description": "process: text it prints, or ready. agent: done, needs_you, idle or any",
           "type": "string"
