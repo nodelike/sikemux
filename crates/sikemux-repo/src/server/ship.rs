@@ -8,6 +8,7 @@
 //! deploy to an environment the project marked safe goes without asking, and
 //! one that goes is followed to its end and kept as evidence on the slice.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::repo_state::RepoParts;
@@ -493,9 +494,7 @@ fn settle_covering(core: &Core, call: &str, asking: &str) {
     }
     let gone: Vec<String> = (on_call.into_iter())
         .filter(|agent| agent != asking)
-        .filter(|agent| {
-            !(core.repo_above().agent_running)(core, agent) && core.workspaces().closed(agent)
-        })
+        .filter(|agent| !core.agent_now(agent).running() && core.workspaces().closed(agent))
         .collect();
     if gone.is_empty() {
         return;

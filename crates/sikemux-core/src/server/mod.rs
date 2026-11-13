@@ -6,7 +6,7 @@ mod activity;
 pub(crate) use sikemux_serve::server::agent;
 pub use sikemux_workspace::server::activity_log;
 pub mod agent_accounts;
-mod agent_now;
+pub(crate) use sikemux_repo::server::agent_now;
 pub mod agent_sign_in;
 pub mod agent_updates;
 pub mod agent_view;

@@ -14,7 +14,7 @@ use sikemux_calls::questions::{AnswerParams, AnswersParams};
 use sikemux_plugin_api::vault::Caller;
 use sikemux_view::host_stats::HostEventKind;
 use sikemux_view::turn::Landed;
-use sikemux_wire::protocol::AgentState;
+use sikemux_wire::protocol::AgentStatus;
 
 use super::chat::Saved;
 use super::checks::{CheckRan, CiCard};
@@ -71,8 +71,12 @@ pub struct RepoAbove {
     pub messages_work_from_sikemux: for<'a> fn(&'a Arc<Core>, String, String, &'a str) -> Told<'a>,
     /// Whether a note can reach the agent now.
     pub messages_reachable: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, bool>,
-    /// The state of the agent's chat, when it has one.
-    pub agent_chat_state: fn(&Core, &str) -> Option<AgentState>,
+    /// The status of an agent that runs on a linked host, as that host last said it.
+    pub foreign_status: fn(&Core, &str) -> Option<AgentStatus>,
+    /// Whether the agent waits on the answer to a question it asked.
+    pub questions_waits_on_answer: fn(&Core, &str) -> bool,
+    /// Whether a message is on its way to the agent.
+    pub mail_waiting: fn(&Core, &str) -> bool,
     /// The result written on the card the agent works or was reviewed for.
     pub board_agent_result: fn(&Core, &str) -> Option<String>,
     /// The test results of the project's modules, as its tasks left them.
@@ -85,8 +89,6 @@ pub struct RepoAbove {
     pub running_sessions: fn(&Core) -> usize,
     /// Notes an event in the host's history.
     pub host_note: fn(&Core, HostEventKind),
-    /// Whether the agent's process runs now.
-    pub agent_running: fn(&Core, &str) -> bool,
     /// What the person must trust before the project's file runs its commands, if anything.
     pub tasks_config_needs: fn(&Core, &ConfigLoad) -> Option<TrustAsk>,
     /// Asks the person to trust the commands, and says whether they did.

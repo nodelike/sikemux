@@ -21,7 +21,6 @@ use std::path::PathBuf;
 use sikemux_view::prefs::PreferenceChange;
 
 use super::activity_log::{transcript_of, Place};
-use super::agent_now::AgentNowCore;
 use super::chat_above::ChatAbove;
 use super::launching;
 use super::notch;
@@ -352,7 +351,9 @@ pub(super) fn repo_above() -> RepoAbove {
             Box::pin(messages::work_from_sikemux(core, to, text, why))
         },
         messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
-        agent_chat_state: |core, agent| core.agent_now(agent).chat_state(),
+        foreign_status: |core, agent| core.hosts().team.get(agent).map(|foreign| foreign.status),
+        questions_waits_on_answer: |core, agent| core.harness().questions.waits_on_answer(agent),
+        mail_waiting: |core, agent| core.harness().mailbox.has_waiting(agent),
         board_agent_result: |core, agent| {
             board::agent_card(core, agent).and_then(|card| card.result)
         },
@@ -369,7 +370,6 @@ pub(super) fn repo_above() -> RepoAbove {
         },
         host_note: |core, what| core.host_watch().note(what),
         running_sessions: |core| core.running_sessions(),
-        agent_running: |core, agent| core.agent_now(agent).running(),
         tasks_config_needs: tasks::config_needs,
         tasks_ask_person: |core, project, ask, execution_id| {
             Box::pin(tasks::ask_person(core, project, ask, execution_id))

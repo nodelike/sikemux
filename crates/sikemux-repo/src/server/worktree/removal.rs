@@ -2,6 +2,7 @@
 //! removing it would cost, so it can ask the person; then it removes it with
 //! their answers, and the agent goes back to the main checkout.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::worktree::{
@@ -69,7 +70,7 @@ fn costs(worktree: &AgentWorktree) -> (usize, usize) {
 }
 
 pub fn busy(core: &Core, agent_id: &str) -> bool {
-    let state = (core.repo_above().agent_chat_state)(core, agent_id);
+    let state = core.agent_now(agent_id).chat_state();
     state.is_some_and(|state| state != AgentState::Idle)
 }
 
