@@ -152,11 +152,12 @@ impl ModPane {
         self.run("__sikemux.shown(false)");
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(DROP_AFTER).await;
-            let _ = this.update(cx, |pane, cx| {
-                if pane.hidden_since == Some(since) {
-                    let _ = pane.bench.update(cx, |bench, cx| bench.drop_mod_pages(cx));
-                }
+            let still_hidden = this.read_with(cx, |pane, _| {
+                (pane.hidden_since == Some(since)).then(|| pane.bench.clone())
             });
+            if let Ok(Some(bench)) = still_hidden {
+                let _ = bench.update(cx, |bench, cx| bench.drop_mod_pages(cx));
+            }
         })
         .detach();
         true
