@@ -91,7 +91,7 @@ Table update_channels {
 Table events {
   id bigint [pk, increment]
   user_id text [not null]
-  type text [not null, note: 'type = ANY (ARRAY[\'device.added\', \'device.changed\', \'device.revoked\', \'account.deleted\', \'stash.added\', \'stash.changed\', \'stash.removed\', \'stash.seen\', \'vault.changed\'])']
+  type text [not null, note: 'type = ANY (ARRAY[\'device.added\', \'device.changed\', \'device.revoked\', \'account.deleted\', \'stash.added\', \'stash.changed\', \'stash.removed\', \'stash.seen\', \'vault.changed\', \'mods.changed\'])']
   subject text
   subject_role text [note: 'subject_role = ANY (ARRAY[\'host\', \'client\'])']
   reason text [note: 'reason = ANY (ARRAY[\'removed\', \'signed_out\', \'account_deleted\'])']
@@ -308,6 +308,47 @@ Table vault_uses {
   Note: 'last_at >= first_at'
 }
 
+Table mod_counters {
+  user_id text [pk]
+  seq bigint [not null, default: 0, note: 'seq >= 0']
+  sealed_bytes bigint [not null, default: 0, note: 'sealed_bytes >= 0']
+  cleared_seq bigint [not null, default: 0]
+
+  Note: '(cleared_seq >= 0) AND (cleared_seq <= seq)'
+}
+
+Table mod_documents {
+  user_id text [not null]
+  mod_id text [not null, note: 'mod_id ~ \'^[a-z0-9][a-z0-9-]{0,63}$\'']
+  doc_id text [not null, note: 'doc_id ~ \'^[0-9a-f]{64}$\'']
+  generation integer [not null, note: 'generation >= 1']
+  sealed text [not null, note: '(sealed ~ \'^[A-Za-z0-9_-]+$\') AND (length(sealed) <= 87400)']
+  removed boolean [not null]
+  revision integer [not null, note: 'revision >= 1']
+  seq bigint [not null, note: 'seq >= 1']
+  updated_by text [not null]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, mod_id, doc_id) [pk]
+    (user_id, seq) [name: 'mod_documents_by_seq', unique]
+    updated_at [name: 'mod_documents_removed_by_age', note: 'where removed']
+  }
+}
+
+Table mod_purges {
+  user_id text [not null]
+  seq bigint [not null, note: 'seq >= 1']
+  mod_id text [not null, note: 'mod_id ~ \'^[a-z0-9][a-z0-9-]{0,63}$\'']
+  purged_by text [not null]
+  purged_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, seq) [pk]
+    purged_at [name: 'mod_purges_by_age']
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -324,3 +365,6 @@ Ref: vaults.user_id - users.id [delete: cascade]
 Ref: vault_keys.user_id > vaults.user_id [delete: cascade]
 Ref: vault_entries.user_id > vaults.user_id [delete: cascade]
 Ref: vault_uses.user_id > users.id [delete: cascade]
+Ref: mod_counters.user_id - vaults.user_id [delete: cascade]
+Ref: mod_documents.user_id > mod_counters.user_id [delete: cascade]
+Ref: mod_purges.user_id > mod_counters.user_id [delete: cascade]

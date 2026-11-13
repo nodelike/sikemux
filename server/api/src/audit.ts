@@ -31,7 +31,8 @@ type AuditAction =
   | "vault.rotated"
   | "vault.key_added"
   | "vault.entry_written"
-  | "vault.entry_removed";
+  | "vault.entry_removed"
+  | "mods.purged";
 
 interface AuditEntry {
   /** The account it happened to, or null for what belongs to none. */

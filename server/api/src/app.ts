@@ -31,6 +31,7 @@ import type { StashFiles } from "./stash/files.ts";
 import { stashRoutes } from "./stash/routes.ts";
 import { updateRoutes } from "./updates/routes.ts";
 import { vaultRoutes } from "./vault/routes.ts";
+import { modRoutes } from "./mods/routes.ts";
 import { clerkWebhookRoutes } from "./webhooks/clerk.ts";
 
 export interface Services {
@@ -99,6 +100,8 @@ export function createApp(services: Services) {
   app.route("/v1/stash", stashRoutes(services));
   // A vault rotation carries every entry sealed again, so the vault limits its own bodies too.
   app.route("/v1/vault", vaultRoutes(services));
+  // A push carries many sealed documents, so mods limit their own bodies too.
+  app.route("/v1/mods", modRoutes(services));
   app.use(limitBody());
 
   app.route("/v1/health", healthRoutes(database));
