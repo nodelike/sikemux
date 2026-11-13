@@ -10,6 +10,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -480,7 +481,7 @@ impl PersonCalls {
         let closes = closing(book, &entry);
         apply(book, entry);
         if let Some((kind, by, waited)) = closes {
-            let (kind, waited) = (kind_name(kind), std::time::Duration::from_millis(waited));
+            let (kind, waited) = (kind_name(kind), Duration::from_millis(waited));
             match by {
                 Some(CallClient::App) => self.activity.call_closed(kind, Some(&Peer::App), waited),
                 Some(CallClient::Device { id }) => {
@@ -1185,7 +1186,8 @@ fn call_of(core: &Core, id: &str) -> CoreResult<PersonCall> {
 
 /// The person answers a call from the app, the notch or a phone. A production call is answered
 /// only on a client that drew it, and only an option picked there can pass its place: words say
-/// no, or what to do instead.
+/// no, or what to do instead. The reply comes once the answer is on disk and has reached the
+/// asker, or has gone on trying for a while; the call opens again if it cannot reach it.
 pub(crate) async fn answer(
     core: &Arc<Core>,
     peer: &Peer,
@@ -1212,14 +1214,31 @@ pub(crate) async fn answer(
         return Err(core.person_calls().unanswer(core, &call.id, error));
     }
     core.person_calls().changed(core);
-    let reached = Box::pin(deliver(core, &call, &source, typed, params.paths)).await;
-    if let Err(error) = reached {
-        core.person_calls().reopen(&call.id);
-        core.person_calls().changed(core);
-        return Err(error);
+    let core = core.clone();
+    let mut delivering = tokio::spawn(async move {
+        let reached = Box::pin(deliver(&core, &call, &source, typed, params.paths)).await;
+        if reached.is_err() {
+            core.person_calls().reopen(&call.id);
+            core.person_calls().changed(&core);
+        }
+        reached
+    });
+    match tokio::time::timeout(REPLY_WAITS_FOR_DELIVERY, &mut delivering).await {
+        Ok(reached) => reached.unwrap_or(Ok(())),
+        Err(_) => {
+            tokio::spawn(async move {
+                if let Ok(Err(error)) = delivering.await {
+                    eprintln!("sikemux core: an answered call did not reach its asker, so it is open again: {error}");
+                }
+            });
+            Ok(())
+        }
     }
-    Ok(())
 }
+
+/// How long answering a call waits for the answer to reach the asker, so a quick failure still
+/// says why in the reply.
+const REPLY_WAITS_FOR_DELIVERY: Duration = Duration::from_secs(2);
 
 /// Takes the answer to whatever raised the call.
 async fn deliver(
