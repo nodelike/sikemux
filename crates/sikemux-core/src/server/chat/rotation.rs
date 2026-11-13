@@ -93,6 +93,7 @@ impl State {
     }
 
     pub(crate) fn note_handoff(&self, note: String) {
+        let note = note.trim().chars().take(NOTE_CHARS).collect();
         self.inner.locked().handoff = Some((note, epoch_ms()));
     }
 
@@ -364,7 +365,6 @@ pub(crate) fn brief(core: &Core, chat: &Chat) -> Brief {
     }
 
     if let Some(note) = chat.rotation.handoff() {
-        let note: String = note.trim().chars().take(NOTE_CHARS).collect();
         if !note.is_empty() {
             sections.push(section(
                 BriefSectionKind::Handoff,

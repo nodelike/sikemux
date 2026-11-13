@@ -967,10 +967,13 @@ impl Chat {
         self.turn.locked().turn != Turn::Idle
     }
 
-    /// A turn of this chat was answered, so its provider has it saved.
-    pub(crate) fn note_answered(&self) {
+    /// A turn of this chat was answered, so its provider has it saved. A turn the person
+    /// stopped does not move the chat to a fresh session that has not answered one yet.
+    pub(crate) fn note_answered(&self, stopped: bool) {
         self.turn.locked().answered = true;
-        self.rotation.answered();
+        if !stopped {
+            self.rotation.answered();
+        }
     }
 
     /// Every agent still asks before some actions in its most open mode, such as

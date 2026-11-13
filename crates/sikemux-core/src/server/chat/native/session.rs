@@ -254,7 +254,7 @@ impl SinkPort for ChatSink {
         }
         match end {
             TurnEnd::Completed(payload) => {
-                chat.note_answered();
+                chat.note_answered(payload["stopReason"] == json!(StopReason::Cancelled));
                 chat.finish_turn(payload);
             }
             TurnEnd::Failed { failure, response } if failure.kind != FailureKind::Other => {
