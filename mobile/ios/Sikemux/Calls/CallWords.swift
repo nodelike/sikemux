@@ -284,6 +284,8 @@ enum CallWords {
     }
     /// The composer's placeholder while a call waits in the chat.
     static func typeYourAnswer(_ name: String) -> String { String(localized: "Or type your answer to @\(name)") }
+    /// The composer's placeholder while a call for a secret waits in the chat.
+    static let typeSecret = String(localized: "Type or paste it · kept private")
 
     /// A weighty call's brief, which stands as its context.
     static func context(_ call: PersonCall) -> String? {

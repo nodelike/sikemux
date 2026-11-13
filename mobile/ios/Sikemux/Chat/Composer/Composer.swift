@@ -7,7 +7,10 @@ struct ComposerQuestion {
     let text: String
     /// Said, before anything uploads, when the answer cannot carry the context chips on the draft.
     var chipsRefused: String?
-    let onRemove: () -> Void
+    /// The answer is a secret: the words go alone, and the files and chips wait for the next message.
+    var secret = false
+    /// Takes the chip off, so what is sent goes to the agent; none on a secret, whose chip stays.
+    let onRemove: (() -> Void)?
     let onAnswer: (WrittenAnswer) async -> Bool
 }
 
@@ -100,16 +103,18 @@ struct Composer: View {
         let rows = session.rows
         let draft = session.draft!
         let text = draft.text
-        let matches = Self.matching(rows.commands, text)
-        let stashQuery = matches.isEmpty ? StashWords.query(in: text) : nil
-        let typed = Mentions.typed(text, draft.tokens)
+        let secret = question?.secret == true
+        // A secret's words look up nothing: no command, stash or mention menu.
+        let matches = secret ? [] : Self.matching(rows.commands, text)
+        let stashQuery = matches.isEmpty && !secret ? StashWords.query(in: text) : nil
+        let typed = secret ? nil : Mentions.typed(text, draft.tokens)
         let dock = dock
         let attachments = draft.attachments
         let chips = draft.chips
         let uploading = draft.uploading
         let room = WireLimits.maxAttachments - attachments.count
-        let sendable =
-            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !chips.isEmpty
+        let written = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let sendable = written || (!secret && (!attachments.isEmpty || !chips.isEmpty))
 
         dock
         if !matches.isEmpty { commands(matches) }
@@ -144,7 +149,7 @@ struct Composer: View {
             }
             ComposerInput(
                 text: Binding(get: { session.draftText }, set: { session.setDraft($0) }),
-                tokens: draft.tokens, placeholder: placeholder, editable: !uploading, focus: focus,
+                tokens: draft.tokens, placeholder: placeholder, editable: !uploading, secret: secret, focus: focus,
                 onFocus: { focused = $0 }
             )
             bar(rows: rows, sendable: sendable, uploading: uploading, room: room)
@@ -175,7 +180,7 @@ struct Composer: View {
             stash: adding == .stash, room: room,
             onAttach: { session.attach($0, at: focus.caret) },
             onStash: { fromStash($0) },
-            onStashPrompt: sendable && !uploading ? { stashPrompt() } : nil,
+            onStashPrompt: sendable && !uploading && !secret ? { stashPrompt() } : nil,
             onProblem: { session.report($0) }
         )
         .liftedSheet(shown: $configuring) {
@@ -272,7 +277,7 @@ struct Composer: View {
             .disabled(uploading)
             .simultaneousGesture(
                 LongPressGesture().onEnded { _ in
-                    guard sendable else { return }
+                    guard sendable, question?.secret != true else { return }
                     heldSend = true
                     stashPrompt()
                 }
@@ -288,7 +293,7 @@ struct Composer: View {
                                 : String(localized: "Send after this turn"))
                             : String(localized: "Send")
             )
-            .accessibilityHint(sendable ? "Hold to stash this prompt" : "")
+            .accessibilityHint(sendable && question?.secret != true ? "Hold to stash this prompt" : "")
         } else {
             Button(action: session.cancel) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
@@ -334,19 +339,21 @@ struct Composer: View {
             AgentMark(provider: question.cli, size: 13)
             Text(CallWords.answering(question.name, question.text)).font(Theme.ui(12)).foregroundStyle(palette.inkDim)
                 .lineLimit(1)
-            Button(action: question.onRemove) {
-                IconView(icon: Icons.close, size: 10)
-                    .foregroundStyle(palette.ground)
-                    .frame(width: 20, height: 20)
-                    .background(Circle().fill(palette.ink))
-                    .contentShape(Rectangle().inset(by: -8))
+            if let onRemove = question.onRemove {
+                Button(action: onRemove) {
+                    IconView(icon: Icons.close, size: 10)
+                        .foregroundStyle(palette.ground)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(palette.ink))
+                        .contentShape(Rectangle().inset(by: -8))
+                }
+                .buttonStyle(PressFade())
+                .accessibilityLabel("Stop answering @\(question.name)")
             }
-            .buttonStyle(PressFade())
-            .accessibilityLabel("Stop answering @\(question.name)")
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, question.onRemove == nil ? 9 : 6)
         .padding(.leading, 9)
-        .padding(.trailing, 6)
+        .padding(.trailing, question.onRemove == nil ? 9 : 6)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(palette.sunken))
         .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
         .padding(4)
@@ -359,6 +366,18 @@ struct Composer: View {
         let draft = session.draft!
         let sendable = !text.isEmpty || !draft.attachments.isEmpty || !draft.chips.isEmpty
         guard sendable, !offline, !draft.uploading else { return }
+        if draft.typedSecret, question?.secret != true {
+            draft.holdSecret(false)
+            return
+        }
+        if let question, question.secret {
+            guard !text.isEmpty else { return }
+            Haptics.tap()
+            Task {
+                if await session.answerWith(text, question) { sent() }
+            }
+            return
+        }
         if Self.side(text) == nil, let unknown = Self.unknownCommand(text, session.rows.commands) {
             session.report(String(localized: "/\(unknown) is not available in this session"))
             return

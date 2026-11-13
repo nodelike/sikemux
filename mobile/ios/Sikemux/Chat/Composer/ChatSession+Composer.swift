@@ -76,6 +76,9 @@ extension ChatSession {
     /// The files stay in the composer when the answer did not go out.
     func answerWith(_ text: String, _ question: ComposerQuestion) async -> Bool {
         notice = nil
+        if question.secret {
+            return await question.onAnswer(WrittenAnswer(answer: text))
+        }
         if let refused = question.chipsRefused, !draft.chips.isEmpty {
             notice = refused
             return false

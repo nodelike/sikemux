@@ -127,15 +127,16 @@ final class HostCalls {
     }
 
     /// The call whatever a chat's composer sends answers, while one waits there and the person has not taken its chip
-    /// off. A step to production, or a secret, is answered only on its card.
+    /// off. A step to production is answered only on its card. While any call in the chat asks for a secret, the
+    /// oldest such call takes what is typed, whichever call the card shows, and its chip never comes off.
     func composing(for agentId: String) -> PersonCall? {
+        let queue = queue(for: agentId)
+        if let secret = queue.first(where: { $0.secret == true }) { return secret }
+        guard let call = waiting(for: agentId) else { return nil }
         let chief = view?.workspace.projects.contains { $0.chief == agentId } == true
         // In the chief's chat, typed words answer a docked call only when it is the chief's own and the only one open.
-        if chief, queue(for: agentId).count != 1 { return nil }
-        return waiting(for: agentId).flatMap { call in
-            if chief, call.asker.chief != true { return nil }
-            return composingOff.contains(call.id) || call.kind == .production || call.secret == true ? nil : call
-        }
+        if chief, queue.count != 1 || call.asker.chief != true { return nil }
+        return composingOff.contains(call.id) || call.kind == .production ? nil : call
     }
 
     func stopComposing(_ call: PersonCall) {

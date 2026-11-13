@@ -16,8 +16,10 @@ struct ChatBottom: View {
         let rows = session.rows
         let calls = HostCalls.of(context.core)
         let assumptions = Assumptions.of(context.core, context.agentId)
-        let changing = context.watchOnly ? nil : assumptions.changing
-        let composing = context.watchOnly || changing != nil ? nil : calls.composing(for: context.agentId)
+        let waiting = context.watchOnly ? nil : calls.composing(for: context.agentId)
+        // A secret waiting comes before a change to an assumption, so its words never go anywhere else.
+        let changing = context.watchOnly || waiting?.secret == true ? nil : assumptions.changing
+        let composing = changing == nil ? waiting : nil
         let info = Hub.shared.live(context.core).view?.chats.first { $0.agentId == context.agentId }
         Composer(
             session: session,
@@ -26,7 +28,8 @@ struct ChatBottom: View {
             running: rows.running && !session.stoppingTurn,
             steers: context.steers,
             placeholder: changing.map { CallWords.typeYourAnswer($0.name) }
-                ?? composing.map { CallWords.typeYourAnswer($0.asker.name) } ?? placeholder(rows),
+                ?? composing.map { $0.secret == true ? CallWords.typeSecret : CallWords.typeYourAnswer($0.asker.name) }
+                ?? placeholder(rows),
             modeLocked: rows.running || !session.permissions.isEmpty || rows.head.connection != .ready
                 || context.offline,
             watchOnly: context.watchOnly,
@@ -48,7 +51,8 @@ struct ChatBottom: View {
                     ComposerQuestion(
                         name: call.asker.name, cli: call.asker.cli, text: call.question,
                         chipsRefused: CallWords.noChips,
-                        onRemove: { calls.stopComposing(call) },
+                        secret: call.secret == true,
+                        onRemove: call.secret == true ? nil : { calls.stopComposing(call) },
                         onAnswer: { written in await calls.answer(call, written: written, report: session.report) }
                     )
                 },
@@ -62,6 +66,7 @@ struct ChatBottom: View {
                 focus.recent = false
             }
         }
+        .onChange(of: waiting?.secret == true, initial: true) { _, on in session.draft.holdSecret(on) }
         .onChange(of: "\(info?.activeAt ?? 0)|\(info?.unread ?? false)|\(rows.running)", initial: true) { _, seen in
             assumptions.read(seen, report: session.report)
         }

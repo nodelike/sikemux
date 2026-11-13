@@ -17,13 +17,7 @@ struct SecretField: UIViewRepresentable {
         field.font = UIFont(name: "Figtree-Regular", size: 15.5) ?? .systemFont(ofSize: 15.5)
         field.textContainerInset = UIEdgeInsets(top: 10, left: 0, bottom: 10, right: 0)
         field.textContainer.lineFragmentPadding = 0
-        field.autocorrectionType = .no
-        field.spellCheckingType = .no
-        field.autocapitalizationType = .none
-        field.smartQuotesType = .no
-        field.smartDashesType = .no
-        field.smartInsertDeleteType = .no
-        field.inlinePredictionType = .no
+        field.takesSecret(true)
         field.textContentType = nil
         return field
     }
@@ -45,5 +39,21 @@ struct SecretField: UIViewRepresentable {
         func textViewDidChange(_ field: UITextView) { parent.text = field.text }
         func textViewDidBeginEditing(_ field: UITextView) { parent.focused = true }
         func textViewDidEndEditing(_ field: UITextView) { parent.focused = false }
+    }
+}
+
+extension UITextView {
+    /// Has the keyboard correct, suggest and remember nothing typed here while `secret`, and help as usual otherwise.
+    func takesSecret(_ secret: Bool) {
+        let corrects: UITextAutocorrectionType = secret ? .no : .default
+        guard autocorrectionType != corrects else { return }
+        autocorrectionType = corrects
+        spellCheckingType = secret ? .no : .default
+        autocapitalizationType = secret ? .none : .sentences
+        smartQuotesType = secret ? .no : .default
+        smartDashesType = secret ? .no : .default
+        smartInsertDeleteType = secret ? .no : .default
+        inlinePredictionType = secret ? .no : .default
+        if isFirstResponder { reloadInputViews() }
     }
 }

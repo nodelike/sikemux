@@ -29,6 +29,10 @@ final class ComposerDraft {
     @ObservationIgnored private let held: () -> ChatDraft?
     @ObservationIgnored private let live: () -> Connection?
     @ObservationIgnored private let emit: () -> Void
+    /// A call for a secret waits in the chat, so what is typed answers it and is kept nowhere.
+    @ObservationIgnored private var holdingSecret = false
+    /// Words were written while the secret waited.
+    @ObservationIgnored private(set) var typedSecret = false
 
     /// How long typing rests before the draft is saved on the host.
     private static let rest: Duration = .milliseconds(600)
@@ -60,6 +64,7 @@ final class ComposerDraft {
         let named = !tokens.isEmpty
         let tagged = Set(tokens.map(\.id).filter { $0.hasPrefix(Mentions.image) })
         (text, tokens) = Mentions.edit(text, next, tokens)
+        if holdingSecret { typedSecret = true }
         // Deleting a picture's tag takes the picture off the message, as on the Mac.
         let kept = Set(tokens.map(\.id))
         for id in tagged.subtracting(kept) {
@@ -228,7 +233,7 @@ final class ComposerDraft {
 
     /// Writes down what is not saved on the host yet, so it outlives the app quitting.
     func keep() {
-        guard edits > 0 else { return }
+        guard edits > 0, !secretTyped else { return }
         DraftStore.save(
             key,
             DraftStore.Unsaved(
@@ -242,24 +247,43 @@ final class ComposerDraft {
     func save() async {
         guard edits > 0, let connection = live() else { return }
         let edits = self.edits
+        let secret = secretTyped
         let paths = Uploads.paths(attachments)
         let extra = DraftExtra(
-            tokens: tokens.isEmpty ? nil : Mentions.kept(text, tokens),
+            tokens: tokens.isEmpty || secret ? nil : Mentions.kept(text, tokens),
             attachments: paths.isEmpty ? nil : paths,
             context: chips.isEmpty ? nil : chips,
             tracked: liveTracked.isEmpty ? nil : liveTracked
         )
-        let draft = SetDraftParams(key: "\(WireURIs.chatDraft)\(agentId)", text: text, extra: extra, rev: rev)
+        let draft = SetDraftParams(
+            key: "\(WireURIs.chatDraft)\(agentId)", text: secret ? "" : text, extra: extra, rev: rev)
         do {
             _ = try await connection.call(PhoneCall.SetDraft.self, draft)
         } catch {
             log.error("draft not saved, kept for the next change: \(problem(error), privacy: .public)")
             return
         }
-        guard self.edits == edits else { return }
+        // Still counted as unsaved, so the host's emptied draft is not taken in over the secret being typed.
+        guard self.edits == edits, !secret else { return }
         self.edits = 0
         DraftStore.clear(key)
         takeIn()
+    }
+
+    /// Words are typed that answer a call for a secret.
+    private var secretTyped: Bool { holdingSecret && !text.isEmpty }
+
+    /// A call for a secret starts or stops waiting in the chat. Once it stops, words written for it go, so no later
+    /// send or save carries them; words written before it came stay.
+    func holdSecret(_ on: Bool) {
+        guard on != holdingSecret else { return }
+        holdingSecret = on
+        guard !on, typedSecret else { return }
+        typedSecret = false
+        text = ""
+        tokens = []
+        tracked = [:]
+        edited()
     }
 
     private var liveTracked: [String: ChatContext] {

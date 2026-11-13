@@ -23,6 +23,8 @@ struct ComposerInput: UIViewRepresentable {
     var tokens: [TextToken] = []
     let placeholder: String
     var editable = true
+    /// What is typed answers a call for a secret, so the keyboard keeps none of it.
+    var secret = false
     var focus: ComposerFocus?
     /// Takes the keyboard as soon as it shows, as a new chat's composer does.
     var focusOnShow = false
@@ -52,6 +54,7 @@ struct ComposerInput: UIViewRepresentable {
         focus?.field = field
         let field = field as! PlaceholderTextView
         field.isEditable = editable
+        field.takesSecret(secret)
         field.tintColor = UIColor(palette.accent)
         field.keyboardAppearance = palette.isLight ? .light : .dark
         field.typingAttributes = attributes(UIColor(palette.ink))
