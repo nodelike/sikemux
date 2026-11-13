@@ -1057,16 +1057,6 @@ fn raise_of(
     if needs_choice && pick.is_none() {
         missing.push("pick: the choice you would take".to_owned());
     }
-    let bare: Vec<&str> = (choices.iter())
-        .filter(|choice| choice.picture.is_none())
-        .map(|choice| choice.label.as_str())
-        .collect();
-    if reason == Some(RaisedFor::Taste) && !choices.is_empty() && !bare.is_empty() {
-        missing.push(format!(
-            "picture on each choice: the path of a screenshot or mockup that shows it, missing from {}",
-            bare.join(", ")
-        ));
-    }
     if breaks.is_none() {
         missing.push("breaks: what breaks if that is wrong".to_owned());
     }

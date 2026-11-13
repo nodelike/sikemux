@@ -1132,9 +1132,11 @@ agents it started, and only what follows reaches the person.
   without your chat; a raise missing any of these is refused. `context` is a line or two the
   card shows under it; a weighty one, such as a cutover or a public release, also gives `brief`:
   what was `tried`, what the evidence `shows` and what it `cannotUndo`. `reason: access`
-  needs no `choices` or `pick`. `reason: taste` also needs a `picture` on each
-  choice: the path of a screenshot or mockup that shows it. Sikemux keeps a copy
-  and the person's card leads with them. For choices drawn on one mockup page,
+  needs no `choices` or `pick`. When the choices are looks, such as mockups of a
+  screen, give each a `picture`: the path of a screenshot or mockup of that choice,
+  never one shared by all. Sikemux keeps a copy and draws the choices as tiles; a
+  choice of what to do, such as which work to start, has none and shows as a list.
+  For choices drawn on one mockup page,
   give each its own element and take each picture with `page_preview` and
   `selector`, so a card shows that choice and nothing around it.
 - A question in your reply stays in this chat, where the person answers it as an

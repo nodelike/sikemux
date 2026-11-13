@@ -1906,7 +1906,7 @@
                 "maxLength": 400
               },
               "picture": {
-                "description": "Path of an image showing it; needed with reason taste",
+                "description": "Only when the choice is a look: a screenshot or mockup of it",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 4096
