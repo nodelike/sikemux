@@ -62,7 +62,7 @@ pub use recent::*;
 
 /// Bumped by a change to what [`Saved`] holds that an earlier file needs
 /// carried over to.
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 const MAX_PROJECTS: usize = 512;
 const MAX_SPACES: usize = 64;
 const MAX_PINNED: usize = 256;
@@ -503,6 +503,9 @@ impl Workspaces {
         if saved.version < 4 {
             migrate::name_accounts(&mut saved);
         }
+        if saved.version < 5 {
+            migrate::untitle_chiefs(&mut saved);
+        }
         saved.version = VERSION;
         let workspaces = Self {
             published: Mutex::new(Published {
@@ -859,6 +862,13 @@ impl Workspaces {
             let agent = &kept.agent;
             let untitled = untitled(saved, agent);
             if agent.renamed || agent.title == title || (stand_in && !untitled) {
+                return Ok(false);
+            }
+            // A chief's agent names its chat from the greeting Sikemux sends it, which the
+            // person never wrote.
+            let chief =
+                (saved.projects.iter()).any(|project| project.chief.as_deref() == Some(agent_id));
+            if chief && !stand_in {
                 return Ok(false);
             }
             if let Some(kept) = saved.kept_mut(agent_id) {

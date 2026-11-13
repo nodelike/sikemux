@@ -19,6 +19,7 @@ use sikemux_wire::protocol::ask;
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_sikemux-fake-acp-agent");
+const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
 const WAIT: Duration = Duration::from_secs(90);
 
 struct KilledOnDrop(Child);
@@ -742,6 +743,116 @@ async fn an_overrule_undone_while_the_chief_sleeps_after_a_restart_shows_undone_
     .await;
     assert!(shown.is_ok(), "{:?}", boss.chat.notices());
     assert!(!overruled(&boss.chat, false), "{:?}", boss.chat.notices());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
+    let root = tempfile::Builder::new()
+        .prefix("chief")
+        .tempdir_in("/tmp")
+        .expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    let claude = root.join("claude");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir_all(&claude).expect("claude");
+    std::fs::write(
+        claude.join("fake-account.json"),
+        json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "chief@example.com", "subscriptionType": "max" }).to_string(),
+    )
+    .expect("an account");
+    std::fs::create_dir(&project).expect("project");
+    let folder: String = (project.to_string_lossy().chars())
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    let sessions = claude.join("projects").join(folder);
+    std::fs::create_dir_all(&sessions).expect("its sessions");
+    let socket = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({ "profiles": [{
+        "id": "builtin-claude",
+        "name": "Claude",
+        "provider": "claude",
+        "accent": "#d97757",
+        "executablePath": FAKE_CLAUDE,
+        "configPath": claude,
+    }] });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    app.call(
+        "addProject",
+        json!({ "id": "widget", "name": "widget", "path": project }),
+    )
+    .await
+    .expect("the project");
+    let opened = app
+        .call("openChief", json!({ "project": "widget" }))
+        .await
+        .expect("the chief");
+    let chief = opened["agentId"].as_str().expect("its id").to_owned();
+    let mut boss = Agent::open(&socket, &chief).await;
+    boss.chat.until(|chat| chat.turns_ended() >= 1).await;
+    let (worker, _) = app
+        .start_chat("claude:builtin-claude".into(), "widget".into(), None)
+        .await
+        .expect("a worker starts");
+    let mut working = Agent::open(&socket, &worker).await;
+    working.says("Sort the inbox", "Sort the inbox").await;
+    boss.says("Plan the launch week", "Plan the launch week")
+        .await;
+
+    let agent = |id: String| {
+        let app = &app;
+        async move {
+            let workspace = app
+                .call("workspace", json!({}))
+                .await
+                .expect("the workspace");
+            (workspace["agents"].as_array().into_iter().flatten())
+                .find(|agent| agent["id"] == id.as_str())
+                .cloned()
+                .unwrap_or_default()
+        }
+    };
+    let titled = |agent: &Value| {
+        (agent["titled"] == true)
+            .then(|| agent["title"].as_str().map(str::to_owned))
+            .flatten()
+    };
+    let until_titled = |id: String, wanted: &'static str| {
+        let agent = &agent;
+        async move {
+            let deadline = Instant::now() + WAIT;
+            while titled(&agent(id.clone()).await).as_deref() != Some(wanted) {
+                assert!(Instant::now() < deadline, "{id} was never titled {wanted}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
+    };
+    until_titled(chief.clone(), "Plan the launch week").await;
+
+    for (id, named) in [
+        (&chief, "Chief of widget first message"),
+        (&worker, "Inbox sorted by Claude"),
+    ] {
+        let session = agent(id.clone()).await["resumeId"]
+            .as_str()
+            .expect("its session")
+            .to_owned();
+        let line = json!({ "type": "ai-title", "aiTitle": named, "sessionId": session });
+        std::fs::write(
+            sessions.join(format!("{session}.jsonl")),
+            format!("{line}\n"),
+        )
+        .expect("Claude's title");
+    }
+    until_titled(worker.clone(), "Inbox sorted by Claude").await;
+    assert_eq!(
+        titled(&agent(chief.clone()).await).as_deref(),
+        Some("Plan the launch week")
+    );
 }
 
 const UNWRAP: &str = "Never call unwrap outside tests";

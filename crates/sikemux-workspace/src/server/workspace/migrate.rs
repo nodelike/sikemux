@@ -1,7 +1,8 @@
 //! Carries over a workspace saved before the core kept agents: the projects
 //! devices added, how sleeping chats ran, and the projects, agents, spaces and
 //! pinned chats the app kept in its own state then. Agents kept before the
-//! core chose buddy colours, or before chats named their account, get theirs.
+//! core chose buddy colours, or before chats named their account, get theirs, and a chief
+//! loses the title its agent made of the greeting Sikemux sent it.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -86,6 +87,19 @@ pub fn name_accounts(saved: &mut Saved) {
             crate::agent_catalog::agent(&agent.provider).is_some_and(|entry| entry.accounts);
         if agent.profile_id.is_none() && keeps_accounts {
             agent.profile_id = Some(book.chosen(&agent.provider));
+        }
+    }
+}
+
+/// Takes from each chief the title its agent made of the greeting Sikemux sent it.
+pub fn untitle_chiefs(saved: &mut Saved) {
+    let chiefs: Vec<String> = (saved.projects.iter())
+        .filter_map(|project| project.chief.clone())
+        .collect();
+    for kept in &mut saved.agents {
+        let agent = &mut kept.agent;
+        if chiefs.contains(&agent.id) && !agent.renamed {
+            agent.title = agent.provider.clone();
         }
     }
 }

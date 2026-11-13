@@ -237,13 +237,15 @@ pub fn prompt(
     super::side::tell(core, agent_id, &mut context);
     (core.chat_above().messages_worked)(core, agent_id);
     (core.chat_above().messages_person_wrote)(core, agent_id);
-    let words = context.first().map(|context| context.title.as_str());
-    let title = feed::title(if text.trim().is_empty() {
-        words.unwrap_or_default()
-    } else {
-        &text
-    });
-    crate::server::workspace::retitle(core, agent_id, title, true);
+    if whose.person {
+        let words = context.first().map(|context| context.title.as_str());
+        let title = feed::title(if text.trim().is_empty() {
+            words.unwrap_or_default()
+        } else {
+            &text
+        });
+        crate::server::workspace::retitle(core, agent_id, title, true);
+    }
     let chat = core.chats().running(agent_id)?;
     context.extend((core.chat_above().board_take_note)(core, agent_id));
     context.extend(
