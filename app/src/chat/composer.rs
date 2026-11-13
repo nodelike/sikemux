@@ -326,7 +326,10 @@ impl Composer {
 impl RenderOnce for Composer {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
-        let fill = t.surface_composer;
+        let fill = Hsla {
+            a: t.surface_composer.a * COMPOSER_SOLID,
+            ..t.surface_composer
+        };
         let (tiles, on_add, on_paste, chip) = match self.attachments {
             Some((tiles, on_add, on_paste, chip)) => {
                 (tiles, Some(on_add), Some(on_paste), Some(chip))
@@ -613,6 +616,9 @@ fn tab_hint(suggestion: SharedString, text_size: gpui_kit::Pixels, cx: &App) -> 
                 .top(text_size * GLYPHS_BELOW_MIDDLE),
         )
 }
+
+/// How solid the box is, letting a little of what lies behind it show through.
+const COMPOSER_SOLID: f32 = 0.9;
 
 /// How strongly the accent edges the box while YOLO is on.
 const YOLO_EDGE: f32 = 0.5;
