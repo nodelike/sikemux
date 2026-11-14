@@ -581,9 +581,7 @@ impl Menu {
             div()
                 .flex()
                 .items_center()
-                .justify_between()
-                .px(SPACE_2H)
-                .py(px(3.))
+                .gap(SPACE_2)
                 .child(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_XS_H))
@@ -740,6 +738,7 @@ impl Menu {
         let key = nth.map(|nth| ui::keycap(numbered(nth), cx));
         div()
             .id(("model-option", at))
+            .flex_none()
             .flex()
             .items_center()
             .gap(px(9.))
@@ -923,6 +922,7 @@ impl Menu {
                     let (menu, value) = (this.clone(), choice.value.clone());
                     div()
                         .id(("model-effort", at))
+                        .flex_none()
                         .flex()
                         .items_center()
                         .gap(px(9.))
@@ -1092,6 +1092,7 @@ impl Render for Menu {
             if !heading.is_empty() {
                 list.push(
                     ui::caps(heading, cx)
+                        .flex_none()
                         .px(SPACE_2H)
                         .pt(px(if list.is_empty() { 2. } else { 8. }))
                         .into_any_element(),
@@ -1100,6 +1101,7 @@ impl Render for Menu {
             if let Some(note) = note.filter(|_| noted) {
                 list.push(
                     div()
+                        .flex_none()
                         .px(SPACE_2H)
                         .py(SPACE_1H)
                         .text_size(crate::theme::ui_text(TEXT_XS))
@@ -1151,6 +1153,7 @@ impl Render for Menu {
                     .flex_col()
                     .gap(px(2.))
                     .p(px(ui::PANEL_INSET))
+                    .min_h(px(300.))
                     .max_h(px(360.))
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll)
@@ -1162,8 +1165,9 @@ impl Render for Menu {
                 .items_center()
                 .justify_between()
                 .gap(SPACE_2)
-                .min_h(px(40.))
-                .px(px(ui::PANEL_INSET))
+                .py(SPACE_1H)
+                .pl(px(ui::PANEL_INSET))
+                .pr(SPACE_2)
                 .border_t_1()
                 .border_color(t.line)
                 .child(div().children(add))

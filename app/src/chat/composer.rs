@@ -429,7 +429,8 @@ impl RenderOnce for Composer {
                 effort,
             };
             let trigger = picker_trigger("model", face, t!("Model"), enabled, room, cx);
-            let menu = crate::chat::model_picker::around(trigger, &self.provider, picked, &bench);
+            let chat = self.draft.entity_id().to_string();
+            let menu = crate::chat::model_picker::around(trigger, &chat, picked, &bench);
             match self.model_open.clone() {
                 Some((open, opened)) => menu.open(open).on_open_change(
                     move |open: &bool, _: &mut Window, cx: &mut App| opened(*open, cx),
