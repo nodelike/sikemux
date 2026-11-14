@@ -15,8 +15,8 @@ use sikemux_plugin_api::store;
 use crate::config::{self, Account};
 use crate::error::{Github, GithubError, GithubResult};
 
-const API_VERSION: &str = "2022-11-28";
-const JSON: &str = "application/vnd.github+json";
+pub const API_VERSION: &str = "2022-11-28";
+pub const JSON: &str = "application/vnd.github+json";
 
 /// GitHub answers for a renamed or moved repository with a redirect on its
 /// own host, which keeps the token. A redirect anywhere else is storage, which
@@ -31,15 +31,41 @@ pub static HTTP: Http<Github> = Http::with_limits(
 );
 pub static API: Calls<Github> = Calls::new();
 
+#[derive(Clone)]
 pub struct Session {
     pub account: Account,
     pub token: String,
 }
 
+tokio::task_local! {
+    static AS_APP: Session;
+}
+
+/// Runs `work` as the agents' App, whatever account the person signed in with.
+pub async fn as_app<F: std::future::Future>(session: Session, work: F) -> F::Output {
+    AS_APP.scope(session, work).await
+}
+
 impl Session {
+    pub fn of_app(host: &str, bot: &str, token: String) -> Session {
+        Session {
+            account: Account {
+                id: format!("app:{}", config::account_id(host, bot)),
+                host: host.to_owned(),
+                login: bot.to_owned(),
+                source: config::TokenSource::Keychain,
+                owns_token: false,
+            },
+            token,
+        }
+    }
+
     /// Read fresh every time, so a `gh auth login` in a terminal is picked up
     /// without restarting the app.
     pub async fn current(data_dir: &Path) -> GithubResult<Session> {
+        if let Ok(session) = AS_APP.try_with(Session::clone) {
+            return Ok(session);
+        }
         let data_dir = data_dir.to_path_buf();
         let chosen = chosen();
         store::blocking(move || {

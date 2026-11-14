@@ -10453,13 +10453,16 @@ dependencies = [
 name = "sikemux-plugin-github"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "futures",
  "reqwest",
+ "ring",
  "rustls",
  "serde",
  "serde_json",
  "sikemux-plugin-api",
  "sikemux-process",
+ "time",
  "tokio",
  "url",
  "workspace-hack",

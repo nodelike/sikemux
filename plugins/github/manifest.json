@@ -3,7 +3,7 @@
   "name": "GitHub",
   "callTimeoutSecs": 120,
   "environment": ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST"],
-  "accountMethods": ["setDefaultAccount", "signIn", "signOut"],
+  "accountMethods": ["setDefaultAccount", "signIn", "signOut", "forgetApp"],
   "tokenForm": {
     "method": "signIn",
     "lede": "Tools for your agents to read and work on pull requests, Actions runs and issues.",

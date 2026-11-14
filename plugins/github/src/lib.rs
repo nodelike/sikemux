@@ -2,6 +2,8 @@
 // whichever repository Sikemux has open.
 
 mod annotations;
+mod app;
+mod app_setup;
 mod approvals;
 mod artifacts;
 mod auth;
@@ -34,9 +36,12 @@ use sikemux_plugin_api::codehost::{
     Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming,
     TimelineItem, Workflow, WorkflowFile,
 };
+use sikemux_plugin_api::credential::{Actor, Ask, Credential};
 use sikemux_plugin_api::host_work;
 use sikemux_plugin_api::store;
-use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture};
+use sikemux_plugin_api::{
+    answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+};
 
 use crate::error::GithubResult;
 
@@ -63,7 +68,59 @@ async fn signed_in(data_dir: &Path, outcome: GithubResult<String>) -> Result<Val
 
 impl Plugin for Github {
     fn vault(&self) -> Option<&'static dyn sikemux_plugin_api::vault::Book> {
-        Some(&config::BOOK)
+        Some(&app::BOOKS)
+    }
+
+    fn stream<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        method: &'a str,
+        input: Value,
+        sink: StreamSink,
+    ) -> PluginFuture<'a, ()> {
+        Box::pin(async move {
+            match method {
+                "createApp" => {
+                    let ask = match input {
+                        Value::Null => app_setup::Create::default(),
+                        input => params(input)?,
+                    };
+                    app_setup::create(ctx.data_dir(), ask, &sink).await?;
+                    sink.send(reply(app_setup::status(ctx.data_dir()).await)?)
+                }
+                _ => Err(PluginError::unknown_method(method)),
+            }
+        })
+    }
+
+    fn credential<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        ask: &'a Ask,
+    ) -> PluginFuture<'a, Option<Credential>> {
+        Box::pin(async move { Ok(app::credential(ctx.data_dir(), ask).await?) })
+    }
+
+    fn revoke<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        remote: &'a str,
+        secret: &'a str,
+    ) -> PluginFuture<'a, ()> {
+        Box::pin(async move { Ok(app::revoke(ctx.data_dir(), remote, secret).await?) })
+    }
+
+    fn merge_as_agents<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        remote: &'a str,
+        merge: Merge,
+    ) -> PluginFuture<'a, bool> {
+        Box::pin(async move { Ok(app::merge(ctx.data_dir(), remote, merge).await?) })
+    }
+
+    fn acts_as(&self, ctx: &PluginContext, remote: &str) -> Option<Actor> {
+        app::acts_as(ctx, remote)
     }
 
     fn call<'a>(
@@ -96,6 +153,8 @@ impl Github {
             }
             "signIn" => signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await,
             "signOut" => answer(auth::sign_out(data_dir)).await,
+            "appStatus" => reply(app_setup::status(data_dir).await),
+            "forgetApp" => answer(app_setup::forget(data_dir)).await,
             _ => codehost::dispatch(self, data_dir, method, input).await,
         }
     }

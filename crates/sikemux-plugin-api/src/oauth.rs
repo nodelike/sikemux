@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use sikemux_loopback::{challenge, redirect_uri, Callback, LoopbackError};
+use sikemux_loopback::{challenge, redirect_uri, LoopbackError};
 
-pub use sikemux_loopback::new_state;
+pub use sikemux_loopback::{new_state, Callback};
 
 use crate::http::{read_body, Http};
 use crate::service::{Service, ServiceError};
