@@ -8791,6 +8791,7 @@
         }
       }
     },
+    "Agents push as you today. Make a GitHub App for them and they get an identity of their own, which cannot change your repositories' settings or secrets.": {},
     "Agents run everything else. A change to one of these waits for your yes on a call, unless its level says otherwise.": {
       "localizations": {
         "es": {
@@ -9105,6 +9106,7 @@
         }
       }
     },
+    "Agents' identity": {},
     "All": {
       "localizations": {
         "es": {
@@ -34450,6 +34452,7 @@
         }
       }
     },
+    "Finish making the App on GitHub": {},
     "Finish signing in in your browser": {
       "localizations": {
         "es": {
@@ -35958,6 +35961,7 @@
         }
       }
     },
+    "Forget here": {},
     "Forked from a {agent} chat": {
       "localizations": {
         "es": {
@@ -37362,6 +37366,7 @@
         }
       }
     },
+    "GitHub: {error}": {},
     "Global": {
       "localizations": {
         "es": {
@@ -42307,6 +42312,7 @@
         }
       }
     },
+    "Install on more repositories": {},
     "Install or sign in to one agent to continue.": {
       "localizations": {
         "es": {
@@ -49277,6 +49283,7 @@
         }
       }
     },
+    "Make the agents' App": {},
     "Manual": {
       "localizations": {
         "es": {
@@ -145837,6 +145844,7 @@
         }
       }
     },
+    "{about} GitHub said: {problem}": {},
     "{account} has no {what} left": {
       "localizations": {
         "es": {
@@ -147139,6 +147147,9 @@
         }
       }
     },
+    "{app} is installed on 1 repository.": {},
+    "{app} is installed on {count} repositories.": {},
+    "{app} is made but not installed on any repository yet.": {},
     "{asked} calls, all {asked} answered as picked": {
       "localizations": {
         "es": {

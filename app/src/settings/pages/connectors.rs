@@ -39,6 +39,7 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
 const AWS: &str = "sikemux.aws";
 const RUNDECK: &str = "sikemux.rundeck";
 const DATABASE: &str = "sikemux.database";
+const GITHUB: &str = "sikemux.github";
 
 /// What the page keeps while it shows: the sign-in open over it, and what the connectors with
 /// settings of their own last answered.
@@ -52,7 +53,20 @@ pub struct Fields {
     aws: Option<Aws>,
     rundeck: Option<Lists>,
     databases: Vec<Database>,
+    github: Option<GithubApp>,
+    /// GitHub's page for making the agents' App is open, which dropping stops.
+    making_app: Option<Task<()>>,
     vault: super::vault::Fields,
+}
+
+/// The GitHub App agents act as, as the GitHub connector last said.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GithubApp {
+    app: Option<String>,
+    repositories: usize,
+    install_url: Option<String>,
+    problem: Option<String>,
 }
 
 /// A sign-in on its way: the token form's boxes, and the browser's, while it runs.
@@ -198,6 +212,9 @@ pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
             });
         })
         .detach();
+    }
+    if on(GITHUB) {
+        read_github(bench, cx);
     }
     if on(DATABASE) {
         let saved = ask::<Vec<Database>>(bench, DATABASE, "agentDatabases", Value::Null);
@@ -418,6 +435,7 @@ fn has_settings(plugin: &Listed, fields: &Fields) -> bool {
             AWS => fields.aws.is_some(),
             RUNDECK => fields.rundeck.is_some(),
             DATABASE => !fields.databases.is_empty(),
+            GITHUB => fields.github.is_some(),
             _ => false,
         }
 }
@@ -554,8 +572,141 @@ fn settings(
             .iter()
             .map(|database| database_row(database, this, cx))
             .collect(),
+        GITHUB => github_settings(fields, this, cx),
         _ => Vec::new(),
     }
+}
+
+/// The agents' own GitHub App: whether it is made and where it is installed, and the ways to
+/// make it, install it on more repositories, or forget it here.
+fn github_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyElement> {
+    let Some(github) = &fields.github else {
+        return Vec::new();
+    };
+    let about = match (&github.app, github.repositories) {
+        (None, _) => t!("Agents push as you today. Make a GitHub App for them and they get an identity of their own, which cannot change your repositories' settings or secrets.").to_owned(),
+        (Some(app), 0) => t!("{app} is made but not installed on any repository yet.", app = app),
+        (Some(app), 1) => t!("{app} is installed on 1 repository.", app = app),
+        (Some(app), count) => t!(
+            "{app} is installed on {count} repositories.",
+            app = app,
+            count = count
+        ),
+    };
+    let about = match &github.problem {
+        Some(problem) => t!(
+            "{about} GitHub said: {problem}",
+            about = about,
+            problem = problem
+        ),
+        None => about,
+    };
+    let buttons = match (&github.app, &github.install_url) {
+        (Some(_), Some(install)) => {
+            let install = install.clone();
+            vec![
+                ui::Button::new(
+                    "github-app-install",
+                    t!("Install on more repositories"),
+                    ui::Variant::Outline,
+                )
+                .icon(Icon::ExternalLink)
+                .on_click(move |_, _, cx| cx.open_url(&install))
+                .into_any_element(),
+                ui::Button::new("github-app-forget", t!("Forget here"), ui::Variant::Ghost)
+                    .on_click(on(this, forget_app))
+                    .into_any_element(),
+            ]
+        }
+        _ if fields.making_app.is_some() => vec![sign_in::waiting(
+            "github-app-making",
+            t!("Finish making the App on GitHub"),
+            on(this, stop_making_app),
+            cx,
+        )
+        .into_any_element()],
+        _ => vec![ui::Button::new(
+            "github-app-make",
+            t!("Make the agents' App"),
+            ui::Variant::Primary,
+        )
+        .icon(mark(GITHUB))
+        .on_click(on(this, make_app))
+        .into_any_element()],
+    };
+    vec![setting(
+        t!("Agents' identity"),
+        Some(about.into()),
+        div().flex().items_center().gap(SPACE_2).children(buttons),
+        cx,
+    )]
+}
+
+fn read_github(bench: &Workbench, cx: &mut Context<Workbench>) {
+    let status = ask::<GithubApp>(bench, GITHUB, "appStatus", Value::Null);
+    cx.spawn(async move |bench, cx| {
+        let Ok(status) = status.await else {
+            return;
+        };
+        let _ = bench.update(cx, |bench, cx| {
+            change_fields(bench, cx, |fields, _| fields.github = Some(status));
+        });
+    })
+    .detach();
+}
+
+/// Opens GitHub's page for making the App, then its page for picking repositories.
+fn make_app(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let call = PluginCall {
+        plugin: GITHUB.to_owned(),
+        method: "createApp".to_owned(),
+        params: Value::Null,
+    };
+    let mut streaming = Target::here(&bench.asks)
+        .stream::<call::PluginStream>(|stream| StreamCall { stream, call });
+    let waiting = cx.spawn(async move |bench, cx| {
+        let mut failed = None;
+        while let Some(part) = streaming.parts.recv().await {
+            for item in part.items {
+                if let Some(url) = item["url"].as_str() {
+                    open_page(url.to_owned(), None, cx);
+                }
+            }
+            if let Some(error) = part.error {
+                let message = error["message"].as_str().map(str::to_owned);
+                failed = Some(message.unwrap_or_else(|| error.to_string()));
+            }
+            if part.done {
+                break;
+            }
+        }
+        let _ = bench.update(cx, |bench, cx| {
+            change_fields(bench, cx, |fields, _| fields.making_app = None);
+            if let Some(failed) = failed {
+                bench.notify(toast::error(t!("GitHub: {error}", error = failed)), cx);
+            }
+            read_github(bench, cx);
+        });
+    });
+    change_fields(bench, cx, |fields, _| fields.making_app = Some(waiting));
+}
+
+fn stop_making_app(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    change_fields(bench, cx, |fields, _| fields.making_app = None);
+}
+
+fn forget_app(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let forgot = ask::<Value>(bench, GITHUB, "forgetApp", Value::Null);
+    cx.spawn(async move |bench, cx| {
+        let forgot = forgot.await;
+        let _ = bench.update(cx, |bench, cx| {
+            if let Err(error) = forgot {
+                bench.notify(toast::error(t!("GitHub: {error}", error = error)), cx);
+            }
+            read_github(bench, cx);
+        });
+    })
+    .detach();
 }
 
 fn aws_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyElement> {
