@@ -1506,7 +1506,7 @@ pub(super) fn part(
             let look = if user {
                 attach::with_chips(look, &row.message, &looks.bench, window)
             } else {
-                attach::with_why(look, &row.message, &looks.bench, window)
+                attach::with_why(look, &row.message, &looks.bench, window, cx)
             };
             let cut = (doc.units > LONG_TEXT && looks.reading.folds(&row.message.id, &id))
                 .then(|| doc.markdown.cut(LONG_TEXT))

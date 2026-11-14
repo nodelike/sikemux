@@ -845,57 +845,133 @@ pub fn with_chips(
     if mentions.is_empty() {
         return look;
     }
+    let chips = (mentions.into_iter())
+        .map(|mention| {
+            mention_chip(
+                mention.written,
+                mention.id,
+                mention.label,
+                &look,
+                bench,
+                window,
+            )
+        })
+        .collect::<Vec<_>>();
+    Rc::new(gpui_transcript::Style {
+        chips: chips.into(),
+        ..(*look).clone()
+    })
+}
+
+/// An agent's answer with each `@name` of an agent the app knows drawn as the chip the draft
+/// draws for it.
+fn with_named_agents(
+    look: Rc<gpui_transcript::Style>,
+    message: &ChatMessage,
+    bench: &WeakEntity<Workbench>,
+    window: &mut Window,
+    cx: &App,
+) -> Rc<gpui_transcript::Style> {
+    let texts: Vec<&str> = (message.parts.iter())
+        .filter_map(|part| match part {
+            sikemux_view::chat::ChatPart::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .filter(|text| text.contains('@'))
+        .collect();
+    let Some(strong) = bench.upgrade().filter(|_| !texts.is_empty()) else {
+        return look;
+    };
+    let chips: Vec<gpui_transcript::Chip> = named_agents(strong.read(cx))
+        .into_iter()
+        .map(|(name, id)| (format!("@{name}"), id))
+        .filter(|(written, _)| texts.iter().any(|text| text.contains(written.as_str())))
+        .map(|(written, id)| {
+            mention_chip(
+                written.clone(),
+                format!("{AGENT}{id}"),
+                written,
+                &look,
+                bench,
+                window,
+            )
+        })
+        .collect();
+    if chips.is_empty() {
+        return look;
+    }
+    Rc::new(gpui_transcript::Style {
+        chips: chips.into(),
+        ..(*look).clone()
+    })
+}
+
+/// The chip drawn in a message's text in place of `written`, as the draft drew it; an agent's
+/// chip opens its chat.
+fn mention_chip(
+    written: String,
+    id: String,
+    label: String,
+    look: &gpui_transcript::Style,
+    bench: &WeakEntity<Workbench>,
+    window: &mut Window,
+) -> gpui_transcript::Chip {
     let (size, font) = (look.text_size, look.font.clone());
     let height = (size * look.line_height).floor() - px(4.);
     let measure = |text: &str| {
         let mut style = window.text_style();
-        style.font_family = look.font.clone();
+        style.font_family = font.clone();
         let run = style.to_run(text.len());
         window
             .text_system()
             .shape_line(text.to_owned().into(), size, &[run], None)
             .width
     };
-    let chips: Vec<gpui_transcript::Chip> = mentions
-        .into_iter()
-        .map(|mention| {
-            let (key, title) = chip_words(&mention.id, &mention.label.into());
-            let words = measure(&key)
-                + title
-                    .as_ref()
-                    .map_or(px(0.), |title| px(CHIP_TITLE_GAP) + measure(title));
-            let width = (words + px(CHIP_FRAME + 1.)).min(px(CHIP_WIDEST)).ceil();
-            let (bench, font) = (bench.clone(), font.clone());
-            gpui_transcript::Chip {
-                written: mention.written.into(),
-                width,
-                draw: Rc::new(move |_, cx| {
-                    div()
-                        .size_full()
-                        .flex()
-                        .items_center()
-                        .text_size(size)
-                        .font_family(font.clone())
-                        .child(
-                            chip_face(
-                                key.clone(),
-                                title.clone(),
-                                false,
-                                mark(&mention.id, Tokens::get(cx).text_tertiary, &bench, cx),
-                                cx,
-                            )
-                            .w_full()
-                            .h(height),
-                        )
+    let (key, title) = chip_words(&id, &label.into());
+    let words = measure(&key)
+        + title
+            .as_ref()
+            .map_or(px(0.), |title| px(CHIP_TITLE_GAP) + measure(title));
+    let width = (words + px(CHIP_FRAME + 1.)).min(px(CHIP_WIDEST)).ceil();
+    let bench = bench.clone();
+    gpui_transcript::Chip {
+        written: written.into(),
+        width,
+        draw: Rc::new(move |_, cx| {
+            let face = chip_face(
+                key.clone(),
+                title.clone(),
+                false,
+                mark(&id, Tokens::get(cx).text_tertiary, &bench, cx),
+                cx,
+            )
+            .w_full()
+            .h(height);
+            let face = match id.strip_prefix(AGENT) {
+                Some(agent) => {
+                    let (agent, bench) = (agent.to_owned(), bench.clone());
+                    let hover = Tokens::get(cx).surface_active;
+                    face.id(SharedString::from(format!("mention:{agent}")))
+                        .hover(move |chip| chip.bg(hover))
+                        .clicks(move |_, _, cx| {
+                            bench
+                                .update(cx, |bench, cx| bench.open_agent(&agent, cx))
+                                .ok();
+                        })
                         .into_any_element()
-                }),
-            }
-        })
-        .collect();
-    Rc::new(gpui_transcript::Style {
-        chips: chips.into(),
-        ..(*look).clone()
-    })
+                }
+                None => face.into_any_element(),
+            };
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .text_size(size)
+                .font_family(font.clone())
+                .child(face)
+                .into_any_element()
+        }),
+    }
 }
 
 /// An answer's look with each `why` link drawn as the chip the core checked it to be, which opens
@@ -905,7 +981,9 @@ pub fn with_why(
     message: &ChatMessage,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
+    cx: &App,
 ) -> Rc<gpui_transcript::Style> {
+    let look = with_named_agents(look, message, bench, window, cx);
     let links = (message.parts.iter()).any(|part| match part {
         sikemux_view::chat::ChatPart::Text { text, .. } => text.contains(WHY_URI),
         _ => false,
