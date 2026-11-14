@@ -231,20 +231,24 @@ fn refills(grant: &Live, windows: &[UsageWindow]) -> Option<String> {
 }
 
 /// The account's limits and resets in one request to Claude's usage endpoint, as claude.ai and
-/// Claude Code's /usage read them. None when it could not be asked, its stored sign-in had run
-/// out (Claude answers an old token with "rate limited"), or it answered with no limits, so the
-/// caller asks the CLI, which renews the sign-in for itself.
-pub async fn usage(program: &Path, config_path: Option<&str>) -> Option<Usage> {
-    let answer = usage_answer(program, config_path).await.ok()?;
+/// Claude Code's /usage read them. Ok(None) when its stored sign-in had run out or it answered
+/// with no limits, so the caller asks the CLI, which renews the sign-in for itself. Any other
+/// failure, such as Claude rate limiting the account, is an Err: the CLI asks the same endpoint.
+pub async fn usage(program: &Path, config_path: Option<&str>) -> Result<Option<Usage>, String> {
+    let answer = match usage_answer(program, config_path).await {
+        Ok(answer) => answer,
+        Err(error) if error == SIGNED_OUT => return Ok(None),
+        Err(error) => return Err(error),
+    };
     let windows = super::usage::claude_windows(&answer);
     if windows.is_empty() {
-        return None;
+        return Ok(None);
     }
     let now = sikemux_process::clock::epoch_ms();
     let resets = (answer.get("cedar_ember"))
         .and_then(|block| Grants::from(block, now))
         .map(|grants| grants.resets(&windows));
-    Some(Usage {
+    Ok(Some(Usage {
         provider: "claude".to_owned(),
         plan: None,
         tier: None,
@@ -252,7 +256,7 @@ pub async fn usage(program: &Path, config_path: Option<&str>) -> Option<Usage> {
         unavailable_reason: None,
         resets,
         light: true,
-    })
+    }))
 }
 
 async fn usage_answer(program: &Path, config_path: Option<&str>) -> Result<Value, String> {

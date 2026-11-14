@@ -653,7 +653,7 @@ pub(crate) async fn claude_usage(
     config_path: Option<&str>,
 ) -> Result<Usage, String> {
     let tier = claude_plan_name(config_path);
-    if let Some(mut usage) = super::claude_resets::usage(executable, config_path).await {
+    if let Some(mut usage) = super::claude_resets::usage(executable, config_path).await? {
         usage.plan = tier.as_deref().map(str::to_ascii_lowercase);
         usage.tier = tier;
         return Ok(usage);
