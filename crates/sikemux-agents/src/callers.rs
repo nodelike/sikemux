@@ -200,6 +200,47 @@ pub fn identify(peer: SocketAddr, port: u16) -> Option<String> {
     agent
 }
 
+/// Who may be handed a credential: an agent this core started, or this core itself through a
+/// program it started, such as its own git.
+pub enum Asker {
+    Agent(String),
+    Core,
+}
+
+/// Who holds the client end of the loopback connection from `peer` to this core's `port`,
+/// when it is an agent this core started or a program the core started itself. A process that
+/// left both trees, such as a job an agent left with launchd, is neither. Blocks while it reads
+/// the process table.
+pub fn asker(peer: SocketAddr, port: u16) -> Option<Asker> {
+    if !peer.ip().is_loopback() {
+        return None;
+    }
+    let socket = platform::Socket::find(peer.port(), port)?;
+    let core = std::process::id();
+    let holder = descendants([(core, procs::started(core)?)])
+        .into_iter()
+        .map(|(pid, _)| pid)
+        .find(|pid| *pid != core && socket.held_by(*pid))?;
+    let roots = live_roots();
+    let mut pid = holder;
+    for _ in 0..MAX_DEPTH {
+        if pid == core {
+            return Some(Asker::Core);
+        }
+        let (parent, started) = procs::parent(pid)?;
+        if let Some((root_started, agent_id)) = roots.get(&pid) {
+            return (*root_started == started).then(|| Asker::Agent(agent_id.clone()));
+        }
+        if pid != holder
+            && procs::name(pid).is_some_and(|name| SIKEMUX_PROCESSES.contains(&name.as_str()))
+        {
+            return None;
+        }
+        pid = parent;
+    }
+    None
+}
+
 /// The agent whose process tree `pid` belongs to, if any. Blocks while it
 /// reads the process table.
 pub fn agent_of(pid: u32) -> Option<String> {

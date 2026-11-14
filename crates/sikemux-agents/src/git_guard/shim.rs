@@ -17,7 +17,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 use sikemux_process::vars;
 
-use super::footer;
+use super::{credential, footer, identity};
 
 /// The folder of a core's data folder agents find this shim in first.
 const AGENT_BIN: &str = "agent-bin";
@@ -70,10 +70,16 @@ pub fn install(data_dir: &Path, endpoint: Option<&Path>) {
     let hooks = footer::folder(data_dir);
     match link(&hooks, footer::LINK) {
         Ok(()) => {
-            let _ = HOOKS_FOLDER.set(hooks);
             if let Some(endpoint) = endpoint {
                 let _ = ENDPOINT.set(endpoint.to_path_buf());
+                match link(&hooks, identity::HELPER) {
+                    Ok(()) => identity::install(&hooks, endpoint),
+                    Err(error) => eprintln!(
+                        "sikemux core: agents' git uses the person's credentials everywhere: {error}"
+                    ),
+                }
             }
+            let _ = HOOKS_FOLDER.set(hooks);
         }
         Err(error) => eprintln!("sikemux core: agents' commits go without a footer: {error}"),
     }
@@ -243,6 +249,7 @@ pub fn run_if_git() -> Option<i32> {
         HOOK => Some(run_hook(args.next().is_some_and(|arg| arg == SHIP_ONLY))),
         TIMEOUT => Some(crate::timeout::run(args.collect())),
         footer::LINK => Some(footer::run(args.collect())),
+        identity::HELPER => Some(credential::run(args.collect())),
         program => {
             let known = crate::ship::PROGRAMS.contains(&program)
                 || super::heavy::built_in_programs().any(|known| known == program)
@@ -452,10 +459,25 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         eprintln!("{program}: Sikemux found no {program} to run on PATH");
         return 127;
     };
+    let as_agents = (program == "gh")
+        .then(|| gh_as_agents(&words, &cwd))
+        .flatten();
+    let command = |real: &Path| {
+        let mut command = sikemux_process::user_environment::command(real);
+        if let Some(gh) = &as_agents {
+            gh.apply(&mut command);
+        }
+        command
+    };
+    if let (Some(gh), ["pr", "merge", rest @ ..]) = (&as_agents, words_of(&words).as_slice()) {
+        let code = gh_merge(command(&real), gh, rest, &cwd);
+        if let Some(went) = watched {
+            tell_ran(&went, &cwd, Some(code));
+        }
+        return code;
+    }
     if let Some(went) = watched {
-        let status = sikemux_process::user_environment::command(&real)
-            .args(&args)
-            .status();
+        let status = command(&real).args(&args).status();
         let code = status
             .as_ref()
             .ok()
@@ -466,13 +488,214 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
     if let Some(heavy) = super::heavy::of_program(program, &words, &cwd) {
         return super::in_line::run(program, &real, &args, &words, &cwd, heavy);
     }
-    let mut command = sikemux_process::user_environment::command(&real);
+    let mut command = command(&real);
     if program == "cargo" {
         command.env("PATH", super::heavy::path_with(&real));
     }
     let error = command.args(&args).exec();
     eprintln!("{program}: {}: {error}", real.display());
     126
+}
+
+/// What `gh` runs with in a repository whose remote has an identity of the agents' own: a
+/// token for that repository alone, and none of the person's.
+struct GhAsAgents {
+    remote: String,
+    token: String,
+    config: PathBuf,
+}
+
+impl GhAsAgents {
+    fn apply(&self, command: &mut Command) {
+        for name in vars::PERSON_GITHUB_TOKENS {
+            command.env_remove(name);
+        }
+        command
+            .env("GH_TOKEN", &self.token)
+            .env("GH_CONFIG_DIR", &self.config);
+    }
+}
+
+/// A token for the repository `gh` with `words` acts on in `cwd`, when its remote has an
+/// identity of the agents' own.
+fn gh_as_agents(words: &[String], cwd: &Path) -> Option<GhAsAgents> {
+    let folder = PathBuf::from(std::env::var_os(footer::HOOKS)?);
+    let remote = identity::acting_remote(&folder, || {
+        match gh_repo_named(words).or_else(|| std::env::var("GH_REPO").ok()) {
+            Some(repo) => vec![gh_repo_url(&repo)],
+            None => gh_remote_urls(cwd),
+        }
+    })?;
+    let answer = credential::ask(&footer::endpoint()?, &remote)?;
+    let token = answer["password"].as_str()?.to_owned();
+    let config = folder.join("gh");
+    std::fs::create_dir_all(&config).ok()?;
+    Some(GhAsAgents {
+        remote,
+        token,
+        config,
+    })
+}
+
+fn words_of(words: &[String]) -> Vec<&str> {
+    words.iter().map(String::as_str).collect()
+}
+
+/// Hands `gh pr merge <args>` to the core, which merges as the agents' own identity, since no
+/// token an agent holds may write the repository. `gh` itself, through `view`, finds the pull
+/// request the arguments or the current branch name.
+fn gh_merge(mut view: Command, gh: &GhAsAgents, args: &[&str], cwd: &Path) -> i32 {
+    let mut pull = Vec::new();
+    let (mut method, mut sha, mut delete) = (None, None, false);
+    let mut args = args.iter();
+    while let Some(&arg) = args.next() {
+        match arg {
+            "--merge" | "-m" => method = Some("merge"),
+            "--squash" | "-s" => method = Some("squash"),
+            "--rebase" | "-r" => method = Some("rebase"),
+            "--delete-branch" | "-d" => delete = true,
+            "--match-head-commit" => sha = args.next().map(|sha| sha.to_string()),
+            "-R" | "--repo" => pull.extend(["--repo", args.next().copied().unwrap_or_default()]),
+            _ if arg.starts_with("--match-head-commit=") => {
+                sha = arg.split_once('=').map(|(_, sha)| sha.to_owned());
+            }
+            _ if arg.starts_with("--repo=") || (arg.starts_with("-R") && arg.len() > 2) => {
+                pull.push(arg);
+            }
+            _ if !arg.starts_with('-') && !pull.iter().any(|kept| !kept.starts_with('-')) => {
+                pull.push(arg);
+            }
+            _ => {
+                eprintln!(
+                    "gh: Sikemux merges as the agents' own identity and takes only a pull request, --merge, --squash, --rebase, --match-head-commit and --delete-branch, not {arg}"
+                );
+                return 1;
+            }
+        }
+    }
+    let viewed = view
+        .args(["pr", "view"])
+        .args(&pull)
+        .args(["--json", "number,headRefName,headRefOid"])
+        .stderr(std::process::Stdio::inherit())
+        .output();
+    let Some(found) = viewed
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| serde_json::from_slice::<Value>(&output.stdout).ok())
+    else {
+        return 1;
+    };
+    let Some(number) = found["number"].as_u64() else {
+        return 1;
+    };
+    let mut params = json!({ "remote": gh.remote, "number": number });
+    if let Some(method) = method {
+        params["method"] = json!(method);
+    }
+    if let Some(sha) = sha {
+        params["sha"] = json!(sha);
+    }
+    if delete {
+        params["deleteBranch"] = found["headRefName"].clone();
+        params["head"] = found["headRefOid"].clone();
+    }
+    let Some(endpoint) = footer::endpoint() else {
+        return 1;
+    };
+    let answer = crate::cli::client::attempt(
+        &endpoint,
+        &cwd.to_string_lossy(),
+        None,
+        crate::cli::protocol::GH_MERGE_METHOD,
+        &params,
+        Duration::from_secs(120),
+    );
+    match answer {
+        Ok(answer) => {
+            eprintln!("{}", answer["said"].as_str().unwrap_or_default());
+            0
+        }
+        Err(
+            crate::cli::client::Failure::NotSent(said) | crate::cli::client::Failure::Sent(said),
+        ) => {
+            eprintln!("gh: {said}");
+            1
+        }
+    }
+}
+
+fn gh_repo_named(words: &[String]) -> Option<String> {
+    let mut words = words.iter().take_while(|word| *word != "--");
+    while let Some(word) = words.next() {
+        if word == "-R" || word == "--repo" {
+            return words.next().cloned();
+        }
+        if let Some(repo) = word
+            .strip_prefix("--repo=")
+            .or_else(|| word.strip_prefix("-R"))
+        {
+            return Some(repo.to_owned());
+        }
+    }
+    None
+}
+
+/// `repo` as gh takes it, `OWNER/REPO`, `HOST/OWNER/REPO` or an address, as an address.
+fn gh_repo_url(repo: &str) -> String {
+    if repo.contains("://") || repo.contains('@') {
+        return repo.to_owned();
+    }
+    match repo.split('/').count() {
+        2 => format!("https://github.com/{repo}"),
+        _ => format!("https://{repo}"),
+    }
+}
+
+/// The addresses of the remotes in `cwd`, the one gh picks first: the one set as its default,
+/// then `upstream`, `github`, `origin`.
+fn gh_remote_urls(cwd: &Path) -> Vec<String> {
+    let Some(git) = real_git() else {
+        return Vec::new();
+    };
+    let output = sikemux_process::user_environment::command(&git)
+        .current_dir(cwd)
+        .args(["config", "--get-regexp", r"^remote\..*\.(url|gh-resolved)$"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut remotes: Vec<(&str, &str)> = Vec::new();
+    let mut resolved = None;
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once(' ') else {
+            continue;
+        };
+        let Some(rest) = key.strip_prefix("remote.") else {
+            continue;
+        };
+        if let Some(name) = rest.strip_suffix(".url") {
+            remotes.push((name, value));
+        } else if let Some(name) = rest.strip_suffix(".gh-resolved") {
+            resolved = Some(name);
+        }
+    }
+    let rank = |name: &str| match name {
+        _ if Some(name) == resolved => 0,
+        "upstream" => 1,
+        "github" => 2,
+        "origin" => 3,
+        _ => 4,
+    };
+    remotes.sort_by_key(|(name, _)| rank(name));
+    remotes
+        .into_iter()
+        .take(1)
+        .map(|(_, url)| url.to_owned())
+        .collect()
 }
 
 fn run(args: Vec<OsString>) -> i32 {
@@ -516,6 +739,7 @@ fn run(args: Vec<OsString>) -> i32 {
     if let Some(folder) = std::env::var_os(footer::HOOKS) {
         let options = &words[..words.len() - subcommand.len()];
         let folder = Path::new(&folder);
+        sikemux_git::add_config(&mut command, &identity::agent_settings(folder));
         match subcommand.first().map(String::as_str) {
             Some("commit" | "merge") => {
                 footer::prepare(&mut command, folder, &git, options, &subcommand[1..]);
@@ -585,7 +809,7 @@ fn real(name: &str) -> Option<PathBuf> {
 }
 
 /// The git this shim stands in for, never the shim itself.
-fn real_git() -> Option<PathBuf> {
+pub(super) fn real_git() -> Option<PathBuf> {
     std::env::var_os(vars::REAL_GIT)
         .map(PathBuf::from)
         .filter(|git| git.is_file() && !is_shim(git))

@@ -300,6 +300,15 @@ pub const GIT_GUARD_METHOD: &str = "git.guard";
 /// What the shim and the hook ask before an action that leaves this machine,
 /// such as a push or a deploy, not a tool.
 pub const SHIP_CHECK_METHOD: &str = "ship.check";
+/// What git and gh, on a remote with an identity of the agents' own, ask for a credential that
+/// lasts one command, not a tool.
+pub const GIT_CREDENTIAL_METHOD: &str = "git.credential";
+/// What a push to a remote with an identity of the agents' own asks the core: for a place to
+/// push to, to forward what was pushed there, and to take that place away. Not a tool.
+pub const GIT_OUTBOX_METHOD: &str = "git.outbox";
+/// What `gh pr merge` on a remote with an identity of the agents' own hands the core, which
+/// merges as that identity. Not a tool.
+pub const GH_MERGE_METHOD: &str = "gh.merge";
 /// How a deploy the core let go ended, from the shim that ran it.
 pub const SHIP_RAN_METHOD: &str = "ship.ran";
 /// `sikemux chat` outside every agent asks the person to let it in, and waits for the answer.
@@ -369,6 +378,9 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
         && request.method != COMMIT_FOOTER_METHOD
         && request.method != COMMIT_MADE_METHOD
         && request.method != GIT_GUARD_METHOD
+        && request.method != GIT_CREDENTIAL_METHOD
+        && request.method != GIT_OUTBOX_METHOD
+        && request.method != GH_MERGE_METHOD
         && request.method != SHIP_CHECK_METHOD
         && request.method != SHIP_RAN_METHOD
         && request.method != OUTSIDE_SIGN_IN_METHOD

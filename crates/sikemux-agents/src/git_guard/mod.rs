@@ -2,9 +2,11 @@
 //! each would take in or throw away their uncommitted work along with its own.
 //! In a clone or linked worktree of its own an agent is alone, and may run them.
 
+mod credential;
 mod footer;
 mod heavy;
 pub mod homes;
+pub mod identity;
 mod in_line;
 pub mod shim;
 
