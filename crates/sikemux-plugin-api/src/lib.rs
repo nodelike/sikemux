@@ -119,6 +119,17 @@ pub trait Plugin: Manifested + Send + Sync {
         Box::pin(async { Ok(()) })
     }
 
+    /// Merges a pull request in `remote` as the agents' own identity, with a credential that
+    /// never leaves the plugin. False when this plugin has no such identity there.
+    fn merge_as_agents<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        _remote: &'a str,
+        _merge: codehost::asks::Merge,
+    ) -> PluginFuture<'a, bool> {
+        Box::pin(async { Ok(false) })
+    }
+
     /// Who commits to `remote` would carry as committer, when this plugin has an identity of
     /// the agents' own there. Asked on hot paths, so it answers from what it has, never the network.
     fn acts_as(&self, _ctx: &PluginContext, _remote: &str) -> Option<credential::Actor> {

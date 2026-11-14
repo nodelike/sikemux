@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use serde_json::Value;
+use sikemux_plugin_api::codehost::asks::Merge;
 use sikemux_plugin_api::credential::{Actor, Ask, Credential};
 use sikemux_plugin_api::{
     vault, FailureCategory, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
@@ -226,6 +227,23 @@ impl PluginHost {
         let remote = remote.to_owned();
         self.run_for_caller("revoke", loaded.call_timeout, async move {
             plugin.revoke(&context, &remote, &secret).await
+        })
+        .await
+        .map_err(|error| failure(id, error))
+    }
+
+    pub async fn merge_as_agents(&self, remote: &str, merge: Merge) -> Result<bool, PluginFailure> {
+        let Some((id, loaded)) = self
+            .enabled()
+            .find(|(_, loaded)| loaded.plugin.acts_as(&loaded.context, remote).is_some())
+        else {
+            return Ok(false);
+        };
+        let plugin = Arc::clone(&loaded.plugin);
+        let context = Arc::clone(&loaded.context);
+        let remote = remote.to_owned();
+        self.run_for_caller("merge", loaded.call_timeout, async move {
+            plugin.merge_as_agents(&context, &remote, merge).await
         })
         .await
         .map_err(|error| failure(id, error))

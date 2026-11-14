@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use sikemux_core::server::plugins::{
     AgentTool, Answer, Gated, Listing, Manifest, Plugins, Provided, Sink, ToolFamily,
 };
+use sikemux_plugin_api::codehost::asks::Merge;
 use sikemux_plugin_api::credential::{Actor, Ask, Credential};
 use sikemux_plugin_api::{vault, StreamSink};
 use sikemux_process::user_environment::UserEnvironment;
@@ -86,6 +87,10 @@ impl Plugins for PluginHost {
 
     fn revoke<'a>(&'a self, remote: &'a str, secret: String) -> Answer<'a, ()> {
         Box::pin(async move { PluginHost::revoke(self, remote, secret).await })
+    }
+
+    fn merge_as_agents<'a>(&'a self, remote: &'a str, merge: Merge) -> Answer<'a, bool> {
+        Box::pin(async move { PluginHost::merge_as_agents(self, remote, merge).await })
     }
 
     fn acts_as(&self, remote: &str) -> Option<Actor> {

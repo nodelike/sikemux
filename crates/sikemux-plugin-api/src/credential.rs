@@ -7,8 +7,23 @@ use serde::{Deserialize, Serialize};
 pub struct Ask {
     /// The git URL or web address as the command has it.
     pub remote: String,
-    /// Set only by the core, for a push the person passed with a button.
-    pub workflows: bool,
+    #[serde(default)]
+    pub reach: Reach,
+}
+
+/// What a credential may write, named by who uses it.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum Reach {
+    /// An agent's own command: pull requests, issues and Actions, never the repository's contents.
+    #[default]
+    Agent,
+    /// The core's own push or merge, which may write contents. Revoked once it is done.
+    Core,
+    /// The core's push of a workflow change the person passed. Revoked once it is done.
+    CoreWorkflows,
 }
 
 /// Who commits made with a credential carry as committer.

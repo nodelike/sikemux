@@ -9,6 +9,7 @@ use std::pin::Pin;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_calls::plugins::PluginFailure;
+use sikemux_plugin_api::codehost::asks::Merge;
 use sikemux_plugin_api::credential::{Actor, Ask, Credential};
 use sikemux_plugin_api::FailureCategory;
 
@@ -71,6 +72,10 @@ pub trait Plugins: Send + Sync {
     }
     fn revoke<'a>(&'a self, _remote: &'a str, _secret: String) -> Answer<'a, ()> {
         Box::pin(async { Ok(()) })
+    }
+    /// Merges as the agents' own identity on `remote`; false when they have none there.
+    fn merge_as_agents<'a>(&'a self, _remote: &'a str, _merge: Merge) -> Answer<'a, bool> {
+        Box::pin(async { Ok(false) })
     }
     /// Who commits to `remote` carry as committer when agents have an identity of their own
     /// there. Answers at once.
@@ -146,6 +151,19 @@ pub async fn credential(core: &Core, ask: Ask) -> Result<Option<Credential>, Plu
     match provided(core) {
         Some(Provided(plugins)) => plugins.credential(ask).await,
         None => Ok(None),
+    }
+}
+
+/// Merges a pull request as the agents' own identity, for the caller `vault::as_caller` set.
+/// False when they have none on `remote`.
+pub async fn merge_as_agents(
+    core: &Core,
+    remote: &str,
+    merge: Merge,
+) -> Result<bool, PluginFailure> {
+    match provided(core) {
+        Some(Provided(plugins)) => plugins.merge_as_agents(remote, merge).await,
+        None => Ok(false),
     }
 }
 
