@@ -26,6 +26,7 @@ use self::log::{CallLog, Entry};
 use super::access::Peer;
 use super::activity_log::ActivityLog;
 use super::changed::What;
+use super::edits::workflows;
 use super::{ship, Core, CoreError, CoreResult};
 use sikemux_calls::questions::{AnswerParams, AnswersParams};
 
@@ -186,6 +187,20 @@ fn outcome(result: CallResult) -> CallOutcome {
         why: None,
         at: epoch_ms(),
     }
+}
+
+/// The open calls of `project` raised with a key starting `prefix`, by id, with their keys.
+pub fn open_keyed(core: &Core, project: &str, prefix: &str) -> Vec<(String, String)> {
+    (core.person_calls().book.locked().iter())
+        .filter(|kept| kept.call.project == project && kept.call.state == CallState::Open)
+        .filter_map(|kept| Some((kept.call.id.clone(), kept.key.clone()?)))
+        .filter(|(_, key)| key.starts_with(prefix))
+        .collect()
+}
+
+/// The key the call `id` was raised with.
+fn key_of(core: &Core, id: &str) -> Option<String> {
+    kept(&core.person_calls().book.locked(), id).and_then(|kept| kept.key.clone())
 }
 
 fn kept<'a>(book: &'a Book, id: &str) -> Option<&'a Kept> {
@@ -1200,6 +1215,10 @@ async fn deliver(
             }
         }
         Source::Raised if call.place.is_some() => call_answered(core, call, listed()).await,
+        Source::Raised if key_of(core, &call.id).is_some_and(|key| workflows::is_key(&key)) => {
+            let key = key_of(core, &call.id).unwrap_or_default();
+            Box::pin(workflows::answered(core, call, &key, listed())).await;
+        }
         Source::Raised => {
             tell_askers(core, call, listed()).await;
             core.person_calls().settle(&call.id, CallResult::Heard);

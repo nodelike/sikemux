@@ -70,3 +70,11 @@ Sikemux catches these where agents run commands: it stands in for `git`, the dep
 - anything sent by a GET request, including data put in an address, an image or a link the agent opens with `browser_navigate`, and anything sent over a WebSocket, by `browser_upload` or by dragging;
 - a script reading a token or other secret from a page. Only sending is held;
 - connector tools other than a database query, Vercel's promote and redeploy, and Rundeck's run: Jira, Bitbucket and Google Play's upload go without a call.
+
+## Changes to CI
+
+Where agents push to GitHub with an App of their own, their key can't change files under `.github/workflows/`, so Sikemux pushes those changes itself. A workflow change waits for you when the file mentions secrets or an environment, or lets its own token write to the repository. The rest go out by themselves. A waiting commit is left out of the agent's push and everything else goes around it, except the agent's commits that can't go without it.
+
+You get one call per agent, in its chat, on the notch and on your phone: "@Name wants to change CI:" with the commit's subject, what it changes, and the diff under **What runs**. A new waiting commit from the same agent joins that call. **Push the change** makes Sikemux push what the call lists, with a key that can change workflows, made for that one push and revoked straight after. No agent ever holds that key. **Don't push it** leaves the commits on this Mac, and the agent is told to revert them.
+
+Every push goes out through Sikemux. If an agent runs `git push` with a change that waits for you, the push is turned back and the agent is told to push with `git_commit` and `push: true`. A project without the App works as before.

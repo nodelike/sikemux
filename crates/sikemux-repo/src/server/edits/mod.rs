@@ -18,6 +18,7 @@ pub mod owners;
 mod prior;
 pub mod push;
 pub mod queue;
+pub mod workflows;
 
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;

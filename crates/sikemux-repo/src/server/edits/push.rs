@@ -18,6 +18,7 @@ use super::footer::{self, verified};
 use super::land;
 use super::note;
 use super::owners::{git, run};
+use super::workflows;
 use crate::server::Core;
 use crate::trailers::{self, Agent, Commit, COMMITTERS_REF, NOTES_REF};
 
@@ -33,8 +34,14 @@ pub struct Pushed {
     /// Other agents' commits still waiting to be pushed, with who made them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     kept: Vec<String>,
+    /// The caller's commits that wait for the person: changes to CI workflows, and those that
+    /// build on them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub waiting: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
+    #[serde(skip)]
+    pub held: Vec<String>,
 }
 
 /// One unpushed commit: whose it is, and what it is made of.
@@ -43,6 +50,8 @@ pub struct Unpushed {
     pub mine: bool,
     pub by: String,
     pub subject: String,
+    /// It changes CI workflows in a way that waits for the person, who has not passed it.
+    pub held: bool,
 }
 
 /// The host's key, which signs footers and notes again for commits made
@@ -84,6 +93,9 @@ impl Signing {
 /// Pushes the unpushed commits on `dir`'s branch made by any of `agents`, or
 /// by agents they lead. From the project's own checkout, rather than an
 /// agent's, it pushes every one: what is there already passed the land queue.
+/// Where the remote knows agents by an identity of their own, the caller's
+/// changes to CI workflows that can reach secrets wait for the person, who is
+/// asked.
 pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<Pushed, String> {
     let whole_branch = is_main_checkout(dir);
     let sessions: Vec<String> = (agents.iter())
@@ -114,17 +126,36 @@ pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<
             .collect();
         Ok((mine, names.join(", ")))
     };
-    push_as(dir, remote, whose, &Signing::of(core))
+    let guarded = workflows::guarded(core, dir, remote).is_some();
+    let judge = |commit: &str| guarded && workflows::waits(dir, commit);
+    let pushed = push_holding(dir, remote, whose, judge, &Signing::of(core))?;
+    if !pushed.held.is_empty() {
+        workflows::ask(core, dir, remote, agents, &pushed.held);
+    }
+    Ok(pushed)
 }
 
 /// Pushes the unpushed commits on `dir`'s branch that `whose` says are the
 /// caller's, as `whose` names the writers of each. When the remote has moved
 /// on, they go on its tip and the branch takes its new commits; when it moves
 /// while pushing, that happens again.
+#[cfg(test)]
 fn push_as(
     dir: &Path,
     remote: &str,
     whose: impl Fn(&str) -> Result<(bool, String), String>,
+    signing: &Signing,
+) -> Result<Pushed, String> {
+    push_holding(dir, remote, whose, |_| false, signing)
+}
+
+/// [`push_as`], leaving out the caller's commits `judge` says wait for the person, with those
+/// that can't go without them.
+fn push_holding(
+    dir: &Path,
+    remote: &str,
+    whose: impl Fn(&str) -> Result<(bool, String), String>,
+    judge: impl Fn(&str) -> bool,
     signing: &Signing,
 ) -> Result<Pushed, String> {
     let top = PathBuf::from(git(dir, &["rev-parse", "--show-toplevel"])?.trim());
@@ -133,7 +164,7 @@ fn push_as(
         .trim()
         .to_owned();
     for _ in 0..ATTEMPTS {
-        match push_once(&top, remote, &branch, &whose, signing) {
+        match push_once(&top, remote, &branch, &whose, &judge, signing) {
             Err(Attempt::Raced) => continue,
             Err(Attempt::Failed(why)) => return Err(why),
             Ok(pushed) => return Ok(pushed),
@@ -160,6 +191,7 @@ fn push_once(
     remote: &str,
     branch: &str,
     whose: &impl Fn(&str) -> Result<(bool, String), String>,
+    judge: &impl Fn(&str) -> bool,
     signing: &Signing,
 ) -> Result<Pushed, Attempt> {
     let head = line(git(top, &["rev-parse", "HEAD"])?);
@@ -175,7 +207,7 @@ fn push_once(
         }
     };
     let moved = base != fork;
-    let unpushed = unpushed(top, fork.as_deref(), base.as_deref(), &head, whose)?;
+    let unpushed = unpushed(top, fork.as_deref(), base.as_deref(), &head, whose, judge)?;
     if !unpushed.iter().any(|commit| commit.mine) {
         return Err(Attempt::Failed(match unpushed.is_empty() {
             true => "Nothing to push: every commit here is on the remote".to_owned(),
@@ -185,21 +217,29 @@ fn push_once(
             ),
         }));
     }
+    let shown = |commits: &[&Unpushed]| -> Vec<String> {
+        (commits.iter())
+            .map(|commit| format!("{} {}", short(&commit.id), commit.subject))
+            .collect()
+    };
+    let held_ids: Vec<String> = (unpushed.iter())
+        .filter(|commit| commit.mine && commit.held)
+        .map(|commit| commit.id.clone())
+        .collect();
+    let waits = |waiting: &[&Unpushed]| (!waiting.is_empty()).then(|| WAITS_FOR_PERSON.to_owned());
     let (ours, theirs): (Vec<&Unpushed>, Vec<&Unpushed>) =
         unpushed.iter().partition(|commit| commit.mine);
-    let pushed = Pushed {
-        remote: remote.to_owned(),
-        branch: branch.to_owned(),
-        pushed: ours
-            .iter()
-            .map(|commit| format!("{} {}", short(&commit.id), commit.subject))
-            .collect(),
-        kept: kept(&unpushed),
-        note: None,
-    };
-    if theirs.is_empty() && !moved {
+    if held_ids.is_empty() && theirs.is_empty() && !moved {
         send(top, remote, branch, &head)?;
-        return Ok(pushed);
+        return Ok(Pushed {
+            remote: remote.to_owned(),
+            branch: branch.to_owned(),
+            pushed: shown(&ours),
+            kept: Vec::new(),
+            waiting: Vec::new(),
+            note: None,
+            held: Vec::new(),
+        });
     }
     let cannot_go_alone = || {
         Attempt::Failed(format!(
@@ -212,11 +252,47 @@ fn push_once(
         false => WITHOUT_THEIRS,
     };
     let base = base.ok_or_else(cannot_go_alone)?;
-    let tip = replay(signing, top, &base, &ours, clash).map_err(|why| match moved {
-        true => Attempt::Failed(format!("{why}; pull and settle it, then push again")),
-        false => cannot_go_alone(),
-    })?;
-    let rebuilt = replay(signing, top, &tip, &theirs, clash).map_err(|_| cannot_go_alone())?;
+    let mut tip = base;
+    let mut going: Vec<&Unpushed> = Vec::new();
+    let mut waiting: Vec<&Unpushed> = Vec::new();
+    for (at, commit) in unpushed.iter().enumerate() {
+        if !commit.mine {
+            continue;
+        }
+        if commit.held {
+            waiting.push(commit);
+            continue;
+        }
+        match replay(signing, top, &tip, &[commit], clash) {
+            Ok(next) => {
+                tip = next;
+                going.push(commit);
+            }
+            Err(_) if unpushed[..at].iter().any(|before| before.held) => waiting.push(commit),
+            Err(why) => {
+                return Err(match moved {
+                    true => Attempt::Failed(format!("{why}; pull and settle it, then push again")),
+                    false => cannot_go_alone(),
+                })
+            }
+        }
+    }
+    let left: Vec<&Unpushed> = (unpushed.iter())
+        .filter(|commit| !going.iter().any(|gone| gone.id == commit.id))
+        .collect();
+    let pushed = Pushed {
+        remote: remote.to_owned(),
+        branch: branch.to_owned(),
+        pushed: shown(&going),
+        kept: kept(&unpushed),
+        waiting: shown(&waiting),
+        note: waits(&waiting),
+        held: held_ids,
+    };
+    if going.is_empty() {
+        return Ok(pushed);
+    }
+    let rebuilt = replay(signing, top, &tip, &left, clash).map_err(|_| cannot_go_alone())?;
     match moved {
         true => {
             land::steps(top, &head, &rebuilt)?;
@@ -226,13 +302,20 @@ fn push_once(
     }
     send(top, remote, branch, &tip)?;
     let rebased = rebase_branch(signing, top, branch, &head, &rebuilt, moved)?;
+    let moving = (!rebased).then(|| format!(
+        "{branch} moved while pushing, so it still holds your pushed commits as they were; run git pull --rebase in this checkout to drop them"
+    ));
     Ok(Pushed {
-        note: (!rebased).then(|| format!(
-            "{branch} moved while pushing, so it still holds your pushed commits as they were; run git pull --rebase in this checkout to drop them"
-        )),
+        note: match (moving, pushed.note.clone()) {
+            (Some(moving), Some(waits)) => Some(format!("{waits} {moving}")),
+            (moving, waits) => moving.or(waits),
+        },
         ..pushed
     })
 }
+
+/// What a push says of the caller's commits it left for the person.
+const WAITS_FOR_PERSON: &str = "The commits under waiting change CI workflows, or build on such a change, so they wait for the person: Sikemux asked them, and pushes those commits itself once they pass. Do not push them another way, and go on with other work.";
 
 /// Pushes `commit` as the remote's `branch`; a remote that moved on since it
 /// was fetched is a race to try again.
@@ -351,6 +434,7 @@ fn rebase_branch(
                 mine: false,
                 by: String::new(),
                 subject: String::new(),
+                held: false,
             })
             .collect();
         let later: Vec<&Unpushed> = later.iter().collect();
@@ -392,6 +476,7 @@ fn unpushed(
     tip: Option<&str>,
     head: &str,
     whose: impl Fn(&str) -> Result<(bool, String), String>,
+    judge: impl Fn(&str) -> bool,
 ) -> Result<Vec<Unpushed>, String> {
     let range = fork.map_or_else(|| head.to_owned(), |fork| format!("{fork}..{head}"));
     let merges = git(top, &["rev-list", "--merges", "--count", &range])?;
@@ -419,6 +504,7 @@ fn unpushed(
                     by
                 },
                 subject: subject.to_owned(),
+                held: mine && judge(id),
             })
         })
         .collect()

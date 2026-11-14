@@ -149,6 +149,7 @@ fn own_commits(tree: &Path, tip: &str, head: &str) -> Result<Vec<Unpushed>, Stri
             mine: true,
             by: String::new(),
             subject: subject.to_owned(),
+            held: false,
         })
         .collect())
 }
