@@ -1288,6 +1288,8 @@ export interface TurnWait {
     place?: number;
     /** Who holds what it waits for, by name, while it waits for a thing in use. */
     by?: string;
+    /** The agent it waits on, by id, so a line can draw that agent rather than its name. */
+    agent?: string;
 }
 
 export type TurnWaitKind = "ci" | "deploy" | "agent" | "timer" | "process" | "check" | "line" | "inUse";

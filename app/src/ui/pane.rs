@@ -9,7 +9,7 @@ use gpui_kit::{
 };
 use smallvec::SmallVec;
 
-use super::{mark_box, meta, text};
+use super::{mark_box, text};
 use crate::theme::{
     Tokens, RADIUS_3, RADIUS_4, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_SM,
     TEXT_XS,
@@ -98,7 +98,7 @@ pub struct PaneHeader {
     /// What shows in the title's place, such as a field editing it.
     title_view: Option<AnyElement>,
     on_title_double_click: Option<super::controls::OnClick>,
-    name: Option<SharedString>,
+    name: Option<AnyElement>,
     fact: Option<AnyElement>,
     actions: SmallVec<[AnyElement; 2]>,
     controls: Option<AnyElement>,
@@ -145,7 +145,8 @@ impl PaneHeader {
         self
     }
 
-    pub fn name(mut self, name: Option<SharedString>) -> Self {
+    /// The agent's name after its title.
+    pub fn name(mut self, name: Option<AnyElement>) -> Self {
         self.name = name;
         self
     }
@@ -216,12 +217,7 @@ impl RenderOnce for PaneHeader {
                         .into_any_element()
                 })
             }))
-            .children(self.name.map(|name| {
-                meta(name, cx)
-                    .text_size(crate::theme::ui_text(TEXT_XS))
-                    .min_w_0()
-                    .truncate()
-            }))
+            .children(self.name)
             .children(
                 self.fact
                     .map(|fact| div().min_w_0().ml(crate::theme::SPACE_1).child(fact)),

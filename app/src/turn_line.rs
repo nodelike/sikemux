@@ -5,7 +5,7 @@
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, Context, Div, FontWeight, Hsla, IntoElement, ParentElement, Render,
-    SharedString, Styled, Window,
+    SharedString, Styled, WeakEntity, Window,
 };
 use sikemux_view::chat::FailureKind;
 use sikemux_view::turn::{
@@ -15,12 +15,15 @@ use sikemux_view::turn::{
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1H, SPACE_2, TEXT_SM, TEXT_XS_H};
 use crate::ui;
+use crate::workbench::Workbench;
 
 /// The state's word, in the colour of its mark, then what it is on and how long, said between dots.
 pub struct Said {
     pub word: SharedString,
     pub phase: TurnPhase,
     pub parts: Vec<SharedString>,
+    /// The agent the word names, by id, which a line that can open it draws as its chip.
+    pub agent: Option<String>,
 }
 
 /// What `turn` says, for an agent of `maker` (the agent's own name, such as Claude). Working
@@ -35,7 +38,15 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
         }
         TurnPhase::Waiting => {
             let wait = turn.wait.as_ref()?;
-            (waiting_on(wait), waited(wait, now))
+            let agent = (wait.kind == TurnWaitKind::Agent)
+                .then(|| wait.agent.clone())
+                .flatten();
+            return Some(Said {
+                word: waiting_on(wait).into(),
+                phase: turn.state,
+                parts: (waited(wait, now).into_iter()).map(Into::into).collect(),
+                agent,
+            });
         }
         TurnPhase::NeedsYou => {
             let call = turn.call.as_ref()?;
@@ -57,6 +68,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
                     word: t!("Done").into(),
                     phase: turn.state,
                     parts: Vec::new(),
+                    agent: None,
                 });
             };
             let mut parts = vec![changed(done.changes).to_owned()];
@@ -101,6 +113,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
         word: word.into(),
         phase: turn.state,
         parts: parts.into_iter().map(SharedString::from).collect(),
+        agent: None,
     })
 }
 
@@ -327,16 +340,31 @@ pub fn tint(phase: TurnPhase, cx: &App) -> Option<Hsla> {
 }
 
 /// The word and the parts after it, at `size`, the first part giving way when the room runs out.
-/// `key` names the working word's shimmer.
-pub fn words(said: &Said, key: SharedString, size: f32, cx: &App) -> Div {
+/// `key` names the working word's shimmer. Given the `bench`, an agent the word names is drawn
+/// as its chip, which opens it.
+pub fn words(
+    said: &Said,
+    key: SharedString,
+    size: f32,
+    bench: Option<&WeakEntity<Workbench>>,
+    cx: &App,
+) -> Div {
     let t = Tokens::get(cx);
     let dot = || div().flex_none().text_color(t.text_disabled).child("·");
+    let pill = (bench.zip(said.agent.as_deref())).and_then(|(bench, agent)| {
+        let row = bench.upgrade()?.read(cx).agent_by_id(agent)?;
+        Some(crate::chat::agent_pill(&row, size, bench, cx))
+    });
     let word = div()
         .flex_none()
+        .flex()
+        .items_center()
+        .gap(px(5.))
         .font_weight(FontWeight::MEDIUM)
-        .map(|word| match tint(said.phase, cx) {
-            Some(tint) => word.text_color(tint).child(said.word.clone()),
-            None => word.child(ui::shimmer::shimmer(key, said.word.clone())),
+        .map(|word| match (tint(said.phase, cx), pill) {
+            (Some(tint), Some(pill)) => word.text_color(tint).child(t!("Waiting on")).child(pill),
+            (Some(tint), None) => word.text_color(tint).child(said.word.clone()),
+            (None, _) => word.child(ui::shimmer::shimmer(key, said.word.clone())),
         });
     let last = said.parts.len().saturating_sub(1);
     div()
@@ -364,11 +392,12 @@ pub fn words(said: &Said, key: SharedString, size: f32, cx: &App) -> Div {
 }
 
 /// The line at the end of a chat: the agent's `mark`, what `said` says, and `buttons` on the
-/// same row.
+/// same row. Given the `bench`, an agent it names opens from its chip.
 pub fn line(
     mark: AnyElement,
     said: &Said,
     key: SharedString,
+    bench: Option<&WeakEntity<Workbench>>,
     buttons: Vec<AnyElement>,
     cx: &App,
 ) -> Div {
@@ -378,7 +407,7 @@ pub fn line(
         .items_center()
         .gap(SPACE_2)
         .child(mark)
-        .child(words(said, key, TEXT_SM, cx).flex_1())
+        .child(words(said, key, TEXT_SM, bench, cx).flex_1())
         .when(!buttons.is_empty(), |line| {
             line.child(
                 div()
@@ -447,5 +476,5 @@ fn header_fact(said: &Said, key: SharedString, cx: &App) -> Div {
         .when(said.phase == TurnPhase::Waiting, |fact| {
             fact.child(ui::icon(Icon::Hourglass, 12.).text_color(t.cmd))
         })
-        .child(words(said, key, TEXT_XS_H, cx))
+        .child(words(said, key, TEXT_XS_H, None, cx))
 }

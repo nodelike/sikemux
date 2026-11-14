@@ -834,6 +834,44 @@ pub(crate) fn pill(
     chip_face(key, title, false, mark, cx)
 }
 
+/// An agent's chip as the transcript draws it in prose, set in a line of `size` text, which
+/// opens the agent's chat.
+pub(crate) fn agent_pill(
+    agent: &AgentRow,
+    size: f32,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
+    let label = match (agent.chief, agent.name.as_ref()) {
+        (true, _) => "@Chief".to_owned(),
+        (false, Some(name)) => format!("@{name}"),
+        (false, None) => agent.title.clone(),
+    };
+    let (key, title) = chip_words(&format!("{AGENT}{}", agent.id), &label.into());
+    let face = chip_face(key, title, false, agent.mark(size + 1., cx), cx)
+        .flex_none()
+        .text_size(theme::ui_text(size));
+    opens_agent(face, &agent.id, bench, cx)
+}
+
+/// A chip that opens `agent`'s chat, lifting a step on hover.
+fn opens_agent(
+    face: Div,
+    agent: &str,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> gpui_kit::Stateful<Div> {
+    let (agent, bench) = (agent.to_owned(), bench.clone());
+    let hover = Tokens::get(cx).surface_active;
+    face.id(SharedString::from(format!("mention:{agent}")))
+        .hover(move |chip| chip.bg(hover))
+        .clicks(move |_, _, cx| {
+            bench
+                .update(cx, |bench, cx| bench.open_agent(&agent, cx))
+                .ok();
+        })
+}
+
 /// A sent message's look with the chips it wrote drawn in its text as the draft drew them.
 pub fn with_chips(
     look: Rc<gpui_transcript::Style>,
@@ -948,18 +986,7 @@ fn mention_chip(
             .w_full()
             .h(height);
             let face = match id.strip_prefix(AGENT) {
-                Some(agent) => {
-                    let (agent, bench) = (agent.to_owned(), bench.clone());
-                    let hover = Tokens::get(cx).surface_active;
-                    face.id(SharedString::from(format!("mention:{agent}")))
-                        .hover(move |chip| chip.bg(hover))
-                        .clicks(move |_, _, cx| {
-                            bench
-                                .update(cx, |bench, cx| bench.open_agent(&agent, cx))
-                                .ok();
-                        })
-                        .into_any_element()
-                }
+                Some(agent) => opens_agent(face, agent, &bench, cx).into_any_element(),
                 None => face.into_any_element(),
             };
             div()

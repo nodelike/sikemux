@@ -77,6 +77,14 @@ impl Park {
         }
     }
 
+    /// The agent it waits on, when it waits on one.
+    pub(super) fn agent(&self) -> Option<&str> {
+        match &self.on {
+            On::Agent { agent_id, .. } => Some(agent_id),
+            _ => None,
+        }
+    }
+
     /// What its wait is kept under, so the next wait on the same command has an estimate.
     pub(super) fn waits_on(&self) -> Option<String> {
         match &self.on {

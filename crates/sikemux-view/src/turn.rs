@@ -68,6 +68,9 @@ pub struct TurnWait {
     /// Who holds what it waits for, by name, while it waits for a thing in use.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
+    /// The agent it waits on, by id, so a line can draw that agent rather than its name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

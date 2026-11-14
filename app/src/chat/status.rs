@@ -214,7 +214,8 @@ impl Activity {
         let key = SharedString::from(format!("turn:{}", cx.entity_id()));
         Some(
             centred(
-                turn_line::line(self.mark(cx), &said, key, buttons, cx).px(px(22.)),
+                turn_line::line(self.mark(cx), &said, key, self.bench.as_ref(), buttons, cx)
+                    .px(px(22.)),
                 cx,
             )
             .pt(SPACE_3)
@@ -586,8 +587,9 @@ pub(super) fn trouble(
             word: t!("Failed").into(),
             phase: TurnPhase::Failed,
             parts: parts.into_iter().map(SharedString::from).collect(),
+            agent: None,
         };
-        turn_line::line(agent.mark(21., cx), &said, key.clone(), buttons, cx)
+        turn_line::line(agent.mark(21., cx), &said, key.clone(), None, buttons, cx)
             .flex_wrap()
             .px(px(22.))
             .py(SPACE_1H)

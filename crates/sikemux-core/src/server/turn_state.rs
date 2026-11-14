@@ -88,14 +88,21 @@ pub(crate) struct Gathered {
     /// The permission requests each agent's chat waits on the person for. Calls are kept
     /// apart, by `person_calls`.
     asks: HashMap<String, Vec<Ask>>,
-    /// A worker each lead waits on, mid-turn, with when it started.
-    workers: HashMap<String, (String, u64)>,
-    /// The lead each worker stopped to hear an answer from, with when it asked.
-    leads: HashMap<String, (String, u64)>,
+    /// A worker each lead waits on, mid-turn, since it started.
+    workers: HashMap<String, OnAgent>,
+    /// The lead each worker stopped to hear an answer from, since it asked.
+    leads: HashMap<String, OnAgent>,
     /// The workers of each lead.
     teams: HashMap<String, Vec<String>>,
     /// Owners of slices waiting on the project's check: since when, and how long it usually takes.
     on_check: HashMap<String, (u64, Option<u64>)>,
+}
+
+/// An agent another waits on, and since when.
+pub(crate) struct OnAgent {
+    pub id: String,
+    pub name: String,
+    pub since: u64,
 }
 
 struct Ask {
@@ -134,9 +141,11 @@ impl Gathered {
             let since = (core.seen().started_at(&worker.id))
                 .or_else(|| core.seen().active_at(&worker.id))
                 .unwrap_or_else(epoch_ms);
-            workers
-                .entry(lead.clone())
-                .or_insert((worker.name.clone(), since));
+            workers.entry(lead.clone()).or_insert(OnAgent {
+                id: worker.id.clone(),
+                name: worker.name.clone(),
+                since,
+            });
         }
         Self {
             asks,
@@ -240,7 +249,12 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
                 .or_else(|| core.seen().active_at(worker))
                 .unwrap_or_else(epoch_ms);
             let name = core.names().name(worker).unwrap_or_default();
-            (agent_id.to_owned(), (name, since))
+            let on = OnAgent {
+                id: worker.clone(),
+                name,
+                since,
+            };
+            (agent_id.to_owned(), on)
         })
         .collect();
     let mut on_check = super::board::owners_on_check(core);
@@ -430,15 +444,16 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
         return set;
     }
     let on_agent = (gathered.leads.get(agent_id)).or_else(|| gathered.workers.get(agent_id));
-    if let Some((name, since)) = on_agent {
+    if let Some(on) = on_agent {
         return Some(TurnWait {
             kind: TurnWaitKind::Agent,
-            what: name.clone(),
-            started_at: *since,
+            what: on.name.clone(),
+            started_at: on.since,
             expected_ms: None,
             until: None,
             place: None,
             by: None,
+            agent: Some(on.id.clone()),
         });
     }
     if let Some((since, took)) = gathered.on_check.get(agent_id) {
@@ -450,6 +465,7 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
             until: None,
             place: None,
             by: None,
+            agent: None,
         });
     }
     set

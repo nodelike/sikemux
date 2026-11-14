@@ -675,13 +675,20 @@ impl Questions {
 
     /// Each agent that stopped for the answer to a question its lead has, with that lead's name
     /// and when it asked; its oldest such question when it has several.
-    pub(crate) fn waiting_on_leads(&self) -> HashMap<String, (String, u64)> {
+    pub(crate) fn waiting_on_leads(&self) -> HashMap<String, super::turn_state::OnAgent> {
         let mut waiting = HashMap::new();
         for question in self.state.locked().open.iter().filter(|q| q.blocked) {
-            if let Stage::Lead { lead_name, .. } = &question.stage {
-                waiting
-                    .entry(question.agent_id.clone())
-                    .or_insert_with(|| (lead_name.clone(), question.at));
+            if let Stage::Lead {
+                lead_id, lead_name, ..
+            } = &question.stage
+            {
+                waiting.entry(question.agent_id.clone()).or_insert_with(|| {
+                    super::turn_state::OnAgent {
+                        id: lead_id.clone(),
+                        name: lead_name.clone(),
+                        since: question.at,
+                    }
+                });
             }
         }
         waiting

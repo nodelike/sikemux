@@ -78,7 +78,9 @@ mod mention;
 mod mermaid;
 mod moving;
 mod rotation;
-pub(crate) use attach::{named, named_agents, pill, site_icon, Made, Mention, SNIP_NAME};
+pub(crate) use attach::{
+    agent_pill, named, named_agents, pill, site_icon, Made, Mention, SNIP_NAME,
+};
 pub use mention::Tray;
 mod meta;
 pub mod model_picker;

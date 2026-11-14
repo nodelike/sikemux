@@ -269,6 +269,7 @@ impl Triggers {
                 until: None,
                 place: None,
                 by: None,
+                agent: None,
             });
         }
         if let Some((trigger, park)) =
@@ -282,6 +283,7 @@ impl Triggers {
                 until: None,
                 place: None,
                 by: None,
+                agent: park.agent().map(str::to_owned),
             });
         }
         let soonest = mine()
@@ -297,6 +299,7 @@ impl Triggers {
             until: Some(at),
             place: None,
             by: None,
+            agent: None,
         })
     }
 

@@ -2119,6 +2119,8 @@ struct TurnWait: Codable, Hashable, Sendable {
     var place: Int?
     /// Who holds what it waits for, by name, while it waits for a thing in use.
     var by: String?
+    /// The agent it waits on, by id, so a line can draw that agent rather than its name.
+    var agent: String?
 }
 
 enum TurnWaitKind: String, Codable, Hashable, Sendable {

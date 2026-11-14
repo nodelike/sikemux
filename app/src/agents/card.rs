@@ -256,6 +256,7 @@ pub fn view(
                 &said,
                 SharedString::from(format!("card-turn:{}", agent.id)),
                 TEXT_2XS,
+                None,
                 cx,
             )
         });

@@ -451,7 +451,10 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         .filter(|retitling| retitling.agent == agent.id && !retitling.in_rail)
         .map(|retitling| retitle_field(retitling, 13., cx).min_w(px(160.)));
     let chief = agent.chief.then(|| chief_fact(bench, agent, cx));
-    let chain = (!agent.chief).then(|| chain_to(bench, agent, cx)).flatten();
+    let weak = cx.weak_entity();
+    let chain = (!agent.chief)
+        .then(|| chain_to(bench, agent, &weak, cx))
+        .flatten();
     let side = side_of(bench, agent, cx);
     PaneHeader::new(match agent.chief {
         true => "@Chief".to_owned(),
@@ -476,9 +479,8 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         false => ui::mark(&agent.provider, 16.).into_any_element(),
     })
     .name(
-        agent
-            .handle()
-            .map(|name| SharedString::from(format!("@{name}"))),
+        (agent.handle().is_some())
+            .then(|| crate::chat::agent_pill(agent, TEXT_XS, &weak, cx).into_any_element()),
     )
     .when_some(side, PaneHeader::fact)
     .when_some(
@@ -553,8 +555,13 @@ fn chief_fact(bench: &Workbench, agent: &AgentRow, cx: &App) -> AnyElement {
 }
 
 /// The chain down to a worker in a project with a chief, leading its header: @Chief, then each
-/// lead above it, each with its own mark.
-fn chain_to(bench: &Workbench, agent: &AgentRow, cx: &App) -> Option<AnyElement> {
+/// lead above it, each as its chip, which opens it.
+fn chain_to(
+    bench: &Workbench,
+    agent: &AgentRow,
+    weak: &gpui_kit::WeakEntity<Workbench>,
+    cx: &App,
+) -> Option<AnyElement> {
     let project = bench.project().filter(|project| project.chief.is_some())?;
     let t = Tokens::get(cx);
     let agents = bench.agents_of(&project.id);
@@ -567,15 +574,8 @@ fn chain_to(bench: &Workbench, agent: &AgentRow, cx: &App) -> Option<AnyElement>
             .find(|row| row.team == Some(sikemux_view::inbox::TeamLink::Head)),
         _ => None,
     };
-    let step = |mark: AnyElement, name: String| {
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(SPACE_1H)
-            .child(ui::mark_box(16., mark))
-            .child(name)
-    };
+    let chief = (project.chief.as_deref()).and_then(|chief| bench.agent_by_id(chief));
+    let step = |row: &AgentRow| crate::chat::agent_pill(row, TEXT_SM, weak, cx);
     let chevron = || {
         ui::icon(Icon::Chevron, 10.)
             .flex_none()
@@ -589,18 +589,14 @@ fn chain_to(bench: &Workbench, agent: &AgentRow, cx: &App) -> Option<AnyElement>
             .gap(SPACE_1H)
             .text_size(crate::theme::ui_text(TEXT_SM))
             .text_color(t.text_secondary)
-            .child(step(ui::chief_mark(16.), "@Chief".to_owned()))
+            .children(chief.as_ref().map(step))
             .child(chevron())
             .children(lead.map(|lead| {
-                let name = lead
-                    .name
-                    .clone()
-                    .map_or_else(|| lead.title.clone(), |name| format!("@{name}"));
                 div()
                     .flex()
                     .items_center()
                     .gap(SPACE_1H)
-                    .child(step(lead.mark(16., cx), name))
+                    .child(step(lead))
                     .child(chevron())
             }))
             .into_any_element(),
