@@ -57,6 +57,8 @@ const STILL: f32 = 2.5;
 /// High, because the grain's dots are the only paint and nothing is drawn between them.
 const FIELD_OPACITY: f32 = 0.85;
 const PICTURE_OPACITY: f32 = 0.6;
+/// How solid the pane picture is behind a new chat's welcome.
+const WELCOME_PICTURE: f32 = 0.4;
 /// How much of a pane, from its top, the picture covers when it does not cover it all.
 const PICTURE_BAND: f32 = 0.6;
 /// The picture is drawn in dots of at least one point, so no more of it than that is kept.
@@ -302,10 +304,12 @@ pub fn field(cx: &App) -> Option<AnyElement> {
     field_at(cx).map(|draw| draw(1.))
 }
 
-/// What fills an agent pane's frame: its usual field, crossing over to a new chat's glow as
-/// `glow` runs from 0 to 1.
+/// What fills an agent pane's frame: its usual field, crossing over to a new chat's welcome as
+/// `glow` runs from 0 to 1. The welcome is the pane picture over the whole pane, strongly
+/// dithered, when one is set, and the glow when none is.
 pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
     let field = field_at(cx);
+    let welcome_picture = welcome_picture(cx);
     let accent = Tokens::get(cx).accent.to_rgb();
     let (start, speed) = clock(GLOW_SPEED, cx);
     move |glow| {
@@ -318,7 +322,13 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
                     .filter(|_| glow < 1.)
                     .map(|draw| draw(1. - glow)),
             )
-            .children((glow > 0.).then(|| {
+            .children(
+                welcome_picture
+                    .as_ref()
+                    .filter(|_| glow > 0.)
+                    .map(|draw| draw(glow)),
+            )
+            .children((glow > 0. && welcome_picture.is_none()).then(|| {
                 canvas(
                     |_, _, _| {},
                     move |bounds, (), window, _| {
@@ -338,6 +348,25 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
             }))
             .into_any_element()
     }
+}
+
+/// The pane picture as a new chat's welcome shows it: over the whole pane and as solid as
+/// `WELCOME_PICTURE`, whatever strength and coverage the panes take, faded by the number given.
+fn welcome_picture(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
+    let grain = cx.try_global::<Grain>().filter(|grain| grain.shown)?;
+    let (_, picture) = grain.picture.as_ref()?;
+    let mut params = picture_params(grain, cx);
+    params[2] = WELCOME_PICTURE;
+    params[3] = 1.;
+    let picture = picture.clone();
+    Some(Rc::new(move |solid| {
+        let mut params = params;
+        params[2] *= solid;
+        picture_canvas(params, picture.clone(), inner_radius(), true)
+            .absolute()
+            .inset_0()
+            .into_any_element()
+    }))
 }
 
 fn inner_radius() -> f32 {
