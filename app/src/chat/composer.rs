@@ -548,6 +548,7 @@ impl RenderOnce for Composer {
                             })
                             .rounded(theme::RADIUS_3)
                             .bg(fill)
+                            .backdrop_blur(px(COMPOSER_BLUR))
                             .children(tiles)
                             .child(
                                 div()
@@ -622,8 +623,9 @@ fn tab_hint(suggestion: SharedString, text_size: gpui_kit::Pixels, cx: &App) -> 
         )
 }
 
-/// How solid the box is, letting a little of what lies behind it show through.
-const COMPOSER_SOLID: f32 = 0.8;
+/// How solid the box is, letting a little of what lies behind it show through, blurred.
+const COMPOSER_SOLID: f32 = 0.9;
+const COMPOSER_BLUR: f32 = 16.;
 
 /// How strongly the accent edges the box while YOLO is on.
 const YOLO_EDGE: f32 = 0.5;
@@ -1026,9 +1028,15 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
             let yolo_keys = crate::keymap::hint(actions::ToggleYolo::ID, cx);
             for &choice in &offered {
                 let pick = pick.clone();
+                let t = Tokens::get(cx).clone();
                 popup = popup.item(
-                    ui::MenuRow::new(mode_name(choice))
+                    ui::MenuRow::new(mode_label(choice))
                         .icon(mode_icon(choice))
+                        .tiled()
+                        .about(mode_about(choice))
+                        .when(choice == PermissionMode::Bypass, |row| {
+                            row.title(move || ui::yolo::wordmark(13., &t))
+                        })
                         .when_some(
                             yolo_keys
                                 .clone()
@@ -1054,11 +1062,19 @@ fn mode_word(mode: PermissionMode) -> &'static str {
     }
 }
 
-fn mode_name(mode: PermissionMode) -> &'static str {
+fn mode_label(mode: PermissionMode) -> &'static str {
     match mode {
-        PermissionMode::Bypass => t!("YOLO — never asks"),
-        PermissionMode::Auto => t!("Auto — asks only what's risky"),
-        PermissionMode::WorkspaceWrite => t!("Safe — asks before it acts"),
+        PermissionMode::Bypass => "YOLO",
+        PermissionMode::Auto => t!("Auto"),
+        PermissionMode::WorkspaceWrite => t!("Safe"),
+    }
+}
+
+fn mode_about(mode: PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::Bypass => t!("Never asks"),
+        PermissionMode::Auto => t!("Asks only what's risky"),
+        PermissionMode::WorkspaceWrite => t!("Asks before it acts"),
     }
 }
 
