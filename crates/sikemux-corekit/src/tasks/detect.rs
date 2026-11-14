@@ -984,15 +984,6 @@ pub fn detected(project: &Path) -> Vec<Found> {
     found
 }
 
-/// The command that tests the project as its root's build files suggest, the
-/// same one its test task runs, for a project that names no check.
-pub fn test_check(project: &Path) -> Option<String> {
-    tasks_in(project, &files_in(project), None)
-        .into_iter()
-        .find(|task| task.id.ends_with(".test"))
-        .map(|task| task.command)
-}
-
 /// A command that starts Gradle, installed or the project's own wrapper.
 pub fn runs_gradle(command: &str) -> bool {
     let program = command.split(' ').next().unwrap_or("");

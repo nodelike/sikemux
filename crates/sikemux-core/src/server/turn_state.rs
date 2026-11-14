@@ -586,7 +586,7 @@ fn keep_work(core: &Arc<Core>, agent_id: &str) {
         return;
     };
     let unchecked =
-        changes == WorkAt::Uncommitted || super::checks::project_check(core, &project).is_err();
+        changes == WorkAt::Uncommitted || super::checks::project_check(&project).is_err();
     let started = core.inbox().ending(agent_id).map(|ended| ended.started_at);
     if let (true, Some(turn)) = (unchecked, started) {
         super::pictures::take(core, agent_id, &project, turn);

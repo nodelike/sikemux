@@ -51,7 +51,10 @@ pub fn settle(core: &Core) {
             kind: CallKind::Money,
             asker: CallAsker {
                 name: core.names().name_or_id(&agent),
-                cli: core.agent_now(&agent).cli().unwrap_or_else(|| "agent".to_owned()),
+                cli: core
+                    .agent_now(&agent)
+                    .cli()
+                    .unwrap_or_else(|| "agent".to_owned()),
                 agent_id: agent,
                 chief: false,
             },

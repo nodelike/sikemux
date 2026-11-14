@@ -35,7 +35,6 @@ pub fn commit_made(core: &Core, made: CommitMade<'_>) {
             sha: made.sha.to_owned(),
             subject: made.message.lines().next().unwrap_or_default().to_owned(),
             agents,
-            asked: false,
         };
         core.checks()
             .wait_for(project.clone(), std::path::PathBuf::from(&project), commit);
