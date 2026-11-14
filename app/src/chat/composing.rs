@@ -7,7 +7,7 @@ use sikemux_view::prefs::PreferenceChange;
 use std::cell::Cell;
 use std::collections::HashMap;
 
-use gpui_kit::component::input::{InputEvent, TextareaState};
+use gpui_kit::component::input::{InputEvent, Position, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AppContext, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -253,7 +253,11 @@ pub(super) fn take_suggestion(
                 return None;
             }
             let suggestion = composing.suggested.take()?;
-            draft.update(cx, |draft, cx| draft.set_value(suggestion, window, cx));
+            let last_line = suggestion.matches('\n').count() as u32;
+            draft.update(cx, |draft, cx| {
+                draft.set_value(suggestion, window, cx);
+                draft.set_cursor_position(Position::new(last_line, u32::MAX), window, cx);
+            });
             bench.typed_draft(&agent, cx);
             Some(())
         });
