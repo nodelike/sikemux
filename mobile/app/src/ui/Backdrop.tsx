@@ -309,7 +309,7 @@ export function Backdrop() {
       else reveal();
       return;
     }
-    draw(surface, still ? STILL_MS * GRAIN_SPEED : (Date.now() - ORIGIN) * GRAIN_SPEED);
+    draw(surface, still ? STILL_MS : (Date.now() - ORIGIN) * GRAIN_SPEED);
     show();
     if (frameKey && !frame) {
       const key = frameKey;

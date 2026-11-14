@@ -180,7 +180,7 @@ struct PaneBackdrop: View {
     }
 
     private var time: Float {
-        Float((still ? Self.stillAt : Date().timeIntervalSince(Self.origin)) * Self.speed)
+        Float(still ? Self.stillAt : Date().timeIntervalSince(Self.origin) * Self.speed)
     }
 
     private func reveal(_ key: String) {

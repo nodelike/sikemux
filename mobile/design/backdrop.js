@@ -51,7 +51,7 @@ function preset(picture) {
     fragment: grainFragmentShader,
     band: 0.5,
     strength: 0.85,
-    uniforms: { u_ink: getShaderColorFromString(SHADER_DOT), u_time: (STILL_MS * 0.5) / 1000 },
+    uniforms: { u_ink: getShaderColorFromString(SHADER_DOT), u_time: STILL_MS / 1000 },
   };
 }
 
