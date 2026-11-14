@@ -27,7 +27,7 @@ use uuid::Uuid;
 
 use crate::acp::pickers;
 use crate::agent_catalog::AgentKind;
-use crate::launch::PermissionMode;
+use crate::launch::{claude_model, claude_windows, PermissionMode};
 use crate::sessions::{self, roots::account_root};
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -432,6 +432,7 @@ impl Claude {
             shared.clone(),
             apps.clone(),
         );
+        reader.on_account(account_root(AgentKind::Claude, None, &launch.env));
         if let Some(model) = model {
             reader.note_model(model);
         }
@@ -632,12 +633,21 @@ impl Backend for Claude {
             .ok()
             .and_then(|settings| settings.get("effective").cloned())
             .unwrap_or(Value::Null);
-        let from_settings = settings
-            .get("model")
-            .and_then(Value::as_str)
-            .and_then(|named| config::named_model(&mut models, named));
+        let account = account_root(AgentKind::Claude, None, &launch.env);
+        let window = |model: &str| {
+            account
+                .as_deref()
+                .and_then(|account| claude_windows::of(account, model))
+        };
+        let settings_model = settings.get("model").and_then(Value::as_str);
+        let from_settings =
+            settings_model.and_then(|named| config::named_model(&mut models, named, window));
+        let launched_long = wanted
+            .as_deref()
+            .or(settings_model)
+            .is_some_and(claude_model::names_long_window);
         let chosen = wanted.map(|model| {
-            config::named_model(&mut models, &model).unwrap_or_else(|| {
+            config::named_model(&mut models, &model, window).unwrap_or_else(|| {
                 config::provider_model(&mut models, &model);
                 model
             })
@@ -654,6 +664,7 @@ impl Backend for Claude {
         }
         .and_then(|resolved| config::row_for_resolved(&models, &resolved));
         let switch_to = resumed.clone().filter(|_| chosen.is_none());
+        shared.locked().long_picked = launched_long && switch_to.is_none();
         let model = chosen
             .or(resumed)
             .or(from_settings)
@@ -812,6 +823,7 @@ impl Backend for Claude {
                     .request(json!({ "subtype": "set_model", "model": value }))
                     .await?;
                 self.kept.model = value.to_owned();
+                self.shared.locked().long_picked = claude_model::names_long_window(value);
                 let levels = config::effort_levels(&self.kept.models, value);
                 if self.kept.effort != config::DEFAULT && !levels.contains(&self.kept.effort) {
                     self.kept.effort = config::DEFAULT.to_owned();

@@ -126,8 +126,13 @@ pub(crate) fn row_for_resolved(models: &[Value], resolved: &str) -> Option<Strin
 
 /// How big a resumed session's window is, which Claude's transcript does not
 /// say. A model named for a 1M window has one, and so does a session already
-/// past 200K.
-pub fn saved_window(setup: &Value, launched_with: Option<&str>, used: u64) -> u64 {
+/// past 200K; otherwise it is the one its model last ran with on the account.
+pub fn saved_window(
+    setup: &Value,
+    launched_with: Option<&str>,
+    used: u64,
+    learned: Option<u64>,
+) -> u64 {
     let current = pickers::current_choice(setup, "model");
     let label = current.as_deref().and_then(|value| {
         setup["configOptions"]
@@ -146,14 +151,19 @@ pub fn saved_window(setup: &Value, launched_with: Option<&str>, used: u64) -> u6
     if names_long || used > DEFAULT_WINDOW {
         claude_model::LONG_WINDOW
     } else {
-        DEFAULT_WINDOW
+        learned.unwrap_or(DEFAULT_WINDOW)
     }
 }
 
 /// The row for a model named by its full id, such as `claude-sonnet-5-5`, or by a
-/// name Claude Code runs but does not list, such as `opus[1m]`: for the latter a row
-/// like the one it extends, named for its larger context. Answers with the row's value.
-pub(crate) fn named_model(models: &mut Vec<Value>, named: &str) -> Option<String> {
+/// name Claude Code runs but does not list, such as `opus[1m]`: for the latter the row
+/// it extends where that model already runs at 1M on the account, as `window` says,
+/// else a row like it named for its larger context. Answers with the row's value.
+pub(crate) fn named_model(
+    models: &mut Vec<Value>,
+    named: &str,
+    window: impl Fn(&str) -> Option<u64>,
+) -> Option<String> {
     if find(models, named).is_some() {
         return Some(named.to_owned());
     }
@@ -164,6 +174,11 @@ pub(crate) fn named_model(models: &mut Vec<Value>, named: &str) -> Option<String
     let mut row = find(models, base).cloned().or_else(|| {
         row_for_resolved(models, base).and_then(|value| find(models, &value).cloned())
     })?;
+    let resolved = text(&row, "resolvedModel").unwrap_or(base);
+    if window(resolved) == Some(claude_model::LONG_WINDOW) {
+        return row_for_resolved(models, resolved)
+            .or_else(|| text(&row, "value").map(str::to_owned));
+    }
     let name = text(&row, "displayName").unwrap_or(base).to_owned();
     row["value"] = json!(named);
     row["displayName"] = json!(format!("{name} (1M context)"));
@@ -331,26 +346,30 @@ mod tests {
     #[test]
     fn a_saved_session_past_the_standard_window_or_named_for_the_long_one_has_it() {
         let long = claude_model::LONG_WINDOW;
-        assert_eq!(saved_window(&models_named("opus[1m]", &[]), None, 0), long);
+        assert_eq!(
+            saved_window(&models_named("opus[1m]", &[]), None, 0, None),
+            long
+        );
         assert_eq!(
             saved_window(
                 &models_named("default", &[("default", "Opus (1M context)")]),
                 None,
-                0
+                0,
+                None
             ),
             long
         );
-        assert_eq!(saved_window(&json!({}), Some("sonnet[1m]"), 0), long);
+        assert_eq!(saved_window(&json!({}), Some("sonnet[1m]"), 0, None), long);
         assert_eq!(
-            saved_window(&json!({}), Some("claude-opus-5-5"), 515_222),
+            saved_window(&json!({}), Some("claude-opus-5-5"), 515_222, None),
             long
         );
         assert_eq!(
-            saved_window(&json!({}), Some("claude-opus-5-5"), 150_000),
+            saved_window(&json!({}), Some("claude-opus-5-5"), 150_000, None),
             DEFAULT_WINDOW
         );
         assert_eq!(
-            saved_window(&models_named("claude-1mini", &[]), None, 0),
+            saved_window(&models_named("claude-1mini", &[]), None, 0, None),
             DEFAULT_WINDOW
         );
     }
@@ -386,7 +405,7 @@ mod tests {
     fn a_settings_model_with_a_larger_context_gets_its_own_row() {
         let mut models = models();
         assert_eq!(
-            named_model(&mut models, "opus[1m]").as_deref(),
+            named_model(&mut models, "opus[1m]", |_| None).as_deref(),
             Some("opus[1m]")
         );
         let options = options(&models, "opus[1m]", "high", false);
@@ -394,12 +413,15 @@ mod tests {
         assert_eq!(row["value"], "opus[1m]");
         assert_eq!(row["name"], "Opus 5.5 (1M context)");
         assert_eq!(options[1]["currentValue"], "high");
-        assert_eq!(named_model(&mut models, "haiku").as_deref(), Some("haiku"));
         assert_eq!(
-            named_model(&mut models, "claude-opus-5-5").as_deref(),
+            named_model(&mut models, "haiku", |_| None).as_deref(),
+            Some("haiku")
+        );
+        assert_eq!(
+            named_model(&mut models, "claude-opus-5-5", |_| None).as_deref(),
             Some("default")
         );
-        assert_eq!(named_model(&mut models, "gpt-9"), None);
+        assert_eq!(named_model(&mut models, "gpt-9", |_| None), None);
     }
 
     #[test]

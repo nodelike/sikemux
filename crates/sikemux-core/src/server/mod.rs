@@ -420,6 +420,7 @@ impl ServerCore for Core {
         if let Some(dir) = data_dir {
             crate::sessions::index::open(dir);
             crate::sessions::said::open(dir);
+            crate::launch::claude_windows::open(dir);
         }
         let detection = ManifestRegistry::bundled()
             .map_err(|error| ServerError::Manifests(error.to_string()))?;

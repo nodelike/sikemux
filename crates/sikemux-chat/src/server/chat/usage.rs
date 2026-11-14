@@ -5,8 +5,9 @@ use crate::server::chat_state::ChatParts;
 use serde_json::json;
 
 use crate::agent_catalog::AgentKind;
-use crate::launch::named_account;
+use crate::launch::{claude_windows, named_account};
 use crate::sessions::context::read_session_context;
+use crate::sessions::roots::account_root;
 use sikemux_fold::ChatEventKind;
 use sikemux_wire::protocol::ChatStart;
 
@@ -33,9 +34,13 @@ impl Chat {
             let Some(saved) = read_session_context(kind, &cwd, &resumed, account.as_deref()) else {
                 return;
             };
-            let size = saved
-                .size
-                .unwrap_or_else(|| saved_window(&start.setup, launch.model.as_deref(), saved.used));
+            let learned = saved.model.as_deref().and_then(|model| {
+                let account = account_root(kind, None, &launch.env)?;
+                claude_windows::of(&account, model)
+            });
+            let size = saved.size.unwrap_or_else(|| {
+                saved_window(&start.setup, launch.model.as_deref(), saved.used, learned)
+            });
             let Some(chat) = core.upgrade().and_then(|core| core.chats().get(&agent_id)) else {
                 return;
             };

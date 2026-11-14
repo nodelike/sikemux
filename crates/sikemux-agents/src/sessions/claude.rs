@@ -382,7 +382,8 @@ fn claude_context_line(line: &str) -> Option<SessionContext> {
         return None;
     }
     let message = value.get("message")?;
-    if message.get("model").and_then(Value::as_str) == Some("<synthetic>") {
+    let model = message.get("model").and_then(Value::as_str);
+    if model == Some("<synthetic>") {
         return None;
     }
     let usage = message.get("usage")?;
@@ -395,7 +396,11 @@ fn claude_context_line(line: &str) -> Option<SessionContext> {
     .iter()
     .map(|key| usage.get(key).and_then(Value::as_u64).unwrap_or(0))
     .sum();
-    Some(SessionContext { used, size: None })
+    Some(SessionContext {
+        used,
+        size: None,
+        model: model.map(str::to_owned),
+    })
 }
 
 pub struct Claude;

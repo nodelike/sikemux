@@ -425,6 +425,7 @@ fn codex_context_line(line: &str) -> Option<SessionContext> {
     Some(SessionContext {
         used,
         size: Some(size),
+        model: None,
     })
 }
 

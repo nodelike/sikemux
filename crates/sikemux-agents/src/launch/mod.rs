@@ -3,6 +3,7 @@
 //! core, is built here.
 
 pub mod claude_model;
+pub mod claude_windows;
 pub mod discovery;
 pub mod homes;
 pub mod model_feed;

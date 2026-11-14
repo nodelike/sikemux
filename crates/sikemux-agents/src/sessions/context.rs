@@ -11,11 +11,14 @@ use crate::agent_catalog::AgentKind;
 
 // ---- context window of a saved session ---------------------------------
 /// How full a session's context window was when its transcript was last written.
-/// Claude does not record the window's size, so `size` is only known for Codex.
+/// Claude does not record the window's size, so `size` is only known for Codex,
+/// and `model` only for Claude, whose window is learned per model.
 #[derive(Serialize, Debug, PartialEq)]
 pub struct SessionContext {
     pub used: u64,
     pub size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// A resumed chat hears nothing about its context window until it runs a turn,
@@ -106,7 +109,8 @@ mod tests {
             context,
             Some(SessionContext {
                 used: 50_142,
-                size: None
+                size: None,
+                model: Some("claude-opus-5-5".to_owned()),
             })
         );
         assert_eq!(
@@ -153,7 +157,8 @@ mod tests {
             context,
             Some(SessionContext {
                 used: 96_852,
-                size: Some(258_400)
+                size: Some(258_400),
+                model: None,
             })
         );
     }

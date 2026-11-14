@@ -1,7 +1,7 @@
 //! Reads what Claude Code writes on its output and tells the chat, as the
 //! session updates the fold reads from every agent.
 
-use crate::launch::claude_model;
+use crate::launch::{claude_model, claude_windows};
 use sikemux_fold::update::{agent_text, compaction, notice, text_content, thought, turn_answer};
 use sikemux_fold::UpdateKind;
 use sikemux_view::chat::StopReason;
@@ -87,6 +87,10 @@ pub struct Shared {
     /// Claude was started with the hook that refuses tools while hushed.
     #[serde(default)]
     pub tool_hook: bool,
+    /// The chat runs a model asked for with the 1M window, whose reported window
+    /// says nothing of the model's own.
+    #[serde(default)]
+    pub long_picked: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -164,6 +168,9 @@ pub(crate) struct ReaderState {
     used: Option<u64>,
     size: u64,
     model: Option<String>,
+    /// The account folder the chat runs in, which windows are learned for.
+    #[serde(default)]
+    account: Option<PathBuf>,
     #[serde(default)]
     auto_compact: AutoCompact,
     /// The session's calls to the model and its compactions since Claude last answered.
@@ -460,6 +467,7 @@ impl Reader {
                 used: None,
                 size: 200_000,
                 model: None,
+                account: None,
                 auto_compact: AutoCompact::default(),
                 calls: Vec::new(),
                 compactions: Vec::new(),
@@ -497,9 +505,20 @@ impl Reader {
         (self.data, self.shared)
     }
 
+    pub fn on_account(&mut self, account: Option<PathBuf>) {
+        self.data.account = account;
+    }
+
     pub fn note_model(&mut self, model: &str) {
         if claude_model::names_long_window(model) {
             self.data.size = claude_model::LONG_WINDOW;
+        } else if let Some(size) = self
+            .data
+            .account
+            .as_deref()
+            .and_then(|account| claude_windows::of(account, model))
+        {
+            self.data.size = self.data.size.max(size);
         }
     }
 
@@ -1108,12 +1127,11 @@ impl Reader {
 
     fn result(&mut self, result: &TurnResult) {
         self.suggests = false;
-        if let Some(size) = result
-            .model_usage
-            .as_ref()
-            .and_then(|usage| self.window_of(usage))
-        {
-            self.data.size = size;
+        if let Some(usage) = result.model_usage.as_ref() {
+            self.learn_windows(usage);
+            if let Some(size) = self.window_of(usage) {
+                self.data.size = size;
+            }
         }
         let used = self.data.used;
         if let Some(used) = used {
@@ -1278,6 +1296,23 @@ impl Reader {
             });
         }
         self.sink.session_used(calls, compactions);
+    }
+
+    fn learn_windows(&self, usage: &Map<String, Value>) {
+        let Some(account) = self.data.account.as_deref() else {
+            return;
+        };
+        if self.shared.locked().long_picked {
+            return;
+        }
+        for (model, entry) in usage {
+            let size = entry.get("contextWindow").and_then(Value::as_u64);
+            if let Some(size) = size.filter(|size| *size > 0) {
+                if !claude_model::names_long_window(model) {
+                    claude_windows::learn(account, model, size);
+                }
+            }
+        }
     }
 
     fn window_of(&self, usage: &Map<String, Value>) -> Option<u64> {
