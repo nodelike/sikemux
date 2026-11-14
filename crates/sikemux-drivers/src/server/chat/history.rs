@@ -62,6 +62,8 @@ pub struct History {
     /// Counts the times the file was rewritten, cut back or given up, so a page read outside
     /// the chat's lock can tell its file changed under it.
     rewrites: Arc<AtomicU64>,
+    /// The chat is closed or asleep and can be opened again, so the file stays when it is let go.
+    outlives_chat: bool,
 }
 
 /// What a page needs of a history file, taken under the chat's lock so the reading itself can
@@ -235,6 +237,7 @@ impl History {
             next: 0,
             points: Vec::new(),
             rewrites: Arc::default(),
+            outlives_chat: false,
         }
     }
 
@@ -269,6 +272,7 @@ impl History {
             next: 0,
             points: Vec::new(),
             rewrites: Arc::default(),
+            outlives_chat: false,
         };
         let mut reader = BufReader::new(&file);
         let mut line = Vec::new();
@@ -356,7 +360,13 @@ impl History {
             next: state.next,
             points: if kept { state.points } else { Vec::new() },
             rewrites: Arc::default(),
+            outlives_chat: false,
         }
+    }
+
+    /// Whether the file stays on disk once the chat lets go of it.
+    pub fn outlive_chat(&mut self, outlives: bool) {
+        self.outlives_chat = outlives;
     }
 
     /// How many bytes the file holds.
@@ -669,7 +679,7 @@ impl Reader {
 
 impl Drop for History {
     fn drop(&mut self) {
-        if self.file.take().is_some() {
+        if self.file.take().is_some() && !self.outlives_chat {
             let _ = fs::remove_file(&self.path);
         }
     }
@@ -789,7 +799,7 @@ mod tests {
     }
 
     #[test]
-    fn the_file_goes_with_the_chat() {
+    fn the_file_goes_with_the_chat_unless_the_chat_can_be_opened_again() {
         let dir = tempfile::tempdir().unwrap();
         let mut history = History::open(dir.path(), "chat", MAX_HISTORY_BYTES);
         turns(&mut history, 1);
@@ -797,5 +807,12 @@ mod tests {
         assert!(path.exists());
         drop(history);
         assert!(!path.exists());
+
+        let mut history = History::open(dir.path(), "closed", MAX_HISTORY_BYTES);
+        turns(&mut history, 1);
+        history.outlive_chat(true);
+        let path = history.path.clone();
+        drop(history);
+        assert!(path.exists());
     }
 }

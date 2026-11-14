@@ -49,7 +49,9 @@ pub(crate) use brief::{brief, for_chat};
 pub(crate) use check::settle;
 pub(crate) use now_check::{set_aside, why as set_aside_why, SetAside};
 pub(crate) use promote::promote;
-pub(crate) use removed::{chat_ready, take_note as take_removed_note};
+pub(crate) use removed::{
+    chat_ready, feed_moved, show_on as rules_missing, take_note as take_removed_note,
+};
 pub(crate) use seed::{again as seed_again, keep as keep_seeded};
 
 const FOLDER: &str = "memory";

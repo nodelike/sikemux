@@ -1,5 +1,6 @@
 //! Every chat this core runs, and the feeds of those at rest.
 
+use super::feed::Reach;
 use super::*;
 use crate::server::chat_state::ChatParts;
 
@@ -25,21 +26,23 @@ pub struct Chats {
     /// The feeds of chats asleep, their history kept on disk for clients to page and find
     /// through without waking anything.
     pub resting: Mutex<Vec<Resting>>,
+    /// Every chat asleep or closed that can be opened again, with the history it keeps.
+    pub shelf: shelf::Shelf,
+    unshelving: Mutex<()>,
 }
 
-/// A sleeping chat's feed, how much history it keeps, and when a client last read it.
+/// A sleeping chat's feed.
 pub struct Resting {
     pub agent_id: String,
     pub feed: Arc<Feed>,
-    pub bytes: u64,
-    pub read: std::time::Instant,
     /// The chat's meter as it fell asleep, taken up again as it wakes.
     pub meter: super::cap::KeptMeter,
     pub claude: bool,
 }
 
-/// The most history kept for sleeping chats in all; past it, the one read least lately goes.
-const RESTING_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// The most history kept for chats asleep or closed in all; past it, the one read least lately
+/// goes.
+const SHELF_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 impl Chats {
     /// Where each chat keeps everything it said.
@@ -48,8 +51,10 @@ impl Chats {
     }
 
     pub fn new(data_dir: Option<&std::path::Path>) -> Self {
+        let history = data_dir.map(|dir| dir.join("chat-history"));
         Self {
-            history: data_dir.map(|dir| dir.join("chat-history")),
+            shelf: shelf::Shelf::load(history.as_deref()),
+            history,
             kept: data_dir.map(|dir| dir.join("chats")),
             resets: reset::LimitResumes::new(data_dir),
             handoffs: handoff::Handoffs::new(data_dir),
@@ -58,16 +63,18 @@ impl Chats {
     }
 
     /// Removes the history an earlier core left, but for the chats this one
-    /// took over.
+    /// took over and those asleep or closed that can be opened again.
     pub fn clear_history(&self) {
         let Some(dir) = self.history.as_deref() else {
             return;
         };
-        let keep: Vec<String> = self
+        let mut keep: Vec<String> = self
             .all()
             .iter()
             .map(|chat| chat.feed.id().to_owned())
             .collect();
+        keep.extend(self.shelf.feeds());
+        keep.push("kept".to_owned());
         history::clear(dir, &keep);
     }
 
@@ -124,36 +131,131 @@ impl Chats {
         if let Some(chat) = self.get(agent_id) {
             return Ok(chat.feed.clone());
         }
-        let mut resting = self.resting.locked();
-        let kept = resting
-            .iter_mut()
-            .find(|resting| resting.agent_id == agent_id);
-        let kept = kept.ok_or_else(|| CoreError::from(NOT_RUNNING))?;
-        kept.read = std::time::Instant::now();
-        Ok(kept.feed.clone())
+        let feed = (self.resting.locked().iter())
+            .find(|resting| resting.agent_id == agent_id)
+            .map(|resting| resting.feed.clone())
+            .ok_or_else(|| CoreError::from(NOT_RUNNING))?;
+        self.shelf.read(agent_id);
+        Ok(feed)
     }
 
-    /// Keeps the feed of `chat`, which went to sleep, with only its history on disk, letting
-    /// go of the history read least lately once all those kept pass their size.
+    /// Keeps the feed of `chat`, which went to sleep, with only its history on disk.
     pub fn rest(&self, chat: &Chat) {
-        chat.cut_turn();
-        let bytes = chat.feed.rest();
+        self.shelve(chat);
         let mut resting = self.resting.locked();
         resting.retain(|resting| resting.agent_id != chat.agent_id());
         resting.push(Resting {
             agent_id: chat.agent_id().to_owned(),
             feed: chat.feed.clone(),
-            bytes,
-            read: std::time::Instant::now(),
             meter: chat.meter.kept(),
             claude: chat.provider() == "claude",
         });
-        while resting.iter().map(|resting| resting.bytes).sum::<u64>() > RESTING_BYTES {
-            let Some(oldest) = (0..resting.len()).min_by_key(|&at| resting[at].read) else {
-                break;
-            };
-            resting.remove(oldest);
+    }
+
+    /// Keeps the history of `chat`, which stopped, on disk to show when it is opened again on
+    /// its session, letting go of the history read least lately once all those kept pass their
+    /// size. A chat that never had a session keeps nothing.
+    fn shelve(&self, chat: &Chat) {
+        chat.cut_turn();
+        let bytes = chat.feed.rest();
+        let launch = chat.current_now();
+        let start = chat.feed.start();
+        let follows = chat.feed.followed();
+        let session = (follows.as_ref().map(|(session, _)| session.clone()))
+            .or_else(|| start.as_ref().map(|start| start.session_id.clone()))
+            .or_else(|| launch.resume_id.clone());
+        let Some(session) = session else {
+            return;
+        };
+        let account = crate::agent_catalog::AgentKind::from_name(&launch.provider)
+            .and_then(|kind| crate::sessions::roots::account_root(kind, None, &launch.env));
+        let mut shelved = shelf::Shelved {
+            feed: chat.feed.id().to_owned(),
+            reach: follows
+                .filter(|(followed, _)| *followed == session)
+                .map(|(_, reach)| reach),
+            session,
+            provider: launch.provider.clone(),
+            cwd: launch.cwd.clone(),
+            account,
+            permission_mode: chat.feed.permission_mode(),
+            claude: chat.provider() == "claude",
+            start,
+            transcript: None,
+            running: false,
+            bytes,
+            read_at: epoch_ms(),
+        };
+        shelved.transcript = shelved.find_transcript();
+        // A turn cut short is in the history already, past where the reach last stood.
+        if let Some(reach) = whole_record(&shelved) {
+            chat.feed.reached(&shelved.session, reach.clone());
+            shelved.reach = Some(reach);
         }
+        chat.feed.outlive_chat();
+        let feed = shelved.feed.clone();
+        let before = self.shelf.put(chat.agent_id(), shelved);
+        if let (Some(dir), Some(before)) = (self.history.as_deref(), before) {
+            if before.feed != feed {
+                let _ = std::fs::remove_file(dir.join(format!("{}.jsonl", before.feed)));
+            }
+        }
+        while let Some(oldest) = self.shelf.over(SHELF_BYTES) {
+            self.forget(&oldest);
+        }
+    }
+
+    /// Takes up the history an earlier core kept for the agent's chat, asleep or closed, to
+    /// read while it sleeps and to wake on, when it follows `session` if one is named.
+    /// Answers the feed when it was taken up just now. Reads the disk, so it blocks.
+    pub fn unshelve(&self, agent_id: &str, session: Option<&str>) -> Option<Arc<Feed>> {
+        let _one_at_a_time = self.unshelving.locked();
+        if self
+            .resting
+            .locked()
+            .iter()
+            .any(|resting| resting.agent_id == agent_id)
+        {
+            return None;
+        }
+        let (Some(dir), Some(mut shelved)) = (self.history.as_deref(), self.shelf.get(agent_id))
+        else {
+            return None;
+        };
+        if session.is_some_and(|session| session != shelved.session) {
+            return None;
+        }
+        if !dir.join(format!("{}.jsonl", shelved.feed)).is_file() {
+            self.shelf.take(agent_id);
+            return None;
+        }
+        let feed = Feed::kept(
+            agent_id.to_owned(),
+            shelved.permission_mode,
+            dir,
+            &shelved.feed,
+        );
+        if let Some(start) = shelved.start.clone() {
+            feed.set_start(start);
+        }
+        // A chat that ran when its core stopped wrote on past its reach, as far as its record.
+        if shelved.running {
+            shelved.reach = whole_record(&shelved).or(shelved.reach);
+            shelved.running = false;
+            self.shelf.put(agent_id, shelved.clone());
+        }
+        if let Some(reach) = shelved.reach.clone() {
+            feed.reached(&shelved.session, reach);
+        }
+        feed.rest();
+        feed.outlive_chat();
+        self.resting.locked().push(Resting {
+            agent_id: agent_id.to_owned(),
+            claude: shelved.claude,
+            feed: feed.clone(),
+            meter: Default::default(),
+        });
+        Some(feed)
     }
 
     /// The feeds chats kept while they sleep, which clients still read, by agent.
@@ -163,13 +265,26 @@ impl Chats {
             .collect()
     }
 
-    /// The feed the agent's chat kept while it slept, no longer kept apart.
-    pub fn take_rest(&self, agent_id: &str) -> Option<(Arc<Feed>, super::cap::KeptMeter)> {
+    /// The feed the agent's chat kept while it slept, no longer kept apart, when it follows
+    /// `session` if one is named. One that follows another session is let go of here, and
+    /// stays on disk.
+    pub fn take_rest(
+        &self,
+        agent_id: &str,
+        session: Option<&str>,
+    ) -> Option<(Arc<Feed>, super::cap::KeptMeter)> {
         let mut resting = self.resting.locked();
         let at = resting
             .iter()
             .position(|resting| resting.agent_id == agent_id)?;
         let rested = resting.remove(at);
+        let other = (self.shelf.get(agent_id))
+            .is_some_and(|shelved| session.is_some_and(|session| session != shelved.session));
+        if other {
+            return None;
+        }
+        self.shelf.woke(agent_id);
+        rested.feed.woke();
         Some((rested.feed, rested.meter))
     }
 
@@ -194,11 +309,28 @@ impl Chats {
         Some((rested.feed.clone(), rested.meter, rested.claude))
     }
 
-    /// Lets go of what a chat that will not wake again kept while it slept.
-    pub fn forget_rest(&self, agent_id: &str) {
+    /// Lets go of what a chat that cannot be opened again kept, its history file with it.
+    pub fn forget(&self, agent_id: &str) {
         self.resting
             .locked()
             .retain(|resting| resting.agent_id != agent_id);
+        let (Some(dir), Some(shelved)) = (self.history.as_deref(), self.shelf.take(agent_id))
+        else {
+            return;
+        };
+        if self.get(agent_id).is_none() {
+            let _ = std::fs::remove_file(dir.join(format!("{}.jsonl", shelved.feed)));
+        }
+    }
+
+    /// Lets go of the kept history of each chat closed or asleep whose agent no longer keeps
+    /// its session, so it is gone from Recent, and that `kept` does not still hold.
+    pub fn forget_gone(&self, kept: impl Fn(&str) -> bool) {
+        for agent_id in self.shelf.gone_from_recent() {
+            if !kept(&agent_id) {
+                self.forget(&agent_id);
+            }
+        }
     }
 
     pub fn count(&self) -> usize {
@@ -298,6 +430,18 @@ impl Chats {
         Some(task)
     }
 
+    /// Ends the agent's chat, which the person closed, keeping its history to show when it
+    /// is opened again.
+    pub fn close(&self, agent_id: &str) {
+        if let Some(chat) = self.take(agent_id) {
+            Self::halt(&chat);
+            self.shelve(&chat);
+        }
+        self.resting
+            .locked()
+            .retain(|resting| resting.agent_id != agent_id);
+    }
+
     /// Whether the agent had a chat to stop.
     pub fn stop(&self, agent_id: &str) -> bool {
         let Some(chat) = self.take(agent_id) else {
@@ -362,7 +506,7 @@ impl Chats {
         // that feed hears it wake, and the history its start replays is already there.
         let rested = kept
             .is_none()
-            .then(|| self.take_rest(&launch.agent_id))
+            .then(|| self.take_rest(&launch.agent_id, launch.resume_id.as_deref()))
             .flatten();
         let history_shown = rested.is_some();
         let rested_meter = rested.as_ref().map(|(_, meter)| *meter);
@@ -457,7 +601,65 @@ impl crate::server::part::Part for Chats {
         vec![super::reset::wake_on_readings(core)]
     }
 
+    fn flush(&self) {
+        self.shelf.flush();
+    }
+
     fn client_gone(&self, _core: &Arc<Core>, client: ClientId) {
         self.forget_client(client);
+    }
+}
+
+/// How far the agent's own record of the session reaches now, for agents read by its length.
+fn whole_record(shelved: &shelf::Shelved) -> Option<Reach> {
+    if !shelved.claude && !matches!(shelved.reach, Some(Reach::Bytes(_))) {
+        return None;
+    }
+    let length = std::fs::metadata(shelved.transcript.as_deref()?)
+        .ok()?
+        .len();
+    Some(Reach::Bytes(length))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Review of #239: an agent that ran two sessions keeps the history of the newer one, and
+    /// taking up the older from Recent must not show it.
+    #[tokio::test]
+    async fn a_kept_history_is_taken_up_only_for_the_session_it_follows() {
+        let data = tempfile::tempdir().unwrap();
+        let chats = Chats::new(Some(data.path()));
+        let history = data.path().join("chat-history");
+        std::fs::create_dir_all(&history).unwrap();
+        std::fs::write(history.join("newer-feed.jsonl"), b"").unwrap();
+        chats.shelf.put(
+            "agent",
+            shelf::Shelved {
+                feed: "newer-feed".into(),
+                session: "newer".into(),
+                provider: "claude".into(),
+                cwd: data.path().to_path_buf(),
+                account: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
+                claude: true,
+                start: None,
+                reach: None,
+                transcript: None,
+                running: false,
+                bytes: 0,
+                read_at: 0,
+            },
+        );
+
+        assert!(chats.unshelve("agent", Some("older")).is_none());
+        assert!(chats.resting_feeds().is_empty());
+        assert!(chats.unshelve("agent", None).is_some());
+        assert!(chats.take_rest("agent", Some("older")).is_none());
+        assert!(chats.shelf.holds("agent"));
+        assert!(history.join("newer-feed.jsonl").is_file());
+        assert!(chats.unshelve("agent", Some("newer")).is_some());
+        assert!(chats.take_rest("agent", Some("newer")).is_some());
     }
 }

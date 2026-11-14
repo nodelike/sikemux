@@ -225,6 +225,28 @@ impl Feed {
     ) -> Arc<Self> {
         let id = uuid::Uuid::new_v4().to_string();
         let history = history.map(|dir| History::open(dir, &id, MAX_HISTORY_BYTES));
+        Self::named(agent_id, permission_mode, history, id)
+    }
+
+    /// The feed of a chat closed or asleep, under the name of the history file it kept in
+    /// `dir`, which it reads back. Reads the disk, so it blocks.
+    pub fn kept(
+        agent_id: String,
+        permission_mode: PermissionMode,
+        dir: &std::path::Path,
+        name: &str,
+    ) -> Arc<Self> {
+        let feed = Self::named(agent_id, permission_mode, None, name.to_owned());
+        feed.recover(dir);
+        feed
+    }
+
+    fn named(
+        agent_id: String,
+        permission_mode: PermissionMode,
+        history: Option<History>,
+        id: String,
+    ) -> Arc<Self> {
         Self::counted(Arc::new_cyclic(|me| Self {
             me: me.clone(),
             agent_id,
@@ -836,6 +858,20 @@ impl Feed {
         bytes
     }
 
+    /// The chat stopped and can be opened again, so its history file stays once the feed goes.
+    pub fn outlive_chat(&self) {
+        if let Some(history) = self.inner.locked().replay.history.as_mut() {
+            history.outlive_chat(true);
+        }
+    }
+
+    /// The chat woke on the feed it slept with, so its history goes with it again.
+    pub fn woke(&self) {
+        if let Some(history) = self.inner.locked().replay.history.as_mut() {
+            history.outlive_chat(false);
+        }
+    }
+
     /// Keeps what the agent says from the clients until [`Feed::let_out`]. A
     /// resumed session replays its whole saved history while it starts, more
     /// than a client could be sent a change at a time.
@@ -1011,6 +1047,11 @@ impl Feed {
         let inner = self.inner.locked();
         let (followed, reach) = inner.reach.as_ref()?;
         (followed == session).then(|| reach.clone())
+    }
+
+    /// The session the history follows and how far into its CLI's record it reaches.
+    pub fn followed(&self) -> Option<(String, Reach)> {
+        self.inner.locked().reach.clone()
     }
 
     /// What the agent last called this session, as the host's rail shows it.

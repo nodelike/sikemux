@@ -389,6 +389,9 @@ pub(crate) async fn start(
         briefed: false,
         notice,
     };
+    if let Some(session) = launch.resume_id.as_deref() {
+        chat::unshelve(core, &launch.agent_id, Some(session)).await;
+    }
     let started = chat::begin_as(core, launch, by, Some(launcher_id), starting)?;
     core.changed(What::Event(&Event::ChatBegun {
         chat: started.info(),

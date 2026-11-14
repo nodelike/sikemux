@@ -34,6 +34,22 @@ pub async fn until_ready(core: &Core, agent_id: &str) -> CoreResult<()> {
     chat.until_ready().await.map(drop).map_err(CoreError::from)
 }
 
+/// Takes up what an earlier core kept of the agent's chat, asleep or closed, before it is read
+/// or woken on `session` if one is named.
+pub async fn unshelve(core: &Arc<Core>, agent_id: &str, session: Option<&str>) {
+    let (reading, agent, session) = (
+        core.clone(),
+        agent_id.to_owned(),
+        session.map(str::to_owned),
+    );
+    let taken =
+        tokio::task::spawn_blocking(move || reading.chats().unshelve(&agent, session.as_deref()))
+            .await;
+    if let Ok(Some(feed)) = taken {
+        (core.chat_above().kept_feed_taken_up)(core, agent_id, &feed);
+    }
+}
+
 pub async fn attach(
     core: &Arc<Core>,
     client: &Arc<ClientConn>,
@@ -47,6 +63,7 @@ pub async fn attach(
     let chat = match core.chats().get(agent_id) {
         Some(chat) => chat,
         None => {
+            unshelve(core, agent_id, None).await;
             if let Ok(feed) = core.chats().readable(agent_id) {
                 let standing = Standing {
                     turned: false,

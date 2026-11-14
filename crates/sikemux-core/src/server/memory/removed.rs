@@ -56,7 +56,26 @@ pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
     show_on(core, chat.agent_id(), &chat.feed);
 }
 
-fn show_on(core: &Core, agent: &str, feed: &Arc<Feed>) {
+/// The lines of rules removed from `agent`'s chat put on feed `from` count as on `to`.
+pub(crate) fn feed_moved(core: &Core, agent: &str, from: &str, to: &str) {
+    let mut state = core.memory().state.locked();
+    let mut changed = Vec::new();
+    for (folder, held) in state.held.iter_mut() {
+        for removed in (held.removed.iter_mut())
+            .filter(|removed| removed.agent == agent && removed.feed.as_deref() == Some(from))
+        {
+            removed.feed = Some(to.to_owned());
+            changed.push(folder.clone());
+        }
+    }
+    changed.dedup();
+    for folder in changed {
+        core.memory().save(&mut state, &folder);
+    }
+}
+
+/// The line of each rule removed from `agent`'s chat that `feed` has not had goes at its end.
+pub(crate) fn show_on(core: &Core, agent: &str, feed: &Arc<Feed>) {
     let id = feed.id().to_owned();
     let lines: Vec<KeptRule> = {
         let mut state = core.memory().state.locked();

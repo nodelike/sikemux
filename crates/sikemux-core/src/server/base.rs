@@ -201,8 +201,7 @@ fn tool_updated(core: &Core, chat: &Chat, update: &Value) {
 
 fn agents_gone(core: &Core, gone: &[&String]) {
     for agent_id in gone {
-        core.chats().stop(agent_id);
-        core.chats().forget_rest(agent_id);
+        core.chats().close(agent_id);
     }
     hosts::route::closed(core, gone);
     pins::agents_closed(core, gone);
@@ -286,6 +285,14 @@ pub(super) fn chat_above() -> ChatAbove {
         chief_brief: chief::brief,
         chief_chat_opened: chief::chat_opened,
         chief_chat_ready: chief::chat_ready,
+        feed_moved: |core, agent, from, to| {
+            chief::feed_moved(core, agent, from, to);
+            memory::feed_moved(core, agent, from, to);
+        },
+        kept_feed_taken_up: |core, agent, feed| {
+            chief::rows_missing(core, agent, feed);
+            memory::rules_missing(core, agent, feed);
+        },
         chief_keep_session: chief::keep_session,
         chief_kept_session: chief::kept_session,
         chief_person_wrote: chief::person_wrote,

@@ -72,6 +72,12 @@ pub struct ChatAbove {
     /// The chief's chat is ready and its saved history shown: the lines it keeps that this feed has
     /// not had go at its end, each under the time it was first made.
     pub chief_chat_ready: fn(&Core, &Chat),
+    /// A chat closed or asleep was taken up on `feed` from what an earlier core kept of it: the
+    /// lines Sikemux added to it since go at its end.
+    pub kept_feed_taken_up: fn(&Core, &str, &Arc<Feed>),
+    /// A chat an earlier core ran goes on in a feed of a new name, holding all the old one held,
+    /// so lines put on the old one are not put there again.
+    pub feed_moved: fn(&Core, &str, &str, &str),
     /// Keeps where a chief's session stands when it changed, so a sleep or a new core goes on from it.
     pub chief_keep_session: fn(&Core, &Chat),
     /// `chief::kept_session`.

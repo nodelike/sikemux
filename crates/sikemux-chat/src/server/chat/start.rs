@@ -429,6 +429,7 @@ pub fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -> CoreR
         &kept.feed,
     );
     kept::moved(dir, &kept, feed.id());
+    (core.chat_above().feed_moved)(core, &launch_spec.agent_id, &kept.feed, feed.id());
     let saved = launch_spec.resume_id.is_some();
     let flags = TurnProgress::saved(saved);
     let (chat, queue) = core.chats().insert(

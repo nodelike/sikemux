@@ -21,6 +21,7 @@ pub use rebind::on_account;
 mod registry;
 pub mod reset;
 pub mod rotation;
+mod shelf;
 pub mod side;
 mod start;
 use crate::server::chat_state::ChatParts;

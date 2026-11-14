@@ -585,12 +585,18 @@ pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
     if *chat.saved_reading.borrow() {
         return;
     }
-    let id = chat.feed.id().to_owned();
+    rows_missing(core, chat.agent_id(), &chat.feed);
+}
+
+/// The lines kept for `agent` that `feed` has not had go at its end, each under the time it was
+/// first made.
+pub(crate) fn rows_missing(core: &Core, agent: &str, feed: &Arc<Feed>) {
+    let id = feed.id().to_owned();
     let missing: Vec<(Value, u64)> = {
         let mut saved = core.chiefs().state.locked();
         let saved = &mut *saved;
-        let seat_rows = (saved.seats.get_mut(chat.agent_id())).map(|seat| &mut seat.rows);
-        let lines = saved.lines.get_mut(chat.agent_id());
+        let seat_rows = (saved.seats.get_mut(agent)).map(|seat| &mut seat.rows);
+        let lines = saved.lines.get_mut(agent);
         let missing: Vec<(Value, u64)> = (seat_rows.into_iter().chain(lines))
             .flat_map(|rows| rows.iter_mut())
             .filter(|row| row.feed.as_deref() != Some(id.as_str()))
@@ -605,8 +611,21 @@ pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
         missing
     };
     for (update, at) in missing {
-        emit_row(&chat.feed, chat.agent_id(), update, at);
+        emit_row(feed, agent, update, at);
     }
+}
+
+/// The lines kept for `agent` that were put on feed `from` count as on `to`, which holds them.
+pub(crate) fn feed_moved(core: &Core, agent: &str, from: &str, to: &str) {
+    core.chiefs().change(|saved| {
+        let seat_rows = (saved.seats.get_mut(agent)).map(|seat| &mut seat.rows);
+        let lines = saved.lines.get_mut(agent);
+        for row in (seat_rows.into_iter().chain(lines)).flat_map(|rows| rows.iter_mut()) {
+            if row.feed.as_deref() == Some(from) {
+                row.feed = Some(to.to_owned());
+            }
+        }
+    });
 }
 
 fn emit_row(feed: &Arc<Feed>, agent: &str, mut update: Value, at: u64) {
@@ -1292,17 +1311,19 @@ pub(crate) fn decided(core: &Core, project: &str, goal: Option<u64>, decision: &
 /// says what `update` does now: overruled, or that Undo put it back.
 fn decided_line_moved(core: &Core, project: &str, goal: Option<u64>, id: u64, update: &Value) {
     let key = decided_key(project, goal, id);
-    let moved: Vec<(String, u64)> = core.chiefs().change(|saved| {
+    let moved: Vec<(String, u64, Option<Arc<Feed>>)> = core.chiefs().change(|saved| {
         (saved.lines.iter_mut())
             .filter_map(|(agent, lines)| {
                 let line = lines.iter_mut().find(|line| line.key == key)?;
+                let feed = core.chats().heard(agent);
                 line.update = update.clone();
-                Some((agent.clone(), line.at))
+                line.feed = feed.as_ref().map(|feed| feed.id().to_owned());
+                Some((agent.clone(), line.at, feed))
             })
             .collect()
     });
-    for (agent, at) in moved {
-        if let Some(feed) = core.chats().heard(&agent) {
+    for (agent, at, feed) in moved {
+        if let Some(feed) = feed {
             emit_row(&feed, &agent, update.clone(), at);
         }
     }
@@ -1570,6 +1591,8 @@ fn count_week(core: &Core, chief: &str, project: &str, from: u64, began: u64) {
 fn prune(core: &Core) {
     let chiefs = core.workspaces().chiefs();
     let agents = core.workspaces().agent_ids();
+    core.chats().forget_gone(|agent| agents.contains(agent));
+    let reopened = |agent: &String| agents.contains(agent) || core.chats().shelf.holds(agent);
     let paths: HashSet<String> = (core.workspaces().projects().into_iter())
         .map(|project| project.path.to_string_lossy().into_owned())
         .collect();
@@ -1582,13 +1605,13 @@ fn prune(core: &Core) {
         let saved = core.chiefs().state.locked();
         saved.seats.keys().any(|chief| !chiefs.contains(chief))
             || saved.overrules.keys().any(|key| !in_project(key))
-            || saved.lines.keys().any(|agent| !agents.contains(agent))
+            || saved.lines.keys().any(|agent| !reopened(agent))
     };
     if stale {
         core.chiefs().change(|saved| {
             saved.seats.retain(|chief, _| chiefs.contains(chief));
             saved.overrules.retain(|key, _| in_project(key));
-            saved.lines.retain(|agent, _| agents.contains(agent));
+            saved.lines.retain(|agent, _| reopened(agent));
         });
     }
 }
