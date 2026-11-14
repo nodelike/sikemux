@@ -560,6 +560,17 @@ struct Beginning {
     begun: oneshot::Sender<String>,
 }
 
+impl Beginning {
+    /// Whether a chat begun on `launcher` is this one. Asked for an agent alone, smart accounts
+    /// begins it on one of that agent's accounts, as `claude:<account>` for `claude`.
+    fn started(&self, launcher: &str) -> bool {
+        launcher == self.launcher
+            || launcher
+                .split_once(':')
+                .is_some_and(|(kind, _)| kind == self.launcher)
+    }
+}
+
 /// Starts a chat on `client`'s core and brings its tab to the front there:
 /// as soon as `begun` names the new chat, rather than once its agent's program is ready, which
 /// takes a real agent seconds.
@@ -1331,7 +1342,7 @@ async fn run(
                             Some(ClientEvent::Event(Event::ChatBegun { chat })) if chat.started_by.is_none() => {
                                 beginnings.retain(|beginning| !beginning.begun.is_closed());
                                 let launcher = chat.launcher.as_deref();
-                                if let Some(at) = beginnings.iter().position(|beginning| launcher == Some(&beginning.launcher)) {
+                                if let Some(at) = launcher.and_then(|launcher| beginnings.iter().position(|beginning| beginning.started(launcher))) {
                                     let _ = beginnings.remove(at).begun.send(chat.agent_id);
                                 }
                             }
