@@ -3,7 +3,7 @@
 //! branch or a tag. Whatever this can't prove stays off the project's own branch, a release
 //! branch and every tag counts as reaching them.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::place::says_production;
 use crate::git::Git;
@@ -72,6 +72,27 @@ const KEPT_BRANCHES: [&str; 9] = [
     "live",
 ];
 
+/// The folder git runs the command `what` in when started from `cwd`, as its `-C` options
+/// move it.
+pub fn run_in(what: &str, cwd: &Path) -> PathBuf {
+    let words: Vec<&str> = what.split_whitespace().collect();
+    let mut dir = cwd.to_path_buf();
+    if words.first() != Some(&"git") {
+        return dir;
+    }
+    let mut rest = &words[1..];
+    loop {
+        match rest {
+            ["-C", moved, after @ ..] => {
+                dir = dir.join(moved);
+                rest = after;
+            }
+            ["-c", _, after @ ..] => rest = after,
+            _ => return dir,
+        }
+    }
+}
+
 /// Where the push `what`, run from `cwd`, lands, judged ref by ref: any tag it carries is
 /// judged as a tag pushed alone would be.
 pub fn reach(what: &str, cwd: &Path) -> Reach {
@@ -80,6 +101,11 @@ pub fn reach(what: &str, cwd: &Path) -> Reach {
     let Some(("git", rest)) = words.split_first().map(|(git, rest)| (*git, rest)) else {
         return unknown();
     };
+    let mut rest = rest;
+    while let ["-C", _, after @ ..] = rest {
+        rest = after;
+    }
+    let cwd = &run_in(what, cwd);
     let Some(("push", args)) = rest.split_first().map(|(push, args)| (*push, args)) else {
         return unknown();
     };
@@ -408,6 +434,17 @@ pub mod tests {
         ] {
             assert_eq!(reached(&dir, line), Reach::Branches, "{line}");
         }
+    }
+
+    /// An agent pushed its own clone of another repository with `git -C`, and was asked
+    /// whether to change the project's stable releases.
+    #[test]
+    fn a_push_run_in_another_folder_is_read_there() {
+        let dir = checkout();
+        assert_eq!(
+            reach("git -C work push -q origin feature", dir.path()),
+            Reach::Branches
+        );
     }
 
     /// Each spelling a reviewer found reaching the default branch, a tag or another remote

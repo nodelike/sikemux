@@ -303,6 +303,9 @@ fn check_call(
         .filter(|project| !project.is_empty())
         .unwrap_or_else(|| core.workspaces().project_of(cwd));
     let mut ship = ship;
+    if ship.kind == ShipKind::Push && !same_repository(&push::run_in(&ship.what, cwd), &project) {
+        return Ok(None);
+    }
     if ship.kind == ShipKind::Push {
         match push::reach(&ship.what, cwd) {
             Reach::Branches => return Ok(None),
@@ -637,8 +640,8 @@ fn releases_on_tags(core: &Core, project: &str) -> bool {
 /// A change to the production place `place` waits for the person's yes on one call for this
 /// piece of work there, which every agent waiting on the same work there joins. A no holds for
 /// that work there until the work changes or the person writes to the agent again, with no
-/// second call. A call this agent waits on at the same place for work that has since changed
-/// is withdrawn.
+/// second call. An agent waits on one call at a place: a new action there, such as a retry
+/// spelled another way, withdraws the call it waited on.
 fn gate(
     core: &Core,
     agent_id: &str,
@@ -668,16 +671,11 @@ fn gate(
     let stale: Vec<String> = (core.ship().state.locked().holds.iter())
         .filter(|hold| hold.agent_id == agent_id)
         .filter_map(|hold| hold.key.as_deref().map(|held| (hold, held)))
-        .filter(|(_, held)| *held != key && same_but_work(held, &key))
+        .filter(|(_, held)| *held != key && same_place(held, &key))
         .map(|(hold, _)| hold.token.clone())
         .collect();
     for token in stale {
-        withdraw(
-            core,
-            agent_id,
-            &token,
-            "the work changed after it was raised",
-        );
+        withdraw(core, agent_id, &token, "its agent asked again there");
     }
     let oldest = {
         let state = core.ship().state.locked();
@@ -749,7 +747,7 @@ fn gate(
         false => "it covers this work's deploy there, every command and retry, until the end of the turn in which you hear it",
     };
     let mut said = format!(
-        "Waits for the person: `{}` changes {}, a production place, so Sikemux put one call to them for it; agents waiting on the same work there share it. They answer it in Sikemux, on the notch or on their phone; nothing passes it on a timeout, and words typed in a chat never do. You will hear their answer. After a yes, run it again: {covers}. If the work changes first, the call is withdrawn and the next try asks again. Go on with other work meanwhile.",
+        "Waits for the person: `{}` changes {}, a production place, so Sikemux put one call to them for it; agents waiting on the same work there share it. They answer it in Sikemux, on the notch or on their phone; nothing passes it on a timeout, and words typed in a chat never do. You will hear their answer. After a yes, run it again: {covers}. If the work changes first, the call is withdrawn and the next try asks again. You wait on one call there: running anything else there withdraws this one, so put every change you need there in one command. Go on with other work meanwhile.",
         ship.what,
         place.name()
     );
@@ -774,14 +772,31 @@ fn tell_soon(core: &Core, agent_id: &str, text: String) {
     }
 }
 
-/// Whether two keys name the same action at the same place, whatever the work.
-fn same_but_work(one: &str, other: &str) -> bool {
-    let parts = |key: &str| {
-        let (place, rest) = key.split_once(":work:")?;
-        let (_, action) = rest.split_once(':')?;
-        Some((place.to_owned(), action.to_owned()))
+/// Whether `dir` is in the repository of `project`, one of its worktrees or a clone that
+/// pushes to one of its remotes. A push from another repository, such as a clone of someone
+/// else's, reaches none of the project's places.
+fn same_repository(dir: &Path, project: &str) -> bool {
+    let read = |at: &Path| {
+        let git = || Git::quick(at);
+        let common = git()
+            .trimmed(&["rev-parse", "--path-format=absolute", "--git-common-dir"])
+            .ok()?;
+        let remotes = git().trimmed(&["remote", "-v"]).unwrap_or_default();
+        let urls: HashSet<String> = (remotes.lines())
+            .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
+            .collect();
+        Some((PathBuf::from(common).canonicalize().ok()?, urls))
     };
-    parts(one).is_some_and(|one| Some(one) == parts(other))
+    match (read(dir), read(Path::new(project))) {
+        (Some((pushed, theirs)), Some((own, ours))) => pushed == own || !theirs.is_disjoint(&ours),
+        _ => true,
+    }
+}
+
+/// Whether two keys name the same place, whatever the work or the action.
+fn same_place(one: &str, other: &str) -> bool {
+    let place = |key: &str| key.split_once(":work:").map(|(place, _)| place.to_owned());
+    place(one).is_some_and(|one| Some(one) == place(other))
 }
 
 /// Drops `agent_id`'s wait on the gate call `token`, and withdraws the call when nobody else

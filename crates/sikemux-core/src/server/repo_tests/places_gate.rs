@@ -710,6 +710,32 @@ async fn a_tag_pushed_with_the_branch_still_meets_the_landing_rule() {
     );
 }
 
+/// An agent pushed its clone of another project's list with `git -C`, and was asked whether
+/// to change its own project's stable releases, with its own project's latest commit shown.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_from_another_repository_reaches_none_of_the_projects_places() {
+    let (ours, theirs) = (repo(), repo());
+    let (cwd, _) = work_of(&ours);
+    let project = std::fs::canonicalize(&cwd).unwrap();
+    let project = project.to_string_lossy().into_owned();
+    let release = include_str!("../../../../../.github/workflows/release.yml");
+    let found = {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".github/workflows")).unwrap();
+        std::fs::write(root.path().join(".github/workflows/release.yml"), release).unwrap();
+        crate::server::places::found::in_files(root.path())
+    };
+    let core = core_at(None, &project, found);
+    let clone = theirs.path().join("work");
+    let push = Ship {
+        kind: ShipKind::Push,
+        what: format!("git -C {} push -c x=y origin --tags", clone.display()),
+        target: None,
+    };
+    assert!(run(&core, push, &cwd).is_ok_and(|deploy| deploy.is_none()));
+    assert!(open_calls(&core).is_empty());
+}
+
 /// One stray untracked file in a clean, pushed checkout of main gave every commit the same
 /// fingerprint.
 #[test]

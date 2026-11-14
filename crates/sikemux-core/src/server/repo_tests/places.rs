@@ -330,10 +330,12 @@ fn what_nothing_places_runs_and_is_listed_once() {
 }
 
 /// A yes for one Rundeck job covered every job in its folder; outside a repository a yes
-/// covers its exact action once, and a no holds however the action is spelled.
+/// covers its exact action once, and a no holds however the action is spelled. An agent
+/// waits on one call there: retrying another job replaced its call rather than adding one.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_yes_covers_its_own_job_once() {
     use crate::server::access::Peer;
+    use sikemux_view::calls::{CallResult, CallState};
     let core = core_set(project());
     assert!(try_ship(&core, at("prod/deploy", false)).is_err());
     assert!(try_ship(&core, at("prod/deploy-again", false)).is_err());
@@ -347,8 +349,12 @@ async fn a_yes_covers_its_own_job_once() {
         call.cloned().unwrap()
     };
     let (first, second) = (of_job("prod/deploy"), of_job("prod/deploy-again"));
-    assert!(may_pass(&core, &first, &Peer::Local, true).is_err());
-    assert!(may_pass(&core, &first, &Peer::App, false).is_err());
+    assert_eq!(
+        first.outcome.map(|outcome| outcome.result),
+        Some(CallResult::Withdrawn)
+    );
+    assert!(may_pass(&core, &second, &Peer::Local, true).is_err());
+    assert!(may_pass(&core, &second, &Peer::App, false).is_err());
     let answer = |id: &str, option: &'static str| {
         let (core, hold) = (
             core.clone(),
@@ -358,12 +364,15 @@ async fn a_yes_covers_its_own_job_once() {
         );
         async move { crate::server::person_calls::answer_hold(&core, &Peer::App, hold, option).await }
     };
-    answer(&first.id, "allow").await.unwrap();
-    assert_eq!(try_ship(&core, at("prod/deploy", false)), Ok(true));
-    assert!(try_ship(&core, at("prod/deploy", false)).is_err());
+    answer(&second.id, "allow").await.unwrap();
+    assert_eq!(try_ship(&core, at("prod/deploy-again", false)), Ok(true));
     assert!(try_ship(&core, at("prod/deploy-again", false)).is_err());
-    answer(&second.id, "refuse").await.unwrap();
-    let said = try_ship(&core, at("prod/deploy-again", false)).unwrap_err();
+    assert!(try_ship(&core, at("prod/deploy", false)).is_err());
+    let third = (crate::server::person_calls::shown(&core).into_iter())
+        .find(|call| call.state == CallState::Open)
+        .unwrap();
+    answer(&third.id, "refuse").await.unwrap();
+    let said = try_ship(&core, at("prod/deploy", false)).unwrap_err();
     assert!(said.contains("said no"), "{said}");
 }
 
