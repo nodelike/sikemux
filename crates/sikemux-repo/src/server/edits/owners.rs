@@ -910,6 +910,15 @@ pub fn run(
 }
 
 /// Git in `dir` writing paths as they are, never quoted.
+/// [`run`] for a commit made for agents, whose committer is the identity of the remote it goes
+/// to when that remote has one.
+pub fn run_committing(dir: &Path, args: &[&str], input: &[u8]) -> Result<Vec<u8>, String> {
+    paths_as_written(dir)
+        .settings(&crate::git_guard::identity::committer_settings())
+        .input(input)
+        .stdout(args)
+}
+
 fn paths_as_written(dir: &Path) -> Git<'static> {
     Git::at(dir)
         .config("core.quotePath", "false")

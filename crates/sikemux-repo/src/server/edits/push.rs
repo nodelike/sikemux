@@ -535,6 +535,7 @@ pub fn replay(
     clash: &str,
 ) -> Result<String, String> {
     let (key, hosts) = (&signing.key, &signing.hosts);
+    let acting = crate::git_guard::identity::actor_of(top);
     let mut onto = onto.to_owned();
     for commit in commits {
         let id = commit.id.as_str();
@@ -618,6 +619,12 @@ pub fn replay(
                 .and_then(|value| value.rsplit_once("> "))
             {
                 if let Some((person, mail)) = who.split_once(" <") {
+                    let (person, mail) = match &acting {
+                        Some(actor) if field == "committer " => {
+                            (actor.name.as_str(), actor.email.as_str())
+                        }
+                        _ => (person, mail),
+                    };
                     command
                         .env(name, person)
                         .env(email, mail)

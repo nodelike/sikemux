@@ -1117,7 +1117,7 @@ fn build(
         args.extend(["-p", parent.as_str()]);
     }
     args.extend(["-F", "-"]);
-    let commit = run(&diff.top, &args, None, Some(message.as_bytes()))
+    let commit = super::owners::run_committing(&diff.top, &args, message.as_bytes())
         .map_err(|error| no_identity(&diff.top, error))?;
     Ok((
         String::from_utf8_lossy(&commit).trim().to_owned(),
