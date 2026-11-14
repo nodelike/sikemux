@@ -1035,7 +1035,7 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
                         .tiled()
                         .about(mode_about(choice))
                         .when(choice == PermissionMode::Bypass, |row| {
-                            row.title(move || ui::yolo::wordmark(13., &t))
+                            row.title(move || ui::yolo::wordmark(11., &t))
                         })
                         .when_some(
                             yolo_keys

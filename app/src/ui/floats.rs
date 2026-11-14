@@ -280,8 +280,9 @@ impl MenuRow {
             chosen,
             ..
         } = self;
-        PopupMenuItem::element(move |_, cx| {
+        PopupMenuItem::element(move |window, cx| {
             let t = Tokens::get(cx);
+            let line = window.line_height();
             let lead = icon.map(|glyph| {
                 let tint = if chosen { t.accent } else { t.text_secondary };
                 let glyph = super::icon(glyph, 14.).text_color(tint);
@@ -342,7 +343,12 @@ impl MenuRow {
                         .flex()
                         .flex_col()
                         .child(match &title {
-                            Some(title) => title(),
+                            Some(title) => div()
+                                .h(line)
+                                .flex()
+                                .items_center()
+                                .child(title())
+                                .into_any_element(),
                             None => div()
                                 .truncate()
                                 .text_color(t.text_primary)
