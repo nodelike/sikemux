@@ -30,8 +30,9 @@ case "${1:-}" in
     ;;
   gpui-clippy) cargo clippy "${gpui[@]}" --all-targets -- -D warnings ;;
   gpui-test) cargo test "${gpui[@]}" --all-targets ;;
+  backdrop-shaders) cargo run --locked -q -p backdrop-shaders -- --check ;;
   *)
-    echo "usage: $0 fmt|hakari|clippy|no-plugins|core-unit-tests|other-tests|gpui-clippy|gpui-test" >&2
+    echo "usage: $0 fmt|hakari|clippy|no-plugins|core-unit-tests|other-tests|gpui-clippy|gpui-test|backdrop-shaders" >&2
     exit 2
     ;;
 esac

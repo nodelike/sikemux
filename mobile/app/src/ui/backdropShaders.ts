@@ -1,5 +1,7 @@
 import type { ExpoWebGLRenderingContext } from 'expo-gl';
 
+import { backdropKinds } from './backdropKinds.generated';
+
 /** A rectangle covering the surface; each fragment shader below works from where it is on it. */
 export const coverVertexShader = `#version 300 es
 layout(location = 0) in vec4 a_position;
@@ -15,13 +17,24 @@ out vec4 fragColor;
 void main() { fragColor = texture(u_image, gl_FragCoord.xy / u_resolution); }
 `;
 
-/**
- * The picture as the Mac's `picture` shader draws it: each dot takes one of three inks by its brightness, or the
- * picture's own colour in four steps, through the host's pattern, with a glow over the light parts. Inks with no
- * opacity are none, and leave their dots clear.
- */
+/** The Mac's grain in one ink, laid out from the surface's middle in points. */
+export const grainFragmentShader = `#version 300 es
+${backdropKinds}
+uniform vec2 u_resolution;
+uniform float u_pixelRatio;
+uniform float u_time;
+uniform vec4 u_ink;
+out vec4 fragColor;
+
+void main() {
+  float lit = grain((gl_FragCoord.xy - 0.5 * u_resolution) / u_pixelRatio, u_time);
+  fragColor = vec4(u_ink.rgb * u_ink.a * lit, u_ink.a * lit);
+}
+`;
+
+/** The Mac's picture kind over the picture on texture unit 0 and its glow on unit 1. */
 export const pictureFragmentShader = `#version 300 es
-precision highp float;
+${backdropKinds}
 uniform sampler2D u_image;
 uniform sampler2D u_glowMap;
 uniform vec2 u_resolution;
@@ -40,78 +53,14 @@ uniform vec4 u_middle;
 uniform vec4 u_light;
 out vec4 fragColor;
 
-float bayer8(vec2 cell) {
-  uvec2 at = uvec2(fract(cell / 8.0) * 8.0);
-  uint a = at.x ^ at.y;
-  uint b = at.y;
-  uint value = ((a & 1u) << 5u) | ((b & 1u) << 4u) | ((a & 2u) << 2u) | ((b & 2u) << 1u) | ((a & 4u) >> 1u)
-    | ((b & 4u) >> 2u);
-  return float(value) / 64.0;
-}
-
-float bayer4(vec2 cell) {
-  uvec2 at = uvec2(fract(cell / 4.0) * 4.0);
-  uint a = at.x ^ at.y;
-  uint b = at.y;
-  return float(((a & 1u) << 3u) | ((b & 1u) << 2u) | (a & 2u) | ((b & 2u) >> 1u)) / 16.0;
-}
-
-float bayer2(vec2 cell) {
-  uvec2 at = uvec2(fract(cell / 2.0) * 2.0);
-  return float(((at.x ^ at.y) << 1u) | at.y) / 4.0;
-}
-
-float threshold(vec2 cell) {
-  if (u_pattern > 6.0) return bayer8(cell);
-  if (u_pattern > 3.0) return bayer4(cell);
-  if (u_pattern > 1.0) return bayer2(cell);
-  return fract(sin(dot(floor(cell), vec2(12.9898, 78.233))) * 43758.5453);
-}
-
-float fadeDown(float y) {
-  if (y < 0.4) return mix(1.0, 0.45, y / 0.4);
-  if (y < 0.76) return mix(0.45, 0.08, (y - 0.4) / 0.36);
-  return mix(0.08, 0.0, min((y - 0.76) / 0.24, 1.0));
-}
-
-vec2 pictureAt(vec2 point, vec2 size) {
-  vec2 covered = max(size.x / u_aspect, size.y) * vec2(u_aspect, 1.0);
-  vec2 at = point / covered + 0.5;
-  return vec2(at.x, 1.0 - at.y);
-}
-
 void main() {
   vec2 size = u_resolution / u_pixelRatio;
   vec2 point = gl_FragCoord.xy / u_pixelRatio - 0.5 * size;
-  vec2 cell = point / u_dotSize;
-  vec3 texel = texture(u_image, pictureAt((floor(cell) + 0.5) * u_dotSize, size)).rgb;
-  float raw = dot(vec3(0.2126, 0.7152, 0.0722), texel);
-  float lum = clamp((raw - 0.5) * (1.0 + u_contrast) + 0.5 + 0.5 * u_brightness, 0.0, 1.0);
-  float edge = threshold(cell);
-
-  vec3 ink;
-  float opacity;
-  if (u_ownColours > 0.5) {
-    float steps = 4.0;
-    float level = floor(clamp(lum + (edge - 0.5) / steps, 0.0, 1.0) * steps + 0.5) / steps;
-    ink = texel / max(raw, 0.04) * level;
-    opacity = level;
-  } else {
-    float along = lum * 2.0;
-    float lower = min(floor(along), 1.0);
-    float chosen = lower + step(edge, along - lower);
-    vec4 picked = chosen < 0.5 ? u_dark : chosen < 1.5 ? u_middle : u_light;
-    ink = picked.rgb;
-    opacity = picked.a > 0.0 ? 1.0 : 0.0;
-  }
-
-  vec3 glowTint = u_ownColours > 0.5 ? texel / max(raw, 0.04) : u_middle.rgb;
-  float glowing = texture(u_glowMap, pictureAt(point, size)).r * u_glow;
-  float fromTop = 1.0 - gl_FragCoord.y / u_resolution.y;
-  float shown = (u_full > 0.5 ? 1.0 : fadeDown(fromTop)) * u_strength;
-  vec3 lit = ink * opacity + glowTint * glowing;
-  float alpha = clamp(opacity + glowing, 0.0, 1.0) * shown;
-  fragColor = vec4(min(lit * shown, vec3(alpha)), alpha);
+  vec3 texel = texture(u_image, picture_cover(picture_dot(point, u_dotSize), size, u_aspect)).rgb;
+  float glowing = texture(u_glowMap, picture_cover(point, size, u_aspect)).r;
+  float shown = (u_full > 0.5 ? 1.0 : picture_fade(1.0 - gl_FragCoord.y / u_resolution.y)) * u_strength;
+  fragColor = picture(point, texel, glowing, u_dotSize, u_pattern, u_contrast, u_brightness, u_glow, u_ownColours,
+    u_dark, u_middle, u_light, shown);
 }
 `;
 

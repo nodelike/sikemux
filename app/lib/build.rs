@@ -73,9 +73,9 @@ fn faces() {
     .expect("write faces.rs");
 }
 
-/// Puts the shared dithering code in front of each shader in `assets/shaders`, and
-/// translates the whole to Metal Shading Language for the Mac's renderer, with the
-/// bindings GPUI hands an app shader at the buffers it sets.
+/// Puts the shared code and the backdrop kinds, which the phones draw too, in front of each
+/// shader in `assets/shaders`, and translates the whole to Metal Shading Language for the
+/// Mac's renderer, with the bindings GPUI hands an app shader at the buffers it sets.
 fn shaders() {
     use naga::back::msl;
 
@@ -144,7 +144,19 @@ fn shaders() {
         fake_missing_bindings: false,
         ..Default::default()
     };
-    let shared = std::fs::read_to_string("../assets/shaders/dither.wgsl").expect("dither.wgsl");
+    let mut kinds: Vec<_> = std::fs::read_dir("../assets/shaders/kinds")
+        .expect("../assets/shaders/kinds")
+        .map(|entry| entry.expect("a kind's file").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "wgsl")
+        })
+        .collect();
+    kinds.sort();
+    let shared = kinds.iter().fold(
+        std::fs::read_to_string("../assets/shaders/dither.wgsl").expect("dither.wgsl"),
+        |shared, kind| shared + "\n" + &std::fs::read_to_string(kind).expect("read a kind"),
+    ) + "\n";
     for entry in std::fs::read_dir("../assets/shaders").expect("../assets/shaders") {
         let path = entry.expect("a shader file").path();
         if path.extension().is_none_or(|extension| extension != "wgsl")

@@ -46,6 +46,8 @@
     "rust:fmt:check": "scripts/check-rust.sh fmt",
     "rust:hakari": "cargo hakari generate && cargo hakari manage-deps --yes",
     "rust:hakari:check": "scripts/check-rust.sh hakari",
+    "backdrop-shaders": "cargo run -q -p backdrop-shaders",
+    "backdrop-shaders:check": "scripts/check-rust.sh backdrop-shaders",
     "rust:clippy": "scripts/check-rust.sh clippy",
     "rust:test": "cargo test --all-targets --all-features",
     "rust:no-plugins": "scripts/check-rust.sh no-plugins",
@@ -54,7 +56,7 @@
     "check:generated": "pnpm agent-tools:check && pnpm agent-catalog:check && pnpm docs:reference:check && pnpm notch-sources:check && pnpm grammars:check && pnpm file-icons:check && pnpm faces:check && pnpm syntax:check",
     "check:code": "pnpm shell:lint && pnpm dev-launcher:test && pnpm format:check && pnpm lint && pnpm typecheck && pnpm release:check",
     "check:helpers": "node scripts/build-voice-helper.mjs --dev && node scripts/build-notch-helper.mjs --dev --snapshots",
-    "check:rust": "pnpm rust:fmt:check && pnpm rust:hakari:check && pnpm rust:clippy && pnpm rust:test && pnpm rust:no-plugins && pnpm rust:gpui",
+    "check:rust": "pnpm rust:fmt:check && pnpm rust:hakari:check && pnpm backdrop-shaders:check && pnpm rust:clippy && pnpm rust:test && pnpm rust:no-plugins && pnpm rust:gpui",
     "check": "pnpm check:generated && pnpm deps:audit && pnpm check:code && pnpm check:helpers && pnpm check:rust",
     "build:sim-fixture": "node scripts/build-sim-fixture.mjs",
     "build:linux": "scripts/build-linux.sh"

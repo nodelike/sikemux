@@ -17,6 +17,7 @@ unify-target-host = "none"
 # GPUI's dependencies never reach the core's builds.
 [traversal-excludes]
 workspace-members = [
+    "backdrop-shaders",
     "film-frame",
     "gpui-clicks",
     "gpui-native-view",

@@ -67,7 +67,6 @@ struct PaneBackdrop: View {
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var still
     @Environment(\.scenePhase) private var phase
-    @Environment(\.displayScale) private var scale
     /// The host's picture, saved on the phone; nil draws the grain.
     let image: URL?
     let look: BackdropLook
@@ -175,7 +174,7 @@ struct PaneBackdrop: View {
         return TimelineView(.animation(minimumInterval: Self.tick, paused: !moving)) { _ in
             Rectangle()
                 .colorEffect(
-                    ShaderLibrary.backdropGrain(.float2(size), .float(scale), .float(time), .color(palette.shaderDot)))
+                    ShaderLibrary.backdropGrain(.float2(size), .float(time), .color(palette.shaderDot)))
         }
         .frame(width: size.width, height: size.height)
     }

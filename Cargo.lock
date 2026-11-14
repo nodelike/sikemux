@@ -880,6 +880,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "backdrop-shaders"
+version = "0.1.0"
+dependencies = [
+ "naga",
+]
+
+[[package]]
 name = "backon"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

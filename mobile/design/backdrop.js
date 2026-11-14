@@ -1,9 +1,15 @@
 // The device screens' backdrop, drawn with the phone's own shaders and presets
 // from mobile/app/src/ui/Backdrop.tsx, once, then laid behind every device screen.
-import { ditheringFragmentShader, getShaderColorFromString } from '@paper-design/shaders';
+import { getShaderColorFromString } from '@paper-design/shaders';
 
-import { copyFragmentShader, coverVertexShader, glowMap, pictureFragmentShader, readPicture } from '../app/src/ui/pictureShader';
-import { vertexShaderSource } from '../app/src/ui/vertexShader.generated';
+import {
+  copyFragmentShader,
+  coverVertexShader,
+  glowMap,
+  grainFragmentShader,
+  pictureFragmentShader,
+  readPicture,
+} from '../app/src/ui/backdropShaders';
 
 const WIDTH = 390;
 const HEIGHT = 844;
@@ -16,12 +22,10 @@ const STORE = 'sikemux-design-backdrop';
 const PANE_PICTURE = '/pane.jpg';
 
 function preset(picture) {
-  const sizing = { u_originX: 0.5, u_originY: 0.5, u_worldWidth: 0, u_worldHeight: 0, u_rotation: 0, u_offsetX: 0, u_offsetY: 0 };
   const clear = [0, 0, 0, 0];
   // The Mac's own look, in the theme's inks; the page's mask fades it, so the shader covers the band whole.
   if (picture) {
     return {
-      vertex: coverVertexShader,
       fragment: pictureFragmentShader,
       band: 0.6,
       strength: 1,
@@ -44,21 +48,10 @@ function preset(picture) {
     };
   }
   return {
-    vertex: vertexShaderSource,
-    fragment: ditheringFragmentShader,
+    fragment: grainFragmentShader,
     band: 0.5,
     strength: 0.85,
-    uniforms: {
-      ...sizing,
-      u_colorBack: clear,
-      u_colorFront: getShaderColorFromString(SHADER_DOT),
-      u_shape: 1,
-      u_type: 4,
-      u_pxSize: 3,
-      u_fit: 0,
-      u_scale: 2.4,
-      u_time: (STILL_MS * 0.5) / 1000,
-    },
+    uniforms: { u_ink: getShaderColorFromString(SHADER_DOT), u_time: (STILL_MS * 0.5) / 1000 },
   };
 }
 
@@ -71,13 +64,13 @@ function compile(gl, type, source) {
 }
 
 function render(picture) {
-  const { vertex, fragment, band, strength, uniforms } = preset(picture);
+  const { fragment, band, strength, uniforms } = preset(picture);
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH * RATIO;
   canvas.height = Math.round(HEIGHT * band) * RATIO;
   const gl = canvas.getContext('webgl2', { premultipliedAlpha: true, preserveDrawingBuffer: true });
   const program = gl.createProgram();
-  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vertex));
+  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, coverVertexShader));
   gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragment));
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));

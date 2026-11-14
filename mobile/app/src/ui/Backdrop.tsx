@@ -4,15 +4,14 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { GLView, type ExpoWebGLRenderingContext } from 'expo-gl';
 import { File, Paths } from 'expo-file-system';
 import { useIsFocused } from 'expo-router';
-import { ditheringFragmentShader, getShaderColorFromString } from '@paper-design/shaders';
+import { getShaderColorFromString } from '@paper-design/shaders';
 import type { BackdropLook } from '@shared/wire.generated';
 
 import type { DeviceBackdrop } from '@/devices/backdrop';
 import { useAppActive, useBackdropPaused, useStill } from './motion';
 import { useColors, type Palette } from './theme';
 import { uploadPicture } from './picture';
-import { copyFragmentShader, coverVertexShader, glowMap, pictureFragmentShader, readPicture } from './pictureShader';
-import { vertexShaderSource } from './vertexShader.generated';
+import { copyFragmentShader, coverVertexShader, glowMap, grainFragmentShader, pictureFragmentShader, readPicture } from './backdropShaders';
 
 /** What the host a screen belongs to draws behind its panes; absent outside a device's screens. */
 export const BackdropContext = createContext<DeviceBackdrop | undefined>(undefined);
@@ -69,29 +68,8 @@ type Uniform = number | boolean | number[];
 
 type Loop = { start: () => void; stop: () => void };
 
-/** The `ambient` preset of the Mac's pane grain. */
-function grainPreset(colors: Palette): { fragment: string; speed: number; uniforms: Record<string, Uniform> } {
-  return {
-    fragment: ditheringFragmentShader,
-    speed: 0.5,
-    uniforms: {
-      u_originX: 0.5,
-      u_originY: 0.5,
-      u_worldWidth: 0,
-      u_worldHeight: 0,
-      u_rotation: 0,
-      u_offsetX: 0,
-      u_offsetY: 0,
-      u_colorBack: [0, 0, 0, 0],
-      u_colorFront: getShaderColorFromString(colors.shaderDot),
-      u_shape: 1,
-      u_type: 4,
-      u_pxSize: 3,
-      u_fit: 0,
-      u_scale: 2.4,
-    },
-  };
-}
+/** The grain runs at half speed, as on the Mac. */
+const GRAIN_SPEED = 0.5;
 
 /** The host's look as the picture shader takes it. */
 function pictureUniforms(look: BackdropLook, colors: Palette, aspect: number): Record<string, Uniform> {
@@ -118,19 +96,10 @@ function pictureUniforms(look: BackdropLook, colors: Palette, aspect: number): R
   };
 }
 
-/** A phone GPU's medium precision is too coarse for the noise; the library raises it the same way. */
-function highPrecision(gl: ExpoWebGLRenderingContext, source: string): string {
-  const format = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.MEDIUM_FLOAT);
-  if (!format || format.precision >= 23) return source;
-  return source
-    .replace(/precision\s+(lowp|mediump)\s+float/g, 'precision highp float')
-    .replace(/\b(uniform|varying|attribute)\s+(lowp|mediump)\s+(\w+)/g, '$1 highp $3');
-}
-
 function compile(gl: ExpoWebGLRenderingContext, type: number, source: string) {
   const shader = gl.createShader(type);
   if (!shader) return null;
-  gl.shaderSource(shader, highPrecision(gl, source));
+  gl.shaderSource(shader, source);
   gl.compileShader(shader);
   if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return shader;
   console.warn('Backdrop shader did not compile:', gl.getShaderInfoLog(shader));
@@ -160,13 +129,8 @@ function link(gl: ExpoWebGLRenderingContext, vertexSource: string, fragment: str
   return null;
 }
 
-function mount(
-  gl: ExpoWebGLRenderingContext,
-  fragment: string,
-  uniforms: Record<string, Uniform>,
-  vertexSource = vertexShaderSource,
-): Surface | null {
-  const program = link(gl, vertexSource, fragment);
+function mount(gl: ExpoWebGLRenderingContext, fragment: string, uniforms: Record<string, Uniform>): Surface | null {
+  const program = link(gl, coverVertexShader, fragment);
   if (!program) return null;
   gl.useProgram(program);
   const position = gl.getAttribLocation(program, 'a_position');
@@ -295,7 +259,6 @@ export function Backdrop() {
   }, []);
 
   if (!backdrop?.texture || (picture && !aspect && !frame)) return null;
-  const { fragment, speed, uniforms } = grainPreset(colors);
   const strength = picture ? 1 : Math.min(GRAIN_OPACITY * look.strength, 1);
   const band = !picture ? '50%' : look.coverage === 'full' ? '100%' : '60%';
 
@@ -305,8 +268,8 @@ export function Backdrop() {
     loops.current.clear();
     const surface =
       picture && aspect
-        ? mount(gl, pictureFragmentShader, pictureUniforms(look, colors, aspect), coverVertexShader)
-        : mount(gl, fragment, uniforms);
+        ? mount(gl, pictureFragmentShader, pictureUniforms(look, colors, aspect))
+        : mount(gl, grainFragmentShader, { u_ink: getShaderColorFromString(colors.shaderDot) });
     if (!surface) return;
     if (picture && aspect) {
       const texture = (unit: number) => {
@@ -346,7 +309,7 @@ export function Backdrop() {
       else reveal();
       return;
     }
-    draw(surface, still ? STILL_MS * speed : (Date.now() - ORIGIN) * speed);
+    draw(surface, still ? STILL_MS * GRAIN_SPEED : (Date.now() - ORIGIN) * GRAIN_SPEED);
     show();
     if (frameKey && !frame) {
       const key = frameKey;
@@ -357,7 +320,7 @@ export function Backdrop() {
     // The loop holds this surface itself: a screen can mount more than one before settling on one.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const tick = () => {
-      draw(surface, (Date.now() - ORIGIN) * speed);
+      draw(surface, (Date.now() - ORIGIN) * GRAIN_SPEED);
       timer = setTimeout(tick, FRAME_MS);
     };
     const loop: Loop = {
