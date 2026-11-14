@@ -992,7 +992,7 @@ fn mode_chip(modes: Modes, settable: bool, agent: &str, room: Room, cx: &App) ->
         .rounded_full()
         .when(!settable, |chip| chip.opacity(0.42))
         .when(settable, |chip| {
-            chip.hover(move |style| {
+            chip.cursor_pointer().hover(move |style| {
                 style.bg(Hsla {
                     a: 0.07,
                     ..t.text_primary
@@ -1114,7 +1114,7 @@ fn picker_trigger(
         .accessibility_label(name)
         .disabled(!enabled)
         .when(enabled, |trigger| {
-            trigger.hover(move |style| {
+            trigger.cursor_pointer().hover(move |style| {
                 style.bg(Hsla {
                     a: 0.07,
                     ..t.text_primary
