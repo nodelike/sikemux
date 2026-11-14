@@ -27,7 +27,7 @@ use crate::core::Target;
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::picture::Picture;
-use crate::theme::{self, Tokens, RADIUS_2, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2};
+use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::{Strip, Workbench};
 
@@ -1269,7 +1269,7 @@ fn panel(t: &Tokens) -> gpui_kit::Div {
         .bg(t.surface_overlay)
         .border_1()
         .border_color(t.line)
-        .rounded(RADIUS_4)
+        .rounded(radius_4())
         .shadow(vec![card_shadow(2., 4., 0.35), card_shadow(14., 40., 0.45)])
 }
 
@@ -1546,7 +1546,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
-                .rounded(RADIUS_2)
+                .rounded(radius_2())
                 .cursor_pointer()
                 .text_size(theme::ui_text(12.))
                 .text_color(t.text_primary)
@@ -1647,7 +1647,7 @@ fn popover(
     .bg(t.surface_overlay)
     .border_1()
     .border_color(t.line)
-    .rounded(RADIUS_4)
+    .rounded(radius_4())
     .shadow(t.shadow_float())
     .child(head)
     .child(shown)
@@ -1673,7 +1673,7 @@ fn folded(bench: &Workbench, cards: &Entity<Cards>, call: &PersonCall, cx: &App)
         .flex()
         .items_center()
         .gap(px(9.))
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_size(theme::ui_text(13.))
         .text_color(t.text_primary)
         .hover(move |style| style.bg(hover))

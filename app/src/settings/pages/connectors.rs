@@ -364,7 +364,7 @@ fn tile(plugin: &Listed, cx: &App) -> AnyElement {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .bg(t.surface_hover)
         .border_1()
         .border_color(t.line_soft)

@@ -375,7 +375,7 @@ pub fn keycap(keys: impl Into<SharedString>, cx: &App) -> Div {
         .border_1()
         .border_color(t.border)
         .bg(t.surface_sunken)
-        .rounded(theme::RADIUS_1)
+        .rounded(theme::radius_1())
 }
 
 /// A rounded frame over the shell, as the rails and panes are.
@@ -388,7 +388,7 @@ pub fn panel(cx: &App) -> Div {
         .when(!crate::see_through::clear(cx), |panel| panel.bg(t.surface))
         .border_1()
         .border_color(t.border)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
 }
 
 /// How something reachable stands, as its 7px dot says.

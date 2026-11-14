@@ -66,6 +66,8 @@ pub struct Preferences {
     pub chief_rotation: bool,
     /// One of 1, 1.1 and 1.25.
     pub ui_text_scale: f64,
+    /// When scroll bars show, whatever the theme.
+    pub scrollbars: Scrollbars,
     pub terminal_font_size: u32,
     pub chat_text_scale: f64,
     /// How wide a chat's messages and composer grow on a wide window.
@@ -227,6 +229,7 @@ preference_changes! {
     MidTurnSend mid_turn_send: MidTurnSend,
     ChiefRotation chief_rotation: bool,
     UiTextScale ui_text_scale: f64,
+    Scrollbars scrollbars: Scrollbars,
     TerminalFontSize terminal_font_size: u32,
     ChatTextScale chat_text_scale: f64,
     ChatWidth chat_width: ChatWidth,
@@ -375,6 +378,16 @@ pub enum ChatWidth {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum Scrollbars {
+    /// While a list moves, fading after.
+    #[default]
+    Scrolling,
+    Hover,
+    Always,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum RailDensity {
     #[default]
     Comfortable,
@@ -407,6 +420,7 @@ impl Default for Preferences {
             mid_turn_send: MidTurnSend::default(),
             chief_rotation: false,
             ui_text_scale: UI_TEXT_SCALES[0],
+            scrollbars: Scrollbars::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             chat_text_scale: DEFAULT_TEXT_SCALE,
             chat_width: ChatWidth::default(),

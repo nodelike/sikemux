@@ -20,7 +20,7 @@ pub(crate) fn thumb_face(evidence: &Evidence, chosen: bool, cx: &App) -> Div {
         .items_center()
         .justify_center()
         .gap(SPACE_1)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .overflow_hidden()
         .border_1()
         .border_color(if chosen { t.text_secondary } else { t.border })

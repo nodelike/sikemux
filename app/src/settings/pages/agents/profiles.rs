@@ -351,7 +351,7 @@ pub fn render(
             .flex()
             .child(list)
             .child(editor)
-            .rounded(theme::RADIUS_3),
+            .rounded(theme::radius_3()),
         cx,
     )
 }

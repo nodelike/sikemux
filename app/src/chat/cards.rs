@@ -51,7 +51,7 @@ pub(super) fn permission(
                 } else {
                     t.line
                 })
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .bg(t.line_soft)
                 .when(!busy, |button| {
                     button.hover(move |style| style.bg(t.surface_chosen))
@@ -102,7 +102,7 @@ pub(super) fn permission(
             .p(SPACE_3)
             .border_1()
             .border_color(Hsla { a: 0.44, ..t.warn })
-            .rounded(theme::RADIUS_3)
+            .rounded(theme::radius_3())
             .bg(Hsla { a: 0.07, ..t.warn })
             .child(
                 div()
@@ -276,7 +276,7 @@ pub(super) fn secret(
                             .gap(SPACE_2)
                             .border_1()
                             .border_color(if focused { t.accent } else { t.line })
-                            .rounded(theme::RADIUS_2)
+                            .rounded(theme::radius_2())
                             .bg(t.surface_sunken)
                             .capture_action(|_: &Copy, _, cx| cx.stop_propagation())
                             .capture_action(|_: &Cut, _, cx| cx.stop_propagation())

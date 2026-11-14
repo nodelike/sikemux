@@ -32,6 +32,7 @@ use sikemux_corekit::cli::protocol::CliTargetKind;
 use sikemux_corekit::cli::protocol::HarnessRequest;
 use sikemux_corekit::cli::protocol::MAX_CLI_TARGETS;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
 use std::pin::Pin;
 
@@ -145,6 +146,42 @@ impl Workbench {
             }
             !closed
         });
+    }
+
+    /// What an agent's `theme_set` changed, said with Undo, which wears the theme and scroll
+    /// bars from before.
+    pub(crate) fn theme_set(
+        &mut self,
+        request: HarnessRequest,
+        answer: Answer,
+        cx: &mut Context<Self>,
+    ) {
+        let params = &request.params;
+        let said = |key: &str| params[key].as_str().unwrap_or_default().to_owned();
+        let text = t!(
+            "@{agent} changed the theme to {theme}",
+            agent = said("agent"),
+            theme = said("theme")
+        );
+        let undo = &params["undo"];
+        let before: Vec<PreferenceChange> = [
+            serde_json::from_value(undo["theme"].clone()).map(PreferenceChange::ThemeId),
+            serde_json::from_value(undo["adjust"]["scrollbars"].clone())
+                .map(PreferenceChange::Scrollbars),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let bench = cx.weak_entity();
+        let note = toast::undoable(text, move |_, cx| {
+            let _ = bench.update(cx, |bench, _| {
+                for change in &before {
+                    crate::settings::set(bench, change.clone());
+                }
+            });
+        });
+        self.notify(note, cx);
+        answer(Ok(json!({})));
     }
 
     /// An agent's `ui_open`: a file in the editor, the project's changes, a task's terminal, a
@@ -394,6 +431,7 @@ impl Workbench {
             "app.console" => return answer(crate::console::read(&request.params)),
             "page.show" => return self.show_page(request, answer, cx),
             "ui.open" => return self.ui_open(request, answer, cx),
+            "theme.set" => return self.theme_set(request, answer, cx),
             _ => {}
         }
         let run: Box<dyn FnOnce() -> Result<Value, String> + Send> =

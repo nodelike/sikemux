@@ -12,7 +12,7 @@ use gpui_kit::{
 
 use super::{icon, menu_button, MenuRow};
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1H, SPACE_2, TEXT_XS};
+use crate::theme::{radius_2, Tokens, SPACE_1H, SPACE_2, TEXT_XS};
 
 /// One choice: what picking it hands back, and its words.
 pub struct Pick {
@@ -69,7 +69,7 @@ pub fn select_field(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .border_1()
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))

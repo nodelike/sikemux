@@ -124,7 +124,7 @@ pub fn render(
     let code = |text: String| {
         div()
             .px(SPACE_1H)
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .bg(t.surface_sunken)
             .font_family(theme::MONO)
             .text_size(crate::theme::ui_text(TEXT_XS))

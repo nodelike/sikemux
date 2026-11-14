@@ -303,7 +303,7 @@ fn question_tabs(
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
-                .rounded(theme::RADIUS_2)
+                .rounded(theme::radius_2())
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .map(|tab| {
                     if on {
@@ -355,7 +355,7 @@ fn send_button(
         .flex_none()
         .items_center()
         .gap(SPACE_1H)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .map(|send| {
             if ready {
@@ -409,7 +409,7 @@ pub(super) fn asking(
             .px(SPACE_2)
             .flex()
             .items_center()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .bg(t.surface_chosen)
             .text_color(t.text_primary)
@@ -432,7 +432,7 @@ pub(super) fn asking(
             .flex()
             .items_center()
             .justify_center()
-            .rounded(theme::RADIUS_2)
+            .rounded(theme::radius_2())
             .hover(move |style| style.bg(hover))
             .on_click(cx.listener(move |bench, _, _, cx| {
                 bench.answer(
@@ -641,7 +641,7 @@ pub(super) fn answer_row(
         .pr(SPACE_2)
         .flex()
         .items_start()
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .when(chosen, |row| row.bg(t.surface_chosen))
         .when(!chosen && cursor, |row| row.bg(t.surface_hover))
         .text_color(if chosen {

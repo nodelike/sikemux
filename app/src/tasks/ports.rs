@@ -117,7 +117,7 @@ impl PortRow {
                 div()
                     .id(("stop-port", port as usize))
                     .p(px(3.))
-                    .rounded(crate::theme::RADIUS_2)
+                    .rounded(crate::theme::radius_2())
                     .hover(move |style| style.bg(t.surface_hover))
                     .tooltip(ui::tooltip(t!("Stop what listens on {port}", port = port)))
                     .clicks(move |_, _, cx| {

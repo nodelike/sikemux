@@ -229,7 +229,7 @@ pub fn render(
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(crate::theme::RADIUS_3)
+                .rounded(crate::theme::radius_3())
                 .bg(t.surface_raised)
                 .border_1()
                 .border_color(t.border)

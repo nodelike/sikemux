@@ -128,7 +128,7 @@ fn brief(rotation: &SessionRotation, looks: &Drawn, cx: &App) -> AnyElement {
         .bg(t.surface_raised)
         .border_1()
         .border_color(t.line)
-        .rounded(theme::RADIUS_3)
+        .rounded(theme::radius_3())
         .children(sections)
         .child(div().my(SPACE_1).h(px(1.)).bg(t.line))
         .child(

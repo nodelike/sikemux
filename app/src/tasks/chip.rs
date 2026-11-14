@@ -142,7 +142,7 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
         .max_w(px(320.))
         .px(SPACE_2)
         .gap(SPACE_1H)
-        .rounded(crate::theme::RADIUS_2)
+        .rounded(crate::theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)
         .child(match dot {

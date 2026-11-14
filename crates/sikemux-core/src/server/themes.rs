@@ -4,6 +4,7 @@
 //! Omarchy desktop the theme it set for the system.
 
 mod omarchy;
+pub(crate) mod tools;
 
 pub(crate) use omarchy::{follow_background as follow_omarchy_background, here as on_omarchy};
 
@@ -86,7 +87,7 @@ impl Look {
     }
 
     pub(crate) fn tokens_by_name(&self) -> std::collections::BTreeMap<String, String> {
-        by_name(&self.palette.locked().tokens)
+        by_name(&self.palette.locked())
     }
 }
 

@@ -52,7 +52,7 @@ use crate::git::WhoWrote;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    self, Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
+    self, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
     SPACE_4, SPACE_5, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_SM, TEXT_XS,
 };
 use crate::toast;

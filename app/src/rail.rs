@@ -32,7 +32,7 @@ use crate::hosts::install_pane::{SetUp, Words};
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
 use crate::theme::{
-    Tokens, RADIUS_1, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS,
+    radius_1, radius_2, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS,
     TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{Button, Group, IconButton, Row, Tone, Variant};
@@ -408,7 +408,7 @@ fn with_menu(
                 KitButton::new(SharedString::from(format!("{id}-more")))
                     .ghost()
                     .compact()
-                    .rounded(RADIUS_2)
+                    .rounded(radius_2())
                     .bg(t.surface_hover)
                     .child(ui::icon(Icon::More, 12.).text_color(t.text_secondary))
                     .dropdown_menu_with_anchor(
@@ -902,7 +902,7 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .line_height(crate::theme::ui_text(TEXT_XS))
                         .border_1()
                         .border_color(t.line)
-                        .rounded(RADIUS_1)
+                        .rounded(radius_1())
                         .text_color(t.text_tertiary)
                 })),
         )
@@ -1330,7 +1330,7 @@ fn tree_row(
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .text_color(if lit { t.accent } else { t.text_tertiary })
         .when(!lit, |row| {
             row.hover(move |style| style.text_color(t.text_primary))
@@ -1406,7 +1406,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .gap(px(5.))
             .h(px(22.))
             .px(SPACE_2)
-            .rounded(RADIUS_2)
+            .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .whitespace_nowrap()
             .text_color(if on { t.text_primary } else { t.text_tertiary })
@@ -1455,7 +1455,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         .overflow_x_scroll()
         .border_1()
         .border_color(t.border)
-        .rounded(RADIUS_2 + px(3.))
+        .rounded(radius_2() + px(3.))
         .context_menu(ui::menu({
             let bench = cx.entity();
             move |popup, _, _| {
@@ -1765,7 +1765,7 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .flex()
         .flex_col()
         .gap(SPACE_2)
-        .rounded(RADIUS_2)
+        .rounded(radius_2())
         .bg(gpui_kit::Hsla {
             a: 0.04,
             ..t.text_primary

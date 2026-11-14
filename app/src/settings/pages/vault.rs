@@ -269,7 +269,7 @@ fn key_box(text: &str, cx: &App) -> AnyElement {
     div()
         .px(SPACE_3)
         .py(SPACE_2)
-        .rounded(theme::RADIUS_2)
+        .rounded(theme::radius_2())
         .border_1()
         .border_color(t.border)
         .bg(t.surface_sunken)
