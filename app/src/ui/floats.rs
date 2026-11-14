@@ -105,15 +105,23 @@ const ROW_PADDING: gpui_kit::Pixels = px(8.);
 const ROW_HEIGHT: gpui_kit::Pixels = px(26.);
 
 /// A menu row with what Kit's own rows lack: a mark in its own colours where the icon goes,
-/// words at its end, and the danger colour for a choice that deletes or discards.
+/// words at its end, and the danger colour for a choice that deletes or discards. A row can
+/// also say what its choice means on a quieter line under its name, with its icon in a tile.
 pub struct MenuRow {
     label: SharedString,
     icon: Option<Icon>,
     mark: Option<Rc<dyn Fn() -> AnyElement>>,
+    title: Option<Rc<dyn Fn() -> AnyElement>>,
+    about: Option<SharedString>,
+    tiled: bool,
     hint: Option<SharedString>,
     danger: bool,
     chosen: bool,
 }
+
+/// How tall a row with a line under its name is, and the tile its icon sits in.
+const ABOUT_ROW_HEIGHT: gpui_kit::Pixels = px(40.);
+const TILE: f32 = 26.;
 
 impl FluentBuilder for MenuRow {}
 
@@ -123,6 +131,9 @@ impl MenuRow {
             label: label.into(),
             icon: None,
             mark: None,
+            title: None,
+            about: None,
+            tiled: false,
             hint: None,
             danger: false,
             chosen: false,
@@ -136,6 +147,24 @@ impl MenuRow {
 
     pub fn mark<E: IntoElement>(mut self, mark: impl Fn() -> E + 'static) -> Self {
         self.mark = Some(Rc::new(move || mark().into_any_element()));
+        self
+    }
+
+    /// Draws the name as this element, such as a wordmark, rather than as plain words.
+    pub fn title<E: IntoElement>(mut self, title: impl Fn() -> E + 'static) -> Self {
+        self.title = Some(Rc::new(move || title().into_any_element()));
+        self
+    }
+
+    /// What the choice means, on a quieter line under its name.
+    pub fn about(mut self, about: impl Into<SharedString>) -> Self {
+        self.about = Some(about.into());
+        self
+    }
+
+    /// Draws the icon in a tile, tinted in the accent while the row is chosen, in place of a tick.
+    pub fn tiled(mut self) -> Self {
+        self.tiled = true;
         self
     }
 
@@ -167,6 +196,9 @@ impl MenuRow {
                 None => icon,
             }
         });
+        if self.tiled || self.about.is_some() || self.title.is_some() {
+            return self.described();
+        }
         let has_icon = self.icon.is_some();
         let Self {
             label,
@@ -231,6 +263,102 @@ impl MenuRow {
         } else {
             item
         }
+    }
+}
+
+impl MenuRow {
+    /// A row with its icon in a tile, its name, and what it means under it.
+    fn described(self) -> PopupMenuItem {
+        let Self {
+            label,
+            icon,
+            mark,
+            title,
+            about,
+            tiled,
+            hint,
+            chosen,
+            ..
+        } = self;
+        PopupMenuItem::element(move |_, cx| {
+            let t = Tokens::get(cx);
+            let lead = icon.map(|glyph| {
+                let tint = if chosen { t.accent } else { t.text_secondary };
+                let glyph = super::icon(glyph, 14.).text_color(tint);
+                match tiled {
+                    true => div()
+                        .flex_none()
+                        .size(px(TILE))
+                        .rounded(RADIUS_2)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(match chosen {
+                            true => Hsla {
+                                a: 0.16,
+                                ..t.accent
+                            },
+                            false => t.surface_hover,
+                        })
+                        .child(glyph)
+                        .into_any_element(),
+                    false => glyph.into_any_element(),
+                }
+            });
+            let ground = t.surface_chosen;
+            let side = ROW_PADDING;
+            div()
+                .id(ElementId::Name(label.clone()))
+                .aria_label(label.clone())
+                .test_support()
+                .relative()
+                .flex_1()
+                .min_w_0()
+                .h(match about {
+                    Some(_) => ABOUT_ROW_HEIGHT,
+                    None => ROW_HEIGHT,
+                })
+                .flex()
+                .items_center()
+                .gap(SPACE_2H)
+                .when(chosen, |row| {
+                    row.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left(-side)
+                            .right(-side)
+                            .rounded(RADIUS_2)
+                            .bg(ground),
+                    )
+                })
+                .children(lead)
+                .children(mark.as_ref().map(|mark| mark()))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(match &title {
+                            Some(title) => title(),
+                            None => div()
+                                .truncate()
+                                .text_color(t.text_primary)
+                                .child(label.clone())
+                                .into_any_element(),
+                        })
+                        .children(about.clone().map(|about| {
+                            text(about, TEXT_3XS_H, FontWeight::NORMAL)
+                                .truncate()
+                                .text_color(t.text_tertiary)
+                        })),
+                )
+                .children(hint.clone().map(|hint| {
+                    text(hint, TEXT_3XS_H, FontWeight::NORMAL).text_color(t.text_tertiary)
+                }))
+        })
     }
 }
 

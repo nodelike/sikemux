@@ -11966,6 +11966,8 @@
         }
       }
     },
+    "Asks before it acts": {},
+    "Asks only what's risky": {},
     "Asleep": {
       "localizations": {
         "es": {
@@ -12222,58 +12224,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Modo automático — o revisor de {agent} aprova ações seguras e pergunta o resto a você."
-          }
-        }
-      }
-    },
-    "Auto — asks only what's risky": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Auto: solo pregunta lo arriesgado"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自动 — 只询问有风险的操作"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Auto – fragt nur bei Riskantem"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Auto — ne demande que ce qui est risqué"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自動 — リスクのある操作のみ確認"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "자동 — 위험한 것만 묻기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Авто — спрашивает только о рискованном"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Auto — pergunta só o que é arriscado"
           }
         }
       }
@@ -53533,6 +53483,7 @@
         }
       }
     },
+    "Never asks": {},
     "New": {
       "localizations": {
         "es": {
@@ -82245,6 +82196,7 @@
         }
       }
     },
+    "Safe": {},
     "Safe mode — {agent} asks before it acts.": {
       "localizations": {
         "es": {
@@ -82293,58 +82245,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Modo seguro — {agent} pergunta antes de agir."
-          }
-        }
-      }
-    },
-    "Safe — asks before it acts": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Seguro: pregunta antes de actuar"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "安全 — 执行前先询问"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sicher – fragt vor dem Handeln"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sûr — demande avant d'agir"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "セーフ — 実行前に確認"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "안전 — 실행하기 전에 묻기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Безопасно — спрашивает перед действием"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Seguro — pergunta antes de agir"
           }
         }
       }
@@ -116788,58 +116688,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Modo YOLO ativado — {agent} roda sem aprovações."
-          }
-        }
-      }
-    },
-    "YOLO — never asks": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "YOLO: nunca pregunta"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "YOLO — 从不询问"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "YOLO – fragt nie"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "YOLO — ne demande jamais"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "YOLO — 確認しない"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "YOLO — 묻지 않음"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "YOLO — никогда не спрашивает"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "YOLO — nunca pergunta"
           }
         }
       }
