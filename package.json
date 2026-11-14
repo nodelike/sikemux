@@ -48,6 +48,7 @@
     "rust:hakari:check": "scripts/check-rust.sh hakari",
     "backdrop-shaders": "cargo run -q -p backdrop-shaders",
     "backdrop-shaders:check": "scripts/check-rust.sh backdrop-shaders",
+    "backdrop-stills": "node scripts/backdrop-stills.mjs",
     "rust:clippy": "scripts/check-rust.sh clippy",
     "rust:test": "cargo test --all-targets --all-features",
     "rust:no-plugins": "scripts/check-rust.sh no-plugins",

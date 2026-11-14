@@ -90,7 +90,7 @@ pub mod toast;
 mod track;
 mod trust;
 mod turn_line;
-mod ui;
+pub mod ui;
 mod updates;
 mod visits;
 mod voice;

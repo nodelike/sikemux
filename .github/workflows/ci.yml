@@ -361,6 +361,31 @@ jobs:
       - name: Run Rust tests
         run: scripts/check-rust.sh gpui-test
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install the scripts' dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compare each backdrop's still frame on the Mac with the phones' shaders
+        run: node scripts/backdrop-stills.mjs --out "$RUNNER_TEMP/backdrop-stills"
+
+      - name: Upload the backdrop stills
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: backdrop-stills
+          path: ${{ runner.temp }}/backdrop-stills
+          if-no-files-found: warn
+
   # Whether GPUI's Metal renderer draws on a runner: a window is opened in the runner's own
   # session and captured. It takes up to two hours, so it runs daily and by hand with
   # `window` checked, not on every push.
