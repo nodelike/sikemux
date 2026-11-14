@@ -596,7 +596,7 @@ pub(super) fn composer(
     composer = composer
         .text_scale(chat.scale)
         .strip(strip)
-        .ready(head.is_some_and(|head| head.connection == ChatConnection::Ready))
+        .ready(settable(agent, head))
         .running(chat.running())
         .steers(bench.preferences().mid_turn_send == MidTurnSend::Steer)
         .usage(
@@ -713,6 +713,14 @@ pub(super) fn composer(
     Some((composer, offering || tray_open))
 }
 
+/// Whether the chat takes a new account, mode or model now: its agent is up, or has not
+/// started yet, such as a new chat waiting for the person, and starts on what is picked.
+fn settable(agent: &AgentRow, head: Option<&ChatHead>) -> bool {
+    let unstarted = agent.status == AgentStatus::Starting
+        && head.is_none_or(|head| head.connection == ChatConnection::Connecting);
+    unstarted || head.is_some_and(|head| head.connection == ChatConnection::Ready)
+}
+
 /// Where the chat runs, for the strip docked on its composer: its project, which names a
 /// worktree agent's project rather than its worktree's folder, the branch or worktree it works
 /// on, and the account it runs on.
@@ -776,12 +784,7 @@ pub(super) fn strip(
             pick,
         };
         let running = head.is_some_and(|head| head.running);
-        // A chat whose agent has not started yet, such as one waiting for the person, starts
-        // on the account picked.
-        let unstarted = agent.status == AgentStatus::Starting
-            && head.is_none_or(|head| head.connection == ChatConnection::Connecting);
-        let ready = unstarted || head.is_some_and(|head| head.connection == ChatConnection::Ready);
-        crate::account_picker::picker(bench, chat, running, !ready, cx)
+        crate::account_picker::picker(bench, chat, running, !settable(agent, head), cx)
     });
     let any_other = (bench.host_choices().iter())
         .any(|option| matches!(option.choice, crate::hosts::HostChoice::Account(_)));

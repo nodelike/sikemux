@@ -491,6 +491,13 @@ pub async fn set_permission_mode(
     mode: PermissionMode,
 ) -> CoreResult<()> {
     let chat = core.chats().running(agent_id)?;
+    if chat.unstarted() {
+        let mut launch = chat.current_launch();
+        launch.permission_mode = mode;
+        chat.set_current(launch);
+        chat.set_permission_mode(mode);
+        return Ok(());
+    }
     let (reply, answer) = oneshot::channel();
     chat.send(ChatCommand::SetPermissionMode { mode, reply })?;
     chat.feed.set_changing_mode(true);
