@@ -66,15 +66,6 @@ struct CallDock: View {
                     Text(CallWords.pushFailed(failed)).font(Theme.ui(13)).foregroundStyle(palette.danger).padding(
                         .top, 10)
                 }
-                if let assumption = call.assumption {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        IconView(icon: Icons.clock, size: 13)
-                        Text(CallWords.goesOn(call.asker.name, assumption))
-                    }
-                    .font(Theme.ui(13.5))
-                    .foregroundStyle(palette.tertiary)
-                    .padding(.top, 12)
-                }
                 goButton.padding(.top, 12)
                 folded
             }
@@ -189,7 +180,7 @@ struct CallDock: View {
             draft.choose(option.id, in: call)
         } label: {
             HStack(spacing: 12) {
-                CallChoiceMark(on: on, multi: call.multi == true)
+                CallChoiceMark(on: on)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(option.label).font(Theme.ui(15.5)).foregroundStyle(palette.ink)
                     if let detail = option.detail {
@@ -255,7 +246,7 @@ struct CallDock: View {
     @ViewBuilder
     private var extras: some View {
         let runs = call.kind == .production ? call.action : nil
-        if runs != nil || call.canHandBack || call.keepsWordsPrivate {
+        if runs != nil || call.keepsWordsPrivate {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     if runs != nil {
@@ -275,16 +266,6 @@ struct CallDock: View {
                         .buttonStyle(.plain)
                     }
                     Spacer(minLength: 0)
-                    if call.canHandBack && canAnswer {
-                        Button(CallWords.notMine) {
-                            Haptics.tap()
-                            calls.notMine(call, report: report)
-                        }
-                        .font(Theme.ui(13, .medium))
-                        .foregroundStyle(palette.secondary)
-                        .frame(minHeight: 32)
-                        .disabled(draft.sending)
-                    }
                 }
                 if let runs, draft.runsOpen {
                     Text(runs).font(Theme.mono(12.5)).foregroundStyle(palette.secondary).textSelection(.enabled)
@@ -295,20 +276,6 @@ struct CallDock: View {
                     }
                     Text(CallWords.kept(call.asker.name)).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary)
                 }
-                if call.secret == true && canAnswer {
-                    HStack {
-                        Spacer(minLength: 0)
-                        Button(CallWords.haveNone) {
-                            Haptics.tap()
-                            fieldFocused = false
-                            calls.answer(call, AnswerCallParams(id: call.id, none: true), report: report)
-                        }
-                        .font(Theme.ui(13, .medium))
-                        .foregroundStyle(palette.secondary)
-                        .frame(minHeight: 32)
-                        .disabled(draft.sending)
-                    }
-                }
             }
             .padding(.top, 6)
         }
@@ -316,7 +283,7 @@ struct CallDock: View {
 
     private var goButton: some View {
         let seen = call.kind != .production || calls.seen.contains(call.id)
-        let ready = (!chosen.isEmpty || typed || call.goesOnAsIs) && !draft.sending && canAnswer && seen
+        let ready = (!chosen.isEmpty || typed) && !draft.sending && canAnswer && seen
         return Button(action: goWithThis) {
             Text(seen ? CallWords.goWithThis : CallWords.connecting)
                 .font(Theme.ui(16, .semibold))
@@ -364,23 +331,14 @@ struct CallWho: View {
     }
 }
 
-/// The radio of an option on a call that takes one, or the box of one on a call that takes several.
+/// The radio of an option on a call.
 struct CallChoiceMark: View {
     @Environment(\.palette) private var palette
     let on: Bool
-    let multi: Bool
 
     var body: some View {
         Group {
-            if multi {
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(on ? palette.accent : .clear)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(
-                            on ? palette.accent : palette.inkFaint, lineWidth: 1.5)
-                    )
-                    .overlay { if on { IconView(icon: Icons.check, size: 11).foregroundStyle(palette.ground) } }
-            } else if on {
+            if on {
                 Circle().strokeBorder(palette.accent, lineWidth: 5).background(Circle().fill(Color.white))
             } else {
                 Circle().strokeBorder(palette.inkFaint, lineWidth: 1.5)

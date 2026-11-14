@@ -9,13 +9,10 @@ import {
   AGAINST_IT,
   CONNECTING,
   context as contextOf,
-  goesOn,
   GO_WITH_THIS,
   hidden,
   kept,
   keepsWordsPrivate,
-  HAVE_NONE,
-  NOT_MINE,
   OWN_WORDS,
   PICK,
   pictureLabel,
@@ -30,7 +27,7 @@ import { useT } from '@/i18n';
 import type { CallOption, PersonCall } from '@shared/wire.generated';
 import { AskerMark } from '@/calls/AskerMark';
 import { SECRET_INPUT } from '@/calls/secretInput';
-import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, goesOnAsIs, notMine, see, useKept } from '@/calls/hostCalls';
+import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, see, useKept } from '@/calls/hostCalls';
 import { useHostFile } from '@/chat/hostFiles';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
@@ -91,7 +88,7 @@ export const CallDock = memo(function CallDock({
   const failed = held.failed[call.id];
   // The core asks only a production call to have been drawn before its answer counts.
   const seen = call.kind !== 'production' || held.seen.has(call.id);
-  const ready = (chosen.length > 0 || typed || goesOnAsIs(call)) && !draft.sending && canAnswer && seen;
+  const ready = (chosen.length > 0 || typed) && !draft.sending && canAnswer && seen;
 
   // Tells the host this phone drew the call, again whenever the connection changes.
   useEffect(() => {
@@ -103,11 +100,6 @@ export const CallDock = memo(function CallDock({
     if (!params || !ready) return;
     haptics.select();
     void answer(core, connection, call, store, params, report);
-  };
-
-  const haveNone = () => {
-    haptics.select();
-    void answer(core, connection, call, store, { id: call.id, none: true }, report);
   };
 
   return (
@@ -147,7 +139,6 @@ export const CallDock = memo(function CallDock({
               option={option}
               first={index === 0}
               on={chosen.includes(option.id)}
-              multi={!!call.multi}
               pick={call.pick === option.id}
               disabled={!canAnswer || draft.sending}
               onPress={() => {
@@ -201,31 +192,18 @@ export const CallDock = memo(function CallDock({
             {call.against}
           </Text>
         ) : null}
-        {runs || (call.canHandBack && canAnswer) ? (
+        {runs ? (
           <View style={styles.extras}>
-            {runs ? (
-              <Pressable
-                onPress={() => edit(store, { runsOpen: !draft.runsOpen })}
-                style={styles.runs}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: draft.runsOpen }}>
-                <View style={{ transform: [{ rotate: draft.runsOpen ? '90deg' : '0deg' }] }}>
-                  <Icon name="IconChevron" size={11} color={colors.tertiary} />
-                </View>
-                <Text style={styles.extraText}>{t(WHAT_RUNS)}</Text>
-              </Pressable>
-            ) : null}
-            <View style={{ flex: 1 }} />
-            {call.canHandBack && canAnswer ? (
-              <QuietAction
-                label={t(NOT_MINE)}
-                disabled={draft.sending}
-                onPress={() => {
-                  haptics.select();
-                  void notMine(connection, call, store, report);
-                }}
-              />
-            ) : null}
+            <Pressable
+              onPress={() => edit(store, { runsOpen: !draft.runsOpen })}
+              style={styles.runs}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: draft.runsOpen }}>
+              <View style={{ transform: [{ rotate: draft.runsOpen ? '90deg' : '0deg' }] }}>
+                <Icon name="IconChevron" size={11} color={colors.tertiary} />
+              </View>
+              <Text style={styles.extraText}>{t(WHAT_RUNS)}</Text>
+            </Pressable>
           </View>
         ) : null}
         {runs && draft.runsOpen ? (
@@ -239,19 +217,7 @@ export const CallDock = memo(function CallDock({
             <Text style={styles.kept}>{kept(call.asker.name, t)}</Text>
           </>
         ) : null}
-        {call.secret && canAnswer ? (
-          <View style={styles.extras}>
-            <View style={{ flex: 1 }} />
-            <QuietAction label={t(HAVE_NONE)} disabled={draft.sending} onPress={haveNone} />
-          </View>
-        ) : null}
         {failed ? <Text style={styles.failed}>{pushFailed(failed, t)}</Text> : null}
-        {call.assumption ? (
-          <View style={styles.goesOn}>
-            <Icon name="IconClock" size={13} color={colors.tertiary} />
-            <Text style={styles.goesOnText}>{goesOn(call.asker.name, call.assumption, t)}</Text>
-          </View>
-        ) : null}
         <Pressable
           onPress={go}
           disabled={!ready}
@@ -287,7 +253,6 @@ function OptionRow({
   option,
   first,
   on,
-  multi,
   pick,
   disabled,
   onPress,
@@ -295,7 +260,6 @@ function OptionRow({
   option: CallOption;
   first: boolean;
   on: boolean;
-  multi: boolean;
   pick: boolean;
   disabled: boolean;
   onPress: () => void;
@@ -308,9 +272,9 @@ function OptionRow({
       onPress={onPress}
       disabled={disabled}
       style={[styles.option, !first && styles.optionAfter, on && { backgroundColor: colors.active }]}
-      accessibilityRole={multi ? 'checkbox' : 'radio'}
+      accessibilityRole="radio"
       accessibilityState={{ checked: on, disabled }}>
-      <ChoiceMark on={on} multi={multi} />
+      <ChoiceMark on={on} />
       <View style={styles.optionWords}>
         <Text style={styles.optionLabel}>{option.label}</Text>
         {option.detail ? <Text style={styles.optionDetail}>{option.detail}</Text> : null}
@@ -325,26 +289,9 @@ function OptionRow({
   );
 }
 
-/** The ring of an option on a call that takes one, or the box of one on a call that takes several. */
-function ChoiceMark({ on, multi }: { on: boolean; multi: boolean }) {
+/** The ring of an option. */
+function ChoiceMark({ on }: { on: boolean }) {
   const colors = useColors();
-  if (multi) {
-    return (
-      <View
-        style={{
-          width: 18,
-          height: 18,
-          borderRadius: 4,
-          borderWidth: 1.5,
-          borderColor: on ? colors.accent : colors.inkFaint,
-          backgroundColor: on ? colors.accent : 'transparent',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-        {on ? <Icon name="IconCheck" size={11} color={colors.ground} /> : null}
-      </View>
-    );
-  }
   return (
     <View
       style={{
@@ -431,16 +378,6 @@ function CallPicture({ path, style, top }: { path?: string; style: object; top?:
   );
 }
 
-/** A quiet text action on a call's card, beside or above Go with this. */
-function QuietAction({ label, disabled, onPress }: { label: string; disabled: boolean; onPress: () => void }) {
-  const styles = useStyles(makeStyles);
-  return (
-    <Pressable disabled={disabled} onPress={onPress} style={styles.runs} accessibilityRole="button" accessibilityState={{ disabled }}>
-      <Text style={styles.notMine}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     card: {
@@ -478,13 +415,10 @@ const makeStyles = (colors: Palette) => {
     extras: { marginTop: 6, flexDirection: 'row', alignItems: 'center', minHeight: 32 },
     runs: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32 },
     extraText: { fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary },
-    notMine: { fontFamily: fonts.uiMedium, fontSize: 13, color: colors.secondary },
     command: { fontFamily: fonts.mono, fontSize: 12.5, color: colors.secondary },
     hiddenSize: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
     kept: { marginTop: 4, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
     failed: { marginTop: 10, fontFamily: fonts.ui, fontSize: 13, color: colors.danger },
-    goesOn: { marginTop: 12, flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-    goesOnText: { flex: 1, fontFamily: fonts.ui, fontSize: 13.5, lineHeight: 19, color: colors.tertiary },
     go: { marginTop: 12, height: 46, borderRadius: 12, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
     goText: { fontFamily: fonts.uiSemibold, fontSize: 16, color: colors.ground },
     folded: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: ROW, marginTop: 4 },

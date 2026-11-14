@@ -14,16 +14,13 @@ struct ChatBottom: View {
 
     var body: some View {
         let rows = session.rows
-        let assumptions = Assumptions.of(context.core, context.agentId)
-        let changing = context.watchOnly ? nil : assumptions.changing
-        let info = Hub.shared.live(context.core).view?.chats.first { $0.agentId == context.agentId }
         Composer(
             session: session,
             core: context.core,
             provider: context.provider,
             running: rows.running && !session.stoppingTurn,
             steers: context.steers,
-            placeholder: changing.map { CallWords.typeYourAnswer($0.name) } ?? placeholder(rows),
+            placeholder: placeholder(rows),
             modeLocked: rows.running || !session.permissions.isEmpty || rows.head.connection != .ready
                 || context.offline,
             watchOnly: context.watchOnly,
@@ -32,15 +29,6 @@ struct ChatBottom: View {
             onSent: context.onSent,
             strip: context.strip,
             onRecent: !context.watchOnly && RecentSheet.offered(rows) ? { focus.recent = true } : nil,
-            question: changing.map { question in
-                ComposerQuestion(
-                    name: question.name, cli: question.cli, text: question.text,
-                    onRemove: assumptions.stopChanging,
-                    onAnswer: { written in
-                        await assumptions.answer(question, written: written, report: session.report)
-                    }
-                )
-            },
             focus: focus,
             place: context.place
         )
@@ -50,9 +38,6 @@ struct ChatBottom: View {
                 session.setDraft(text)
                 focus.recent = false
             }
-        }
-        .onChange(of: "\(info?.activeAt ?? 0)|\(info?.unread ?? false)|\(rows.running)", initial: true) { _, seen in
-            assumptions.read(seen, report: session.report)
         }
     }
 

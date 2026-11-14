@@ -15,17 +15,9 @@ final class CallDraft {
         chosen ?? (call.pick.map { [$0] } ?? [])
     }
 
-    /// Chooses an option, or clears the one chosen; on a call that takes several, ticks it.
+    /// Chooses an option, or clears the one chosen.
     func choose(_ option: String, in call: PersonCall) {
-        var now = chosen(in: call)
-        if let at = now.firstIndex(of: option) {
-            now.remove(at: at)
-        } else if call.multi == true {
-            now.append(option)
-        } else {
-            now = [option]
-        }
-        chosen = now
+        chosen = chosen(in: call) == [option] ? [] : [option]
     }
 
     /// What answers the call as the card stands: the options chosen with the note, or the person's own words alone.
@@ -33,18 +25,12 @@ final class CallDraft {
         let words = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = words.isEmpty ? nil : words
         let now = chosen(in: call)
-        if now.isEmpty {
-            if let text { return AnswerCallParams(id: call.id, words: text) }
-            return call.goesOnAsIs ? AnswerCallParams(id: call.id, fine: true) : nil
-        }
-        if call.multi == true { return AnswerCallParams(id: call.id, options: now, note: text) }
-        return AnswerCallParams(id: call.id, option: now[0], note: text)
+        guard let option = now.first else { return text.map { AnswerCallParams(id: call.id, words: $0) } }
+        return AnswerCallParams(id: call.id, option: option, note: text)
     }
 }
 
 extension PersonCall {
-    /// A call with nothing to pick that its asker goes on with: Go with this, with nothing typed, lets it stand.
-    var goesOnAsIs: Bool { assumption != nil && options.isEmpty }
     /// What the person types for it goes to a private file the asker reads, never into the chat: a secret, or an
     /// access call.
     var keepsWordsPrivate: Bool { secret == true || kind == .access }
@@ -178,21 +164,6 @@ final class HostCalls {
             } catch {
                 draft.sending = false
                 Haptics.failure()
-                report(problem(error))
-            }
-        }
-    }
-
-    /// Hands a call back to its asker's lead, or its asker, to decide, once per tap.
-    func notMine(_ call: PersonCall, report: @escaping (String) -> Void) {
-        let draft = draft(call)
-        guard !draft.sending, let connection = Hub.shared.live(core).connection else { return }
-        draft.sending = true
-        Task {
-            do {
-                _ = try await connection.call(PhoneCall.CallNotMine.self, CallParams(id: call.id))
-            } catch {
-                draft.sending = false
                 report(problem(error))
             }
         }

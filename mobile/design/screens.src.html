@@ -313,10 +313,6 @@
   .ask-folded .peek { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-dim); font-size: 12.5px; letter-spacing: 0; }
   .ask-folded svg { flex: none; }
   .ask-who .ticket { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
-  .ask-assumed { display: flex; align-items: center; gap: 6px; margin: 10px 0; color: var(--ink-dim); font-size: 12.5px; line-height: 1.4; }
-  .ask-assumed b { color: var(--ink); font-weight: 600; }
-  .ask-assumed .act { color: var(--ink); padding: 4px 2px; }
-  .ask-assumed svg { flex: none; }
   .rows .row .s.asked { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--ink-dim); }
   .ask-secret { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; }
   .ask-secret-size { margin: 6px 0 0; font-size: 12.5px; line-height: 18px; color: var(--ink-dim); }
@@ -587,8 +583,6 @@
   .prose .faint { color: var(--text-tertiary); }
   .call-ctx.whole { display: block; -webkit-line-clamp: unset; }
   .call-who .call-place { margin-left: auto; font-size: 13px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
-  .call-goes { display: flex; align-items: flex-start; gap: 6px; margin-top: 12px; font-size: 13.5px; line-height: 1.4; color: var(--text-tertiary); }
-  .call-goes > span:first-child, .call-goes svg { flex: none; margin-top: 2px; }
   .call-folded { display: flex; align-items: center; gap: 10px; min-height: 44px; margin-top: 8px; font-size: 14px; color: var(--text-secondary); }
   .call-folded > span:first-child { flex: none; display: grid; width: 16px; height: 16px; }
   .call-folded .q { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -616,7 +610,6 @@
   .call-extras { margin-top: 6px; display: flex; align-items: center; min-height: 32px; font-size: 13px; color: var(--text-tertiary); }
   .call-runs { display: flex; align-items: center; gap: 6px; }
   .call-runs.open .ico { transform: rotate(90deg); }
-  .call-notmine { margin-left: auto; font-weight: 500; color: var(--text-secondary); }
   .call-cmd { font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--text-secondary); word-break: break-all; }
   .call-kept { margin-top: 8px; font-size: 12.5px; color: var(--text-tertiary); }
   .call-go { margin-top: 12px; height: 46px; border-radius: 12px; background: var(--acc); color: var(--bg); font-size: 16px; font-weight: 600; display: grid; place-items: center; }
@@ -2682,7 +2675,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A step to production</b><div class="note">An agent's push, merge, deploy or write that leaves the host is a call too, docked the same way. A step to production adds its brief as the context (what was tried, what it shows, what cannot be undone), drawn whole, as it is on any call with something that can't be undone, the card scrolling if it must; any other call's context stops at two lines and opens to full on a tap, the evidence's pictures from their top, two side by side with their names on a corner (Now, New), the point against it, and What runs folded: a tap shows the exact command or tool call in the code face. Not mine sits at the right of that row on a call that can be handed back to the asker's lead, which a step to production never is. Nothing typed in the composer answers a step to production, so the composer keeps no chip and sends to the agent as usual. An agent's own permission prompt keeps its dock, Deny and Allow, and comes first when both wait.</div></figcaption>
+      <figcaption><b>A step to production</b><div class="note">An agent's push, merge, deploy or write that leaves the host is a call too, docked the same way. A step to production adds its brief as the context (what was tried, what it shows, what cannot be undone), drawn whole, as it is on any call with something that can't be undone, the card scrolling if it must; any other call's context stops at two lines and opens to full on a tap, the evidence's pictures from their top, two side by side with their names on a corner (Now, New), the point against it, and What runs folded: a tap shows the exact command or tool call in the code face. Nothing typed in the composer answers a step to production, so the composer keeps no chip and sends to the agent as usual. An agent's own permission prompt keeps its dock, Deny and Allow, and comes first when both wait.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3030,7 +3023,6 @@
             <div class="call-ctx">The API sends decimals but the ledger table uses integers.</div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Cents</span><em>integers, no rounding errors</em></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Decimals</span><em>same as the API</em></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
             
-            <div class="call-goes">{{IconClock:13}}<span>Until you answer, @Maple goes on assuming cents</span></div>
             <div class="call-go">Go with this</div>
             <div class="call-folded"><span class="codex">{{IconCodex:16}}</span><span class="q">Keep the old ledger table for a week?</span><span class="age">3m</span></div>
           </div>
@@ -3047,7 +3039,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A call, docked</b><div class="note">When the asker goes on with what it assumed (PersonCall.assumption), a quiet line above Go with this says so in the Mac's words, "Until you answer, @Maple goes on assuming cents", with the clock; a call that goes on draws no "Nothing happens until you answer". On such a call with no options, Go with this with nothing typed lets the assumption stand (answerCall with fine). An agent's question is a call now, and so is anything else it cannot settle without the person. The oldest call an agent waits on docks on its chat above the composer, as the Mac's call card does, a little tighter: who asks and how long ago, the question, its context in two lines, then the options in one block of 44-point rows with a ring before each. The asker's pick is chosen to start with and carries the S and pick; a tap chooses another and a tap on the chosen one clears it. The block's last row is the note field, or with nothing chosen the person's own answer. Go with this runs across the card's foot and sends answerCall. There is no Open chat: the chat is open. The composer stays the chat's own: what is sent there goes to the agent as a message and the call stays open, since only the card answers it; Return in the card's field sends it, as Go with this does. The card tells the host it was seen as it draws. The first answer anywhere wins and the card goes from every screen. When the agent waits on several calls, the card says which it is (1 of 2) and the others sit folded under it, a line each with how long it has waited; a tap brings one into the card, and a row on the Calls tab opens the call it shows. Go with this reads Connecting… until the host has taken that this phone drew the call. Over the docked card the chat's last line says only Needs you, how many calls wait when more than one does, and how long; where no card docks, it also says the question and offers Look. In the chief's chat, the card's asker is @Chief with Sikemux's S. A watching phone shows the card without the means to answer.</div></figcaption>
+      <figcaption><b>A call, docked</b><div class="note">An agent's question is a call now, and so is anything else it cannot settle without the person. The oldest call an agent waits on docks on its chat above the composer, as the Mac's call card does, a little tighter: who asks and how long ago, the question, its context in two lines, then the options in one block of 44-point rows with a ring before each. The asker's pick is chosen to start with and carries the S and pick; a tap chooses another and a tap on the chosen one clears it. The block's last row is the note field, or with nothing chosen the person's own answer. Go with this runs across the card's foot and sends answerCall. There is no Open chat: the chat is open. The composer stays the chat's own: what is sent there goes to the agent as a message and the call stays open, since only the card answers it; Return in the card's field sends it, as Go with this does. The card tells the host it was seen as it draws. The first answer anywhere wins and the card goes from every screen. When the agent waits on several calls, the card says which it is (1 of 2) and the others sit folded under it, a line each with how long it has waited; a tap brings one into the card, and a row on the Calls tab opens the call it shows. Go with this reads Connecting… until the host has taken that this phone drew the call. Over the docked card the chat's last line says only Needs you, how many calls wait when more than one does, and how long; where no card docks, it also says the question and offers Look. In the chief's chat, the card's asker is @Chief with Sikemux's S. A watching phone shows the card without the means to answer.</div></figcaption>
     </figure>
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
@@ -3093,7 +3085,6 @@
             <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Gilda</b><i>·</i><span>3m</span><span class="call-place">1 of 3</span></div>
             <div class="call-q">Which colour should the totals use?</div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Blue</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Red</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
-            <div class="call-goes">{{IconClock:13}}<span>Until you answer, @Gilda goes on assuming blue</span></div>
             <div class="call-go">Go with this</div>
             <div class="call-folded"><span class="claude">{{IconClaude:16}}</span><span class="q">What do we call the new way to pay?</span><span class="age">3m</span></div>
           </div>
@@ -3132,7 +3123,6 @@
             <div class="call-who"><span class="claude">{{IconClaude:20}}</span><b>@Gilda</b><i>·</i><span>3m</span><span class="call-place">1 of 3</span></div>
             <div class="call-q">Which colour should the totals use?</div>
             <div class="call-opts"><div class="call-opt on"><span class="call-radio on"></span><span class="call-lbl"><span>Blue</span></span><span class=call-pick>{{Logo:13}}pick</span></div><div class="call-opt"><span class="call-radio"></span><span class="call-lbl"><span>Red</span></span></div><div class="call-field">{{IconPencil:13}}<span>Add a note…</span></div></div>
-            <div class="call-goes">{{IconClock:13}}<span>Until you answer, @Gilda goes on assuming blue</span></div>
             <div class="call-go">Go with this</div>
             <div class="call-folded"><span class="claude">{{IconClaude:16}}</span><span class="q">What do we call the new way to pay?</span><span class="age">3m</span></div>
           </div>
@@ -3290,7 +3280,6 @@
           </div>
           <div class="prose">Dates go into the ledger in UTC now. Next, the amounts.</div>
           <div class="turn-line"><span class="tl-mark"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span><span class="turn-words"><b class="working">Working</b><i>·</i><span class="p1">converting amounts at the API edge</span><i>·</i><span class="p2">48s</span></span></div>
-          <div class="ask-assumed">{{IconCheck:13}}<span><b>@Maple</b> assumed old invoices keep their decimals</span><span>·</span><span class="act">Fine</span><span class="act">Change</span></div>
         </div>
         <div class="composer-wrap">
           <div class="composer">
@@ -3306,7 +3295,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Once answered</b><div class="note">Once answered, a call and its answer read as the conversation they were: the question in the asker's bubble at the left, with its mark beside the first of a run, and the answer in the person's own bubble at the right under it, with any files sent with it above that bubble. A private answer's bubble says Kept private. Another agent's question says @who asked above it. This is also how it reads in the transcript afterwards. Under the chat's last line, a question the agent went on without, on an assumption it stated, is one dim line under a check, as the Mac shows it: Fine tells it the assumption holds, and Change opens the composer with Answering @Maple to answer it.</div></figcaption>
+      <figcaption><b>Once answered</b><div class="note">Once answered, a call and its answer read as the conversation they were: the question in the asker's bubble at the left, with its mark beside the first of a run, and the answer in the person's own bubble at the right under it, with any files sent with it above that bubble. A private answer's bubble says Kept private. Another agent's question says @who asked above it. This is also how it reads in the transcript afterwards.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3324,7 +3313,6 @@
             
             <div class="call-opts"><div class="call-field">{{IconPencil:13}}<span><span class="sec-dots">••••••••••••</span></span></div></div>
             <div class="call-kept"><span class="hidden-n">3 lines, 1,184 characters hidden</span><br>Kept private: @Comet reads it, and it never shows in the chat.</div>
-            <div class="call-extras"><span class="call-notmine">I don't have one</span></div>
             <div class="call-go">Go with this</div>
           </div>
           <div class="composer">
@@ -3340,7 +3328,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A secret, asked</b><div class="note">A call for a secret, such as a password or a token, takes it in a hidden field as the block's only row, and says under it that it is kept private: the agent reads it from a file only the person's account can open, and it never shows in the chat. Nothing is corrected, suggested or saved to the keyboard or the password manager. Only that field answers it: what is sent in the composer goes to the agent as a message, and Return in the field sends the secret, as Go with this does. I don't have one, quiet at the right above Go with this as Not mine is on other calls, answers it with none (answerCall with none): the agent is told the person has none and goes on without it, nothing is kept, and the call's row then says had none to give. An access call, which offers an option to go on without, has no such action. Once sent, the answer's bubble says Kept private, here and in the transcript afterwards.</div></figcaption>
+      <figcaption><b>A secret, asked</b><div class="note">A call for a secret, such as a password or a token, takes it in a hidden field as the block's only row, and says under it that it is kept private: the agent reads it from a file only the person's account can open, and it never shows in the chat. Nothing is corrected, suggested or saved to the keyboard or the password manager. Only that field answers it: what is sent in the composer goes to the agent as a message, and Return in the field sends the secret, as Go with this does. Once sent, the answer's bubble says Kept private, here and in the transcript afterwards.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

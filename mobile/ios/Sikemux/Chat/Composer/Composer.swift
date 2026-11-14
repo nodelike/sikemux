@@ -1,15 +1,5 @@
 import SwiftUI
 
-/// The question an agent asked that whatever is sent answers.
-struct ComposerQuestion {
-    let name: String
-    let cli: String
-    let text: String
-    /// Takes the chip off, so what is sent goes to the agent.
-    let onRemove: (() -> Void)?
-    let onAnswer: (WrittenAnswer) async -> Bool
-}
-
 /// The bottom of a chat: what waits on the person docked above the composer, the menus over it, and the composer
 /// with its bar of attach, stash, YOLO, model and effort, context, and send or stop.
 struct Composer: View {
@@ -33,7 +23,6 @@ struct Composer: View {
     var strip: AnyView?
     /// Pulling an empty composer up opens what was sent before; absent when nothing was.
     var onRecent: (() -> Void)?
-    var question: ComposerQuestion?
     let focus: ComposerFocus
     /// Where the chat runs, said quietly under the box.
     var place: ChatPlaceInfo?
@@ -131,7 +120,6 @@ struct Composer: View {
         }
         if dock == nil && matches.isEmpty && stashQuery == nil && typed == nil { strip }
         VStack(spacing: 0) {
-            if let question { answering(question) }
             if !attachments.isEmpty || !chips.isEmpty {
                 ComposerAttachments(
                     attachments: attachments, core: core, onRemove: session.removeAttachment, onRetry: send
@@ -309,33 +297,6 @@ struct Composer: View {
         .padding(.bottom, 8)
     }
 
-    private func answering(_ question: ComposerQuestion) -> some View {
-        HStack(spacing: 7) {
-            AgentMark(provider: question.cli, size: 13)
-            Text(CallWords.answering(question.name, question.text)).font(Theme.ui(12)).foregroundStyle(palette.inkDim)
-                .lineLimit(1)
-            if let onRemove = question.onRemove {
-                Button(action: onRemove) {
-                    IconView(icon: Icons.close, size: 10)
-                        .foregroundStyle(palette.ground)
-                        .frame(width: 20, height: 20)
-                        .background(Circle().fill(palette.ink))
-                        .contentShape(Rectangle().inset(by: -8))
-                }
-                .buttonStyle(PressFade())
-                .accessibilityLabel("Stop answering @\(question.name)")
-            }
-        }
-        .padding(.vertical, question.onRemove == nil ? 9 : 6)
-        .padding(.leading, 9)
-        .padding(.trailing, question.onRemove == nil ? 9 : 6)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(palette.sunken))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
-        .padding(4)
-        .padding(.bottom, -2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private func send() {
         let text = session.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
         let draft = session.draft!
@@ -349,10 +310,6 @@ struct Composer: View {
         if let aside = Self.side(text) {
             Task {
                 if await session.startSideChat(aside) { sent() }
-            }
-        } else if let question {
-            Task {
-                if await session.answerWith(text, question) { sent() }
             }
         } else if session.send(text, steers: steers) {
             sent()

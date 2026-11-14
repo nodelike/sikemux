@@ -349,14 +349,6 @@ export function weekCount(week: { decided: number; overruled: number; answered: 
     return say("{first} {second}", { first, second });
 }
 
-// An assumption
-
-/** After the agent's name: what it went on assuming. */
-export const assumed = (assumption: string, say: Say = english) => say("assumed {assumption}", { assumption });
-export const FINE = "Fine";
-export const CHANGE = "Change";
-export const couldNotRead = (problem: string, say: Say = english) => say("could not read this agent's questions: {problem}", { problem });
-
 // The call card
 
 export const PICK = "pick";
@@ -365,13 +357,7 @@ export const ADD_NOTE = "Add a note…";
 export const OWN_WORDS = "Or answer in your own words…";
 export const SECRET_FIELD = "Type or paste it…";
 export const GO_WITH_THIS = "Go with this";
-export const NOT_MINE = "Not mine";
-/** On a call for a secret: the person has none of what it asks for. */
-export const HAVE_NONE = "I don't have one";
 export const WHAT_RUNS = "What runs";
-/** What the asker goes on with until the person answers, above Go with this. */
-export const goesOn = (name: string, assumption: string, say: Say = english) =>
-    say("Until you answer, @{name} goes on assuming {assumption}", { name, assumption });
 export const kept = (name: string, say: Say = english) => say("Kept private: @{name} reads it, and it never shows in the chat.", { name });
 /** Go with this while the host has not yet taken that this phone drew the call. */
 export const CONNECTING = "Connecting…";
@@ -393,11 +379,6 @@ export function pictureLabel(words: string): string | undefined {
     const count = trimmed.split(/\s+/).filter(Boolean).length;
     return trimmed && trimmed.length <= 20 && count <= 3 ? trimmed : undefined;
 }
-
-/** The composer's chip while it answers an assumption. */
-export const answering = (name: string, question: string, say: Say = english) => say("Answering @{name} · {question}", { name, question });
-/** The composer's placeholder while it answers an assumption. */
-export const typeYourAnswer = (name: string, say: Say = english) => say("Or type your answer to @{name}", { name });
 
 /** A weighty call's brief, which stands as its context. */
 export function context(call: PersonCall): string | undefined {
@@ -427,14 +408,11 @@ export function cameOf(call: PersonCall, say: Say = english): string {
             return say("it failed");
         case "mayHaveRun":
             return say("may have run, Sikemux restarted");
-        case "handedBack":
-            return say("handed back");
         case "withdrawn":
             return say("went on without you");
     }
     const answer = call.answer;
     if (!answer) return say("closed");
-    if (answer.none) return say("had none to give");
     const picked = answer.option != null ? [answer.option] : (answer.options ?? []);
     if (keepsWordsPrivate(call) && !picked.length) return say("answered, kept private");
     if (answer.words != null) return say("in your words");

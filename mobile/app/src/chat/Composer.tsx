@@ -23,7 +23,6 @@ import { StashButton } from '@/stash/StashButton';
 import { StashChip } from '@/stash/StashChip';
 import { usePromptStash } from '@/stash/usePromptStash';
 import { stashQuery, withoutQuery, type ContextChip } from '@/stash/words';
-import type { WrittenAnswer } from './assumptions';
 import type { ChatSession } from './session';
 import type { Attachment } from './uploads';
 import { useDraft, useDraftTokens } from './useChat';
@@ -63,39 +62,6 @@ function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (na
   );
 }
 
-/** What whatever is sent answers: an assumption being changed. */
-export type ComposerQuestion = {
-  /** The chip's words: who and what is being answered. */
-  chip: string;
-  cli: string;
-  onRemove?: () => void;
-  onAnswer: (written: WrittenAnswer) => Promise<boolean>;
-};
-
-function AnsweringChip({ question }: { question: ComposerQuestion }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const t = useT();
-  return (
-    <View style={styles.answering}>
-      <AgentIcon provider={question.cli} size={13} />
-      <Text style={styles.answeringText} numberOfLines={1}>
-        {question.chip}
-      </Text>
-      {question.onRemove ? (
-        <Pressable
-          onPress={question.onRemove}
-          hitSlop={8}
-          style={styles.answeringX}
-          accessibilityRole="button"
-          accessibilityLabel={t('Stop: {question}', { question: question.chip })}>
-          <Icon name="IconClose" size={10} color={colors.ground} />
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
 /** How far up an empty composer is pulled before it opens the recent prompts. */
 const PULL_UP = 18;
 /** The composer box's corners, as the Mac's. */
@@ -127,7 +93,6 @@ export const Composer = memo(function Composer({
   held,
   strip,
   onRecent,
-  question,
   inputRef,
   place,
 }: {
@@ -166,8 +131,6 @@ export const Composer = memo(function Composer({
   strip: ReactNode;
   /** Pulling an empty composer up opens what was sent before; absent when nothing was. */
   onRecent?: () => void;
-  /** The question an agent asked that whatever is sent answers. */
-  question?: ComposerQuestion | null;
   /** Lets the screen hand the keyboard to the composer. */
   inputRef?: RefObject<TextInput | null>;
   /** Where the chat runs, said quietly under the box. */
@@ -265,7 +228,7 @@ export const Composer = memo(function Composer({
       });
       return;
     }
-    sent(question ? session.answerWith(text, question) : session.send(text, steers));
+    sent(session.send(text, steers));
   };
 
   const attach = (picking: Promise<Attachment[]>) => {
@@ -299,7 +262,6 @@ export const Composer = memo(function Composer({
         style={[styles.composer, yolo ? styles.yoloComposer : focused && { borderColor: colors.borderSelected }]}
         {...pullUp.panHandlers}>
         {yolo ? <YoloEdge radius={BOX_RADIUS} /> : null}
-        {question ? <AnsweringChip question={question} /> : null}
         {attachments.length || chips.length ? (
           <ComposerAttachments
             attachments={attachments}
@@ -424,24 +386,6 @@ const makeStyles = (colors: Palette) => {
     wrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 },
     composer: { padding: 6, borderRadius: BOX_RADIUS, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
     yoloComposer: { borderColor: 'transparent' },
-    answering: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      alignSelf: 'flex-start',
-      gap: 7,
-      maxWidth: '100%',
-      margin: 4,
-      marginBottom: 2,
-      paddingVertical: 6,
-      paddingLeft: 9,
-      paddingRight: 6,
-      borderRadius: 9,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.sunken,
-    },
-    answeringText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
-    answeringX: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
     send: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },

@@ -103,22 +103,18 @@ export function chosenIn(draft: Draft, call: PersonCall): string[] {
   return draft.chosen ?? (call.pick ? [call.pick] : []);
 }
 
-/** Chooses an option, or clears the one chosen; on a call that takes several, ticks it. */
+/** Chooses an option, or clears the one chosen. */
 export function choose(draft: ExternalValue<Draft>, call: PersonCall, option: string) {
   const now = chosenIn(draft.get(), call);
-  const next = now.includes(option) ? now.filter((id) => id !== option) : call.multi ? [...now, option] : [option];
+  const next = now.includes(option) ? now.filter((id) => id !== option) : [option];
   edit(draft, { chosen: next });
 }
 
-/** What answers the call as the card stands: the options chosen with the note, or the person's own words alone. */
-/** A call with nothing to pick that its asker goes on with: Go with this, with nothing typed, lets it stand. */
-export const goesOnAsIs = (call: PersonCall) => !!call.assumption && call.options.length === 0;
-
+/** What answers the call as the card stands: the option chosen with the note, or the person's own words alone. */
 export function answerOf(draft: Draft, call: PersonCall): AnswerCallParams | undefined {
   const words = draft.typed.trim() || undefined;
   const chosen = chosenIn(draft, call);
-  if (!chosen.length) return words ? { id: call.id, words } : goesOnAsIs(call) ? { id: call.id, fine: true } : undefined;
-  if (call.multi) return { id: call.id, options: chosen, note: words };
+  if (!chosen.length) return words ? { id: call.id, words } : undefined;
   return { id: call.id, option: chosen[0], note: words };
 }
 
@@ -169,23 +165,6 @@ export async function answer(
       edit(draft, { typed: '' });
       drafts.delete(call.id);
     }
-  } catch (error) {
-    edit(draft, { sending: false });
-    report(problem(error));
-  }
-}
-
-/** Hands a call back to its asker's lead, or its asker, to decide, once per tap. */
-export async function notMine(
-  connection: ConnectionLike | undefined,
-  call: PersonCall,
-  draft: ExternalValue<Draft>,
-  report: (text: string) => void,
-) {
-  if (draft.get().sending || !connection) return;
-  edit(draft, { sending: true });
-  try {
-    await callHost(connection, 'callNotMine', { id: call.id });
   } catch (error) {
     edit(draft, { sending: false });
     report(problem(error));

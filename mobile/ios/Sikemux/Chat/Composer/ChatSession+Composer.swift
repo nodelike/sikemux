@@ -83,32 +83,6 @@ extension ChatSession {
         outbox.deliver(text, uploaded, waiting: true)
     }
 
-    /// Answers a question with `text` and the files picked for it, named in the answer once they are all on the host.
-    /// The files stay in the composer when the answer did not go out.
-    func answerWith(_ text: String, _ question: ComposerQuestion) async -> Bool {
-        notice = nil
-        var attachments: [Attachment] = []
-        if !draft.attachments.isEmpty {
-            guard !draft.uploading else { return false }
-            do {
-                attachments = try await outbox.put(connection, draft.attachments) { id, change in
-                    self.draft.patch(id, change)
-                }
-            } catch {
-                notice = Sikemux.problem(error)
-                return false
-            }
-            draft.attachments = []
-        }
-        if await question.onAnswer(WrittenAnswer(answer: text, paths: Uploads.paths(attachments), context: draft.chips))
-        {
-            draft.chips = []
-            return true
-        }
-        draft.putBack([], attachments)
-        return false
-    }
-
     /// Puts waiting messages into the running turn now, as one, instead of after it.
     func steer(_ ids: [String]) {
         let ids = outbox.onHostQueue(ids)
@@ -251,11 +225,4 @@ extension ChatSession {
             }
         }
     }
-}
-
-/// What the person wrote for a question and what they sent with it, which the host writes out as one text.
-struct WrittenAnswer: Sendable {
-    var answer: String
-    var paths: [String] = []
-    var context: [ChatContext] = []
 }

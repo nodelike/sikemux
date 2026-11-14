@@ -26,12 +26,10 @@ import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { HostContext } from '@/chat/hostFiles';
 import { WorktreeNote, worktreeOf } from '@/chat/Worktree';
 import { LiveSheet, LiveStrip } from '@/chat/Live';
-import { AssumedQuestion } from '@/chat/Question';
-import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { queueOf, useKept, waitingCall } from '@/calls/hostCalls';
-import { TELL_CHIEF, answering as answeringWords, sendToTold, typeYourAnswer } from '@shared/calls/words';
+import { TELL_CHIEF, sendToTold } from '@shared/calls/words';
 import { AwayCard } from '@/calls/AwayCard';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
@@ -221,13 +219,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const liveShown = hasLiveWork(fresh) && chat.attached === 'live';
   const recalls = !watchOnly && (queued.length > 0 || state.messages.some((message) => message.role === 'user'));
   const strip = liveShown ? <LiveStrip work={work} provider={provider} onOpen={openLive} /> : null;
-  const assumptions = useAssumptions(
-    connection,
-    live.snapshot?.calls,
-    agentId,
-    `${info?.activeAt}|${info?.unread}|${state.running}`,
-    session.report,
-  );
   const input = useRef<TextInput>(null);
   const keptCalls = useKept(core);
   // The hub keeps the host's calls as the same array while none changes, so typing beside a docked call does not
@@ -237,7 +228,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const awayCalls = state.chief ? state.away?.calls : undefined;
   const queue = useMemo(() => queueOf(calls, agentId, awayCalls), [calls, agentId, awayCalls]);
   const docked = waitingCall(queue, keptCalls, agentId);
-  const changing = watchOnly ? null : assumptions.changing;
   const canAnswerCall = !watchOnly && live.status === 'open';
   // The composer says who an idle chat's words go to, as the Mac does: the chief, or a worker the chief hears.
   const composerTo = state.chief
@@ -422,18 +412,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                     canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
                                     onStartOver={startOver}
                                   />
-                                  {assumptions.assumed.map((question) => (
-                                    <AssumedQuestion
-                                      key={question.id}
-                                      question={question}
-                                      canAnswer={!watchOnly}
-                                      onFine={() => assumptions.fine(question)}
-                                      onChange={() => {
-                                        assumptions.change(question);
-                                        input.current?.focus();
-                                      }}
-                                    />
-                                  ))}
                                 </>
                               }
                               contentContainerStyle={styles.content}
@@ -486,21 +464,17 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   commands={state.commands}
                   requests={chat.permissions}
                   answering={chat.answering}
-                  placeholder={
-                    changing
-                      ? typeYourAnswer(changing.name, t)
-                      : composerPlaceholder(
-                          state,
-                          {
-                            resuming: false,
-                            disconnected: live.status !== 'open',
-                            commands: state.commands.length > 0,
-                            steers,
-                            to: composerTo,
-                          },
-                          t,
-                        )
-                  }
+                  placeholder={composerPlaceholder(
+                    state,
+                    {
+                      resuming: false,
+                      disconnected: live.status !== 'open',
+                      commands: state.commands.length > 0,
+                      steers,
+                      to: composerTo,
+                    },
+                    t,
+                  )}
                   permissionMode={chat.permissionMode ?? ''}
                   modeLocked={state.running || chat.permissions.length > 0 || state.connection !== 'ready' || live.status !== 'open'}
                   watchOnly={watchOnly}
@@ -514,16 +488,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   onRecent={recalls ? openRecent : undefined}
                   inputRef={input}
                   place={place}
-                  question={
-                    changing
-                      ? {
-                          chip: answeringWords(changing.name, changing.text, t),
-                          cli: changing.cli,
-                          onRemove: assumptions.stopChanging,
-                          onAnswer: (written) => assumptions.answer(changing, written),
-                        }
-                      : null
-                  }
                 />
               )}
             </HostContext>

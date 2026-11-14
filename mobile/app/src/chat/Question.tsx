@@ -1,13 +1,9 @@
 import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { assumed, CHANGE, FINE } from '@shared/calls/words';
 import { useT } from '@/i18n';
-import type { AgentQuestion } from '@shared/wire.generated';
-import { haptics } from '@/ui/haptics';
-import { Icon } from '@/ui/Icon';
 import { AgentFace } from '@/devices/Buddy';
-import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { fonts, type Palette, useStyles } from '@/ui/theme';
 
 import { Bubble, makeBubbleStyles, TheirBubble } from './Bubble';
 
@@ -70,52 +66,6 @@ export function AnsweredQuestions({
 
 const ASKER_MARK = 16;
 
-/** A question the agent went on without, on the assumption it stated: Fine lets it stand, Change answers it. */
-export function AssumedQuestion({
-  question,
-  canAnswer,
-  onFine,
-  onChange,
-}: {
-  question: AgentQuestion;
-  canAnswer: boolean;
-  onFine: () => void;
-  onChange: () => void;
-}) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const t = useT();
-  const act = (label: string, onPress: () => void) => (
-    <Text
-      style={styles.act}
-      onPress={() => {
-        haptics.select();
-        onPress();
-      }}
-      accessibilityRole="button">
-      {label}
-    </Text>
-  );
-  return (
-    <View style={styles.assumed}>
-      <View style={styles.check}>
-        <Icon name="IconCheck" size={13} color={colors.inkDim} />
-      </View>
-      <Text style={styles.assumedText}>
-        <Text style={styles.name}>@{question.name}</Text> {assumed(question.assumption ?? '', t)}
-        {canAnswer ? (
-          <>
-            {'  ·  '}
-            {act(t(FINE), onFine)}
-            {'   '}
-            {act(t(CHANGE), onChange)}
-          </>
-        ) : null}
-      </Text>
-    </View>
-  );
-}
-
 const makeStyles = (colors: Palette) =>
   StyleSheet.create({
     thread: { gap: 6, marginTop: 14, marginBottom: 6 },
@@ -128,7 +78,6 @@ const makeStyles = (colors: Palette) =>
     kept: { color: colors.tertiary },
     who: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 14, marginBottom: 2 },
     whoText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 11.5, lineHeight: 16, color: colors.inkDim },
-    name: { fontFamily: fonts.uiSemibold, color: colors.ink },
     prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 23, color: colors.ink },
     pickAny: { color: colors.inkFaint },
     options: { gap: 2, marginTop: 6, marginBottom: 4, marginHorizontal: -10 },
@@ -173,10 +122,6 @@ const makeStyles = (colors: Palette) =>
     foldedCount: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim },
     foldedNames: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
     ticket: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkDim, marginLeft: 'auto' },
-    assumed: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, marginTop: 10, marginBottom: 6 },
-    check: { height: 18, justifyContent: 'center' },
-    assumedText: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.inkDim },
-    act: { fontFamily: fonts.uiMedium, color: colors.ink },
     secret: { marginTop: 8, marginBottom: 6, gap: 8 },
     secretField: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
     secretInput: {

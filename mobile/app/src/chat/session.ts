@@ -21,10 +21,9 @@ import { Draft } from './draft';
 import { Feed } from './feed';
 import { Folds } from './folds';
 import type { ChatStore, DraftStore } from './kept';
-import type { WrittenAnswer } from './assumptions';
 import type { DraftToken } from './mentions';
 import { Outbox, type Unsent } from './outbox';
-import { pathsOf, type Attachment } from './uploads';
+import type { Attachment } from './uploads';
 import type { StashItem } from '@/stash/api';
 import type { ContextChip } from '@/stash/words';
 
@@ -299,24 +298,6 @@ export class ChatSession {
   /** Shows a message begun on another screen at once, with its files already on the host, and sends it once the chat is attached. */
   sendWhenAttached = (text: string, uploaded: Attachment[]) => {
     this.outbox.deliver(text, uploaded, true);
-  };
-
-  /**
-   * Answers a question with `text` and the files picked for it, named in the answer once they are all on the
-   * host. The files stay in the composer when the answer did not go out.
-   */
-  answerWith = async (text: string, question: { onAnswer: (written: WrittenAnswer) => Promise<boolean> }): Promise<boolean> => {
-    this.notice = null;
-    const draft = this.draft;
-    const attachments = draft.attachments.length ? await this.upload() : [];
-    if (!attachments) return false;
-    if (await question.onAnswer({ answer: text, paths: pathsOf(attachments), context: draft.chips })) {
-      draft.chips = [];
-      return true;
-    }
-    draft.putBack([], attachments);
-    this.emit();
-    return false;
   };
 
   retrySend = (messageId: string) => {
@@ -656,19 +637,6 @@ export class ChatSession {
     const connection = this.connection;
     if (!connection?.isOpen() || this.attached !== 'live') throw new Error(this.say('the host is not connected'));
     return connection;
-  }
-
-  /** Puts the picked files on the host and takes them out of the composer, or answers null when one did not get there. */
-  private async upload(): Promise<Attachment[] | null> {
-    const draft = this.draft;
-    if (draft.uploading()) return null;
-    try {
-      const sent = await this.outbox.put(this.connection, draft.attachments, (id, change) => draft.patch(id, change));
-      draft.attachments = [];
-      return sent;
-    } catch {
-      return null;
-    }
   }
 
   private busy() {

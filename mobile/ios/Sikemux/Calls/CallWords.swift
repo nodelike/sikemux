@@ -246,14 +246,7 @@ enum CallWords {
     static let ownWords = String(localized: "Or answer in your own words…")
     static let secretField = String(localized: "Type or paste it…")
     static let goWithThis = String(localized: "Go with this")
-    static let notMine = String(localized: "Not mine")
-    /// Tells the asker of a call for a secret that the person has none to give.
-    static let haveNone = String(localized: "I don't have one")
     static let whatRuns = String(localized: "What runs")
-    /// What the asker goes on with until the person answers, above Go with this.
-    static func goesOn(_ name: String, _ assumption: String) -> String {
-        String(localized: "Until you answer, @\(name) goes on assuming \(assumption)")
-    }
     static func kept(_ name: String) -> String {
         String(localized: "Kept private: @\(name) reads it, and it never shows in the chat.")
     }
@@ -280,12 +273,6 @@ enum CallWords {
         let count = trimmed.split(whereSeparator: \.isWhitespace).count
         return !trimmed.isEmpty && trimmed.count <= 20 && count <= 3 ? trimmed : nil
     }
-    /// The composer's chip while it answers an assumption.
-    static func answering(_ name: String, _ question: String) -> String {
-        String(localized: "Answering @\(name) · \(question)")
-    }
-    /// The composer's placeholder while it answers an assumption.
-    static func typeYourAnswer(_ name: String) -> String { String(localized: "Or type your answer to @\(name)") }
 
     /// A weighty call's brief, which stands as its context.
     static func context(_ call: PersonCall) -> String? {
@@ -377,16 +364,6 @@ enum CallWords {
         return String(localized: "\(first) \(second)")
     }
 
-    // MARK: An assumption
-
-    /// After the agent's name: what it went on assuming.
-    static func assumed(_ assumption: String) -> String { String(localized: "assumed \(assumption)") }
-    static let fine = String(localized: "Fine")
-    static let change = String(localized: "Change")
-    static func couldNotRead(_ problem: String) -> String {
-        String(localized: "could not read this agent's questions: \(problem)")
-    }
-
     // MARK: The calls tab
 
     static let calls = String(localized: "Calls")
@@ -410,8 +387,7 @@ enum CallWords {
         case .heard, .unknown, nil: break
         }
         guard let answer = call.answer else { return String(localized: "closed") }
-        if answer.none == true { return String(localized: "had none to give") }
-        let picked = answer.option.map { [$0] } ?? answer.options ?? []
+        let picked = answer.option.map { [$0] } ?? []
         if call.keepsWordsPrivate, picked.isEmpty { return String(localized: "answered, kept private") }
         if answer.words != nil { return String(localized: "in your words") }
         if !picked.isEmpty, picked == call.pick.map({ [$0] }) { return String(localized: "as picked") }
