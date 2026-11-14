@@ -117,7 +117,10 @@ fn ascii(text: &str) -> bool {
 }
 
 fn reaches_nothing(text: &str) -> bool {
-    if text.contains("environment") || text.contains("write-all") {
+    if ["environment", "id-token", "write-all"]
+        .iter()
+        .any(|word| text.contains(word))
+    {
         return false;
     }
     let token = "secrets.github_token";

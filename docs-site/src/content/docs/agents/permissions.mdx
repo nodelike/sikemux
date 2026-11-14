@@ -73,7 +73,7 @@ Sikemux catches these where agents run commands: it stands in for `git`, the dep
 
 ## Changes to CI
 
-Where agents push to GitHub with an App of their own, their key can't change files under `.github/workflows/`, so Sikemux pushes those changes itself. A workflow change waits for you when the file mentions secrets or an environment, or lets its own token write to the repository. The rest go out by themselves. A waiting commit is left out of the agent's push and everything else goes around it, except the agent's commits that can't go without it.
+Where agents push to GitHub with an App of their own, their key can't change files under `.github/workflows/`, so Sikemux pushes those changes itself. A workflow change waits for you when the file mentions secrets, an environment or `id-token`, or lets its own token write to the repository. The rest go out by themselves. A waiting commit is left out of the agent's push and everything else goes around it, except the agent's commits that can't go without it.
 
 You get one call per agent, in its chat, on the notch and on your phone: "@Name wants to change CI:" with the commit's subject, what it changes, and the diff under **What runs**. A new waiting commit from the same agent joins that call. **Push the change** makes Sikemux push what the call lists, with a key that can change workflows, made for that one push and revoked straight after. No agent ever holds that key. **Don't push it** leaves the commits on this Mac, and the agent is told to revert them.
 
