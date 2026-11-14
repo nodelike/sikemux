@@ -180,7 +180,7 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
         let ship = || crate::ship::Ship {
             kind: sikemux_view::inbox::ShipKind::Push,
-            what: "git_commit push".to_owned(),
+            what: "git push origin HEAD".to_owned(),
             target: None,
         };
         let mut not_pushed = None;
