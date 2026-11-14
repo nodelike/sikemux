@@ -305,10 +305,7 @@ export class ChatSession {
    * Answers a question with `text` and the files picked for it, named in the answer once they are all on the
    * host. The files stay in the composer when the answer did not go out.
    */
-  answerWith = async (
-    text: string,
-    question: { onAnswer: (written: WrittenAnswer) => Promise<boolean> },
-  ): Promise<boolean> => {
+  answerWith = async (text: string, question: { onAnswer: (written: WrittenAnswer) => Promise<boolean> }): Promise<boolean> => {
     this.notice = null;
     const draft = this.draft;
     const attachments = draft.attachments.length ? await this.upload() : [];

@@ -31,12 +31,7 @@ import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
 import { queueOf, useKept, waitingCall } from '@/calls/hostCalls';
-import {
-  TELL_CHIEF,
-  answering as answeringWords,
-  sendToTold,
-  typeYourAnswer,
-} from '@shared/calls/words';
+import { TELL_CHIEF, answering as answeringWords, sendToTold, typeYourAnswer } from '@shared/calls/words';
 import { AwayCard } from '@/calls/AwayCard';
 import { useOnScreen } from '@/calls/onScreen';
 import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
