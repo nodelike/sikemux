@@ -306,7 +306,7 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
         &project,
         "theirs.txt",
         "theirs\n",
-        "someone else's, not pushed",
+        "the person's, pushed with the rest",
     );
     worker
         .run("printf 'last\\n' > last.txt && git add last.txt && git commit -qm 'worker: last'")
@@ -324,7 +324,7 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
     moved(&origin, "main", &before).await;
     assert_eq!(
         git(&origin, &["log", "--format=%s", "main"]),
-        "worker: last\nworker: picked\nworker: clash\nworker: one\nmain moves on\nbase"
+        "worker: last\nthe person's, pushed with the rest\nworker: picked\nworker: clash\nworker: one\nmain moves on\nbase"
     );
     let tip = git(&origin, &["rev-parse", "main"]);
     let wrote = lead

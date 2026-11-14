@@ -435,7 +435,7 @@ pub(crate) async fn not_an_agent(client: &ClientConn) -> CoreResult<()> {
     };
     match blocking(move || Ok(super::callers::agent_of(pid))).await? {
         Some(_) => {
-            Err("an agent cannot sign the person in to a service; the person runs this".into())
+            Err("an agent cannot sign the person in to a service; they sign in from the service's pane in Sikemux, so tell them which service needs it".into())
         }
         None => Ok(()),
     }

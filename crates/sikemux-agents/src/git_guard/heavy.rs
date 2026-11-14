@@ -132,6 +132,7 @@ const NEVER_STOOD_IN: &[&str] = &[
 
 /// Compiler caches a build hands rustc to, the first one installed.
 const CACHES: &[&str] = &["kache", "sccache"];
+const KACHE_INCREMENTAL: &str = "KACHE_ADAPTIVE_INCREMENTAL";
 
 /// The programs of the built-in list, which the shim always stands in for.
 pub(crate) fn built_in_programs() -> impl Iterator<Item = &'static str> {
@@ -284,17 +285,31 @@ pub(super) fn path_with(cargo: &Path) -> OsString {
     std::env::join_paths(folders).unwrap_or_default()
 }
 
-/// The compiler cache to hand rustc to, unless the build names its own.
-pub(crate) fn rustc_cache() -> Option<(&'static str, PathBuf)> {
-    if std::env::var_os("RUSTC_WRAPPER").is_some()
-        || sikemux_process::user_environment::var("RUSTC_WRAPPER").is_some()
-    {
-        return None;
+/// The compiler cache to hand rustc to, unless the build names its own. Under
+/// kache, its adaptive incremental mode stays off: it keeps a copy of each
+/// crate's incremental state for 30 days, which filled the disk.
+pub(crate) fn rustc_cache() -> Vec<(String, String)> {
+    let named = std::env::var("RUSTC_WRAPPER")
+        .ok()
+        .or_else(|| sikemux_process::user_environment::var("RUSTC_WRAPPER"));
+    let chosen = match named {
+        Some(_) => None,
+        None => CACHES.iter().find_map(|cache| {
+            sikemux_process::user_environment::find_executables(cache)
+                .into_iter()
+                .next()
+        }),
+    };
+    let wrapper = (chosen.as_ref().map(|path| path.to_string_lossy().into_owned()))
+        .or(named)
+        .unwrap_or_default();
+    let mut env: Vec<(String, String)> = chosen
+        .map(|path| ("RUSTC_WRAPPER".to_owned(), path.to_string_lossy().into_owned()))
+        .into_iter()
+        .collect();
+    let kache = Path::new(&wrapper).file_name().is_some_and(|name| name == "kache");
+    if kache && std::env::var_os(KACHE_INCREMENTAL).is_none() {
+        env.push((KACHE_INCREMENTAL.to_owned(), "0".to_owned()));
     }
-    CACHES.iter().find_map(|cache| {
-        sikemux_process::user_environment::find_executables(cache)
-            .into_iter()
-            .next()
-            .map(|path| ("RUSTC_WRAPPER", path))
-    })
+    env
 }

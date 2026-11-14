@@ -128,7 +128,7 @@ pub fn unlanded(worktree: &AgentWorktree) -> Result<Option<String>, String> {
 fn own_commits(tree: &Path, tip: &str, head: &str) -> Result<Vec<Unpushed>, String> {
     let range = format!("{tip}..{head}");
     if git(tree, &["rev-list", "--merges", "--count", &range])?.trim() != "0" {
-        return Err("Your commits include a merge; land them by hand".into());
+        return Err("Your commits include a merge, which the land queue doesn't take; rebase them onto the branch they land on so they form one line, then land again".into());
     }
     let listed = git(
         tree,

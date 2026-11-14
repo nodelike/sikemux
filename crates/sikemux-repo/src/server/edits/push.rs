@@ -82,8 +82,10 @@ impl Signing {
 }
 
 /// Pushes the unpushed commits on `dir`'s branch made by any of `agents`, or
-/// by agents they lead.
+/// by agents they lead. From the project's own checkout, rather than an
+/// agent's, it pushes every one: what is there already passed the land queue.
 pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<Pushed, String> {
+    let whole_branch = is_main_checkout(dir);
     let sessions: Vec<String> = (agents.iter())
         .filter_map(|agent| core.names().last_session(agent))
         .collect();
@@ -98,14 +100,15 @@ pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<
         if agents.is_empty() {
             if let Some(made_by) = committer::of(core, dir, commit) {
                 return Ok((
-                    is_me(&made_by.chat, made_by.session.as_deref()),
+                    whole_branch || is_me(&made_by.chat, made_by.session.as_deref()),
                     crate::server::names::called(&made_by.name, &made_by.chat),
                 ));
             }
         }
-        let mine = agents
-            .iter()
-            .any(|agent| is_me(&agent.chat, agent.session.as_deref()));
+        let mine = whole_branch
+            || agents
+                .iter()
+                .any(|agent| is_me(&agent.chat, agent.session.as_deref()));
         let names: Vec<String> = (agents.iter())
             .map(|agent| crate::server::names::called(&agent.name, &agent.chat))
             .collect();
@@ -177,7 +180,7 @@ fn push_once(
         return Err(Attempt::Failed(match unpushed.is_empty() {
             true => "Nothing to push: every commit here is on the remote".to_owned(),
             false => format!(
-                "None of the unpushed commits are yours: {}",
+                "Nothing of yours waits to be pushed here. The rest go out with their makers' pushes, or with git_commit push from the project's own checkout, which pushes all it holds: {}",
                 kept(&unpushed).join("; ")
             ),
         }));
@@ -225,7 +228,7 @@ fn push_once(
     let rebased = rebase_branch(signing, top, branch, &head, &rebuilt, moved)?;
     Ok(Pushed {
         note: (!rebased).then(|| format!(
-            "{branch} moved while pushing, so it still holds your pushed commits as they were; git pull --rebase drops them"
+            "{branch} moved while pushing, so it still holds your pushed commits as they were; run git pull --rebase in this checkout to drop them"
         )),
         ..pushed
     })
@@ -393,7 +396,7 @@ fn unpushed(
     let range = fork.map_or_else(|| head.to_owned(), |fork| format!("{fork}..{head}"));
     let merges = git(top, &["rev-list", "--merges", "--count", &range])?;
     if merges.trim() != "0" {
-        return Err("The unpushed commits include a merge; push those by hand".into());
+        return Err("The unpushed commits include a merge, which git_commit doesn't push; rebase them onto the remote's branch in this checkout so they form one line, then push again".into());
     }
     let mut args = vec!["log", "--reverse", "--format=%H%x00%s"];
     let beside = tip.map(|tip| format!("{tip}...{head}"));
@@ -604,6 +607,12 @@ pub fn note_again<Holds: DeserializeOwned>(
     let text = trailers::verify_note(&blob, was, hosts)?;
     serde_json::from_str::<Holds>(text).ok()?;
     Some(trailers::signed_note(text, made_of, key))
+}
+
+/// Whether `dir` is in the repository's own checkout rather than a worktree of it.
+fn is_main_checkout(dir: &Path) -> bool {
+    let path = |what| git(dir, &["rev-parse", "--path-format=absolute", what]).map(line);
+    matches!((path("--git-dir"), path("--git-common-dir")), (Ok(own), Ok(common)) if own == common)
 }
 
 fn tree(top: &Path, commit: &str) -> Result<String, String> {

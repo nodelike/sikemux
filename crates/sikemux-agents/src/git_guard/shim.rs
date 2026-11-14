@@ -163,10 +163,7 @@ pub fn environment(path: Option<&str>) -> Vec<(String, String)> {
     let mut env = vec![("PATH".to_owned(), path)];
     crate::android_sdk::extend(&mut env);
     env.extend(crate::agent_shell::environment());
-    env.extend(
-        super::heavy::rustc_cache()
-            .map(|(name, cache)| (name.to_owned(), cache.to_string_lossy().into_owned())),
-    );
+    env.extend(super::heavy::rustc_cache());
     if let Some(git) = sikemux_process::user_environment::git_program() {
         env.push((
             vars::REAL_GIT.to_owned(),
