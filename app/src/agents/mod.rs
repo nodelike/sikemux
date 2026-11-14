@@ -820,12 +820,8 @@ fn team_rows(
     let mut in_team = false;
     let mut team_members: Vec<&AgentRow> = Vec::new();
     let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(agents.len());
-    // For each row drawn, the project of the chief it hangs under.
-    let mut reports: Vec<Option<String>> = Vec::with_capacity(agents.len());
     let chiefs: Vec<String> = heads.iter().map(|(project, _)| project.clone()).collect();
-    let under_chief = |agent: &AgentRow| {
-        (!agent.chief && chiefs.contains(&agent.project)).then(|| agent.project.clone())
-    };
+    let under_chief = |agent: &AgentRow| !agent.chief && chiefs.contains(&agent.project);
     let mut shown = Vec::new();
     for (ix, agent) in agents.iter().enumerate() {
         if let Some(at) = heads
@@ -834,7 +830,6 @@ fn team_rows(
         {
             for (project, head) in heads.drain(..=at) {
                 drawn.push((format!("chief:{project}"), head));
-                reports.push(None);
             }
         }
         if teams && under_lead(agent) {
@@ -861,7 +856,7 @@ fn team_rows(
                     matches!(next.team, Some(TeamLink::Member | TeamLink::Last))
                 })
         };
-        let flat = under_chief(agent).is_some();
+        let flat = under_chief(agent);
         let fold = match team {
             _ if flat => {
                 folded = false;
@@ -891,7 +886,6 @@ fn team_rows(
         shown.push((agent.id.clone(), agent.clone()));
         let row = agent_row(bench, agent, team.filter(|_| !flat), fold, glided, cx);
         drawn.push((agent.id.clone(), row.into_any_element()));
-        reports.push(under_chief(agent));
         if team.is_some() && !folded && !continues(ix + 1) {
             let workers = remote_of(&team_members);
             let last = workers.len().saturating_sub(1);
@@ -910,7 +904,6 @@ fn team_rows(
                     row.id.clone(),
                     agent_row(bench, &row, (!flat).then_some(link), None, glided, cx),
                 ));
-                reports.push(under_chief(agent));
                 shown.push((row.id.clone(), row));
             }
         }
@@ -920,7 +913,6 @@ fn team_rows(
             .into_iter()
             .map(|(project, head)| (format!("chief:{project}"), head)),
     );
-    let drawn = under_chiefs(drawn, &reports, cx);
     let view = format!(
         "{}:{}:{}",
         bench.rails.all_projects,
@@ -956,48 +948,6 @@ fn team_rows(
     let chosen = Tokens::get(cx).surface_chosen;
     let copy = glide.copy(move |copy| copy.rounded(theme::RADIUS_2).bg(chosen));
     (copy, rows)
-}
-
-/// Hangs every agent in a project with a chief one level under the chief's row: a spine down
-/// from the chief and a tick to each agent.
-fn under_chiefs(
-    drawn: Vec<(String, AnyElement)>,
-    reports: &[Option<String>],
-    cx: &App,
-) -> Vec<(String, AnyElement)> {
-    let last_direct = |project: &str| {
-        reports
-            .iter()
-            .rposition(|report| report.as_deref() == Some(project))
-    };
-    drawn
-        .into_iter()
-        .enumerate()
-        .map(|(at, (id, row))| {
-            let (lines, indent) = match (
-                id.strip_prefix("chief:"),
-                reports.get(at).cloned().flatten(),
-            ) {
-                (Some(project), _) if last_direct(project).is_some() => {
-                    (team_lines(Some(TeamLink::Head), true, cx), false)
-                }
-                (_, Some(project)) => {
-                    let link = match last_direct(&project) == Some(at) {
-                        true => TeamLink::Last,
-                        false => TeamLink::Member,
-                    };
-                    (team_lines(Some(link), false, cx), true)
-                }
-                _ => return (id, row),
-            };
-            let row = div()
-                .relative()
-                .children(lines)
-                .child(div().when(indent, |row| row.pl(px(18.))).child(row))
-                .into_any_element();
-            (id, row)
-        })
-        .collect()
 }
 
 /// The spine and tick that hang a team's rows under its lead.
