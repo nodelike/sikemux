@@ -281,14 +281,9 @@ pub fn call_answered(core: &Core, call: &PersonCall) {
 }
 
 /// Whether the person's answer to a production call may open its place: it came from the
-/// app, the notch or a paired phone, an option was picked there, and the work is still the
+/// app, the notch or a paired phone, an option or options were picked there, and the work is still the
 /// work the call showed.
-pub fn may_pass(
-    _core: &Core,
-    call: &PersonCall,
-    peer: &Peer,
-    option: Option<&str>,
-) -> Result<(), String> {
+pub fn may_pass(_core: &Core, call: &PersonCall, peer: &Peer, picked: bool) -> Result<(), String> {
     if call.kind != CallKind::Production {
         return Ok(());
     }
@@ -298,9 +293,9 @@ pub fn may_pass(
                 .into(),
         );
     }
-    match option {
-        Some(_) => Ok(()),
-        None => Err("a production place passes only on the call's button".into()),
+    match picked {
+        true => Ok(()),
+        false => Err("a production place passes only on the call's button".into()),
     }
 }
 

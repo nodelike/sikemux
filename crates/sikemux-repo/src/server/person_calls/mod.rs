@@ -1053,13 +1053,8 @@ pub fn seen(core: &Core, peer: &Peer, params: CallParams) -> CoreResult<()> {
 }
 
 /// Whether a production place may open on this answer. The gates by place decide it.
-fn may_pass(
-    core: &Core,
-    call: &PersonCall,
-    peer: &Peer,
-    option: Option<&str>,
-) -> Result<(), String> {
-    super::places::may_pass(core, call, peer, option)
+fn may_pass(core: &Core, call: &PersonCall, peer: &Peer, picked: bool) -> Result<(), String> {
+    super::places::may_pass(core, call, peer, picked)
 }
 
 /// What the person's answer is, as the call keeps it, and what they typed with it. A secret is
@@ -1172,7 +1167,12 @@ pub async fn answer(core: &Arc<Core>, peer: &Peer, params: AnswerCallParams) -> 
                     .into(),
             );
         }
-        may_pass(core, &call, peer, answer.option.as_deref())?;
+        may_pass(
+            core,
+            &call,
+            peer,
+            answer.option.is_some() || !answer.options.is_empty(),
+        )?;
     }
     let (call, source) = core.person_calls().take_answer(&call.id, answer)?;
     if let Err(error) = core.person_calls().starting_on_yes(&call.id) {
@@ -1330,7 +1330,12 @@ fn answered_before(
     let call = call_of(core, &id)?;
     let given = answer(&call, client);
     if call.kind == CallKind::Production {
-        may_pass(core, &call, peer, given.option.as_deref())?;
+        may_pass(
+            core,
+            &call,
+            peer,
+            given.option.is_some() || !given.options.is_empty(),
+        )?;
     }
     core.person_calls().take_answer(&id, given)?;
     if let Err(error) = core.person_calls().starting_on_yes(&id) {
@@ -1477,7 +1482,7 @@ async fn answer_gate(core: &Arc<Core>, peer: &Peer, id: &str, option: &str) -> C
     if !call.options.iter().any(|known| known.id == option) {
         return Err("that is not one of the call's options".into());
     }
-    may_pass(core, &call, peer, Some(option))?;
+    may_pass(core, &call, peer, true)?;
     let given = CallAnswer {
         option: Some(option.to_owned()),
         options: Vec::new(),

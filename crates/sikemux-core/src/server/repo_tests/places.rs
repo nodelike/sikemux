@@ -347,8 +347,8 @@ async fn a_yes_covers_its_own_job_once() {
         call.cloned().unwrap()
     };
     let (first, second) = (of_job("prod/deploy"), of_job("prod/deploy-again"));
-    assert!(may_pass(&core, &first, &Peer::Local, Some("allow")).is_err());
-    assert!(may_pass(&core, &first, &Peer::App, None).is_err());
+    assert!(may_pass(&core, &first, &Peer::Local, true).is_err());
+    assert!(may_pass(&core, &first, &Peer::App, false).is_err());
     let answer = |id: &str, option: &'static str| {
         let (core, hold) = (
             core.clone(),
