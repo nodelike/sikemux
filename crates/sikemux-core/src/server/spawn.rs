@@ -6,7 +6,6 @@
 
 pub(crate) use super::chat::Ending;
 use crate::server::activity::ActivityCore;
-use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
@@ -35,7 +34,7 @@ use super::follow::{self, TerminalAnswer};
 use super::hosts::spawn::{self as elsewhere, Hired};
 use super::launching;
 use super::messages;
-use super::names::{Adopted, AgentName, Unhired, Worker};
+use super::names::{Adopted, AgentName, Worker};
 use super::overlap;
 use super::saved::{self, Saved};
 use super::workspace::{new_agent, LauncherId};
@@ -145,8 +144,6 @@ struct Started {
     chat: Arc<chat::Chat>,
     /// The checkout of its own it works in, set up before it gets its task.
     checkout: Option<Box<AgentWorktree>>,
-    /// The agent of its lead's that was closed to make room for it.
-    made_room: Option<String>,
 }
 
 /// How the calling agent runs and where, for its worker to do the same.
@@ -191,51 +188,15 @@ pub(crate) fn lead_of(
 /// Names a worker for its lead, one spawn at a time.
 pub(crate) fn hire(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
     let _one_at_a_time = core.harness().spawning.one_at_a_time();
-    hire_held(core, worker).map(|(named, _)| named)
+    hire_held(core, worker)
 }
 
-/// Names a worker for its lead while this spawn already holds its turn. When the lead has as
-/// many open as it may, closes one of its own that is done with all its work committed first,
-/// and answers which.
-fn hire_held(core: &Core, worker: Worker<'_>) -> Result<(AgentName, Option<String>), String> {
+/// Names a worker for its lead while this spawn already holds its turn.
+fn hire_held(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
     let lead = worker.lead.to_owned();
-    let (named, closed) = match core.names().hire(worker.clone(), open(core)) {
-        Err(Unhired::Full(why)) => {
-            let closed = make_room(core, &lead).map_err(|done| format!("{why}.{done}"))?;
-            (core.names().hire(worker, open(core))?, Some(closed))
-        }
-        hired => (hired?, None),
-    };
+    let named = core.names().hire(worker, open(core))?;
     super::board::chat_goal::hired(core, &lead);
-    Ok((named, closed))
-}
-
-/// Closes the oldest agent `lead` started that is done, with nothing uncommitted or left to
-/// land, and answers its name. Otherwise says which are done but still hold work.
-fn make_room(core: &Core, lead: &str) -> Result<String, String> {
-    let open = core.open_agents();
-    let done: Vec<String> = (core.names().workers(lead).into_iter())
-        .filter(|worker| open.contains(worker))
-        .filter(|worker| {
-            let now = core.agent_now(worker);
-            !now.maybe_mid_turn() && !now.waits_on_something() && !now.workers_busy(worker)
-        })
-        .collect();
-    let mut holding = Vec::new();
-    for worker in done {
-        if held_work(core, &worker).is_some() {
-            holding.push(super::messages::called_now(core, &worker));
-        } else if super::workspace::close(core, std::slice::from_ref(&worker)).is_ok() {
-            return Ok(core.names().name_or_id(&worker));
-        }
-    }
-    Err(match holding.as_slice() {
-        [] => " None of yours is done yet".to_owned(),
-        _ => format!(
-            " Done but holding uncommitted or unlanded work: {}; have them commit and land, then close them with agent_close",
-            holding.join(", ")
-        ),
-    })
+    Ok(named)
 }
 
 /// What the agent holds that closing it would leave behind: files it changed and has not
@@ -321,7 +282,6 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
             parent: Some(&plan.lead_id),
             provider: &plan.provider,
             reports: plan.reports,
-            depth: 0,
         },
         open(core),
     );
@@ -350,7 +310,6 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
         reports: plan.reports,
         chat,
         checkout: None,
-        made_room: None,
     };
     let reports = started.reports;
     let core = core.clone();
@@ -449,7 +408,6 @@ fn start(
     }
     launch.resume_id = resume.map(|saved| saved.session_id.clone());
     let project = core.workspaces().project_of(&launch.cwd);
-    let mut made_room = None;
     let (agent_id, named) = match hired {
         Some(hired) => {
             let named = core.names().adopt(
@@ -460,7 +418,6 @@ fn start(
                     parent: Some(&lead_id),
                     provider: &provider,
                     reports,
-                    depth: 0,
                 },
                 open(core),
             );
@@ -473,7 +430,7 @@ fn start(
                 }
                 None => crate::server::names::new_agent_id(),
             };
-            let (named, closed) = hire_held(
+            let named = hire_held(
                 core,
                 Worker {
                     agent_id: &agent_id,
@@ -484,7 +441,6 @@ fn start(
                     reports,
                 },
             )?;
-            made_room = closed;
             (agent_id, named)
         }
     };
@@ -525,7 +481,6 @@ fn start(
         checkout: (checkout.0.take())
             .or_else(|| resumed.filter(|resumed| resumed.made_again)?.worktree)
             .map(Box::new),
-        made_room,
     }))
 }
 
@@ -642,9 +597,8 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         "resumed": saved.as_ref().map(|saved| &saved.session_id),
         "reportsBack": reports,
         "note": format!(
-            "{starting} and gets your prompt once it is ready.{}{}{}",
+            "{starting} and gets your prompt once it is ready.{}{}",
             if reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" },
-            room_made(started.made_room.as_deref()),
             if unproved { UNPROVED_SETUP } else { "" },
         ),
     });
@@ -760,12 +714,6 @@ fn woken_by_answers(mut answer: Value, reports: bool) -> Value {
 /// was never proved on a fresh checkout.
 const UNPROVED_SETUP: &str = " This project's setup is not proved on a fresh checkout, so checkouts may share ports and miss steps: load the project-setup skill and follow it.";
 
-fn room_made(closed: Option<&str>) -> String {
-    closed.map_or_else(String::new, |name| {
-        format!(" You had as many agents open as you may, so Sikemux closed {name}, which was done with its work committed; its chat stays in Recent.")
-    })
-}
-
 /// Gives the new agent its task once it is ready, or tells its lead it
 /// never got there.
 async fn hand_task(core: &Arc<Core>, started: Started, prompt: String) {
@@ -829,7 +777,6 @@ struct Opening {
     lead_name: String,
     lead_cli: String,
     reports: bool,
-    made_room: Option<String>,
 }
 
 /// Names a terminal worker and says how it runs, for the window to open it.
@@ -868,7 +815,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
     });
     let effort = effort_param(params, &provider)?;
     let agent_id = crate::server::names::new_agent_id();
-    let (named, made_room) = hire_held(
+    let named = hire_held(
         core,
         Worker {
             agent_id: &agent_id,
@@ -896,7 +843,6 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
         lead_id,
         lead_name,
         reports,
-        made_room,
     })
 }
 
@@ -999,10 +945,9 @@ async fn spawn_terminal(
         "mode": "terminal",
         "reportsBack": opening.reports,
         "note": format!(
-            "{} is starting in a terminal tab and gets your prompt once its prompt box shows.{}{}",
+            "{} is starting in a terminal tab and gets your prompt once its prompt box shows.{}",
             opening.name,
             if opening.reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" },
-            room_made(opening.made_room.as_deref()),
         ),
     });
     Ok(woken_by_answers(answer, reports))

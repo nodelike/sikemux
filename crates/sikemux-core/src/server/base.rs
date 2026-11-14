@@ -454,7 +454,6 @@ async fn hand_over(
             name: "Auto".to_owned(),
             cli: handed.provider,
             mode: Some(handed.mode),
-            depth: 0,
         },
         model: handed.model,
         effort: None,

@@ -131,7 +131,6 @@ pub(crate) async fn spawn(
         .names()
         .name(&lead_id)
         .unwrap_or_else(|| lead_id.clone());
-    let depth = core.names().depth(&lead_id);
     let Handed {
         name,
         answer,
@@ -149,7 +148,6 @@ pub(crate) async fn spawn(
                 name: lead_name,
                 cli: lead.provider.clone(),
                 mode: lead.permission_mode.map(|mode| mode.as_str().to_owned()),
-                depth,
             },
             model,
             effort,
@@ -457,8 +455,6 @@ pub(crate) struct LeadParams {
     #[serde(default)]
     pub cli: String,
     pub mode: Option<String>,
-    #[serde(default)]
-    pub depth: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -690,7 +686,6 @@ pub(super) fn take_lead(core: &Core, host: &str, lead: &LeadParams, project: &st
                 parent: None,
                 provider: &lead.cli,
                 reports: true,
-                depth: lead.depth,
             },
             core.open_agents(),
         );

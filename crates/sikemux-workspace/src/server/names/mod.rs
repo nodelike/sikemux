@@ -42,8 +42,6 @@ pub fn new_agent_id() -> String {
 const STARTING_MS: u64 = 10 * 60 * 1000;
 const MAX_NAME_CHARS: usize = 24;
 /// How many agents below one the person started may start agents of their own.
-const MAX_DEPTH: usize = 2;
-const MAX_CHILDREN: usize = 16;
 pub const MAX_SPAWNED_PER_PROJECT: usize = 64;
 /// How many closed agents' sessions are kept, newest first.
 const MAX_CLOSED_SESSIONS: usize = 4096;
@@ -72,10 +70,6 @@ struct Entry {
     provider: Option<String>,
     /// The provider's own session.
     session_id: Option<String>,
-    /// How many leads above it run on other hosts, for an agent whose own
-    /// lead runs on another host.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    above: usize,
     /// When it was named, in Unix milliseconds.
     at: u64,
     /// It has been open since it was named, so closing lets its name go.
@@ -189,21 +183,6 @@ pub struct Returned {
     pub same_name: bool,
 }
 
-/// Why a lead may not start another agent.
-pub enum Unhired {
-    /// The lead, or its project, has as many agents open as it may.
-    Full(String),
-    Refused(String),
-}
-
-impl From<Unhired> for String {
-    fn from(unhired: Unhired) -> Self {
-        match unhired {
-            Unhired::Full(why) | Unhired::Refused(why) => why,
-        }
-    }
-}
-
 /// An agent another agent starts.
 #[derive(Clone)]
 pub struct Worker<'a> {
@@ -236,8 +215,6 @@ pub struct Adopted<'a> {
     pub parent: Option<&'a str>,
     pub provider: &'a str,
     pub reports: bool,
-    /// How far below the person's own agent its lead's host has it.
-    pub depth: usize,
 }
 
 pub struct Names {
@@ -277,11 +254,6 @@ impl Names {
         *self.pinned.locked() = agent_ids;
     }
 
-    /// How many agents up the chain of leads the person's own agent is.
-    pub fn depth(&self, agent_id: &str) -> usize {
-        self.book.locked().depth(agent_id)
-    }
-
     /// Takes in an agent named on a linked host, under that name unless an
     /// open agent of its project here has it. `open` holds the agents
     /// open here.
@@ -304,10 +276,6 @@ impl Names {
                 && !open.contains(&entry.agent_id)
                 && same(&entry.name, &name)
         });
-        let above = match adopted.parent {
-            Some(_) => 0,
-            None => adopted.depth,
-        };
         let entry = Entry {
             agent_id: adopted.agent_id.to_owned(),
             name,
@@ -318,7 +286,6 @@ impl Names {
             by_auto: false,
             provider: Some(adopted.provider.to_owned()),
             session_id: None,
-            above,
             at: epoch_ms(),
             seen: false,
             chosen: false,
@@ -350,7 +317,6 @@ impl Names {
                 by_auto: false,
                 provider: None,
                 session_id: None,
-                above: 0,
                 at: epoch_ms(),
                 seen: false,
                 chosen: true,
@@ -430,9 +396,9 @@ impl Names {
         (named, changed)
     }
 
-    /// Names a worker for `worker.lead`, in the project it opens in, unless
-    /// the lead may not start another. `open` holds the agents open here.
-    pub fn hire(&self, worker: Worker<'_>, open: HashSet<String>) -> Result<AgentName, Unhired> {
+    /// Names a worker for `worker.lead`, in the project it opens in. `open`
+    /// holds the agents open here.
+    pub fn hire(&self, worker: Worker<'_>, open: HashSet<String>) -> Result<AgentName, String> {
         let mut book = self.book.locked();
         let open = self.open_with(open);
         book.release(&open);
@@ -441,34 +407,8 @@ impl Names {
             .iter()
             .find(|entry| entry.agent_id == worker.lead)
             .cloned()
-            .ok_or_else(|| {
-                Unhired::Refused("Sikemux has not named you yet; try again in a moment".into())
-            })?;
-        if book.depth(worker.lead) >= MAX_DEPTH {
-            return Err(Unhired::Refused(format!(
-                "{} is already {MAX_DEPTH} levels below an agent the person started, so it cannot start agents; do this work yourself or hand it back to your lead",
-                lead.name
-            )));
-        }
+            .ok_or("Sikemux has not named you yet; try again in a moment")?;
         let project = worker.project.unwrap_or_else(|| lead.project.clone());
-        let live = |entry: &&Entry| open.contains(&entry.agent_id);
-        let children = book
-            .agents
-            .iter()
-            .filter(live)
-            .filter(|entry| entry.parent.as_deref() == Some(worker.lead))
-            .count();
-        if children >= MAX_CHILDREN {
-            return Err(Unhired::Full(format!(
-                "{} already has {MAX_CHILDREN} agents of its own open, the most one agent may have; give one of them the work, or close one that is done with agent_close",
-                lead.name
-            )));
-        }
-        if book.started_open(&project, &open) >= MAX_SPAWNED_PER_PROJECT {
-            return Err(Unhired::Full(format!(
-                "this project already has {MAX_SPAWNED_PER_PROJECT} agents open that agents or Auto started, the most it may have; give one of them the work, or close one of yours that is done with agent_close"
-            )));
-        }
         let away = self.pinned.locked().clone();
         if book
             .restore(worker.agent_id, &project, &open, &away)
@@ -500,7 +440,6 @@ impl Names {
             by_auto: false,
             provider: Some(worker.provider.to_owned()),
             session_id: worker.session.map(str::to_owned),
-            above: 0,
             at: epoch_ms(),
             seen: false,
             chosen: false,
@@ -1002,25 +941,6 @@ impl Book {
         self.closed_leads.retain(|id, _| needed.contains(id));
     }
 
-    /// How many agents up the chain of leads the person's own agent is.
-    fn depth(&self, agent_id: &str) -> usize {
-        let mut depth = 0;
-        let mut current = agent_id;
-        while let Some(parent) = self.parent(current) {
-            depth += 1;
-            if depth > self.agents.len() + self.closed_leads.len() {
-                break;
-            }
-            current = parent;
-        }
-        let above = self
-            .agents
-            .iter()
-            .find(|entry| entry.agent_id == current)
-            .map_or(0, |entry| entry.above);
-        depth + above
-    }
-
     fn entry_mut(&mut self, agent_id: &str) -> Option<&mut Entry> {
         self.agents
             .iter_mut()
@@ -1100,7 +1020,6 @@ impl Book {
             by_auto: false,
             provider: provider.map(str::to_owned),
             session_id: resume_id.map(str::to_owned),
-            above: 0,
             at: epoch_ms(),
             seen: false,
             chosen: false,
@@ -1157,7 +1076,6 @@ impl Book {
             by_auto: closed.by_auto,
             provider: Some(closed.ran.provider),
             session_id: Some(closed.ran.session_id),
-            above: 0,
             at: epoch_ms(),
             seen: false,
             chosen,
@@ -1243,10 +1161,6 @@ impl Book {
         });
         removed || seen
     }
-}
-
-fn is_zero(value: &usize) -> bool {
-    *value == 0
 }
 
 fn same(a: &str, b: &str) -> bool {

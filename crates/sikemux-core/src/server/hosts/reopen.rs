@@ -77,7 +77,6 @@ pub(crate) async fn reopen(
             parent: Some(&lead_id),
             provider: &closed.cli,
             reports,
-            depth: 0,
         },
         core.open_agents(),
     );
@@ -100,7 +99,6 @@ pub(crate) async fn reopen(
             name: core.names().name_or_id(&lead_id),
             cli: lead.provider.clone(),
             mode: lead.permission_mode.map(|mode| mode.as_str().to_owned()),
-            depth: core.names().depth(&lead_id),
         },
         reports,
         prompt,

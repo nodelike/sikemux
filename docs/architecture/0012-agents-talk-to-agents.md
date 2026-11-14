@@ -61,8 +61,7 @@ MCP server every agent is launched with.
 - **A spawned agent is a full agent.** It opens in its own tab, takes its lead's account
   and permission mode (the lead may pick the CLI and model, never the mode), and is
   recorded with the agent that spawned it. When its turn ends, its final answer goes to its
-  lead. Spawning is capped at two levels deep, six children per agent and eight spawned
-  agents per project.
+  lead. Spawning has no cap on depth or count.
 - **Questions go to the lead first.** An `ask` tool, which Claude's own `AskUserQuestion`
   routes into, sends a worker's question to its lead; the lead answers or passes it to the
   person. Codex's and Muse's own questions go the same way. A lead's message closes only the
@@ -121,9 +120,11 @@ MCP server every agent is launched with.
   ([ADR 0013](./0013-hosts-link-to-run-agents-for-each-other.md)), and starts the worker there
   on that host's own sign-in, in a checkout of its own of the lead's code. The worker is
   addressed by its host and its agent id and shown as "Otter on studio". Messages, reports,
-  questions, `agent_read` and `agent_wait` work across the link under the same rules, the caps
-  count the team on every host, and the worker's commits come back to a branch in the lead's
-  checkout before each report.
+  questions, `agent_read` and `agent_wait` work across the link under the same rules, and the
+  worker's commits come back to a branch in the lead's checkout before each report.
+- 2026-11-15: the caps on spawning (how deep, how many per agent, how many per project) are
+  gone. They stopped a lead from running a large team, and a refused spawn only made the
+  agent do the work itself or close a teammate it still needed.
 
 ## Alternatives considered
 
