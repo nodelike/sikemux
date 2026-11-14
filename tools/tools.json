@@ -279,7 +279,7 @@
       "description": "Batch navigate, click, type, wait, read.",
       "properties": {
         "steps": {
-          "description": "Up to 20, each with its tool's fields, run in order until one fails; wait after a step that loads a page; name elements by text, field or selector",
+          "description": "Up to 20, run in order until one fails; add a wait after a step that loads a page",
           "type": "array",
           "minItems": 1,
           "maxItems": 20,
@@ -298,7 +298,7 @@
                 "enum": ["back", "forward", "reload"]
               },
               "field": {
-                "description": "type: a field's label, placeholder or name; a select picks the option the text names",
+                "description": "type: a field's label, placeholder or name",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 500
@@ -345,7 +345,7 @@
                 "maxLength": 40
               },
               "selector": {
-                "description": "read: the elements whose text to return; without one, the page",
+                "description": "read: whose text to return; default the page",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 512
@@ -779,7 +779,7 @@
           "maxLength": 20000
         },
         "stable": {
-          "description": "A selector; until its text stops changing for quietMs",
+          "description": "A selector; until its text holds for quietMs",
           "type": "string",
           "minLength": 1,
           "maxLength": 512
@@ -1762,13 +1762,13 @@
           "maxLength": 200
         },
         "repo": {
-          "description": "Repository to cut it from, in a folder of repositories",
+          "description": "Repository to cut it from",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
         "resume": {
-          "description": "sessionId, or a closed linked-host worker's name",
+          "description": "sessionId, or a closed linked-host worker",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -2347,7 +2347,7 @@
           "maxLength": 1000
         },
         "about": {
-          "description": "Paths and services; knowledge reaches agents naming one",
+          "description": "Paths and services it is about",
           "type": "array",
           "maxItems": 12,
           "items": {
@@ -2428,7 +2428,7 @@
           "description": "What is so instead"
         },
         "wrong": {
-          "description": "Why it no longer holds, when you do not know what does",
+          "description": "Why it no longer holds",
           "type": "string",
           "minLength": 1,
           "maxLength": 1000
@@ -2437,7 +2437,7 @@
           "type": "boolean"
         },
         "about": {
-          "description": "Paths and services; knowledge reaches agents naming one",
+          "description": "Paths and services it is about",
           "type": "array",
           "maxItems": 12,
           "items": {
@@ -2531,7 +2531,7 @@
           "maxLength": 5
         },
         "board": {
-          "description": "Fire as a card on this project's board, not a prompt",
+          "description": "Add a board card instead of prompting this chat",
           "type": "boolean"
         },
         "webhook": {
@@ -2545,7 +2545,7 @@
           "maxLength": 4096
         },
         "ci": {
-          "description": "Fire once CI ends on this commit, branch, or run address or id",
+          "description": "Fire once CI ends on this commit, branch or run",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -2571,13 +2571,13 @@
           "type": "string"
         },
         "timeout": {
-          "description": "Seconds process or agent waits before firing anyway",
+          "description": "Seconds to wait before firing anyway",
           "type": "integer",
           "minimum": 60,
           "maximum": 86400
         },
         "weekdays": {
-          "description": "With daily: the days it fires; default every day",
+          "description": "With daily; default every day",
           "type": "array",
           "maxItems": 7,
           "items": {
