@@ -96,6 +96,9 @@ struct Letter {
     paths: Vec<String>,
     /// It waits for an agent that has stopped, as an answer does, rather than being refused.
     waits: bool,
+    /// It carries something the person just did, such as a click on a step or an answer to a
+    /// call, so the agent reads it soon after its turn, as it would the person's own words.
+    awaited: bool,
 }
 
 /// A question the person answered, and the agent that asked it.
@@ -207,6 +210,7 @@ impl Letter {
             puts: None,
             paths: Vec::new(),
             waits: false,
+            awaited: false,
         }
     }
 
@@ -238,6 +242,8 @@ struct MailboxRecord {
 struct Origin {
     from: String,
     kind: MessageKind,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    awaited: bool,
 }
 
 /// A message waiting for its agent, as the agent reads it.
@@ -263,15 +269,14 @@ fn by_person<'a>(queued: impl IntoIterator<Item = &'a Queued>) -> bool {
         .all(|queued| (queued.origin.as_ref()).is_some_and(|origin| origin.from == person))
 }
 
-/// Whether anyone waits on one of `queued`: the person's words, or an answer the agent asked for.
-/// Those are read soon after a turn, and never wait for the person.
+/// Whether anyone waits on one of `queued`: the person's words or something they just did, or an
+/// answer the agent asked for. Those are read soon after a turn, and never wait for the person.
 fn awaited<'a>(queued: impl IntoIterator<Item = &'a Queued>) -> bool {
     let person = Sender::Person.id();
     queued.into_iter().any(|queued| {
-        queued
-            .origin
-            .as_ref()
-            .is_none_or(|origin| origin.from == person || origin.kind == MessageKind::Answer)
+        queued.origin.as_ref().is_none_or(|origin| {
+            origin.awaited || origin.from == person || origin.kind == MessageKind::Answer
+        })
     })
 }
 
@@ -617,6 +622,7 @@ impl Mailbox {
             if let Some(Origin {
                 from,
                 kind: MessageKind::Report,
+                ..
             }) = &queued.origin
             {
                 let (older, kept) = std::mem::take(waiting).into_iter().partition(|waiting| {
@@ -752,6 +758,7 @@ pub(crate) fn task(
         puts: None,
         paths: Vec::new(),
         waits: false,
+        awaited: false,
         note: Some(format!(
             "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person: report to it. {answer}"
         )),
@@ -785,6 +792,7 @@ pub(crate) async fn hand_task(
         origin: Some(Origin {
             from,
             kind: MessageKind::Message,
+            awaited: false,
         }),
         mark: None,
         paths: Vec::new(),
@@ -1027,6 +1035,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     origin: Some(Origin {
                         from: from.clone(),
                         kind: MessageKind::Message,
+                        awaited: false,
                     }),
                     mark: None,
                     paths: Vec::new(),
@@ -1173,6 +1182,7 @@ async fn carry(
         origin: Some(Origin {
             from: letter.from_id.clone(),
             kind: letter.kind,
+            awaited: letter.awaited,
         }),
         mark: None,
         paths: Vec::new(),
@@ -1238,6 +1248,7 @@ pub(crate) async fn from_host(
         puts: None,
         paths: Vec::new(),
         waits: false,
+        awaited: false,
     };
     if let Some((branch, count)) = landed {
         letter.text.push_str(&format!(
@@ -1375,6 +1386,7 @@ pub(crate) async fn answer(
             puts: None,
             paths,
             waits: false,
+            awaited: false,
         }
     });
     let mut letter = letters.next().ok_or("there is no answer to send")?;
@@ -1498,12 +1510,13 @@ pub(crate) async fn step_from_person(
 ) -> Result<Value, String> {
     let target = running(core, to).await?;
     person_wrote(core, &target.agent_id);
-    let letter = Letter::from_sender(
+    let mut letter = Letter::from_sender(
         Sender::Sikemux,
         MessageKind::Message,
         text,
         Some("Sent by Sikemux because the person took this step on your turn's line with one click; the words are Sikemux's, not theirs.".to_owned()),
     );
+    letter.awaited = true;
     deliver(core, &target, letter).await
 }
 
@@ -1548,6 +1561,7 @@ pub(crate) async fn for_person_waiting(
         ),
     );
     letter.waits = true;
+    letter.awaited = true;
     deliver(core, &target, letter).await
 }
 
@@ -1560,7 +1574,7 @@ pub(crate) async fn for_person(
     text: String,
 ) -> Result<Value, String> {
     let target = running(core, to).await?;
-    let letter = Letter::from_sender(
+    let mut letter = Letter::from_sender(
         Sender::Sikemux,
         MessageKind::Message,
         text,
@@ -1568,6 +1582,7 @@ pub(crate) async fn for_person(
             "Sent by Sikemux with the person's answer about an action it held for them.".to_owned(),
         ),
     );
+    letter.awaited = true;
     deliver(core, &target, letter).await
 }
 
@@ -1653,6 +1668,7 @@ fn letter_from(
         puts: None,
         paths: Vec::new(),
         waits: false,
+        awaited: false,
     }
 }
 
@@ -1718,6 +1734,7 @@ async fn deliver_as(
         origin: Some(Origin {
             from: letter.from_id.clone(),
             kind: letter.kind,
+            awaited: letter.awaited,
         }),
         mark: letter.puts.clone(),
         paths: letter.paths.clone(),
