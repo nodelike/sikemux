@@ -23,8 +23,9 @@ enum Glances {
     private static var usagesRead: [String: Date] = [:]
     /// The push token of each host's Live Activity, as the phone last heard it.
     private static var tokens: [String: String] = [:]
-    /// What each host was last told of its Live Activity's token, empty once told there is none.
-    private static var handed: [String: String] = [:]
+    /// What each host was last told of its Live Activity's token, empty once told there is none, and on which
+    /// connection, since a host forgets the token when it restarts.
+    private static var handed: [String: (connection: ObjectIdentifier, token: String)] = [:]
     private static var following: Set<String> = []
 
     static func signIn() {
@@ -168,8 +169,9 @@ enum Glances {
         for activity in Activity<AgentsActivity>.activities { follow(activity) }
         for (core, connection) in Hub.shared.openConnections {
             let token = tokens[core]
-            guard handed[core] != token ?? "" else { continue }
-            handed[core] = token ?? ""
+            let told = (connection: ObjectIdentifier(connection), token: token ?? "")
+            if let last = handed[core], last == told { continue }
+            handed[core] = told
             do {
                 _ = try await connection.call(PhoneCall.LiveActivity.self, ActivityParams(token: token))
             } catch {
