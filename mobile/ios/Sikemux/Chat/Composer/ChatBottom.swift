@@ -14,12 +14,8 @@ struct ChatBottom: View {
 
     var body: some View {
         let rows = session.rows
-        let calls = HostCalls.of(context.core)
         let assumptions = Assumptions.of(context.core, context.agentId)
-        let waiting = context.watchOnly ? nil : calls.composing(for: context.agentId)
-        // A call that keeps its words private comes before a change to an assumption, so they never go anywhere else.
-        let changing = context.watchOnly || waiting?.keepsWordsPrivate == true ? nil : assumptions.changing
-        let composing = changing == nil ? waiting : nil
+        let changing = context.watchOnly ? nil : assumptions.changing
         let info = Hub.shared.live(context.core).view?.chats.first { $0.agentId == context.agentId }
         Composer(
             session: session,
@@ -27,11 +23,7 @@ struct ChatBottom: View {
             provider: context.provider,
             running: rows.running && !session.stoppingTurn,
             steers: context.steers,
-            placeholder: changing.map { CallWords.typeYourAnswer($0.name) }
-                ?? composing.map {
-                    $0.keepsWordsPrivate ? CallWords.typeSecret : CallWords.typeYourAnswer($0.asker.name)
-                }
-                ?? placeholder(rows),
+            placeholder: changing.map { CallWords.typeYourAnswer($0.name) } ?? placeholder(rows),
             modeLocked: rows.running || !session.permissions.isEmpty || rows.head.connection != .ready
                 || context.offline,
             watchOnly: context.watchOnly,
@@ -48,16 +40,7 @@ struct ChatBottom: View {
                         await assumptions.answer(question, written: written, report: session.report)
                     }
                 )
-            }
-                ?? composing.map { call in
-                    ComposerQuestion(
-                        name: call.asker.name, cli: call.asker.cli, text: call.question,
-                        chipsRefused: CallWords.noChips,
-                        secret: call.keepsWordsPrivate,
-                        onRemove: call.keepsWordsPrivate ? nil : { calls.stopComposing(call) },
-                        onAnswer: { written in await calls.answer(call, written: written, report: session.report) }
-                    )
-                },
+            },
             focus: focus,
             place: context.place
         )
@@ -68,7 +51,6 @@ struct ChatBottom: View {
                 focus.recent = false
             }
         }
-        .onChange(of: waiting?.keepsWordsPrivate == true, initial: true) { _, on in session.draft.holdSecret(on) }
         .onChange(of: "\(info?.activeAt ?? 0)|\(info?.unread ?? false)|\(rows.running)", initial: true) { _, seen in
             assumptions.read(seen, report: session.report)
         }

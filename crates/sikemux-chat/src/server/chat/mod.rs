@@ -55,7 +55,7 @@ use crate::launch::PermissionMode;
 pub use native::Steered;
 use native::{ended_status, SessionEnd};
 use prompt::bounded_text;
-pub use sikemux_drivers::server::chat::{restart_notice, Answered, Respond};
+pub use sikemux_drivers::server::chat::{restart_notice, Respond};
 use sikemux_wire::protocol::{
     ask, AgentState, AgentStatus, Attention, AttentionKind, ChatAccount, ChatAttachment,
     ChatContext, ChatInfo, ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId,
@@ -162,26 +162,14 @@ const RESTART_WINDOW: Duration = Duration::from_secs(5 * 60);
 pub struct Whose {
     /// The person typed them, rather than another agent or Sikemux.
     pub person: bool,
-    /// They answered a call to the person.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub answered: Option<Answered>,
 }
 
 impl Whose {
-    pub const PERSON: Self = Self {
-        person: true,
-        answered: None,
-    };
-    pub const NOT_PERSON: Self = Self {
-        person: false,
-        answered: None,
-    };
+    pub const PERSON: Self = Self { person: true };
+    pub const NOT_PERSON: Self = Self { person: false };
 
     pub fn of(person: bool) -> Self {
-        Self {
-            person,
-            answered: None,
-        }
+        Self { person }
     }
 }
 

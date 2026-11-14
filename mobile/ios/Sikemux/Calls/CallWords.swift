@@ -275,19 +275,12 @@ enum CallWords {
         let count = trimmed.split(whereSeparator: \.isWhitespace).count
         return !trimmed.isEmpty && trimmed.count <= 20 && count <= 3 ? trimmed : nil
     }
-    /// Said when an answer to a call carries context chips, which a call's answer does not take.
-    static let noChips =
-        String(
-            localized:
-                "A call's answer takes words and files, not chips. Take the chips off, or send them to the agent.")
-    /// The composer's chip while a call waits in the chat.
+    /// The composer's chip while it answers an assumption.
     static func answering(_ name: String, _ question: String) -> String {
         String(localized: "Answering @\(name) · \(question)")
     }
-    /// The composer's placeholder while a call waits in the chat.
+    /// The composer's placeholder while it answers an assumption.
     static func typeYourAnswer(_ name: String) -> String { String(localized: "Or type your answer to @\(name)") }
-    /// The composer's placeholder while a call for a secret waits in the chat.
-    static let typeSecret = String(localized: "Type or paste it · kept private")
 
     /// A weighty call's brief, which stands as its context.
     static func context(_ call: PersonCall) -> String? {

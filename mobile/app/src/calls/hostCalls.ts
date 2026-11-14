@@ -19,8 +19,6 @@ type Kept = {
   focused: Readonly<Record<string, string>>;
   /** Why an answer from a notification did not go, by call. */
   failed: Readonly<Record<string, string>>;
-  /** Calls whose chip the person took off the composer, so what it sends goes to the agent instead. */
-  composingOff: ReadonlySet<string>;
 };
 
 const hosts = new Map<string, ExternalValue<Kept>>();
@@ -30,7 +28,7 @@ const seeing = new Set<string>();
 function kept(core: string): ExternalValue<Kept> {
   let found = hosts.get(core);
   if (!found) {
-    found = externalValue<Kept>({ seen: new Set(), focused: {}, failed: {}, composingOff: new Set() });
+    found = externalValue<Kept>({ seen: new Set(), focused: {}, failed: {} });
     hosts.set(core, found);
   }
   return found;
@@ -80,24 +78,9 @@ export function waitingCall(queue: PersonCall[], held: Kept, agentId: string): P
   return queue.find((call) => call.id === held.focused[agentId]) ?? queue[0];
 }
 
-/**
- * The call whatever a chat's composer sends answers, while one waits there and the person has not taken its chip off.
- * A step to production is answered only on its card. A secret's chip never comes off, so what is typed for it never
- * goes to the agent as a message.
- */
-export function composingCall(call: PersonCall | undefined, held: Kept): PersonCall | undefined {
-  if (!call || call.kind === 'production') return undefined;
-  if (!keepsWordsPrivate(call) && held.composingOff.has(call.id)) return undefined;
-  return call;
-}
-
 /** Makes `call` the one the chat of agent `chat` docks. */
 export function focus(core: string, call: PersonCall, chat: string) {
   change(core, (now) => ({ ...now, focused: { ...now.focused, [chat]: call.id } }));
-}
-
-export function stopComposing(core: string, callId: string) {
-  change(core, (now) => ({ ...now, composingOff: new Set([...now.composingOff, callId]) }));
 }
 
 /** What the person has done on `call`'s card. Drafts of calls no longer open go. */
@@ -189,27 +172,6 @@ export async function answer(
   } catch (error) {
     edit(draft, { sending: false });
     report(problem(error));
-  }
-}
-
-/** Answers the call waiting in a chat with what the person typed in its composer, with the files they sent. */
-export async function answerWritten(
-  connection: ConnectionLike | undefined,
-  callId: string,
-  written: { answer: string; paths: string[] },
-  report: (text: string) => void,
-): Promise<boolean> {
-  if (!connection) return false;
-  try {
-    await callHost(connection, 'answerCall', {
-      id: callId,
-      words: written.answer,
-      paths: written.paths.length ? written.paths : undefined,
-    });
-    return true;
-  } catch (error) {
-    report(problem(error));
-    return false;
   }
 }
 

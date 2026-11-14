@@ -565,9 +565,6 @@ impl Feed {
         if whose.person {
             payload["person"] = json!(true);
         }
-        if let Some(answered) = whose.answered {
-            payload["answered"] = json!(answered);
-        }
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);
         }
@@ -592,11 +589,6 @@ impl Feed {
     /// What the person's message `message_id` told the agent alone, which an edit tells it again.
     pub fn for_agent_of(&self, message_id: &str) -> Vec<ChatContext> {
         self.inner.locked().replay.for_agent_of(message_id)
-    }
-
-    /// The call the person's message `message_id` answered, which an edit of it answers too.
-    pub fn answered_of(&self, message_id: &str) -> Option<super::Answered> {
-        self.inner.locked().replay.answered_of(message_id)
     }
 
     /// The person took the chat back to before their message `message_id`:

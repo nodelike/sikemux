@@ -30,9 +30,6 @@ pub async fn edit_with(
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
 ) -> CoreResult<()> {
-    if (core.chat_above().questions_answer_typed)(core, &agent_id, &text) {
-        return Ok(());
-    }
     core.workspaces().person_said(&agent_id);
     (core.chat_above().chief_person_wrote)(core, &agent_id);
     super::wake_for_message(core, &agent_id, &mut context).await?;
@@ -41,9 +38,6 @@ pub async fn edit_with(
 
 /// What the person says to an agent running in a terminal goes in as a message.
 pub fn steer_terminal(core: &Arc<Core>, agent_id: &str, text: String) -> CoreResult<String> {
-    if (core.chat_above().questions_answer_typed)(core, agent_id, &text) {
-        return Ok("queued".to_owned());
-    }
     core.workspaces().person_said(agent_id);
     (core.chat_above().chief_person_wrote)(core, agent_id);
     (core.chat_above().messages_from_person)(core, agent_id, text)?;
@@ -57,9 +51,6 @@ pub async fn steer_chat(
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
 ) -> CoreResult<String> {
-    if (core.chat_above().questions_answer_typed)(core, agent_id, &text) {
-        return Ok(super::Steered::Injected.word().to_owned());
-    }
     core.workspaces().person_said(agent_id);
     (core.chat_above().chief_person_wrote)(core, agent_id);
     super::wake_for_message(core, agent_id, &mut context).await?;
@@ -84,22 +75,22 @@ pub fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()
         paths,
         context,
     } = params;
-    if (core.chat_above().questions_answer_typed)(core, &agent_id, &text) {
-        return Ok(());
-    }
     core.workspaces().person_said(&agent_id);
-    let answered = (core.chat_above().person_calls_written)(core, &agent_id, &text);
     core.activity_log()
         .person_wrote(core.workspaces().is_chief(&agent_id));
     (core.chat_above().chief_person_wrote)(core, &agent_id);
     if core.workspaces().in_terminal(&agent_id) {
         (core.chat_above().messages_from_person)(core, &agent_id, text)
     } else {
-        let whose = super::Whose {
-            person: true,
-            answered,
-        };
-        super::prompt(core, &agent_id, message_id, text, paths, context, whose)
+        super::prompt(
+            core,
+            &agent_id,
+            message_id,
+            text,
+            paths,
+            context,
+            super::Whose::PERSON,
+        )
     }
 }
 

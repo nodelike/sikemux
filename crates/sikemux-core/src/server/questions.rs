@@ -645,36 +645,6 @@ impl Questions {
         self.wake.now();
     }
 
-    /// The questions of `agent_id` the person answers by writing to it, which its next turn takes
-    /// back: those it stopped for.
-    pub(crate) fn answered_by_writing(&self, agent_id: &str) -> Vec<String> {
-        (self.state.locked().open.iter())
-            .filter(|question| {
-                question.agent_id == agent_id
-                    && question.blocked
-                    && question.asks_person()
-                    && question.approval.is_none()
-            })
-            .map(|question| question.id.clone())
-            .collect()
-    }
-
-    /// The open question whose answer is never kept that what the person types to `agent_id`
-    /// answers, where its chat shows it and its composer says so: the oldest it asked of the
-    /// person, or one `docked` in the chat's away block. One still with its asker's lead is not
-    /// the person's yet. A question a linked host took to put to the person there has no call
-    /// here, and counts all the same.
-    pub(crate) fn hidden_for(&self, agent_id: &str, docked: &[String]) -> Option<String> {
-        (self.state.locked().open.iter())
-            .filter(|question| {
-                question.hides_answer()
-                    && question.asks_person()
-                    && (question.agent_id == agent_id || docked.contains(&question.id))
-            })
-            .min_by_key(|question| question.at)
-            .map(|question| question.id.clone())
-    }
-
     pub(crate) fn is_open(&self, id: &str) -> bool {
         (self.state.locked().open.iter()).any(|question| question.id == id)
     }
@@ -1087,7 +1057,7 @@ fn raise_of(
         Some(other) => {
             return Err(format!(
                 "Only {REASONS} reach the person, not {other}: anything else is yours to decide, so answer it yourself"
-            ))
+            ));
         }
         None => None,
     };
@@ -1383,7 +1353,9 @@ const RAISE_RULE: &str = "Raise it to the person only if it is irreversible or l
 /// What a lead is told of a question whose answer is hidden, after how to answer it.
 fn kept_private(question: &Question) -> &'static str {
     match question.hides_answer() {
-        true => " It asks for access, so what you send goes to it alone: the record keeps only that you answered it privately, and no why of yours.",
+        true => {
+            " It asks for access, so what you send goes to it alone: the record keeps only that you answered it privately, and no why of yours."
+        }
         false => "",
     }
 }
@@ -1434,8 +1406,7 @@ async fn lead_reads(core: &Arc<Core>, question: &Question, text: String, note: S
     }
 }
 
-const NOBODY_ASKED_ABOUT_CONTRACT: &str =
-    "Nobody is asked about a contract. Decide from the card and give your verdict with review_verdict.";
+const NOBODY_ASKED_ABOUT_CONTRACT: &str = "Nobody is asked about a contract. Decide from the card and give your verdict with review_verdict.";
 
 pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent_id = request
@@ -1473,13 +1444,13 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         (true, Some(_)) => {
             return Err(
                 "assumption goes with blocked: false, when you carry on without the answer".into(),
-            )
+            );
         }
         (false, None) => {
             return Err(
                 "blocked: false needs assumption: what you go on assuming until you hear back"
                     .into(),
-            )
+            );
         }
         _ => {}
     }
@@ -1714,7 +1685,11 @@ fn foreign_worker(
             "More than one of your agents on linked hosts is called {wanted}: {}. Set for to the agent id instead",
             found
                 .iter()
-                .map(|foreign| format!("{} on {}", foreign.agent_id, super::hosts::name_of(core, &foreign.host)))
+                .map(|foreign| format!(
+                    "{} on {}",
+                    foreign.agent_id,
+                    super::hosts::name_of(core, &foreign.host)
+                ))
                 .collect::<Vec<_>>()
                 .join(", ")
         ));
@@ -2240,26 +2215,6 @@ fn picked_labels(question: &Question, given: &AnswerParams) -> Option<String> {
     (!labels.is_empty()).then(|| labels.join(", "))
 }
 
-/// The person's words to `agent_id` while a question whose answer is never kept waits on what
-/// they say to it: they answer that question privately and never reach the agent as a message,
-/// whichever client sent them. Says whether they did.
-pub(crate) fn answer_typed(core: &Arc<Core>, agent_id: &str, text: &str) -> bool {
-    if text.trim().is_empty() {
-        return false;
-    }
-    let docked = super::chief::away_calls(core, agent_id);
-    let Some(id) = core.harness().questions.hidden_for(agent_id, &docked) else {
-        return false;
-    };
-    let (core, text) = (core.clone(), text.to_owned());
-    tokio::spawn(async move {
-        if let Err(error) = person_calls::answer_typed(&core, id, text).await {
-            eprintln!("sikemux core: a private answer typed in the chat was not taken: {error}");
-        }
-    });
-    true
-}
-
 /// The person's answer, copied to the lead a question went to first.
 async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str) {
     if let Stage::Person {
@@ -2700,8 +2655,7 @@ fn tell_calls(core: &Core) {
 }
 
 /// What the asker hears when the person leaves its question to it.
-const LEFT_TO_ASKER: &str =
-    "The person left this to you. Go with what you would pick, and say in your answer what you chose.";
+const LEFT_TO_ASKER: &str = "The person left this to you. Go with what you would pick, and say in your answer what you chose.";
 
 /// The person hands the question back: the lead it went to first decides it, and it never reaches
 /// the person again. With no lead to take it, the asker goes with its own pick.
@@ -2834,65 +2788,8 @@ fn tell_window(core: &Arc<Core>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Question, Questions};
+    use super::Question;
     use sikemux_process::sync::Locked;
-
-    #[test]
-    fn a_question_another_host_took_still_takes_what_is_typed_to_its_asker_and_where_it_is_docked()
-    {
-        let taken: Question = serde_json::from_value(serde_json::json!({
-            "id": "question-1",
-            "agentId": "worker",
-            "name": "Worker",
-            "cli": "claude",
-            "project": "widget",
-            "asked": "Which token does staging take?",
-            "text": "Which token does staging take?",
-            "choices": [],
-            "blocked": true,
-            "assumption": null,
-            "secret": false,
-            "at": 1,
-            "stage": { "stage": "person", "lead": ["lead", "Lead"], "passed": true },
-            "raise": { "reason": "access", "breaks": "the deploy" },
-            "relayed": "studio",
-            "relayTaken": true,
-        }))
-        .expect("a question");
-        assert!(!taken.listed_for_devices(), "it has no call on this host");
-        let questions = Questions::new(None, |_| true);
-        questions.state.locked().open.push(taken);
-        assert!(questions.hidden_for("worker", &[]).is_some());
-        assert!(questions.hidden_for("lead", &[]).is_none());
-        let docked = ["question-1".to_owned()];
-        assert!(questions.hidden_for("chief", &docked).is_some());
-    }
-
-    /// Read in #228: a led worker's access question opens with its lead, where no composer says
-    /// it keeps what is typed private, so a message to the worker then was taken as its answer.
-    #[test]
-    fn a_question_still_with_its_lead_takes_nothing_typed_to_its_asker() {
-        let with_lead: Question = serde_json::from_value(serde_json::json!({
-            "id": "question-2",
-            "agentId": "worker",
-            "name": "Worker",
-            "cli": "claude",
-            "project": "widget",
-            "asked": "Which token does staging take?",
-            "text": "Which token does staging take?",
-            "choices": [{ "label": "Skip, use the mock" }],
-            "blocked": true,
-            "assumption": null,
-            "secret": false,
-            "at": 1,
-            "stage": { "stage": "lead", "leadId": "lead", "leadName": "Lead", "endedAt": null },
-            "raise": { "reason": "access", "breaks": "the deploy" },
-        }))
-        .expect("a question");
-        let questions = Questions::new(None, |_| true);
-        questions.state.locked().open.push(with_lead);
-        assert!(questions.hidden_for("worker", &[]).is_none());
-    }
 
     #[tokio::test]
     async fn a_worker_stopped_for_its_leads_answer_waits_on_the_lead_rather_than_being_done() {

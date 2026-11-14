@@ -66287,58 +66287,6 @@
         }
       }
     },
-    "Or answer in your own words": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O responde con tus propias palabras"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "或用你自己的话回答"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oder in eigenen Worten antworten"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ou répondez avec vos propres mots"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "または自分の言葉で回答"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "또는 직접 답하기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Или ответьте своими словами"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ou responda com suas próprias palavras"
-          }
-        }
-      }
-    },
     "Or answer in your own words…": {
       "localizations": {
         "es": {
@@ -108219,7 +108167,6 @@
         }
       }
     },
-    "Type or paste it · kept private": {},
     "Type or paste it…": {
       "localizations": {
         "es": {

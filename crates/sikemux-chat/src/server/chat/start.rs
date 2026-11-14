@@ -373,11 +373,12 @@ pub fn carry_on_prompt(what: &str) -> rebind::Replay {
     rebind::Replay {
         announce: false,
         message_id: None,
-        text: format!("{what}, so your last turn stopped part-way. Check what got done, since a step that was cut off may not have finished, then carry on where you left off."),
+        text: format!(
+            "{what}, so your last turn stopped part-way. Check what got done, since a step that was cut off may not have finished, then carry on where you left off."
+        ),
         paths: Vec::new(),
         context: Vec::new(),
         person: false,
-        answered: None,
         brief_for: None,
     }
 }

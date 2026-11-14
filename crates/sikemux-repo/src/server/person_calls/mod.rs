@@ -26,9 +26,7 @@ use self::log::{CallLog, Entry};
 use super::access::Peer;
 use super::activity_log::ActivityLog;
 use super::changed::What;
-use super::chat::Answered;
 use super::{ship, Core, CoreError, CoreResult};
-use crate::text::clipped;
 use sikemux_calls::questions::{AnswerParams, AnswersParams};
 
 /// How long an answered or closed call stays in the device view.
@@ -964,78 +962,6 @@ pub fn close_left(core: &Core, gone: impl Fn(&str) -> bool) {
     core.person_calls().changed(core);
 }
 
-/// The longest answer typed in a chat that a call keeps.
-const MAX_WRITTEN_CHARS: usize = 2000;
-
-/// The person wrote to `agent_id` in its chat, which answers there the call its next turn takes
-/// back: one it stopped for, of taste, money or access, when it is the one call waiting there
-/// that writing can answer; with several, none is, and they stay open. The words reach only this
-/// chat, so a call other agents also wait on stays open for them. A production call is never
-/// answered by writing, nor a secret or an access call, whose typed answer the core takes
-/// privately before it reaches the chat. Answers whether the words answered a call, for the
-/// chat's record of them.
-pub fn written(core: &Core, agent_id: &str, text: &str) -> Option<Answered> {
-    let stopped = (core.repo_above().questions_answered_by_writing)(core, agent_id);
-    if stopped.is_empty() {
-        return None;
-    }
-    let mut book = core.person_calls().book.locked();
-    let answerable: Vec<&Kept> = (book.iter())
-        .filter(|kept| {
-            let call = &kept.call;
-            kept.sources()
-                .any(|source| matches!(source, Source::Question(id) if stopped.contains(id)))
-                && call.state == CallState::Open
-                && call.kind != CallKind::Production
-                && !call.keeps_words_private()
-        })
-        .collect();
-    let [only] = answerable.as_slice() else {
-        return None;
-    };
-    let call = &only.call;
-    let id = call.id.clone();
-    let shared = std::iter::once(&call.asker)
-        .chain(&call.joined)
-        .any(|asker| asker.agent_id != agent_id);
-    let entries: Vec<Entry> = if shared {
-        (only.sources())
-            .filter(|source| matches!(source, Source::Question(id) if stopped.contains(id)))
-            .map(|source| Entry::Left {
-                id: id.clone(),
-                source: source.clone(),
-                at: epoch_ms(),
-            })
-            .collect()
-    } else {
-        let words = clipped(text.trim(), MAX_WRITTEN_CHARS);
-        let answer = CallAnswer {
-            option: None,
-            options: Vec::new(),
-            note: None,
-            words: Some(words).filter(|words| !words.is_empty()),
-            none: false,
-            by: CallClient::Chat,
-            at: epoch_ms(),
-            waited_ms: epoch_ms().saturating_sub(call.raised_at),
-        };
-        let outcome = outcome(CallResult::Heard);
-        vec![
-            Entry::Answered {
-                id: id.clone(),
-                answer,
-            },
-            Entry::Came { id, outcome },
-        ]
-    };
-    for entry in entries {
-        core.person_calls().write(&mut book, entry);
-    }
-    drop(book);
-    core.person_calls().changed(core);
-    Some(Answered::Call)
-}
-
 /// A client drew the call.
 pub fn seen(core: &Core, peer: &Peer, params: CallParams) -> CoreResult<()> {
     let by = client_of(peer).ok_or(NOT_A_CLIENT)?;
@@ -1193,7 +1119,9 @@ pub async fn answer(core: &Arc<Core>, peer: &Peer, params: AnswerCallParams) -> 
         Err(_) => {
             tokio::spawn(async move {
                 if let Ok(Err(error)) = delivering.await {
-                    eprintln!("sikemux core: an answered call did not reach its asker, so it is open again: {error}");
+                    eprintln!(
+                        "sikemux core: an answered call did not reach its asker, so it is open again: {error}"
+                    );
                 }
             });
             Ok(())
@@ -1356,19 +1284,6 @@ pub async fn answer_questions(
 ) -> CoreResult<()> {
     let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
     answer_questions_by(core, (peer, client), given).await
-}
-
-/// What the person typed in the chat of an agent that waits on question `id`, whose words are
-/// never kept: it answers that question, as written in the chat, and never reaches the agent.
-pub async fn answer_typed(core: &Arc<Core>, id: String, text: String) -> CoreResult<()> {
-    let given = AnswersParams {
-        answers: vec![AnswerParams {
-            id,
-            answer: Some(text),
-            ..AnswerParams::default()
-        }],
-    };
-    answer_questions_by(core, (&Peer::Local, CallClient::Chat), given).await
 }
 
 async fn answer_questions_by(
@@ -1628,9 +1543,18 @@ impl super::part::Part for PersonCalls {
 /// starts again.
 async fn after_restart(core: &Arc<Core>, left: AfterStart) {
     let said = [
-        (left.lapsed, "Sikemux restarted before your action ran, so the person's yes to \"{}\" lapsed. Nothing ran. Try it again when you need it; that asks them again."),
-        (left.interrupted, "Sikemux restarted while your action ran after the person's yes to \"{}\", so it may have run. Check what happened before you try it again."),
-        (left.dropped, "Sikemux restarted, so your action held for the person's answer to \"{}\" no longer waits. Run it again when you need it; that asks them again."),
+        (
+            left.lapsed,
+            "Sikemux restarted before your action ran, so the person's yes to \"{}\" lapsed. Nothing ran. Try it again when you need it; that asks them again.",
+        ),
+        (
+            left.interrupted,
+            "Sikemux restarted while your action ran after the person's yes to \"{}\", so it may have run. Check what happened before you try it again.",
+        ),
+        (
+            left.dropped,
+            "Sikemux restarted, so your action held for the person's answer to \"{}\" no longer waits. Run it again when you need it; that asks them again.",
+        ),
     ];
     for (ids, words) in said {
         for id in ids {

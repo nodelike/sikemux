@@ -595,7 +595,7 @@ pub async fn run<B: Backend>(
         running.chat.at_rest.store(false, Ordering::Release);
         let next = match woke {
             Woke::Command(Some(ChatCommand::HandOver { reply })) => {
-                return Ok(running.hand_over(reply).await)
+                return Ok(running.hand_over(reply).await);
             }
             Woke::Command(Some(ChatCommand::TakeHandoff)) => {
                 if !running.chat.prompted() {
@@ -754,7 +754,9 @@ impl<B: Backend> Running<'_, B> {
                 started
             }
             Err(error) => {
-                eprintln!("sikemux core: the chat goes on in its old session, as a fresh one did not start: {error}");
+                eprintln!(
+                    "sikemux core: the chat goes on in its old session, as a fresh one did not start: {error}"
+                );
                 self.chat.rotation.failed();
                 return;
             }
@@ -1043,7 +1045,7 @@ impl<B: Backend> Running<'_, B> {
                         context,
                         Sent::Prompt { shown, whose },
                     )
-                    .await
+                    .await;
             }
             ChatCommand::Edit {
                 message_id,
@@ -1053,7 +1055,7 @@ impl<B: Backend> Running<'_, B> {
                 reply,
             } => self.edit(message_id, text, paths, context, reply).await,
             ChatCommand::SwitchAccount { account, moved } => {
-                return self.switch_account(account, moved).await
+                return self.switch_account(account, moved).await;
             }
             ChatCommand::SetPermissionMode { mode, reply } => {
                 self.set_permission_mode(mode, reply).await
@@ -1184,7 +1186,6 @@ impl<B: Backend> Running<'_, B> {
             paths,
             context,
             person: whose.person,
-            answered: whose.answered,
             brief_for: None,
         };
         // A sign-in made elsewhere since the agent started is only
@@ -1238,7 +1239,6 @@ impl<B: Backend> Running<'_, B> {
             return;
         }
         context.extend(self.chat.feed.for_agent_of(&message_id));
-        let answered = self.chat.feed.answered_of(&message_id);
         let moved = match self.backend.rewind(&message_id).await {
             Ok(moved) => moved,
             Err(error) => {
@@ -1262,7 +1262,6 @@ impl<B: Backend> Running<'_, B> {
             paths,
             context,
             person: true,
-            answered,
             brief_for: None,
         };
         self.show(&replay);

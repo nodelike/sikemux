@@ -35,7 +35,6 @@ import { ChatPlace, type Place } from './ChatPlace';
 import { ContextRing } from '@/chat/ContextRing';
 import { YoloEdge, YoloToggle } from '@/chat/YoloToggle';
 import { ConfigSheet } from '@/chat/ConfigSheet';
-import { SECRET_INPUT } from '@/calls/secretInput';
 
 function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (name: string) => void }) {
   const styles = useStyles(makeStyles);
@@ -63,15 +62,11 @@ function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (na
   );
 }
 
-/** What whatever is sent answers: a call, or an assumption being changed. */
+/** What whatever is sent answers: an assumption being changed. */
 export type ComposerQuestion = {
   /** The chip's words: who and what is being answered. */
   chip: string;
   cli: string;
-  /** Said, before anything uploads, when the answer cannot carry the context chips on the draft. */
-  chipsRefused?: string;
-  /** It keeps its words private, as a secret's or an access call's: only the words go, and its chip never comes off. */
-  secret?: boolean;
   onRemove?: () => void;
   onAnswer: (written: WrittenAnswer) => Promise<boolean>;
 };
@@ -204,8 +199,7 @@ export const Composer = memo(function Composer({
       }),
     [pulls, onRecent],
   );
-  const secret = !!question?.secret;
-  const mentions = useMentions(session, watchOnly || secret ? undefined : typedMention(draft, tokens));
+  const mentions = useMentions(session, watchOnly ? undefined : typedMention(draft, tokens));
   const dock = requests.length ? (
     <PermissionDock requests={requests} provider={provider} answering={answering} onAnswer={session.answer} />
   ) : (
@@ -235,9 +229,9 @@ export const Composer = memo(function Composer({
     );
   }
 
-  const matches = secret ? [] : matchingCommands(commands, draft);
-  const mention = matches.length || secret ? undefined : stashQuery(draft);
-  const sendable = Boolean(draft.trim()) || (!secret && (attachments.length > 0 || chips.length > 0));
+  const matches = matchingCommands(commands, draft);
+  const mention = matches.length ? undefined : stashQuery(draft);
+  const sendable = Boolean(draft.trim()) || attachments.length > 0 || chips.length > 0;
   const sent = (going: Promise<boolean>) => {
     void going.then((done) => {
       if (!done) return;
@@ -250,17 +244,6 @@ export const Composer = memo(function Composer({
   const send = () => {
     const text = draft.trim();
     if (!sendable || offline) return;
-    if (secret && question) {
-      haptics.tap();
-      sent(question.onAnswer({ answer: text }));
-      return;
-    }
-    // The secret's call closed a moment ago, and the words typed for it must not go out as a message.
-    if (session.typedSecret()) {
-      input.current?.clear();
-      session.dropSecret();
-      return;
-    }
     if (uploading) return;
     const aside = sideQuestion(text);
     const unknown = aside === undefined ? unknownCommand(text, commands) : null;
@@ -330,7 +313,6 @@ export const Composer = memo(function Composer({
           editable={!uploading}
           onChangeText={session.setDraft}
           placeholder={placeholder}
-          {...(secret ? SECRET_INPUT : {})}
           accessibilityLabel={t('Message')}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
@@ -395,7 +377,7 @@ export const Composer = memo(function Composer({
           {sendable || !running ? (
             <Pressable
               onPress={send}
-              onLongPress={sendable && !secret ? prompt.stash : undefined}
+              onLongPress={sendable ? prompt.stash : undefined}
               style={[styles.send, (!sendable || offline) && { opacity: 0.28 }]}
               disabled={uploading}
               accessibilityRole="button"
@@ -410,7 +392,7 @@ export const Composer = memo(function Composer({
                         : t('Send after this turn')
                       : t('Send')
               }
-              accessibilityHint={sendable && !secret ? t('Hold to stash this prompt') : undefined}
+              accessibilityHint={sendable ? t('Hold to stash this prompt') : undefined}
               accessibilityState={{ disabled: offline || !sendable, busy: uploading }}>
               {uploading ? (
                 <ActivityIndicator size="small" color={colors.ground} />
@@ -433,7 +415,7 @@ export const Composer = memo(function Composer({
         onClose={() => setAdding(false)}
         onAttach={attach}
         onStash={fromStash}
-        onStashPrompt={sendable && !uploading && !secret ? prompt.stash : undefined}
+        onStashPrompt={sendable && !uploading ? prompt.stash : undefined}
       />
       <ConfigSheet
         visible={sheet}

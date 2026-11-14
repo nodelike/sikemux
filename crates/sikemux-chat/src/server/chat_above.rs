@@ -20,7 +20,7 @@ use crate::agent_accounts::Book;
 
 use super::chat::feed::Feed;
 use super::chat::rotation::KeptSession;
-use super::chat::{Activity, Answered, Chat, Ending, Fault, Saved};
+use super::chat::{Activity, Chat, Ending, Fault, Saved};
 use super::workspace::ChatChoice;
 use super::{Core, CoreResult};
 
@@ -106,10 +106,6 @@ pub struct ChatAbove {
     /// What the plugins set for an agent, terminal or task started in `cwd`,
     /// asked of the project that holds it.
     pub plugins_agent_environment: fn(&Core, &Path) -> BTreeMap<String, String>,
-    /// Takes what the person typed to `agent_id` as the private answer to a question whose words
-    /// are never kept, while one waits on what they say to it, in place of a message. Says
-    /// whether it did.
-    pub questions_answer_typed: fn(&Arc<Core>, &str, &str) -> bool,
     /// Takes a question asked with a CLI's own tool, such as Claude's
     /// AskUserQuestion or Codex's request_user_input, into the same questions,
     /// and says what the agent is told in place of an answer.
@@ -155,8 +151,6 @@ pub struct ChatAbove {
     pub permit_elsewhere: fn(&Core, &str, &str, Option<String>) -> bool,
     /// What a checkout in this folder gives the programs started in it.
     pub checkout_environment: fn(&Core, &Path) -> Vec<(String, String)>,
-    /// What the person's written words answered of the calls open to them.
-    pub person_calls_written: fn(&Core, &str, &str) -> Option<Answered>,
     /// Finds a saved session by its id, of this CLI when given.
     pub locate_saved: fn(&Core, &str, Option<&str>) -> Result<Saved, String>,
     /// The note for a teammate on a linked host.

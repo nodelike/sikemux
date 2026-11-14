@@ -240,19 +240,12 @@ impl Workbench {
         });
     }
 
-    /// Keeps `agent`'s draft with the core, without its words while they answer a call that keeps
-    /// them private.
+    /// Keeps `agent`'s draft with the core.
     pub fn keep_draft(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let secret = self.typed_goes(agent, cx) == crate::calls::Typed::Private;
         let Some(composing) = self.composing_mut(agent) else {
             return;
         };
-        let mut draft = kept(composing, cx);
-        if secret {
-            draft.text.clear();
-            draft.extra.tokens.clear();
-            draft.extra.tracked.clear();
-        }
+        let draft = kept(composing, cx);
         if draft == composing.synced {
             return;
         }
@@ -269,24 +262,6 @@ impl Workbench {
 }
 
 impl Composing {
-    /// Leaves the call whose private words the draft held, now closed: words typed while it
-    /// waited go, and a draft left as it was when the call came stays. Either way the undo
-    /// history goes, so a token cut from the draft can't come back. Says whether any words went.
-    pub fn left_secret(&mut self, window: &mut Window, cx: &mut App) -> bool {
-        let Some(before) = self.secret_since.take() else {
-            return false;
-        };
-        let typed = *self.draft.read(cx).value() != *before;
-        (self.draft).update(cx, |draft, cx| {
-            let kept = match typed {
-                true => InputContent::new(String::new()),
-                false => draft.content(),
-            };
-            draft.set_value(kept, window, cx);
-        });
-        typed
-    }
-
     /// Puts a draft that came from elsewhere in place, unless the person typed since.
     pub fn take_arrived(&mut self, window: &mut Window, cx: &mut App) {
         let Some((arrived, was, rev)) = self.arrived.take() else {

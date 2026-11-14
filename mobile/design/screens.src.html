@@ -304,7 +304,6 @@
   .ask-private svg { flex: none; margin-top: 3px; color: var(--ink-faint); }
   .answering { display: flex; align-items: center; gap: 7px; align-self: flex-start; max-width: 100%; margin: 2px 4px 4px; padding: 6px 6px 6px 9px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-sunken); color: var(--ink-dim); font-size: 12px; }
   .answering span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .answering.stays { padding: 9px; }
   .answering .x { flex: none; width: 20px; height: 20px; border-radius: 999px; background: var(--ink); color: var(--bg); display: grid; place-items: center; }
   .thought { margin: 6px 0; color: var(--text-secondary); font-size: 14.5px; line-height: 24.5px; }
 
@@ -2951,8 +2950,7 @@
             <div class="call-folded"><span class="codex">{{IconCodex:16}}</span><span class="q">Keep the old ledger table for a week?</span><span class="age">3m</span></div>
           </div>
           <div class="composer">
-            <div class="answering"><span class="codex">{{IconCodex:13}}</span><span>Answering @Maple · Should amounts be stored in cents or as decimals?</span><i class="x">{{IconClose:10}}</i></div>
-            <div class="ta ph">Or type your answer to @Maple</div>
+            <div class="ta ph">Ask about this project, or type / for commands</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
@@ -2964,7 +2962,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A call, docked</b><div class="note">When the asker goes on with what it assumed (PersonCall.assumption), a quiet line above Go with this says so in the Mac's words, "Until you answer, @Maple goes on assuming cents", with the clock; a call that goes on draws no "Nothing happens until you answer". On such a call with no options, Go with this with nothing typed lets the assumption stand (answerCall with fine). An agent's question is a call now, and so is anything else it cannot settle without the person. The oldest call an agent waits on docks on its chat above the composer, as the Mac's call card does, a little tighter: who asks and how long ago, the question, its context in two lines, then the options in one block of 44-point rows with a ring before each. The asker's pick is chosen to start with and carries the S and pick; a tap chooses another and a tap on the chosen one clears it. The block's last row is the note field, or with nothing chosen the person's own answer. Go with this runs across the card's foot and sends answerCall. There is no Open chat: the chat is open. The composer carries Answering @Maple · the question, and reads Or type your answer to @Maple, so whatever is sent answers the call; × takes the chip off and the composer sends normal messages again. The card tells the host it was seen as it draws. The first answer anywhere wins and the card goes from every screen. When the agent waits on several calls, the card says which it is (1 of 2) and the others sit folded under it, a line each with how long it has waited; a tap brings one into the card, and a row on the Calls tab opens the call it shows. Go with this reads Connecting… until the host has taken that this phone drew the call. Over the docked card the chat's last line says only Needs you, how many calls wait when more than one does, and how long; where no card docks, it also says the question and offers Look. In the chief's chat, the card's asker is @Chief with Sikemux's S. A watching phone shows the card without the means to answer.</div></figcaption>
+      <figcaption><b>A call, docked</b><div class="note">When the asker goes on with what it assumed (PersonCall.assumption), a quiet line above Go with this says so in the Mac's words, "Until you answer, @Maple goes on assuming cents", with the clock; a call that goes on draws no "Nothing happens until you answer". On such a call with no options, Go with this with nothing typed lets the assumption stand (answerCall with fine). An agent's question is a call now, and so is anything else it cannot settle without the person. The oldest call an agent waits on docks on its chat above the composer, as the Mac's call card does, a little tighter: who asks and how long ago, the question, its context in two lines, then the options in one block of 44-point rows with a ring before each. The asker's pick is chosen to start with and carries the S and pick; a tap chooses another and a tap on the chosen one clears it. The block's last row is the note field, or with nothing chosen the person's own answer. Go with this runs across the card's foot and sends answerCall. There is no Open chat: the chat is open. The composer stays the chat's own: what is sent there goes to the agent as a message and the call stays open, since only the card answers it; Return in the card's field sends it, as Go with this does. The card tells the host it was seen as it draws. The first answer anywhere wins and the card goes from every screen. When the agent waits on several calls, the card says which it is (1 of 2) and the others sit folded under it, a line each with how long it has waited; a tap brings one into the card, and a row on the Calls tab opens the call it shows. Go with this reads Connecting… until the host has taken that this phone drew the call. Over the docked card the chat's last line says only Needs you, how many calls wait when more than one does, and how long; where no card docks, it also says the question and offers Look. In the chief's chat, the card's asker is @Chief with Sikemux's S. A watching phone shows the card without the means to answer.</div></figcaption>
     </figure>
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
@@ -3181,7 +3179,7 @@
             <div class="call-go">Go with this</div>
           </div>
           <div class="composer">
-            <div class="answering"><span class="acc-mark">{{Logo:13}}</span><span>Answering @Chief · Should the release notes call out the new prices?</span><i class="x">{{IconClose:10}}</i></div><div class="ta ph">Or type your answer to @Chief</div>
+            <div class="ta ph">Tell @Chief what you want</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
@@ -3193,7 +3191,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Typing with a call up, in the chief's chat</b><div class="note">With a call docked on the chief's chat, the composer's words answer it only when it is the chief's own call and the only one open, as on the Mac: then the composer says "Answering @Chief" and "Or type your answer to @Chief". When the docked call is a worker's, or more than one waits (the away card's queue), the composer keeps "Tell @Chief what you want" and its words go to the chief; the calls are answered on their card. A call for a secret is the exception: docked in the chief's chat, whoever asks, the composer answers it privately, as in A secret, asked.</div></figcaption></figure>
+      <figcaption><b>Typing with a call up, in the chief's chat</b><div class="note">With a call docked on the chief's chat, the composer keeps "Tell @Chief what you want" and its words go to the chief as a message, whoever asks and whatever the call asks for, as on the Mac; the call stays open and is answered on its card.</div></figcaption></figure>
 
 
 
@@ -3246,8 +3244,7 @@
             <div class="call-go">Go with this</div>
           </div>
           <div class="composer">
-            <div class="answering stays"><span class="claude">{{IconClaude:13}}</span><span>Answering @Comet · Paste the staging database password</span></div>
-            <div class="ta ph">Type or paste it · kept private</div>
+            <div class="ta ph">Ask about this project, or type / for commands</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
@@ -3259,7 +3256,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A secret, asked</b><div class="note">A call for a secret, such as a password or a token, takes it in a hidden field as the block's only row, and says under it that it is kept private: the agent reads it from a file only the person's account can open, and it never shows in the chat. Nothing is corrected, suggested or saved to the keyboard or the password manager. While it waits, the composer answers it too: it carries Answering @Comet, with no × to take it off, and reads Type or paste it · kept private. What is sent there goes to the call alone, its words only, and is never shown in the chat, kept as the chat's draft or offered as a command, a mention or a stash search; files and chips on the draft wait for the next message, and holding send stashes nothing. The keyboard corrects, suggests and learns nothing there either. I don't have one, quiet at the right above Go with this as Not mine is on other calls, answers it with none (answerCall with none): the agent is told the person has none and goes on without it, nothing is kept, and the call's row then says had none to give. An access call, which offers an option to go on without, has no such action. Once sent, the answer's bubble says Kept private, here and in the transcript afterwards.</div></figcaption>
+      <figcaption><b>A secret, asked</b><div class="note">A call for a secret, such as a password or a token, takes it in a hidden field as the block's only row, and says under it that it is kept private: the agent reads it from a file only the person's account can open, and it never shows in the chat. Nothing is corrected, suggested or saved to the keyboard or the password manager. Only that field answers it: what is sent in the composer goes to the agent as a message, and Return in the field sends the secret, as Go with this does. I don't have one, quiet at the right above Go with this as Not mine is on other calls, answers it with none (answerCall with none): the agent is told the person has none and goes on without it, nothing is kept, and the call's row then says had none to give. An access call, which offers an option to go on without, has no such action. Once sent, the answer's bubble says Kept private, here and in the transcript afterwards.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3280,8 +3277,7 @@
             <div class="call-go">Go with this</div>
           </div>
           <div class="composer">
-            <div class="answering stays"><span class="claude">{{IconClaude:13}}</span><span>Answering @Comet · Which Stripe key do the staging payment tests take?</span></div>
-            <div class="ta ph">Type or paste it · kept private</div>
+            <div class="ta ph">Ask about this project, or type / for commands</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
@@ -3293,7 +3289,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>An access call, asked</b><div class="note">A call for access, such as a key, a login or a token (PersonCall.kind access, whether or not it is marked secret), keeps what is typed for it private, as a secret's does: its field is hidden, the keyboard corrects, suggests and learns nothing there, and it says it is kept private under the block. Its options stay, at least one of which goes on without the credential, such as Skip, use the test mock; choosing one sends its label in the open, and the field then adds a note, kept private too. With nothing chosen the field reads Type or paste it…, and the composer answers the call the same way: Answering @Comet with no ×, Type or paste it · kept private, the words alone, never shown in the chat or kept as its draft. When any call in the chat keeps its words private, that call takes what the composer sends, whichever call the card shows. While it is open its asker waits for it, even one that asked without blocking. Once answered, its row says answered, kept private, or the option chosen when one was.</div></figcaption>
+      <figcaption><b>An access call, asked</b><div class="note">A call for access, such as a key, a login or a token (PersonCall.kind access, whether or not it is marked secret), keeps what is typed for it private, as a secret's does: its field is hidden, the keyboard corrects, suggests and learns nothing there, and it says it is kept private under the block. Its options stay, at least one of which goes on without the credential, such as Skip, use the test mock; choosing one sends its label in the open, and the field then adds a note, kept private too. With nothing chosen the field reads Type or paste it…, and Return there sends it. The composer never answers it: what is sent there goes to the agent as a message. While it is open its asker waits for it, even one that asked without blocking. Once answered, its row says answered, kept private, or the option chosen when one was.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

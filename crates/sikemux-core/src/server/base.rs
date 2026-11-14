@@ -250,7 +250,6 @@ pub(super) fn chat_above() -> ChatAbove {
                 .map(|here| here.environment())
                 .unwrap_or_default()
         },
-        person_calls_written: person_calls::written,
         locate_saved: saved::locate,
         note_elsewhere: team_told::note_elsewhere,
         open_work: team_told::open_work,
@@ -303,7 +302,6 @@ pub(super) fn chat_above() -> ChatAbove {
         messages_used_tool: messages::used_tool,
         messages_worked: messages::worked,
         plugins_agent_environment: plugins::agent_environment,
-        questions_answer_typed: questions::answer_typed,
         questions_ask_from_cli: questions::ask_from_cli,
         questions_offers_in_reply: questions::offers_in_reply,
         questions_withdraw_dialogs: questions::withdraw_dialogs,
@@ -414,9 +412,6 @@ pub(super) fn repo_above() -> RepoAbove {
         board_ci_card: board::ci_card,
         harness_note_repository: |core, project, kind| {
             core.harness().note_repository(project, kind)
-        },
-        questions_answered_by_writing: |core, agent| {
-            core.harness().questions.answered_by_writing(agent)
         },
         questions_is_open: |core, id| core.harness().questions.is_open(id),
         questions_answer: |core, params| Box::pin(questions::answer(core, params)),

@@ -5,11 +5,7 @@ struct ComposerQuestion {
     let name: String
     let cli: String
     let text: String
-    /// Said, before anything uploads, when the answer cannot carry the context chips on the draft.
-    var chipsRefused: String?
-    /// The answer is kept private: the words go alone, and the files and chips wait for the next message.
-    var secret = false
-    /// Takes the chip off, so what is sent goes to the agent; none on a secret, whose chip stays.
+    /// Takes the chip off, so what is sent goes to the agent.
     let onRemove: (() -> Void)?
     let onAnswer: (WrittenAnswer) async -> Bool
 }
@@ -103,18 +99,16 @@ struct Composer: View {
         let rows = session.rows
         let draft = session.draft!
         let text = draft.text
-        let secret = question?.secret == true
-        // A secret's words look up nothing: no command, stash or mention menu.
-        let matches = secret ? [] : Self.matching(rows.commands, text)
-        let stashQuery = matches.isEmpty && !secret ? StashWords.query(in: text) : nil
-        let typed = secret ? nil : Mentions.typed(text, draft.tokens)
+        let matches = Self.matching(rows.commands, text)
+        let stashQuery = matches.isEmpty ? StashWords.query(in: text) : nil
+        let typed = Mentions.typed(text, draft.tokens)
         let dock = dock
         let attachments = draft.attachments
         let chips = draft.chips
         let uploading = draft.uploading
         let room = WireLimits.maxAttachments - attachments.count
         let written = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let sendable = written || (!secret && (!attachments.isEmpty || !chips.isEmpty))
+        let sendable = written || !attachments.isEmpty || !chips.isEmpty
 
         dock
         if !matches.isEmpty { commands(matches) }
@@ -149,7 +143,7 @@ struct Composer: View {
             }
             ComposerInput(
                 text: Binding(get: { session.draftText }, set: { session.setDraft($0) }),
-                tokens: draft.tokens, placeholder: placeholder, editable: !uploading, secret: secret, focus: focus,
+                tokens: draft.tokens, placeholder: placeholder, editable: !uploading, focus: focus,
                 onFocus: { focused = $0 }
             )
             bar(rows: rows, sendable: sendable, uploading: uploading, room: room)
@@ -180,7 +174,7 @@ struct Composer: View {
             stash: adding == .stash, room: room,
             onAttach: { session.attach($0, at: focus.caret) },
             onStash: { fromStash($0) },
-            onStashPrompt: sendable && !uploading && !secret ? { stashPrompt() } : nil,
+            onStashPrompt: sendable && !uploading ? { stashPrompt() } : nil,
             onProblem: { session.report($0) }
         )
         .liftedSheet(shown: $configuring) {
@@ -277,7 +271,7 @@ struct Composer: View {
             .disabled(uploading)
             .simultaneousGesture(
                 LongPressGesture().onEnded { _ in
-                    guard sendable, question?.secret != true else { return }
+                    guard sendable else { return }
                     heldSend = true
                     stashPrompt()
                 }
@@ -293,7 +287,7 @@ struct Composer: View {
                                 : String(localized: "Send after this turn"))
                             : String(localized: "Send")
             )
-            .accessibilityHint(sendable && question?.secret != true ? "Hold to stash this prompt" : "")
+            .accessibilityHint(sendable ? "Hold to stash this prompt" : "")
         } else {
             Button(action: session.cancel) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
@@ -366,18 +360,6 @@ struct Composer: View {
         let draft = session.draft!
         let sendable = !text.isEmpty || !draft.attachments.isEmpty || !draft.chips.isEmpty
         guard sendable, !offline, !draft.uploading else { return }
-        if draft.typedSecret, question?.secret != true {
-            draft.holdSecret(false)
-            return
-        }
-        if let question, question.secret {
-            guard !text.isEmpty else { return }
-            Haptics.tap()
-            Task {
-                if await session.answerWith(text, question) { sent() }
-            }
-            return
-        }
         if Self.side(text) == nil, let unknown = Self.unknownCommand(text, session.rows.commands) {
             session.report(String(localized: "/\(unknown) is not available in this session"))
             return

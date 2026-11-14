@@ -17,15 +17,6 @@ use sikemux_fold::update::notice;
 /// given before the chat lets go of its agent is never lost.
 pub type Respond = Box<dyn FnOnce(Option<String>) + Send>;
 
-/// A call to the person that a prompt answered.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-#[serde(rename_all = "camelCase")]
-pub enum Answered {
-    Call,
-}
-
 pub fn restart_notice(title: &str, description: &str) -> Value {
     notice("warning", title, Some(description))
 }

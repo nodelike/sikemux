@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activityDoing, composerPlaceholder } from '@shared/chat/chatStatus';
 import { forgetShown } from '@/chat/LeftOut';
 import { sentPrompts } from '@/chat/promptHistory';
-import type { ChatMessage, PersonCall } from '@shared/wire.generated';
+import type { ChatMessage } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { AwaySheet } from '@/devices/AwaySheet';
 import { FindBar } from '@/chat/FindBar';
@@ -30,12 +30,9 @@ import { AssumedQuestion } from '@/chat/Question';
 import { useAssumptions } from '@/chat/assumptions';
 import { CallDock } from '@/calls/CallDock';
 import { TurnLine } from '@/calls/TurnLine';
-import { answerWritten, composingCall, queueOf, stopComposing, useKept, waitingCall } from '@/calls/hostCalls';
+import { queueOf, useKept, waitingCall } from '@/calls/hostCalls';
 import {
-  NO_CHIPS,
-  SECRET_COMPOSER,
   TELL_CHIEF,
-  keepsWordsPrivate,
   answering as answeringWords,
   sendToTold,
   typeYourAnswer,
@@ -53,7 +50,7 @@ import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
 import { ActsContext, AgentContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
-import { type Translate, useT } from '@/i18n';
+import { useT } from '@/i18n';
 import { retry as reconnect, useDevices, useLive } from '@/devices/hub';
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
@@ -245,20 +242,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const awayCalls = state.chief ? state.away?.calls : undefined;
   const queue = useMemo(() => queueOf(calls, agentId, awayCalls), [calls, agentId, awayCalls]);
   const docked = waitingCall(queue, keptCalls, agentId);
-  // Typed words answer the oldest call open here that asks for a secret, whichever call is docked, so they never reach
-  // an agent as a message or another call's answer.
-  const secret = watchOnly ? undefined : oldest(queue.filter(keepsWordsPrivate));
-  // Change on an assumption wins over a call docked in the same chat, until it is sent or taken off.
-  const changing = watchOnly || secret ? null : assumptions.changing;
-  // In the chief's chat, typed words answer a docked call only when it is the chief's own and the only one open.
-  const answersHere = !state.chief || (!!docked?.asker.chief && queue.length === 1);
-  const composing = secret
-    ? answeringIn(secret, t)
-    : watchOnly || changing || !answersHere
-      ? undefined
-      : answeringIn(composingCall(docked, keptCalls), t);
-  const holdsSecret = !!composing?.secret;
-  useEffect(() => session.holdSecret(holdsSecret), [session, holdsSecret]);
+  const changing = watchOnly ? null : assumptions.changing;
   const canAnswerCall = !watchOnly && live.status === 'open';
   // The composer says who an idle chat's words go to, as the Mac does: the chief, or a worker the chief hears.
   const composerTo = state.chief
@@ -509,21 +493,17 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   placeholder={
                     changing
                       ? typeYourAnswer(changing.name, t)
-                      : composing
-                        ? composing.secret
-                          ? t(SECRET_COMPOSER)
-                          : typeYourAnswer(composing.asker, t)
-                        : composerPlaceholder(
-                            state,
-                            {
-                              resuming: false,
-                              disconnected: live.status !== 'open',
-                              commands: state.commands.length > 0,
-                              steers,
-                              to: composerTo,
-                            },
-                            t,
-                          )
+                      : composerPlaceholder(
+                          state,
+                          {
+                            resuming: false,
+                            disconnected: live.status !== 'open',
+                            commands: state.commands.length > 0,
+                            steers,
+                            to: composerTo,
+                          },
+                          t,
+                        )
                   }
                   permissionMode={chat.permissionMode ?? ''}
                   modeLocked={state.running || chat.permissions.length > 0 || state.connection !== 'ready' || live.status !== 'open'}
@@ -546,22 +526,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                           onRemove: assumptions.stopChanging,
                           onAnswer: (written) => assumptions.answer(changing, written),
                         }
-                      : composing
-                        ? {
-                            chip: composing.chip,
-                            cli: composing.cli,
-                            chipsRefused: t(NO_CHIPS),
-                            secret: composing.secret,
-                            onRemove: composing.secret ? undefined : () => stopComposing(core, composing.id),
-                            onAnswer: (written) =>
-                              answerWritten(
-                                connection,
-                                composing.id,
-                                { answer: written.answer, paths: written.paths ?? [] },
-                                session.report,
-                              ),
-                          }
-                        : null
+                      : null
                   }
                 />
               )}
@@ -653,20 +618,3 @@ const makeStyles = (colors: Palette) => {
     gone: { ...type.meta, textAlign: 'center' },
   });
 };
-
-function oldest(calls: PersonCall[]): PersonCall | undefined {
-  return calls.reduce<PersonCall | undefined>((first, call) => (first && first.raisedAt <= call.raisedAt ? first : call), undefined);
-}
-
-/** What the composer says while it answers `call`, worked out apart from the call so the docked card keeps its element. */
-function answeringIn(call: PersonCall | undefined, t: Translate) {
-  return (
-    call && {
-      id: call.id,
-      cli: call.asker.cli,
-      chip: answeringWords(call.asker.name, call.question, t),
-      asker: call.asker.name,
-      secret: keepsWordsPrivate(call),
-    }
-  );
-}

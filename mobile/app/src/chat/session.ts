@@ -307,15 +307,10 @@ export class ChatSession {
    */
   answerWith = async (
     text: string,
-    question: { chipsRefused?: string; onAnswer: (written: WrittenAnswer) => Promise<boolean> },
+    question: { onAnswer: (written: WrittenAnswer) => Promise<boolean> },
   ): Promise<boolean> => {
     this.notice = null;
     const draft = this.draft;
-    if (question.chipsRefused && draft.chips.length) {
-      this.notice = question.chipsRefused;
-      this.emit();
-      return false;
-    }
     const attachments = draft.attachments.length ? await this.upload() : [];
     if (!attachments) return false;
     if (await question.onAnswer({ answer: text, paths: pathsOf(attachments), context: draft.chips })) {
@@ -589,19 +584,6 @@ export class ChatSession {
   /** Writes down what is not saved on the host yet, so it outlives the app quitting. */
   keepDraft = () => {
     this.draft.keep();
-  };
-
-  /** Whether a call for a secret waits in the chat, whose answer the draft then holds. */
-  holdSecret = (on: boolean) => {
-    this.draft.holdSecret(on);
-  };
-
-  /** The draft's words were typed while a secret waited, so they may hold it. */
-  typedSecret = () => this.draft.typedSecret;
-
-  /** Drops the words typed while a secret waited, which were its answer. */
-  dropSecret = () => {
-    this.draft.dropSecret();
   };
 
   private now() {

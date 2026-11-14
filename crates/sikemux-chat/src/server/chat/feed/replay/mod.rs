@@ -582,12 +582,6 @@ impl Replay {
             .unwrap_or_default()
     }
 
-    /// The call the person's message `message_id` answered, as its record marks it.
-    pub fn answered_of(&self, message_id: &str) -> Option<super::super::Answered> {
-        let event = self.message(message_id)?;
-        serde_json::from_value(event.payload.get("answered")?.clone()).ok()
-    }
-
     /// The event that holds the person's message `message_id`, here or on disk.
     fn message(&self, message_id: &str) -> Option<ChatEvent> {
         let names = |event: &ChatEvent| names_message(event, message_id);

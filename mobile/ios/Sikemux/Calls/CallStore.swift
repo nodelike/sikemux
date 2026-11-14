@@ -66,8 +66,6 @@ final class HostCalls {
     let core: String
     /// What the person has done on each open card, kept out of observation: each draft is observed on its own.
     @ObservationIgnored private var drafts: [String: CallDraft] = [:]
-    /// Calls whose chip the person took off the composer, so what it sends goes to the agent instead.
-    private var composingOff: Set<String> = []
     /// The calls the core has taken word that this phone drew, which a production call needs before its answer counts.
     private(set) var seen: Set<String> = []
     @ObservationIgnored private var seeing: Set<String> = []
@@ -129,23 +127,6 @@ final class HostCalls {
         focused[chat] = call.id
     }
 
-    /// The call whatever a chat's composer sends answers, while one waits there and the person has not taken its chip
-    /// off. A step to production is answered only on its card. While any call in the chat keeps its words private,
-    /// the oldest such call takes what is typed, whichever call the card shows, and its chip never comes off.
-    func composing(for agentId: String) -> PersonCall? {
-        let queue = queue(for: agentId)
-        if let kept = queue.first(where: \.keepsWordsPrivate) { return kept }
-        guard let call = waiting(for: agentId) else { return nil }
-        let chief = view?.workspace.projects.contains { $0.chief == agentId } == true
-        // In the chief's chat, typed words answer a docked call only when it is the chief's own and the only one open.
-        if chief, queue.count != 1 || call.asker.chief != true { return nil }
-        return composingOff.contains(call.id) || call.kind == .production ? nil : call
-    }
-
-    func stopComposing(_ call: PersonCall) {
-        composingOff.insert(call.id)
-    }
-
     /// What the person has done on `call`'s card. Drafts of calls no longer open go.
     func draft(_ call: PersonCall) -> CallDraft {
         if let held = drafts[call.id] { return held }
@@ -199,22 +180,6 @@ final class HostCalls {
                 Haptics.failure()
                 report(problem(error))
             }
-        }
-    }
-
-    /// Answers the call waiting in a chat with what the person typed in its composer, with the files they sent.
-    func answer(_ call: PersonCall, written: WrittenAnswer, report: @escaping (String) -> Void) async -> Bool {
-        guard let connection = Hub.shared.live(core).connection else { return false }
-        do {
-            _ = try await connection.call(
-                PhoneCall.AnswerCall.self,
-                AnswerCallParams(id: call.id, words: written.answer, paths: written.paths.isEmpty ? nil : written.paths)
-            )
-            return true
-        } catch {
-            Haptics.failure()
-            report(problem(error))
-            return false
         }
     }
 

@@ -74,13 +74,7 @@ pub fn batch_len(queued: &[Queued]) -> usize {
 
 /// Messages sent as one: their texts in order, each attachment once, and whose they are.
 fn combine(messages: Vec<Queued>) -> (String, Vec<String>, Vec<ChatContext>, Whose) {
-    let whose = Whose {
-        person: messages.first().is_some_and(|message| message.whose.person),
-        answered: messages
-            .iter()
-            .filter_map(|message| message.whose.answered)
-            .max(),
-    };
+    let whose = Whose::of(messages.first().is_some_and(|message| message.whose.person));
     let text = messages
         .iter()
         .map(|message| message.text.as_str())
@@ -155,10 +149,6 @@ pub async fn steer(
     message: Option<QueuedMessageParams>,
 ) -> CoreResult<()> {
     let chat = core.chats().running(agent_id)?;
-    let answered = (message.as_ref()).is_some_and(|message| {
-        (core.chat_above().questions_answer_typed)(core, agent_id, &message.text)
-    });
-    let message = message.filter(|_| !answered);
     core.workspaces().person_said(agent_id);
     (core.chat_above().chief_person_wrote)(core, agent_id);
     let message = match message {

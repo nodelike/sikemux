@@ -392,7 +392,11 @@ fn greeting(core: &Core, project: &ProjectInfo, chief: &str) -> Option<String> {
          can still talk to any of them. The open chats, as Sikemux has them, each chat's title and \
          state quoted as its agent wrote them:\n{}",
         crate::text::one_line(&project.name),
-        if open.is_empty() { "- none".to_owned() } else { open.join("\n") }
+        if open.is_empty() {
+            "- none".to_owned()
+        } else {
+            open.join("\n")
+        }
     ))
 }
 
@@ -1094,14 +1098,6 @@ fn away(core: &Core, chief: &str, since: u64) -> Option<Away> {
     })
 }
 
-/// The calls open in the away block the chief `agent` shows now, by id; none when it shows none.
-pub(crate) fn away_calls(core: &Core, agent: &str) -> Vec<String> {
-    (core.chiefs().state.locked().seats.get(agent))
-        .and_then(|seat| seat.away.as_ref())
-        .map(|away| away.shown.calls.clone())
-        .unwrap_or_default()
-}
-
 fn open_calls(calls: &[PersonCall], path: &str) -> Vec<String> {
     (calls.iter())
         .filter(|call| call.project == path && call.state == CallState::Open)
@@ -1491,7 +1487,9 @@ pub(crate) async fn overrule_undone(
         note(
             core,
             &chief,
-            format!("The person undid their overrule of {named}, which an agent wrote as {said}. It stands again."),
+            format!(
+                "The person undid their overrule of {named}, which an agent wrote as {said}. It stands again."
+            ),
         );
     }
 }

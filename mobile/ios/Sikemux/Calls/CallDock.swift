@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 
 /// A call docked on its asker's chat, above the composer: the Mac's call card at the phone's sizes, a little
-/// tighter, with 44-point rows and Go with this across the card. Typing in the composer answers it too, so it has no
-/// Open chat. When the agent waits on several calls, the card says which it is and the others wait folded under it.
+/// tighter, with 44-point rows and Go with this across the card. It has no Open chat, since it sits in the chat
+/// already. When the agent waits on several calls, the card says which it is and the others wait folded under it.
 struct CallDock: View {
     @Environment(\.palette) private var palette
     let core: String

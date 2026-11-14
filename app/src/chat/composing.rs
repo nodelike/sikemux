@@ -20,7 +20,6 @@ use sikemux_view::prefs::MidTurnSend;
 use sikemux_wire::protocol::PermissionMode;
 
 use super::*;
-use crate::calls::{typed_goes, Typed};
 use crate::chat::{Answering, Chat, Question};
 use crate::core::ChatAsk;
 use crate::ui::list_picker::{Choose, Close, Next, Previous};
@@ -90,9 +89,6 @@ pub struct Composing {
     pub view: Entity<ComposerView>,
     pub secret: Entity<TextareaState>,
     pub secret_focused: bool,
-    /// While the draft's words answer a call that keeps them private, the draft as it was when it
-    /// came. Once it closes, words typed for it are dropped, never sent to the agent or kept.
-    pub secret_since: Option<String>,
     pub hint: SharedString,
     /// What the agent predicts the person sends next, while the empty draft offers it.
     pub suggested: Option<SharedString>,
@@ -1205,7 +1201,6 @@ impl Workbench {
             view,
             secret,
             secret_focused: false,
-            secret_since: None,
             mic,
             hint: SharedString::default(),
             suggested: None,
@@ -1340,9 +1335,6 @@ impl Workbench {
         let waiting = (self.chats.open.get(&agent))
             .and_then(|chat| self.waiting_call(chat.target.place(), &agent, cx));
         let call_waits = waiting.is_some();
-        let typed = (self.chats.open.get(&agent)).map_or(Typed::Message, |chat| {
-            typed_goes(self.typed_call(chat.target.place(), &agent, cx))
-        });
         let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
         };
@@ -1350,28 +1342,15 @@ impl Workbench {
             .then(|| chat.suggestion(&agent, self.feeds.questions_outside_calls()))
             .flatten()
             .map(SharedString::new);
-        let hint = SharedString::from(match typed {
-            Typed::Private => t!("Type or paste it · kept private").to_owned(),
-            Typed::Answer => t!("Or answer in your own words").to_owned(),
-            Typed::Message => chat.hint(
-                &agent,
-                self.feeds.questions_outside_calls(),
-                steer_first,
-                to.as_ref().map(|(to, commands)| (to.as_str(), *commands)),
-            ),
-        });
+        let hint = SharedString::from(chat.hint(
+            &agent,
+            self.feeds.questions_outside_calls(),
+            steer_first,
+            to.as_ref().map(|(to, commands)| (to.as_str(), *commands)),
+        ));
         let Some(composing) = chat.composer.as_mut() else {
             return;
         };
-        match typed {
-            Typed::Private => {
-                let draft = &composing.draft;
-                (composing.secret_since).get_or_insert_with(|| draft.read(cx).value().to_string());
-            }
-            _ => {
-                composing.left_secret(window, cx);
-            }
-        }
         let suggested = suggested.filter(|suggested| {
             composing.attachments.is_empty()
                 && composing.context.is_empty()
@@ -1463,35 +1442,6 @@ impl Workbench {
                 .and_then(|chat| Some(chat.composer.as_ref()?.draft.read(cx).value().to_string()))
                 .unwrap_or_default();
             return self.begin_worktree(agent, text, cx);
-        }
-        let typed = (self.chats.open.get(agent))
-            .and_then(|chat| chat.composer.as_ref())
-            .map(|composing| (composing.draft.clone(), composing.outgoing(cx)));
-        if let Some((draft, outgoing)) = typed {
-            let text = draft.read(cx).value().trim().to_owned();
-            let secret = self.typed_goes(agent, cx) == Typed::Private;
-            let dropped = !secret
-                && (self.composing_mut(agent))
-                    .is_some_and(|composing| composing.left_secret(window, cx));
-            if dropped {
-                self.keep_draft(agent, cx);
-                return cx.notify();
-            }
-            if !text.is_empty() && self.answer_in_chat(agent, &text, outgoing, cx) {
-                let composing =
-                    (self.chats.open.get_mut(agent)).and_then(|chat| chat.composer.as_mut());
-                if let Some(composing) = composing {
-                    composing.refusal = None;
-                    if !secret {
-                        composing.attachments.clear();
-                        composing.context.clear();
-                        composing.tracked_context.clear();
-                    }
-                }
-                draft.update(cx, |draft, cx| draft.set_value("", window, cx));
-                self.keep_draft(agent, cx);
-                return cx.notify();
-            }
         }
         let Some(composing) = self
             .chats
