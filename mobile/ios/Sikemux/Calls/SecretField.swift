@@ -8,6 +8,8 @@ struct SecretField: UIViewRepresentable {
     @Binding var focused: Bool
     let accent: UIColor
     let dark: Bool
+    /// Return sends what was typed, as Return in the card's other field does.
+    let onSubmit: () -> Void
 
     func makeUIView(context: Context) -> UITextView {
         let field = UITextView()
@@ -19,6 +21,7 @@ struct SecretField: UIViewRepresentable {
         field.textContainer.lineFragmentPadding = 0
         field.takesSecret(true)
         field.textContentType = nil
+        field.returnKeyType = .send
         return field
     }
 
@@ -39,6 +42,11 @@ struct SecretField: UIViewRepresentable {
         func textViewDidChange(_ field: UITextView) { parent.text = field.text }
         func textViewDidBeginEditing(_ field: UITextView) { parent.focused = true }
         func textViewDidEndEditing(_ field: UITextView) { parent.focused = false }
+        func textView(_ field: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard text == "\n" else { return true }
+            parent.onSubmit()
+            return false
+        }
     }
 }
 

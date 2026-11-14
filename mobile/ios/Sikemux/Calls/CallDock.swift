@@ -227,7 +227,7 @@ struct CallDock: View {
                 if call.keepsWordsPrivate {
                     SecretField(
                         text: $draft.typed, focused: $secretFocused, accent: UIColor(palette.accent),
-                        dark: !palette.isLight
+                        dark: !palette.isLight, onSubmit: goWithThis
                     )
                     .overlay(alignment: .leading) {
                         if draft.typed.isEmpty {

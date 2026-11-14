@@ -994,11 +994,15 @@ fn note_row(
                         .child(hint),
                 )
                 .child(
-                    Input::new(field)
-                        .appearance(false)
-                        .bordered(false)
-                        .p_0()
-                        .text_size(theme::ui_text(13.)),
+                    // Its own key context keeps the chat's question keys off the field, so Return
+                    // answers this call, as Return in the composer sends.
+                    div().w_full().key_context("CallField").child(
+                        Input::new(field)
+                            .appearance(false)
+                            .bordered(false)
+                            .p_0()
+                            .text_size(theme::ui_text(13.)),
+                    ),
                 ),
         )
 }

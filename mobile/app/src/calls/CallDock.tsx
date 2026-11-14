@@ -169,6 +169,10 @@ export const CallDock = memo(function CallDock({
                 style={[styles.input, draft.typed ? styles.hiddenText : null]}
                 multiline
                 {...SECRET_INPUT}
+                // Return sends it, as in the card's other field; a pasted key keeps its line breaks.
+                returnKeyType="send"
+                submitBehavior="submit"
+                onSubmitEditing={go}
                 caretHidden={!!draft.typed}
                 editable={canAnswer}
                 onFocus={() => setFocused(true)}
