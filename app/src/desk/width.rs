@@ -3,21 +3,19 @@
 
 use crate::ui::Clicks;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::f32::consts::FRAC_PI_2;
 use std::sync::Arc;
 
-use gpui_kit::base::Button as BaseButton;
 use gpui_kit::component::Sizable;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, radians, relative, AnyElement, Context, FontWeight, Image, ImageFormat,
-    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Transformation,
+    div, px, relative, AnyElement, Context, FontWeight, Image, ImageFormat, InteractiveElement,
+    IntoElement, ParentElement, SharedString, Styled,
 };
 use sikemux_browser::viewport::Viewport;
 use sikemux_browser::BrowserTab;
 
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H, TEXT_XS};
+use crate::theme::{Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS_H};
 use crate::ui::{self, MenuRow};
 use crate::workbench::Workbench;
 
@@ -93,15 +91,13 @@ fn named(preset: &str) -> (&'static str, Icon) {
         })
 }
 
-/// The chip at the right of the address bar: the width's icon and name, and a menu of the
-/// widths and All.
+/// The icon beside the address bar showing the width, and a menu of the widths and All.
 pub(super) fn chip(
     bench: &Workbench,
     agent: &str,
     tab_id: &str,
     cx: &Context<Workbench>,
 ) -> AnyElement {
-    let t = Tokens::get(cx).clone();
     let engine = bench.desks.read(cx).engine.clone();
     let held = engine
         .as_ref()
@@ -123,30 +119,8 @@ pub(super) fn chip(
             ),
         },
     };
-    let face = BaseButton::new("desk-width-face")
-        .accessibility_label(t!("Width: {label}", label = label))
-        .flex_none()
-        .h(px(20.))
-        .pl(px(7.))
-        .pr(SPACE_1H)
-        .mr(px(3.))
-        .flex()
-        .items_center()
-        .gap(px(5.))
-        .rounded(RADIUS_2)
-        .bg(t.surface_chosen)
-        .hover(move |chip| chip.bg(t.surface_active))
-        .cursor_pointer()
-        .text_size(crate::theme::ui_text(TEXT_XS))
-        .text_color(t.text_primary)
-        .whitespace_nowrap()
-        .child(ui::icon(icon, 12.).text_color(t.text_secondary))
-        .child(label)
-        .child(
-            ui::icon(Icon::Chevron, 10.)
-                .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))
-                .text_color(t.text_tertiary),
-        );
+    let face = ui::IconButton::new("desk-width-face", icon, t!("Width: {label}", label = label))
+        .glyph(13.);
     let chosen = move |preset: Option<&str>| !all && preset_of(held) == preset;
     let (bench, agent, tab_id) = (cx.entity().downgrade(), agent.to_owned(), tab_id.to_owned());
     ui::menu_button(

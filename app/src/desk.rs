@@ -2114,8 +2114,8 @@ pub fn pane(
                             .child(Input::new(&page.address).appearance(false)),
                     )
                 })
-                .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
         }))
+        .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
         .child(snip_toggle(bench, agent, cx));
     if let Some(item) = front_item {
         let shown = match item {
