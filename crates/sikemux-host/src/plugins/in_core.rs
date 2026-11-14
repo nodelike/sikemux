@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use sikemux_core::server::plugins::{
     AgentTool, Answer, Gated, Listing, Manifest, Plugins, Provided, Sink, ToolFamily,
 };
+use sikemux_plugin_api::credential::{Actor, Ask, Credential};
 use sikemux_plugin_api::{vault, StreamSink};
 use sikemux_process::user_environment::UserEnvironment;
 
@@ -77,6 +78,18 @@ impl Plugins for PluginHost {
 
     fn call_agent_tool<'a>(&'a self, name: &'a str, arguments: Value) -> Answer<'a, Value> {
         Box::pin(async move { self.call_agent_tool(name, arguments).await })
+    }
+
+    fn credential<'a>(&'a self, ask: Ask) -> Answer<'a, Option<Credential>> {
+        Box::pin(async move { PluginHost::credential(self, ask).await })
+    }
+
+    fn revoke<'a>(&'a self, remote: &'a str, secret: String) -> Answer<'a, ()> {
+        Box::pin(async move { PluginHost::revoke(self, remote, secret).await })
+    }
+
+    fn acts_as(&self, remote: &str) -> Option<Actor> {
+        PluginHost::acts_as(self, remote)
     }
 
     fn vault_books(&self) -> Vec<(String, PathBuf, &'static dyn vault::Book)> {

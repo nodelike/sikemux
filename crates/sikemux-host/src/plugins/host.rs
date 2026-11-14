@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use serde_json::Value;
+use sikemux_plugin_api::credential::{Actor, Ask, Credential};
 use sikemux_plugin_api::{
     vault, FailureCategory, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
 };
@@ -78,7 +79,9 @@ impl PluginHost {
                 );
                 continue;
             }
-            let context = Arc::new(PluginContext::new(data_root.join(&manifest.id)));
+            let context = Arc::new(
+                PluginContext::new(data_root.join(&manifest.id)).on(runtime.handle().clone()),
+            );
             let call_timeout = manifest
                 .call_timeout_secs
                 .map_or(default_call_timeout, Duration::from_secs);
@@ -185,6 +188,77 @@ impl PluginHost {
             .filter(|(id, _)| self.is_enabled(id))
             .flat_map(|(_, loaded)| loaded.plugin.agent_environment(&loaded.context, project))
             .collect()
+    }
+
+    fn enabled(&self) -> impl Iterator<Item = (&String, &Loaded)> {
+        self.plugins.iter().filter(|(id, _)| self.is_enabled(id))
+    }
+
+    /// The first enabled plugin's credential for `ask.remote`, asked for the current caller.
+    pub async fn credential(&self, ask: Ask) -> Result<Option<Credential>, PluginFailure> {
+        let ask = Arc::new(ask);
+        for (id, loaded) in self.enabled() {
+            let plugin = Arc::clone(&loaded.plugin);
+            let context = Arc::clone(&loaded.context);
+            let ask = Arc::clone(&ask);
+            let minted = self
+                .run_for_caller("credential", loaded.call_timeout, async move {
+                    plugin.credential(&context, &ask).await
+                })
+                .await
+                .map_err(|error| failure(id, error))?;
+            if minted.is_some() {
+                return Ok(minted);
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn revoke(&self, remote: &str, secret: String) -> Result<(), PluginFailure> {
+        let Some((id, loaded)) = self
+            .enabled()
+            .find(|(_, loaded)| loaded.plugin.acts_as(&loaded.context, remote).is_some())
+        else {
+            return Ok(());
+        };
+        let plugin = Arc::clone(&loaded.plugin);
+        let context = Arc::clone(&loaded.context);
+        let remote = remote.to_owned();
+        self.run_for_caller("revoke", loaded.call_timeout, async move {
+            plugin.revoke(&context, &remote, &secret).await
+        })
+        .await
+        .map_err(|error| failure(id, error))
+    }
+
+    pub fn acts_as(&self, remote: &str) -> Option<Actor> {
+        self.enabled()
+            .find_map(|(_, loaded)| loaded.plugin.acts_as(&loaded.context, remote))
+    }
+
+    async fn run_for_caller<T: Send + 'static>(
+        &self,
+        method: &str,
+        timeout: Duration,
+        work: impl std::future::Future<Output = PluginResult<T>> + Send + 'static,
+    ) -> PluginResult<T> {
+        let caller = vault::caller().unwrap_or_default();
+        let task = self.spawner.spawn(vault::as_caller(caller, work));
+        let abort = task.abort_handle();
+        match tokio::time::timeout(timeout, task).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(stopped)) => Err(PluginError::new(
+                FailureCategory::Stopped,
+                stopped.to_string(),
+            )),
+            Err(_) => {
+                abort.abort();
+                Err(PluginError::new(
+                    FailureCategory::TimedOut,
+                    format!("`{method}` did not answer within {}s", timeout.as_secs()),
+                ))
+            }
+        }
     }
 
     /// Each plugin's sign-ins, for the account vault, with the folder the plugin keeps them in.
@@ -304,31 +378,12 @@ impl PluginHost {
         let loaded = self.get(id)?;
         let plugin = Arc::clone(&loaded.plugin);
         let context = Arc::clone(&loaded.context);
-        let call_timeout = loaded.call_timeout;
         let owned_method = method.to_owned();
-        let caller = vault::caller().unwrap_or_default();
-        let task = self.spawner.spawn(vault::as_caller(caller, async move {
+        self.run_for_caller(method, loaded.call_timeout, async move {
             plugin.call(&context, &owned_method, params).await
-        }));
-        let abort = task.abort_handle();
-        let outcome = match tokio::time::timeout(call_timeout, task).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(stopped)) => Err(PluginError::new(
-                FailureCategory::Stopped,
-                stopped.to_string(),
-            )),
-            Err(_) => {
-                abort.abort();
-                Err(PluginError::new(
-                    FailureCategory::TimedOut,
-                    format!(
-                        "`{method}` did not answer within {}s",
-                        call_timeout.as_secs()
-                    ),
-                ))
-            }
-        };
-        outcome.map_err(|error| failure(id, error))
+        })
+        .await
+        .map_err(|error| failure(id, error))
     }
 
     /// Runs a stream until it ends. Dropping the future stops it.

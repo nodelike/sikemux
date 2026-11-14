@@ -9,6 +9,7 @@ use std::pin::Pin;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_calls::plugins::PluginFailure;
+use sikemux_plugin_api::credential::{Actor, Ask, Credential};
 use sikemux_plugin_api::FailureCategory;
 
 pub mod manifest;
@@ -63,6 +64,19 @@ pub trait Plugins: Send + Sync {
     /// The tool an agent knows by `name`, when the person approves each call to it.
     fn gated(&self, name: &str) -> Option<Gated>;
     fn call_agent_tool<'a>(&'a self, name: &'a str, arguments: Value) -> Answer<'a, Value>;
+    /// The first plugin's credential for one command against `ask.remote`, made for the caller
+    /// `vault::as_caller` set, so the vault logs the use with the agent's name.
+    fn credential<'a>(&'a self, _ask: Ask) -> Answer<'a, Option<Credential>> {
+        Box::pin(async { Ok(None) })
+    }
+    fn revoke<'a>(&'a self, _remote: &'a str, _secret: String) -> Answer<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+    /// Who commits to `remote` carry as committer when agents have an identity of their own
+    /// there. Answers at once.
+    fn acts_as(&self, _remote: &str) -> Option<Actor> {
+        None
+    }
     /// Each plugin's sign-ins, for the account vault, with the folder the plugin keeps them in.
     fn vault_books(
         &self,
@@ -125,6 +139,18 @@ pub async fn call_on(
     params: Value,
 ) -> Result<Value, PluginFailure> {
     present(plugins, plugin)?.call(plugin, method, params).await
+}
+
+/// A credential for one command against `ask.remote`, for the caller `vault::as_caller` set.
+pub async fn credential(core: &Core, ask: Ask) -> Result<Option<Credential>, PluginFailure> {
+    match provided(core) {
+        Some(Provided(plugins)) => plugins.credential(ask).await,
+        None => Ok(None),
+    }
+}
+
+pub fn acts_as(core: &Core, remote: &str) -> Option<Actor> {
+    provided(core)?.0.acts_as(remote)
 }
 
 pub fn manifests(core: &Core) -> Vec<&'static Manifest> {

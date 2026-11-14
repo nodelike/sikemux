@@ -4,6 +4,7 @@
 
 pub mod account;
 pub mod codehost;
+pub mod credential;
 mod error;
 pub mod http;
 pub mod images;
@@ -98,6 +99,32 @@ pub trait Plugin: Manifested + Send + Sync {
         BTreeMap::new()
     }
 
+    /// A short-lived credential for one command against `ask.remote`, or None when this plugin
+    /// has no identity of the agents' own there. Only the core asks, never a mod or an agent.
+    fn credential<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        _ask: &'a credential::Ask,
+    ) -> PluginFuture<'a, Option<credential::Credential>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    /// Ends a credential `credential` handed out for `remote` before it expires.
+    fn revoke<'a>(
+        &'a self,
+        _ctx: &'a PluginContext,
+        _remote: &'a str,
+        _secret: &'a str,
+    ) -> PluginFuture<'a, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    /// Who commits to `remote` would carry as committer, when this plugin has an identity of
+    /// the agents' own there. Asked on hot paths, so it answers from what it has, never the network.
+    fn acts_as(&self, _ctx: &PluginContext, _remote: &str) -> Option<credential::Actor> {
+        None
+    }
+
     /// Where the plugin keeps its sign-ins, for the account vault. None keeps them out of it.
     fn vault(&self) -> Option<&'static dyn vault::Book> {
         None
@@ -106,11 +133,33 @@ pub trait Plugin: Manifested + Send + Sync {
 
 pub struct PluginContext {
     data_dir: PathBuf,
+    runtime: Option<tokio::runtime::Handle>,
 }
 
 impl PluginContext {
     pub fn new(data_dir: PathBuf) -> Self {
-        Self { data_dir }
+        Self {
+            data_dir,
+            runtime: None,
+        }
+    }
+
+    /// Work the plugin starts by itself runs on `runtime`, the plugins' own threads.
+    pub fn on(mut self, runtime: tokio::runtime::Handle) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
+    /// Starts work that outlives the call that started it, such as a refresh a cached answer
+    /// asked for. Dropped when there is no runtime to run it.
+    pub fn spawn(&self, work: impl Future<Output = ()> + Send + 'static) {
+        let runtime = self
+            .runtime
+            .clone()
+            .or_else(|| tokio::runtime::Handle::try_current().ok());
+        if let Some(runtime) = runtime {
+            runtime.spawn(work);
+        }
     }
 
     /// A directory only this plugin writes to. It may not exist yet.
