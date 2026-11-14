@@ -927,7 +927,7 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_persons_rule_the_agent_added_examples_to_is_kept_as_theirs_once_kept_in_their_words() {
+async fn a_rule_holding_words_the_person_did_not_say_is_kept_as_the_agents_note() {
     let root = tempfile::Builder::new()
         .prefix("chief")
         .tempdir_in("/tmp")
@@ -970,9 +970,9 @@ async fn a_persons_rule_the_agent_added_examples_to_is_kept_as_theirs_once_kept_
     let with_examples = format!(
         r#"tool memory.add {{"kind":"rule","person":true,"text":"{said} (e.g. {examples})."}}"#
     );
-    let refused = worker.says(&with_examples, "tool ").await;
-    assert!(refused.contains("in their own words"), "{refused}");
-    assert!(refused.contains("don't tell them"), "{refused}");
+    let noted = worker.says(&with_examples, "tool ").await;
+    assert!(noted.contains("Kept as #"), "{noted}");
+    assert!(!noted.contains("as the person's rule"), "{noted}");
 
     let kept = worker
         .tool(

@@ -466,7 +466,7 @@ fn change(
         (acting.as_deref()).is_some_and(|agent| now_check::persons_turn(core, agent));
     let overruled = acting.is_some() && crate::server::chief::kept_by_overrule(core, project, id);
     let new_words_persons = match (acting.as_deref(), text.as_deref()) {
-        (Some(agent), Some(text)) => said_by_person(core, agent, text).is_ok(),
+        (Some(agent), Some(text)) => said_by_person(core, agent, text),
         _ => false,
     };
     let mut state = core.memory().state.locked();
@@ -845,17 +845,10 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
             ToolAdd::Rule {
                 text,
                 person: true,
-                goal,
+                goal: false,
                 sensitive,
                 folder,
-            } => {
-                if goal {
-                    return Err(
-                        "person: true keeps the person's rule for the project; leave out goal"
-                            .into(),
-                    );
-                }
-                said_by_person(&core, &agent, &text)?;
+            } if said_by_person(&core, &agent, &text) => {
                 by.with = (by.agent.take()).map(|agent| sikemux_view::memory::SaidTo {
                     agent,
                     name: by.name.take(),
@@ -910,31 +903,21 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
 }
 
 /// Whether what the person said in this turn, as the chat's record has it, holds most of the
-/// rule's longer words, so an agent cannot pass its own idea, or a message another agent or a
-/// trigger sent, off as the person's.
-fn said_by_person(core: &Core, agent: &str, rule: &str) -> Result<(), String> {
-    const NOT_THEIRS: &str =
-        "person: true is for a rule the person said to you in this turn; keep it without person";
-    const ADDED: &str = "Nothing is kept yet: the rule holds words the person did not say. Keep it again with person: true in their own words, without what you added, then keep your additions, such as examples, as a note of your own without person. If they said no such rule, keep it without person. Their rule is not turned down, so don't tell them it was.";
+/// rule's longer words, so an agent's own idea, or a message another agent or a trigger sent,
+/// is kept as an agent's note rather than as the person's rule.
+fn said_by_person(core: &Core, agent: &str, rule: &str) -> bool {
     let said = (core.chats().get(agent))
         .map(|chat| chat.feed.person_said())
         .unwrap_or_default();
-    if said.is_empty() {
-        return Err(NOT_THEIRS.into());
-    }
-    let prompt = said.join("\n");
     let words = |text: &str| -> HashSet<String> {
         (text.split(|c: char| !c.is_alphanumeric()))
             .filter(|word| word.chars().count() >= 4)
             .map(str::to_lowercase)
             .collect()
     };
-    let (said, rule) = (words(&prompt), words(rule));
+    let (said, rule) = (words(&said.join("\n")), words(rule));
     let held = rule.iter().filter(|word| said.contains(*word)).count();
-    match !rule.is_empty() && held * 2 >= rule.len() {
-        true => Ok(()),
-        false => Err(ADDED.into()),
-    }
+    !rule.is_empty() && held * 2 >= rule.len()
 }
 
 /// The line in the agent's chat that says rule `id` was kept from the person's words.

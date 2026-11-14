@@ -778,16 +778,13 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             .and_then(|chat| chat.feed.turn_prompt())
             .map(|prompt| answers_in(&prompt))
             .unwrap_or_default();
-        if given.person && answers.is_empty() {
-            return Err("person: true is for what the person chose in their answer to your question, and no answer of theirs started this turn; record it without person".into());
-        }
         let decided = [given.text.as_deref(), given.why.as_deref()]
             .into_iter()
             .flatten()
             .collect::<Vec<_>>()
             .join(" ");
         let mut by = learned(&core, Some(&agent));
-        if given.person
+        if (given.person && !answers.is_empty())
             || (answers.iter()).any(|(question, answer)| records_answer(&decided, question, answer))
         {
             by.agent = None;
