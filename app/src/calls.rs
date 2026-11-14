@@ -64,8 +64,6 @@ struct Held {
     chosen: Option<Vec<String>>,
     field: Entity<InputState>,
     sending: bool,
-    /// The row the arrows rest on, on a call that takes several.
-    cursor: Option<usize>,
     /// What runs on a yes shows.
     action_open: bool,
     _typed: Subscription,
@@ -84,59 +82,27 @@ impl Cards {
         }
     }
 
-    fn cursor(&self, id: &str) -> Option<usize> {
-        self.held.get(id).and_then(|held| held.cursor)
-    }
-
     fn field_focused(&self, id: &str, window: &Window, cx: &App) -> bool {
         (self.held.get(id))
             .is_some_and(|held| held.field.read(cx).focus_handle(cx).is_focused(window))
     }
 
     /// A key on the card of `call`, as today's question rows take them: a number chooses its
-    /// row, or ticks it on a call that takes several; the arrows move the chosen row, or the
-    /// row Space ticks. Says whether it took it.
+    /// row, and the arrows move the chosen row. Says whether it took it.
     fn press(&mut self, call: &PersonCall, press: Press, cx: &mut Context<Self>) -> bool {
         let count = call.options.len();
         if count == 0 || !self.held.contains_key(&call.id) {
             return false;
         }
         let position = |id: &String| call.options.iter().position(|option| &option.id == id);
-        let first_chosen = self.chosen(call).first().and_then(position);
-        let cursor = self.cursor(&call.id).or(first_chosen);
-        let step = |from: Option<usize>, up: bool| match (from, up) {
-            (Some(at), true) => (at + count - 1) % count,
-            (Some(at), false) => (at + 1) % count,
-            (None, true) => count - 1,
-            (None, false) => 0,
-        };
-        match (press, call.multi) {
-            (Press::Choose(ix), _) if ix < count => {
-                if let Some(held) = self.held.get_mut(&call.id) {
-                    held.cursor = Some(ix);
-                }
-                match call.multi {
-                    true => self.choose(call, &call.options[ix].id, cx),
-                    false => self.set_chosen(call, vec![call.options[ix].id.clone()], cx),
-                }
-            }
-            (Press::Up | Press::Down, true) => {
-                let at = step(cursor, press == Press::Up);
-                if let Some(held) = self.held.get_mut(&call.id) {
-                    held.cursor = Some(at);
-                }
-                cx.notify();
-            }
-            (Press::Up | Press::Down, false) => {
-                let at = step(first_chosen, press == Press::Up);
-                self.set_chosen(call, vec![call.options[at].id.clone()], cx);
-            }
-            (Press::Tick, true) => {
-                let at = cursor.unwrap_or(0);
-                self.choose(call, &call.options[at].id, cx);
-            }
+        let chosen = self.chosen(call).first().and_then(position);
+        let at = match press {
+            Press::Choose(ix) if ix < count => ix,
+            Press::Up => chosen.map_or(count - 1, |at| (at + count - 1) % count),
+            Press::Down => chosen.map_or(0, |at| (at + 1) % count),
             _ => return false,
-        }
+        };
+        self.set_chosen(call, vec![call.options[at].id.clone()], cx);
         true
     }
 
@@ -155,21 +121,13 @@ impl Cards {
         self.held.get(id).is_some_and(|held| held.sending)
     }
 
-    /// Chooses an option, or clears the one chosen; on a call that takes several, ticks it.
+    /// Chooses an option, or clears the one chosen.
     fn choose(&mut self, call: &PersonCall, option: &str, cx: &mut Context<Self>) {
-        let mut chosen = self.chosen(call);
-        let had = chosen.iter().position(|id| id == option);
-        match (call.multi, had) {
-            (_, Some(at)) => {
-                chosen.remove(at);
-            }
-            (true, None) => chosen.push(option.to_owned()),
-            (false, None) => chosen = vec![option.to_owned()],
-        }
-        if let Some(held) = self.held.get_mut(&call.id) {
-            held.chosen = Some(chosen);
-        }
-        cx.notify();
+        let chosen = match self.chosen(call).iter().any(|id| id == option) {
+            true => Vec::new(),
+            false => vec![option.to_owned()],
+        };
+        self.set_chosen(call, chosen, cx);
     }
 
     /// The card's field, made the first time the card draws.
@@ -198,7 +156,6 @@ impl Cards {
                 chosen: None,
                 field: field.clone(),
                 sending: false,
-                cursor: None,
                 action_open: false,
                 _typed: typed,
             },
@@ -224,33 +181,20 @@ impl Cards {
         }
     }
 
-    /// What answers the call as the card stands: the options chosen with the note, the person's
-    /// own words alone, or, on a call that goes on with an assumption and offers no options,
-    /// letting it stand.
+    /// What answers the call as the card stands: the option chosen with the note, or the
+    /// person's own words alone.
     fn answer(&self, call: &PersonCall, cx: &App) -> Option<AnswerCallParams> {
         let held = self.held.get(&call.id)?;
         let typed = held.field.read(cx).value().trim().to_owned();
         let typed = (!typed.is_empty()).then_some(typed);
-        let chosen = self.chosen(call);
         let id = call.id.clone();
-        match (call.multi, chosen.as_slice()) {
-            (_, []) if typed.is_none() && lets_stand(call) => Some(AnswerCallParams {
-                id,
-                fine: true,
-                ..AnswerCallParams::default()
-            }),
-            (_, []) => typed.map(|words| AnswerCallParams {
+        match self.chosen(call).first() {
+            None => typed.map(|words| AnswerCallParams {
                 id,
                 words: Some(words),
                 ..AnswerCallParams::default()
             }),
-            (true, options) => Some(AnswerCallParams {
-                id,
-                options: options.to_vec(),
-                note: typed,
-                ..AnswerCallParams::default()
-            }),
-            (false, [option, ..]) => Some(AnswerCallParams {
+            Some(option) => Some(AnswerCallParams {
                 id,
                 option: Some(option.clone()),
                 note: typed,
@@ -388,23 +332,6 @@ impl Workbench {
             .is_some_and(|(_, call)| call.kind == CallKind::Production)
     }
 
-    /// Hands call `id` back to its asker's lead, or its asker, to decide.
-    pub(crate) fn not_mine(&mut self, id: &str, cx: &mut Context<Self>) {
-        let Some((place, _)) = self.call_at(id) else {
-            return;
-        };
-        let handed = Target::new(&self.asks, place)
-            .request_typed::<call::CallNotMine>(CallParams { id: id.to_owned() });
-        cx.spawn(async move |bench, cx| {
-            if let Err(error) = handed.await {
-                bench
-                    .update(cx, |bench, cx| bench.notify(crate::toast::error(error), cx))
-                    .ok();
-            }
-        })
-        .detach();
-    }
-
     /// Answers call `id` with what its card holds.
     pub(crate) fn go_with(&mut self, id: &str, cx: &mut Context<Self>) {
         let Some((_, call)) = self.call_at(id) else {
@@ -412,16 +339,6 @@ impl Workbench {
         };
         let Some(params) = self.calls.read(cx).answer(call, cx) else {
             return;
-        };
-        self.send_answer(params, cx);
-    }
-
-    /// Answers call `id`, which asks for a secret, with the person having none to give.
-    pub(crate) fn have_none(&mut self, id: &str, cx: &mut Context<Self>) {
-        let params = AnswerCallParams {
-            id: id.to_owned(),
-            none: true,
-            ..AnswerCallParams::default()
         };
         self.send_answer(params, cx);
     }
@@ -631,13 +548,9 @@ fn card(
             })
         }
     };
-    let cursor = cards.read(cx).cursor(&call.id).filter(|_| call.multi);
-    let rows = (call.options.iter()).enumerate().map(|(ix, option)| {
+    let rows = call.options.iter().map(|option| {
         let on = chosen.contains(&option.id);
-        let key = match call.multi {
-            true => tick(on, &t),
-            false => radio(on, &t),
-        };
+        let key = radio(on, &t);
         let pick = (call.pick.as_ref() == Some(&option.id)).then(|| {
             div()
                 .ml_auto()
@@ -678,10 +591,9 @@ fn card(
             .text_size(theme::ui_text(13.))
             .text_color(t.text_primary)
             .disabled(sending)
-            .map(|row| match (on, cursor == Some(ix)) {
-                (true, _) => row.bg(t.surface_chosen),
-                (false, true) => row.bg(hover),
-                (false, false) => row.hover(move |style| style.bg(hover)),
+            .map(|row| match on {
+                true => row.bg(t.surface_chosen),
+                false => row.hover(move |style| style.bg(hover)),
             })
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
@@ -749,7 +661,7 @@ fn card(
         .then_some(call.action.as_ref())
         .flatten()
         .map(|action| what_runs(call, action, action_open, cards, &t));
-    let ready = !chosen.is_empty() || typed || lets_stand(call);
+    let ready = !chosen.is_empty() || typed;
     let production = call.kind == CallKind::Production;
     let go = {
         let (bench, id) = (bench.clone(), call.id.clone());
@@ -795,77 +707,18 @@ fn card(
                 .ok();
         })
     });
-    let have_none = call.secret.then(|| {
-        let (bench, id) = (bench.clone(), call.id.clone());
-        Button::new(
-            SharedString::from(format!("call-have-none-{}", call.id)),
-            t!("I don't have one"),
-            Variant::Ghost,
-        )
-        .sized(26., 9., 12.)
-        .disabled(sending)
-        .on_click(move |_, _, cx| {
-            cx.stop_propagation();
-            bench.update(cx, |bench, cx| bench.have_none(&id, cx)).ok();
-        })
-    });
-    let not_mine = call.can_hand_back.then(|| {
-        let (bench, id) = (bench.clone(), call.id.clone());
-        Button::new(
-            SharedString::from(format!("call-not-mine-{}", call.id)),
-            t!("Not mine"),
-            Variant::Ghost,
-        )
-        .sized(26., 9., 12.)
-        .disabled(sending)
-        .on_click(move |_, _, cx| {
-            cx.stop_propagation();
-            bench.update(cx, |bench, cx| bench.not_mine(&id, cx)).ok();
-        })
-    });
-    let sentence = div()
-        .flex()
-        .gap(SPACE_1H)
-        .text_size(theme::ui_text(11.5))
-        .line_height(relative(1.4))
-        .text_color(t.text_disabled)
-        .child(
-            div()
-                .h(theme::ui_text(11.5 * 1.4))
-                .flex()
-                .items_center()
-                .child(ui::icon(Icon::Clock, 11.).text_color(t.text_disabled)),
-        );
     let buttons = div()
         .flex()
         .items_center()
         .gap(SPACE_1)
-        .children(not_mine)
-        .children(have_none)
         .children(open_chat)
         .child(go);
-    let foot = match &call.assumption {
-        Some(_) => div()
-            .mt(px(14.))
-            .flex()
-            .flex_col()
-            .gap(SPACE_2)
-            .child(sentence.child(div().min_w_0().child(waits_or_goes_on(call))))
-            .child(div().flex().justify_end().child(buttons)),
-        None => div()
-            .mt(px(14.))
-            .flex()
-            .items_center()
-            .gap(SPACE_1)
-            .child(
-                sentence
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .child(div().truncate().child(waits_or_goes_on(call))),
-            )
-            .child(buttons),
-    };
+    let foot = div()
+        .mt(px(14.))
+        .flex()
+        .items_center()
+        .justify_end()
+        .child(buttons);
     div()
         .p(px(10.))
         .flex()
@@ -1013,24 +866,6 @@ fn radio(on: bool, t: &Tokens) -> AnyElement {
     match on {
         true => ring.border(px(4.)).border_color(t.accent).bg(t.on_accent),
         false => ring.border(px(1.5)).border_color(t.text_disabled),
-    }
-    .into_any_element()
-}
-
-/// The box of an option on a call that takes several.
-fn tick(on: bool, t: &Tokens) -> AnyElement {
-    let tick = div()
-        .size(px(13.))
-        .flex_none()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(3.));
-    match on {
-        true => tick
-            .bg(t.accent)
-            .child(ui::icon(Icon::Check, 9.).text_color(t.on_accent)),
-        false => tick.border(px(1.5)).border_color(t.text_disabled),
     }
     .into_any_element()
 }
@@ -1199,24 +1034,10 @@ fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
             .find(|option| &option.id == id)
             .map(|option| format!("“{}”", option.label))
     };
-    let picked: Vec<String> = (answer.option.iter())
-        .chain(&answer.options)
-        .filter_map(label)
-        .collect();
-    let said_nothing = answer.words.is_none() && answer.note.is_none();
+    let picked: Vec<String> = answer.option.iter().filter_map(label).collect();
     let private = call.keeps_words_private() && picked.is_empty();
     match (&answer.by, picked.is_empty(), private) {
-        _ if answer.none => t!("You had none to give").to_owned(),
         (_, _, true) => t!("You answered, kept private").to_owned(),
-        _ if handed_back(call) => t!("handed back to @{name}", name = call.asker.name),
-        (by, true, _)
-            if said_nothing
-                && call.assumption.is_some()
-                && call.kind != CallKind::Access
-                && *by != CallClient::Chat =>
-        {
-            t!("You let @{name} go on assuming it", name = call.asker.name)
-        }
         (CallClient::Chat, ..) => t!("You answered in the chat").to_owned(),
         (_, false, _) => t!("You chose {options}", options = picked.join(", ")),
         (_, true, _) => t!("You answered in your own words").to_owned(),
@@ -1224,9 +1045,7 @@ fn answer_words(call: &PersonCall, answer: &CallAnswer) -> String {
 }
 
 fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
-    let answered = (call.answer.as_ref())
-        .filter(|_| !handed_back(call))
-        .map(|answer| answer_words(call, answer));
+    let answered = (call.answer.as_ref()).map(|answer| answer_words(call, answer));
     let outcome = call.outcome.as_ref().and_then(|outcome| {
         Some(match (outcome.result, outcome.healthy) {
             (CallResult::Shipped, Some(true)) => t!("shipped · healthy").to_owned(),
@@ -1235,13 +1054,10 @@ fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
             (CallResult::NotShipped, _) => t!("not shipped").to_owned(),
             (CallResult::Failed, _) => t!("it failed").to_owned(),
             (CallResult::MayHaveRun, _) => t!("may have run, Sikemux restarted").to_owned(),
-            (CallResult::HandedBack, _) => {
-                t!("handed back to @{name}", name = call.asker.name)
-            }
             (CallResult::Withdrawn, _) => {
                 t!("@{name} went on without an answer", name = call.asker.name)
             }
-            (CallResult::Heard | CallResult::Unknown, _) => return None,
+            (CallResult::Heard | CallResult::HandedBack | CallResult::Unknown, _) => return None,
         })
     });
     let said = match (answered, outcome) {
@@ -1620,7 +1436,7 @@ fn folded(bench: &Workbench, cards: &Entity<Cards>, call: &PersonCall, cx: &App)
 
 /// The keys a card takes, bound as the question rows' are, for call `id`.
 fn call_keys<E: InteractiveElement>(keyed: E, id: &str, bench: &WeakEntity<Workbench>) -> E {
-    use crate::chat::{Choose, Confirm, NextChoice, PreviousChoice, Tick};
+    use crate::chat::{Choose, Confirm, NextChoice, PreviousChoice};
     fn on<A: gpui_kit::Action>(
         id: &str,
         bench: &WeakEntity<Workbench>,
@@ -1640,26 +1456,5 @@ fn call_keys<E: InteractiveElement>(keyed: E, id: &str, bench: &WeakEntity<Workb
         .on_action(on(id, bench, |choose: &Choose| Press::Choose(choose.0)))
         .on_action(on(id, bench, |_: &PreviousChoice| Press::Up))
         .on_action(on(id, bench, |_: &NextChoice| Press::Down))
-        .on_action(on(id, bench, |_: &Tick| Press::Tick))
         .on_action(on(id, bench, |_: &Confirm| Press::Pick))
-}
-
-fn handed_back(call: &PersonCall) -> bool {
-    (call.outcome.as_ref()).is_some_and(|outcome| outcome.result == CallResult::HandedBack)
-}
-
-fn lets_stand(call: &PersonCall) -> bool {
-    call.assumption.is_some() && call.options.is_empty()
-}
-
-fn waits_or_goes_on(call: &PersonCall) -> SharedString {
-    match &call.assumption {
-        Some(assumption) => t!(
-            "Until you answer, @{name} goes on assuming {assumption}",
-            name = call.asker.name,
-            assumption = assumption
-        )
-        .into(),
-        None => t!("Nothing happens until you answer").into(),
-    }
 }

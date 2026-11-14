@@ -5047,58 +5047,6 @@
         }
       }
     },
-    "ASSUMED": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SUPUESTO"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "假定"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ANGENOMMEN"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "SUPPOSÉ"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "推定"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "가정됨"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ПРЕДПОЛОЖЕНО"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "PRESUMIDO"
-          }
-        }
-      }
-    },
     "AUTO": {
       "localizations": {
         "es": {
@@ -34349,58 +34297,6 @@
         }
       }
     },
-    "Fine": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fino"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "精细"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fein"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fin"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "細かい"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "가늘게"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Тонко"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fino"
-          }
-        }
-      }
-    },
     "Finish in the terminal below, or the browser if one opened.": {
       "localizations": {
         "es": {
@@ -40910,7 +40806,6 @@
         }
       }
     },
-    "I don't have one": {},
     "I saved it": {
       "localizations": {
         "es": {
@@ -59697,58 +59592,6 @@
         }
       }
     },
-    "Not mine": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No es mío"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "不是我的"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nicht meins"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pas à moi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自分のものではない"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "내 것 아님"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не мои"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não é meu"
-          }
-        }
-      }
-    },
     "Not needed for a model server on this host": {
       "localizations": {
         "es": {
@@ -60525,58 +60368,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Nada conta como integrado até você integrar"
-          }
-        }
-      }
-    },
-    "Nothing happens until you answer": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No pasa nada hasta que respondas"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "你回答之前什么都不会发生"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nichts passiert, bis du antwortest"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rien ne se passe tant que vous ne répondez pas"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "あなたが回答するまで何も起こりません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "내가 답할 때까지 아무것도 진행되지 않음"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ничего не произойдёт, пока вы не ответите"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nada acontece até você responder"
           }
         }
       }
@@ -68225,58 +68016,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Escolher um perfil"
-          }
-        }
-      }
-    },
-    "Pick any.": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Elige cualquiera."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "任选。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wähle beliebig."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Choisissez librement."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "どれでも選択可。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "아무거나 선택하세요."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выберите любые."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolha qualquer um."
           }
         }
       }
@@ -108237,58 +107976,6 @@
         }
       }
     },
-    "Until you answer, @{name} goes on assuming {assumption}": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hasta que respondas, @{name} sigue suponiendo {assumption}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在你回答之前，@{name} 会继续假定{assumption}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bis du antwortest, geht @{name} weiter von {assumption} aus"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Jusqu'à ce que vous répondiez, @{name} continue en supposant {assumption}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "あなたが回答するまで、@{name} は「{assumption}」と仮定して進めます"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "내가 답할 때까지 @{name}은(는) {assumption}(이)라고 가정하고 진행함"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пока вы не ответите, @{name} продолжает, считая, что {assumption}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Até você responder, @{name} segue supondo {assumption}"
-          }
-        }
-      }
-    },
     "Until you confirm, a change to any of them waits for your yes.": {
       "localizations": {
         "es": {
@@ -116043,7 +115730,6 @@
         }
       }
     },
-    "You had none to give": {},
     "You land the work agents leave": {
       "localizations": {
         "es": {
@@ -116144,58 +115830,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Você integra o trabalho que os agentes deixam · lido de como o trabalho chegou a {branch} aqui"
-          }
-        }
-      }
-    },
-    "You let @{name} go on assuming it": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Du hast @{name} bei der Annahme bleiben lassen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dejaste que @{name} siguiera con su suposición"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vous avez laissé @{name} poursuivre avec son hypothèse"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "@{name} の想定のまま進めてもらいました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "@{name}의 가정대로 진행하게 했습니다"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Você deixou @{name} seguir com a suposição"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Вы позволили @{name} действовать по своему предположению"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "你让 @{name} 按其假设继续"
           }
         }
       }
@@ -127534,58 +127168,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "margem ativa"
-          }
-        }
-      }
-    },
-    "handed back to @{name}": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "devuelto a @{name}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已交还给 @{name}"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "an @{name} zurückgegeben"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "rendu à @{name}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "@{name} に戻しました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "@{name}에게 돌려줌"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "возвращено @{name}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "devolvido a @{name}"
           }
         }
       }
@@ -156894,58 +156476,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "{name} quer usar seus chats"
-          }
-        }
-      }
-    },
-    "{name} went on assuming": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} siguió suponiendo"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} 按假定继续了"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} hat mit einer Annahme weitergemacht"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} a continué en supposant"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} は推定で続行しました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name}이(가) 가정하고 계속 진행함"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} продолжил, исходя из предположения"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{name} seguiu presumindo"
           }
         }
       }

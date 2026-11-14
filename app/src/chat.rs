@@ -406,7 +406,6 @@ actions!(
         NextChoice,
         PreviousQuestion,
         NextQuestion,
-        Tick,
         Confirm
     ]
 );
@@ -467,7 +466,6 @@ pub fn install(cx: &mut App) {
             KeyBinding::new("down", NextChoice, Some(context)),
             KeyBinding::new("left", PreviousQuestion, Some(context)),
             KeyBinding::new("right", NextQuestion, Some(context)),
-            KeyBinding::new("space", Tick, Some(context)),
             KeyBinding::new("enter", Confirm, Some(context)),
         ]);
     }
@@ -492,7 +490,6 @@ pub enum Press {
     Down,
     Left,
     Right,
-    Tick,
     Pick,
 }
 

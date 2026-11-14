@@ -12,7 +12,6 @@ use sikemux_calls::questions::AnswersParams;
 
 use crate::theme::{
     SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_MD, TEXT_SM, TEXT_XS,
-    TEXT_XS_H,
 };
 
 /// The person's answers on their way to the core, which the questions they answer wait on.
@@ -74,10 +73,9 @@ impl Question {
         self.agent_id == agent && self.state == state
     }
 
-    /// Whether the person can answer it in `agent`'s chat: it waits on them, or the agent went
-    /// on assuming an answer they may still change.
+    /// Whether the person can answer it in `agent`'s chat.
     pub fn asks(&self, agent: &str) -> bool {
-        self.of(agent, QuestionState::Open) || self.of(agent, QuestionState::Assumed)
+        self.of(agent, QuestionState::Open)
     }
 
     pub(super) fn title(&self, ix: usize, count: usize) -> String {
@@ -91,7 +89,6 @@ impl Question {
 
 pub(super) enum Answer {
     Choice(usize),
-    Choices(Vec<usize>),
     Text {
         text: String,
         paths: Vec<String>,
@@ -107,7 +104,7 @@ pub(super) struct Pick {
 
 /// Hands a key's action to the question on show; one it does not take goes on to the draft.
 /// The keys the open question on show takes: its choices by number and the arrows, and with
-/// `all`, space to tick and return to pick, which only the chat itself takes. They are bound
+/// `all`, return to pick, which only the chat itself takes. They are bound
 /// under `QuestionDock`, which `keyed` must name in its key context.
 pub fn question_keys<E: InteractiveElement + FluentBuilder>(
     keyed: E,
@@ -126,9 +123,7 @@ pub fn question_keys<E: InteractiveElement + FluentBuilder>(
         .on_action(pressed(agent, |_: &PreviousQuestion| Press::Left, bench))
         .on_action(pressed(agent, |_: &NextQuestion| Press::Right, bench))
         .when(all, |keyed| {
-            keyed
-                .on_action(pressed(agent, |_: &Tick| Press::Tick, bench))
-                .on_action(pressed(agent, |_: &Confirm| Press::Pick, bench))
+            keyed.on_action(pressed(agent, |_: &Confirm| Press::Pick, bench))
         })
 }
 
@@ -232,16 +227,10 @@ pub(super) fn questions(
                 );
                 cx.notify();
             }))
-            .child(
-                match (
-                    count,
-                    open.iter().all(|question| question.assumption.is_some()),
-                ) {
-                    (_, true) => t!("ASSUMED"),
-                    (1, false) => t!("QUESTION"),
-                    _ => t!("QUESTIONS"),
-                },
-            )
+            .child(match count {
+                1 => t!("QUESTION"),
+                _ => t!("QUESTIONS"),
+            })
             .child(
                 div()
                     .font_family(theme::MONO)
@@ -400,29 +389,7 @@ pub(super) fn asking(
         .iter()
         .all(|question| chat.picks.contains_key(&question.id));
     let sending = chat.sending_answers();
-    let send = (count > 1 || current.multi).then(|| send_button(agent, ready, sending, t, cx));
-    let fine = current.assumption.is_some().then(|| {
-        let (agent, id) = (agent.to_owned(), current.id.clone());
-        BaseButton::new("question-fine")
-            .disabled(sending)
-            .h(px(22.))
-            .px(SPACE_2)
-            .flex()
-            .items_center()
-            .rounded(theme::RADIUS_2)
-            .text_size(crate::theme::ui_text(TEXT_2XS))
-            .bg(t.surface_chosen)
-            .text_color(t.text_primary)
-            .on_click(cx.listener(move |bench, _, _, cx| {
-                let fine = AnswerParams {
-                    id: id.clone(),
-                    fine: true,
-                    ..AnswerParams::default()
-                };
-                bench.ask_answering(&agent, Answers::One(fine), cx);
-            }))
-            .child(t!("Fine"))
-    });
+    let send = (count > 1).then(|| send_button(agent, ready, sending, t, cx));
     let fold = {
         let agent = agent.to_owned();
         let hover = t.surface_hover;
@@ -466,15 +433,10 @@ pub(super) fn asking(
                 .overflow_hidden()
                 .children(tabs),
         )
-        .children(fine)
         .children(send)
         .child(fold);
     let mut asked = current.text.clone();
     let plain = asked.len();
-    if current.multi {
-        asked.push(' ');
-        asked.push_str(t!("Pick any."));
-    }
     if let Some(via) = &current.via_note {
         asked.push_str(&format!(" · {via}"));
     }
@@ -494,21 +456,6 @@ pub(super) fn asking(
             asked.clone(),
             [(plain..asked.len(), faint)],
         ));
-    let assumed = current.assumption.as_ref().map(|assumption| {
-        let lead = t!("{name} went on assuming", name = current.name);
-        let said = format!("{lead} {assumption}");
-        div()
-            .px(SPACE_3)
-            .pb(SPACE_1)
-            .text_size(crate::theme::ui_text(TEXT_XS_H))
-            .line_height(relative(1.5))
-            .text_color(t.text_secondary)
-            .child(crate::ui::selectable::selectable(
-                SharedString::from(format!("question-assumed-{}", current.id)),
-                said,
-                [(0..lead.len(), faint)],
-            ))
-    });
     let picked = chat.picks.get(&current.id);
     let cursor = chat
         .cursor
@@ -517,7 +464,6 @@ pub(super) fn asking(
         .map(|(_, at)| *at);
     let chosen = |ix: usize| match picked.map(|pick| &pick.answer) {
         Some(Answer::Choice(choice)) => *choice == ix,
-        Some(Answer::Choices(choices)) => choices.contains(&ix),
         _ => false,
     };
     let mut choices: Vec<AnyElement> = current
@@ -526,10 +472,7 @@ pub(super) fn asking(
         .enumerate()
         .map(|(ix, choice)| {
             let (agent, id) = (agent.to_owned(), current.id.clone());
-            let key = match current.multi {
-                true => tick(chosen(ix), t),
-                false => radio(chosen(ix), t),
-            };
+            let key = radio(chosen(ix), t);
             let number = ui::kbd((ix + 1).to_string(), cx)
                 .line_height(crate::theme::ui_text(19.))
                 .into_any_element();
@@ -607,7 +550,6 @@ pub(super) fn asking(
         .flex_col()
         .child(head)
         .child(text)
-        .children(assumed)
         .when(!choices.is_empty(), |body| {
             body.child(
                 div()
@@ -687,27 +629,6 @@ pub(crate) fn radio(on: bool, t: &Tokens) -> AnyElement {
             ring.child(div().size(px(6.)).rounded_full().bg(t.text_primary))
         })
         .into_any_element()
-}
-
-/// The box of a choice on a question that takes several.
-pub(super) fn tick(on: bool, t: &Tokens) -> AnyElement {
-    let tick = div()
-        .mt(px(3.5))
-        .size(px(12.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(3.));
-    match on {
-        true => tick
-            .bg(t.text_primary)
-            .child(ui::icon(Icon::Check, 9.).text_color(t.surface_sunken)),
-        false => tick.border_1().border_color(Hsla {
-            a: 0.3,
-            ..t.text_primary
-        }),
-    }
-    .into_any_element()
 }
 
 /// One answer in a thread of answered questions: what was typed, or that it was kept private,
@@ -890,7 +811,7 @@ impl Chat {
     }
 
     /// A key the question on show takes while nothing is written: a number picks, the
-    /// arrows move, Space ticks, Enter picks, moves on or sends. Says whether it took it.
+    /// arrows move, Enter picks, moves on or sends. Says whether it took it.
     pub fn press(&mut self, press: Press, open: &[&Question]) -> (bool, Option<Answers>) {
         let Some(current) = self
             .current(open)
@@ -898,10 +819,9 @@ impl Chat {
         else {
             return (false, None);
         };
-        let (id, count, multi, cursor) = (
+        let (id, count, cursor) = (
             current.id.clone(),
             current.choices.len(),
-            current.multi,
             self.cursor_at(current),
         );
         let ready = open
@@ -927,13 +847,6 @@ impl Chat {
                 self.cursor = None;
                 (true, None)
             }
-            Press::Tick if multi && count > 0 => (true, self.choose(&id, cursor, open)),
-            Press::Pick if multi => match self.picks.contains_key(&id) {
-                false if count > 0 => (true, self.choose(&id, cursor, open)),
-                false => (false, None),
-                true if ready => (true, self.send_answers(open)),
-                true => (true, self.move_on(&id, open)),
-            },
             Press::Pick => {
                 let already = matches!(self.picks.get(&id).map(|pick| &pick.answer), Some(Answer::Choice(choice)) if *choice == cursor);
                 if ready && (already || count == 0) {
@@ -952,7 +865,7 @@ impl Chat {
         }
     }
 
-    /// Picks a choice, or on a question that takes several, ticks or unticks it.
+    /// Picks a choice.
     pub fn choose(&mut self, id: &str, choice: usize, open: &[&Question]) -> Option<Answers> {
         let question = open.iter().find(|question| question.id == id)?;
         let label = |ix: &usize| {
@@ -961,40 +874,11 @@ impl Chat {
                 .get(*ix)
                 .map_or("", |choice| choice.label.as_str())
         };
-        if !question.multi {
-            let pick = Pick {
-                answer: Answer::Choice(choice),
-                shown: label(&choice).to_owned(),
-            };
-            return self.pick(id, pick, open);
-        }
-        let mut ticked = match self.picks.remove(id) {
-            Some(Pick {
-                answer: Answer::Choices(ticked),
-                ..
-            }) => ticked,
-            _ => Vec::new(),
+        let pick = Pick {
+            answer: Answer::Choice(choice),
+            shown: label(&choice).to_owned(),
         };
-        match ticked.iter().position(|held| *held == choice) {
-            Some(at) => {
-                ticked.remove(at);
-            }
-            None => {
-                ticked.push(choice);
-                ticked.sort_unstable();
-            }
-        }
-        if !ticked.is_empty() {
-            let shown = ticked.iter().map(label).collect::<Vec<_>>().join(", ");
-            self.picks.insert(
-                id.to_owned(),
-                Pick {
-                    answer: Answer::Choices(ticked),
-                    shown,
-                },
-            );
-        }
-        None
+        self.pick(id, pick, open)
     }
 
     /// Sends every open question's answer together, once each has one.
@@ -1014,11 +898,6 @@ impl Chat {
                     Answer::Choice(choice) => AnswerParams {
                         id,
                         choice: Some(*choice),
-                        ..AnswerParams::default()
-                    },
-                    Answer::Choices(choices) => AnswerParams {
-                        id,
-                        choices: Some(choices.clone()),
                         ..AnswerParams::default()
                     },
                     Answer::Text {
