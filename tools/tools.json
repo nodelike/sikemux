@@ -2079,21 +2079,6 @@
           "type": "string",
           "maxLength": 16384
         },
-        "promise": {
-          "description": "What it changes, one sentence of at most 200 characters; makes it a slice",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "asserts": {
-          "description": "Goal assertions it fulfils",
-          "type": "array",
-          "maxItems": 20,
-          "items": {
-            "type": "integer",
-            "minimum": 1
-          }
-        },
         "parent": {
           "description": "Card it goes under",
           "type": "integer",
@@ -2127,10 +2112,6 @@
         },
         "done": {
           "type": "boolean"
-        },
-        "compare": {
-          "type": "boolean",
-          "description": "Instead: how runs compare with each Auto switch on and off"
         }
       },
       "required": []
@@ -2169,47 +2150,6 @@
           "type": "string",
           "maxLength": 16384
         },
-        "promise": {
-          "description": "What it changes, one sentence of at most 200 characters; makes it a slice",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "asserts": {
-          "description": "Goal assertions it fulfils",
-          "type": "array",
-          "maxItems": 20,
-          "items": {
-            "type": "integer",
-            "minimum": 1
-          }
-        },
-        "contract": {
-          "description": "Only when Auto's task asks, alone with card: what you will build and how to verify it",
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 20,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "behaviour": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1000
-              },
-              "verify": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1000
-              }
-            },
-            "required": [
-              "behaviour",
-              "verify"
-            ]
-          }
-        },
         "status": {
           "type": "string",
           "enum": [
@@ -2233,12 +2173,6 @@
           "description": "0 takes it out from under one",
           "type": "integer",
           "minimum": 0
-        },
-        "ticks": {
-          "description": "Changes the person asked for that you made, each with its evidence id",
-          "type": "array",
-          "maxItems": 20,
-          "items": {"type": "object", "additionalProperties": false, "properties": {"change": {"type": "integer", "minimum": 1}, "proof": {"type": "string", "minLength": 1, "maxLength": 2000}, "evidence": {"type": "integer", "minimum": 1}}, "required": ["change", "proof"]}
         }
       },
       "required": [
@@ -2272,57 +2206,6 @@
         },
         "person": {
           "description": "The person chose it, in their answer that started this turn",
-          "type": "boolean"
-        }
-      },
-      "required": []
-    },
-    {
-      "name": "board_assert",
-      "row": {"verb": "assert", "kind": "edit", "icon": "board", "target": ["assertion #{assertion}", "{text}"]},
-      "method": "board.assert",
-      "description": "Keep a goal's assertions.",
-      "properties": {
-        "goal": {
-          "description": "The goal's card; default your card's goal",
-          "type": "integer",
-          "minimum": 1
-        },
-        "assertion": {
-          "description": "The one to correct or retire; omit to write one",
-          "type": "integer",
-          "minimum": 1
-        },
-        "text": {
-          "description": "What must hold once the goal's slices are done",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1000
-        },
-        "evidence": {
-          "description": "What shows it, collected on each slice's latest commit",
-          "type": "string",
-          "enum": [
-            "check",
-            "recording",
-            "screenshot",
-            "workflow",
-            "command"
-          ]
-        },
-        "workflow": {
-          "description": "For workflow evidence: the CI workflow's name",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "command": {
-          "description": "Command evidence: one line whose exit code shows it, run in a clean checkout; counts once the person approves it",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 1000
-        },
-        "retire": {
           "type": "boolean"
         }
       },
@@ -2612,117 +2495,6 @@
       },
       "required": [
         "trigger"
-      ]
-    },
-    {
-      "name": "review_verdict",
-      "row": {"verb": "review", "kind": "think", "icon": "eye", "target": ["the change"]},
-      "method": "review.verdict",
-      "offered": "reviewer",
-      "description": "Approve what you review, or say what must change.",
-      "properties": {
-        "approve": {
-          "type": "boolean"
-        },
-        "criteria": {
-          "description": "For a change: every criterion id you were given, graded",
-          "type": "array",
-          "maxItems": 64,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 16
-              },
-              "pass": {
-                "type": "boolean"
-              },
-              "note": {
-                "type": "string",
-                "maxLength": 4000
-              },
-              "file": {
-                "description": "Needed on a failure",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1024
-              },
-              "line": {
-                "description": "Needed on a failure",
-                "type": "integer",
-                "minimum": 1
-              }
-            },
-            "required": [
-              "id",
-              "pass"
-            ]
-          }
-        },
-        "exercised": {
-          "description": "For a change: what you ran or used, and what you saw",
-          "type": "array",
-          "maxItems": 30,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "what": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4000
-              },
-              "saw": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4000
-              }
-            },
-            "required": [
-              "what",
-              "saw"
-            ]
-          }
-        },
-        "nothingToRun": {
-          "description": "Why there was nothing to run, when your task says so",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4000
-        },
-        "findings": {
-          "type": "array",
-          "maxItems": 50,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "file": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 1024
-              },
-              "line": {
-                "type": "integer",
-                "minimum": 1
-              },
-              "text": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4000
-              }
-            },
-            "required": [
-              "text"
-            ]
-          }
-        }
-      },
-      "required": [
-        "approve"
       ]
     },
     {

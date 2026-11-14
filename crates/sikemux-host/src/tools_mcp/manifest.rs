@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_core::cli::manifest::{GUIDE, TOOLS};
-use sikemux_core::cli::protocol::{RESOURCES_OFFER, REVIEWER_OFFER, SETUP_OFFER};
+use sikemux_core::cli::protocol::{RESOURCES_OFFER, SETUP_OFFER};
 
 use super::family::{self, Chosen, Family};
 
@@ -120,13 +120,11 @@ impl Manifest {
     }
 
     /// Leaves out the simulator tools unless the app said this Mac can run
-    /// them, the reviewer's tools unless the agent is one Auto started to
-    /// review, and tools offered on a condition this binary does not know.
-    pub fn offering(mut self, simulator: bool, reviewer: bool) -> Self {
+    /// them, and tools offered on a condition this binary does not know.
+    pub fn offering(mut self, simulator: bool) -> Self {
         self.tools.retain(|tool| match tool.offered.as_deref() {
             None => true,
             Some("simulator") => simulator,
-            Some(REVIEWER_OFFER) => reviewer,
             Some(SETUP_OFFER) => true,
             Some(_) => false,
         });

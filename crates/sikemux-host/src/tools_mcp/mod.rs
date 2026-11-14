@@ -24,8 +24,8 @@ use sikemux_process::sync::Locked;
 
 use manifest::{Manifest, Tool};
 use sikemux_core::cli::protocol::{
-    PLUGINS_CHANGED_METHOD, REVIEWER_OFFER, SETUP_OFFER, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
-    TOOLS_MANIFEST_METHOD, TOOLS_OFFER_ENV,
+    PLUGINS_CHANGED_METHOD, SETUP_OFFER, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
+    TOOLS_MANIFEST_METHOD,
 };
 
 const LATEST_PROTOCOL_VERSION: &str = "2025-11-25";
@@ -53,13 +53,9 @@ pub fn run() -> i32 {
     };
     watch_parent();
     let simulator = simulator_offered(&agent_id);
-    let reviewer = std::env::var(TOOLS_OFFER_ENV).is_ok_and(|offer| offer == REVIEWER_OFFER);
     let resources = std::env::current_dir()
         .is_ok_and(|cwd| sikemux_core::tasks::config::names_resources_near(&cwd));
-    serve(
-        Arc::new(Offer::new(simulator, reviewer, resources)),
-        agent_id,
-    );
+    serve(Arc::new(Offer::new(simulator, resources)), agent_id);
     0
 }
 
@@ -117,7 +113,6 @@ fn watch_parent() {}
 /// out a restart and asks again.
 struct Offer {
     simulator: bool,
-    reviewer: bool,
     /// The agent's project names things only one agent uses at a time.
     resources: bool,
     built: Arc<Manifest>,
@@ -135,11 +130,10 @@ struct Offer {
 }
 
 impl Offer {
-    fn new(simulator: bool, reviewer: bool, resources: bool) -> Self {
-        let built = (Manifest::load().with_resources(resources)).offering(simulator, reviewer);
+    fn new(simulator: bool, resources: bool) -> Self {
+        let built = (Manifest::load().with_resources(resources)).offering(simulator);
         Self {
             simulator,
-            reviewer,
             resources,
             told_guide: Mutex::default(),
             built: Arc::new(built),
@@ -155,7 +149,6 @@ impl Offer {
     fn with(manifest: Manifest, plugins: Option<Vec<Tool>>) -> Self {
         Self {
             simulator: true,
-            reviewer: false,
             resources: false,
             built: Arc::new(Manifest::load()),
             told_guide: Mutex::new(Some(manifest.guide_source().to_owned())),
@@ -182,7 +175,7 @@ impl Offer {
     fn ask_manifest(&self, relay: &Relay<'_>) -> Option<Manifest> {
         let answer = relay(TOOLS_MANIFEST_METHOD, &json!({})).ok()?;
         let served = Manifest::served(&answer)?.with_resources(self.resources);
-        Some(served.offering(self.simulator, self.reviewer))
+        Some(served.offering(self.simulator))
     }
 
     /// Holds what the app serves, noting the parts of its guide that changed

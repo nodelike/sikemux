@@ -768,17 +768,6 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
-        "board_assert",
-        Spec {
-            verb: "assert",
-            kind: "edit",
-            icon: "board",
-            target: &["assertion #{assertion}", "{text}"],
-            detail: &[],
-            plugin: None,
-        },
-    ),
-    (
         "memory_add",
         Spec {
             verb: "remember",
@@ -845,17 +834,6 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             kind: "edit",
             icon: "bolt",
             target: &["remove #{trigger}"],
-            detail: &[],
-            plugin: None,
-        },
-    ),
-    (
-        "review_verdict",
-        Spec {
-            verb: "review",
-            kind: "think",
-            icon: "eye",
-            target: &["the change"],
             detail: &[],
             plugin: None,
         },

@@ -58,7 +58,7 @@ When the project folder is not a repository itself but holds several, such as `b
 
 A project's checkout of its default branch, such as `main`, keeps up with the remote by itself: every ten minutes Sikemux fetches that branch and fast-forwards the checkout to it. It does so only when the checkout has no changes, no untracked files, no commits of its own and no merge or rebase under way, and no agent is at work in it; otherwise it leaves the checkout as it is. A checkout on any other branch, or one whose branch follows no remote, is never touched.
 
-The Git pane's fourth page, **Pull requests** (`4`), lists the repository's open pull requests. One that is a slice's work shows the slice's mark, the gate it waits at, how many of its checks passed and failed, and a thumbnail of the picture its gate leads with; choosing it opens the chat of the agent working on it. One with no slice offers **review this** or **fix the comments**, which hands it to an agent in a checkout of its own as a new slice.
+The Git pane's fourth page, **Pull requests** (`4`), lists the repository's open pull requests. Each offers **review this** or **fix the comments**, which hands it to an agent in a checkout of its own.
 
 ## Project config
 
@@ -95,7 +95,7 @@ Processes go in its `tasks` list. Agents can start, read and stop them too. They
 
 ### The project's check
 
-`check` says what proves the project's work sound, which a board slice needs before it passes **Built**. Give it a command, which Sikemux runs on each commit on the project's branch, as committed:
+`check` says what proves the project's work sound. Give it a command, which Sikemux runs on each commit on the project's branch, as committed:
 
 ```json
 { "version": 1, "check": "pnpm check" }
@@ -107,9 +107,9 @@ Or name the CI workflows that count, when the project's CI is its check:
 { "version": 1, "check": { "ci": ["CI"] } }
 ```
 
-Sikemux then reads the code host's runs on the project's branch as pushed, instead of building it, so the agent's commit has to be on that branch and pushed: an agent whose commit isn't is told to land and push it, and the slice waits until it is. Every workflow named has to pass on the pushed branch's newest commit, which holds the agent's. Other branches on the remote, such as work in progress, decide nothing. A run that is cancelled, or that doesn't start within a few minutes of the push, counts as no verdict, so the agent marks the card done again to have it checked.
+Sikemux then reads the code host's runs on the project's branch as pushed, instead of building it, so the agent's commit has to be on that branch and pushed. Every workflow named has to pass on the pushed branch's newest commit, which holds the agent's. Other branches on the remote, such as work in progress, decide nothing. A run that is cancelled, or that doesn't start within a few minutes of the push, counts as no verdict.
 
-A check command runs only once you trust `sikemux.json`: the first commit it would check asks you. While the file has a mistake, Sikemux reads no check from it, and an agent working a slice is told what is wrong rather than that the project names none.
+A check command runs only once you trust `sikemux.json`: the first commit it would check asks you. While the file has a mistake, Sikemux reads no check from it.
 
 When the full check is slow, name a quicker one beside it:
 
@@ -121,57 +121,13 @@ The fast check runs on each commit. The full check runs on the first commit afte
 
 When a check fails, Sikemux tests the commits since the last sound one to find the one that broke it, for up to 15 minutes, and tells only that commit's agent. If none can be singled out, one agent owns the failure and the others are told who.
 
-Without a `check`, Sikemux uses the test command the project's build files suggest at its root: the `test` script in `package.json` (not the one `npm init` writes, which only fails), `cargo test` for a Cargo project, `go test` for a Go module, pytest or Django's tests for a Python project, and Maven's or Gradle's `test`. It reads them once, when Sikemux starts. This check runs only on a slice's latest commit when its agent marks it done, never on every commit, and never marks the project as broken. `"check": false` turns it off.
-
-### The reservoir
-
-When the work is a long list of separate problems, such as failing tests, name a command that prints them and Auto works through the list by itself:
-
-```json
-{ "version": 1, "reservoir": "scripts/failing-tests.sh" }
-```
-
-It prints one JSON object per line:
-
-```json
-{ "key": "parser/nested-loops", "title": "Nested loops fail to parse", "details": "See tests/parser/nested.c", "priority": 2 }
-```
-
-`key` names the item and must stay the same from run to run, and `title` says what it is. `details` and `priority`, a whole number where higher goes first, are optional. The command must exit with 0, so wrap a test runner that exits with an error whenever a test fails. Anything it prints on stderr is ignored unless it fails.
-
-Sikemux runs it when Auto turns on, when Sikemux starts with Auto already on, and after each card Auto lands, one run at a time per project, for up to 30 minutes, at low priority, in a clean checkout of the latest commit of the branch Auto lands on. It runs only once you trust `sikemux.json`.
-
-- The board holds at most 64 open cards from the reservoir, and tops them up after each landing, however long the list is. Items with the highest priority get a card first.
-- Each key has at most one unfinished card. A key the command stops printing closes its card, unless an agent holds it.
-- A key still printed after a card for it landed gets a new card, up to three landings, then rests until the command stops printing it. Marking a card done by hand leaves that key alone while it is still printed. Deleting a card lets its key come back on the next run.
-- If the command fails, prints a line that isn't an item, or prints more than 64 MB, no card changes and Sikemux says why.
-
-The title and details come from a command, so agents are told to read them as a description of the problem, not as instructions. Take `reservoir` out of `sikemux.json` to stop it; the cards already made stay. A card's run record says whether it came from the reservoir, and how long the runs its landing started took.
-
-### Standing roles
-
-A role is an agent that comes back as work lands, for a job that never finishes, such as keeping the docs true or merging duplicate code:
-
-```json
-{
-  "version": 1,
-  "roles": [
-    { "name": "docs", "charter": "Keep docs-site true of what changed.", "every": 20 }
-  ]
-}
-```
-
-`name` is the role's own, `charter` is what its agent is asked to do, and `every` is how many commits must land on the branch Auto lands on between its runs. A project can name up to 16. Nothing runs unless a project names one, and a role runs only once you trust `sikemux.json`.
-
-Auto counts from when the role first appears, and from where its last run ended, so a run's own commits don't count towards the next. Once enough have landed it adds a card, **Standing role: docs**, which a fresh agent takes through the usual path: a place among Auto's agents, a contract, a review and the merge queue. A role has one run open at a time. An agent that finds nothing to do ends its turn, its card closes as **Found nothing to do**, and that role then waits for twice as many commits until a run of it lands something.
-
 ### The changed page
 
-When a slice's change touches the files a page is drawn from (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`, `.html` and stylesheets), Sikemux opens the page itself once the slice passes **Built**, in a new tab on its agent's desk, keeps screenshots of it at the tab's width and at a phone's and a tablet's as the slice's evidence, and closes the tab again. A tab the agent already has open on that site is used instead, and left open. It opens a server the agent started itself first. When the agent works in the project's own checkout, it opens the `preview` URL instead, if something is listening there, or else a server the project's run task started.
+When an agent's turn changes the files a page is drawn from (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`, `.html` and stylesheets), Sikemux opens the page itself once the turn's commit passes the check, or as the turn ends when the work is uncommitted or the project names no check, in a new tab on its agent's desk, keeps screenshots of it at the tab's width and at a phone's and a tablet's with the turn, and closes the tab again. A tab the agent already has open on that site is used instead, and left open. It opens a server the agent started itself first. When the agent works in the project's own checkout, it opens the `preview` URL instead, if something is listening there, or else a server the project's run task started.
 
-It opens a server's own address, or the `preview` URL when that names the same server, never the route the change touched, and it never starts a server. It takes nothing when no server is running, when the only server is in another checkout, or when the window is closed. It also takes nothing for a page that needs you to sign in first, for a change that isn't a web page, or when the server answers with a listing of its files or an error page instead of the page. These screenshots show the running thing, but they don't count as an assertion's evidence. `"preview": false` turns this off.
+It opens a server's own address, or the `preview` URL when that names the same server, never the route the change touched, and it never starts a server. It takes nothing when no server is running, when the only server is in another checkout, or when the window is closed. It also takes nothing for a page that needs you to sign in first, for a change that isn't a web page, or when the server answers with a listing of its files or an error page instead of the page. `"preview": false` turns this off.
 
-Sikemux versions before this one reject `false` for either field and ignore the whole file, so leave the field out until everyone working on the project has updated.
+Sikemux versions before this one reject `false` there and ignore the whole file, so leave the field out until everyone working on the project has updated.
 
 ## Quitting
 

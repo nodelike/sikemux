@@ -17,7 +17,7 @@ use sikemux_process::vars;
 
 use crate::acp::schema::v1::{EnvVariable, McpServer, McpServerStdio};
 use crate::agent_catalog::AgentKind;
-use crate::cli::protocol::{is_tool_agent_id, TOOLS_OFFER_ENV};
+use crate::cli::protocol::is_tool_agent_id;
 use crate::launch::{homes, skills};
 
 const CONFIG_TIMEOUT: Duration = Duration::from_secs(5);
@@ -207,16 +207,14 @@ impl Tools {
         })
     }
 
-    /// The tools as a chat is handed them, over the protocol itself, with the
-    /// tools only `offer` names.
-    pub fn chat_server(&self, agent_id: &str, offer: Option<&str>) -> Result<Value, String> {
+    /// The tools as a chat is handed them, over the protocol itself.
+    pub fn chat_server(&self, agent_id: &str) -> Result<Value, String> {
         valid_agent_id(agent_id)?;
         let mut server = McpServerStdio::new(TOOLS_SERVER, absolute_command(&self.executable)?);
         server.args = vec![TOOLS_MCP_FLAG.into()];
         server.env = self
             .base_environment(agent_id)
             .into_iter()
-            .chain(offer.map(|offer| (TOOLS_OFFER_ENV.to_owned(), offer.to_owned())))
             .map(|(name, value)| EnvVariable::new(name, value))
             .collect();
         serde_json::to_value(McpServer::Stdio(server)).map_err(|error| error.to_string())

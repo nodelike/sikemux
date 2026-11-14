@@ -125,9 +125,7 @@ fn every_served_tool_comes_from_the_manifest() {
 
 #[test]
 fn schemas_stay_lean_so_prose_lives_in_the_guide() {
-    let served = Manifest::load()
-        .offering(false, false)
-        .declarations(&[], false);
+    let served = Manifest::load().offering(false).declarations(&[], false);
     let mut prose = 0;
     for tool in &served {
         let description = field(tool, "description");
@@ -152,7 +150,7 @@ fn schemas_stay_lean_so_prose_lives_in_the_guide() {
 
 #[test]
 fn server_instructions_fit_before_agents_cut_them_off() {
-    let instructions = Manifest::load().offering(true, true).instructions();
+    let instructions = Manifest::load().offering(true).instructions();
     assert!(
         instructions.len() <= 3900,
         "OMP cuts server instructions after 4,000 characters and Claude Code after about 4,096, so the end of a longer text never reaches the agent; move detail into SIKEMUX_GUIDE.md ({} characters)",
@@ -164,7 +162,7 @@ fn server_instructions_fit_before_agents_cut_them_off() {
 /// included. Growing it needs a reason and a tool eval run showing agents do no worse.
 #[test]
 fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
-    let offered = Manifest::load().offering(false, false);
+    let offered = Manifest::load().offering(false);
     let bytes = Value::Array(offered.declarations(&[], false))
         .to_string()
         .len()
@@ -186,25 +184,25 @@ fn the_simulator_tools_are_listed_only_where_they_work_and_stay_within_budget() 
             .map(|tool| field(tool, "name").to_owned())
             .collect()
     };
-    let everywhere = names(Manifest::load().offering(false, false));
-    let with_xcode = names(Manifest::load().offering(true, false));
+    let everywhere = names(Manifest::load().offering(false));
+    let with_xcode = names(Manifest::load().offering(true));
     assert!(everywhere.iter().all(|name| name != "sim"));
     assert!(with_xcode.iter().any(|name| name == "sim"));
     assert!(!Manifest::load()
-        .offering(false, false)
+        .offering(false)
         .instructions()
         .contains("sim attach"));
     assert!(Manifest::load()
-        .offering(true, false)
+        .offering(true)
         .instructions()
         .contains("sim attach"));
     assert!(Manifest::load()
-        .offering(true, false)
+        .offering(true)
         .instructions()
         .contains("live on your desk"));
 
     let simulator: Vec<Value> = Manifest::load()
-        .offering(true, false)
+        .offering(true)
         .declarations(&[], false)
         .into_iter()
         .filter(|tool| field(tool, "name") == "sim")

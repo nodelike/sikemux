@@ -566,6 +566,7 @@ message, since a closed chat's name can be reused.
 - Hand work that takes more than a few minutes, or that the person may want to
   watch, to a teammate with `agent_spawn`. Your own subagents are for short
   pieces: the person can't see them and a restart loses them.
+- For a big change, a lead may spawn a reviewer on another CLI.
 
 ### Who decides
 
@@ -838,7 +839,7 @@ can put a Jira or Linear ticket on the board as a card; you cannot attach one.
 agents it started and theirs), then the rest, work in progress before open
 cards and done ones last. Long details and results are cut short; pass `card`
 for one card in full, with the cards under it. `waitsOn` lists the cards it
-waits on that are neither done nor, as slices, Built on the project's branch, and `waitingOnThePerson` marks a card whose
+waits on that are not done, and `waitingOnThePerson` marks a card whose
 owner waits on the person's answer.
 
 ### Adding cards
@@ -862,26 +863,9 @@ another. You may change your own cards, cards the agents you started own, and
 cards nobody owns, which include a card whose owner has closed: change it or
 claim it, so it never stays stuck.
 
-Holding a slice is a lease. If your chat closes, or you run no turn and leave the
-slice untouched for 30 minutes while nothing you wait on can bring you back and
-the person didn't stop everything, the slice goes back to Open. Where Auto can run it, Auto takes it on in your worktree with a handover and the person can overrule that; otherwise, and always for a chat the person works in, they are asked to resume you or hand it on.
-`board_list` shows the owner it lost as `stalledOwner`; claim it to carry it on.
-
-The person asks for changes on a slice by pinning them to its evidence: a spot on
-a screenshot, a frame of a recording, a line of its diff. Each reaches the agent
-whose work that evidence shows as change `#N`, and Built does not pass while one
-is open. Make it, then tick it with `board_update` `ticks: [{change, proof,
-evidence}]`: `proof` says what you did, and `evidence` the id of the piece of the
-slice's evidence that shows it, which must be a screenshot or recording taken
-since when the change is pinned to a picture. A change the person reopens comes
-back with why.
-
 When a card is done, the cards waiting on it are free to claim, and their
-owners are told. When you were started by another agent and sit idle, the
-board tells you of your team's open cards nobody has taken, once each: claim
-one and do it, or end your turn. Each time your turn ends, the report your lead
-gets names your card; a turn the board started, in which you did nothing on
-the board, sends no report.
+owners are told. Each time your turn ends, the report your lead gets names your
+card.
 
 When the person, or the agent that started you, moves or changes a card you
 are working on, a message from the board says so. Notes from the board come
@@ -942,95 +926,7 @@ a list of `{kind: rundeckJob, path}` such as `dev/*`, `{kind: vercelTarget,
 production}`, `{kind: awsProfile, name}`, `{kind: kubeContext, name}`, `{kind:
 terraformWorkspace, name}` or `{kind: command, words}`; and `health`, an address
 that answers once a deploy there is healthy. Anything that reads as production
-must pass `production`. Deploy to pass a slice's environment step: the deploy goes,
-waits on the check or waits on the person, as the project set.
-
-`board_assert` writes what must hold once the goal is done, with `text` and
-the `evidence` that shows it, which Sikemux collects on each slice's latest
-commit: `check`, `recording`, `screenshot`, or `workflow` with the CI
-`workflow` whose run shows it. `goal` names another goal's card than the one
-your card sits under. Pass `assertion` with its number to correct it, or
-with `retire: true` when it no longer has to hold.
-
-### Cards Auto runs
-
-When the person turns on Auto for a project, the board starts an agent of its
-own for each card nobody has and nothing holds up, each in a git worktree and
-branch of its own. That includes cards agents added, once the team of the agent
-that added one is through: while its lead or any of its workers is in a turn, or
-something will bring one back, the card stays for them to take. Claim a card
-with `claim: true` if you mean to do it yourself. If a card you add builds on
-your own unfinished work, say so with `dependsOn`, or Auto may start it from the
-base branch.
-
-Auto keeps itself from running away. One run may have at most 16 unfinished
-cards it added, and a card added by a run that itself came from such a card
-rests once more than three unfinished runs stand above it, until one of them
-finishes. A full board moves its oldest finished cards to an archive by itself;
-the limit that remains is 1000 unfinished cards, and a refusal there means
-finish some first. Its task comes as a message from
-`Auto`. Plan first and ask everything at once with `ask`; then do the work,
-run the checks and commit on that branch. Do not push, open a pull request or
-merge: when your turn ends, Auto commits what is left, pushes, opens the pull
-request and merges it once its checks pass, or leaves it for the person to
-merge when the project lands only when they say. So end your turn only when the
-work is done or you wait on an answer. If you start workers, Auto ships only
-once none of them is still working, so a turn that ends while they work does
-not ship half the change. Marking such a card done with
-`board_update` keeps it in progress until it lands. If its checks fail, a
-message from `Auto` asks you once to fix them.
-
-Before you build, unless the project turned it off, you propose a contract:
-`board_update` with `card` and `contract`, a list of up to 20 items, each a
-`behaviour` someone can observe and how to `verify` it. Say what it does and how
-to check it, not how to build it. Then end your turn. A fresh agent on another
-CLI reviews it against the card, and a message from `Auto` tells you to build or
-what to change, for three rounds at most, after which your latest proposal
-stands and goes on the record. It sits apart from the acceptance criteria, which
-it can only add to, and nobody is asked about it.
-
-Once the checks pass, and before it merges, Auto has an agent on another CLI
-review the change blind, against the card, its acceptance criteria and its
-contract. It works from a read-only checkout of the pushed commit and, unless
-the project turned it off, builds and uses the change in a writable copy of
-that commit. Only its approval of that very commit lets the card merge; anything
-pushed after needs a new one. If it asks for changes, a message from `Auto`
-lists them: fix them and commit, and a fresh reviewer looks at the new change,
-for a few rounds before the card goes back to the person. You cannot message,
-read or wait on the reviewer, and it cannot reach you.
-
-If an Auto agent's turn fails, its process dies or it says nothing for 30
-minutes in the middle of a turn, Auto brings it back on its own session and
-asks it to carry on, or starts a fresh agent in the same worktree with a
-handover. It tries a few times with growing waits, and sends the card back to
-the person once the same failure comes twice in a row. A person or lead stopping
-an agent is never undone; a usage limit waits for its reset, and a sign-in or
-missing program goes to the person at once. A message from `Auto` saying it
-brought you back means your last turn stopped part-way, so check what got done
-first.
-
-### When Auto started you to review
-
-Your task comes as a message from `Auto` holding the card and either the diff
-or a contract: the board, other agents and starting agents are closed to you.
-
-Reviewing a change, your folder is a writable copy of the commit to build and
-run, and your task names a read-only one; do not edit the copy's tracked files.
-Use the change as its user would, with `process_start` and a `command`, the
-browser or simulator tools, or the CLI or API, on the ports your task gives you.
-A change with nothing to run, such as documentation, is read, and you say so in
-`nothingToRun`. Give your verdict once with `review_verdict`: `criteria`, every
-id your task lists with `pass` and a `note`, and a `file` and `line` on each
-failure; `exercised`, what you ran and what you `saw`; `approve`; and `findings`
-for anything else. An approval is refused when a criterion failed, when it
-exercised nothing on a change that can run, when you only read files, or when
-the copy no longer matches the commit. An `ask` goes to the person.
-
-Reviewing a contract, judge it against the card and give `approve`, or `approve:
-false` with `findings`. Nobody is asked about a contract, so `ask` is refused:
-decide. End your turn after your verdict. A review of a
-change that ends without a verdict, and waits on no answer, sends the card back
-to the person; a contract's stands as proposed.
+must pass `production`.
 
 ## triggers: Prompts your chat gets later
 

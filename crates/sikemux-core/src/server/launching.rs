@@ -20,7 +20,6 @@ use std::sync::Arc;
 
 use crate::agent_accounts::allocate::Aim;
 use crate::agent_catalog::AgentKind;
-use crate::cli::protocol::TOOLS_OFFER_ENV;
 use crate::launch::homes;
 use crate::launch::terminal::{self, TerminalRun};
 use crate::launch::tools::Tools;
@@ -278,8 +277,7 @@ async fn launch_terminal(
     Ok(id)
 }
 
-/// Gives a chat about to start the tools that are its own: those the launch
-/// offers in its environment, and only for its agent.
+/// Gives a chat about to start the tools that are its own, only for its agent.
 pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
     launch
         .env
@@ -300,8 +298,7 @@ pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
             Err(error) => eprintln!("sikemux core: {error}"),
         }
     }
-    let offer = launch.env.get(TOOLS_OFFER_ENV).map(String::as_str);
-    match tools.chat_server(&launch.agent_id, offer) {
+    match tools.chat_server(&launch.agent_id) {
         Ok(server) => launch.mcp_servers = vec![server],
         Err(error) => {
             eprintln!("sikemux core: Sikemux tools are unavailable to this chat: {error}")

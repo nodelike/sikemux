@@ -315,10 +315,6 @@ pub fn is_browser_method(method: &str) -> bool {
     BROWSER_METHODS.contains(&method) || method == BROWSER_PICTURE_METHOD
 }
 
-/// Set on a reviewer Auto starts, and on its tools server, to `reviewer`, which
-/// offers it the tools only a reviewer gets.
-pub const TOOLS_OFFER_ENV: &str = "SIKEMUX_TOOLS_OFFER";
-pub const REVIEWER_OFFER: &str = "reviewer";
 /// A tool listed for an agent only once it has read the guide's setup topic.
 pub const SETUP_OFFER: &str = "setup";
 /// What a tool is offered for that acts on things only one agent uses at a time, such as `hold`:
