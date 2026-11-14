@@ -51,7 +51,7 @@ pub struct Unpushed {
     pub by: String,
     pub subject: String,
     /// It changes CI workflows in a way that waits for the person, who has not passed it.
-    pub held: bool,
+    pub waits: bool,
 }
 
 /// The host's key, which signs footers and notes again for commits made
@@ -223,7 +223,7 @@ fn push_once(
             .collect()
     };
     let held_ids: Vec<String> = (unpushed.iter())
-        .filter(|commit| commit.mine && commit.held)
+        .filter(|commit| commit.mine && commit.waits)
         .map(|commit| commit.id.clone())
         .collect();
     let waits = |waiting: &[&Unpushed]| (!waiting.is_empty()).then(|| WAITS_FOR_PERSON.to_owned());
@@ -259,7 +259,7 @@ fn push_once(
         if !commit.mine {
             continue;
         }
-        if commit.held {
+        if commit.waits {
             waiting.push(commit);
             continue;
         }
@@ -268,7 +268,19 @@ fn push_once(
                 tip = next;
                 going.push(commit);
             }
-            Err(_) if unpushed[..at].iter().any(|before| before.held) => waiting.push(commit),
+            Err(_) if unpushed[..at].iter().any(|before| before.mine && before.waits) => {
+                waiting.push(commit)
+            }
+            Err(_) if unpushed[..at].iter().any(|before| before.waits) => {
+                return Err(Attempt::Failed(format!(
+                    "Your commits build on a change to CI that waits for the person, so they go once it is passed and pushed: {}. Go on with other work, and push again after.",
+                    (unpushed[..at].iter())
+                        .filter(|before| before.waits)
+                        .map(|before| format!("{} {} by {}", short(&before.id), before.subject, before.by))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                )))
+            }
             Err(why) => {
                 return Err(match moved {
                     true => Attempt::Failed(format!("{why}; pull and settle it, then push again")),
@@ -434,7 +446,7 @@ fn rebase_branch(
                 mine: false,
                 by: String::new(),
                 subject: String::new(),
-                held: false,
+                waits: false,
             })
             .collect();
         let later: Vec<&Unpushed> = later.iter().collect();
@@ -504,7 +516,7 @@ fn unpushed(
                     by
                 },
                 subject: subject.to_owned(),
-                held: mine && judge(id),
+                waits: judge(id),
             })
         })
         .collect()

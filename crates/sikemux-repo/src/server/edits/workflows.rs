@@ -88,35 +88,19 @@ pub fn plain(dir: &Path, commit: &str) -> bool {
     })
 }
 
-/// Whether a workflow file's text, read without case, names no environment, no secret but the
-/// run's own `GITHUB_TOKEN` and no workflow of another repository; keeps its token from writing
-/// to the repository; and has no escape or YAML anchor that could hide any of that.
+/// Whether a workflow file's text, read without case both as written and with its YAML escapes
+/// resolved, names no environment, no secret but the run's own `GITHUB_TOKEN` and no workflow of
+/// another repository, and keeps its token from writing to the repository.
 fn plain_text(text: &str) -> bool {
-    let text = text.to_lowercase();
-    let escapes = text.contains("\\x")
-        || text.contains("\\u")
-        || text.lines().any(|line| line.ends_with('\\'));
-    if text.contains("environment") || text.contains("write-all") || escapes || anchored(&text) {
-        return false;
-    }
-    let read_only = text.match_indices("contents").all(|(at, word)| {
-        let rest = &text[at + word.len()..];
-        let rest = rest.lines().next().unwrap_or_default();
-        let Some(rest) = rest.strip_prefix(':') else {
-            return false;
-        };
-        let rest = rest.trim_start_matches([' ', '\t']);
-        let Some(after) = rest
-            .strip_prefix("read")
-            .or_else(|| rest.strip_prefix("none"))
-        else {
-            return false;
-        };
-        let after = after.trim();
-        after.is_empty() || (after.starts_with('#') && after.len() < rest.len())
-    });
     let scoped = text.lines().any(|line| line.starts_with("permissions:"));
-    if !read_only || !scoped {
+    scoped
+        && [text.to_lowercase(), unescaped(text).to_lowercase()]
+            .iter()
+            .all(|text| reaches_nothing(text))
+}
+
+fn reaches_nothing(text: &str) -> bool {
+    if text.contains("environment") || text.contains("write-all") {
         return false;
     }
     let token = "secrets.github_token";
@@ -128,26 +112,73 @@ fn plain_text(text: &str) -> bool {
     });
     let called = "/.github/workflows/";
     let local_only = (text.match_indices(called)).all(|(at, _)| text[..at].ends_with('.'));
-    secrets_ok && local_only
+    let read_only = (text.lines())
+        .filter(|line| line.contains("contents"))
+        .all(reads_contents);
+    secrets_ok && local_only && read_only
 }
 
-/// Whether `text` sets a YAML anchor: `&` and a name, where a value can start.
-fn anchored(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    (bytes.iter().enumerate())
-        .filter(|(_, byte)| **byte == b'&')
-        .any(|(at, _)| {
-            let starts = at == 0
-                || matches!(
-                    bytes[at - 1],
-                    b' ' | b'\t' | b'\n' | b'\r' | b'[' | b'{' | b','
-                );
-            let named = (bytes.get(at + 1)).is_some_and(|next| {
-                !next.is_ascii_whitespace()
-                    && !matches!(next, b'&' | b',' | b'[' | b']' | b'{' | b'}')
-            });
-            starts && named
-        })
+/// Whether `line` is only `contents: read` or `contents: none` under its indent, with at most a
+/// comment after.
+fn reads_contents(line: &str) -> bool {
+    let line = line.trim_start_matches([' ', '\t']);
+    let Some(rest) = line.strip_prefix("contents:") else {
+        return false;
+    };
+    let value = rest.trim_start_matches([' ', '\t']);
+    if value.len() == rest.len() {
+        return false;
+    }
+    let Some(after) = value
+        .strip_prefix("read")
+        .or_else(|| value.strip_prefix("none"))
+    else {
+        return false;
+    };
+    let comment = after.trim_start_matches([' ', '\t']);
+    comment.trim_end().is_empty() || (comment.starts_with('#') && comment.len() < after.len())
+}
+
+/// `text` as YAML's quoted strings would read it: a backslash at a line end joins the next line
+/// without its indent, and `\xHH`, `\uHHHH` and `\UHHHHHHHH` become what they spell.
+fn unescaped(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find('\\') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let joined = (after
+            .strip_prefix("\r\n")
+            .or_else(|| after.strip_prefix('\n')))
+        .map(|next| next.trim_start_matches([' ', '\t']));
+        if let Some(next) = joined {
+            rest = next;
+            continue;
+        }
+        let digits = match after.chars().next() {
+            Some('x') => 2,
+            Some('u') => 4,
+            Some('U') => 8,
+            _ => 0,
+        };
+        let spelled = (digits > 0)
+            .then(|| after.get(1..=digits))
+            .flatten()
+            .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+            .and_then(char::from_u32);
+        match spelled {
+            Some(spelled) => {
+                out.push(spelled);
+                rest = &after[1 + digits..];
+            }
+            None => {
+                out.push('\\');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// What `commit` changes, by an id that stays when it is made again on another commit.
@@ -197,6 +228,9 @@ impl Drop for Passing {
 /// What an agent's push is told when it carries a change that waits for the person.
 const HELD: &str = "This push carries a change to CI that waits for the person, so push with git_commit and push: true, which sends your other commits and asks them about it.";
 
+/// What an agent's push is told when a merge carries such a change, which no call could list.
+const MERGE: &str = "This push has a merge that changes CI in a way that waits for the person, which they can't pass, so replay it as plain commits and push those with git_commit and push: true.";
+
 /// What the core may forward to `remote` from `outbox`, as the `updates` to its refs, each an
 /// old and a new commit id, move them: `None` needs only the core's usual key; a grant, while it
 /// lives, a key that can change workflows; an error refuses the forward with what to tell the
@@ -215,9 +249,20 @@ pub fn forward(
     if carried.is_empty() {
         return Ok(None);
     }
-    match carried.iter().any(|commit| waits(outbox, commit)) {
-        true => Err(HELD.to_owned()),
-        false => Ok(Some(grant(core, remote))),
+    let waiting: Vec<&String> = (carried.iter())
+        .filter(|commit| waits(outbox, commit))
+        .collect();
+    let merge = |commit: &str| {
+        git(
+            outbox,
+            &["rev-parse", "--verify", "--quiet", &format!("{commit}^2")],
+        )
+        .is_ok()
+    };
+    match waiting.as_slice() {
+        [] => Ok(Some(grant(core, remote))),
+        waiting if waiting.iter().any(|commit| merge(commit)) => Err(MERGE.to_owned()),
+        _ => Err(HELD.to_owned()),
     }
 }
 
@@ -236,13 +281,12 @@ fn carried(outbox: &Path, updates: &[(String, String)]) -> Result<Vec<String>, S
     let mut known: Vec<&str> = (refs.lines())
         .filter(|tip| !tip.is_empty() && !news.contains(tip))
         .collect();
-    let exists = |id: &str| git(outbox, &["cat-file", "-e", &format!("{id}^{{commit}}")]).is_ok();
     known.extend(
         (updates.iter())
             .map(|(old, _)| old.as_str())
-            .filter(|old| !zero(old) && exists(old)),
+            .filter(|old| !zero(old)),
     );
-    let mut args = vec!["rev-list", "--full-history"];
+    let mut args = vec!["rev-list", "--ignore-missing", "--full-history"];
     args.extend(news);
     args.push("--not");
     args.extend(known);
