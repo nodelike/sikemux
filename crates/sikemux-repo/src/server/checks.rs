@@ -1500,6 +1500,12 @@ pub async fn run_in_queue(
     let env = before_commit(agent);
     let ran = tokio::task::spawn_blocking(move || {
         refresh(&owner, &dir, &checkout)?;
+        let ran = run_check(&checkout, &command, seed, RUN_LIMIT, env.clone())?;
+        if ran.passed || !compiler_cache_failed(&ran.text) {
+            return Ok(ran);
+        }
+        let mut env = env;
+        env.push(("RUSTC_WRAPPER".to_owned(), String::new()));
         run_check(&checkout, &command, seed, RUN_LIMIT, env)
     })
     .await
@@ -1509,6 +1515,12 @@ pub async fn run_in_queue(
         output: ran.text,
         took_ms: ran.took_ms,
     })
+}
+
+/// Whether a build failed because its compiler cache did, not its code, so a
+/// run without the cache can say whether the code builds.
+fn compiler_cache_failed(output: &str) -> bool {
+    output.contains("daemon compilation did not complete") || output.contains("sccache: error")
 }
 
 /// The first of `commits`, oldest first on top of `sound`, that fails

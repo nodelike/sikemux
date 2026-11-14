@@ -196,13 +196,30 @@ fn send_back(core: &Arc<Core>, key: &Key, waiting: &Waiting, why: &str) {
     tell(core, &waiting.agent, text);
 }
 
+/// Hands the agent work about its land, waking it if need be: a notice would be
+/// dropped when it is asleep or has other messages waiting.
 fn tell(core: &Arc<Core>, agent: &str, text: String) {
     let (core, agent) = (core.clone(), agent.to_owned());
     tokio::spawn(async move {
-        if let Err(error) = (core.repo_above().messages_from_sikemux)(&core, agent, text).await {
+        let told =
+            (core.repo_above().messages_work_from_sikemux)(&core, agent, text, "about its land");
+        if let Err(error) = told.await {
             eprintln!("sikemux core: a note about a land did not reach its agent: {error}");
         }
     });
+}
+
+/// Saves the whole output of a check that failed with `agent`'s land, which the
+/// host keeps only for its last two runs, and says where it is.
+fn keep_log(core: &Core, agent: &str, output: &str) -> String {
+    let Some(dir) = core.data_dir().as_ref().map(|dir| dir.join("land-logs")) else {
+        return String::new();
+    };
+    let path = dir.join(format!("{agent}.log"));
+    match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, output)) {
+        Ok(()) => format!("\n\nThe whole log is at {}.", path.display()),
+        Err(_) => String::new(),
+    }
 }
 
 /// One land made again on top of the branch and the lands before it.
@@ -338,8 +355,18 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
             return;
         }
     };
+    let held = |waiting: &Waiting| {
+        format!(
+            "Your land onto {base} waits: {label} failed with it, and {base} at {short} fails it by itself as well, so Sikemux holds your land and tries it again once {base} moves. Nothing is yours to do unless the failure below comes from your commits:\n\n{tail}{log}",
+            base = key.1,
+            short = &tip[..tip.len().min(9)],
+            tail = crate::git::tail(&ran.output),
+            log = keep_log(core, &waiting.agent, &ran.output),
+        )
+    };
     if repairing {
-        return failed_over(core, key, &stacked.laid[0].waiting, &tip);
+        let waiting = &stacked.laid[0].waiting;
+        return failed_over(core, key, waiting, &tip, held(waiting));
     }
     let changes: Vec<Vec<String>> = stacked
         .laid
@@ -354,9 +381,10 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
             false => ", with the lands ahead of it in the queue",
         };
         format!(
-            "{label} failed on top of the latest {}{ahead}:\n\n{}",
+            "{label} failed on top of the latest {}{ahead}:\n\n{}{}",
             key.1,
-            crate::git::tail(&ran.output)
+            crate::git::tail(&ran.output),
+            keep_log(core, &laid.waiting.agent, &ran.output)
         )
     };
     match blamed {
@@ -368,7 +396,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         Ok(Blame::BaseRed) => {
             with_line(core, key, |line| line.lane.mark_red(&tip));
             if let [only] = stacked.laid.as_slice() {
-                failed_over(core, key, &only.waiting, &tip);
+                failed_over(core, key, &only.waiting, &tip, held(&only.waiting));
             }
         }
         Ok(Blame::Unknown) | Err(_) if stacked.laid.len() > 1 => {
@@ -382,13 +410,18 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
 }
 
 /// It was tried alone on a branch that fails its own check and did not mend
-/// it. That is not its fault, so it keeps its place until the branch moves.
-fn failed_over(core: &Core, key: &Key, waiting: &Waiting, tip: &str) {
-    with_line(core, key, |line| {
-        if let Some(w) = line.waiting.iter_mut().find(|w| w.is(waiting)) {
-            w.failed_over = Some(tip.to_owned());
-        }
+/// it. That is not its fault, so it keeps its place until the branch moves,
+/// and its agent hears why the first time.
+fn failed_over(core: &Arc<Core>, key: &Key, waiting: &Waiting, tip: &str, why: String) {
+    let newly = with_line(core, key, |line| {
+        let w = line.waiting.iter_mut().find(|w| w.is(waiting))?;
+        let newly = w.failed_over.as_deref() != Some(tip);
+        w.failed_over = Some(tip.to_owned());
+        Some(newly)
     });
+    if newly.flatten() == Some(true) {
+        tell(core, &waiting.agent, why);
+    }
 }
 
 /// Moves the branch to the checked stack, made again on its tip should that
