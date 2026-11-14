@@ -328,7 +328,7 @@ fn landed_row(landed: &AwayLanded, bench: &Entity<Workbench>, t: &Tokens, cx: &A
                 )
                 .sized(22., 10., 12.)
                 .on_click(move |_, _, cx| {
-                    crate::chat::take_step(&weak, &agent, TurnStep::TryIt, cx)
+                    crate::chat::take_step(&weak, &agent, TurnStep::TryIt, cx).detach()
                 }),
             )
         })

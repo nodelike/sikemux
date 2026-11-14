@@ -14,7 +14,6 @@ use gpui_kit::{
 use sikemux_calls::agent_accounts::Authenticate;
 use sikemux_calls::agent_accounts::ChatAccountsParams;
 use sikemux_calls::call;
-use sikemux_calls::turn_state::TakeStepParams;
 use sikemux_calls::Call;
 use sikemux_view::chat::{
     ChatActivity, ChatConnection, FailureKind, ToolAction, ToolFamily, ToolIntent, ToolRow,
@@ -45,6 +44,8 @@ pub struct Activity {
     bench: Option<WeakEntity<Workbench>>,
     /// How the chat's turn stands, as the core last said.
     turn: Option<TurnState>,
+    /// The step the person clicked on this turn's line, held until the turn moves on.
+    taken: Option<TurnStep>,
     /// The chat's agent as the pane last drew it, whose face the line wears.
     agent: Option<AgentRow>,
     label: Option<Doing>,
@@ -115,6 +116,7 @@ impl Activity {
             target,
             bench: None,
             turn: None,
+            taken: None,
             agent: None,
             label: None,
             before: None,
@@ -139,6 +141,7 @@ impl Activity {
     pub fn set_turn(&mut self, turn: Option<&TurnState>, cx: &mut Context<Self>) {
         if self.turn.as_ref() != turn {
             self.turn = turn.cloned();
+            self.taken = None;
             cx.notify();
         }
     }
@@ -164,20 +167,26 @@ impl Activity {
         let take = |step: TurnStep, variant: Variant| {
             let label = turn_line::step_label(step)?;
             let agent = self.agent.as_ref()?.id.clone();
-            let (target, bench) = (self.target.clone(), self.bench.clone()?);
+            let bench = self.bench.clone()?;
+            let line = cx.entity().downgrade();
             Some(
                 step_button(label, variant)
+                    .disabled(self.taken.is_some())
                     .on_click(move |_, _, cx| {
-                        let taken = target.request_typed::<call::TakeStep>(TakeStepParams {
-                            agent_id: agent.clone(),
-                            step,
-                        });
-                        let bench = bench.clone();
+                        let taken = super::shown::take(&bench, &agent, step, cx);
+                        let line = line.clone();
+                        line.update(cx, |line, cx| {
+                            line.taken = Some(step);
+                            cx.notify();
+                        })
+                        .ok();
                         cx.spawn(async move |cx| {
-                            if let Err(refused) = taken.await {
-                                cx.update(|cx| {
-                                    crate::toast::show(&bench, crate::toast::error(refused), cx)
-                                });
+                            if !taken.await {
+                                line.update(cx, |line, cx| {
+                                    line.taken = None;
+                                    cx.notify();
+                                })
+                                .ok();
                             }
                         })
                         .detach();

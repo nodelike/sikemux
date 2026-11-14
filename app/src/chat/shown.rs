@@ -256,7 +256,7 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
         let (bench, agent) = (looks.bench.clone(), row.agent_id.clone());
         Button::new(SharedString::from(format!("{key}:{label}")), label, variant)
             .sized(22., 10., 12.)
-            .on_click(move |_, _, cx| take(&bench, &agent, step, cx))
+            .on_click(move |_, _, cx| take(&bench, &agent, step, cx).detach())
     };
     let name = row
         .name
@@ -349,26 +349,28 @@ pub(crate) fn take(
     agent: &str,
     step: TurnStep,
     cx: &mut App,
-) {
-    let Some(bench) = bench.upgrade() else {
-        return;
+) -> gpui_kit::Task<bool> {
+    let Some(workbench) = bench.upgrade() else {
+        return gpui_kit::Task::ready(false);
     };
-    let target = bench.read(cx).chat_target(agent);
+    let target = workbench.read(cx).chat_target(agent);
     let asked = target.request_typed::<call::TakeStep>(TakeStepParams {
         agent_id: agent.to_owned(),
         step,
     });
-    let bench = bench.downgrade();
+    let label = crate::turn_line::step_label(step).unwrap_or_default();
+    let bench = bench.clone();
     cx.spawn(async move |cx| {
-        if let Err(error) = asked.await {
-            bench
-                .update(cx, |bench, cx| {
-                    bench.notify(crate::toast::error(error.to_string()), cx)
-                })
-                .ok();
-        }
+        let (taken, note) = match asked.await {
+            Ok(_) => (
+                true,
+                crate::toast::info(format!("{label}: sent to the agent")),
+            ),
+            Err(error) => (false, crate::toast::error(error.to_string())),
+        };
+        cx.update(|cx| crate::toast::show(&bench, note, cx));
+        taken
     })
-    .detach();
 }
 
 /// When a row happened: when its turn ended, or when the person sent it.
