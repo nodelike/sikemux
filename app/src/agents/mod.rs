@@ -858,16 +858,20 @@ fn team_rows(
                 in_team = true;
                 Some(TeamLink::Head)
             }
-            Some(link) if in_team => Some(link),
+            Some(link) if in_team => {
+                in_team = link != TeamLink::Last;
+                Some(link)
+            }
             _ => {
                 in_team = false;
                 None
             }
         };
         let continues = |at: usize| {
-            agents
-                .get(at)
-                .is_some_and(|next| matches!(next.team, Some(TeamLink::Member | TeamLink::Last)))
+            in_team
+                && agents.get(at).is_some_and(|next| {
+                    matches!(next.team, Some(TeamLink::Member | TeamLink::Last))
+                })
         };
         let fold = match team {
             Some(TeamLink::Head) => {
