@@ -292,8 +292,12 @@ pub(crate) fn of(
         state.call = Some(call);
         return Some(state);
     }
+    if status == AgentStatus::Blocked {
+        let since = (core.seen().active_at(agent_id)).unwrap_or_else(epoch_ms);
+        return Some(standing(TurnPhase::NeedsYou, since));
+    }
     let ended = core.inbox().ending(agent_id);
-    if matches!(status, AgentStatus::Working | AgentStatus::Blocked) {
+    if status == AgentStatus::Working {
         let since = (core.seen().started_at(agent_id))
             .or_else(|| ended.as_ref().map(|ended| ended.started_at))
             .or_else(|| core.seen().active_at(agent_id))
