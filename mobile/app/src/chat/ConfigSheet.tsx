@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
-import { contextLimit, contextShare, money, tokenCount } from '@shared/chat/contextUsage';
+import { contextShare, money, tokenCount } from '@shared/chat/contextUsage';
 import type { ChatRows } from '@shared/chat/rows';
 import { formatAgo } from '@shared/lib/format';
 import type { ExpiredCache } from '@shared/wire.generated';
@@ -88,7 +88,7 @@ export function ConfigSheet({
             <Text style={styles.contextLabel}>{t('Context')}</Text>
             <Text style={styles.contextValue}>
               {Math.round(contextShare(usage) * 100)}% ·{' '}
-              {t('{used} of {size}', { used: tokenCount(usage.used), size: tokenCount(contextLimit(usage)) })}
+              {t('{used} of {size}', { used: tokenCount(usage.used), size: tokenCount(usage.size) })}
             </Text>
           </View>
           <View style={styles.contextBar}>

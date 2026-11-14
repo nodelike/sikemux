@@ -1456,7 +1456,7 @@ fn context_card(
         )
         .child(
             ui::text(
-                format!("/ {}", crate::ui::numbers::compact(usage.limit())),
+                format!("/ {}", crate::ui::numbers::compact(usage.size)),
                 TEXT_2XS_H,
                 FontWeight::NORMAL,
             )
@@ -1500,26 +1500,13 @@ fn context_card(
                 .gap(px(3.))
                 .child(row(t!("Tokens"), tokens.into_any_element()))
                 .children(usage.compact_at.map(|at| {
-                    let at = div()
-                        .flex()
-                        .gap(px(3.))
-                        .font_features(theme::tabular())
-                        .child(
-                            ui::text(
-                                crate::ui::numbers::compact(at),
-                                TEXT_2XS_H,
-                                FontWeight::NORMAL,
-                            )
-                            .text_color(t.text_primary),
-                        )
-                        .child(
-                            ui::text(
-                                t!("of {size}", size = crate::ui::numbers::compact(usage.size)),
-                                TEXT_2XS_H,
-                                FontWeight::NORMAL,
-                            )
-                            .text_color(t.text_tertiary),
-                        );
+                    let at = ui::text(
+                        crate::ui::numbers::compact(at),
+                        TEXT_2XS_H,
+                        FontWeight::NORMAL,
+                    )
+                    .font_features(theme::tabular())
+                    .text_color(t.text_primary);
                     row(t!("Compacts at"), at.into_any_element())
                 }))
                 .children(compactions.map(|compactions| {
