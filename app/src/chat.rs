@@ -1069,7 +1069,9 @@ impl Chat {
                 doing
             }
         });
-        let turn = self.state.as_ref().and_then(|head| head.turn.as_ref());
+        let turn = (self.state.as_ref())
+            .and_then(|head| head.turn.as_ref())
+            .filter(|_| !self.is_new(cx));
         let step = doing.as_ref().map(status::Doing::whole);
         self.activity_line.update(cx, |activity, cx| {
             activity.set_turn(turn, cx);
