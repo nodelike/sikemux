@@ -2,6 +2,7 @@
 //! built over them, as those features do it.
 
 use crate::server::board_state::BoardParts;
+use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
 use crate::server::remote_state::RemoteParts;
@@ -22,12 +23,10 @@ use std::path::PathBuf;
 use sikemux_view::prefs::PreferenceChange;
 
 use super::activity_log::{transcript_of, Place};
-use super::board_above::{BoardAbove, ForeignNow, HandOver};
+use super::board_above::BoardAbove;
 use super::chat_above::ChatAbove;
 use super::launching;
 use super::notch;
-use super::pictures;
-use super::remote::StoredLink;
 use super::remote_above::RemoteAbove;
 use super::repo_above::RepoAbove;
 use super::roster;
@@ -41,8 +40,6 @@ use super::{
 use super::{hooks, inbox, mods, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
-use std::sync::Arc;
-use std::time::Duration;
 
 use super::chat::Chat;
 use super::edits;
@@ -115,7 +112,6 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
                 feed.set_draft(core.drafts().chat_draft(agent));
             }
         },
-        session_deleted: board::lease::session_deleted,
         question_keeps_picture: |core, path| core.harness().questions.keeps_picture(path),
         open_chats: |core| core.chats().list(),
         held_chats: |core| core.triggers().held(),
@@ -275,12 +271,9 @@ pub(super) fn chat_above() -> ChatAbove {
         questions_ask_for_dialog: questions::ask_for_dialog,
         turn_state_now: turn_state::now,
         agent_accounts_chat_refused: agent_accounts::chat_refused,
-        board_subagent_started: board::chat_goal::subagent_started,
         board_take_note: board::chat_goal::take_note,
         memory_take_removed: memory::take_removed_note,
         memory_chat_ready: memory::chat_ready,
-        board_resumed_session: board::lease::resumed_session,
-        board_stopped_waiting: board::recover::stopped_waiting,
         chief_brief: chief::brief,
         chief_chat_opened: chief::chat_opened,
         chief_chat_ready: chief::chat_ready,
@@ -352,11 +345,8 @@ pub(super) fn remote_above() -> RemoteAbove {
 
 pub(super) fn repo_above() -> RepoAbove {
     RepoAbove {
-        board_check_stands: board::check_stands,
         board_health_of: board::health_of,
         board_project_at: board::project_at,
-        board_committed: board::backup::committed,
-        board_landed: board::roles::landed,
         chief_all: chief::all,
         chief_landed: chief::landed,
         questions_asks_production: questions::asks_production,
@@ -373,6 +363,19 @@ pub(super) fn repo_above() -> RepoAbove {
         messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
         foreign_status: |core, agent| core.hosts().team.get(agent).map(|foreign| foreign.status),
         turn_state_wrote: turn_state::wrote,
+        turn_state_committed: |core, agent| {
+            core.inbox().committed(agent);
+            turn_state::read_work(core, agent);
+        },
+        pictures_checked: |core, project, covered| {
+            for (agent, turn) in core.inbox().showing(project, covered) {
+                super::pictures::take(core, &agent, project, turn);
+            }
+        },
+        inbox_staged: |core, agent, head| {
+            core.inbox().staged(agent, head);
+            core.changed(super::changed::What::View);
+        },
         questions_waits_on_answer: |core, agent| core.harness().questions.waits_on_answer(agent),
         mail_waiting: |core, agent| core.harness().mailbox.has_waiting(agent),
         board_agent_result: |core, agent| {
@@ -396,8 +399,6 @@ pub(super) fn repo_above() -> RepoAbove {
             Box::pin(tasks::ask_person(core, project, ask, execution_id))
         },
         saved_locate: saved::locate,
-        board_waiting_on_ci: board::waiting_on_ci,
-        board_ci_moved: board::ci_moved,
         triggers_waiting_on_ci: triggers::waiting_on_ci,
         triggers_ci_moved: triggers::ci_moved,
         git_pending_pulls: git::pending_pulls,
@@ -406,9 +407,7 @@ pub(super) fn repo_above() -> RepoAbove {
         board_person_settings: |core, params| Box::pin(board::person_settings(core, params)),
         board_mirror_places: board::mirror_places,
         board_landing: board::landing,
-        board_record_check: board::record_check,
         board_ci_ruled: board::ci_ruled,
-        board_unbuilt_heads: board::unbuilt_heads,
         board_ci_card: board::ci_card,
         harness_note_repository: |core, project, kind| {
             core.harness().note_repository(project, kind)
@@ -424,63 +423,12 @@ pub(super) fn repo_above() -> RepoAbove {
     }
 }
 
-/// Long enough for the first bundle of a large repository.
-const HANDING_WAIT: Duration = Duration::from_secs(10 * 60);
-
-fn foreign_now(foreign: hosts::team::Foreign) -> ForeignNow {
-    ForeignNow {
-        agent_id: foreign.agent_id,
-        host: foreign.host,
-        status: foreign.status,
-        worker: foreign.role == hosts::team::Role::Worker,
-        parent: foreign.parent,
-    }
-}
-
-async fn hand_over(
-    core: &Arc<Core>,
-    link: &StoredLink,
-    handed: HandOver,
-) -> Result<String, String> {
-    let packed = (handed.packed.downcast::<hosts::code::Packed>())
-        .map_err(|_| "the checkout was not packed for a host".to_owned())?;
-    let handing = hosts::spawn::Handing {
-        agent_id: handed.agent_id,
-        name: handed.name,
-        provider: handed.provider.clone(),
-        project: handed.project,
-        lead: hosts::spawn::LeadParams {
-            agent_id: handed.lead,
-            name: "Auto".to_owned(),
-            cli: handed.provider,
-            mode: Some(handed.mode),
-        },
-        model: handed.model,
-        effort: None,
-        reports: true,
-        prompt: handed.prompt,
-        branch: Some(handed.branch),
-        packed: *packed,
-        auto: true,
-        wait: HANDING_WAIT,
-    };
-    let hosts::spawn::Handed { name, .. } = hosts::spawn::hand_over(core, link, handing).await?;
-    Ok(name)
-}
-
 pub(super) fn board_above() -> BoardAbove {
     BoardAbove {
-        hosts_stop_worker: hosts::route::stop_worker,
         memory_brief: memory::brief,
-        messages_auto_task: messages::auto_task,
-        messages_from_person: messages::from_person,
-        pictures_take: pictures::take,
-        turn_state_read_work: turn_state::read_work,
         messages_from_board: |core, to, text, note| {
             Box::pin(messages::from_board(core, to, text, note))
         },
-        messages_hand_task: |core, agent, task| Box::pin(messages::hand_task(core, agent, task)),
-        messages_from_auto: |core, to, text| Box::pin(messages::from_auto(core, to, text)),
         messages_overruled: |core, overruled| {
             Box::pin(async move {
                 let answered = messages::Answered {
@@ -494,33 +442,9 @@ pub(super) fn board_above() -> BoardAbove {
                 messages::answer(core, overruled.asker_id, answers).await
             })
         },
-        launching_wake: |core, agent| Box::pin(launching::wake(core, agent)),
-        launching_wake_chat: |core, agent| Box::pin(launching::wake_chat(core, agent)),
-        launching_reopen_agent: |core, agent| {
-            Box::pin(async move {
-                launching::reopen_agent(core, agent)
-                    .await
-                    .map(|taken| taken.agent_id)
-            })
-        },
         questions_blocks_on_person: |core, agent| core.harness().questions.blocks_on_person(agent),
-        questions_has_open: |core, agent| core.harness().questions.has_open(agent),
         questions_blocking: |core, agent| core.harness().questions.blocking(agent),
         questions_boards_changed: |core| core.harness().questions.boards_changed(),
-        questions_put_proof_to_person: questions::put_proof_to_person,
-        harness_running_agents: |core| {
-            (core.harness().all_runs().into_iter())
-                .filter(|run| run.status.is_active())
-                .filter_map(|run| run.agent_id)
-                .collect()
-        },
-        harness_stop_runs: |core, selector| Box::pin(harness::stop_runs(core, selector)),
-        harness_forward: |core, request| Box::pin(harness::forward(core, request)),
-        inbox_failing: |core, agent| core.inbox().failing(agent),
-        inbox_fault: |core, agent| core.inbox().fault(agent),
-        inbox_committed: |core, agent| core.inbox().committed(agent),
-        inbox_showing: |core, project, covered| core.inbox().showing(project, covered),
-        inbox_staged: |core, agent, head| core.inbox().staged(agent, head),
         goal_title: |core, project, card| core.goal_summaries().title(project, card),
         goal_name_new: goal_summary::name_new,
         triggers_next_after: triggers::next_after,
@@ -533,33 +457,7 @@ pub(super) fn board_above() -> BoardAbove {
                 core, project, goal, decision, overrule,
             ))
         },
-        hosts_reachable: |core, host| core.hosts().reachable(host),
-        foreign: |core, agent| core.hosts().team.get(agent).map(foreign_now),
-        foreign_all: |core| {
-            core.hosts()
-                .team
-                .all()
-                .into_iter()
-                .map(foreign_now)
-                .collect()
-        },
-        foreign_take_landed: |core, agent| {
-            let mut landed = None;
-            (core.hosts().team).update(agent, |worker| landed = worker.landed.take());
-            landed.map(|(branch, _)| branch)
-        },
-        foreign_gone: |core, agent| {
-            core.hosts().team.remove(agent);
-            hosts::route::pin(core);
-        },
-        hosts_find: hosts::find,
-        hosts_name_of: hosts::name_of,
-        hosts_package: |cwd, folder| {
-            let mut packed = hosts::code::package_for(cwd, false)?;
-            packed.code.project = folder.unwrap_or(packed.code.project);
-            Ok(Box::new(packed))
-        },
-        hosts_hand_over: |core, link, handed| Box::pin(hand_over(core, link, handed)),
+        hosts_started_by: |core, agent| core.hosts().team.get(agent)?.parent,
         hosts_rows_moved: hosts::route::rows_moved,
     }
 }

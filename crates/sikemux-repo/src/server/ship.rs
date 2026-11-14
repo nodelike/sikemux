@@ -30,8 +30,6 @@ use super::person_calls::Raise;
 use super::places::push::{self, Reach};
 use super::places::{self, work, Goes, Judged};
 use super::plugged::Provided;
-use super::repo_events::DeployRan;
-use super::repo_events::RepoEvent;
 use super::{person_calls, plugged, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
@@ -60,8 +58,6 @@ const FOLLOW_EVERY: Duration = Duration::from_secs(15);
 const HEALTH_TRIES: usize = 6;
 const HEALTH_EVERY: Duration = Duration::from_secs(10);
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
-/// The end of what a deploy printed that its evidence keeps.
-const MAX_OUTPUT_CHARS: usize = 4000;
 
 pub struct Ships {
     state: Mutex<State>,
@@ -111,15 +107,10 @@ pub struct Deploy {
     agent_id: String,
     project: String,
     environment: String,
-    what: String,
-    /// Why it went or how it was let go, as its evidence opens.
-    why: String,
-    by_person: bool,
     /// The commit its checkout was at as it went, which is what it deployed.
     head: Option<String>,
     /// The call whose yes let it go, which hears how it ended.
     call: Option<String>,
-    kind: ShipKind,
     /// The person is told of it once it ends.
     telling: Option<Telling>,
 }
@@ -351,24 +342,19 @@ fn check_call(
     let name = core.names().name_or_id(agent_id);
     let judged = places::judge(core, &project, &ship, &name);
     let place = judged.place.as_ref().map(|place| place.name().to_owned());
-    let deploy = |why: String, call: Option<String>, telling: Option<Telling>| {
+    let deploy = |call: Option<String>, telling: Option<Telling>| {
         let followed = ship.kind == ShipKind::Deploy || call.is_some() || telling.is_some();
         place.as_ref().filter(|_| followed).map(|name| Deploy {
             head: Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok(),
             agent_id: agent_id.to_owned(),
             project: project.clone(),
             environment: name.clone(),
-            what: ship.what.clone(),
-            why,
-            by_person: call.is_some(),
             call,
-            kind: ship.kind,
             telling,
         })
     };
-    let why = judged.why.clone().unwrap_or_default();
     match judged.goes {
-        Goes::Freely => Ok(deploy(why, None, None)),
+        Goes::Freely => Ok(deploy(None, None)),
         Goes::Unplaced => {
             places::saw(core, &project, &ship, agent_id);
             Ok(None)
@@ -377,18 +363,7 @@ fn check_call(
             let told = judged.place.as_ref().expect("a place tells");
             let (key, _) = key_of(told, &ship, work::of(cwd).as_deref(), call.is_some());
             let raise = call_for(core, agent_id, &project, &ship, cwd, told, None);
-            Ok(deploy(why, None, Some(Telling { key, raise })))
-        }
-        Goes::OnceChecked => {
-            let head = Git::quick(cwd).trimmed(&["rev-parse", "HEAD"]).ok();
-            match (core.repo_above().board_check_stands)(core, &project, agent_id, head.as_deref()) {
-                Ok(()) => Ok(deploy(why, None, None)),
-                Err(why) => Err(format!(
-                    "Not yet: `{}` lands in {}, which goes once the project's check passes, and {why}. Run it again once it has; the person needn't be asked.",
-                    ship.what,
-                    place.as_deref().unwrap_or_default()
-                )),
-            }
+            Ok(deploy(None, Some(Telling { key, raise })))
         }
         Goes::Asks => {
             let gated = judged.place.clone().expect("a place asks");
@@ -417,8 +392,7 @@ fn check_call(
                             .push((agent_id.to_owned(), yes.id.clone(), true));
                     }
                 }
-                let why = format!("You said yes on the call \"{}\".", yes.question);
-                return Ok(deploy(why, Some(yes.id), None));
+                return Ok(deploy(Some(yes.id), None));
             }
             let asking = Asking {
                 place: &gated,
@@ -896,11 +870,7 @@ fn hold(
             agent_id: agent_id.to_owned(),
             project: project.to_owned(),
             environment: name.clone(),
-            what: ship.what.clone(),
-            why: "You allowed it.".to_owned(),
-            by_person: true,
             call: None,
-            kind: ship.kind,
             telling: None,
         });
     {
@@ -1044,7 +1014,7 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
                 if state.going.len() >= MAX_GOING {
                     if let Some((_, lost)) = state.going.pop_front() {
                         let core = core.clone();
-                        tokio::spawn(async move { ended(core, lost, None, String::new()).await });
+                        tokio::spawn(async move { ended(core, lost, None).await });
                     }
                 }
                 state.going.push_back((went, deploy));
@@ -1059,14 +1029,14 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
                     at.and_then(|at| state.going.remove(at))
                 };
                 if let Some((_, deploy)) = lost {
-                    ended(waiting, deploy, None, String::new()).await;
+                    ended(waiting, deploy, None).await;
                 }
             });
             json!({ "allowed": true, "went": went.to_string() })
         }
         Ok(Some(deploy)) => {
             let core = core.clone();
-            tokio::spawn(async move { ended(core, deploy, None, String::new()).await });
+            tokio::spawn(async move { ended(core, deploy, None).await });
             json!({ "allowed": true })
         }
         Err(said) => json!({ "allowed": false, "said": said }),
@@ -1119,7 +1089,7 @@ pub async fn check_process(
     .map_err(|error| error.to_string())??;
     for deploy in going {
         let core = core.clone();
-        tokio::spawn(async move { ended(core, deploy, None, String::new()).await });
+        tokio::spawn(async move { ended(core, deploy, None).await });
     }
     Ok(())
 }
@@ -1143,13 +1113,9 @@ pub fn ran_call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, Str
         Some(0) => Verdict::Passed,
         _ => Verdict::Failed,
     };
-    let output = exit.map_or_else(
-        || "It was stopped before it ended.".to_owned(),
-        |code| format!("It exited with {code}."),
-    );
     if let Some(deploy) = deploy {
         let core = core.clone();
-        tokio::spawn(async move { ended(core, deploy, Some(verdict), output).await });
+        tokio::spawn(async move { ended(core, deploy, Some(verdict)).await });
     }
     Ok(json!({}))
 }
@@ -1261,7 +1227,7 @@ pub async fn check_web_write(
     Ok(match checked {
         Ok(Some(deploy)) => {
             let core = core.clone();
-            tokio::spawn(async move { ended(core, deploy, None, String::new()).await });
+            tokio::spawn(async move { ended(core, deploy, None).await });
             None
         }
         Ok(None) => None,
@@ -1337,11 +1303,11 @@ pub fn tool_ran(core: &Arc<Core>, deploy: Deploy, tool: &str, answer: Result<&Va
     let (core, tool) = (core.clone(), tool.to_owned());
     let answer = answer.cloned().map_err(str::to_owned);
     tokio::spawn(async move {
-        let (verdict, output) = match answer {
-            Err(error) => (Some(Verdict::Failed), error),
-            Ok(answer) => followed(&core, &tool, answer).await,
+        let verdict = match answer {
+            Err(_) => Some(Verdict::Failed),
+            Ok(answer) => followed(&core, &tool, answer).await.0,
         };
-        ended(core, deploy, verdict, output).await;
+        ended(core, deploy, verdict).await;
     });
 }
 
@@ -1395,27 +1361,27 @@ async fn health_of(address: &str) -> (Verdict, String) {
     (Verdict::Failed, said)
 }
 
-/// A deploy reached its end: what ran, where and its result, with the project's
-/// health check on one that went well, is kept on the agent's slice.
-pub async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>, output: String) {
-    let ran_well = verdict;
-    let mut verdict = verdict;
+/// A deploy reached its end: its result, with the project's health check on one that went
+/// well, goes on the person's call for it.
+pub async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>) {
     let mut healthy = None;
-    let mut lines = vec![deploy.why.clone(), output];
-    if verdict.is_none() {
-        lines.push("Sikemux did not see how it ended.".to_owned());
-    }
     if verdict == Some(Verdict::Passed) {
         if let Some(address) =
             (core.repo_above().board_health_of)(&core, &deploy.project, &deploy.environment)
         {
-            let (health, said) = health_of(&address).await;
+            let (health, _) = health_of(&address).await;
             healthy = Some(health == Verdict::Passed);
-            verdict = Some(health);
-            lines.push(said);
+        }
+        let (kept, _) = places::current(&core, &deploy.project);
+        let production = (kept.iter())
+            .any(|place| place.shown.production && place.shown.name == deploy.environment);
+        if let (false, false, Some(head)) =
+            (production, healthy == Some(false), deploy.head.clone())
+        {
+            (core.repo_above().inbox_staged)(&core, &deploy.agent_id, head);
         }
     }
-    let result = match ran_well {
+    let result = match verdict {
         Some(Verdict::Failed) => CallResult::Failed,
         Some(_) => CallResult::Shipped,
         None => CallResult::MayHaveRun,
@@ -1440,29 +1406,6 @@ pub async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>, ou
             }
         }
     }
-    if deploy.kind != ShipKind::Deploy {
-        return;
-    }
-    let text: String = lines
-        .iter()
-        .filter(|line| !line.is_empty())
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("\n");
-    let start = text.chars().count().saturating_sub(MAX_OUTPUT_CHARS);
-    let ran = DeployRan {
-        environment: deploy.environment,
-        what: deploy.what,
-        verdict,
-        output: text.chars().skip(start).collect(),
-        by_person: deploy.by_person,
-        head: deploy.head,
-    };
-    core.repo_events().tell(RepoEvent::Deployed {
-        project: deploy.project,
-        agent: deploy.agent_id,
-        ran,
-    });
 }
 
 /// The person answered the call a production gate raised: each agent waiting on it hears

@@ -64,11 +64,8 @@ pub async fn rename(renamed: Renamed) -> CoreResult<()> {
     Ok(sessions::rename::rename(renamed.saved, renamed.title).await?)
 }
 
-pub async fn delete(core: &Arc<Core>, saved: SavedRef) -> CoreResult<()> {
-    let session_id = saved.session_id.clone();
-    sessions::delete::delete(saved).await?;
-    (core.workspace_above().session_deleted)(core, &session_id);
-    Ok(())
+pub async fn delete(saved: SavedRef) -> CoreResult<()> {
+    Ok(sessions::delete::delete(saved).await?)
 }
 
 pub async fn relocate(moved: Moved) -> CoreResult<()> {
@@ -95,7 +92,7 @@ pub async fn rename_recent(core: &Arc<Core>, renamed: RecentRenamed) -> CoreResu
 /// Deletes a recent chat from its CLI's own history, for good.
 pub async fn delete_recent(core: &Arc<Core>, chat: RecentChat) -> CoreResult<()> {
     let session = core.workspaces().recent_session(&chat.recent, chat.cwd)?;
-    delete(core, session).await?;
+    delete(session).await?;
     core.workspaces().recent_stale();
     Ok(())
 }

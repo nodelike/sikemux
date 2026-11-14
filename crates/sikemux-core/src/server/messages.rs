@@ -185,8 +185,7 @@ impl Sender {
         }
     }
 
-    /// A part of Sikemux that carries work on: what it sends is no repeat, and does not count
-    /// as reaching an agent the board offered a card to.
+    /// A part of Sikemux that carries work on: what it sends is no repeat.
     fn carries_work_on(self) -> bool {
         matches!(self, Sender::Board | Sender::Trigger | Sender::Sikemux)
     }
@@ -1586,33 +1585,6 @@ pub(crate) async fn for_person(
     deliver(core, &target, letter).await
 }
 
-const AUTO_NOTE: &str = "Sent by Sikemux's Auto, which runs this project's board for the person, not by the person or another agent.";
-
-fn auto_letter(text: String) -> Letter {
-    Letter::from_sender(
-        Sender::Auto,
-        MessageKind::Message,
-        text,
-        Some(AUTO_NOTE.to_owned()),
-    )
-}
-
-/// The task Auto gives an agent it started, as that agent reads it.
-pub(crate) fn auto_task(core: &Core, agent_id: &str, text: String) -> String {
-    let brief = super::memory::brief(core, agent_id, None);
-    wrapped(&auto_letter(with_brief(text, brief)))
-}
-
-/// Auto tells an agent of its own what its card needs next.
-pub(crate) async fn from_auto(core: &Arc<Core>, to: String, text: String) -> Result<Value, String> {
-    let mut letter = auto_letter(text);
-    if let Some(lead) = core.hosts().team.get(&to).and_then(|worker| worker.parent) {
-        letter.from_id = lead;
-    }
-    let target = running(core, to).await?;
-    deliver(core, &target, letter).await
-}
-
 /// Drops the messages holding `mark` that still wait for the agent.
 pub(crate) fn withdraw(core: &Core, agent_id: &str, mark: &str) {
     if !is_waiting(core, agent_id, mark) {
@@ -1845,9 +1817,6 @@ async fn handed(
     }
     if !notice {
         mailbox.note_sent(&letter, &target.agent_id);
-        if !letter.by_sikemux() {
-            super::board::offers::reached_by_more_than_offer(core, &target.agent_id);
-        }
     }
     if held.is_none() && mailbox.has_waiting(&target.agent_id) {
         held = Some("already has messages waiting");

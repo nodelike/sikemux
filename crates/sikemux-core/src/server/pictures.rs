@@ -5,7 +5,6 @@
 //! shown, never proven. The core takes only a page something already serves on this machine;
 //! only the person's Try it starts the project's process, as one they can see and stop.
 
-pub(crate) use super::board::is_page_file;
 use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
@@ -436,9 +435,9 @@ async fn not_a_page(url: &str) -> Option<String> {
         .then(|| format!("it shows \"{title}\" rather than a page"))
 }
 
-/// Takes the page the agent's checkout serves at each width, for its turn that began at `turn`
-/// with its work at `head`, once per turn, off the caller's path; nothing when nothing serves it.
-pub(crate) fn take(core: &Core, agent_id: &str, project: &str, turn: u64, head: Option<String>) {
+/// Takes the page the agent's checkout serves at each width, for its turn that began at `turn`,
+/// once per turn, off the caller's path; nothing when nothing serves it.
+pub(crate) fn take(core: &Core, agent_id: &str, project: &str, turn: u64) {
     if !core.window().is_open() || core.pictures().taken(agent_id, turn) {
         return;
     }
@@ -456,7 +455,7 @@ pub(crate) fn take(core: &Core, agent_id: &str, project: &str, turn: u64, head: 
     let (agent, project) = (agent_id.to_owned(), project.to_owned());
     runtime.spawn(async move {
         let started = Instant::now();
-        match shoot(&core, &agent, &project, turn, head).await {
+        match shoot(&core, &agent, &project, turn).await {
             Ok(Some(set)) => {
                 eprintln!(
                     "sikemux core: took {} at {} widths in {} ms",
@@ -479,7 +478,6 @@ async fn shoot(
     agent: &str,
     project: &str,
     turn: u64,
-    head: Option<String>,
 ) -> Result<Option<Set>, String> {
     let Some(dir) = checkout(core, agent) else {
         return Ok(None);
@@ -500,7 +498,6 @@ async fn shoot(
     std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
     let at = epoch_ms();
     let mut shots = Vec::new();
-    let mut decoded = Vec::new();
     for width in WIDTHS {
         let request = HarnessRequest {
             id: format!("picture-{turn}-{width}"),
@@ -520,18 +517,6 @@ async fn shoot(
         sikemux_process::files::write_atomic(&folder.join(&id), &bytes, true)
             .map_err(|error| error.to_string())?;
         shots.push(Shot { width, id });
-        decoded.push((bytes, Some(width)));
-    }
-    if let Some(head) = head {
-        let (keeping, project, agent, opened) = (
-            core.clone(),
-            project.to_owned(),
-            agent.to_owned(),
-            url.clone(),
-        );
-        tokio::task::spawn_blocking(move || {
-            super::board::turn_pictures(&keeping, &project, &agent, &head, &opened, &decoded)
-        });
     }
     let page = url::Url::parse(&url).map_or_else(|_| "/".to_owned(), |url| url.path().to_owned());
     Ok(Some(Set {
@@ -609,6 +594,18 @@ pub(crate) fn results(
         .collect();
     rows.sort_by_key(|row| row.at);
     rows
+}
+
+const PAGE_FILES: [&str; 12] = [
+    "tsx", "jsx", "vue", "svelte", "astro", "html", "htm", "css", "scss", "sass", "less", "styl",
+];
+
+/// Whether the file is one a page is made of, so a change to it can change how the page looks.
+pub(crate) fn is_page_file(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|ending| ending.to_str())
+        .is_some_and(|ending| PAGE_FILES.contains(&ending.to_ascii_lowercase().as_str()))
 }
 
 #[cfg(test)]

@@ -361,7 +361,7 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
         {
             core.note_linked_turn_ended(&foreign.agent_id);
         }
-        if closed && !super::super::board::elsewhere::holds(core, &foreign.agent_id) {
+        if closed {
             core.hosts().team.close(&foreign.agent_id);
             pin(core);
         }
@@ -405,9 +405,6 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
             .filter_map(|agent_id| {
                 let status = match listed.iter().find(|local| &local.agent_id == agent_id) {
                     Some(local) => crate::server::roster::standing(local, &core),
-                    None if super::super::board::elsewhere::leads_a_run(&core, agent_id) => {
-                        AgentStatus::Working
-                    }
                     None => {
                         core.names().get(agent_id)?;
                         AgentStatus::Asleep

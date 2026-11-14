@@ -55,7 +55,6 @@ host_asks! {
     Commits "commits" code::ArrivingCommits;
     CommitsReady "commitsReady" code::ArrivingCommits;
     PullCommits "pullCommits" code::ArrivingCommits;
-    AutoTurn "autoTurn" spawn::AutoTurn;
     Stop "stop" route::AboutAgent;
     PassOn "passOn" route::PassOnParams;
     QuestionClosed "questionClosed" route::ClosedParams;
@@ -182,17 +181,6 @@ async fn dispatch(
         Happened::METHOD => answered(route::happened_here(core, host, read::<Happened>(params)?)),
         Team::METHOD => answered(route::team_here(core, host, read::<Team>(params)?)),
         Worked::METHOD => answered(route::worked_here(core, host, read::<Worked>(params)?)),
-        AutoTurn::METHOD => {
-            let turn = read::<AutoTurn>(params)?;
-            super::super::board::elsewhere::turn_ended(
-                core,
-                host,
-                turn.agent_id,
-                turn.ending,
-                turn.answer,
-                turn.cost_usd,
-            )
-        }
         Stop::METHOD => answered(route::stop_here(core, host, read::<Stop>(params)?)),
         "question" => super::super::questions::relayed_here(core, host, params),
         "answer" => super::super::questions::answer_relayed(core, host, params).await,

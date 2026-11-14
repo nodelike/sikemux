@@ -1,7 +1,6 @@
 //! The cards a turn waits on the person with: a permission to grant and a secret to give.
 
 use super::*;
-use crate::ui::Clicks;
 
 use gpui_kit::component::input::{Copy, Cut, Textarea};
 use gpui_kit::component::Sizable;
@@ -124,71 +123,6 @@ pub(super) fn permission(
                     .children(buttons),
             ),
     )
-}
-
-/// A gate the agent waits at for the person to pass, over the composer, with the evidence it
-/// leads with.
-pub(super) fn approval(
-    workbench: &Workbench,
-    agent: &str,
-    item: &sikemux_view::inbox::InboxItem,
-    busy: bool,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let (target, bench) = (workbench.chat_target(agent), cx.weak_entity());
-    let said = ui::text(item.what.clone(), TEXT_XS, FontWeight::SEMIBOLD)
-        .flex_shrink_1()
-        .min_w_0()
-        .truncate()
-        .text_color(t.text_primary);
-    let body = div()
-        .flex()
-        .items_center()
-        .gap(SPACE_2H)
-        .children(item.evidence.as_ref().map(|evidence| {
-            let face = crate::ui::evidence::thumb_face(evidence, false, cx);
-            evidence_opens(evidence, face, cx)
-        }))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w_0()
-                .gap(SPACE_0)
-                .child(said)
-                .children(item.detail.clone().map(|detail| {
-                    ui::text(detail, TEXT_2XS, FontWeight::NORMAL)
-                        .truncate()
-                        .text_color(t.text_tertiary)
-                })),
-        )
-        .children(crate::approvals::pass_button(item, busy, target, bench));
-    div().p(SPACE_3).child(body).into_any_element()
-}
-
-/// A thumbnail that opens what it shows: a picture full size, a recording in its viewer.
-fn evidence_opens(
-    evidence: &sikemux_view::slice::Evidence,
-    face: Div,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    let sikemux_view::slice::Proof::Picture { path, seconds, .. } = &evidence.proof else {
-        return face.into_any_element();
-    };
-    let (path, still) = (PathBuf::from(path), seconds.is_none());
-    face.id(SharedString::from(format!(
-        "approval-evidence-{}",
-        evidence.id
-    )))
-    .clicks(cx.listener(move |bench, _, window, cx| match still {
-        true => bench.show_picture(path.clone(), window, cx),
-        false => {
-            bench.open_file(&path, cx);
-        }
-    }))
-    .into_any_element()
 }
 
 pub(super) fn kept(t: &Tokens) -> impl IntoElement {

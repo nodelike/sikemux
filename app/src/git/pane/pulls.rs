@@ -1,9 +1,7 @@
-//! The Pull requests page: the repository's open pull requests, each with how the slice behind
-//! it stands, the evidence its gate leads with and its checks. Choosing one opens its slice; one
-//! with no slice can start one that reviews it or answers its comments.
+//! The Pull requests page: the repository's open pull requests. Choosing one can start an agent
+//! that reviews it or answers its comments.
 
 use crate::ui::Clicks;
-use std::collections::HashMap;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -11,12 +9,9 @@ use gpui_kit::{
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
 use sikemux_calls::board::BoardHandOffParams;
-use sikemux_calls::board::BoardParams;
-use sikemux_calls::board::ProjectBoard;
 use sikemux_calls::call;
 use sikemux_calls::codehost::PullsParams;
 use sikemux_plugin_api::codehost::{ListedPull, PullList};
-use sikemux_view::slice::{Evidence, GateState, Proof, SliceState, Verdict};
 
 use super::{GitPane, Pick};
 use crate::code_host_marks::pull_look;
@@ -26,62 +21,16 @@ use crate::theme::{
 use crate::toast;
 use crate::ui;
 
-/// What the page knows: the open pull requests and the slice behind each, by its address.
+/// What the page knows: the open pull requests.
 #[derive(Default)]
 pub(super) struct Pulls {
     pub(super) listed: Vec<ListedPull>,
     pub(super) read: bool,
-    slices: HashMap<String, Behind>,
     pub(super) chosen: usize,
 }
 
-/// The slice a pull request's work is, as the core keeps it.
-#[derive(Clone)]
-struct Behind {
-    /// The agent at work on it, whose chat choosing the pull request opens.
-    owner: Option<String>,
-    state: SliceState,
-    gate: Option<&'static str>,
-    lead: Option<Evidence>,
-    passed: usize,
-    failed: usize,
-}
-
-fn behind(board: &ProjectBoard) -> HashMap<String, Behind> {
-    let mut found = HashMap::new();
-    for card in &board.cards {
-        let Some(slice) = &card.slice else { continue };
-        let Some(url) = &slice.pull else { continue };
-        let ruled = |verdict| {
-            (slice.evidence.iter())
-                .filter(|evidence| evidence.verdict == Some(verdict))
-                .count()
-        };
-        let (passed, failed) = (ruled(Verdict::Passed), ruled(Verdict::Failed));
-        let gate = (slice.gates.iter())
-            .find(|gate| gate.state == GateState::Waiting)
-            .map(|gate| crate::ui::slice_state::gate_name(gate.gate));
-        let lead = (slice.leading)
-            .and_then(|id| slice.evidence.iter().find(|evidence| evidence.id == id))
-            .filter(|evidence| matches!(evidence.proof, Proof::Picture { seconds: None, .. }))
-            .cloned();
-        found.insert(
-            url.clone(),
-            Behind {
-                owner: card.owner.clone(),
-                state: slice.state,
-                gate,
-                lead,
-                passed,
-                failed,
-            },
-        );
-    }
-    found
-}
-
 impl GitPane {
-    /// Reads the open pull requests and the board that says which slice each is.
+    /// Reads the open pull requests.
     pub(super) fn read_pulls(&mut self, cx: &mut Context<Self>) {
         if self.host_of().is_none() {
             return;
@@ -90,16 +39,11 @@ impl GitPane {
             project: self.repo.clone(),
             state: Some("open".to_owned()),
         });
-        let board = self.core.request_typed::<call::Board>(BoardParams {
-            project: self.repo.clone(),
-        });
         cx.spawn(async move |pane, cx| {
             let list: Option<PullList> = listed.await.ok().and_then(|answer| answer.read().ok());
-            let slices = board.await.map(|board| behind(&board)).unwrap_or_default();
             pane.update(cx, |pane, cx| {
                 pane.pulls.listed = list.map(|list| list.pulls).unwrap_or_default();
                 pane.pulls.read = true;
-                pane.pulls.slices = slices;
                 pane.pulls.chosen = pane
                     .pulls
                     .chosen
@@ -117,19 +61,11 @@ impl GitPane {
         cx.notify();
     }
 
-    /// Opens the chat of the agent at work on the chosen pull request, or offers to start one
-    /// on it when none is.
+    /// Offers to start an agent on the chosen pull request.
     pub(super) fn open_pull(&mut self, cx: &mut Context<Self>) {
         let Some(listed) = self.pulls.listed.get(self.pulls.chosen) else {
             return;
         };
-        let owner = (self.pulls.slices.get(&listed.pull.url)).and_then(|slice| slice.owner.clone());
-        if let Some(owner) = owner {
-            let _ = self
-                .bench
-                .update(cx, |bench, cx| bench.bring_agent(&owner, cx).detach());
-            return;
-        }
         let number = listed.pull.number;
         self.menu(
             format!("#{number} · {}", listed.pull.title),
@@ -145,7 +81,7 @@ impl GitPane {
         );
     }
 
-    /// Starts an agent in a checkout of its own on a slice that works the chosen pull request.
+    /// Starts an agent in a checkout of its own on a card that works the chosen pull request.
     fn start_on_pull(&mut self, task: Task, cx: &mut Context<Self>) {
         let Some(listed) = self.pulls.listed.get(self.pulls.chosen) else {
             return;
@@ -252,14 +188,8 @@ fn pull_row(
     let t = Tokens::get(cx).clone();
     let chosen = index == pane.pulls.chosen;
     let key = SharedString::from(format!("pull:{index}"));
-    let slice = pane.pulls.slices.get(&listed.pull.url);
-    let mark = match slice {
-        Some(slice) => crate::ui::slice_state::state_mark(slice.state, cx),
-        None => {
-            let (icon, ink, _) = pull_look(listed.state, &t);
-            ui::mark_box(14., ui::icon(icon, 13.).text_color(ink)).into_any_element()
-        }
-    };
+    let (icon, ink, _) = pull_look(listed.state, &t);
+    let mark = ui::mark_box(14., ui::icon(icon, 13.).text_color(ink)).into_any_element();
     let mut meta: Vec<AnyElement> = Vec::new();
     let said = |text: String, ink| {
         div()
@@ -269,45 +199,19 @@ fn pull_row(
             .child(text)
             .into_any_element()
     };
-    match slice {
-        Some(slice) => {
-            meta.push(said(
-                slice.gate.unwrap_or(t!("Slice")).to_owned(),
-                t.text_secondary,
-            ));
-            if slice.passed > 0 {
-                meta.push(said(format!("✓{}", slice.passed), t.live));
-            }
-            if slice.failed > 0 {
-                meta.push(said(format!("✗{}", slice.failed), t.danger));
-            }
-        }
-        None => meta.push(said(t!("No slice").to_owned(), t.text_tertiary)),
-    }
     if let Some(author) = &listed.pull.author {
         meta.push(said(format!("@{author}"), t.text_tertiary));
     }
-    let end: Option<AnyElement> = match slice {
-        Some(slice) => (slice.lead.as_ref()).map(|lead| {
-            crate::ui::evidence::thumb_face(lead, false, cx)
-                .w(px(44.))
-                .h(px(26.))
-                .into_any_element()
-        }),
-        None => Some(
-            div()
-                .flex_none()
-                .px(SPACE_1H)
-                .py(SPACE_0)
-                .rounded(RADIUS_2)
-                .border_1()
-                .border_color(t.border)
-                .text_size(crate::theme::ui_text(TEXT_3XS))
-                .text_color(t.text_secondary)
-                .child(t!("Start"))
-                .into_any_element(),
-        ),
-    };
+    let end = div()
+        .flex_none()
+        .px(SPACE_1H)
+        .py(SPACE_0)
+        .rounded(RADIUS_2)
+        .border_1()
+        .border_color(t.border)
+        .text_size(crate::theme::ui_text(TEXT_3XS))
+        .text_color(t.text_secondary)
+        .child(t!("Start"));
     let choosing = view.clone();
     div()
         .id(key.clone())
@@ -354,6 +258,6 @@ fn pull_row(
                 )
                 .child(div().flex().items_center().gap(SPACE_1H).children(meta)),
         )
-        .children(end)
+        .child(end)
         .into_any_element()
 }

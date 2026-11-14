@@ -38,13 +38,6 @@ impl Work {
             .is_some_and(|session| self.subagent_sessions.contains(session))
     }
 
-    pub fn starts_own_subagent(&self, payload: &Value) -> bool {
-        let id = payload
-            .pointer("/update/subagentSessionId")
-            .and_then(Value::as_str);
-        !self.in_subagent(payload) && id.is_some_and(|id| !self.subagent_sessions.contains(id))
-    }
-
     pub fn note(&mut self, payload: &Value) {
         let Some(update) = payload.get("update") else {
             return;

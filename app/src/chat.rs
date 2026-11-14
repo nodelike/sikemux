@@ -1749,13 +1749,6 @@ pub fn pane(
             .collect();
         waiting.push(("answered".into(), Waiting::Answered(sent)));
     }
-    let approvals = bench.approvals_of(&agent.id);
-    waiting.extend(approvals.iter().map(|item| {
-        (
-            format!("approval:{}", item.id),
-            Waiting::Approval(Box::new(item.clone())),
-        )
-    }));
     let lasting = motion::CARD_ARRIVAL
         .lasts()
         .max(motion::CARD_DEPARTURE.close.duration);
@@ -1775,20 +1768,12 @@ pub fn pane(
             comes_in(&format!("permission:{}", ask.request_id), card)
         })
         .collect();
-    let mut approving: Vec<AnyElement> = approvals
-        .iter()
-        .map(|item| {
-            let card = approval(bench, &agent.id, item, false, cx);
-            comes_in(&format!("approval:{}", item.id), card)
-        })
-        .collect();
     let mut asking = questions(&agent.id, chat, &open, cx).map(|card| comes_in("questions", card));
     let mut sending =
         waiting_answers(&agent.id, &answered, cx).map(|card| comes_in("answered", card));
     for gone in left {
         let card = match &gone.item {
             Waiting::Permission(ask) => permission(&agent.id, ask, true, cx).into_any_element(),
-            Waiting::Approval(item) => approval(bench, &agent.id, item, true, cx),
             Waiting::Questions(asked) => {
                 let asked: Vec<&Question> = asked.iter().collect();
                 match questions(&agent.id, chat, &asked, cx) {
@@ -1809,15 +1794,12 @@ pub fn pane(
             motion::departing(id, gone.since, motion::CARD_DEPARTURE, card).into_any_element();
         match gone.item {
             Waiting::Permission(_) => permissions.insert(gone.at.min(permissions.len()), card),
-            Waiting::Approval(_) => approving.push(card),
             Waiting::Questions(_) => asking = asking.or(Some(card)),
             Waiting::Answered(_) => sending = sending.or(Some(card)),
         }
     }
     drop(seen);
-    let mut asks: Vec<AnyElement> = approving;
-    asks.extend(asking);
-    asks.extend(sending);
+    let asks: Vec<AnyElement> = asking.into_iter().chain(sending).collect();
     let dock = live::dock(agent, chat, asks, cx);
     let notice = composing::notice(bench, &agent.id, cx).map(|notice| {
         div()

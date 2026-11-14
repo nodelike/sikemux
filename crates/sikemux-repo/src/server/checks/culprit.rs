@@ -19,16 +19,14 @@ const HUNT_LIMIT: Duration = Duration::from_secs(15 * 60);
 const MAX_COMMITS: usize = 256;
 
 pub enum Hunted {
-    /// The commit that broke it, with the steps the search took.
+    /// The commit that broke it.
     Found {
         sha: String,
         subject: String,
         agents: Vec<String>,
-        steps: u32,
     },
     Unknown {
         why: String,
-        steps: u32,
     },
     /// Nothing was searched.
     NotTried,
@@ -147,48 +145,42 @@ pub async fn hunt(core: &Arc<Core>, search: Search) -> Hunted {
         .unwrap_or_else(|error| Err(error.to_string()));
     let (base, known, commits) = match found {
         Ok(found) => found,
-        Err(why) => return Hunted::Unknown { why, steps: 0 },
+        Err(why) => return Hunted::Unknown { why },
     };
     if commits.is_empty() {
         return Hunted::Unknown {
             why: "no commits lie between the last sound one and this".to_owned(),
-            steps: 0,
         };
     }
     if commits.len() > MAX_COMMITS {
         return Hunted::Unknown {
             why: format!("{} commits are too many to search", commits.len()),
-            steps: 0,
         };
     }
     let started = Instant::now();
     let mut step = Duration::from_millis(search.failing_took);
-    let mut steps = 0;
-    let unknown = |why: String, steps| Hunted::Unknown { why, steps };
+    let unknown = |why: String| Hunted::Unknown { why };
     if !known {
         if !budgeted(started, step) {
-            return unknown("each run takes too long to search".to_owned(), steps);
+            return unknown("each run takes too long to search".to_owned());
         }
-        steps += 1;
         match passes(core, &search, &base, started).await {
             Ok(ran) if ran.passed => step = Duration::from_millis(ran.took_ms),
             Ok(_) => {
                 return unknown(
                     "the commit before them fails too, so it is older than these".to_owned(),
-                    steps,
                 )
             }
-            Err(why) => return unknown(why, steps),
+            Err(why) => return unknown(why),
         }
     }
     let mut good: isize = -1;
     let mut bad = commits.len() as isize - 1;
     while bad - good > 1 {
         if !budgeted(started, step) {
-            return unknown("it ran out of time".to_owned(), steps);
+            return unknown("it ran out of time".to_owned());
         }
         let middle = good + (bad - good) / 2;
-        steps += 1;
         match passes(core, &search, &commits[middle as usize], started).await {
             Ok(ran) => {
                 step = Duration::from_millis(ran.took_ms);
@@ -198,7 +190,7 @@ pub async fn hunt(core: &Arc<Core>, search: Search) -> Hunted {
                     bad = middle;
                 }
             }
-            Err(why) => return unknown(why, steps),
+            Err(why) => return unknown(why),
         }
     }
     let sha = commits[bad as usize].clone();
@@ -215,6 +207,5 @@ pub async fn hunt(core: &Arc<Core>, search: Search) -> Hunted {
         sha,
         subject,
         agents,
-        steps,
     }
 }

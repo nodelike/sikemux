@@ -5,7 +5,6 @@
 //! it, or keeps a copy of its own in its data folder. The worker's commits come
 //! back as a bundle onto a branch named for it, which the lead merges or not.
 
-pub(crate) use crate::server::board::git::identity;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Component, Path, PathBuf};
@@ -825,7 +824,6 @@ pub(crate) fn checkout(
             branch,
             base: code.commit.clone(),
             sent: None,
-            auto: false,
         },
         path.join(inside),
     ))
@@ -868,6 +866,19 @@ fn apply(tree: &Path, patch: &str) -> Result<(), String> {
     )
 }
 
+/// What git needs to make a commit in `tree`, on a host with no name of its own for git.
+pub(crate) fn identity(tree: &Path) -> Vec<&'static str> {
+    match Git::quick(tree).trimmed(&["config", "user.email"]) {
+        Ok(_) => Vec::new(),
+        Err(_) => vec![
+            "-c",
+            "user.name=Sikemux",
+            "-c",
+            "user.email=sikemux@localhost",
+        ],
+    }
+}
+
 fn commit_everything(tree: &Path, message: &str) -> Result<(), String> {
     Git::quick(tree).trimmed(&["add", "--all"])?;
     let mut args = identity(tree);
@@ -879,16 +890,6 @@ fn commit_everything(tree: &Path, message: &str) -> Result<(), String> {
 /// the commit it ends at and how many it holds, unless nothing is new since
 /// the last went back.
 pub(crate) fn commits(tree: &Tree, into: &Path) -> Result<Option<(String, usize)>, String> {
-    if tree.auto
-        && !Git::quick(&tree.path)
-            .trimmed(&["status", "--porcelain"])?
-            .is_empty()
-    {
-        commit_everything(
-            &tree.path,
-            "What its agent left uncommitted when its turn ended",
-        )?;
-    }
     let head = Git::quick(&tree.path).trimmed(&["rev-parse", "HEAD"])?;
     if head == tree.base || tree.sent.as_deref() == Some(head.as_str()) {
         return Ok(None);

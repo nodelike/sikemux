@@ -8,14 +8,12 @@ use crate::server::places::place::PlaceExt;
 use sikemux_view::inbox::ShipKind;
 use sikemux_view::places::{Level, Recognise};
 
-use super::place::{id_of, new_place, says_not_production, says_production, Passes, Place};
+use super::place::{id_of, new_place, says_not_production, says_production, Place};
 use crate::ship::{Ship, Target};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Goes {
     Freely,
-    /// Once the project's check passes, at a place that isn't production whose step says so.
-    OnceChecked,
     /// It runs and the person is told at once.
     Tells,
     /// It waits for the person's yes on a call.
@@ -96,19 +94,11 @@ pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Ju
         return by_level(place, confirmed, keep);
     }
     if let Some(place) = recognising.first() {
-        let goes = match place.passes(confirmed) {
-            Passes::Check => Goes::OnceChecked,
-            Passes::Nobody | Passes::Person => Goes::Freely,
-        };
-        let why = match goes {
-            Goes::OnceChecked => format!("{} goes once the project's check passes.", place.name()),
-            _ => format!("{} isn't production.", place.name()),
-        };
         return Judged {
-            goes,
+            goes: Goes::Freely,
             place: Some((*place).clone()),
             keep: false,
-            why: Some(why),
+            why: Some(format!("{} isn't production.", place.name())),
         };
     }
     let goes = match not_production_fact(ship) {

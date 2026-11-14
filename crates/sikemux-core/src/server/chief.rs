@@ -561,10 +561,6 @@ fn put_row(core: &Core, chief: &str, key: String, update: Value) {
         feed: feed.as_ref().map(|feed| feed.id().to_owned()),
     };
     core.chiefs().change(|saved| {
-        let refused: HashSet<String> = (saved.overrules.iter())
-            .filter(|(_, overrule)| overrule.stopped_auto)
-            .map(|(key, _)| format!("overrule|{key}"))
-            .collect();
         let Some(seat) = saved.seats.get_mut(chief) else {
             return;
         };
@@ -572,9 +568,7 @@ fn put_row(core: &Core, chief: &str, key: String, update: Value) {
         seat.rows.push(row);
         while seat.rows.len() > MOST_ROWS {
             let first = |going: &dyn Fn(&Row) -> bool| seat.rows.iter().position(going);
-            let gone = first(&|row| row.key == "week")
-                .or_else(|| first(&|row| refused.contains(&row.key)))
-                .unwrap_or(0);
+            let gone = first(&|row| row.key == "week").unwrap_or(0);
             seat.rows.remove(gone);
         }
     });
@@ -1195,14 +1189,12 @@ fn mark_away(core: &Core, chief: &str, goal: Option<u64>, decision: u64, overrul
 
 /// The person overruled decision `decision` of `project` (a path), which `told` heard of: a
 /// rule now brings decisions like it to them, the chief's chat says so on one line with Undo,
-/// and the chief hears it with its next turn. `stopped_auto` says Auto's run on a slice stopped,
-/// which Undo cannot put back.
+/// and the chief hears it with its next turn.
 pub(crate) fn overruled(
     core: &Core,
     project: &str,
     goal: Option<u64>,
     decision: (u64, &str),
-    stopped_auto: bool,
     told: Vec<String>,
 ) {
     let (id, text) = decision;
@@ -1221,11 +1213,7 @@ pub(crate) fn overruled(
     .inspect_err(|error| eprintln!("sikemux core: an Overrule kept no rule: {error}"))
     .ok();
     core.chiefs().change(|saved| {
-        let overrule = Overrule {
-            rule,
-            stopped_auto,
-            told,
-        };
+        let overrule = Overrule { rule, told };
         saved
             .overrules
             .insert(overrule_key(project, goal, id), overrule);
@@ -1241,7 +1229,7 @@ pub(crate) fn overruled(
         text: sentence(text),
         rule,
         undone: false,
-        stopped_auto,
+        stopped_auto: false,
     };
     let update = sikemux_fold::update::overruled_notice(title, shown);
     decided_line_moved(core, project, goal, id, &update);
@@ -1424,12 +1412,8 @@ pub(crate) fn undoable(
     decision: u64,
 ) -> Result<Overrule, String> {
     let key = overrule_key(project, goal, decision);
-    let overrule = (core.chiefs().state.locked().overrules.get(&key).cloned())
-        .ok_or("Only a decision you overruled can be put back")?;
-    if overrule.stopped_auto {
-        return Err("Overruling this stopped Auto's run on its slice and dropped what it did, so it cannot be put back".into());
-    }
-    Ok(overrule)
+    (core.chiefs().state.locked().overrules.get(&key).cloned())
+        .ok_or_else(|| "Only a decision you overruled can be put back".to_owned())
 }
 
 /// The person undid their Overrule and the decision stands again: the rule it kept is retired,

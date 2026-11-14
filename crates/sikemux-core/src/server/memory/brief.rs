@@ -58,9 +58,7 @@ fn names(text: &str, term: &str) -> bool {
 pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<String> {
     let goal = board::briefing::goal_for(core, agent_id);
     let on_board = (goal.as_ref())
-        .map(|goal| {
-            board::briefing::sections(core, agent_id, goal, core.names().is_blind(agent_id))
-        })
+        .map(|goal| board::briefing::sections(core, agent_id, goal))
         .unwrap_or_default();
     let mut read = task.unwrap_or_default().to_lowercase();
     if let Some(goal) = &goal {

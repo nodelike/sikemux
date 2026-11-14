@@ -1,7 +1,5 @@
-//! A chat picking up a goal. A goal stays a unit of work a chat takes on, never the chat itself:
-//! one chat can hold several over its life, and finishing one leaves the chat going. The core
-//! counts what a chat does and, once it looks like real work, tells the chat's agent, which
-//! decides whether to track it as a goal.
+//! A chat holding a goal. A goal stays a unit of work a chat takes on, never the chat itself:
+//! one chat can hold several over its life, and finishing one leaves the chat going.
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::board_state::BoardParts;
@@ -17,9 +15,9 @@ use serde_json::json;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::{ChatGoal, GoalMarker, GoalMoment};
-use sikemux_view::slice::{SliceState, Wait, WaitOn};
+use sikemux_view::slice::SliceState;
 
-use super::{holder, lease, slice, waits, Board, Card, CardStatus};
+use super::{holder, state_of, waits_on_person, Board, Card, CardStatus};
 use crate::server::chat::feed::Feed;
 use crate::server::chat::Chat;
 use crate::server::connection::blocking;
@@ -29,86 +27,9 @@ use sikemux_fold::update::goal_notice;
 use sikemux_fold::ChatEventKind;
 use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
 
-/// A turn this long is one nobody would call quick.
-const LONG_TURN_MS: u64 = 5 * 60 * 1000;
-/// What each thing a chat did counts towards a bar. A teammate counts most, since nobody starts
-/// one for a small job.
-const COMMIT_POINTS: u32 = 2;
-const TEAMMATE_POINTS: u32 = 3;
-const LONG_TURN_POINTS: u32 = 2;
-/// A CLI starts subagents by itself for small questions, often several at once, so each counts
-/// least and none waives the time a bar asks: the chat's clock runs while they do.
-const SUBAGENT_POINTS: u32 = 1;
-
-/// How much a chat must have done before its agent is told. Points alone are not enough, as a few
-/// commits in five minutes are a quick chat; a teammate waives the time, as the chat's own
-/// clock stops while its teammates work.
-struct Bar {
-    points: u32,
-    worked_ms: u64,
-}
-
-/// Three commits, a teammate and two commits, or three long turns, over ten minutes of work.
-const FIRST_BAR: Bar = Bar {
-    points: 6,
-    worked_ms: 10 * 60 * 1000,
-};
-/// After the agent was told, or the person took a goal back: twice as much again, counted from
-/// that moment.
-const AFTER_TOLD: Bar = Bar {
-    points: 12,
-    worked_ms: 20 * 60 * 1000,
-};
-
 /// Chats kept, past which those touched longest ago go.
 const MAX_CHATS: usize = 512;
 const FILE: &str = "chat-goals.json";
-
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Tally {
-    commits: u32,
-    teammates: u32,
-    subagents: u32,
-    long_turns: u32,
-    worked_ms: u64,
-}
-
-impl Tally {
-    fn since(self, earlier: Tally) -> Tally {
-        Tally {
-            commits: self.commits.saturating_sub(earlier.commits),
-            teammates: self.teammates.saturating_sub(earlier.teammates),
-            subagents: self.subagents.saturating_sub(earlier.subagents),
-            long_turns: self.long_turns.saturating_sub(earlier.long_turns),
-            worked_ms: self.worked_ms.saturating_sub(earlier.worked_ms),
-        }
-    }
-
-    fn clears(self, bar: &Bar) -> bool {
-        let points = self.commits * COMMIT_POINTS
-            + self.teammates * TEAMMATE_POINTS
-            + self.subagents * SUBAGENT_POINTS
-            + self.long_turns * LONG_TURN_POINTS;
-        points >= bar.points && (self.worked_ms >= bar.worked_ms || self.teammates > 0)
-    }
-
-    /// Why this looks like real work, as the agent is told it.
-    fn reason(self) -> String {
-        let counted = |count: u64, one: &str| match count {
-            0 => None,
-            1 => Some(format!("1 {one}")),
-            _ => Some(format!("{count} {one}s")),
-        };
-        let parts = [
-            counted(self.commits.into(), "commit"),
-            counted(self.teammates.into(), "teammate"),
-            counted(self.subagents.into(), "subagent"),
-            counted(self.worked_ms / 60_000, "minute").map(|minutes| format!("{minutes} of work")),
-        ];
-        parts.into_iter().flatten().collect::<Vec<_>>().join(", ")
-    }
-}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -132,57 +53,13 @@ struct Attached {
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Record {
-    tally: Tally,
-    /// What an earlier goal already covered, so only what came after counts.
-    #[serde(default)]
-    covered: Tally,
-    /// How far the chat had got when its agent was last told or the person took a goal back,
-    /// which raises the bar for telling it again.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    told: Option<Tally>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     goal: Option<Attached>,
     /// What the agent is told with the person's next message, so it starts no turn of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     note: Option<ChatContext>,
-    #[serde(skip)]
-    began: Option<u64>,
     #[serde(default)]
     at: u64,
-}
-
-impl Record {
-    /// A goal ended: only work after this counts, towards the higher bar when it was taken away
-    /// rather than finished.
-    fn ended(&mut self, finished: bool) {
-        self.covered = self.tally;
-        self.told = (!finished).then_some(self.tally);
-    }
-
-    /// Tells the agent, with the person's next message, once its chat has done enough to look
-    /// like real work.
-    fn weigh(&mut self) {
-        if self.goal.is_some() {
-            return;
-        }
-        let (from, bar) = match self.told {
-            Some(told) => (told, &AFTER_TOLD),
-            None => (self.covered, &FIRST_BAR),
-        };
-        let done = self.tally.since(from);
-        if !done.clears(bar) {
-            return;
-        }
-        self.told = Some(self.tally);
-        self.note = Some(ChatContext {
-            uri: track_note_uri(),
-            title: "Real work".to_owned(),
-            text: format!(
-                "This chat has grown into real work: {}. If it is one piece of work with an end, track it as a goal yourself, without asking the person: board_add with a title, a promise saying what is true once it is done, and claim: true, then carry on, and mark it done with board_update and a result when it is. If it is not, carry on as you were. Don't mention this note.",
-                done.reason()
-            ),
-        });
-    }
 }
 
 pub struct ChatGoals {
@@ -223,41 +100,16 @@ fn counted(core: &Core, agent: &str) -> bool {
         && (core.names().get(agent)).is_some_and(|named| named.parent.is_none())
 }
 
-fn count(core: &Core, agent: &str, add: impl FnOnce(&mut Tally)) {
-    if !counted(core, agent) {
-        return;
-    }
-    let goals = &core.boards().chat_goals;
-    let mut chats = goals.chats.locked();
-    let record = chats.entry(agent.to_owned()).or_default();
-    add(&mut record.tally);
-    record.at = epoch_ms();
-    goals.save(&mut chats);
-}
-
-pub fn committed(core: &Core, agent: &str) {
-    count(core, agent, |tally| tally.commits += 1);
-}
-
-/// The agent started a teammate.
-pub fn hired(core: &Core, lead: &str) {
-    count(core, lead, |tally| tally.teammates += 1);
-}
-
-pub fn subagent_started(core: &Core, agent: &str) {
-    count(core, agent, |tally| tally.subagents += 1);
-}
-
 /// A turn began, which ends the moment a goal just tracked could be taken back.
 pub fn turn_started(core: &Core, agent: &str) {
     if !counted(core, agent) {
         return;
     }
     let goals = &core.boards().chat_goals;
-    let (attached, settled) = {
+    let settled = {
         let mut chats = goals.chats.locked();
         let record = chats.entry(agent.to_owned()).or_default();
-        record.began = Some(epoch_ms());
+        record.at = epoch_ms();
         let settled = (record.goal.as_mut())
             .filter(|goal| goal.unshown)
             .map(|goal| {
@@ -265,74 +117,28 @@ pub fn turn_started(core: &Core, agent: &str) {
                 goal.unshown = false;
                 goal.clone()
             });
-        let attached = record.goal.clone();
         if settled.is_some() {
             goals.save(&mut chats);
         }
-        (attached, settled)
+        settled
     };
-    if let Some(goal) = attached {
-        lease::back_at_work(core, &goal.project, goal.card, agent);
-    }
     if let (Some(goal), Some(chat)) = (settled, core.chats().get(agent)) {
         goal_line(core, &chat, &goal, GoalMoment::Started);
         push_head(core, agent);
     }
 }
 
-/// A turn ended: it counts towards the chat's work, and one that ran its course can tell the
-/// agent so.
-pub fn turn_ended(core: &Core, agent: &str, ran_its_course: bool) {
-    let goals = &core.boards().chat_goals;
-    let mut chats = goals.chats.locked();
-    let Some(record) = chats.get_mut(agent) else {
-        return;
-    };
-    let Some(began) = record.began.take() else {
-        return;
-    };
-    let took = epoch_ms().saturating_sub(began);
-    record.tally.worked_ms += took;
-    record.tally.long_turns += u32::from(took >= LONG_TURN_MS);
-    record.at = epoch_ms();
-    if ran_its_course {
-        record.weigh();
-    }
-    goals.save(&mut chats);
-}
-
-/// The agent lost its slice to the lease, which ends the moment it could be taken back.
-pub fn lease_lapsed(core: &Core, agent: &str) {
-    let goals = &core.boards().chat_goals;
-    let mut chats = goals.chats.locked();
-    let Some(goal) = chats.get_mut(agent).and_then(|record| record.goal.as_mut()) else {
-        return;
-    };
-    if goal.undoable {
-        goal.undoable = false;
-        goals.save(&mut chats);
-    }
-}
-
-/// What the agent is told with the person's next message, once. Being told its work looks like a
-/// goal no longer applies once the chat has one.
+/// What the agent is told with the person's next message, once.
 pub fn take_note(core: &Core, agent: &str) -> Option<ChatContext> {
     let goals = &core.boards().chat_goals;
     let mut chats = goals.chats.locked();
-    let record = chats.get_mut(agent)?;
-    let note = record.note.take()?;
-    let stale = record.goal.is_some() && note.uri == track_note_uri();
+    let note = chats.get_mut(agent)?.note.take()?;
     goals.save(&mut chats);
-    (!stale).then_some(note)
+    Some(note)
 }
 
-fn track_note_uri() -> String {
-    format!("{FOR_AGENT_URI}track-goal")
-}
-
-/// Undo: the card goes as if it never was, and the chat stays quiet until clearly more work
-/// has happened. The agent hears of it with the person's next message rather than in a turn of
-/// its own.
+/// Undo: the card goes as if it never was. The agent hears of it with the person's next message
+/// rather than in a turn of its own.
 pub async fn undo(core: &Arc<Core>, agent: String) -> Result<(), String> {
     let notices = {
         let (core, agent) = (core.clone(), agent.clone());
@@ -345,7 +151,6 @@ pub async fn undo(core: &Arc<Core>, agent: String) -> Result<(), String> {
                     .ok_or("This chat has no goal to take back")?;
                 let goal = (record.goal.take_if(|goal| goal.undoable))
                     .ok_or("This chat's goal can no longer be taken back")?;
-                record.ended(false);
                 record.note = Some(ChatContext {
                     uri: format!("{FOR_AGENT_URI}goal-{}", goal.card),
                     title: format!("Goal #{}", goal.card),
@@ -388,10 +193,9 @@ fn goal_line(core: &Core, chat: &Chat, goal: &Attached, moment: GoalMoment) {
         let boards = core.boards().state.locked();
         let found = (boards.boards.get(&goal.project))
             .and_then(|board| Some((board, board.card(goal.card).ok()?)));
-        let (steps, of_gates) =
-            (found.map(|(board, card)| slice::goal_steps(core, board, card))).unwrap_or_default();
+        let steps = (found.map(|(board, card)| goal_steps(core, board, card))).unwrap_or_default();
         let state = found.and_then(|(board, card)| goal_state(core, board, card));
-        (steps, of_gates, state)
+        (steps, false, state)
     };
     let (title, state) = match moment {
         GoalMoment::Started => ("Goal started", SliceState::Moving),
@@ -422,50 +226,46 @@ fn steps_done(goal: &ChatGoal) -> usize {
         .count()
 }
 
-/// How the goal `goal` stands for a chat: its state, and a step for each gate or slice.
+/// How each card right under the goal stands, in order.
+fn goal_steps(core: &Core, board: &Board, goal: &Card) -> Vec<SliceState> {
+    (board.under(goal.id).into_iter())
+        .map(|card| state_of(core, card))
+        .collect()
+}
+
+/// How the goal `goal` stands for a chat: its state, and a step for each card under it.
 fn chat_goal(core: &Core, project: &str, board: &Board, goal: &Card) -> ChatGoal {
-    let (steps, of_gates) = slice::goal_steps(core, board, goal);
     ChatGoal {
         project: project.to_owned(),
         card: goal.id,
         name: super::display_title(core, board, goal).unwrap_or_else(|| goal.title.clone()),
         state: goal_state(core, board, goal).unwrap_or(SliceState::Moving),
-        steps,
-        of_gates,
+        steps: goal_steps(core, board, goal),
+        of_gates: false,
         undoable: false,
     }
 }
 
-/// How a goal stands: as its slices do together, or for one with none, as its owner does.
+/// How a goal stands: done once done, needing the person while its agent waits on them, and
+/// moving while an agent on it or on a card under it works.
 pub fn goal_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
-    slice::goal_state(core, board, goal).or_else(|| plain_state(core, board, goal))
-}
-
-/// A goal with an agent on it and no slice takes its state from that agent: moving only while it
-/// works, needing the person once it closed or waits on them, as the lease skips such a card.
-fn plain_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
-    let owner = goal.owner_id().filter(|_| goal.parent.is_none())?;
+    if !board.is_goal(goal) {
+        return None;
+    }
+    let working = std::iter::once(goal)
+        .chain(board.under(goal.id))
+        .filter(|card| card.status != CardStatus::Done)
+        .filter_map(Card::owner_id)
+        .any(|owner| core.agent_now(owner).at_work());
     Some(match goal.status {
         CardStatus::Done => SliceState::Done,
-        _ if waits(core, board, goal).is_some() => SliceState::NeedsYou,
-        _ if core.agent_now(owner).at_work() => SliceState::Moving,
+        _ if waits_on_person(core, goal) => SliceState::NeedsYou,
+        _ if working => SliceState::Moving,
         _ => SliceState::Waiting,
     })
 }
 
-/// Whether nothing moves the slice `card` on for now: its owner is not at work and no check it
-/// asked for is coming. Auto's cards move by Auto, whatever their agent does between its steps.
-pub fn owner_idle(core: &Core, board: &Board, card: &Card) -> bool {
-    let Some(owner) = card.owner_id().filter(|_| card.auto.is_none()) else {
-        return false;
-    };
-    let checking = |wait: Wait| matches!(wait.on, WaitOn::Check { .. });
-    !core.agent_now(owner).at_work()
-        && !super::wait::of(core, board, card, epoch_ms()).is_some_and(checking)
-}
-
-/// The goal each open chat works on now: the goal above the card it holds, or the slice it lost
-/// and that nobody took since.
+/// The goal each open chat works on now: the goal above the card it holds.
 fn goals_held<'a>(
     core: &Core,
     agents: impl IntoIterator<Item = &'a str>,
@@ -481,13 +281,7 @@ fn goals_held<'a>(
         };
         let held = (board.cards.iter())
             .filter(|card| card.status != CardStatus::Done)
-            .filter(|card| {
-                card.owner_id() == Some(agent)
-                    || (card.owner.is_none()
-                        && (card.slice.as_ref())
-                            .and_then(|slice| slice.stalled.as_ref())
-                            .is_some_and(|stalled| stalled.agent == agent))
-            })
+            .filter(|card| card.owner_id() == Some(agent))
             .max_by_key(|card| card.work_rank());
         let Some(goal) = held.map(|card| board.goal_above(card)) else {
             continue;
@@ -524,7 +318,6 @@ pub fn settle(core: &Arc<Core>) {
     let added_itself = added_itself(core, &held);
     let goals = &core.boards().chat_goals;
     let mut lines: Vec<(Arc<Chat>, Attached, GoalMoment)> = Vec::new();
-    let mut earlier_work = Vec::new();
     {
         let mut chats = goals.chats.locked();
         let mut changed = false;
@@ -541,12 +334,6 @@ pub fn settle(core: &Arc<Core>) {
                     let held = record.goal.as_mut().expect("just read");
                     changed |= was.name != now.name;
                     held.name.clone_from(&now.name);
-                    // Undo has passed, by the lease lapsing, so its line can show now.
-                    if held.unshown && !held.undoable {
-                        held.unshown = false;
-                        changed = true;
-                        lines.push((chat.clone(), held.clone(), GoalMoment::Started));
-                    }
                     let done_now = steps_done(now);
                     if done_now != held.steps_done {
                         if done_now > held.steps_done && !held.unshown {
@@ -562,9 +349,6 @@ pub fn settle(core: &Arc<Core>) {
             }
             changed = true;
             let done = was.as_ref().is_some_and(|was| finished(core, was));
-            if was.is_some() {
-                record.ended(done);
-            }
             let undoable = added_itself.contains(agent);
             let started = now.map(|now| Attached {
                 project: now.project.clone(),
@@ -576,15 +360,6 @@ pub fn settle(core: &Arc<Core>) {
                 unshown: undoable,
             });
             record.goal.clone_from(&started);
-            if let Some(started) = started.as_ref().filter(|started| started.undoable) {
-                let commits = record.tally.since(record.covered).commits as usize;
-                earlier_work.push((
-                    agent.to_owned(),
-                    started.project.clone(),
-                    started.card,
-                    commits,
-                ));
-            }
             if let Some(was) = was {
                 match (done, was.unshown) {
                     // A goal still waiting out its Undo has shown no line yet, so its end shows
@@ -605,14 +380,6 @@ pub fn settle(core: &Arc<Core>) {
         if changed {
             goals.save(&mut chats);
         }
-    }
-    if !earlier_work.is_empty() {
-        let core = core.clone();
-        tokio::task::spawn_blocking(move || {
-            for (agent, project, card, commits) in earlier_work {
-                take_earlier_work(&core, &agent, &project, card, commits);
-            }
-        });
     }
     for (chat, goal, moment) in lines {
         goal_line(core, &chat, &goal, moment);
@@ -645,15 +412,6 @@ fn added_itself(core: &Core, held: &HashMap<String, ChatGoal>) -> HashSet<String
         .collect()
 }
 
-/// What the agent committed before it added the goal is the slice's work, so it can pass Built
-/// without a new commit.
-fn take_earlier_work(core: &Core, agent: &str, project: &str, card: u64, commits: usize) {
-    if let Some(head) = slice::earlier_work(core, project, agent, commits) {
-        core.boards()
-            .edit(project, card, |held| slice::took_work(held, &head));
-    }
-}
-
 /// Clients read a board again when a card's state changed with its owner, which changes nothing
 /// on the card itself.
 fn tell_owner_changes(core: &Core) {
@@ -667,15 +425,12 @@ fn tell_owner_changes(core: &Core) {
             let owned = (board.cards.iter())
                 .filter(|card| card.owner.is_some() && card.status != CardStatus::Done);
             for card in owned {
-                let stands =
-                    slice::state_of(core, board, card).or_else(|| plain_state(core, board, card));
-                if let Some(stands) = stands {
-                    let key = (board.project.clone(), card.id);
-                    if seen.get(&key) != Some(&stands) {
-                        changed.push(board.project.clone());
-                    }
-                    now.insert(key, stands);
+                let stands = state_of(core, card);
+                let key = (board.project.clone(), card.id);
+                if seen.get(&key) != Some(&stands) {
+                    changed.push(board.project.clone());
                 }
+                now.insert(key, stands);
             }
         }
     }
@@ -704,24 +459,12 @@ fn push_head(core: &Core, agent: &str) {
     apply_head(core, agent, &chat.feed, goal);
 }
 
-/// Whether the card's owner closed, for a card with no slice, which keeps its owner since a card
-/// with nobody on it and no slice is no goal.
+/// Whether the goal's owner closed while the goal was not done.
 pub fn plain_owner_closed(core: &Core, card: &Card) -> bool {
-    card.slice.is_none()
-        && card.parent.is_none()
+    card.parent.is_none()
         && card.status != CardStatus::Done
         && card.owner.is_some()
         && holder(core, card).is_none()
-}
-
-/// The owner a goal with no slice lost by closing, as a slice's lease would have kept it.
-pub fn plain_stalled(core: &Core, card: &Card) -> Option<lease::Stalled> {
-    plain_owner_closed(core, card).then(|| lease::Stalled {
-        agent: card.owner_id().unwrap_or_default().to_owned(),
-        name: card.owner_name(core).unwrap_or_default(),
-        why: lease::Why::Closed,
-        stays: true,
-    })
 }
 
 impl ChatGoals {

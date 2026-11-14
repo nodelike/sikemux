@@ -600,8 +600,6 @@ async fn dispatch(
         "board.claim" => board::claim(core, &request).await,
         "board.update" => board::update(core, &request).await,
         "board.decide" => board::goal::tool(core, &request).await,
-        "board.assert" => board::goal::tool_assert(core, &request).await,
-        "review.verdict" => board::verdict(core, &request).await,
         "memory.add" => super::memory::tool_add(core, &request).await,
         "memory.update" => super::memory::tool_update(core, &request).await,
         "memory.list" => super::memory::tool_list(core, &request).await,
@@ -619,17 +617,6 @@ async fn dispatch(
         OUTSIDE_SIGN_IN_METHOD => super::outside::cli::sign_in(core, &request).await,
         OUTSIDE_SIGN_IN_WAIT_METHOD => super::outside::cli::sign_in_wait(core, &request).await,
         OUTSIDE_CALL_METHOD => super::outside::cli::call(core, &request).await,
-        "browser.screenshot" => {
-            let answer = forward(core, request.clone()).await?;
-            if let Some(agent_id) = request.agent_id.clone() {
-                let shots = board::slice_screenshots(core, &request, &agent_id, &answer).await;
-                let core = core.clone();
-                tokio::task::spawn_blocking(move || {
-                    board::screenshot_taken(&core, &agent_id, &shots);
-                });
-            }
-            Ok(answer)
-        }
         "browser.evaluate" => {
             let project = request.project.clone();
             let knowing = core.clone();

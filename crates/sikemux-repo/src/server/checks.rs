@@ -13,7 +13,7 @@ mod report;
 
 use crate::server::changed::ChangedCore;
 use crate::server::repo_state::RepoParts;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -29,11 +29,9 @@ use super::wake::Wake;
 use crate::git::{all_said, tail, Git};
 use crate::server::codehost::ci::Shown;
 use crate::server::codehost::repo::{self as codehost, Checks as CiChecks, CI_START_WAIT_MS};
-use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
 use crate::tasks::config::ProjectCheck;
 use culprit::{Hunted, Search};
-use sikemux_view::slice::{CheckRun, Verdict};
 
 /// How long a check may run, and how much of what it says is kept.
 const RUN_LIMIT: Duration = Duration::from_secs(30 * 60);
@@ -135,6 +133,8 @@ struct Checks {
     /// Commits CI failed on, by project, with when: a later passing run that holds one stands
     /// for it too, since the failure may have been another commit's.
     failed_on_ci: HashMap<String, Vec<(Commit, u64)>>,
+    /// How each project's latest runs went on the commits they took in, newest last.
+    verdicts: HashMap<String, VecDeque<(String, bool)>>,
 }
 
 /// Which of a project's two checks a run is.
@@ -504,11 +504,6 @@ async fn run_batch(
         let shas: Vec<String> = commits.iter().map(|commit| commit.sha.clone()).collect();
         state.running.insert(project.clone(), shas.clone());
         state.wait_again(project.clone(), dir.clone(), later);
-        core.repo_events().tell(RepoEvent::CheckStarted {
-            project: project.clone(),
-            covered: shas,
-            run: CheckRun::Local,
-        });
         let standing = state.standing.entry(project.clone()).or_default();
         let sound = match tier {
             Tier::Full => standing.full_sound.clone(),
@@ -575,7 +570,7 @@ async fn run_batch(
                     standing.only_fast = commits.clone();
                 }
             }
-            ended(&core, &project, &command, &commits, Err(error), named, tier);
+            ended(&core, &project, &commits, Err(error), named, tier);
             return;
         }
     };
@@ -592,15 +587,9 @@ async fn run_batch(
     };
     if ran.passed || !named {
         core.checks().state.locked().running.remove(&project);
-        (core.repo_above().board_record_check)(
-            &core,
-            &project,
-            &check_ran(&commits, &ran, &Hunted::NotTried),
-        );
         ended(
             &core,
             &project,
-            &command,
             &commits,
             Ok((ran.passed, tail(&ran.text))),
             named,
@@ -626,7 +615,6 @@ async fn run_batch(
     ended(
         &core,
         &project,
-        &command,
         &commits,
         Ok((false, tail(&ran.text))),
         true,
@@ -659,34 +647,12 @@ async fn run_batch(
             .flatten();
     let digest = report::digest(&ran.text, log.as_deref());
     blame(&core, &project, &command, &commits, &digest, &hunted).await;
-    (core.repo_above().board_record_check)(&core, &project, &check_ran(&commits, &ran, &hunted));
     {
         let mut state = core.checks().state.locked();
         state.running.remove(&project);
         state.hunting.remove(&project);
     }
     core.checks().wake.now();
-}
-
-fn check_ran<'a>(commits: &'a [Commit], ran: &'a Ran, hunted: &'a Hunted) -> CheckRan<'a> {
-    let (culprit_agents, found, steps): (&[String], bool, u32) = match hunted {
-        Hunted::Found { agents, steps, .. } => (agents, true, *steps),
-        Hunted::Unknown { steps, .. } => (&[], false, *steps),
-        Hunted::NotTried => (&[], false, 0),
-    };
-    CheckRan {
-        took_ms: ran.took_ms,
-        passed: ran.passed,
-        authors: commits
-            .iter()
-            .flat_map(|commit| commit.agents.iter())
-            .collect(),
-        culprit_agents,
-        found,
-        searched: !matches!(hunted, Hunted::NotTried),
-        steps,
-        text: &ran.text,
-    }
 }
 
 /// Whether the check of `commits` stops at a `sikemux.json` the person has not trusted: the
@@ -940,18 +906,7 @@ async fn wait_for_ci(
                 Ok(CiChecks::Stopped(why)) => Some(Err(format!(
                     "its CI runs were cancelled or ended without a verdict:\n{why}"
                 ))),
-                Ok(CiChecks::Running { workflow, url }) => {
-                    if started.insert(tip.clone()) {
-                        let mut covered = held.clone();
-                        covered.push(tip.clone());
-                        core.repo_events().tell(RepoEvent::CheckStarted {
-                            project: project.clone(),
-                            covered,
-                            run: CheckRun::Ci { workflow, url },
-                        });
-                    }
-                    None
-                }
+                Ok(CiChecks::Running { .. }) => None,
                 Ok(CiChecks::None) if overdue && !tip_moved(&dir, tip).await => Some(Err(format!(
                     "no run of {} started on {}",
                     workflows.join(", "),
@@ -995,11 +950,6 @@ async fn wait_for_ci(
                 (Ok((false, _)), _) => keep_failed(&core, &project, &checked),
                 (Ok((true, _)), Some(tip)) => {
                     let mut vouched = vouched_by(&core, &project, &dir, tip).await;
-                    for head in slices_held_by(&core, &project, &dir, tip).await {
-                        if vouched.iter().all(|kept| kept.sha != head.sha) {
-                            vouched.push(head);
-                        }
-                    }
                     vouched.retain(|old| checked.iter().all(|commit| commit.sha != old.sha));
                     checked.splice(0..0, vouched);
                 }
@@ -1017,7 +967,7 @@ async fn wait_for_ci(
                 Ok((false, output)) => Some(report::digest(output, None)),
                 _ => None,
             };
-            ended(&core, &project, &label, &checked, outcome, true, Tier::Full);
+            ended(&core, &project, &checked, outcome, true, Tier::Full);
             if let Some(digest) = failed_output {
                 blame(
                     &core,
@@ -1084,33 +1034,6 @@ async fn vouched_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Co
     held.into_iter().map(|(commit, _)| commit).collect()
 }
 
-/// The latest commits of the board's slices that still wait for the check and that `tip` holds,
-/// which its passing run stands for, as most commits get no CI run of their own.
-async fn slices_held_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Commit> {
-    let heads = (core.repo_above().board_unbuilt_heads)(core, project);
-    if heads.is_empty() {
-        return Vec::new();
-    }
-    let (dir, tip) = (dir.to_owned(), tip.to_owned());
-    tokio::task::spawn_blocking(move || {
-        (heads.into_iter())
-            .filter(|head| {
-                Git::quick(&dir)
-                    .output(&["merge-base", "--is-ancestor", head, &tip])
-                    .is_ok_and(|output| output.status.success())
-            })
-            .map(|sha| Commit {
-                sha,
-                subject: String::new(),
-                agents: Vec::new(),
-                asked: false,
-            })
-            .collect()
-    })
-    .await
-    .unwrap_or_default()
-}
-
 /// The newest of `commits` by ancestry, last, with those of them it holds,
 /// which its check is for; and the others, which wait for a check of their own.
 fn newest_with(dir: &Path, commits: Vec<Commit>) -> (Vec<Commit>, Vec<Commit>) {
@@ -1140,7 +1063,6 @@ fn newest_with(dir: &Path, commits: Vec<Commit>) -> (Vec<Commit>, Vec<Commit>) {
 fn ended(
     core: &Arc<Core>,
     project: &str,
-    command: &str,
     commits: &[Commit],
     outcome: Result<(bool, String), String>,
     named: bool,
@@ -1149,24 +1071,22 @@ fn ended(
     let checks = core.checks();
     let agents: BTreeSet<&String> = commits.iter().flat_map(|commit| &commit.agents).collect();
     let mut state = checks.state.locked();
-    let checked = |verdict, output| RepoEvent::Checked {
-        project: project.to_owned(),
-        command: command.to_owned(),
-        sha: commits.last().map(|commit| commit.sha.clone()),
-        covered: commits.iter().map(|commit| commit.sha.clone()).collect(),
-        verdict,
-        output,
-    };
     let (passed, output) = match outcome {
         Ok(outcome) => outcome,
         Err(error) => {
             eprintln!("sikemux core: the check after a commit did not run: {error}");
             drop(state);
-            core.repo_events().tell(checked(None, error));
             checks.wake.now();
             return;
         }
     };
+    let verdicts = state.verdicts.entry(project.to_owned()).or_default();
+    for commit in commits {
+        verdicts.retain(|(sha, _)| *sha != commit.sha);
+        verdicts.push_back((commit.sha.clone(), passed));
+    }
+    let over = verdicts.len().saturating_sub(MAX_CHECKED);
+    verdicts.drain(..over);
     let mut person_at = None;
     if passed {
         let stays_broken = tier == Tier::Fast
@@ -1205,12 +1125,10 @@ fn ended(
         }
     }
     drop(state);
-    let verdict = if passed {
-        Verdict::Passed
-    } else {
-        Verdict::Failed
-    };
-    core.repo_events().tell(checked(Some(verdict), output));
+    if passed {
+        let covered: Vec<String> = commits.iter().map(|commit| commit.sha.clone()).collect();
+        (core.repo_above().pictures_checked)(core, project, &covered);
+    }
     (core.repo_above().harness_note_repository)(
         core,
         project,
@@ -1596,6 +1514,14 @@ impl ProjectChecks {
         self.wake.now();
     }
 
+    /// Whether the latest run of `project`'s check that took in `sha` passed; none when no run
+    /// that did is kept.
+    pub fn passed_on(&self, project: &str, sha: &str) -> Option<bool> {
+        let state = self.state.locked();
+        let verdicts = state.verdicts.get(project)?;
+        (verdicts.iter().rev()).find_map(|(checked, passed)| (checked == sha).then_some(*passed))
+    }
+
     /// The agent mending `project`'s failing check, when one was given it.
     pub fn failure_owner(&self, project: &str) -> Option<String> {
         self.state.locked().failing.get(project)?.owner.clone()
@@ -1666,30 +1592,6 @@ pub fn head_moved(core: &Arc<Core>, project: &str, dir: &Path) {
     };
     core.checks()
         .wait_for(project.to_owned(), dir.to_owned(), commit);
-}
-
-/// One run of a project's check, for the run records of the agents it took in.
-pub struct CheckRan<'a> {
-    pub took_ms: u64,
-    pub passed: bool,
-    pub authors: Vec<&'a String>,
-    pub culprit_agents: &'a [String],
-    pub found: bool,
-    pub searched: bool,
-    pub steps: u32,
-    pub text: &'a str,
-}
-
-impl CheckRan<'_> {
-    /// Whether `agent`'s work is what broke the check: the commit found was
-    /// theirs, or nobody could be found and only their commits were in the run.
-    pub fn broken_by(&self, agent: &str) -> bool {
-        !self.passed
-            && match self.found {
-                true => self.culprit_agents.iter().any(|named| named == agent),
-                false => self.authors.iter().all(|author| author.as_str() == agent),
-            }
-    }
 }
 
 /// The open card that holds a project's failing CI, which is that failure's one work item.

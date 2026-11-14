@@ -49,22 +49,13 @@ pub struct ChatAbove {
     /// A chat on `account`, one of the person's profiles or the default one when absent, was
     /// refused for sign-in: the account is signed out now, whatever its CLI last said.
     pub agent_accounts_chat_refused: fn(&Core, &str, Option<&str>),
-    /// `board::chat_goal::subagent_started`.
-    pub board_subagent_started: fn(&Core, &str),
-    /// What the agent is told with the person's next message, once. Being told its work looks like a
-    /// goal no longer applies once the chat has one.
+    /// What the agent is told with the person's next message, once.
     pub board_take_note: fn(&Core, &str) -> Option<ChatContext>,
     /// What an agent hears with its next turn of the rules kept from its chat that the person
     /// removed, which are then done with.
     pub memory_take_removed: fn(&Core, &str) -> Option<ChatContext>,
     /// A chat is ready: the lines of rules the person removed since go at its end.
     pub memory_chat_ready: fn(&Core, &Chat),
-    /// A chat taken up again on the provider session of an owner that lost its slices holds them
-    /// again, unless someone took them meanwhile, and answers with where its goal and card stand,
-    /// for it to be handed with its next message.
-    pub board_resumed_session: fn(&Core, &str, &str, &str) -> Option<String>,
-    /// A usage limit's wait gave up, so a run it held waits on the person after all.
-    pub board_stopped_waiting: fn(&Core, &str),
     /// What the chief is handed as it starts: how it works, then the project's rules and knowledge.
     pub chief_brief: fn(&Core, &Path) -> String,
     /// The chief's chat opened on `feed`: what happened while the person was away is shown on it.

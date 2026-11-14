@@ -92,8 +92,6 @@ pub struct PlaybookTab {
     page: Page,
     /// What the core last said the project's Playbook holds.
     playbook: Option<Playbook>,
-    /// Auto's line shows its settings under it.
-    auto_open: bool,
     /// What the core last said of the project's sikemux.json.
     config: Option<ProjectConfigRead>,
     /// The repositories directly inside the project's folder.
@@ -328,7 +326,6 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
         PlaybookTab {
             page: Page::default(),
             playbook: None,
-            auto_open: false,
             config: None,
             repos: None,
             setup: None,
@@ -592,14 +589,7 @@ pub fn pane(
         Page::Rules => rules::page(settings.playbook.as_ref(), folder, &this, cx),
         Page::Places => places::page(settings, folder, &this, cx),
         Page::Landing => landing::page(settings.playbook.as_ref(), folder, &this, cx),
-        Page::Automation => automation::page(
-            bench,
-            settings.playbook.as_ref(),
-            settings.auto_open,
-            folder,
-            &this,
-            cx,
-        ),
+        Page::Automation => automation::page(settings.playbook.as_ref(), &this, cx),
         Page::General => vec![general(bench, settings, folder, &this, cx)],
         Page::Processes => tasks(bench, settings, folder, &this, cx),
         Page::Setup => setup::page(settings, folder, &this, cx),

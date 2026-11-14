@@ -1,26 +1,18 @@
 //! What a goal keeps on its card, so it goes when the goal goes: what it
-//! decided, rules only its own agents follow, and assertions, what must hold
-//! once its slices are done, agreed before they are cut. A goal is a card at
-//! the top of the board, and one that keeps anything stays there. What it
-//! keeps shares ids that are never given twice. Each is corrected, keeping
-//! what it said before, or retired; a goal full of one kind drops its oldest
-//! retired first, then its oldest. The person or the goal's lead writes its
-//! assertions, and once a slice fulfilling one has started, only the person. A
-//! command the lead writes as an assertion's evidence counts only once the
-//! person approves exactly that command, and any command only while the
-//! repository files it names are as they accepted them.
+//! decided and rules only its own agents follow. A goal is a card at the top
+//! of the board, and one that keeps anything stays there. What it keeps
+//! shares ids that are never given twice. Each is corrected, keeping what it
+//! said before, or retired; a goal full of one kind drops its oldest retired
+//! first, then its oldest.
 //! What agents settle among themselves goes in its goal's log, or the project's
 //! when they work on no goal, where the person can overrule it.
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::board_above::Overruled;
 use crate::server::board_state::BoardParts;
-use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
-pub use sikemux_calls::board::{
-    AnswerCommandParams, AssertParams, DecideParams, OverruleParams, UndoOverruleParams,
-};
+pub use sikemux_calls::board::{DecideParams, OverruleParams, UndoOverruleParams};
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -30,22 +22,16 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::inbox::SwarmDecision;
 use sikemux_view::memory::Learned;
-use sikemux_view::slice::{
-    Assertion, ChangedFile, Collect, CommandFiles, Decision, GoalReport, GoalRule, NamedFile,
-    ReportEvery,
-};
+use sikemux_view::slice::{Decision, GoalRule};
 
 use super::{goal_of, project_at, project_view, Board, GoalRef, ProjectBoard};
 use crate::cli::protocol::HarnessRequest;
-use crate::server::changed::What;
 use crate::server::connection::blocking;
 use crate::server::Core;
 use crate::text::{clipped, to_keep};
 
 const MAX_EACH: usize = 64;
 const MAX_TEXT_CHARS: usize = 1000;
-const MAX_WORKFLOW_CHARS: usize = 200;
-const MAX_COMMAND_CHARS: usize = 1000;
 
 /// Who says something now, and in which chat turn; none for the person.
 pub fn learned(core: &Core, agent: Option<&str>) -> Learned {
@@ -69,44 +55,12 @@ pub struct Goal {
     decisions: Vec<Decision>,
     #[serde(default)]
     rules: Vec<GoalRule>,
-    #[serde(default)]
-    assertions: Vec<Assertion>,
-    /// How often its report is written; none writes none.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    report_every: Option<ReportEvery>,
-    /// Its latest reports, oldest first.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    reports: Vec<GoalReport>,
 }
 
 impl Goal {
     /// The card never kept anything as a goal.
     pub fn is_none(&self) -> bool {
-        self.last == 0 && self.report_every.is_none() && self.reports.is_empty()
-    }
-
-    pub fn report_every(&self) -> Option<ReportEvery> {
-        self.report_every
-    }
-
-    /// Writes its report as often as `every` says, or no more for none.
-    pub fn report_on(&mut self, every: Option<ReportEvery>) {
-        self.report_every = every;
-    }
-
-    pub fn reports(&self) -> &[GoalReport] {
-        &self.reports
-    }
-
-    pub fn last_report(&self) -> Option<&GoalReport> {
-        self.reports.last()
-    }
-
-    /// Keeps `report` as its latest, letting the oldest go past `keep`.
-    pub fn reported(&mut self, report: GoalReport, keep: usize) {
-        self.reports.push(report);
-        let over = self.reports.len().saturating_sub(keep);
-        self.reports.drain(..over);
+        self.last == 0
     }
 
     pub fn decisions(&self) -> Vec<Decision> {
@@ -116,90 +70,6 @@ impl Goal {
     pub fn rules(&self) -> Vec<GoalRule> {
         self.rules.clone()
     }
-
-    pub fn assertions(&self) -> &[Assertion] {
-        &self.assertions
-    }
-
-    /// The assertion `id`, while it stands.
-    pub fn assertion(&self, id: u64) -> Option<&Assertion> {
-        (self.assertions.iter()).find(|assertion| assertion.id == id && assertion.retired.is_none())
-    }
-
-    /// Those of `named`, as slice `card` holds them at `head`, that the person has not accepted
-    /// for assertion `id`: what it now waits for them to answer, in place of what it waited for of
-    /// that slice, and what they turned down.
-    pub fn files_of_slice(
-        &mut self,
-        id: u64,
-        card: u64,
-        head: &str,
-        named: &[NamedFile],
-    ) -> (Vec<NamedFile>, Vec<NamedFile>) {
-        let Some(kept) = (self.assertions.iter_mut()).find(|kept| kept.id == id) else {
-            return Default::default();
-        };
-        let files = &mut kept.files;
-        files.changed.retain(|changed| changed.card != card);
-        files.refused.retain(|refused| refused.card != card);
-        let (refused, asked): (Vec<NamedFile>, Vec<NamedFile>) = (named.iter())
-            .filter(|file| match file.blob {
-                Some(_) => !files.accepted.contains(file),
-                None => {
-                    !files.accepted.contains(file)
-                        && (files.accepted.iter()).any(|known| known.path == file.path)
-                }
-            })
-            .cloned()
-            .partition(|file| files.turned_down.contains(file));
-        files
-            .changed
-            .extend(asked.iter().cloned().map(|file| ChangedFile {
-                card,
-                head: head.to_owned(),
-                file,
-            }));
-        files
-            .refused
-            .extend(refused.iter().cloned().map(|file| ChangedFile {
-                card,
-                head: head.to_owned(),
-                file,
-            }));
-        (asked, refused)
-    }
-}
-
-/// Forgets what waited for the person of a slice that moved past that commit, or is not at work.
-/// Whether any went.
-pub fn forget_moved_on(board: &mut Board) -> bool {
-    let waiting = |card: &super::Card| {
-        (card.goal.assertions.iter()).any(|assertion| {
-            !assertion.files.changed.is_empty() || !assertion.files.refused.is_empty()
-        })
-    };
-    if !board.cards.iter().any(waiting) {
-        return false;
-    }
-    let heads: Vec<(u64, String)> = (board.cards.iter())
-        .filter(|card| card.status == super::CardStatus::Progress)
-        .filter_map(|card| Some((card.id, card.slice.as_ref()?.head()?.to_owned())))
-        .collect();
-    let mut forgot = false;
-    for assertion in (board.cards.iter_mut()).flat_map(|card| card.goal.assertions.iter_mut()) {
-        let files = &mut assertion.files;
-        let before = files.changed.len() + files.refused.len();
-        let current = |kept: &ChangedFile| {
-            (heads.iter()).any(|(card, head)| *card == kept.card && *head == kept.head)
-        };
-        files.changed.retain(current);
-        files.refused.retain(current);
-        forgot |= files.changed.len() + files.refused.len() != before;
-    }
-    if forgot {
-        super::slice::rebind(board);
-    }
-    forgot
 }
 
 /// What a goal keeps that still stands, oldest first.
@@ -284,29 +154,6 @@ impl Kept for Decision {
     }
 }
 
-impl Kept for Assertion {
-    const WORD: &'static str = "assertion";
-
-    fn id(&self) -> u64 {
-        self.id
-    }
-
-    fn retired(&self) -> bool {
-        self.retired.is_some()
-    }
-
-    fn correct(&mut self, text: Option<String>, _why: Option<String>, by: Learned) {
-        if let Some(text) = text {
-            self.was = Some(std::mem::replace(&mut self.text, text));
-        }
-        self.learned = by;
-    }
-
-    fn retire(&mut self, by: Learned) {
-        self.retired = Some(by);
-    }
-}
-
 impl Kept for GoalRule {
     const WORD: &'static str = "rule";
 
@@ -334,20 +181,17 @@ impl Kept for GoalRule {
 pub enum List {
     Decisions,
     Rules,
-    Assertions,
 }
 
 pub enum Change {
     New {
         text: String,
         why: Option<String>,
-        evidence: Option<Collect>,
     },
     Correct {
         id: u64,
         text: Option<String>,
         why: Option<String>,
-        evidence: Option<Collect>,
     },
     Retire {
         id: u64,
@@ -367,83 +211,23 @@ impl Change {
         if !matches!(list, List::Decisions) && why.is_some() {
             return Err("Only a decision has a why".into());
         }
-        Self::read(id, text, why, None, retire)
-    }
-
-    /// Reads what is asked of a goal's assertions; a new one names its evidence.
-    pub fn of_assertion(
-        id: Option<u64>,
-        text: Option<&str>,
-        evidence: Option<Collect>,
-        retire: bool,
-    ) -> Result<Self, String> {
-        if id.is_none() && evidence.is_none() && !retire {
-            return Err(
-                "Say what evidence shows it: check, recording, screenshot, workflow or command"
-                    .into(),
-            );
-        }
-        let evidence = evidence.map(checked_command).transpose()?;
-        Self::read(id, text, None, evidence, retire)
-    }
-
-    fn read(
-        id: Option<u64>,
-        text: Option<&str>,
-        why: Option<&str>,
-        evidence: Option<Collect>,
-        retire: bool,
-    ) -> Result<Self, String> {
         let text = text
             .map(|text| to_keep(text, "text", MAX_TEXT_CHARS))
             .transpose()?;
         let why = why
             .map(|why| to_keep(why, "why", MAX_TEXT_CHARS))
             .transpose()?;
-        match (id, text, why, evidence, retire) {
-            (None, _, _, _, true) => Err("Say which one to retire".into()),
-            (None, Some(text), why, evidence, false) => Ok(Change::New {
-                text,
-                why,
-                evidence,
-            }),
-            (None, None, _, _, false) => Err("Say it, as text".into()),
-            (Some(id), None, None, None, true) => Ok(Change::Retire { id }),
-            (Some(_), _, _, _, true) => Err("Retire it, or correct it, not both".into()),
-            (Some(_), None, None, None, false) => {
-                Err("Say what changes: its text, evidence or retire".into())
-            }
-            (Some(id), text, why, evidence, false) => Ok(Change::Correct {
-                id,
-                text,
-                why,
-                evidence,
-            }),
+        match (id, text, why, retire) {
+            (None, _, _, true) => Err("Say which one to retire".into()),
+            (None, Some(text), why, false) => Ok(Change::New { text, why }),
+            (None, None, _, false) => Err("Say it, as text".into()),
+            (Some(id), None, None, true) => Ok(Change::Retire { id }),
+            (Some(_), _, _, true) => Err("Retire it, or correct it, not both".into()),
+            (Some(_), None, None, false) => Err("Say what changes: its text or retire".into()),
+            (Some(id), text, why, false) => Ok(Change::Correct { id, text, why }),
         }
     }
 }
-
-/// A command to keep is one line, so the person sees all of what they approve.
-fn checked_command(evidence: Collect) -> Result<Collect, String> {
-    let Collect::Command { command } = evidence else {
-        return Ok(evidence);
-    };
-    let command = to_keep(&command, "command", MAX_COMMAND_CHARS)?;
-    if command.chars().any(char::is_control) {
-        return Err("command is one line, with no control characters".into());
-    }
-    Ok(Collect::Command { command })
-}
-
-/// The command a person writing `evidence` approves by writing it.
-fn written_by_person(evidence: &Collect, by: &Learned) -> Option<String> {
-    match evidence {
-        Collect::Command { command } if by.agent.is_none() => Some(command.clone()),
-        _ => None,
-    }
-}
-
-const NOT_UNTIL_APPROVED: &str = " Its command does not count, and does not run, until the person approves exactly that command, in Needs you.";
 
 /// Applies a change other than a new one to `list`; answers what happened.
 fn apply<T: Kept>(
@@ -477,24 +261,19 @@ fn apply<T: Kept>(
     }
 }
 
-/// Makes room for one more in `list`, dropping its oldest retired, else its
-/// oldest that no started slice is `bound` to; answers what was dropped, in
-/// words. Refuses when every one binds a started slice.
-fn make_room<T: Kept>(list: &mut Vec<T>, goal: u64, bound: &[u64]) -> Result<String, String> {
+/// Makes room for one more in `list`, dropping its oldest retired, else its oldest; answers
+/// what was dropped, in words.
+fn make_room<T: Kept>(list: &mut Vec<T>, goal: u64) -> String {
     if list.len() < MAX_EACH {
-        return Ok(String::new());
+        return String::new();
     }
-    let word = T::WORD;
-    let oldest = (list.iter().position(Kept::retired))
-        .or_else(|| list.iter().position(|kept| !bound.contains(&kept.id())))
-        .ok_or_else(|| {
-            format!("Goal #{goal} keeps {MAX_EACH} of each, and every {word} binds a slice that has started; retire one first")
-        })?;
+    let oldest = list.iter().position(Kept::retired).unwrap_or(0);
     let dropped = list.remove(oldest);
-    Ok(format!(
-        " Goal #{goal} keeps {MAX_EACH} of each, so {word} #{} was dropped.",
+    format!(
+        " Goal #{goal} keeps {MAX_EACH} of each, so {} #{} was dropped.",
+        T::WORD,
         dropped.id()
-    ))
+    )
 }
 
 /// Changes what goal card `goal` of `project` keeps; answers what happened,
@@ -507,58 +286,11 @@ pub fn change(
     change: Change,
     by: Learned,
 ) -> Result<String, String> {
-    keep_change(core, project, goal, list, change, by, Vec::new())
-}
-
-/// Changes goal `goal`'s assertions, keeping how the project's branch holds the files a command
-/// named in the change names, as what the person accepts along with it.
-fn change_assertion(
-    core: &Core,
-    project: &str,
-    goal: u64,
-    asserting: Change,
-    by: Learned,
-) -> Result<String, String> {
-    let command = match &asserting {
-        Change::New {
-            evidence: Some(Collect::Command { command }),
-            ..
-        }
-        | Change::Correct {
-            evidence: Some(Collect::Command { command }),
-            ..
-        } => Some(command.as_str()),
-        _ => None,
-    };
-    let files = command
-        .and_then(|command| {
-            super::commands::named_at(std::path::Path::new(project), "HEAD", command).ok()
-        })
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|file| file.blob.is_some())
-        .collect();
-    keep_change(core, project, goal, List::Assertions, asserting, by, files)
-}
-
-fn keep_change(
-    core: &Core,
-    project: &str,
-    goal: u64,
-    list: List,
-    change: Change,
-    by: Learned,
-    files: Vec<NamedFile>,
-) -> Result<String, String> {
     let mut state = core.boards().state.locked();
     let board = state
         .boards
         .get_mut(project)
         .ok_or_else(|| format!("There is no card #{goal} on this project's board"))?;
-    if let (List::Assertions, Some(agent)) = (list, by.agent.as_deref()) {
-        may_assert(board, goal, agent, &change)?;
-    }
-    let bound = bound(board, goal);
     let card = board.card_mut(goal)?;
     if card.parent.is_some() {
         return Err(format!(
@@ -568,8 +300,8 @@ fn keep_change(
     let kept = &mut card.goal;
     let mut decided = None;
     let said = match (list, change) {
-        (List::Decisions, Change::New { text, why, .. }) => {
-            let dropped = make_room(&mut kept.decisions, goal, &[])?;
+        (List::Decisions, Change::New { text, why }) => {
+            let dropped = make_room(&mut kept.decisions, goal);
             kept.last += 1;
             let id = kept.last;
             let decision = Decision {
@@ -587,7 +319,7 @@ fn keep_change(
             format!("Decision #{id} is kept on goal #{goal}.{dropped}")
         }
         (List::Rules, Change::New { text, .. }) => {
-            let dropped = make_room(&mut kept.rules, goal, &[])?;
+            let dropped = make_room(&mut kept.rules, goal);
             kept.last += 1;
             let id = kept.last;
             kept.rules.push(GoalRule {
@@ -599,134 +331,16 @@ fn keep_change(
             });
             format!("Rule #{id} is kept on goal #{goal}.{dropped}")
         }
-        (List::Assertions, Change::New { text, evidence, .. }) => {
-            let evidence = evidence.ok_or(
-                "Say what evidence shows it: check, recording, screenshot, workflow or command",
-            )?;
-            let dropped = make_room(&mut kept.assertions, goal, &bound)?;
-            kept.last += 1;
-            let id = kept.last;
-            let approved = written_by_person(&evidence, &by);
-            let assertion = Assertion {
-                id,
-                text,
-                evidence,
-                learned: by,
-                was: None,
-                retired: None,
-                files: match &approved {
-                    Some(_) => CommandFiles {
-                        accepted: files,
-                        ..CommandFiles::default()
-                    },
-                    None => CommandFiles {
-                        proposed: files,
-                        ..CommandFiles::default()
-                    },
-                },
-                approved,
-            };
-            let waits = match assertion.awaits_approval() {
-                Some(_) => NOT_UNTIL_APPROVED,
-                None => "",
-            };
-            kept.assertions.push(assertion);
-            format!("Assertion #{id} is kept on goal #{goal}.{dropped}{waits}")
-        }
         (List::Decisions, change) => apply(&mut kept.decisions, goal, change, by)?,
         (List::Rules, change) => apply(&mut kept.rules, goal, change, by)?,
-        (List::Assertions, change) => {
-            let evidence = match &change {
-                Change::Correct { id, evidence, .. } => {
-                    evidence.clone().map(|evidence| (*id, evidence))
-                }
-                _ => None,
-            };
-            let by_person = by.agent.is_none().then(|| by.clone());
-            let files_of_proposal = files.clone();
-            let mut said = apply(&mut kept.assertions, goal, change, by)?;
-            if let Some((id, evidence)) = evidence {
-                if let Some(kept) = kept.assertions.iter_mut().find(|kept| kept.id == id) {
-                    kept.files.changed.clear();
-                    kept.files.proposed.clear();
-                    if let Some(person) = &by_person {
-                        kept.approved = written_by_person(&evidence, person);
-                        kept.files = CommandFiles {
-                            accepted: files,
-                            ..CommandFiles::default()
-                        };
-                    }
-                    kept.evidence = evidence;
-                    if kept.awaits_approval().is_some() {
-                        kept.files.proposed = files_of_proposal;
-                        said.push_str(NOT_UNTIL_APPROVED);
-                    }
-                }
-            }
-            said
-        }
     };
     card.updated_at = epoch_ms();
-    let asserting = matches!(list, List::Assertions);
-    if asserting {
-        super::slice::rebind(board);
-    }
     core.boards().save(&mut state, project);
     drop(state);
-    if asserting {
-        core.changed(What::View);
-    }
     if let Some(decision) = decided {
         (core.board_above().chief_decided)(core, project, Some(goal), &decision);
     }
     Ok(said)
-}
-
-/// The assertions of goal `goal` that a slice under it that has started fulfils.
-fn bound(board: &Board, goal: u64) -> Vec<u64> {
-    (board.cards.iter())
-        .filter(|card| board.goal_above(card).id == goal)
-        .filter_map(|card| card.slice.as_ref().filter(|slice| slice.started))
-        .flat_map(|slice| slice.asserts())
-        .collect()
-}
-
-/// Whether `agent` may make `change` to goal `goal`'s assertions: it leads the
-/// goal, and no slice fulfilling the assertion it changes has started.
-fn may_assert(board: &Board, goal: u64, agent: &str, change: &Change) -> Result<(), String> {
-    let card = board.card(goal)?;
-    if card.owner_id() != Some(agent) && card.maker_id() != Some(agent) {
-        return Err(format!(
-            "Only the person or goal #{goal}'s lead writes its assertions; ask your lead with ask"
-        ));
-    }
-    let (Change::Correct { id, .. } | Change::Retire { id }) = change else {
-        return Ok(());
-    };
-    if let Change::Correct {
-        evidence: Some(Collect::Command { .. }),
-        ..
-    } = change
-    {
-        let kept = card.goal.assertion(*id);
-        if !kept.is_some_and(|kept| matches!(kept.evidence, Collect::Command { .. })) {
-            return Err(format!(
-                "Assertion #{id} isn't shown by a command, so turning down yours would leave it with nothing; write a new assertion for the command"
-            ));
-        }
-    }
-    let started = board.cards.iter().find(|slice| {
-        board.goal_above(slice).id == goal
-            && (slice.slice.as_ref())
-                .is_some_and(|slice| slice.started && slice.asserts().any(|named| named == *id))
-    });
-    match started {
-        Some(slice) => Err(format!(
-            "Slice #{} fulfils assertion #{id} and has started, so only the person changes it",
-            slice.id
-        )),
-        None => Ok(()),
-    }
 }
 
 #[derive(Deserialize)]
@@ -891,7 +505,7 @@ pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)>
         }
         None => &mut board.decided,
     };
-    make_room(&mut kept.decisions, 0, &[]).ok()?;
+    make_room(&mut kept.decisions, 0);
     kept.last += 1;
     kept.decisions.push(Decision {
         id: kept.last,
@@ -946,7 +560,7 @@ pub fn decided_since(core: &Core, since: Option<u64>, project: Option<&str>) -> 
 /// second click sent before the first is answered, it changes nothing and answers the board.
 pub async fn overrule(core: &Arc<Core>, params: OverruleParams) -> Result<ProjectBoard, String> {
     let goal = params.goal;
-    let (project, overruled, stopped_auto, view) = {
+    let (project, overruled, view) = {
         let core = core.clone();
         blocking(move || {
             let project = project_at(&core, &params.project)?;
@@ -973,11 +587,9 @@ pub async fn overrule(core: &Arc<Core>, params: OverruleParams) -> Result<Projec
                 core.boards().save(&mut state, &project);
             }
             drop(state);
-            let stopped_auto = overruled.is_some()
-                && super::recover::overruled(&core, &project, params.goal, params.decision);
             let view = project_view(&core, &project);
             let overruled = overruled.map(|decision| (decision, params.instead));
-            Ok((project, overruled, stopped_auto, view))
+            Ok((project, overruled, view))
         })
         .await
         .map_err(|error| error.to_string())?
@@ -1018,20 +630,13 @@ pub async fn overrule(core: &Arc<Core>, params: OverruleParams) -> Result<Projec
             );
         }
     }
-    (core.board_above().chief_overruled)(
-        core,
-        &project,
-        goal,
-        (decision.id, &decision.text),
-        stopped_auto,
-        told,
-    );
+    (core.board_above().chief_overruled)(core, &project, goal, (decision.id, &decision.text), told);
     Ok(view)
 }
 
 /// Undoes the person's Overrule: the decision stands again, the rule that brought its kind to
 /// them is retired, and the agents the Overrule told and the chief hear it stands. Only a
-/// decision the person retired by Overrule comes back, and not one whose Overrule stopped Auto.
+/// decision the person retired by Overrule comes back.
 /// Asked again for a decision that already stands, it changes nothing and answers the board.
 pub async fn undo_overrule(
     core: &Arc<Core>,
@@ -1110,197 +715,10 @@ pub fn counted_since(core: &Core, project: &str, from: u64, to: u64) -> (usize, 
     (decided, overruled)
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ToolAssert {
-    goal: Option<u64>,
-    assertion: Option<u64>,
-    text: Option<String>,
-    evidence: Option<String>,
-    workflow: Option<String>,
-    command: Option<String>,
-    #[serde(default)]
-    retire: bool,
-}
-
-/// The evidence the tool names: a kind, with the workflow's name for one a
-/// workflow shows and the command for one a command shows.
-fn evidence_of(
-    kind: Option<&str>,
-    workflow: Option<String>,
-    command: Option<String>,
-) -> Result<Option<Collect>, String> {
-    match (kind, command) {
-        (Some("command") | None, Some(command)) if workflow.is_none() => {
-            return Ok(Some(Collect::Command { command }))
-        }
-        (Some("command"), None) => return Err("Say the command to run".into()),
-        (_, Some(_)) => return Err("Only a command's evidence names a command".into()),
-        (_, None) => {}
-    }
-    let workflow = (workflow.as_deref().map(str::trim))
-        .filter(|name| !name.is_empty())
-        .map(|name| to_keep(name, "workflow", MAX_WORKFLOW_CHARS))
-        .transpose()?;
-    match (kind, workflow) {
-        (None, None) => Ok(None),
-        (Some("check"), None) => Ok(Some(Collect::Check)),
-        (Some("recording"), None) => Ok(Some(Collect::Recording)),
-        (Some("screenshot"), None) => Ok(Some(Collect::Screenshot)),
-        (Some("workflow") | None, Some(name)) => Ok(Some(Collect::Workflow { name })),
-        (Some("workflow"), None) => Err("Name the workflow, as its CI calls it".into()),
-        (Some(_), Some(_)) => Err("Only a workflow's evidence names a workflow".into()),
-        (Some(kind), None) => Err(format!(
-            "evidence is check, recording, screenshot, workflow or command, not {kind}"
-        )),
-    }
-}
-
-/// `board_assert`: writes, corrects or retires an assertion of a goal the agent
-/// leads, the one its live card sits under unless it names one.
-pub async fn tool_assert(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = crate::server::caller::agent_of(request, "board_assert")?;
-    let given: ToolAssert =
-        serde_json::from_value(request.params.clone()).map_err(|error| error.to_string())?;
-    let (core, request) = (core.clone(), request.clone());
-    blocking(move || {
-        let asserting = Change::of_assertion(
-            given.assertion,
-            given.text.as_deref(),
-            evidence_of(given.evidence.as_deref(), given.workflow, given.command)?,
-            given.retire,
-        )?;
-        let project = crate::server::caller::project_of(&core, &request);
-        let goal = match given.goal {
-            Some(goal) => goal,
-            None => {
-                goal_of(&core, &agent)
-                    .ok_or("Name the goal's card with goal; you work on no card that is not done")?
-                    .card
-            }
-        };
-        let by = learned(&core, Some(&agent));
-        let said = change_assertion(&core, &project, goal, asserting, by)?;
-        Ok(json!({ "goal": goal, "note": said }))
-    })
-    .await
-    .map_err(|error| error.to_string())
-}
-
-/// The person answers a command an agent wrote, or a change to a file a command names. Accepted,
-/// that exact command or content counts. A command turned down goes back to the one they last
-/// approved, or its assertion is retired with none. A content turned down keeps the command from
-/// running on it. Only the person's own app reaches this, so an agent has no way to approve its
-/// own.
-pub async fn person_answer_command(
-    core: &Arc<Core>,
-    params: AnswerCommandParams,
-) -> Result<ProjectBoard, String> {
-    let core = core.clone();
-    blocking(move || {
-        let project = project_at(&core, &params.project)?;
-        let by = learned(&core, None);
-        let (settled, told) = {
-            let mut state = core.boards().state.locked();
-            let board = (state.boards.get_mut(&project))
-                .ok_or("This project's board has no such assertion")?;
-            let card = board.card_mut(params.card)?;
-            let kept = (card.goal.assertions.iter_mut())
-                .find(|kept| kept.id == params.assertion && kept.retired.is_none())
-                .ok_or("That assertion is gone")?;
-            let waiting: Vec<&NamedFile> = (kept.files.changed.iter())
-                .map(|changed| &changed.file)
-                .collect();
-            let as_seen = kept.command() == Some(params.command.as_str())
-                && (kept.awaits_approval().is_some()
-                    || (!waiting.is_empty()
-                        && waiting.iter().all(|file| params.files.contains(file))
-                        && params.files.iter().all(|file| waiting.contains(&file))));
-            if !as_seen {
-                return Err(
-                    "That command or a file it names changed, or was answered already; look at it again".into(),
-                );
-            }
-            let told = if kept.awaits_approval().is_some() {
-                let then = match (params.accept, kept.approved.take()) {
-                    (true, _) => {
-                        kept.approved = Some(params.command.clone());
-                        kept.files.accepted = std::mem::take(&mut kept.files.proposed);
-                        "approved it, so it runs on each slice's latest commit".to_owned()
-                    }
-                    (false, Some(earlier)) => {
-                        let words = format!("turned it down, so `{earlier}` stands");
-                        kept.evidence = Collect::Command {
-                            command: earlier.clone(),
-                        };
-                        kept.approved = Some(earlier);
-                        kept.files.proposed.clear();
-                        words
-                    }
-                    (false, None) => {
-                        kept.retired = Some(by);
-                        "turned it down, so the assertion is retired".to_owned()
-                    }
-                };
-                kept.learned.agent.clone().map(|agent| super::Notice {
-                    to: agent,
-                    text: format!(
-                        "Of the command `{}` you wrote for assertion #{} of goal #{}, the person {then}.",
-                        params.command, params.assertion, params.card
-                    ),
-                })
-            } else {
-                let answered: Vec<ChangedFile> = std::mem::take(&mut kept.files.changed);
-                match params.accept {
-                    true => (kept.files.accepted).extend(answered.into_iter().map(|changed| changed.file)),
-                    false => {
-                        (kept.files.turned_down).extend(answered.iter().map(|changed| changed.file.clone()));
-                        kept.files.refused.extend(answered);
-                    }
-                }
-                None
-            };
-            card.updated_at = epoch_ms();
-            super::slice::rebind(board);
-            let settled = super::steps::settle_cards(&core, &mut state, &project);
-            core.boards().save(&mut state, &project);
-            (settled, told)
-        };
-        core.changed(What::View);
-        settled.later.run(&core);
-        let mut notices = settled.notices;
-        notices.extend(told);
-        super::send_notices(&core, notices);
-        Ok(project_view(&core, &project))
-    })
-    .await
-    .map_err(|error| error.to_string())
-}
-
-pub async fn person_assert(core: &Arc<Core>, params: AssertParams) -> Result<ProjectBoard, String> {
-    let core = core.clone();
-    blocking(move || {
-        let project = project_at(&core, &params.project)?;
-        let asserting = Change::of_assertion(
-            params.assertion,
-            params.text.as_deref(),
-            params.evidence,
-            params.retire,
-        )?;
-        let by = learned(&core, None);
-        change_assertion(&core, &project, params.card, asserting, by)?;
-        Ok(project_view(&core, &project))
-    })
-    .await
-    .map_err(|error| error.to_string())
-}
-
-/// An Overrule: the rule it kept, whether it stopped Auto's run on a slice, which cannot be put
-/// back, and the agents it told.
+/// An Overrule: the rule it kept and the agents it told.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overrule {
     pub rule: Option<u64>,
-    pub stopped_auto: bool,
     pub told: Vec<String>,
 }

@@ -296,7 +296,6 @@ pub fn schedule(chat: &Arc<Chat>, launch: &ChatLaunch, prompt: Replay, resets_at
 
 fn not_retrying(core: &Core, chat: &Chat) {
     (core.chat_above().inbox_not_retrying)(core, chat.agent_id());
-    (core.chat_above().board_stopped_waiting)(core, chat.agent_id());
     core.changed(What::View);
 }
 

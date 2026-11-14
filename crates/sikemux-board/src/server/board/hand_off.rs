@@ -1,7 +1,6 @@
 //! Hand off: the person gives what they typed to an agent that works on it
-//! alone, in a checkout of its own and out of sight, tracked as a slice on the
-//! board whose promise is what they typed. Its Built gate needs the project's
-//! check to pass on its work, run by the core.
+//! alone, in a checkout of its own and out of sight, tracked as a card on the
+//! board.
 
 use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
@@ -9,21 +8,19 @@ use crate::server::changed::What;
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
-pub use sikemux_calls::board::{BoardHandOffParams, HandOnParams, HandedOff};
+pub use sikemux_calls::board::{BoardHandOffParams, HandedOff};
 use std::path::Path;
 use std::sync::Arc;
 
 use sikemux_process::sync::Locked;
 
-use super::{
-    add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, By, NoCheck,
-};
+use super::{add_card, long_text, project_at, project_view, title_of, Adding, By};
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::worktree::agent::{self, Unclaimed};
 use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, workspace, Core};
-use crate::text::{clipped, clipped_line};
+use crate::text::clipped_line;
 use sikemux_wire::protocol::{ChatContext, Event, PermissionMode, FOR_AGENT_URI};
 
 /// The longest card title made from what was typed; the whole text goes into its details.
@@ -47,10 +44,6 @@ pub async fn hand_off(core: &Arc<Core>, params: BoardHandOffParams) -> Result<Ha
         return Err("Say what should get done".into());
     }
     let title = title_of(&clipped_line(&text, TITLE_CHARS))?;
-    let promise = slice::promise_of(&clipped(
-        &text.split_whitespace().collect::<Vec<_>>().join(" "),
-        slice::MAX_PROMISE_CHARS,
-    ))?;
     let adding = Adding {
         details: if title == text {
             String::new()
@@ -58,7 +51,6 @@ pub async fn hand_off(core: &Arc<Core>, params: BoardHandOffParams) -> Result<Ha
             text.clone()
         },
         title,
-        promise: Some(promise),
         ..super::Adding::default()
     };
     let worker = Worker {
@@ -77,65 +69,8 @@ pub async fn hand_off(core: &Arc<Core>, params: BoardHandOffParams) -> Result<Ha
     let card = started.card;
     let core = core.clone();
     let worker = agent.clone();
-    tokio::spawn(async move {
-        hand_task(
-            &core,
-            &worker,
-            started,
-            text,
-            params.files,
-            chat::Whose::PERSON,
-        )
-        .await
-    });
+    tokio::spawn(async move { hand_task(&core, &worker, started, text, params.files).await });
     Ok(HandedOff { card, agent, board })
-}
-
-/// Starts a new agent on a slice whose owner stalled, the way Hand off starts one. `from` says
-/// whose it was.
-pub async fn hand_on(
-    core: &Arc<Core>,
-    project: &str,
-    id: u64,
-    launcher: Option<String>,
-    from: String,
-) -> Result<(), String> {
-    let text = {
-        let state = core.boards().state.locked();
-        let card = (state.boards.get(project))
-            .ok_or_else(|| format!("There is no card #{id} on this project's board"))?
-            .card(id)?;
-        let promise = (card.slice.as_ref()).map_or(card.title.as_str(), |slice| &slice.promise);
-        match card.details.as_str() {
-            "" => format!("{promise}\n\n{from}"),
-            details => format!("{promise}\n\n{details}\n\n{from}"),
-        }
-    };
-    let worker = Worker {
-        project: project.to_owned(),
-        launcher,
-        provider: None,
-        model: None,
-        permission_mode: None,
-        effort: None,
-    };
-    let (agent, started) = start_worker(core, worker, text.clone(), move |core, project, agent| {
-        lease::give(core, project, id, agent).map(|()| id)
-    })
-    .await?;
-    let core = core.clone();
-    tokio::spawn(async move {
-        hand_task(
-            &core,
-            &agent,
-            started,
-            text,
-            Vec::new(),
-            chat::Whose::NOT_PERSON,
-        )
-        .await
-    });
-    Ok(())
 }
 
 /// The agent to start: in which project, and on what.
@@ -219,14 +154,13 @@ async fn start_worker(
 }
 
 /// Sets up the agent's checkout as the project asks, then sends it `text`, marked as the
-/// person's when `whose` says they typed it, with how its work is checked and landed for it alone.
+/// person's, with how its work is landed.
 async fn hand_task(
     core: &Arc<Core>,
     agent: &str,
     started: Started,
     text: String,
     files: Vec<String>,
-    whose: chat::Whose,
 ) {
     let Started {
         project,
@@ -239,15 +173,9 @@ async fn hand_task(
         .map(|held| held.title.clone());
     workspace::retitle(core, agent, title, true);
     let set_up = agent::set_up(core, &checkout.repo, Some(agent), &cwd).await;
-    let checked = {
-        let (owner, project) = (core.clone(), project.clone());
-        blocking(move || Ok(super::project_check(&owner, &project)))
-            .await
-            .unwrap_or(Err(NoCheck::Unnamed))
-    };
     let base = checkout.base.as_deref().unwrap_or("the project's branch");
     let mut message = format!(
-        "This is card #{card} on the project's board, which you hold; what I wrote is its promise. You work on it alone, in a checkout of your own on branch {} cut from {base}, and nobody watches this chat: if you need me, ask with ask.",
+        "This is card #{card} on the project's board, which you hold. You work on it alone, in a checkout of your own on branch {} cut from {base}, and nobody watches this chat: if you need me, ask with ask.",
         checkout.branch
     );
     if let Some(error) = set_up {
@@ -255,18 +183,9 @@ async fn hand_task(
             "\n\nYour checkout's setup did not all finish: {error}"
         ));
     }
-    message.push_str(&match checked {
-        Ok(check) => format!(
-            "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true, then mark the card done with board_update. It is Built once the project's check, {}, passes on it there, which Sikemux runs itself.",
-            check.label()
-        ),
-        Err(NoCheck::Invalid(why)) => format!(
-            "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true. {why}, so Sikemux can't read the check it names and nothing can show the work Built until the file is fixed: tell me what is wrong with it before you mark the card done."
-        ),
-        Err(NoCheck::Unnamed) => format!(
-            "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true. This project names no check, so nothing Sikemux runs can show the work Built yet: ask me how it is to be checked before you mark the card done."
-        ),
-    });
+    message.push_str(&format!(
+        "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true, then mark the card done with board_update."
+    ));
     if let Some(chat) = core.chats().get(agent) {
         chat.take_brief();
     }
@@ -278,7 +197,15 @@ async fn hand_task(
         title: format!("Card #{card}"),
         text: message,
     };
-    if let Err(error) = chat::prompt(core, agent, None, text, files, vec![tracking], whose) {
+    if let Err(error) = chat::prompt(
+        core,
+        agent,
+        None,
+        text,
+        files,
+        vec![tracking],
+        chat::Whose::PERSON,
+    ) {
         eprintln!("sikemux core: the agent handed card #{card} never got its task: {error}");
     }
 }

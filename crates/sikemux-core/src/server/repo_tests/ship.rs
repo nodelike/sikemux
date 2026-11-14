@@ -8,8 +8,6 @@ use crate::server::person_calls::Raise;
 use crate::server::places::push::{self, Reach};
 use crate::server::places::{self, work, Goes, Judged};
 use crate::server::plugged::Provided;
-use crate::server::repo_events::DeployRan;
-use crate::server::repo_events::RepoEvent;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::{person_calls, plugged, Core, CoreResult};

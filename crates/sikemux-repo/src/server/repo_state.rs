@@ -1,8 +1,6 @@
 //! What the core keeps of repositories: edits, checks, places, shipping, the person's calls and the code host, and how the rest reads it.
 
-use super::{
-    checks, codehost, collisions, edits, landing, person_calls, places, repo_events, ship, Core,
-};
+use super::{checks, codehost, collisions, edits, landing, person_calls, places, ship, Core};
 
 pub struct RepoFields {
     pub repo_above: super::repo_above::RepoAbove,
@@ -13,7 +11,6 @@ pub struct RepoFields {
     /// The decisions put to the person.
     pub person_calls: person_calls::PersonCalls,
     pub places: places::store::Store,
-    pub repo_events: repo_events::RepoEvents,
     pub landing: landing::Histories,
     pub land_queue: edits::queue::LandQueue,
     /// The code-host lists clients look at, kept and read again while they do.
@@ -32,7 +29,6 @@ pub trait RepoParts {
     fn ship(&self) -> &ship::Ships;
     fn person_calls(&self) -> &person_calls::PersonCalls;
     fn places(&self) -> &places::store::Store;
-    fn repo_events(&self) -> &repo_events::RepoEvents;
     fn landing(&self) -> &landing::Histories;
     fn land_queue(&self) -> &edits::queue::LandQueue;
     fn code_host_lists(&self) -> &codehost::Lists;
@@ -63,10 +59,6 @@ impl RepoParts for Core {
 
     fn places(&self) -> &places::store::Store {
         &self.kept::<RepoFields>().places
-    }
-
-    fn repo_events(&self) -> &repo_events::RepoEvents {
-        &self.kept::<RepoFields>().repo_events
     }
 
     fn landing(&self) -> &landing::Histories {

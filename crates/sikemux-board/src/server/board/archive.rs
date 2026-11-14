@@ -43,13 +43,11 @@ pub fn make_room(boards: &Boards, state: &mut State, project: &str) {
     );
 }
 
-/// Moves off the board the cards that finished long enough ago and wait on the person for
-/// nothing, such as a look, and answers when the next one that may go will have.
+/// Moves off the board the cards that finished long enough ago, and answers when the next one
+/// that may go will have.
 pub fn finished_long_ago(core: &Core, state: &mut State, project: &str, now: u64) -> Option<u64> {
-    let board = state.boards.get(project)?;
-    let (old, young): (Vec<&Card>, Vec<&Card>) = (finished(state, project).into_iter())
-        .filter(|card| waits(core, board, card).is_none())
-        .partition(|card| card.updated_at + KEPT_MS <= now);
+    let (old, young): (Vec<&Card>, Vec<&Card>) =
+        (finished(state, project).into_iter()).partition(|card| card.updated_at + KEPT_MS <= now);
     let next = young.iter().map(|card| card.updated_at + KEPT_MS).min();
     let going = old.iter().map(|card| card.id).collect();
     move_off(core.boards(), state, project, going);
@@ -85,7 +83,6 @@ fn move_off(boards: &Boards, state: &mut State, project: &str, going: HashSet<u6
     for card in &gone {
         board.ci_failing.forget(&card.ci);
     }
-    slice::rebind(board);
     boards.save(state, project);
     if let Some(data) = boards.folder.as_deref().and_then(Path::parent) {
         append(file(data, project), gone);
@@ -96,20 +93,6 @@ fn file(data: &Path, project: &str) -> PathBuf {
     (data.join(FOLDER))
         .join(kept::file_for(project))
         .with_extension("jsonl")
-}
-
-/// The project's finished cards that left its board.
-pub fn archived(boards: &Boards, project: &str) -> Vec<Card> {
-    let Some(data) = boards.folder.as_deref().and_then(Path::parent) else {
-        return Vec::new();
-    };
-    std::fs::read_to_string(file(data, project))
-        .map(|text| {
-            text.lines()
-                .filter_map(|line| serde_json::from_str(line).ok())
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 /// Adds the cards to their board's file, off the thread that holds the boards.

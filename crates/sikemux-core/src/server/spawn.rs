@@ -193,10 +193,7 @@ pub(crate) fn hire(core: &Core, worker: Worker<'_>) -> Result<AgentName, String>
 
 /// Names a worker for its lead while this spawn already holds its turn.
 fn hire_held(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
-    let lead = worker.lead.to_owned();
-    let named = core.names().hire(worker, open(core))?;
-    super::board::chat_goal::hired(core, &lead);
-    Ok(named)
+    core.names().hire(worker, open(core))
 }
 
 /// What the agent holds that closing it would leave behind: files it changed and has not
@@ -953,21 +950,15 @@ async fn spawn_terminal(
     Ok(woken_by_answers(answer, reports))
 }
 
-/// Sends a worker's lead how its turn ended, unless all it did was ignore the board's offer.
-pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending, ignored: bool) {
+/// Sends a worker's lead how its turn ended.
+pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
     let Some(lead) = core.names().reports_to(agent_id) else {
         return;
     };
-    if ignored && matches!(ending, Ending::Finished) {
-        return;
-    }
     let chat_answer = core
         .chats()
         .get(agent_id)
         .map(|chat| chat.feed.last_answer().map(TerminalAnswer::Said));
-    let for_auto = (core.hosts().team.tree(agent_id))
-        .filter(|tree| tree.auto)
-        .zip(super::hosts::route::lead_host(core, agent_id));
     let (core, worker) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
         let answer = match chat_answer {
@@ -994,14 +985,6 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending, i
                 turn.answer
             }
         };
-        if let Some((tree, host)) = for_auto {
-            let said = match answer {
-                Some(TerminalAnswer::Said(said)) => Some(said),
-                _ => None,
-            };
-            elsewhere::auto_turn_ended(&core, worker, tree, host, ending, said).await;
-            return;
-        }
         let text = report(&core, &worker, ending, answer);
         elsewhere::send_commits(&core, &worker).await;
         messages::report(&core, worker, lead, text).await;

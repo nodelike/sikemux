@@ -108,6 +108,7 @@ pub(crate) use sikemux_remote::server::remote_above;
 pub use sikemux_remote::server::remote_image;
 pub(crate) use sikemux_remote::server::remote_state;
 pub(crate) use sikemux_repo::server::repo_above;
+#[cfg(test)]
 pub(crate) use sikemux_repo::server::repo_events;
 pub(crate) use sikemux_repo::server::repo_state;
 pub(crate) use sikemux_serve::server::reaper;
@@ -161,7 +162,6 @@ pub use calls::call;
 pub use entry::main;
 pub use turn_state::TakeStepParams;
 
-use crate::server::board_state::BoardParts;
 use crate::server::changed::ChangedCore;
 use crate::server::chat_state::ChatParts;
 use crate::server::parts::PartCore;
@@ -489,7 +489,6 @@ impl ServerCore for Core {
                     ship: ship::Ships::default(),
                     person_calls,
                     places: places::store::Store::new(data_dir),
-                    repo_events: repo_events::RepoEvents::default(),
                     landing: landing::Histories::default(),
                     land_queue: Default::default(),
                     code_host_lists: Default::default(),
@@ -619,7 +618,6 @@ impl ServerCore for Core {
             && self.connections().locked().is_empty()
             && self.running_sessions() == 0
             && self.chats().count() == 0
-            && !board::auto::has_work(self.boards())
     }
 
     fn permit(&self, peer: &access::Peer, needs: access::Needs) -> CoreResult<()> {

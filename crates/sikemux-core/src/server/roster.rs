@@ -305,10 +305,8 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
                 continue;
             }
             let led = core.names().leads_of(&target.agent_id);
-            let by_auto = super::board::run_by_auto(&core, &target.agent_id);
-            let orphan = (by_auto || !led.is_empty())
-                && !led.iter().any(|lead| core.agent_now(lead).open())
-                && !super::board::led_by_auto(&core, &target.agent_id);
+            let orphan =
+                !led.is_empty() && !led.iter().any(|lead| core.agent_now(lead).open());
             let by_id = to.trim().trim_start_matches('@') == target.agent_id;
             if !led.contains(&caller) {
                 if orphan && !by_id {

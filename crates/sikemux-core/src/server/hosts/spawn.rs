@@ -4,7 +4,6 @@
 //! in its own checkout. Each time the worker's turn ends, its new commits come
 //! back before its report.
 
-use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceCore;
 use crate::server::workspace_state::WorkspaceParts;
@@ -28,7 +27,7 @@ use super::super::connection::blocking;
 use super::super::follow::Happened;
 use super::super::names::{Adopted, Worker};
 use super::super::remote::StoredLink;
-use super::super::spawn::{self as local, Ending, ForHost};
+use super::super::spawn::{self as local, ForHost};
 use super::super::worktree;
 use super::super::Core;
 use super::calls::{self as asks, params_of, HostAsk};
@@ -155,7 +154,6 @@ pub(crate) async fn spawn(
             prompt,
             branch: text(params, "branch").map(str::to_owned),
             packed,
-            auto: false,
             wait: SPAWN_WAIT,
         },
     )
@@ -200,7 +198,6 @@ pub(crate) struct Handing {
     pub prompt: String,
     pub branch: Option<String>,
     pub packed: Packed,
-    pub auto: bool,
     pub wait: Duration,
 }
 
@@ -230,7 +227,6 @@ pub(crate) async fn hand_over(
         prompt,
         branch,
         packed,
-        auto,
         wait,
     } = handing;
     let id = super::call_id();
@@ -263,7 +259,6 @@ pub(crate) async fn hand_over(
         prompt,
         branch,
         code: packed.code.clone(),
-        auto,
     });
     let started = match call(
         core,
@@ -472,8 +467,6 @@ pub(super) struct SpawnParams {
     #[serde(default)]
     branch: Option<String>,
     code: Code,
-    #[serde(default)]
-    auto: bool,
 }
 
 /// A linked host asks this one to start a worker for its agent.
@@ -527,11 +520,10 @@ pub(super) async fn start_here(
         .await
         .map_err(|error| error.to_string())?
     };
-    let (mut tree, cwd) = match checked {
+    let (tree, cwd) = match checked {
         Checked::Needs(tips) => return Ok(json!({ "needs": "bundle", "tips": tips })),
         Checked::Ready(tree, cwd) => (tree, cwd),
     };
-    tree.auto = params.auto;
     let project = core.workspaces().project_of(&cwd);
     let lead = &params.lead;
     take_lead(core, host, lead, &project);
@@ -767,48 +759,6 @@ pub(super) fn commits_for(
         })
         .filter(|path| path.is_file())
         .ok_or_else(|| "those commits no longer wait here; newer ones replaced them".into())
-}
-
-/// How a turn of a worker Auto started from another host ended.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AutoTurn {
-    pub agent_id: String,
-    pub ending: Ending,
-    pub answer: Option<String>,
-    pub cost_usd: Option<f64>,
-}
-
-/// A turn of a worker here that Auto on `host` started ended: its commits go back first,
-/// then how the turn went, which `host` acts on as it does for its own agents.
-pub(crate) async fn auto_turn_ended(
-    core: &Arc<Core>,
-    worker: String,
-    tree: Tree,
-    host: String,
-    ending: Ending,
-    answer: Option<String>,
-) {
-    send_commits_to(core, &worker, tree, &host).await;
-    let cost_usd = core
-        .chats()
-        .get(&worker)
-        .and_then(|chat| chat.feed.cost_usd());
-    post(
-        core,
-        &host,
-        Sending::new(
-            asks::AutoTurn::METHOD,
-            params_of::<asks::AutoTurn>(&AutoTurn {
-                agent_id: worker.clone(),
-                ending,
-                answer,
-                cost_usd,
-            }),
-        )
-        .kept()
-        .about(&worker),
-    );
 }
 
 /// A worker the host its team's lead runs on named for an agent here.

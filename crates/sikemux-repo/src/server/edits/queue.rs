@@ -23,7 +23,6 @@ use super::push::{line, Signing};
 use crate::server::checks;
 use crate::server::connection::blocking;
 use crate::server::merge_queue::{self, Blame, Lane, Next, Waiter};
-use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
 use sikemux_view::workspace::AgentWorktree;
 
@@ -558,12 +557,7 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
         let subject = git(repo, &["log", "-1", "--format=%s", &laid.tip]).unwrap_or_default();
         let lines = crate::server::repo_events::lines_changed(repo, &onto, &laid.tip);
         (core.repo_above().chief_landed)(core, &project, &waiting.agent, &subject, lines);
-        core.repo_events().tell(RepoEvent::Landed {
-            project: project.clone(),
-            agent: waiting.agent.clone(),
-            onto: onto.clone(),
-            tip: laid.tip.clone(),
-        });
+        (core.repo_above().turn_state_committed)(core, &waiting.agent);
         onto = laid.tip.clone();
         landed.push((waiting.clone(), stays));
     }

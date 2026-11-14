@@ -42,8 +42,6 @@ pub struct WorkspaceAbove {
     pub foreign_agents: fn(&Core) -> HashSet<String>,
     /// What the person has typed to this agent's chat changed.
     pub chat_draft_changed: fn(&Core, &str),
-    /// The saved session with this id was deleted.
-    pub session_deleted: fn(&Core, &str),
     /// Whether a question still shows the picture at this path.
     pub question_keeps_picture: fn(&Core, &Path) -> bool,
     /// The chats that run now.

@@ -18,7 +18,7 @@ use sikemux_view::turn::Landed;
 use sikemux_wire::protocol::AgentStatus;
 
 use super::chat::Saved;
-use super::checks::{CheckRan, CiCard};
+use super::checks::CiCard;
 use super::codehost::ci::Shown;
 use super::codehost::repo::FailedJob;
 use super::listed::Listed;
@@ -40,18 +40,10 @@ type Settings =
 type AgentTool = for<'a> fn(&'a Arc<Core>, &'a str, Value, Option<Deploy>) -> Told<'a>;
 
 pub struct RepoAbove {
-    /// Whether the check stands for what `agent` deploys from `head`, the commit
-    /// its checkout is at: on the card it works now, else on that commit as the
-    /// board heard. Why not, when not.
-    pub board_check_stands: fn(&Core, &str, &str, Option<&str>) -> Result<(), String>,
     /// The address a deploy to the place called `name` in `project` is read healthy at.
     pub board_health_of: fn(&Core, &str, &str) -> Option<String>,
     /// The project that holds the absolute path, or why the path will not do.
     pub board_project_at: fn(&Core, &str) -> Result<String, String>,
-    /// `agent` made a commit: the run it works for, if any, has something new to keep.
-    pub board_committed: fn(&Core, &str),
-    /// A commit landed on `project`'s branch, so a role may have reached its threshold.
-    pub board_landed: fn(&Core, &str),
     /// Every project's chief, by agent id.
     pub chief_all: fn(&Core) -> HashSet<String>,
     /// `agent` landed work in the project at `path` with a commit whose message is `message`.
@@ -77,6 +69,14 @@ pub struct RepoAbove {
     /// The watch credited the agent with files it wrote outside an edit tool, which can come to
     /// light after its turn ended.
     pub turn_state_wrote: fn(&Core, &str),
+    /// The agent committed or its commits landed, so where its turn's work is is read again.
+    pub turn_state_committed: fn(&Core, &str),
+    /// The project's check passed on the `covered` commits, so the pages of the turns whose
+    /// work is at one of them are taken.
+    pub pictures_checked: fn(&Core, &str, &[String]),
+    /// A deploy of the agent's work at the commit went to a place before production, and
+    /// passed.
+    pub inbox_staged: fn(&Core, &str, String),
     /// Whether the agent waits on the answer to a question it asked.
     pub questions_waits_on_answer: fn(&Core, &str) -> bool,
     /// Whether a message is on its way to the agent.
@@ -100,10 +100,6 @@ pub struct RepoAbove {
         for<'a> fn(&'a Arc<Core>, &'a str, TrustAsk, Option<&'a str>) -> Doing<'a, bool>,
     /// Finds a saved session, of the agent kind when given, among every project's.
     pub saved_locate: fn(&Core, &str, Option<&str>) -> Result<Saved, String>,
-    /// The repositories whose CI the board's cards wait on.
-    pub board_waiting_on_ci: fn(&Core) -> Vec<Shown>,
-    /// Runs moved in the repository, so the cards waiting on it look again.
-    pub board_ci_moved: fn(&Core, &Shown),
     /// The repositories whose CI a trigger waits on.
     pub triggers_waiting_on_ci: fn(&Core) -> Vec<Shown>,
     /// Runs moved in the repository, so the triggers waiting on it look again.
@@ -116,16 +112,12 @@ pub struct RepoAbove {
     pub board_landed_set: fn(&Core, &str) -> Option<Landed>,
     /// Changes the project's board settings as the person asked.
     pub board_person_settings: Settings,
-    /// The project's places changed: its board's ladders follow them.
+    /// The project's places changed: its board keeps them for clients.
     pub board_mirror_places: fn(&Core, &str, Vec<Place>, Option<u64>),
     /// Who lands the project's work.
     pub board_landing: fn(&Core, &str) -> Landing,
-    /// Adds a run of the project's check to the run record of each agent it took in.
-    pub board_record_check: fn(&Core, &str, &CheckRan<'_>),
     /// CI ruled on a commit of the project: the jobs that failed, none when it passed.
     pub board_ci_ruled: fn(&Arc<Core>, &str, &str, &[FailedJob]),
-    /// The latest commits of the project's unfinished slices that still wait for the check.
-    pub board_unbuilt_heads: fn(&Core, &str) -> Vec<String>,
     /// The open card that holds the project's failing CI.
     pub board_ci_card: fn(&Core, &str) -> Option<CiCard>,
     /// Notes in the project's journal that its repository moved, by the kind of move.

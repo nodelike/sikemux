@@ -1,21 +1,11 @@
-#![allow(unused_imports)]
-
-use crate::server::board::slice::{Later, Seen};
-use crate::server::board::{Board, By, CardStatus, Changes, Notice, State};
-use crate::server::board_state::BoardParts;
-use crate::server::places::{self, Place};
-use crate::server::Core;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use sikemux_calls::board::{BoardProposalParams, PlacesProposal};
-use sikemux_process::clock::epoch_ms;
-use sikemux_view::slice::Gate;
-
-use crate::server::ServerCore;
-use serde_json::json;
-use sikemux_process::sync::Locked;
+use serde_json::{json, Value};
 
 use crate::server::board::steps::*;
+use crate::server::board::Board;
+use crate::server::board_state::BoardParts;
+use crate::server::Core;
+use crate::server::ServerCore;
+use sikemux_process::sync::Locked;
 
 const PROJECT: &str = "/tmp/sikemux-places-proposal-test";
 

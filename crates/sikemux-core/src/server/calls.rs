@@ -248,7 +248,7 @@ calls! { core, client, method, params;
     "savedSessions": Full, any_program => answer(saved_sessions::list(parse(params)?).await?),
     "recentSessions": Full, any_program => answer(saved_sessions::recent(parse(params)?).await?),
     "renameSession": Owner => answer(saved_sessions::rename(parse(params)?).await?),
-    "deleteSession": Owner => answer(saved_sessions::delete(&core, parse(params)?).await?),
+    "deleteSession": Owner => answer(saved_sessions::delete(parse(params)?).await?),
     "renameRecent" = RenameRecent: Owner => saved_sessions::rename_recent(&core, params).await?,
     "deleteRecent" = DeleteRecent: Owner => saved_sessions::delete_recent(&core, params).await?,
     "relocateSession": Owner => answer(saved_sessions::relocate(parse(params)?).await?),
@@ -502,8 +502,8 @@ calls! { core, client, method, params;
     "board" = Board: Watch, any_program => board::board(&core, params).await?,
     "boardAdd" = BoardAdd: Full, counted => board::person_add(&core, params).await?,
     "boardHandOff" = BoardHandOff: Full => board::hand_off(&core, params).await?,
-    "boardResumeOwner" = BoardResumeOwner: Full => board::person_resume(&core, params).await?,
-    "boardHandOn" = BoardHandOn: Full => board::person_hand_on(&core, params).await?,
+    "boardResumeOwner" = BoardResumeOwner: Full => board::retired(params)?,
+    "boardHandOn" = BoardHandOn: Full => board::retired(params)?,
     "boardAddTicket" = BoardAddTicket: Full, counted => {
         board::tickets::person_add_ticket(&core, params).await?
     },
@@ -531,20 +531,12 @@ calls! { core, client, method, params;
     "boardAuditNow" = BoardAuditNow: Full => {
         board::audit::person_audit_now(&core, params).await?
     },
-    "goalReports" = GoalReports: Watch, any_program => {
-        board::report::reports(&core, params)?
-    },
-    "boardReportEvery" = BoardReportEvery: Full => {
-        board::report::person_report_every(&core, params).await?
-    },
+    "goalReports" = GoalReports: Watch, any_program => board::retired_reports(params),
+    "boardReportEvery" = BoardReportEvery: Full => board::retired(params)?,
     "goals" = Goals: Watch, any_program => goals::view(&core),
     "setDesks" = SetDesks: Owner => goals::set_desks(&core, client.id, params),
-    "boardAssert" = BoardAssert: Full => {
-        board::goal::person_assert(&core, params).await?
-    },
-    "boardAnswerCommand" = BoardAnswerCommand: Full => {
-        board::goal::person_answer_command(&core, params).await?
-    },
+    "boardAssert" = BoardAssert: Full => board::retired(params)?,
+    "boardAnswerCommand" = BoardAnswerCommand: Full => board::retired(params)?,
     "overruleDecision" = OverruleDecision: Full, counted => {
         board::goal::overrule(&core, params).await?
     },
@@ -567,9 +559,9 @@ calls! { core, client, method, params;
     "chatGoalUndo" = ChatGoalUndo: Full => {
         board::chat_goal::undo(&core, params.agent_id).await?
     },
-    "boardRetry" = BoardRetry: Full => board::person_retry(&core, params).await?,
-    "boardPass" = BoardPass: Full, counted => board::person_pass(&core, params).await?,
-    "boardNote" = BoardNote: Full => board::person_note(&core, params).await?,
+    "boardRetry" = BoardRetry: Full => board::retired(params)?,
+    "boardPass" = BoardPass: Full, counted => board::retired(params)?,
+    "boardNote" = BoardNote: Full => board::retired(params)?,
     "edits": Watch, any_program => answer(edits::read_edits(&core, parse(params)?).await?),
     "changeOwners" = ChangeOwners: Watch, any_program => edits::change_owners(&core, params).await?,
     "commitStaged" = CommitStaged: Owner, counted => edits::commit_staged(&core, params).await?,

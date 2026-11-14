@@ -84,9 +84,6 @@ pub(crate) fn wrote(core: &Arc<Core>, plugin: &str, method: &str, params: &Value
     }) {
         return;
     }
-    if method == "createPull" {
-        super::board::proof::pull_opened(core);
-    }
     super::codehost::wrote(core, plugin, params);
 }
 

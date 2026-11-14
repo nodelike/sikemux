@@ -31,17 +31,14 @@ pub fn settle(core: &Arc<Core>) -> Option<u64> {
     next
 }
 
-/// Whether `card` is done because every card under it is: it is no slice or ticket of its own,
-/// nobody works it, and a goal's slices wait on nothing more, such as the person looking.
-fn finished_under(core: &Core, board: &Board, card: &Card, under: &[&Card]) -> bool {
+/// Whether `card` is done because every card under it is: it has no ticket of its own and
+/// nobody works it.
+fn finished_under(core: &Core, card: &Card, under: &[&Card]) -> bool {
     card.status != CardStatus::Done
-        && card.slice.is_none()
         && card.ticket.is_none()
-        && card.auto.is_none()
         && holder(core, card).is_none()
         && !under.is_empty()
         && under.iter().all(|card| card.status == CardStatus::Done)
-        && (board.held_by_goal(card).is_empty() || slice::goal_done(board, card))
 }
 
 fn close_parents(core: &Arc<Core>, project: &str) {
@@ -58,7 +55,7 @@ fn close_parents(core: &Arc<Core>, project: &str) {
     let closing: Vec<u64> = (board.cards.iter())
         .filter(|card| {
             let under = under.get(&card.id).map_or(&[][..], Vec::as_slice);
-            finished_under(core, board, card, under)
+            finished_under(core, card, under)
         })
         .map(|card| card.id)
         .collect();
@@ -73,16 +70,8 @@ fn close_parents(core: &Arc<Core>, project: &str) {
             ..Changes::default()
         };
         let by = By::Auto("Board");
-        match change_in(
-            core,
-            &mut state,
-            project,
-            &by,
-            id,
-            changes,
-            &slice::Seen::unread(),
-        ) {
-            Ok((_, sent, _)) => notices.extend(sent),
+        match change_in(core, &mut state, project, &by, id, changes) {
+            Ok((_, sent)) => notices.extend(sent),
             Err(error) => eprintln!("sikemux core: the board did not close #{id}: {error}"),
         }
     }
@@ -97,7 +86,7 @@ fn wanted(board: &Board) -> HashSet<u64> {
     let mut wanted = HashSet::new();
     for card in &board.cards {
         let worked = card.status == CardStatus::Progress
-            || (card.status == CardStatus::Open && (card.owner.is_some() || card.auto.is_some()));
+            || (card.status == CardStatus::Open && card.owner.is_some());
         if worked {
             wanted.extend(card.depends_on.iter().copied());
         }
@@ -115,11 +104,7 @@ fn put_aside(core: &Core, state: &mut State, project: &str, now: u64) -> Option<
     let wanted = wanted(board);
     let idle: HashSet<u64> = (board.cards.iter())
         .filter(|card| {
-            card.status == CardStatus::Open
-                && card.owner.is_none()
-                && card.auto.is_none()
-                && !wanted.contains(&card.id)
-                && waits(core, board, card).is_none()
+            card.status == CardStatus::Open && card.owner.is_none() && !wanted.contains(&card.id)
         })
         .map(|card| card.id)
         .collect();

@@ -23,16 +23,15 @@ use sikemux_process::sync::Locked;
 use crate::git::Git;
 use crate::text::{clipped, clipped_line};
 use sikemux_view::inbox::{
-    AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandTo, InboxHandoff, InboxItem,
-    InboxKind, InboxLook, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent,
-    ShipHold, ShipKind, TeamLink,
+    AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandoff, InboxItem, InboxKind,
+    InboxNeed, InboxRecording, InboxTier, RemoteAgent, ShipHold, ShipKind, TeamLink,
 };
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{
     AgentGroup, AgentState, AgentStatus, ChatInfo, ChatState, SessionId, SessionInfo,
 };
 
-use super::board::{self, RunHold, Summary, Waits};
+use super::board::{self, Summary};
 use super::connection::blocking;
 use super::display;
 use super::hosts::team::{Foreign, Role};
@@ -45,10 +44,7 @@ use sikemux_fold::AgentNeed;
 use sikemux_view::chat::{FailureKind, TeamNeedKind};
 use sikemux_view::host_stats::HostAlertKind;
 use sikemux_view::push::ActivityGlance;
-use sikemux_view::slice::{Gate, Proof};
 use sikemux_view::turn::{TurnState, WorkAt};
-
-use super::board::steps::Step;
 
 /// How each agent's turn stands, by agent, as one view worked it out.
 type Turned = HashMap<String, TurnState>;
@@ -60,8 +56,6 @@ const MAX_TURN_RECORDINGS: usize = 8;
 const MAX_FILES: usize = 20;
 const MAX_ANSWER_CHARS: usize = 600;
 const MAX_LINE_CHARS: usize = 200;
-/// The agents a stalled slice's item offers to hand it to.
-const MAX_HAND_TO: usize = 12;
 const DONE_UNCOMMITTED: &str = "Done, uncommitted";
 /// The files of an agent's whose state git is asked for at once.
 const MAX_STATUS_FILES: usize = 256;
@@ -76,8 +70,6 @@ enum Case {
         secret: bool,
     },
     Input,
-    /// The slice waits for the person to pass this step.
-    Gate(Step),
     /// An agent's action that leaves this machine waits for the person to allow it.
     Ship(ShipHold),
     /// An agent proposed the project's environments, for the person to accept.
@@ -86,16 +78,6 @@ enum Case {
     HostAlert,
     /// The account vault needs the person.
     Vault,
-    /// An agent wrote a command as an assertion's evidence, for the person to accept.
-    ProposedCommand,
-    PullRequest,
-    /// Auto handed the card back, for the person to fix something or unblock it.
-    HandedBack(RunHold),
-    /// The slice's ticket was closed in its tracker with nothing of it
-    /// landed, where the person lands slices.
-    TicketDone,
-    /// The slice lost its owner, which stalled.
-    Stalled,
     /// Two agents keep messaging each other and nothing else.
     Looping,
     /// An agent took turn after turn on its own, so what else would wake it waits for the person.
@@ -136,20 +118,12 @@ impl Case {
             Case::Question { secret: false } => (InboxKind::Question, Wants::Person(Decide)),
             Case::Question { secret: true } => (InboxKind::Question, Wants::Person(Unblock)),
             Case::Input => (InboxKind::Input, Wants::Person(Unblock)),
-            Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
             Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
-            Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
-            Case::HandedBack(RunHold::Unblock)
-            | Case::Stalled
-            | Case::Stopped
-            | Case::NoProgress => (InboxKind::Held, Wants::Person(Unblock)),
-            Case::HandedBack(RunHold::Fix)
-            | Case::Looping
-            | Case::CheckFailing
-            | Case::StaleMemory => (InboxKind::Held, Wants::Person(Fix)),
-            Case::Colliding | Case::TicketDone | Case::ProposedCommand => {
-                (InboxKind::Held, Wants::Person(Decide))
+            Case::Stopped | Case::NoProgress => (InboxKind::Held, Wants::Person(Unblock)),
+            Case::Looping | Case::CheckFailing | Case::StaleMemory => {
+                (InboxKind::Held, Wants::Person(Fix))
             }
+            Case::Colliding => (InboxKind::Held, Wants::Person(Decide)),
             Case::ProposedEnvironments => (InboxKind::ProposedEnvironments, Wants::Person(Decide)),
             Case::HostAlert => (InboxKind::HostAlert, Wants::Person(Fix)),
             Case::Vault => (InboxKind::Vault, Wants::Person(Unblock)),
@@ -450,20 +424,6 @@ impl Turns {
         });
     }
 
-    /// How the agent's driver saw its latest turn fail, if it did.
-    pub(crate) fn fault(&self, agent_id: &str) -> Option<Fault> {
-        (self.turns.locked().get(agent_id))
-            .and_then(|turn| turn.problem.as_ref())
-            .and_then(|problem| problem.fault)
-    }
-
-    /// Whether the agent's driver saw its latest turn fail, which the person hears of by itself.
-    pub(crate) fn failing(&self, agent_id: &str) -> bool {
-        (self.turns.locked().get(agent_id))
-            .and_then(|turn| turn.problem.as_ref())
-            .is_some_and(|problem| problem.fault.is_some())
-    }
-
     /// What went wrong in the agent's latest turn, while that waits on the person.
     fn failure(&self, agent_id: &str) -> Option<String> {
         (self.turns.locked().get(agent_id))
@@ -543,11 +503,7 @@ impl Turns {
 
     /// The agents whose latest turn changed a page of `project` and whose work is at one of
     /// `covered`, with when that turn began and that commit.
-    pub(crate) fn showing(
-        &self,
-        project: &str,
-        covered: &[String],
-    ) -> Vec<(String, u64, Option<String>)> {
+    pub(crate) fn showing(&self, project: &str, covered: &[String]) -> Vec<(String, u64)> {
         (self.turns.locked().iter())
             .filter(|(_, turn)| {
                 turn.work.as_ref().is_some_and(|work| {
@@ -559,10 +515,7 @@ impl Turns {
                             .is_some_and(|head| covered.contains(head))
                 })
             })
-            .map(|(agent, turn)| {
-                let head = turn.work.as_ref().and_then(|work| work.head.clone());
-                (agent.clone(), turn.started_at, head)
-            })
+            .map(|(agent, turn)| (agent.clone(), turn.started_at))
             .collect()
     }
 
@@ -864,12 +817,8 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         feed: None,
         turn: None,
         card: None,
-        gate: match &case {
-            Case::Gate(gate) => Some(gate.gate()),
-            _ => None,
-        },
+        gate: None,
         environment: match &case {
-            Case::Gate(gate) => gate.environment().map(str::to_owned),
             Case::Ship(hold) => hold.environment.clone(),
             _ => None,
         },
@@ -962,173 +911,6 @@ fn pair_id(one: &str, other: &str) -> String {
     } else {
         format!("{other}:{one}")
     }
-}
-
-/// A deploy held for the environment `card` waits at already asks the person,
-/// in place of its gate.
-fn deploy_asks_instead(core: &Core, card: &Summary, waits: &Waits) -> bool {
-    let Waits::Gate {
-        gate: Step::Environment(environment),
-        ..
-    } = waits
-    else {
-        return false;
-    };
-    core.ship().waiting().iter().any(|waiting| {
-        waiting.project == card.project
-            && Some(&waiting.agent_id) == card.owner.as_ref()
-            && waiting.hold.environment.as_ref() == Some(environment)
-    })
-}
-
-/// The item for a card that waits on the person, unless what it waits for is
-/// an answer, which its question's item asks for.
-fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxItem> {
-    let card_id = |state: &str| format!("{state}:{}:{}", card.project, card.id);
-    let mut item = match waits {
-        Waits::Review { url } => {
-            let mut item = item(
-                card_id("review"),
-                Case::PullRequest,
-                "Its pull request is ready for review".into(),
-                card.updated_at,
-            );
-            item.url = url.clone();
-            item
-        }
-        Waits::Held { need, note } => {
-            let mut item = item(
-                card_id("held"),
-                Case::HandedBack(*need),
-                "Its card came back to you".into(),
-                card.updated_at,
-            );
-            item.detail = note.clone();
-            item
-        }
-        Waits::Gate {
-            gate,
-            promise,
-            url,
-            evidence,
-        } => {
-            let mut item = gate_item(card, gate, promise);
-            item.url = url.clone();
-            item.evidence = evidence.as_deref().cloned();
-            item
-        }
-        Waits::TicketDone { key, gate } => {
-            let mut item = item(
-                card_id("ticket"),
-                Case::TicketDone,
-                format!("{key} says done, but nothing of it landed"),
-                card.updated_at,
-            );
-            item.detail = Some(match gate {
-                Some(Step::Gate(Gate::Landed)) => format!(
-                    "{key} was closed in its tracker. Pass Landed once its work is in, mark the slice done to close it as it stands, or reopen the ticket"
-                ),
-                Some(gate) => format!(
-                    "{key} was closed in its tracker while the slice waits at {}. Mark the slice done to close it as it stands, or reopen the ticket",
-                    board::gate_words(gate)
-                ),
-                None => format!(
-                    "{key} was closed in its tracker. Mark the slice done to close it as it stands, or reopen the ticket"
-                ),
-            });
-            item
-        }
-        Waits::Stalled {
-            agent,
-            name,
-            why,
-            can_resume,
-        } => {
-            let mut item = item(
-                card_id("stalled"),
-                Case::Stalled,
-                format!("Stalled on {}", card.title),
-                card.updated_at,
-            );
-            item.detail = Some(format!("{} Nobody holds it now.", why.words()));
-            item.agent_id = Some(agent.clone());
-            item.name = Some(name.clone());
-            item.stalled = Some(InboxStalled {
-                can_resume: *can_resume,
-                hand_to: (agents.iter())
-                    .filter(|other| {
-                        other.id != *agent
-                            && other.host.is_none()
-                            && other.project.as_deref() == Some(card.project.as_str())
-                    })
-                    .filter_map(|other| {
-                        Some(InboxHandTo {
-                            agent_id: other.id.clone(),
-                            name: other.name.clone()?,
-                        })
-                    })
-                    .take(MAX_HAND_TO)
-                    .collect(),
-            });
-            item
-        }
-        Waits::Look(look) => {
-            let mut item = gate_item(card, &Step::Gate(Gate::LooksRight), &look_detail(look));
-            item.evidence = (look.pictures.iter().rev())
-                .find(|picture| !picture.before)
-                .or(look.pictures.last())
-                .map(|picture| picture.evidence.clone());
-            item.recordings = (look.pictures.iter())
-                .map(|picture| &picture.evidence)
-                .filter_map(|evidence| match &evidence.proof {
-                    Proof::Picture {
-                        path,
-                        seconds: Some(seconds),
-                        feed,
-                        turn,
-                        ..
-                    } => Some(InboxRecording {
-                        path: path.clone(),
-                        seconds: *seconds,
-                        at: evidence.at,
-                        feed: feed.clone(),
-                        turn: *turn,
-                    }),
-                    _ => None,
-                })
-                .collect();
-            item.look = Some((**look).clone());
-            item
-        }
-        Waits::Answer => return None,
-    };
-    item = item.on_card(Some(card));
-    Some(item)
-}
-
-/// What a goal's look is about: its one slice's promise, else how many slices it covers.
-fn look_detail(look: &InboxLook) -> String {
-    match look.slices.as_slice() {
-        [one] => one.promise.clone(),
-        many => format!("What its {} slices change, to look at once", many.len()),
-    }
-}
-
-/// A slice waiting for the person to pass `gate`: the one way a Gate item is made.
-fn gate_item(card: &Summary, gate: &Step, promise: &str) -> InboxItem {
-    let mut item = item(
-        format!(
-            "gate:{}:{}:{}",
-            card.project,
-            card.id,
-            board::gate_key(gate)
-        ),
-        Case::Gate(gate.clone()),
-        format!("Waits for you at {}", board::gate_words(gate)),
-        card.updated_at,
-    );
-    item.detail = Some(promise.to_owned());
-    item
 }
 
 /// How an agent's turn went, or that it is still at work.
@@ -1270,59 +1052,6 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
             &format!("{} {}.", proposal.why, steps.join("; ")),
             MAX_LINE_CHARS,
         ));
-        items.push(item);
-    }
-    for proposed in board::proposed_commands(core) {
-        let assertion = &proposed.assertion;
-        let changed = &assertion.files.changed;
-        let (what, at, seen) = match changed.first() {
-            Some(first) if assertion.awaits_approval().is_none() => (
-                "A file its command names changed",
-                proposed.at,
-                format!(":{}", first.head),
-            ),
-            _ => (
-                "Proposes a command as a gate",
-                assertion.learned.at,
-                String::new(),
-            ),
-        };
-        let mut item = item(
-            format!(
-                "command:{}:{}:{}{seen}",
-                proposed.project, proposed.goal, assertion.id
-            ),
-            Case::ProposedCommand,
-            what.to_owned(),
-            at,
-        );
-        let detail = if seen.is_empty() {
-            if let Some(agent) = assertion.learned.agent.as_deref() {
-                item = item.by(agent, find(agent));
-            }
-            format!(
-                "`{}` for \"{}\". It does not count until you accept it.",
-                assertion.awaits_approval().unwrap_or_default(),
-                assertion.text
-            )
-        } else {
-            let files: Vec<&str> = (changed.iter())
-                .map(|changed| changed.file.path.as_str())
-                .collect();
-            format!(
-                "{} for `{}`. It does not run on that commit until you accept it.",
-                files.join(", "),
-                assertion.command().unwrap_or_default()
-            )
-        };
-        item.detail = Some(clipped_line(&detail, MAX_LINE_CHARS));
-        item.project = Some(proposed.project.clone());
-        item.card = Some(InboxCard {
-            project: proposed.project,
-            id: proposed.goal,
-            title: proposed.title,
-            goal: Some(proposed.goal),
-        });
         items.push(item);
     }
     for looped in core.harness().mailbox.loops() {
@@ -1892,16 +1621,6 @@ fn waiting(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<Inbox
     let mut items = needs(core, agents, sessions);
     items.extend(host_alert_items(core));
     items.extend(vault_items(core));
-    for card in board::cards_for_person(core, None) {
-        if let Some(item) = card
-            .waits
-            .as_ref()
-            .filter(|waits| !deploy_asks_instead(core, &card, waits))
-            .and_then(|waits| card_item(&card, waits, agents))
-        {
-            items.push(item);
-        }
-    }
     items
 }
 
@@ -2034,12 +1753,12 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
                 _ => finished.push(item),
             }
         }
-        for card in board::cards_for_person(core, Some(since)) {
+        for card in board::cards_done_since(core, since) {
             let owner_listed = card
                 .owner
                 .as_ref()
                 .is_some_and(|owner| listed.contains(owner));
-            if !card.done || owner_listed || !before_until(card.updated_at) {
+            if owner_listed || !before_until(card.updated_at) {
                 continue;
             }
             let mut item = item(

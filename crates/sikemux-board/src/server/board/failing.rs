@@ -10,8 +10,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use super::slice::short;
 use super::{add_card, Adding, Board, By, MAX_TITLE_CHARS};
+use crate::git::short;
 use crate::server::codehost::repo::FailedJob;
 use crate::server::Core;
 use crate::text::clipped;
@@ -19,7 +19,6 @@ use crate::text::clipped;
 /// Failures kept from one run, and on one card.
 const MAX_FAILURES: usize = 8;
 const MAX_OUTPUT_CHARS: usize = 4000;
-const PROMISE: &str = "CI passes on the project's branch again";
 
 /// A CI job that failed, and the test in it when its log names one.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,15 +62,6 @@ pub struct Broke {
 }
 
 impl Broke {
-    /// The checks that failed, as one run's command.
-    pub fn checks(&self) -> String {
-        let mut checks: Vec<&str> = (self.failures.iter())
-            .map(|failure| failure.check.as_str())
-            .collect();
-        checks.dedup();
-        checks.join(", ")
-    }
-
     pub fn held_by(&self, card: &[Failure]) -> bool {
         (self.failures.iter()).any(|failure| card.iter().any(|held| held.same(failure)))
     }
@@ -199,11 +189,10 @@ pub fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[FailedJob]) 
     let adding = Adding {
         title: clipped(&title, MAX_TITLE_CHARS),
         details: format!(
-            "CI failed on the last two runs of the project's branch, most recently on {}, with {}. Mend it with a commit; Built passes once CI passes on it.",
+            "CI failed on the last two runs of the project's branch, most recently on {}, with {}. Mend it with a commit.",
             short(sha),
             labels(&broke.failures)
         ),
-        promise: Some(PROMISE.to_owned()),
         ci: Some(broke),
         ..super::Adding::default()
     };

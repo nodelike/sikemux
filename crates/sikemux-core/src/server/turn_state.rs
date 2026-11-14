@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::calls::CallResult;
 use sikemux_view::chat::FailureKind;
-use sikemux_view::slice::Verdict;
 use sikemux_view::turn::{
     ChecksStand, Landed, NextStep, Remedy, TurnCall, TurnDone, TurnFailed, TurnPhase, TurnState,
     TurnStep, TurnStopped, TurnWait, TurnWaitKind, WorkAt,
@@ -94,8 +93,6 @@ pub(crate) struct Gathered {
     leads: HashMap<String, OnAgent>,
     /// The workers of each lead.
     teams: HashMap<String, Vec<String>>,
-    /// Owners of slices waiting on the project's check: since when, and how long it usually takes.
-    on_check: HashMap<String, (u64, Option<u64>)>,
 }
 
 /// An agent another waits on, and since when.
@@ -152,7 +149,6 @@ impl Gathered {
             workers,
             leads: core.harness().questions.waiting_on_leads(),
             teams,
-            on_check: super::board::owners_on_check(core),
         }
     }
 }
@@ -257,8 +253,6 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
             (agent_id.to_owned(), on)
         })
         .collect();
-    let mut on_check = super::board::owners_on_check(core);
-    on_check.retain(|owner, _| owner == agent_id);
     let mut leads = core.harness().questions.waiting_on_leads();
     leads.retain(|worker, _| worker == agent_id);
     let gathered = Gathered {
@@ -266,7 +260,6 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
         workers,
         leads,
         teams: HashMap::from([(agent_id.to_owned(), team)]),
-        on_check,
     };
     of(core, &gathered, agent_id, status)
 }
@@ -456,18 +449,6 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
             agent: Some(on.id.clone()),
         });
     }
-    if let Some((since, took)) = gathered.on_check.get(agent_id) {
-        return Some(TurnWait {
-            kind: TurnWaitKind::Check,
-            what: String::new(),
-            started_at: *since,
-            expected_ms: *took,
-            until: None,
-            place: None,
-            by: None,
-            agent: None,
-        });
-    }
     set
 }
 
@@ -504,10 +485,10 @@ fn done(core: &Core, agent_id: &str, ended: &Ended, work: &Work) -> TurnDone {
     let verdict = (work.changes != WorkAt::Uncommitted)
         .then_some(work.head.as_deref())
         .flatten()
-        .and_then(|head| super::board::verdict_on(core, &work.project, head));
+        .and_then(|head| core.checks().passed_on(&work.project, head));
     let checks = match verdict {
-        Some(Verdict::Passed) => ChecksStand::Pass,
-        Some(Verdict::Failed) => ChecksStand::Failed,
+        Some(true) => ChecksStand::Pass,
+        Some(false) => ChecksStand::Failed,
         None => ChecksStand::NotChecked,
     };
     let places = super::board::deploys_to(core, &work.project);
@@ -597,18 +578,18 @@ fn keep_work(core: &Arc<Core>, agent_id: &str) {
     let Some(work) = work_of(core, agent_id) else {
         return;
     };
-    let shows = (work.can_try).then(|| (work.project.clone(), work.changes, work.head.clone()));
+    let shows = (work.can_try).then(|| (work.project.clone(), work.changes));
     if core.inbox().keep_work(agent_id, work) {
         core.changed(What::View);
     }
-    let Some((project, changes, head)) = shows else {
+    let Some((project, changes)) = shows else {
         return;
     };
     let unchecked =
         changes == WorkAt::Uncommitted || super::checks::project_check(core, &project).is_err();
     let started = core.inbox().ending(agent_id).map(|ended| ended.started_at);
     if let (true, Some(turn)) = (unchecked, started) {
-        super::pictures::take(core, agent_id, &project, turn, head);
+        super::pictures::take(core, agent_id, &project, turn);
     }
 }
 

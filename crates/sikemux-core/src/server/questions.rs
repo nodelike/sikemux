@@ -6,7 +6,6 @@
 //! The person answers in the asker's chat, the notch or Sikemux's rail, and the
 //! first answer reaches the asker as a message.
 
-pub(crate) use super::board::proof::ProofAsk;
 pub(crate) use super::person_calls::{attached, without_attached};
 use crate::server::activity::ActivityCore;
 use crate::server::agent_now::AgentNowCore;
@@ -185,9 +184,6 @@ struct Question {
     /// answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     approval: Option<Approval>,
-    /// The slice whose proof the answer posts to its pull request, or keeps off it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    proof: Option<ProofAsk>,
     /// The dialog in the asker's process that waits on the answer, which then
     /// goes to it rather than arriving as a message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -291,10 +287,8 @@ impl Question {
             Some(RaisedFor::Access) => CallKind::Access,
             Some(RaisedFor::Taste | RaisedFor::Irreversible) | None => CallKind::Taste,
         };
-        let only_theirs = self.approval.is_some()
-            || self.proof.is_some()
-            || self.dialog.is_some()
-            || self.from_host.is_some();
+        let only_theirs =
+            self.approval.is_some() || self.dialog.is_some() || self.from_host.is_some();
         let breaks = self.raise.as_ref().map(|raise| raise.breaks.clone());
         let given = self.raise.as_ref().and_then(|raise| raise.context.clone());
         let (context, against) = match kind {
@@ -488,7 +482,6 @@ struct Asked {
     secret: bool,
     access: bool,
     approval: Option<Approval>,
-    proof: Option<ProofAsk>,
     dialog: Option<String>,
     raise: Option<Raise>,
 }
@@ -692,16 +685,6 @@ impl Questions {
             }
         }
         waiting
-    }
-
-    /// Whether the agent has a question or an assumption the person has not
-    /// answered.
-    pub(crate) fn has_open(&self, agent_id: &str) -> bool {
-        self.state
-            .locked()
-            .open
-            .iter()
-            .any(|question| question.agent_id == agent_id)
     }
 
     /// The questions put to the person, oldest first: of those an agent waits on, only its
@@ -1192,8 +1175,7 @@ pub(crate) fn cli_of(core: &Core, agent_id: &str) -> String {
 
 /// The agent that started `agent_id`, while a message reaches it.
 fn reachable_lead(core: &Core, agent_id: &str) -> Option<String> {
-    let led_by_auto = (core.hosts().team.tree(agent_id)).is_some_and(|tree| tree.auto);
-    (core.names().get(agent_id)?.parent).filter(|lead| !led_by_auto && reachable(core, lead))
+    (core.names().get(agent_id)?.parent).filter(|lead| reachable(core, lead))
 }
 
 /// Whether the agent answers to nobody but has agents of its own, so what it asks the person is
@@ -1237,11 +1219,7 @@ fn open(
     let questions: Vec<Question> = asked
         .into_iter()
         .map(|asked| Question {
-            stage: if asked.secret
-                || asked.approval.is_some()
-                || asked.proof.is_some()
-                || asked.dialog.is_some()
-            {
+            stage: if asked.secret || asked.approval.is_some() || asked.dialog.is_some() {
                 Stage::Person {
                     lead: None,
                     passed: false,
@@ -1269,7 +1247,6 @@ fn open(
             undelivered: None,
             from_host: None,
             approval: asked.approval,
-            proof: asked.proof,
             dialog: asked.dialog,
             raise: asked.raise,
         })
@@ -1413,16 +1390,11 @@ async fn lead_reads(core: &Arc<Core>, question: &Question, text: String, note: S
     }
 }
 
-const NOBODY_ASKED_ABOUT_CONTRACT: &str = "Nobody is asked about a contract. Decide from the card and give your verdict with review_verdict.";
-
 pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent_id = request
         .agent_id
         .clone()
         .ok_or("ask needs the calling agent's id")?;
-    if super::board::reviews_contract(core, &agent_id) {
-        return Err(NOBODY_ASKED_ABOUT_CONTRACT.into());
-    }
     let params = &request.params;
     let text = text_param(params, "question", MAX_QUESTION_BYTES)?
         .ok_or("question must be what you want to know, as nonempty text")?;
@@ -1510,7 +1482,6 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             secret,
             access,
             approval: None,
-            proof: None,
             dialog: None,
             raise,
         }],
@@ -1562,53 +1533,6 @@ pub(crate) fn put_to_person(
             secret: false,
             access: false,
             approval: Some(approval),
-            proof: None,
-            dialog: None,
-            raise: None,
-        }],
-    )
-    .map(drop)
-}
-
-/// Asks the person, never a lead, whether a slice's proof goes into its pull request, on
-/// behalf of the agent that owns the slice. `text` is what would be written.
-pub(crate) fn put_proof_to_person(
-    core: &Core,
-    agent_id: &str,
-    proof: ProofAsk,
-    header: String,
-    text: String,
-) -> Result<(), String> {
-    let choice = |label: &str, detail: &str| QuestionChoice {
-        label: label.to_owned(),
-        detail: Some(detail.to_owned()),
-        picture: None,
-        recommended: false,
-    };
-    let project = proof.project.clone();
-    open(
-        core,
-        agent_id,
-        &project,
-        vec![Asked {
-            text: clipped(&text, MAX_QUESTION_BYTES),
-            header: Some(clipped(&header, MAX_HEADER_CHARS)),
-            choices: vec![
-                choice(
-                    "Post",
-                    "Write it now, and keep it up to date on later pushes",
-                ),
-                choice("Skip", "Never write to this pull request"),
-            ],
-            multi: false,
-            blocked: false,
-            assumption: Some(
-                "Nothing is written to the pull request until you post it.".to_owned(),
-            ),
-            secret: false,
-            access: false,
-            approval: None,
-            proof: Some(proof),
             dialog: None,
             raise: None,
         }],
@@ -1644,7 +1568,6 @@ pub(crate) fn ask_for_dialog(
             secret: false,
             access: false,
             approval: None,
-            proof: None,
             dialog: Some(dialog),
             raise: None,
         }],
@@ -1810,9 +1733,6 @@ fn pass_on(
 /// AskUserQuestion or Codex's request_user_input, into the same questions,
 /// and says what the agent is told in place of an answer.
 pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> String {
-    if super::board::reviews_contract(core, agent_id) {
-        return NOBODY_ASKED_ABOUT_CONTRACT.to_owned();
-    }
     let asked: Vec<Asked> = input
         .get("questions")
         .and_then(Value::as_array)
@@ -1842,7 +1762,6 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
                 secret: question["isSecret"].as_bool().unwrap_or(false),
                 access: false,
                 approval: None,
-                proof: None,
                 dialog: None,
                 raise: None,
             })
@@ -1882,15 +1801,14 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
 
 /// The chat's turn ended by itself: an offer of more work in its reply, which a yes or a no
 /// answers, sends the agent back when a project rule covers it, and otherwise only shows as how
-/// the turn left things. An agent with a lead, here or on a linked host, or that Auto runs,
-/// answers to them instead, and one with a message still on its way is not done.
+/// the turn left things. An agent with a lead, here or on a linked host, answers to them
+/// instead, and one with a message still on its way is not done.
 pub(crate) fn offers_in_reply(core: &Arc<Core>, agent_id: &str) {
     let Some(chat) = core.chats().get(agent_id) else {
         return;
     };
     let named = core.names().get(agent_id);
     if named.as_ref().is_some_and(|named| named.parent.is_some())
-        || super::board::run_by_auto(core, agent_id)
         || core.harness().mailbox.has_waiting(agent_id)
         || chat.feed.has_queued()
     {
@@ -2079,10 +1997,6 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             continue;
         }
         let Some(text) = text else { continue };
-        if let Some(proof) = &question.proof {
-            super::board::proof::answered(core, proof, given.choice == Some(0));
-            continue;
-        }
         if let Some(dialog) = &question.dialog {
             if let Some(chat) = core.chats().get(&question.agent_id) {
                 let _ = chat.send(ChatCommand::AnswerDialog {

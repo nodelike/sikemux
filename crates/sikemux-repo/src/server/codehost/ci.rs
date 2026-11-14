@@ -60,9 +60,8 @@ pub fn start(core: &Arc<Core>) {
 async fn serve(core: Arc<Core>) {
     loop {
         let due = {
-            let shown: HashSet<Shown> = (core.repo_above().board_waiting_on_ci)(&core)
+            let shown: HashSet<Shown> = (core.repo_above().git_pending_pulls)(&core)
                 .into_iter()
-                .chain((core.repo_above().git_pending_pulls)(&core))
                 .chain(core.checks().waiting_on_ci())
                 .chain((core.repo_above().triggers_waiting_on_ci)(&core))
                 .collect();
@@ -124,7 +123,6 @@ async fn check(core: &Arc<Core>, repo: Shown) {
         moved
     };
     if moved {
-        (core.repo_above().board_ci_moved)(core, &repo);
         (core.repo_above().git_ci_moved)(core, &repo);
         core.checks().ci_moved(&repo);
         (core.repo_above().triggers_ci_moved)(core, &repo);

@@ -5,7 +5,6 @@ pub mod clock;
 mod controls;
 pub(crate) mod dialog;
 mod dock;
-pub(crate) mod evidence;
 mod file_card;
 pub mod find_bar;
 mod floats;
@@ -38,7 +37,7 @@ pub use gpui_clicks::Clicks;
 pub(crate) use lists::relist;
 pub use lists::{close_button, gives_way, hover_actions, Group, Row, Tab, ROW};
 pub use pane::{floating_panel, notice_bar, pane, pane_frame, PaneHeader, AGENT_INSET};
-pub use select::{select, select_field, Pick};
+pub use select::{select, Pick};
 pub use state_mark::{status_mark, turn_mark, turn_time};
 
 use std::f32::consts::TAU;

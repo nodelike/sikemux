@@ -250,19 +250,8 @@ pub fn start(
     let resume_id = launch_spec.resume_id.clone();
     let waking = core.workspaces().agent(&launch_spec.agent_id).is_some();
     let (chat, queue) = core.chats().insert(core, launch_spec, origin, None)?;
-    match &resume_id {
-        None if !briefed => {
-            *chat.brief.locked() = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
-        }
-        Some(session) if !waking => {
-            *chat.brief.locked() = (core.chat_above().board_resumed_session)(
-                core,
-                chat.agent_id(),
-                chat.provider(),
-                session,
-            );
-        }
-        _ => {}
+    if resume_id.is_none() && !briefed {
+        *chat.brief.locked() = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
     }
     if core.workspaces().is_chief(chat.agent_id()) {
         *chat.brief.locked() = Some((core.chat_above().chief_brief)(core, &chat.launch.cwd));

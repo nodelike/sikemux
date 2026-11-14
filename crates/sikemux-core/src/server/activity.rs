@@ -85,7 +85,6 @@ impl ActivityCore for Core {
                     },
                 );
                 self.came_to_rest(agent_id);
-                super::board::chat_goal::turn_ended(self, agent_id, !cancelled);
                 super::questions::turn_ended(self, agent_id);
                 super::pins::turn_ended(self, agent_id, !cancelled);
                 super::why::turn_ended(self, agent_id);
@@ -120,7 +119,6 @@ impl ActivityCore for Core {
                 self.journal_agent(agent_id, Happened::Failed);
                 super::settling::needs_person(self, agent_id);
                 self.came_to_rest(agent_id);
-                super::board::chat_goal::turn_ended(self, agent_id, false);
                 super::pins::turn_ended(self, agent_id, false);
                 self.seen().wants_a_look(agent_id);
                 self.inbox().ended(agent_id, Some(message), None);
@@ -145,9 +143,7 @@ impl ActivityCore for Core {
     }
 
     fn note_ending(self: &Arc<Self>, agent_id: &str, ending: Ending) {
-        super::board::auto::turn_ended(self, agent_id, &ending);
-        let ignored = super::board::offers::offer_turn_ignored(self, agent_id);
-        super::spawn::report_to_lead(self, agent_id, ending, ignored);
+        super::spawn::report_to_lead(self, agent_id, ending);
     }
 
     fn note_linked_turn_ended(&self, agent_id: &str) {

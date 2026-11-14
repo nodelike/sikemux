@@ -1,18 +1,10 @@
-//! How a slice of work stands, drawn the same wherever it shows: its mark, the colour its words
-//! take, and the names of its gates.
+//! How a slice of work stands, drawn the same wherever it shows: its mark and the colour its words
+//! take.
 
 use gpui_kit::{div, px, AnyElement, App, IntoElement, Styled};
-use sikemux_view::slice::{Gate, SliceState};
+use sikemux_view::slice::SliceState;
 
 use crate::theme::Tokens;
-
-pub(crate) fn gate_name(gate: Gate) -> &'static str {
-    match gate {
-        Gate::Built => t!("Built"),
-        Gate::LooksRight => t!("Looks right"),
-        Gate::Landed => t!("Landed"),
-    }
-}
 
 /// A slice's mark, the same everywhere: solid green done, a green ring moving, a dashed grey
 /// ring waiting, amber when it needs the person and red when it failed.

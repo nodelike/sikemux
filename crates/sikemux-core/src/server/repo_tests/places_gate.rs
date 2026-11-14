@@ -196,8 +196,8 @@ async fn tell_me_tells_once_per_deploy_when_it_ends() {
         .unwrap()
         .unwrap();
     assert!(crate::server::person_calls::shown(&core).is_empty());
-    ship::ended(core.clone(), first, Some(Verdict::Failed), String::new()).await;
-    ship::ended(core.clone(), second, Some(Verdict::Passed), String::new()).await;
+    ship::ended(core.clone(), first, Some(Verdict::Failed)).await;
+    ship::ended(core.clone(), second, Some(Verdict::Passed)).await;
     let told = crate::server::person_calls::shown(&core);
     assert_eq!(told.len(), 1);
     assert_eq!(
@@ -323,10 +323,10 @@ async fn a_deploys_yes_covers_every_command_of_it_until_the_turn_ends() {
         "vercel --prod",
     ] {
         let went = run(&core, deploy(what), &cwd).unwrap().unwrap();
-        ship::ended(core.clone(), went, Some(Verdict::Passed), String::new()).await;
+        ship::ended(core.clone(), went, Some(Verdict::Passed)).await;
     }
     let unseen = run(&core, deploy("vercel --prod"), &cwd).unwrap().unwrap();
-    ship::ended(core.clone(), unseen, None, String::new()).await;
+    ship::ended(core.clone(), unseen, None).await;
     assert!(run(&core, deploy("vercel --prod"), &cwd).unwrap().is_some());
     core.ship().turn_ended("agent");
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
@@ -362,7 +362,7 @@ async fn a_deploy_at_tell_me_nobody_saw_end_may_have_shipped() {
     place.shown.level = Level::TellMe;
     let core = core_at(None, &project, vec![place]);
     let went = run(&core, deploy("vercel --prod"), &cwd).unwrap().unwrap();
-    ship::ended(core.clone(), went, None, String::new()).await;
+    ship::ended(core.clone(), went, None).await;
     let told = crate::server::person_calls::shown(&core);
     assert_eq!(
         told[0].outcome.as_ref().map(|outcome| outcome.result),
@@ -715,7 +715,7 @@ async fn a_retry_that_started_after_an_end_may_have_run() {
     let id = open_calls(&core).remove(0).id;
     answer_on_the_card(&core, &id).await;
     let first = run(&core, deploy("vercel --prod"), &cwd).unwrap().unwrap();
-    ship::ended(core.clone(), first, Some(Verdict::Failed), String::new()).await;
+    ship::ended(core.clone(), first, Some(Verdict::Failed)).await;
     std::thread::sleep(std::time::Duration::from_millis(2));
     assert!(run(&core, deploy("vercel --prod"), &cwd).unwrap().is_some());
     drop(core);

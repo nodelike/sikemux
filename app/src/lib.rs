@@ -7,7 +7,6 @@ mod accounts;
 mod activity_view;
 mod add_provider;
 mod agents;
-mod approvals;
 mod asking;
 mod battery;
 mod boot;
