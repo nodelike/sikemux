@@ -1336,7 +1336,7 @@ fn chief_of<'a>(project: &ProjectInfo, agents: &'a [AgentRow]) -> Option<&'a Age
     (project.chief.as_deref()).and_then(|id| agents.iter().find(|agent| agent.id == id))
 }
 
-/// A project's @Chief row: Sikemux's mark, @Chief, what it is on, the project's name where
+/// A project's @Chief row: Sikemux's mark, @Chief, "Chief of staff", the project's name where
 /// projects mix, and how its turn stands. Opening it opens the chief's chat, made the first time.
 fn chief_row(
     bench: &Workbench,
@@ -1347,16 +1347,6 @@ fn chief_row(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let chosen = chief.is_some_and(|chief| bench.agent().is_some_and(|front| front.id == chief.id));
-    let on = ui::meta(
-        match chief.filter(|chief| chief.titled) {
-            Some(chief) => chief.title.clone(),
-            None => t!("Chief of staff").to_owned(),
-        },
-        cx,
-    )
-    .min_w_0()
-    .truncate()
-    .pl(SPACE_2);
     let place = named.then(|| {
         div()
             .flex()
@@ -1377,7 +1367,7 @@ fn chief_row(
     .chosen(chosen)
     .compact(bench.rail_compact())
     .status(chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())))
-    .child(on)
+    .detail(t!("Chief of staff"))
     .children(place)
     .on_click(cx.listener(move |bench, _, _, cx| match &id {
         Some(id) => bench.open_agent(id, cx),
