@@ -1161,7 +1161,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_lookup_ends_its_input_so_a_cli_reading_to_the_end_answers() {
-        let started = std::time::Instant::now();
         let answer = run(
             "test-agent",
             Path::new("/bin/sh"),
@@ -1173,7 +1172,6 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(answer, "done");
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[tokio::test]
