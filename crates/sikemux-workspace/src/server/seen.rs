@@ -32,6 +32,7 @@ struct State {
     /// When each agent was last on some client's screen.
     viewed_at: HashMap<String, u64>,
     called_at: HashMap<String, u64>,
+    person_at: HashMap<String, u64>,
     tool_at: HashMap<String, u64>,
 }
 
@@ -163,6 +164,18 @@ impl Seen {
 
     pub fn called_at(&self, agent_id: &str) -> Option<u64> {
         self.state.locked().called_at.get(agent_id).copied()
+    }
+
+    /// The person wrote to the agent themselves.
+    pub fn person_wrote(&self, agent_id: &str) {
+        self.state
+            .locked()
+            .person_at
+            .insert(agent_id.to_owned(), epoch_ms());
+    }
+
+    pub fn person_at(&self, agent_id: &str) -> Option<u64> {
+        self.state.locked().person_at.get(agent_id).copied()
     }
 
     pub fn used_tool(&self, agent_id: &str) {

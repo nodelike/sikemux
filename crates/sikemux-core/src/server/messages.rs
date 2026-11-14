@@ -2104,6 +2104,7 @@ fn took_turn(core: &Core, agent_id: &str, queued: &[Queued]) {
 /// The person wrote to the agent, so it may take turns of its own again, and what waited for
 /// them goes on.
 pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
+    core.seen().person_wrote(agent_id);
     let mailbox = &core.harness().mailbox;
     let turns = mailbox.state.locked().auto_turns.remove(agent_id);
     if turns.is_some_and(|turns| turns.stopped_at.is_some()) {

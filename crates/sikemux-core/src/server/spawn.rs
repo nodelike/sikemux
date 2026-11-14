@@ -223,7 +223,7 @@ fn make_room(core: &Core, lead: &str) -> Result<String, String> {
         .collect();
     let mut holding = Vec::new();
     for worker in done {
-        if holds_work(core, &worker) {
+        if held_work(core, &worker).is_some() {
             holding.push(super::messages::called_now(core, &worker));
         } else if super::workspace::close(core, std::slice::from_ref(&worker)).is_ok() {
             return Ok(core.names().name_or_id(&worker));
@@ -238,23 +238,22 @@ fn make_room(core: &Core, lead: &str) -> Result<String, String> {
     })
 }
 
-/// Whether the agent changed files it has not committed, or has commits in its own checkout
-/// that are not on its base branch yet.
-fn holds_work(core: &Core, agent_id: &str) -> bool {
-    let Some(agent) = core.workspaces().agent(agent_id) else {
-        return false;
-    };
+/// What the agent holds that closing it would leave behind: files it changed and has not
+/// committed, or commits in its own checkout that are not on its base branch yet.
+pub(crate) fn held_work(core: &Core, agent_id: &str) -> Option<&'static str> {
+    let agent = core.workspaces().agent(agent_id)?;
     let project = core
         .names()
         .get(agent_id)
         .map_or(agent.project.clone(), |named| named.project);
     if super::inbox::uncommitted(core, &project, agent_id, &agent.cwd) {
-        return true;
+        return Some("has uncommitted changes");
     }
     agent
         .worktree
         .as_ref()
         .is_some_and(|worktree| !matches!(super::edits::unlanded(worktree), Ok(None)))
+        .then_some("has unlanded commits")
 }
 
 /// A worker here for a lead on a linked host, as that host named it.

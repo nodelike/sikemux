@@ -6,14 +6,17 @@ use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
+use sikemux_view::turn::{TurnPhase, WorkAt};
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{AgentStatus, ChatInfo, ChatState, SessionInfo};
 
 use crate::cli::protocol::HarnessRequest;
+use crate::git::Git;
 
 use super::connection::blocking;
 use super::workspace::project_of;
@@ -272,7 +275,8 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
 
 /// Closes agents the caller started, or that one of its workers started, or,
 /// by id, one that no open agent leads, as the person closing their tabs would, on whichever host
-/// each runs. Their chats stay in Recent.
+/// each runs. A project's chief may also close any finished agent of its project. Their chats stay
+/// in Recent.
 pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let caller = request
         .agent_id
@@ -315,10 +319,19 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
                     .into());
                 }
                 if !orphan {
-                    return Err(format!(
-                        "{name} is the person's, or its lead or Auto still runs, so closing it is theirs to do"
-                    )
-                    .into());
+                    let chief_here =
+                        super::chief::is_chief(&core, &caller) && target.project == project;
+                    if !chief_here {
+                        return Err(format!(
+                            "{name} is the person's, or its lead or Auto still runs, so closing it is theirs to do"
+                        )
+                        .into());
+                    }
+                    if let Some(why) = kept_from_chief(&core, &target.agent_id) {
+                        return Err(
+                            format!("{name} {why}, so closing it is not yours to do yet").into()
+                        );
+                    }
                 }
             }
             closing.push((target.agent_id, name));
@@ -334,6 +347,87 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         closed.push(super::hosts::route::close(core, &caller, &agent_id).await?);
     }
     Ok(json!({ "closed": closed }))
+}
+
+/// Why a project's chief may not close `agent_id`, an agent of its project it does not lead: it is
+/// still at work or waiting on something, it holds work not yet committed, landed or pushed, or the
+/// person wrote to it within the hour. None when it is finished and free to close.
+fn kept_from_chief(core: &Core, agent_id: &str) -> Option<String> {
+    let now = core.agent_now(agent_id);
+    if now.at_work() {
+        return Some("is still working".into());
+    }
+    if now.waits_on_something() {
+        return Some("waits on an answer or a message".into());
+    }
+    if let Some(turn) = super::turn_state::now(core, agent_id) {
+        let why = match turn.state {
+            TurnPhase::Done | TurnPhase::Stopped => None,
+            TurnPhase::Working => Some("is still working".to_owned()),
+            TurnPhase::NeedsYou => Some("waits on the person".to_owned()),
+            TurnPhase::Failed => Some("ended its turn on a failure".to_owned()),
+            TurnPhase::Waiting => Some(match turn.wait {
+                Some(wait) => format!("waits on {}", wait.what),
+                None => "waits on something set to wake it".to_owned(),
+            }),
+            TurnPhase::Unknown => Some("is in a state this core does not know".to_owned()),
+        };
+        if why.is_some() {
+            return why;
+        }
+        match turn.done.map(|done| done.changes) {
+            Some(WorkAt::Uncommitted) => return Some("has uncommitted changes".into()),
+            Some(WorkAt::Committed) => return Some("has unlanded commits".into()),
+            _ => {}
+        }
+    }
+    if let Some(why) = super::spawn::held_work(core, agent_id) {
+        return Some(why.into());
+    }
+    if unpushed(core, agent_id) {
+        return Some("has unpushed commits".into());
+    }
+    let wrote = core.seen().person_at(agent_id)?;
+    let now = epoch_ms();
+    (now.saturating_sub(wrote) < PERSON_KEEPS_MS).then(|| {
+        format!(
+            "was written to by the person {}",
+            since(Some(wrote), now).unwrap_or_default()
+        )
+    })
+}
+
+/// How long an agent the person wrote to stays theirs alone to close.
+const PERSON_KEEPS_MS: u64 = 60 * 60 * 1000;
+
+/// Whether a commit naming the agent is on its project's branch here but not on that branch's
+/// remote yet.
+fn unpushed(core: &Core, agent_id: &str) -> bool {
+    let Some(agent) = core.workspaces().agent(agent_id) else {
+        return false;
+    };
+    let repo = (agent.worktree.as_ref()).map_or(Path::new(&agent.project), |worktree| {
+        worktree.repo.as_path()
+    });
+    let Some(branch) = super::landing::project_branch(repo) else {
+        return false;
+    };
+    let Some(remote) = super::landing::remote_of(repo, &branch) else {
+        return false;
+    };
+    let range = format!("{remote}..refs/heads/{branch}");
+    let grep = format!("--grep={agent_id}");
+    Git::quick(repo)
+        .text(&[
+            "log",
+            "-n",
+            "1",
+            "--fixed-strings",
+            &grep,
+            "--format=%H",
+            &range,
+        ])
+        .is_ok_and(|found| !found.trim().is_empty())
 }
 
 /// The agent `to` names: an agent id, or a name held in the caller's project

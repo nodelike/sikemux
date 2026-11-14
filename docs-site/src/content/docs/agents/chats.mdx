@@ -168,6 +168,8 @@ Every project has a chief, @Chief: one chat that stays with the project, where y
 
 The chief runs on the agent and model a new chat in the project would use, and its chat's header says which, with the project and how many agents it has: **storefront · 14 agents · Opus 5.5**. The agents it starts are listed under it as any team is. Opening a worker's chat shows the chain down to it in the header, such as **@Chief › @Rohan › Stripe webhook retries**, and what you type there goes to that worker. The composer says so, **Send to @Rohan · @Chief is told**: the chief hears what you wrote with its next turn.
 
+The chief can close any agent in its project once that agent is finished: not working or waiting on anything, with nothing left uncommitted, unlanded or unpushed, and nothing you wrote to it in the last hour. Other agents close only the ones they started.
+
 The first time you open a project's chief, it writes to you first: who it is, the chats open in the project and how each stands, and what waits on you. Your chats stay where they are, and you can still talk to any of them.
 
 When you come back to the chief after an hour or more, a **While you were away** card sits at the end of its chat. It holds the calls that wait on you, one open and the rest folded under it, and each one you answer there folds to a line saying how you answered, with how many are left; what agents decided for you, each with **Overrule**; and what landed, with who landed it, what its commit says it changed, how many lines it removed and added (**−120 +40**), and **Try it** where there is something to try. It stays until every call in it is answered, or, with none, until you next write to the chief.
