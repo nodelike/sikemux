@@ -153,6 +153,9 @@ step with its outcome, the last line of a failed one and its log. It uses
 
 ## processes: Starting and stopping processes
 
+When a local page differs from the code, `workspace_inspect` shows which
+checkout serves it.
+
 A process is a named command that runs in a terminal; each start of it is a
 run. `process_start` takes an `idempotencyKey` you choose and either a
 `processId` or a `command` to run. `workspace_inspect` lists the process ids: those from

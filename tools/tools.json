@@ -25,7 +25,7 @@
           "maxLength": 8192
         },
         "newTab": {
-          "description": "Open in a new tab; a tab of yours already on that site is used instead",
+          "description": "Open in a new tab, or your tab already on that site",
           "type": "boolean"
         },
         "go": {
@@ -105,7 +105,7 @@
           "maxLength": 512
         },
         "around": {
-          "description": "Read the text around this phrase instead of from the top",
+          "description": "Read text around this phrase, not from the top",
           "type": "string",
           "minLength": 1,
           "maxLength": 500
@@ -279,7 +279,7 @@
       "description": "Batch navigate, click, type, wait, read.",
       "properties": {
         "steps": {
-          "description": "Up to 20, each with its tool's fields, in order until one fails. Plan the whole flow, with a wait after a step that loads a page, naming elements by text, field or selector",
+          "description": "Up to 20, each with its tool's fields, run in order until one fails; wait after a step that loads a page; name elements by text, field or selector",
           "type": "array",
           "minItems": 1,
           "maxItems": 20,
@@ -1314,7 +1314,7 @@
           "type": "string"
         },
         "command": {
-          "description": "Shell command, when no processId",
+          "description": "Shell command, when no processId; never cd out of the project",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -1461,7 +1461,7 @@
         },
         "mod": {
           "type": "string",
-          "description": "With kind mod: the mod's id, its folder's name in the mods folder"
+          "description": "With kind mod: its id, its folder's name"
         },
         "line": {
           "type": "integer",
@@ -1562,7 +1562,7 @@
           "maximum": 1600
         },
         "script": {
-          "description": "Runs in the page with its theme, as browser_evaluate does; its result comes back",
+          "description": "Runs in the page with its theme, as browser_evaluate; returns its result",
           "type": "string",
           "minLength": 1,
           "maxLength": 20000
@@ -1602,7 +1602,7 @@
           "maximum": 4000
         },
         "tab": {
-          "description": "Open it in a desk tab, with a card in your reply: for a mockup of a whole screen, app or site",
+          "description": "Open it in a desk tab, with a card in your reply: for a whole screen, app or site",
           "type": "boolean"
         }
       },
@@ -1631,13 +1631,13 @@
           "type": "string"
         },
         "until": {
-          "description": "With executionId, instead of events: exit, ready (its readyWhen), or text it prints",
+          "description": "With executionId: exit, ready (its readyWhen) or text it prints",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
         "file": {
-          "description": "Instead of a cursor: wait on this absolute path; with no text, until it stops changing",
+          "description": "Wait on this absolute path; with no text, until it stops changing",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -1649,7 +1649,7 @@
           "maxLength": 500
         },
         "pid": {
-          "description": "Instead of a cursor: until this process exits",
+          "description": "Until this process exits",
           "type": "integer",
           "minimum": 1
         }
@@ -1971,7 +1971,7 @@
                 "maxLength": 400
               },
               "picture": {
-                "description": "Only when the choice is a look: a screenshot or mockup of it",
+                "description": "For a choice of look: its screenshot or mockup",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 4096
@@ -2080,13 +2080,13 @@
           "maxLength": 16384
         },
         "promise": {
-          "description": "What it changes, in one sentence of at most 200 characters; makes it a slice that passes Built, Looks right and Landed",
+          "description": "What it changes, one sentence of at most 200 characters; makes it a slice",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
         },
         "asserts": {
-          "description": "The goal's assertions it fulfils, as a slice",
+          "description": "Goal assertions it fulfils",
           "type": "array",
           "maxItems": 20,
           "items": {
@@ -2170,13 +2170,13 @@
           "maxLength": 16384
         },
         "promise": {
-          "description": "What it changes, in one sentence of at most 200 characters; makes it a slice that passes Built, Looks right and Landed",
+          "description": "What it changes, one sentence of at most 200 characters; makes it a slice",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
         },
         "asserts": {
-          "description": "The goal's assertions it fulfils, as a slice",
+          "description": "Goal assertions it fulfils",
           "type": "array",
           "maxItems": 20,
           "items": {
@@ -2235,7 +2235,7 @@
           "minimum": 0
         },
         "ticks": {
-          "description": "Changes the person asked for that you made, each with the evidence id showing it",
+          "description": "Changes the person asked for that you made, each with its evidence id",
           "type": "array",
           "maxItems": 20,
           "items": {"type": "object", "additionalProperties": false, "properties": {"change": {"type": "integer", "minimum": 1}, "proof": {"type": "string", "minLength": 1, "maxLength": 2000}, "evidence": {"type": "integer", "minimum": 1}}, "required": ["change", "proof"]}
@@ -2253,7 +2253,7 @@
       "properties": {
         "environments": { "type": "array", "items": { "type": "object" }, "description": "Instead: propose the project's, in order, with why; see the guide" },
         "decision": {
-          "description": "The decision to correct or retire; leave out to record one",
+          "description": "The one to correct or retire; omit to record one",
           "type": "integer",
           "minimum": 1
         },
@@ -2284,12 +2284,12 @@
       "description": "Keep a goal's assertions.",
       "properties": {
         "goal": {
-          "description": "The goal's card; leave out for the goal your card sits under",
+          "description": "The goal's card; default your card's goal",
           "type": "integer",
           "minimum": 1
         },
         "assertion": {
-          "description": "The assertion to correct or retire; leave out to write one",
+          "description": "The one to correct or retire; omit to write one",
           "type": "integer",
           "minimum": 1
         },
@@ -2300,7 +2300,7 @@
           "maxLength": 1000
         },
         "evidence": {
-          "description": "What shows it, which Sikemux collects on each slice's latest commit",
+          "description": "What shows it, collected on each slice's latest commit",
           "type": "string",
           "enum": [
             "check",
@@ -2311,13 +2311,13 @@
           ]
         },
         "workflow": {
-          "description": "The CI workflow whose run shows it, as the CI names it, for workflow evidence",
+          "description": "For workflow evidence: the CI workflow's name",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
         },
         "command": {
-          "description": "For command evidence: one line whose exit code shows it, run in a clean checkout. Counts only once the person approves exactly this command",
+          "description": "Command evidence: one line whose exit code shows it, run in a clean checkout; counts once the person approves it",
           "type": "string",
           "minLength": 1,
           "maxLength": 1000
@@ -2347,7 +2347,7 @@
           "maxLength": 1000
         },
         "about": {
-          "description": "Paths and services it is about; knowledge goes to agents whose task names one",
+          "description": "Paths and services; knowledge reaches agents naming one",
           "type": "array",
           "maxItems": 12,
           "items": {
@@ -2397,7 +2397,7 @@
           ]
         },
         "folder": {
-          "description": "A folder above the project, to share it with every project under it",
+          "description": "A folder above the project, to share with every project in it",
           "type": "string",
           "maxLength": 4096
         }
@@ -2437,7 +2437,7 @@
           "type": "boolean"
         },
         "about": {
-          "description": "Paths and services it is about; knowledge goes to agents whose task names one",
+          "description": "Paths and services; knowledge reaches agents naming one",
           "type": "array",
           "maxItems": 12,
           "items": {
@@ -2516,7 +2516,7 @@
           "minimum": 60
         },
         "at": {
-          "description": "A time with its offset, once, such as 2026-10-28T09:30:00+05:30",
+          "description": "Once, at a time with offset: 2026-10-28T09:30:00+05:30",
           "type": "string",
           "maxLength": 64
         },
@@ -2531,35 +2531,35 @@
           "maxLength": 5
         },
         "board": {
-          "description": "Add a card to this project's board when it fires instead of prompting this chat",
+          "description": "Fire as a card on this project's board, not a prompt",
           "type": "boolean"
         },
         "webhook": {
-          "description": "Fire on each request to an address it returns, instead of at a time",
+          "description": "Fire on each request to an address it returns",
           "type": "boolean"
         },
         "check": {
-          "description": "With every or daily: a shell command; fire only when its output changed",
+          "description": "With every or daily: fire only when this command's output changed",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
         "ci": {
-          "description": "Instead of a time: fire once CI ends on this commit, branch, or CI run address or id",
+          "description": "Fire once CI ends on this commit, branch, or run address or id",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
         },
         "process": {
-          "description": "Instead of a time: fire once this executionId ends",
+          "description": "Fire once this executionId ends",
           "type": "string"
         },
         "agent": {
-          "description": "Instead of a time: fire once this agent gets to until",
+          "description": "Fire once this agent gets to until",
           "type": "string"
         },
         "mod": {
-          "description": "Instead of a time: fire when others add or change documents in this mod/collection",
+          "description": "Fire when others add or change documents in this mod/collection",
           "type": "string"
         },
         "where": {
@@ -2577,7 +2577,7 @@
           "maximum": 86400
         },
         "weekdays": {
-          "description": "With daily, the days it fires on; every day when left out",
+          "description": "With daily: the days it fires; default every day",
           "type": "array",
           "maxItems": 7,
           "items": {
@@ -2619,7 +2619,7 @@
       "row": {"verb": "review", "kind": "think", "icon": "eye", "target": ["the change"]},
       "method": "review.verdict",
       "offered": "reviewer",
-      "description": "Approve the change or contract you are reviewing, or say what must change.",
+      "description": "Approve what you review, or say what must change.",
       "properties": {
         "approve": {
           "type": "boolean"
@@ -2738,7 +2738,7 @@
           "maxLength": 65536
         },
         "paths": {
-          "description": "Files or folders, relative or absolute; default every line of yours",
+          "description": "Files or folders; default every line of yours",
           "type": "array",
           "maxItems": 200,
           "items": {
@@ -2748,11 +2748,11 @@
           }
         },
         "sync": {
-          "description": "From a checkout of your own: bring it up to the branch it was cut from",
+          "description": "Own checkout: bring it up to the branch it was cut from",
           "type": "boolean"
         },
         "land": {
-          "description": "From a checkout of your own: queue your commits for the branch it was cut from; Sikemux checks and lands them, and messages you if they break the check",
+          "description": "Own checkout: queue your commits for the branch it was cut from; you hear if they break the check",
           "type": "boolean"
         },
         "push": {
