@@ -224,13 +224,6 @@ final class NotchStore {
         }
     }
 
-    /// Hands a call back to its asker's lead, or its asker, to decide.
-    func notMine(_ call: PersonCall) {
-        link?.request(CoreCall.CallNotMine(params: CallParams(id: call.id))) { [weak self] result in
-            if case .failure(let error) = result { self?.fail(error.message) }
-        }
-    }
-
     /// Answers an agent's question with files, which reach it as the composer's do.
     func answer(_ question: AgentQuestion, paths: [String]) {
         link?.request(CoreCall.AnswerQuestion(params: AnswerParams(id: question.id, paths: paths))) {

@@ -16,33 +16,20 @@ final class CallDraft {
         chosen ?? (call.pick.map { [$0] } ?? [])
     }
 
-    /// Chooses an option, or clears the one chosen; on a call that takes several, ticks it.
+    /// Chooses an option, or clears the one chosen.
     func choose(_ option: String, in call: PersonCall) {
-        var now = chosen(in: call)
-        if let at = now.firstIndex(of: option) {
-            now.remove(at: at)
-        } else if call.multi == true {
-            now.append(option)
-        } else {
-            now = [option]
-        }
-        chosen = now
+        chosen = chosen(in: call).contains(option) ? [] : [option]
     }
 
-    /// What answers the call as the card stands: the options chosen with the note, the person's
-    /// own words alone, or, with neither, letting the asker's assumption stand.
+    /// What answers the call as the card stands: the option chosen with the note, or the person's
+    /// own words alone.
     func answer(_ call: PersonCall) -> AnswerCallParams? {
         let words = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         let text = words.isEmpty ? nil : words
-        let now = chosen(in: call)
-        if now.isEmpty {
-            if text == nil && call.letsStand { return AnswerCallParams(id: call.id, fine: true) }
+        guard let option = chosen(in: call).first else {
             return text.map { AnswerCallParams(id: call.id, words: $0) }
         }
-        if call.multi == true {
-            return AnswerCallParams(id: call.id, options: now, note: text)
-        }
-        return AnswerCallParams(id: call.id, option: now[0], note: text)
+        return AnswerCallParams(id: call.id, option: option, note: text)
     }
 }
 
@@ -284,64 +271,21 @@ struct CallCard: View {
         }
     }
 
-    /// The sentence shows whole or not at all: where the buttons leave no room for it, the card goes
-    /// without. What the asker goes on assuming takes its own line above the buttons instead.
-    @ViewBuilder
     private var footer: some View {
-        if call.assumption != nil {
-            VStack(alignment: .leading, spacing: 8) {
-                sentence.fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 2) {
-                    Spacer(minLength: 0)
-                    buttons
-                }
-            }
-        } else {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 2) {
-                    sentence.fixedSize()
-                    Spacer(minLength: 8)
-                    buttons
-                }
-                HStack(spacing: 2) {
-                    Spacer(minLength: 0)
-                    buttons
-                }
-            }
+        HStack(spacing: 2) {
+            Spacer(minLength: 0)
+            buttons
         }
-    }
-
-    private var sentence: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            IconView(icon: Icons.clock, size: 11)
-            Text(waitsOrGoesOn)
-        }
-        .font(Theme.ui(11.5))
-        .foregroundStyle(Theme.inkFaint)
     }
 
     @ViewBuilder
     private var buttons: some View {
-        if call.canHandBack {
-            TextButton(title: "Not mine") { store.notMine(call) }
-        }
-        if call.secret == true {
-            TextButton(title: "I don't have one") {
-                guard !draft.sending else { return }
-                store.answer(call, AnswerCallParams(id: call.id, none: true), draft: draft)
-            }
-        }
         TextButton(title: "Open chat", icon: Icons.message) { store.focus(call.asker.agentId) }
         if call.secret == true {
             GoButton(title: "Answer in Sikemux", enabled: true) { store.focus(call.asker.agentId) }
         } else {
-            GoButton(title: "Go with this", enabled: (!chosen.isEmpty || typed || call.letsStand) && !draft.sending, action: goWithThis)
+            GoButton(title: "Go with this", enabled: (!chosen.isEmpty || typed) && !draft.sending, action: goWithThis)
         }
-    }
-
-    private var waitsOrGoesOn: String {
-        guard let assumption = call.assumption else { return "Nothing happens until you answer" }
-        return "Until you answer, @\(call.asker.name) goes on assuming \(assumption)"
     }
 
     private func goWithThis() {
@@ -361,11 +305,7 @@ private struct OptionRow: View {
     var body: some View {
         Button(action: choose) {
             HStack(spacing: 10) {
-                if call.multi == true {
-                    Tick(on: chosen)
-                } else {
-                    Radio(on: chosen)
-                }
+                Radio(on: chosen)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(option.label).font(Theme.ui(13)).foregroundStyle(Theme.ink)
                     if let detail = option.detail {
@@ -402,19 +342,6 @@ private struct Radio: View {
             Circle().strokeBorder(Theme.accent, lineWidth: 4).background(Circle().fill(Color.white)).frame(width: 13, height: 13)
         } else {
             Circle().strokeBorder(Theme.inkFaint, lineWidth: 1.5).frame(width: 13, height: 13)
-        }
-    }
-}
-
-private struct Tick: View {
-    let on: Bool
-
-    var body: some View {
-        if on {
-            RoundedRectangle(cornerRadius: 3).fill(Theme.accent).frame(width: 13, height: 13)
-                .overlay(IconView(icon: Icons.check, size: 9).foregroundStyle(Theme.onAccent))
-        } else {
-            RoundedRectangle(cornerRadius: 3).strokeBorder(Theme.inkFaint, lineWidth: 1.5).frame(width: 13, height: 13)
         }
     }
 }
@@ -571,7 +498,6 @@ private struct CallRow: View {
 }
 
 extension PersonCall {
-    var letsStand: Bool { assumption != nil && options.isEmpty }
     /// What the person types for it is kept private, a secret's or an access call's, so the notch takes
     /// no words for it: they are typed in the asker's chat.
     var keepsWordsPrivate: Bool { secret == true || kind == .access }

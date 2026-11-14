@@ -288,9 +288,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .call .runs-cmd { margin-top: 6px; font-family: var(--mono); font-size: 12px; color: rgba(231, 229, 239, 0.78); user-select: text; }
 .call .foot { display: flex; align-items: center; gap: 2px; margin-top: 14px; }
 .call .wait { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-faint); white-space: nowrap; overflow: hidden; }
-.call .goes { display: flex; align-items: flex-start; gap: 6px; margin-top: 14px; font-size: 11.5px; line-height: 16px; color: var(--ink-faint); }
-.call .goes svg { flex: none; margin-top: 2.5px; }
-.call .goes + .foot { justify-content: flex-end; margin-top: 8px; }
 .call .lnk { height: 26px; padding: 0 7px; display: inline-flex; align-items: center; gap: 4px; border-radius: 5px; font-size: 12px; font-weight: 500; color: rgba(231, 229, 239, 0.78); }
 .call .lnk:hover { background: var(--hover); color: var(--ink); }
 .call .go { height: 26px; padding: 0 11px; display: inline-flex; align-items: center; border-radius: 5px; font-size: 12px; font-weight: 500; background: var(--acc); color: var(--on-accent); }
@@ -672,17 +669,6 @@ const RADII = { closed: [6, 14], peek: [14, 22], open: [19, 24] };
 const SPRING = { open: [0.42, 0.8], close: [0.45, 1.0], hover: [0.38, 0.8] };
 
 /** Every open agent, in the order the app's rail lists them: what wants you first. An idle one has no tier. */
-/** An agent whose calls it goes on from, kept out of the other states' lists. */
-function goingOn() {
-    return { id: "a14", name: "Fern", type: "claude", title: "Error tracking for the server", project: "server", tier: "needs", state: "working", time: "0:04", clock: "4m",
-        what: "Needs you",
-        calls: [{ id: "g1", age: "4m", question: "Pay for the error tracker's team plan?", context: "The free plan keeps a week of errors; the team plan keeps ninety days.",
-                assumption: "the free plan", options: ["Pay for the team plan", "Stay on the free plan"], pick: 0, handBack: true,
-                against: "a week is enough while the server has few users." },
-                { id: "g2", age: "1m", question: "Which Stripe key do the staging payment tests take?", context: "The tests charge test cards on staging before bank transfer ships.",
-                assumption: "they run against the local mock until there is one", options: ["Skip, use the local mock"], private: true }] };
-}
-
 /** An agent asking for a secret, which the island takes no words for. */
 function asksSecret() {
     return { id: "a15", name: "Rowan", type: "claude", title: "Publish the package", project: "server", tier: "needs", state: "blocked", clock: "1m",
@@ -695,7 +681,7 @@ function chiefAsking() {
     return { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", titled: true, project: "sikemux", tier: "needs", state: "blocked", clock: "3m",
         what: "Needs you",
         calls: [{ id: "c1q", age: "3m", question: "Should the welcome screen say hello by name?", context: "Sign-up already has the name; the screen greets everyone the same today.",
-                options: ["Greet them by name", "Keep one greeting"], pick: 0, handBack: true,
+                options: ["Greet them by name", "Keep one greeting"], pick: 0,
                 against: "a name typed in a hurry reads back wrong on the first screen." }] };
 }
 
@@ -707,9 +693,9 @@ function freshAgents() {
         { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01", clock: "1m",
           what: "Asks you", question: { text: "Should amounts be stored in cents or as decimals?" },
           calls: [{ id: "q1", age: "1m", question: "Should amounts be stored in cents or as decimals?", context: "The API sends decimals but the ledger table uses integers.",
-                  options: ["Cents", "Decimals"], pick: 0, against: "every import converts what the API sends.", handBack: true },
+                  options: ["Cents", "Decimals"], pick: 0, against: "every import converts what the API sends." },
                   { id: "t1", age: "1h", question: "What do we call the new way to pay?", context: "It sits beside Card on every invoice. Testers asked when the money arrives.",
-                  options: ["Bank transfer (2–3 days)", "Pay by bank", "Bank transfer"], pick: 0, pictures: true, handBack: true,
+                  options: ["Bank transfer (2–3 days)", "Pay by bank", "Bank transfer"], pick: 0, pictures: true,
                   against: "it is the longest, and on a phone it takes two lines beside Card." }] },
         { id: "a12", name: "Kite", type: "claude", title: "Ship the new welcome screen", project: "storefront", tier: "needs", state: "blocked", time: "0:12", clock: "12m",
           what: "Needs you",
@@ -717,7 +703,7 @@ function freshAgents() {
                   context: "You asked for a friendlier welcome screen. It's on staging, and sign-ups there held at 4.1% over two days.",
                   options: ["Ship it to everyone", "Ship to half first", "Not yet"], pick: 0, production: true, page: "welcome",
                   against: "step 2 still has the old copy.", action: "vercel deploy --prod" },
-                  { id: "m1", age: "3m", question: "Buy the display font, $40?", handBack: true,
+                  { id: "m1", age: "3m", question: "Buy the display font, $40?",
                   context: "The welcome screen's heading uses it. The licence covers the web and the app for good.",
                   options: ["Buy it", "Use a free font instead"], pick: 0,
                   against: "a free font is close enough that most people won't see the difference." }] },
@@ -888,12 +874,7 @@ function callCard(call, card, listed = false) {
     const runs = call.production && call.action
         ? `<div class="runs${card.runs ? " open" : ""}" data-runs>${GLYPH.chevronSmall}What runs</div>${card.runs ? `<div class="runs-cmd">${call.action}</div>` : ""}`
         : "";
-    const letsStand = call.assumption && !call.options.length;
-    const ready = chosen.length || card.typed || letsStand;
-    // The sentence shows whole or not at all: beside Not mine, Open chat and Go with this, 418 points leave no room.
-    // What the asker goes on assuming takes its own line above the buttons instead.
-    const goes = call.assumption ? `<p class="goes">${GLYPH.clock}<span>Until you answer, @${call.agent.name} goes on assuming ${call.assumption}</span></p>` : "";
-    const wait = call.assumption ? "" : listed || !(call.handBack || call.secret) ? `<span class="wait">${GLYPH.clock}Nothing happens until you answer</span>` : `<span class="wait"></span>`;
+    const ready = chosen.length || card.typed;
     return `<div class="call${listed ? " listed" : ""}" data-call="${call.id}">
         ${listed ? "" : `<div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}</div>`}
         <h4>${call.question}</h4>${call.context ? `<p class="ctx">${call.context}</p>` : ""}
@@ -901,9 +882,7 @@ function callCard(call, card, listed = false) {
         ${rows || field ? `<div class="rows${lit ? " lit" : ""}">${rows}${field}</div>` : ""}
         ${call.against ? `<p class="vs"><em>Against it:</em> ${call.against}</p>` : ""}
         ${runs}
-        ${goes}<div class="foot">${wait}${
-            call.handBack ? `<button class="lnk" data-not-mine>Not mine</button>` : ""}${
-            call.secret ? `<button class="lnk">I don't have one</button>` : ""}<button class="lnk">${GLYPH.message}Open chat</button>${
+        <div class="foot"><span class="wait"></span><button class="lnk">${GLYPH.message}Open chat</button>${
             call.secret ? `<button class="go">Answer in Sikemux</button>` : `<button class="go" data-go ${ready ? "" : "disabled"}>Go with this</button>`}</div>
     </div>`;
 }
@@ -1351,7 +1330,7 @@ class Island {
                 return;
             }
             if (e.target.closest("[data-runs]") && call) { this.card(call.id).runs = !this.card(call.id).runs; this.render(); return; }
-            if ((e.target.closest("[data-go]") || e.target.closest("[data-not-mine]")) && call) {
+            if (e.target.closest("[data-go]") && call) {
                 call.agent.calls = call.agent.calls.filter((c) => c.id !== call.id);
                 if (!call.agent.calls.length && call.agent.tier === "needs") Object.assign(call.agent, { tier: "progress", state: "working" });
                 if (this.mode === "call") this.mode = this.hover ? this.opening() : "closed";
@@ -1461,36 +1440,30 @@ const SECTIONS = [
             { id: "P1", name: "Something needs you", when: "A new item that is not a call arrives in the inbox's Needs you: a permission, a terminal waiting for you to type, a card handed back.",
               shows: "The agent by its name, its task, the inbox's words for what it needs and the exact command, with Deny, Always allow and Allow (⏎). Anything else the island cannot answer offers Open in Sikemux.",
               leaves: "Answering closes it. Unanswered, it shrinks to C3 after 6 s.", opts: { agents: () => freshAgents(), mode: "peek-ask", peekAgent: "a1" } },
-            { id: "P4", name: "A call", when: "An agent puts a call to the person: a question raised with ask, or one its lead passes on.",
-              shows: "The call's card alone, at its own 418-point width, as the Mac draws it: who asks with its project and how long ago, the question, its context, the options as radios in one block with the pick chosen and tagged with the S, the note field as their last row, the point against, then Nothing happens until you answer, Not mine on a call about taste, Open chat, which opens the asker's chat on the Mac, and Go with this. The sentence shows whole or not at all: beside Not mine there is no room for it at this width, so that card goes without it. Clicking the chosen row again clears it, and the field then takes your own words. The card tells the core it was seen as it draws.",
+            { id: "P4", name: "A call", when: "An agent puts a call to the person: a question asked with ask that its lead left to them.",
+              shows: "The call's card alone, at its own 418-point width, as the Mac draws it: who asks with its project and how long ago, the question, its context, the options as radios in one block with the pick chosen and tagged with the S, the note field as their last row, the point against, then Open chat, which opens the asker's chat on the Mac, and Go with this. Clicking the chosen row again clears it, and the field then takes your own words. The card tells the core it was seen as it draws.",
               leaves: "Go with this, or an answer in the chat, on the Mac or on a phone, closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s; resting the pointer keeps it, and typing in its field keeps it open when the pointer leaves.",
               opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1" } },
             { id: "P5", name: "A production call", when: "An agent's push, merge, deploy or write that leaves this Mac waits on the person, or a gate raises a ship to production.",
-              shows: "The same card, worded at the goal's level, with the asker's pick marked: Ship it to everyone, Ship to half first, Not yet. What runs, folded under the against line, opens on the exact command in mono. Only a picked option passes it: words typed in its field reach the agent as direction. It has no Not mine.",
+              shows: "The same card, worded at the goal's level, with the asker's pick marked: Ship it to everyone, Ship to half first, Not yet. What runs, folded under the against line, opens on the exact command in mono. Only a picked option passes it: words typed in its field reach the agent as direction.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "7", cards: { 7: { runs: true } } } },
             { id: "P6", name: "A weighty call", when: "A call comes as a brief, such as a cutover or a public release.",
               shows: "The brief is the context: what was tried, what the evidence shows, what can't be undone. The evidence's picture sits under it, the page from its top.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a13"]), mode: "call", callId: "w1" } },
             { id: "P10", name: "A money call", when: "An agent wants to spend money.",
-              shows: "The same card: what it costs on the option, the pick marked, and Not mine, since a lead may decide it.",
+              shows: "The same card: what it costs on the option, the pick marked.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a12"]), mode: "call", callId: "m1" } },
             { id: "P7", name: "A call with pictures", when: "A call about taste gives each option a picture.",
               shows: "The pictures sit in a strip above the options: the chosen option's leads, large, the others smaller and dimmed beside it. Clicking a small one chooses its option.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "t1" } },
             { id: "P8", name: "Your own words", when: "The person clears the pick and types.",
-              shows: "No row chosen, the field ringed in the accent with what was typed. Go with this sends it as the answer. A call asking for a secret opens in Sikemux instead, with Answer in Sikemux in place of Go with this; a call for access takes no words here either (P12).",
+              shows: "No row chosen, the field ringed in the accent with what was typed. Go with this sends it as the answer. A call asking for a secret opens in Sikemux instead, with Answer in Sikemux in place of Go with this.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1", cards: { q1: { chosen: [], typed: "Cents, and convert on import" } } } },
-            { id: "P11", name: "A call its asker goes on from", when: "An agent asks something it need not wait on, and goes on with what it assumes until the person answers.",
-              shows: "The same card, the footer's sentence saying what it assumes in its own words, after ours so its ending never runs into them: Until you answer, @Fern goes on assuming the free plan, with the clock, on its own line above the buttons. A call to production never goes on: its asker always waits.",
-              leaves: "As P4.", opts: { agents: () => [...only(["a2"]), goingOn()], mode: "call", callId: "g1" } },
-            { id: "P12", name: "A call for access that goes on", when: "The asker goes on with an assumption while it waits for a key, and offers what needs none.",
-              shows: "Its option, Skip, use the local mock, and no field: what the person types for a key or a password is kept private, so the notch takes none of it. Go with this sends the option once it is chosen; Open chat opens the asker's chat, whose card takes the key in its hidden field.",
-              leaves: "As P4.", opts: { agents: () => [...only(["a2"]), goingOn()], mode: "call", callId: "g2" } },
             { id: "P13", name: "A call the chief asks", when: "The project's chief puts a call to the person itself.",
               shows: "The same card, its asker drawn as Sikemux's S in the accent, as the chief's row is, in the card's head and in the call's row of the list; any other asker wears its own face.",
               leaves: "As P4.", opts: { agents: () => [chiefAsking(), ...only(["a2"])], mode: "call", callId: "c1q" } },
             { id: "P14", name: "A call for a secret", when: "An agent asks for a password or a token.",
-              shows: "No field, since the island takes no secret: Answer in Sikemux opens the asker's chat, whose composer and card keep it private. Beside Open chat, I don't have one tells the agent plainly that the person has none, keeps nothing, and closes the call to had none to give; the waiting sentence gives way to it, as it does beside Not mine.",
+              shows: "No field, since the island takes no secret: Answer in Sikemux opens the asker's chat, whose composer and card keep it private.",
               leaves: "As P4.", opts: { agents: () => [asksSecret(), ...only(["a2"])], mode: "call", callId: "s1" } },
             { id: "P2", name: "Finished", when: "An agent's turn ends: its inbox item goes from working to finished or to review.",
               shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot. A turn that ran into a problem says Failed, with a red dot.",
