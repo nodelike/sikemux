@@ -1172,6 +1172,7 @@ fn picker_face<E: Styled + ParentElement + IntoElement>(
         })
         .when_some(effort.filter(|_| room > Room::Bare), |trigger, effort| {
             trigger
+                .child(div().flex_none().text_color(t.text_tertiary).child("·"))
                 .child(
                     ui::icon(Icon::Gauge, 13.)
                         .flex_none()
