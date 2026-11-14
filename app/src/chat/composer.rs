@@ -88,6 +88,9 @@ pub struct Strip {
     /// A worktree agent's pull request and its Remove worktree, beside the worktree.
     pub pull: Option<AnyElement>,
     pub account: Option<AnyElement>,
+    /// Why smart accounts started this new chat on its account, said beside the account until
+    /// the first message.
+    pub picked: Option<SharedString>,
     /// Nothing is sent yet, so the line sits on a new chat's glow and is drawn in full ink.
     pub fresh: bool,
 }
@@ -797,6 +800,21 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
         .children(strip.ports)
         .children(strip.pull)
         .child(div().flex_1())
+        .children(
+            strip
+                .account
+                .is_some()
+                .then_some(strip.picked)
+                .flatten()
+                .map(|why| {
+                    div()
+                        .id("composer-smart-pick")
+                        .flex_none()
+                        .pr(SPACE_1H)
+                        .child(ui::caps(t!("Smart pick"), cx))
+                        .tooltip(ui::tooltip(why))
+                }),
+        )
         .children(
             strip
                 .account

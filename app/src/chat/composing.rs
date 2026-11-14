@@ -799,6 +799,9 @@ pub(super) fn strip(
         }) as super::composer::ChipMenu
     });
     Strip {
+        picked: (head.and_then(|head| head.placed.as_ref()))
+            .filter(|_| fresh)
+            .and_then(|placed| placed.placed.clone().map(SharedString::from)),
         fresh,
         host,
         hosts,
