@@ -101,10 +101,10 @@ impl TabEvents for TabListener {
             tab_id: self.tab_id.clone(),
             opener,
         };
-        let (_, tab) = self
-            .manager
-            .upgrade()?
-            .add_tab(&self.agent_id, &url, Some(opened_by))
+        let manager = self.manager.upgrade()?;
+        let fixed = manager.viewport(&self.agent_id, &self.tab_id);
+        let (_, tab) = manager
+            .add_tab(&self.agent_id, &url, Some(opened_by), fixed)
             .ok()?;
         Some(tab)
     }

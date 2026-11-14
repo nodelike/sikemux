@@ -231,9 +231,19 @@ impl BrowserManager {
     }
 
     pub async fn open_tab(&self, agent_id: &str, url: Option<&str>) -> BrowserResult<String> {
+        self.open_tab_at(agent_id, url, None).await
+    }
+
+    /// Opens a tab whose page lays out at `fixed` from its first frame, whatever its pane is.
+    pub async fn open_tab_at(
+        &self,
+        agent_id: &str,
+        url: Option<&str>,
+        fixed: Option<viewport::Viewport>,
+    ) -> BrowserResult<String> {
         validate_agent_id(agent_id)?;
         let url = self.page_url(url.unwrap_or_default())?;
-        let (tab_id, _) = self.add_tab(agent_id, &url, None)?;
+        let (tab_id, _) = self.add_tab(agent_id, &url, None, fixed)?;
         self.until_desk_answers(agent_id).await;
         Ok(tab_id)
     }
@@ -244,6 +254,7 @@ impl BrowserManager {
         agent_id: &str,
         url: &str,
         opened_by: Option<OpenedBy>,
+        fixed: Option<viewport::Viewport>,
     ) -> BrowserResult<(String, Tab)> {
         validate_url(url)?;
         let parsed = Url::parse(url).map_err(|_| Error::BadArg("invalid browser url"))?;
@@ -252,8 +263,15 @@ impl BrowserManager {
             label_safe(agent_id),
             self.next_tab.fetch_add(1, Ordering::AcqRel)
         );
-        let webview =
-            self.create_view(agent_id, &tab_id, parsed, crate::user_agent(), opened_by)?;
+        let user_agent = fixed
+            .and_then(|fixed| fixed.user_agent())
+            .unwrap_or_else(crate::user_agent);
+        if let Some(fixed) = fixed {
+            let mut agents = self.agents.locked();
+            let agent = agents.entry(agent_id.to_owned()).or_default();
+            agent.viewports.insert(tab_id.clone(), fixed);
+        }
+        let webview = self.create_view(agent_id, &tab_id, parsed, user_agent, opened_by)?;
         {
             let mut agents = self.agents.locked();
             let agent = agents.entry(agent_id.to_owned()).or_default();
@@ -324,8 +342,7 @@ impl BrowserManager {
             .agents
             .locked()
             .get(agent_id)
-            .and_then(|agent| agent.seen)
-            .unwrap_or(PARKED_SIZE);
+            .map_or(PARKED_SIZE, |agent| agent.layout_of(tab_id).page_size());
         let events = Arc::new(TabListener {
             manager: self.me.clone(),
             agent_id: agent_id.to_owned(),

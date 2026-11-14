@@ -501,7 +501,7 @@
       "name": "browser_viewport",
       "row": {"verb": "resize", "kind": "edit", "icon": "resize", "target": ["{width}×{height}", "{preset}"]},
       "method": "browser.viewport",
-      "description": "Set this tab's viewport size or preset.",
+      "description": "Set this tab's viewport size or preset. Tabs you open start at desktop; fit follows the pane.",
       "properties": {
         "width": {
           "type": "integer",

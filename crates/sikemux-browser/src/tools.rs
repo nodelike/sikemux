@@ -225,7 +225,7 @@ async fn run(
             let tab_id = if new_tab || current.is_none() {
                 closed = manager.make_room(agent_id);
                 manager
-                    .open_tab(agent_id, Some(&url))
+                    .open_tab_at(agent_id, Some(&url), Viewport::preset("desktop"))
                     .await
                     .map_err(|error| error.to_string())?
             } else {
