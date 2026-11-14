@@ -20,7 +20,7 @@ use crate::agents::setup::Installing;
 use crate::core;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
+    self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
@@ -42,6 +42,10 @@ struct PickNth(usize);
 
 /// How many of the first models take a number key.
 const NUMBERED: usize = 4;
+
+/// Where a column's words start: the search field and the effort's header line up with the rows'
+/// marks, which sit inside the list's inset and their own padding.
+const ROW_INSET: f32 = ui::PANEL_INSET + 10.;
 
 pub fn install(cx: &mut App) {
     let context = Some("ModelPicker > Input");
@@ -873,7 +877,7 @@ impl Menu {
         let header = div()
             .flex_none()
             .h(px(38.))
-            .px(SPACE_3)
+            .px(px(ROW_INSET))
             .flex()
             .items_center()
             .gap(SPACE_1H)
@@ -1094,7 +1098,8 @@ impl Render for Menu {
                     ui::caps(heading, cx)
                         .flex_none()
                         .px(SPACE_2H)
-                        .pt(px(if list.is_empty() { 2. } else { 8. }))
+                        .pt(px(if list.is_empty() { 6. } else { 10. }))
+                        .pb(px(4.))
                         .into_any_element(),
                 );
             }
@@ -1130,7 +1135,7 @@ impl Render for Menu {
                 div()
                     .flex_none()
                     .h(px(38.))
-                    .px(SPACE_3)
+                    .px(px(ROW_INSET))
                     .flex()
                     .items_center()
                     .gap(SPACE_2)
