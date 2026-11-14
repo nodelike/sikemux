@@ -1,4 +1,5 @@
 import { spawn, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createWriteStream, readFileSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
@@ -16,7 +17,7 @@ export const MODELS = {
 };
 
 export function mcpServers({ tools, dir, rivals = [] }) {
-  const servers = { 'sikemux-tools': tools };
+  const servers = tools ? { 'sikemux-tools': tools } : {};
   for (const rival of rivals) {
     servers[rival] = { command: process.execPath, args: [join(EVAL, 'lib/rival.mjs'), join(EVAL, `rivals/${rival.toLowerCase()}.json`), dir] };
   }
@@ -38,12 +39,14 @@ function stopGroup(group, signal) {
 }
 
 // The Claude sign-in is read fresh for each run and handed over in the environment, so no sandbox ever touches the keychain.
-// On Linux Claude keeps it in a file instead.
+// On Linux Claude keeps it in a file instead. TOOL_EVAL_CLAUDE_CONFIG names another account's config folder to sign in as.
 export function claudeToken() {
+  const folder = process.env.TOOL_EVAL_CLAUDE_CONFIG;
+  const service = folder ? `Claude Code-credentials-${createHash('sha256').update(folder).digest('hex').slice(0, 8)}` : 'Claude Code-credentials';
   const stored =
     platform() === 'darwin'
-      ? execFileSync('/usr/bin/security', ['find-generic-password', '-s', 'Claude Code-credentials', '-a', process.env.USER, '-w'], { encoding: 'utf8' })
-      : readFileSync(join(homedir(), '.claude/.credentials.json'), 'utf8');
+      ? execFileSync('/usr/bin/security', ['find-generic-password', '-s', service, '-a', process.env.USER, '-w'], { encoding: 'utf8' })
+      : readFileSync(join(folder ?? join(homedir(), '.claude'), '.credentials.json'), 'utf8');
   return JSON.parse(stored).claudeAiOauth.accessToken;
 }
 
@@ -140,6 +143,7 @@ export function readClaude(path) {
           const call = {
             id: block.id,
             tool: canonical(block.name),
+            served: block.name.startsWith('mcp__sikemux-tools__'),
             args: block.input ?? {},
             batch: event.message.id,
             sub: Boolean(event.parent_tool_use_id),
@@ -172,6 +176,7 @@ export function readClaude(path) {
     tokens: {
       input: (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
       cached: usage.cache_read_input_tokens ?? 0,
+      written: usage.cache_creation_input_tokens ?? 0,
       output: usage.output_tokens ?? 0,
     },
     toolCount: init?.tools?.length ?? 0,

@@ -19,13 +19,17 @@ export function report(summary) {
   };
 
   if (trials > 1) console.log(`\n${trials} trials of each case: pass is the mean over trials, (all) counts the cases that passed every trial`);
-  console.log(`\n${'model'.padEnd(26)}${'pass'.padEnd(width)}${'cost'.padEnd(10)}${'tokens in'.padEnd(14)}${'out'.padEnd(10)}per case`);
+  console.log(`\n${'model'.padEnd(26)}${'pass'.padEnd(width)}${'cost'.padEnd(10)}${'tokens in'.padEnd(14)}${'out'.padEnd(10)}per run`);
   for (const variant of variants) {
     const cost = variant.cases.reduce((sum, row) => sum + row.cost, 0);
     const input = variant.cases.reduce((sum, row) => sum + row.tokens.input, 0);
     const output = variant.cases.reduce((sum, row) => sum + row.tokens.output, 0);
     const mark = variant.cases.some((row) => row.costEstimated) ? '~' : '';
-    const each = variant.cases.length ? `${mark}$${(cost / variant.cases.length).toFixed(3)}, ${Math.round(input / variant.cases.length / 1000)}k in` : '-';
+    const runs = variant.cases.reduce((sum, row) => sum + (row.runs?.length ?? 1), 0);
+    const cached = variant.cases.reduce((sum, row) => sum + (row.tokens.cached ?? 0), 0);
+    const turns = variant.cases.reduce((sum, row) => sum + (row.turns ?? 0), 0);
+    const seconds = variant.cases.reduce((sum, row) => sum + (row.seconds ?? 0), 0);
+    const each = runs ? `${mark}$${(cost / runs).toFixed(3)}, ${Math.round(input / runs / 1000)}k in (${Math.round(cached / runs / 1000)}k cached), ${(turns / runs).toFixed(1)} turns, ${Math.round(seconds / runs)} s` : '-';
     console.log(`${variant.label.padEnd(26)}${rate(variant.cases).padEnd(width)}${`${mark}$${cost.toFixed(2)}`.padEnd(10)}${input.toLocaleString().padEnd(14)}${output.toLocaleString().padEnd(10)}${each}`);
   }
   if (variants.some((variant) => variant.cases.some((row) => row.costEstimated))) {

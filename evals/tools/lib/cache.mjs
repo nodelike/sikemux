@@ -37,6 +37,7 @@ const HARNESS_PATHS = [
   "evals/tools/lib",
   "evals/tools/rivals",
   "evals/tools/fixtures",
+  "evals/tools/skill",
 ];
 const IGNORED = new Set([
   "evals/tools/lib/report.mjs",
@@ -110,6 +111,7 @@ export function runKey(inputs, variant, trial) {
     inputs,
     model: variant.id,
     search: variant.search ?? null,
+    surface: variant.surface,
     trial: trial ?? 1,
   });
 }

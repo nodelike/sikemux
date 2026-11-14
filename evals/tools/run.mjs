@@ -11,6 +11,7 @@ import { MODELS, mcpServers, runClaude, readClaude, killAll } from './lib/runner
 import { startTools } from './lib/tools.mjs';
 import { runOmp, readOmp } from './lib/omp.mjs';
 import { grade } from './lib/grade.mjs';
+import { servedCalls } from './lib/calls.mjs';
 import { judge, readVerdict } from './lib/judge.mjs';
 import { report } from './lib/report.mjs';
 import { surfaceInputs, caseInputs, runKey, cachedRun, saveRun, lastFull, saveFull, takeTurn } from './lib/cache.mjs';
@@ -28,6 +29,8 @@ const { values: options } = parseArgs({
   options: {
     models: { type: 'string', default: 'sonnet' },
     search: { type: 'string', default: 'on' },
+    surface: { type: 'string', default: 'mcp' },
+    'claude-config': { type: 'string' },
     cases: { type: 'string' },
     'cases-dir': { type: 'string' },
     'results-dir': { type: 'string' },
@@ -54,6 +57,9 @@ if (options.help) {
   console.log(`pnpm eval:tools [options]
   --models sonnet,opus,deepseek   models to run (also haiku)
   --search on|off|both            Claude tool search; DeepSeek ignores it
+  --claude-config <folder>        sign Claude in as the account whose config folder this is, instead of the default one
+  --surface mcp|cli               how the agent reaches Sikemux's tools: the sikemux-tools MCP, or the sikemux CLI with
+                                  its skill and session-start hook; both are graded on the calls the tool server answered
   --cases id,id,prefix*           cases to run (default: every replayable case)
   --category wrong_tool,...       only these categories
   --concurrency 4                 cases at once per model
@@ -74,6 +80,14 @@ if (options.help) {
   --list                          list the cases that would run, and stop`);
   process.exit(0);
 }
+
+if (options['claude-config']) process.env.TOOL_EVAL_CLAUDE_CONFIG = realpathSync(options['claude-config']);
+if (!['mcp', 'cli'].includes(options.surface)) throw new Error(`--surface is mcp or cli, not ${options.surface}`);
+const SURFACE_NAME = options.surface === 'cli' ? ' cli' : '';
+const GRADING = {
+  mcp: 'Calls are the tool server log in the place of each sikemux-tools call in the transcript. Two calls on the simulator or the checkout are at once when one message makes both.',
+  cli: 'Calls are the tool server log, each after the shell command that made it; a command keeps only what is left without its `sikemux tool` invocations and is dropped when nothing is. Two calls on the simulator or the checkout are at once when different shell calls in one message make them, or one command runs them in the background with & or run_in_background.',
+};
 
 const at = options.at ? git('rev-parse', '--short=9', options.at) : null;
 const claudeVersion = execFileSync(CLAUDE, ['--version'], { encoding: 'utf8' }).trim();
@@ -113,9 +127,12 @@ process.on('uncaughtException', (error) => {
 const variants = options.models.split(',').flatMap((alias) => {
   const model = MODELS[alias];
   if (!model) throw new Error(`no model called ${alias}; pick from ${Object.keys(MODELS).join(', ')}`);
-  if (model.runner !== 'claude') return [{ label: alias, alias, ...model }];
+  if (model.runner !== 'claude') {
+    if (options.surface === 'cli') throw new Error(`the cli surface runs only Claude models, not ${alias}`);
+    return [{ label: alias, alias, surface: 'mcp', ...model }];
+  }
   const searches = options.search === 'both' ? [true, false] : [options.search !== 'off'];
-  return searches.map((search) => ({ label: `${alias}${search ? '' : ' (no tool search)'}`, alias, search, ...model }));
+  return searches.map((search) => ({ label: `${alias}${SURFACE_NAME}${search ? '' : ' (no tool search)'}`, alias, search, surface: options.surface, ...model }));
 });
 
 const trialCount = Number(options.trials);
@@ -145,6 +162,7 @@ const summary = {
   claude: claudeVersion,
   seconds: Math.round((Date.now() - started) / 1000),
   variants: results,
+  grading: GRADING[options.surface],
 };
 writeFileSync(join(runDir, 'result.json'), JSON.stringify(summary, null, 1));
 report(summary, cases);
@@ -256,13 +274,14 @@ async function runVariant(variant) {
   const byCase = Map.groupBy(done, (result) => result.id);
   const rows = cases.map((testCase) => (trials > 1 ? summarizeTrials(byCase.get(testCase.id)) : byCase.get(testCase.id)[0]));
   rows.sort((left, right) => left.id.localeCompare(right.id));
-  return { label: variant.label, model: variant.id, search: variant.search ?? null, trials, cases: rows };
+  return { label: variant.label, model: variant.id, search: variant.search ?? null, surface: variant.surface, trials, cases: rows };
 }
 
 function summarizeTrials(runs) {
   runs.sort((left, right) => left.trial - right.trial);
   const passed = runs.filter((run) => run.pass).length;
   const { id, category, tools } = runs[0];
+  const total = (field) => runs.reduce((sum, run) => sum + (run.tokens[field] ?? 0), 0);
   return {
     id,
     category,
@@ -272,11 +291,9 @@ function summarizeTrials(runs) {
     failures: runs.flatMap((run) => run.failures.map((failure) => ({ ...failure, trial: run.trial }))),
     cost: runs.reduce((sum, run) => sum + run.cost, 0),
     ...(runs.some((run) => run.costEstimated) ? { costEstimated: true } : {}),
-    tokens: {
-      input: runs.reduce((sum, run) => sum + run.tokens.input, 0),
-      cached: runs.reduce((sum, run) => sum + run.tokens.cached, 0),
-      output: runs.reduce((sum, run) => sum + run.tokens.output, 0),
-    },
+    tokens: { input: total('input'), cached: total('cached'), written: total('written'), output: total('output') },
+    turns: runs.reduce((sum, run) => sum + (run.turns ?? 0), 0),
+    seconds: runs.reduce((sum, run) => sum + (run.seconds ?? 0), 0),
     runs,
   };
 }
@@ -294,7 +311,8 @@ async function makeRun(variant, testCase, trial) {
   const caseDir = join(runDir, variant.label.replace(/\W+/g, '-'), testCase.id);
   const dir = trial ? join(caseDir, `t${trial}`) : caseDir;
   const finished = options.resume ? readFinished(variant, testCase, dir) : null;
-  const outcome = finished ?? (await runAgent(variant, testCase, dir));
+  const ran = finished ?? (await runAgent(variant, testCase, dir));
+  const outcome = { ...ran, calls: servedCalls(variant.surface, ran.calls, dir) };
   const failures = grade(testCase, outcome, repoOf(dir, testCase), earlier.get(`${variant.label}\0${testCase.id}\0${trial ?? ''}`));
   if (outcome.exit.timedOut) failures.push({ check: 'run', why: 'timed out' });
   else if (outcome.failed) failures.push({ check: 'run', why: `the run failed: ${outcome.stop}` });
@@ -313,6 +331,7 @@ async function makeRun(variant, testCase, trial) {
     ...(outcome.costEstimated ? { costEstimated: true } : {}),
     tokens: outcome.tokens,
     turns: outcome.turns,
+    seconds: outcome.seconds ?? null,
     calls: outcome.calls.map((call) => ({ tool: call.tool, args: call.args, error: call.error ?? false, batch: call.batch, sub: call.sub || undefined })),
     reply: outcome.reply?.slice(0, 2000) ?? '',
     dir,
@@ -375,17 +394,19 @@ function dropSandbox(dir) {
 async function runAgent(variant, testCase, dir) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  const sandbox = prepareCase(dir, testCase, { at, host: HOST, shell: options.shell, shellEnv: options['shell-env'] });
+  const sandbox = prepareCase(dir, testCase, { at, host: HOST, shell: options.shell, shellEnv: options['shell-env'], surface: variant.surface });
   const fixture = testCase.fixture ?? {};
   const surface = loadSurface(fixture.plugins ?? SIGNED_IN_PLUGINS, at);
   const endpoint = join(dir, 'endpoint.json');
   const core = await startCore({ surface, fixture, project: sandbox.repo, endpointFile: endpoint, logFile: join(dir, 'core.jsonl'), previewProfile: join(dir, 'preview.sb') });
   roots.add(sandbox.root);
-  const tools = await startTools({ host: HOST, endpoint, sandbox, profile: join(dir, 'tools.sb') });
+  const tools = await startTools({ host: HOST, endpoint, sandbox, profile: join(dir, 'tools.sb'), log: join(dir, 'calls.jsonl') });
   writeAgentProfile(dir, sandbox, tools.port);
-  const servers = mcpServers({ tools: tools.config, dir, rivals: fixture.rivals });
+  sandbox.env.SIKEMUX_TOOLS_PORT = String(tools.port);
+  const servers = mcpServers({ tools: variant.surface === 'cli' ? null : tools.config, dir, rivals: fixture.rivals });
   const limits = { maxTurns: testCase.maxTurns ?? Number(options.turns), timeoutMs: Number(options.timeout) * 1000 };
   let outcome;
+  const began = Date.now();
   try {
     outcome =
       variant.runner === 'claude'
@@ -396,7 +417,7 @@ async function runAgent(variant, testCase, dir) {
     core.close();
     sweep(sandbox.root);
   }
-  return { ...outcome, sandbox };
+  return { ...outcome, seconds: Math.round((Date.now() - began) / 1000), sandbox };
 }
 
 function compact(result) {

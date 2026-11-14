@@ -41,7 +41,8 @@ export function grade(testCase, outcome, repo, recorded) {
         for (const call of batch.filter((one) => toolMatches(rule.tool, one.tool))) {
           const key = rule.key(call);
           const earlier = seen.get(key);
-          if (earlier && !(rule.writes && earlier.tool === 'Read' && call.tool === 'Read')) {
+          const together = earlier && ((earlier.lane ?? earlier.id) !== (call.lane ?? call.id) || call.concurrent);
+          if (together && !(rule.writes && earlier.tool === 'Read' && call.tool === 'Read')) {
             failures.push({ check: 'parallel', why: `called ${earlier.tool} and ${call.tool} at once on ${key}` });
             break;
           }
@@ -73,7 +74,7 @@ export function grade(testCase, outcome, repo, recorded) {
   }
 
   if (spec.first) {
-    const relevant = calls.filter((call) => !['ToolSearch', 'guide', 'TodoWrite'].includes(call.tool));
+    const relevant = calls.filter((call) => !['ToolSearch', 'Skill', 'guide', 'TodoWrite'].includes(call.tool));
     const first = relevant[0];
     if (!first || !callMatches(spec.first, first)) {
       failures.push({ check: 'first', why: `first call was ${first ? brief(first) : 'none'}, not ${describe(spec.first)}` });

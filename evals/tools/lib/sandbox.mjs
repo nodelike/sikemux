@@ -55,7 +55,7 @@ export function sandboxed(profile, command, args) {
   return ['bwrap', [...JSON.parse(readFileSync(profile, 'utf8')), '--', command, ...args]];
 }
 
-export function prepareCase(dir, testCase, { at = null, host, shell = DEFAULT_SHELL, shellEnv }) {
+export function prepareCase(dir, testCase, { at = null, host, shell = DEFAULT_SHELL, shellEnv, surface = 'mcp' }) {
   const fixture = testCase.fixture ?? {};
   const root = realpathSync(mkdtempSync('/tmp/u'));
   const home = join(root, 'home');
@@ -77,9 +77,11 @@ export function prepareCase(dir, testCase, { at = null, host, shell = DEFAULT_SH
   chmodSync(join(bin, 'timeout'), 0o755);
   for (const name of Object.keys(SHIMMED)) {
     const shim = join(bin, name);
-    writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${join(EVAL, 'lib/shim.mjs')}" ${name} "$@"\n`);
+    const target = surface === 'cli' && name === 'sikemux' ? `"${join(EVAL, 'lib/cli.mjs')}"` : `"${join(EVAL, 'lib/shim.mjs')}" ${name}`;
+    writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" ${target} "$@"\n`);
     chmodSync(shim, 0o755);
   }
+  writeClaudeSettings(home, surface);
 
   const work = fixture.project === 'work';
   cpSync(join(EVAL, 'fixtures/project', work ? 'work' : 'sikemux'), repo, { recursive: true });
@@ -123,6 +125,19 @@ export function prepareCase(dir, testCase, { at = null, host, shell = DEFAULT_SH
       TOOL_EVAL_CASE: dir,
     },
   };
+}
+
+// Both surfaces log when each call starts; the cli surface also gets the sikemux skill and its session-start hook.
+function writeClaudeSettings(home, surface) {
+  const claude = join(home, '.claude');
+  const hook = (command) => [{ hooks: [{ type: 'command', command }] }];
+  const hooks = { PreToolUse: [{ matcher: '*', ...hook(`"${process.execPath}" "${join(EVAL, 'lib/hook.mjs')}"`)[0] }] };
+  if (surface === 'cli') {
+    hooks.SessionStart = hook('sikemux tool instructions');
+    cpSync(join(EVAL, 'skill'), join(claude, 'skills'), { recursive: true });
+  }
+  mkdirSync(claude, { recursive: true });
+  writeFileSync(join(claude, 'settings.json'), JSON.stringify({ hooks }, null, 1));
 }
 
 function writeFiles(root, files = {}) {
