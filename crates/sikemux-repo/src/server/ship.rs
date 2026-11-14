@@ -561,10 +561,11 @@ fn call_asking(
     resolved_from: Option<&str>,
 ) -> Raise {
     let name = core.names().name_or_id(agent_id);
-    let subject = Git::quick(cwd)
-        .trimmed(&["log", "-1", "--format=%s"])
-        .ok()
+    let subject = (ship.kind == ShipKind::Deploy)
+        .then(|| Git::quick(cwd).trimmed(&["log", "-1", "--format=%s"]).ok())
+        .flatten()
         .filter(|subject| !subject.is_empty());
+    let github = github_write(&ship.what);
     let option = |id: &str, label: String| CallOption {
         id: id.to_owned(),
         label,
@@ -580,7 +581,8 @@ fn call_asking(
             name,
             chief: false,
         },
-        question: format!("Change {} with this work?", place.name()),
+        question: (github.as_ref().map(|write| format!("{write}?")))
+            .unwrap_or_else(|| format!("Change {} with this work?", place.name())),
         context: [
             resolved_from.map(|from| format!("Sikemux read where it lands from {from}.")),
             subject.map(|subject| format!("The work's latest commit: {subject}")),
@@ -591,7 +593,7 @@ fn call_asking(
         options: [
             Some(option(
                 person_calls::HOLD_ALLOW,
-                format!("Change {}", place.name()),
+                github.unwrap_or_else(|| format!("Change {}", place.name())),
             )),
             place.recurs.then(|| {
                 let label = format!("Change {}, and from now on just tell me", place.name());
@@ -616,6 +618,87 @@ fn call_asking(
         key,
         yes: Some(person_calls::HOLD_ALLOW.to_owned()),
     }
+}
+
+/// What a `gh api` command writes on GitHub, in the words the person would use for it, such
+/// as "Comment on owner/repo#12".
+fn github_write(what: &str) -> Option<String> {
+    let command = what.rsplit(" && ").next()?;
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let ["gh", "api", args @ ..] = words.as_slice() else {
+        return None;
+    };
+    let valued = [
+        "-X",
+        "--method",
+        "-f",
+        "-F",
+        "--field",
+        "--raw-field",
+        "-H",
+        "--header",
+        "-q",
+        "--jq",
+        "-t",
+        "--template",
+        "--input",
+        "-p",
+        "--preview",
+        "--hostname",
+        "--cache",
+    ];
+    let (mut endpoint, mut method, mut fields) = (None, None, false);
+    let mut at = 0;
+    while let Some(arg) = args.get(at) {
+        at += 1;
+        if valued.contains(arg) {
+            let value = args.get(at).copied();
+            at += 1;
+            match *arg {
+                "-X" | "--method" => method = value.map(str::to_ascii_uppercase),
+                "-f" | "-F" | "--field" | "--raw-field" | "--input" => fields = true,
+                _ => {}
+            }
+        } else if let Some(value) = arg.strip_prefix("--method=") {
+            method = Some(value.to_ascii_uppercase());
+        } else if !arg.starts_with('-') && endpoint.is_none() {
+            endpoint = Some(arg.trim_start_matches('/'));
+        }
+    }
+    let method = method.unwrap_or_else(|| if fields { "POST" } else { "GET" }.to_owned());
+    let endpoint = endpoint?;
+    if endpoint == "graphql" {
+        return Some("Write to GitHub as you".to_owned());
+    }
+    let parts: Vec<&str> = endpoint.split(['?', '#']).next()?.split('/').collect();
+    let ["repos", owner, repo, rest @ ..] = parts.as_slice() else {
+        return Some("Write to GitHub as you".to_owned());
+    };
+    let repo = format!("{owner}/{repo}");
+    let said = match (method.as_str(), rest) {
+        ("POST", ["issues" | "pulls", number, "comments", ..]) => {
+            format!("Comment on {repo}#{number}")
+        }
+        ("POST", ["pulls", number, "reviews", ..]) => format!("Review {repo}#{number}"),
+        ("PATCH", ["issues" | "pulls", number]) => format!("Edit {repo}#{number}"),
+        ("PUT", ["pulls", number, "merge"]) => format!("Merge {repo}#{number}"),
+        ("POST", ["issues"]) => format!("Open an issue on {repo}"),
+        ("POST", ["pulls"]) => format!("Open a pull request on {repo}"),
+        ("POST", ["forks"]) => format!("Fork {repo}"),
+        ("PUT", ["contents", path @ ..]) => format!("Update {} in {repo}", path.join("/")),
+        ("DELETE", ["contents", path @ ..]) => format!("Delete {} in {repo}", path.join("/")),
+        ("POST", ["git", "refs"]) => format!("Create a branch in {repo}"),
+        ("PATCH", ["git", "refs", "heads", branch @ ..]) => {
+            format!("Move branch {} in {repo}", branch.join("/"))
+        }
+        ("DELETE", ["git", "refs", "heads", branch @ ..]) => {
+            format!("Delete branch {} in {repo}", branch.join("/"))
+        }
+        ("POST", ["releases"]) => format!("Publish a release of {repo}"),
+        ("DELETE", []) => format!("Delete {repo}"),
+        _ => format!("Change {repo} on GitHub"),
+    };
+    Some(said)
 }
 
 /// Whether the project keeps a place for tags it pushes.
@@ -1704,5 +1787,35 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         state: CallState::Open,
         answer: None,
         outcome: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// @Yanagi's writes to GitHub each asked "Change writes on GitHub's API with this work?",
+    /// five cards the person couldn't tell apart.
+    #[test]
+    fn a_github_write_says_what_it_writes() {
+        for (what, said) in [
+            (
+                "gh api repos/anomalyco/opencode/pulls/63648/comments/4558641882/replies -f body=Done: shortened it --jq .html_url",
+                "Comment on anomalyco/opencode#63648",
+            ),
+            (
+                "gh api -X PUT repos/nodelike/awesome-hermes-agents/contents/README.md -f message=Add Sikemux -f branch=main",
+                "Update README.md in nodelike/awesome-hermes-agents",
+            ),
+            (
+                "gh api repos/nodelike/awesome-opencode/git/refs -f ref=refs/heads/add-sikemux -f sha=c125252",
+                "Create a branch in nodelike/awesome-opencode",
+            ),
+            (
+                "gh api -X PATCH repos/nodelike/awesome-opencode/git/refs/heads/add-sikemux -f sha=c125252 -F force=true",
+                "Move branch add-sikemux in nodelike/awesome-opencode",
+            ),
+            ("gh api -X POST repos/owner/repo/forks", "Fork owner/repo"),
+        ] {
+            assert_eq!(super::github_write(what).as_deref(), Some(said), "{what}");
+        }
     }
 }
