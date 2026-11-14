@@ -889,11 +889,10 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
         .get("rate_limits_available")
         .and_then(Value::as_bool);
     let reported = payload.get("rate_limits").is_some_and(Value::is_object);
-    let unavailable_reason = match available {
-        Some(false) => Some("Plan limits are unavailable for this login. API keys and third-party providers do not report subscription limits; OAuth access also requires profile permission.".to_string()),
-        Some(true) if !reported => Some("Claude did not report plan limits this time. Refresh to ask again.".to_string()),
-        _ => None,
-    };
+    if available == Some(true) && !reported {
+        return None;
+    }
+    let unavailable_reason = (available == Some(false)).then(|| "Plan limits are unavailable for this login. API keys and third-party providers do not report subscription limits; OAuth access also requires profile permission.".to_string());
     let plan = payload
         .get("subscription_type")
         .and_then(Value::as_str)
@@ -1237,17 +1236,11 @@ mod tests {
     }
 
     #[test]
-    fn claude_usage_says_so_when_limits_apply_but_none_came_back() {
-        let usage = parse_claude_usage(
+    fn claude_usage_is_no_reading_when_limits_apply_but_none_came_back() {
+        assert!(parse_claude_usage(
             r#"{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{"subscription_type":"max","rate_limits_available":true,"rate_limits":null}}}"#,
             "usage",
-        ).unwrap();
-        assert_eq!(usage.plan.as_deref(), Some("max"));
-        assert!(usage.windows.is_empty());
-        assert!(usage
-            .unavailable_reason
-            .unwrap()
-            .contains("did not report plan limits this time"));
+        ).is_none());
     }
 
     #[test]
