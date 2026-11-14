@@ -537,7 +537,9 @@ fn run(args: Vec<OsString>) -> i32 {
 /// The other agents whose work a git command in `dir` would touch, as the
 /// core that started this agent knows them.
 fn others(dir: &Path, paths: &[String]) -> Option<Vec<String>> {
-    if std::env::var_os(vars::AGENT_ID).is_none() {
+    // Git that a build or its tests run, such as in a test's temporary repository, is the
+    // build's own and not the agent's.
+    if std::env::var_os(vars::AGENT_ID).is_none() || std::env::var_os(vars::BUILD_TURN).is_some() {
         return Some(Vec::new());
     }
     let answer = crate::cli::client::attempt(
