@@ -6,7 +6,7 @@ import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 /** The agent list's groups folded shut, by key, as the Mac's rail keeps its own. */
 const ITEM = 'sikemux.folded-agent-groups';
 
-const folded = externalValue<string[]>(['settled']);
+const folded = externalValue<string[]>([]);
 let loaded: Promise<void> | undefined;
 
 function load() {

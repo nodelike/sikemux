@@ -20,15 +20,15 @@ struct DeviceAgents: View {
 
     var body: some View {
         // The open agents in the order the host lists them on every device: the main list, what wants the person
-        // first, then the snoozed and then the settled ones.
-        let agents = view.inbox.agents.filter { listed(scope, provider, project: $0.project, type: $0.cli) }
+        // first, then the snoozed ones. Settled ones stay out of the list.
+        let agents = view.inbox.agents.filter {
+            $0.settledAt == nil && listed(scope, provider, project: $0.project, type: $0.cli)
+        }
         let open = agents.filter { agent in
-            agent.snoozedUntil == nil && agent.settledAt == nil && (provider != nil || agent.chief != true)
+            agent.snoozedUntil == nil && (provider != nil || agent.chief != true)
         }
         let teams = keptStill(teams(open))
-        let away = agents.filter { provider != nil || $0.chief != true }
-        let snoozed = away.filter { $0.snoozedUntil != nil && $0.settledAt == nil }
-        let settled = away.filter { $0.settledAt != nil }
+        let snoozed = agents.filter { $0.snoozedUntil != nil && (provider != nil || $0.chief != true) }
         let workers = view.inbox.remoteAgents
         let leads = Set(open.map(\.agentId))
         let strays =
@@ -69,10 +69,9 @@ struct DeviceAgents: View {
                     .padding(.top, 10)
                 }
                 AwayGroup(label: String(localized: "Snoozed"), fold: .snoozed, agents: snoozed) { row($0, now: now) }
-                AwayGroup(label: String(localized: "Settled"), fold: .settled, agents: settled) { row($0, now: now) }
                 Recent(
                     core: core, view: view, scope: scope, provider: provider, full: full, hostName: hostName, now: now)
-                if open.isEmpty && strays.isEmpty && snoozed.isEmpty && settled.isEmpty && !recent {
+                if open.isEmpty && strays.isEmpty && snoozed.isEmpty && !recent {
                     EmptyState(
                         icon: Icons.agentLine,
                         text: scope.map { String(localized: "No agents in \($0.name).") }
@@ -129,7 +128,7 @@ struct DeviceAgents: View {
     private func row(_ agent: AgentShown, now: Date) -> some View {
         let onHold = onHold.map { hold in { hold(agent.agentId) } }
         // A filtered list may have left a teammate's lead out, so it hangs from nothing.
-        let team = provider == nil && agent.snoozedUntil == nil && agent.settledAt == nil ? agent.team : nil
+        let team = provider == nil && agent.snoozedUntil == nil ? agent.team : nil
         Group {
             if agent.session == nil {
                 ChatRow(core: core, shown: agent, now: now, onHold: onHold)
@@ -149,11 +148,9 @@ private struct ChatRow: View {
     let onHold: (() -> Void)?
 
     var body: some View {
-        let away = shown.snoozedUntil != nil || shown.settledAt != nil
+        let away = shown.snoozedUntil != nil
         Row(
-            title: shown.title, name: away ? nil : shown.name,
-            detail: shown.settledAt.map { Format.ago(Format.date(millis: $0), now: now) },
-            dim: away,
+            title: shown.title, name: away ? nil : shown.name, dim: away,
             onPress: { Router.shared.push(.chat(core: core, agent: shown.agentId)) },
             onLongPress: onHold,
             mark: {
@@ -163,19 +160,14 @@ private struct ChatRow: View {
                 .opacity(away ? 0.55 : 1)
             },
             end: {
-                if away {
-                    if shown.settledAt == nil, let until = shown.snoozedUntil.map(Format.date(millis:)) {
-                        WakeTime(at: until, now: now)
-                    }
+                if let until = shown.snoozedUntil.map(Format.date(millis:)) {
+                    WakeTime(at: until, now: now)
                 } else {
                     if shown.subagents > 0 { SubagentCount(count: shown.subagents) }
                     if shown.tasks > 0 { ShellCount(count: shown.tasks) }
                     if let line = shown.line { LinePlace(line: line) }
                     TurnMark(turn: shown.turn, now: now)
                 }
-            },
-            after: {
-                if shown.settledAt != nil, onHold != nil { RestoreButton(core: core, shown: shown) }
             })
     }
 }
@@ -188,8 +180,7 @@ private struct TerminalAgentRow: View {
     let onHold: (() -> Void)?
 
     var body: some View {
-        let snoozed = shown.snoozedUntil != nil && shown.settledAt == nil
-        let away = snoozed || shown.settledAt != nil
+        let away = shown.snoozedUntil != nil
         Row(
             title: shown.title, name: away ? nil : shown.name, dim: away,
             onPress: onOpen, onLongPress: onHold,
@@ -200,9 +191,9 @@ private struct TerminalAgentRow: View {
                 .opacity(away ? 0.55 : 1)
             },
             end: {
-                if snoozed, let until = shown.snoozedUntil.map(Format.date(millis:)) {
+                if let until = shown.snoozedUntil.map(Format.date(millis:)) {
                     WakeTime(at: until, now: now)
-                } else if !away {
+                } else {
                     TurnMark(turn: shown.turn, now: now)
                 }
             })
@@ -255,45 +246,7 @@ private struct TeamPath: Shape {
     }
 }
 
-/// Puts a settled agent back in the main list.
-private struct RestoreButton: View {
-    @Environment(\.palette) private var palette
-    let core: String
-    let shown: AgentShown
-    @State private var failure: Failure?
-
-    var body: some View {
-        if let connection = Hub.shared.live(core).connection, Hub.shared.live(core).isOpen {
-            Button {
-                Haptics.tap()
-                Task {
-                    do {
-                        try await AwaySheet.settle(connection, [shown.agentId], false)
-                    } catch {
-                        Haptics.failure()
-                        failure = Failure("Couldn't restore it", error)
-                    }
-                }
-            } label: {
-                Text("Restore")
-                    .font(Theme.ui(12.5, .medium))
-                    .foregroundStyle(palette.ink)
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(palette.raised))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(palette.border, lineWidth: 1)
-                    )
-            }
-            .buttonStyle(PressFade())
-            .padding(.leading, 6)
-            .accessibilityLabel(String(localized: "Restore \(shown.title)"))
-            .failureAlert($failure)
-        }
-    }
-}
-
-/// Snoozed or Settled under the main list, folding on a tap of its label as the Mac's rail does.
+/// Snoozed under the main list, folding on a tap of its label as the Mac's rail does.
 private struct AwayGroup<Content: View>: View {
     @Environment(\.palette) private var palette
     let label: String

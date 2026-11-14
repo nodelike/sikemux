@@ -42,12 +42,6 @@ function settle(connection: ConnectionLike, agentIds: string[], settled: boolean
   return callHost(connection, 'settleAgents', { agentIds, settled });
 }
 
-/** Restores a settled agent to the main list, as its row's Restore does. */
-export function restore(connection: ConnectionLike, agentId: string) {
-  haptics.tap();
-  void settle(connection, [agentId], false).catch(() => haptics.failure());
-}
-
 /**
  * Snoozing or settling one agent: the host's own times, a time typed in words that the host reads, and Settle; Wake
  * now in place of the times once it is snoozed, and Restore in place of Settle once it is settled.

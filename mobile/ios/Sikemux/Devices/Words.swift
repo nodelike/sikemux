@@ -34,7 +34,7 @@ func listed(_ scope: ProjectInfo?, _ provider: String?, project: String?, type: 
 @MainActor @Observable
 final class Folded {
     enum Group: String {
-        case snoozed, settled
+        case snoozed
     }
 
     static let shared = Folded()
@@ -43,7 +43,7 @@ final class Folded {
     private(set) var shut: Set<Group> =
         UserDefaults.standard.stringArray(forKey: key).map {
             Set($0.compactMap(Group.init))
-        } ?? [.settled]
+        } ?? []
 
     func toggle(_ group: Group) {
         if shut.contains(group) { shut.remove(group) } else { shut.insert(group) }

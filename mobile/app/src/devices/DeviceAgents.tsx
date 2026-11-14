@@ -1,40 +1,37 @@
 import { Fragment, memo, useState, type ReactNode } from 'react';
-import { LayoutAnimation, Pressable, StyleSheet, Text, View } from 'react-native';
+import { LayoutAnimation, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 
-import { formatAgo } from '@shared/lib/format';
 import type { AgentShown, ProjectInfo, TeamLink } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
 import { WorkerRow, workersOf } from '@/devices/RemoteWorker';
 import { useAnimating, useMinute } from '@/ui/motion';
 import { AgentFace } from '@/devices/Buddy';
-import { AwayNote, AwaySheet, restore } from '@/devices/AwaySheet';
+import { AwayNote, AwaySheet } from '@/devices/AwaySheet';
 import { toggleFolded, useFolded } from '@/devices/folded';
-import { useLive } from '@/devices/hub';
 import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { EmptyState } from '@/ui/prompt';
 import { LinePlace, ShellCount, SubagentCount, TurnMark, WakeTime } from '@/devices/AgentMarks';
 import { ChiefRow } from '@/calls/ChiefRow';
-import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
+import { type Palette, useColors, useStyles } from '@/ui/theme';
 import { listed, Recent } from '@/devices/DeviceRecent';
 
 export type Tab = 'agents' | 'terminals' | 'calls';
 
 /**
  * The open agents in the order the host lists them on every device: the main list, what wants the person first, then
- * the snoozed and then the settled ones.
+ * the snoozed ones. Settled ones stay out of the list.
  */
 function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: string) {
   // A chief shows as its project's @Chief row, never among the agents; a list filtered to one kind has no chiefs.
   const agents = snapshot.inbox.agents.filter(
-    (agent) => listed(scope, provider, agent.project, agent.cli) && (provider !== 'all' || !agent.chief),
+    (agent) => agent.settledAt == null && listed(scope, provider, agent.project, agent.cli) && (provider !== 'all' || !agent.chief),
   );
   return {
-    main: agents.filter((agent) => agent.snoozedUntil == null && agent.settledAt == null),
-    snoozed: agents.filter((agent) => agent.snoozedUntil != null && agent.settledAt == null),
-    settled: agents.filter((agent) => agent.settledAt != null),
+    main: agents.filter((agent) => agent.snoozedUntil == null),
+    snoozed: agents.filter((agent) => agent.snoozedUntil != null),
   };
 }
 
@@ -100,7 +97,7 @@ export function Agents({
   const styles = useStyles(makeStyles);
   const t = useT();
   const minute = useMinute();
-  const { main: open, snoozed, settled } = openAgents(snapshot, scope, provider);
+  const { main: open, snoozed } = openAgents(snapshot, scope, provider);
   const animating = useAnimating();
   // The projects' order while a finger is on the list, so a tap never lands on a row that moved under it.
   const [touchOrder, setTouchOrder] = useState<string[]>();
@@ -175,14 +172,9 @@ export function Agents({
         </View>
       ) : null}
       <AwayGroup label={t('Snoozed')} fold="snoozed" agents={snoozed} row={awayRow} />
-      <AwayGroup label={t('Settled')} fold="settled" agents={settled} row={awayRow} />
       <Recent core={core} snapshot={snapshot} scope={scope} provider={provider} full={full} hostName={hostName} />
       <AwaySheet core={core} shown={snoozingShown} onClose={() => setSnoozing(undefined)} />
-      {!open.length &&
-      !strays.length &&
-      !snoozed.length &&
-      !settled.length &&
-      !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
+      {!open.length && !strays.length && !snoozed.length && !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
         <EmptyState icon="IconAgent" text={scope ? t('No agents in {project}.', { project: scope.name }) : t('No agents running.')} />
       ) : null}
     </>
@@ -227,8 +219,7 @@ const ChatRow = memo(function ChatRow({
   /** Opens its snooze sheet; absent for a phone that can only watch. */
   onHold?: (shown: AgentShown) => void;
 }) {
-  const t = useT();
-  const away = shown.snoozedUntil != null || shown.settledAt != null;
+  const away = shown.snoozedUntil != null;
   return (
     <Row
       mark={
@@ -238,11 +229,10 @@ const ChatRow = memo(function ChatRow({
       }
       name={away ? undefined : shown.name}
       title={shown.title}
-      detail={shown.settledAt != null ? formatAgo(Number(shown.settledAt), minute * 60_000, t) : undefined}
       dim={away}
       end={
         away ? (
-          shown.settledAt == null && <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} />
+          <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} />
         ) : (
           <>
             {shown.subagents ? <SubagentCount count={shown.subagents} /> : null}
@@ -254,37 +244,16 @@ const ChatRow = memo(function ChatRow({
       }
       onPress={() => router.push(`/device/${core}/chat/${shown.agentId}`)}
       onLongPress={onHold && (() => onHold(shown))}
-      after={shown.settledAt != null && onHold ? <RestoreButton core={core} shown={shown} /> : undefined}
     />
   );
 });
 
-/** A snoozed or settled agent's mark, faded as the Mac's rail fades it. */
+/** A snoozed agent's mark, faded as the Mac's rail fades it. */
 function Faded({ away, children }: { away: boolean; children: ReactNode }) {
   return away ? <View style={{ opacity: 0.55 }}>{children}</View> : <>{children}</>;
 }
 
-/** Puts a settled agent back in the main list. */
-function RestoreButton({ core, shown }: { core: string; shown: AgentShown }) {
-  const styles = useStyles(makeStyles);
-  const colors = useColors();
-  const t = useT();
-  const live = useLive(core);
-  if (live.status !== 'open') return null;
-  const connection = live.connection;
-  return (
-    <Pressable
-      onPress={() => restore(connection, shown.agentId)}
-      hitSlop={6}
-      style={({ pressed }) => [styles.restore, pressed && { backgroundColor: colors.active }]}
-      accessibilityRole="button"
-      accessibilityLabel={t('Restore {title}', { title: shown.title })}>
-      <Text style={styles.restoreText}>{t('Restore')}</Text>
-    </Pressable>
-  );
-}
-
-/** Snoozed or Settled under the main list, folding on a tap of its label as the Mac's rail does. */
+/** Snoozed under the main list, folding on a tap of its label as the Mac's rail does. */
 function AwayGroup({
   label,
   fold,
@@ -333,8 +302,7 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
   onOpen: () => void;
   onHold?: (shown: AgentShown) => void;
 }) {
-  const snoozed = shown.snoozedUntil != null && shown.settledAt == null;
-  const away = snoozed || shown.settledAt != null;
+  const away = shown.snoozedUntil != null;
   return (
     <Row
       mark={
@@ -345,13 +313,7 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
       name={away ? undefined : shown.name}
       title={shown.title}
       dim={away}
-      end={
-        snoozed ? (
-          <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} />
-        ) : away ? null : (
-          <TurnMark turn={shown.turn} now={minute * 60_000} />
-        )
-      }
+      end={away ? <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} /> : <TurnMark turn={shown.turn} now={minute * 60_000} />}
       onPress={onOpen}
       onLongPress={onHold && (() => onHold(shown))}
     />
@@ -375,16 +337,5 @@ const makeStyles = (colors: Palette) => {
       borderColor: colors.treeSpine,
       borderBottomLeftRadius: 4,
     },
-    restore: {
-      height: 28,
-      marginLeft: 6,
-      paddingHorizontal: 10,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.raised,
-      justifyContent: 'center',
-    },
-    restoreText: { fontFamily: fonts.uiMedium, fontSize: 12.5, color: colors.ink },
   });
 };
