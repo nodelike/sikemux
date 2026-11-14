@@ -68,18 +68,19 @@ pub async fn call(
             let remote = text("remote").ok_or("remote is missing")?;
             let core = core.clone();
             let cwd = PathBuf::from(&request.project);
-            let outbox = run_blocking(move || open(&core, &cwd, &remote)).await?;
+            let (outbox, _) = run_blocking(move || open(&core, &cwd, &remote)).await?;
             Ok(json!({ "outbox": outbox }))
         }
         Some("forward") => {
             let outbox = PathBuf::from(text("outbox").ok_or("outbox is missing")?);
             let updates = (params["updates"].as_array().into_iter().flatten())
                 .filter_map(|update| {
-                    Some(Update {
+                    let update = Update {
                         old: update["old"].as_str()?.to_owned(),
                         new: update["new"].as_str()?.to_owned(),
                         name: update["ref"].as_str()?.to_owned(),
-                    })
+                    };
+                    update.sound().then_some(update)
                 })
                 .collect();
             let quarantine = text("quarantine").map(PathBuf::from);
@@ -134,8 +135,8 @@ pub(super) async fn delete_branch(
         let (core, cwd, remote) = (core.clone(), cwd.to_path_buf(), remote.to_owned());
         run_blocking(move || open(&core, &cwd, &remote)).await
     };
-    let outbox = match opened {
-        Ok(outbox) => outbox,
+    let (outbox, remote) = match opened {
+        Ok(opened) => opened,
         Err(said) => return (false, said),
     };
     let update = Update {
@@ -143,10 +144,16 @@ pub(super) async fn delete_branch(
         new: ZERO.to_owned(),
         name: format!("refs/heads/{branch}"),
     };
-    let went = {
-        let turn = turn_for(remote);
-        let _turn = turn.lock().await;
-        send(core, &outbox, remote, &[update]).await
+    let went = match update.sound() {
+        true => {
+            let turn = turn_for(&remote);
+            let _turn = turn.lock().await;
+            send(core, &outbox, &remote, &[update]).await
+        }
+        false => (
+            false,
+            format!("Sikemux cannot delete a branch named {branch}"),
+        ),
     };
     let _ = run_blocking(move || {
         close(&outbox);
@@ -157,13 +164,13 @@ pub(super) async fn delete_branch(
 }
 
 /// Makes an outbox for a push from the checkout at `cwd` to `remote`, with the remote's
-/// branches and tags fetched into it.
-fn open(core: &Core, cwd: &Path, remote: &str) -> Result<PathBuf, String> {
-    if !identity::has(remote) {
+/// branches and tags fetched into it, and the address the core pushes to.
+fn open(core: &Core, cwd: &Path, remote: &str) -> Result<(PathBuf, String), String> {
+    let Some(remote) = identity::https_of(remote).filter(|https| identity::has(https)) else {
         return Err(format!(
             "Sikemux has no identity of the agents' own on {remote}"
         ));
-    }
+    };
     let common = output(sikemux_git::git_command(cwd).args([
         "rev-parse",
         "--path-format=absolute",
@@ -177,7 +184,7 @@ fn open(core: &Core, cwd: &Path, remote: &str) -> Result<PathBuf, String> {
     let outbox = data
         .join(FOLDER)
         .join(uuid::Uuid::new_v4().simple().to_string());
-    let made = make(&outbox, &checkout_objects, remote);
+    let made = make(&outbox, &checkout_objects, &remote);
     if let Err(why) = made {
         let _ = std::fs::remove_dir_all(&outbox);
         return Err(why);
@@ -185,11 +192,11 @@ fn open(core: &Core, cwd: &Path, remote: &str) -> Result<PathBuf, String> {
     OUTBOXES.locked().push((
         outbox.clone(),
         Outbox {
-            remote: remote.to_owned(),
+            remote: remote.clone(),
             checkout_objects,
         },
     ));
-    Ok(outbox)
+    Ok((outbox, remote))
 }
 
 fn make(outbox: &Path, checkout_objects: &Path, remote: &str) -> Result<(), String> {
@@ -225,6 +232,13 @@ struct Update {
     old: String,
     new: String,
     name: String,
+}
+
+impl Update {
+    fn sound(&self) -> bool {
+        let id = |text: &str| text.len() == 40 && text.bytes().all(|byte| byte.is_ascii_hexdigit());
+        id(&self.old) && id(&self.new) && self.name.starts_with("refs/")
+    }
 }
 
 /// Forwards `updates`, which git just pushed to `outbox`, to its remote, and what the remote
