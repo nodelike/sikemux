@@ -144,16 +144,19 @@ impl Linked {
 
     /// The connection to `host`, waiting a while for one that is reconnecting.
     pub async fn client(&self, host: &str) -> Result<Arc<CoreClient>, ClientError> {
-        let mut client = lock(&self.hosts)
+        let (name, mut client) = lock(&self.hosts)
             .get(host)
-            .map(|host| host.client.clone())
+            .map(|host| (host.name.clone(), host.client.clone()))
             .ok_or_else(|| ClientError::Core("that host is not linked with this one".into()))?;
+        let name = match name.is_empty() {
+            true => "that host".to_owned(),
+            false => name,
+        };
+        let unreached = || ClientError::Core(format!("{name} is not reachable now"));
         let reached = tokio::time::timeout(REACH, client.wait_for(Option::is_some)).await;
         match reached {
-            Ok(Ok(client)) => client
-                .clone()
-                .ok_or_else(|| ClientError::Core("that host is not reachable now".into())),
-            _ => Err(ClientError::Core("that host is not reachable now".into())),
+            Ok(Ok(client)) => client.clone().ok_or_else(unreached),
+            _ => Err(unreached()),
         }
     }
 

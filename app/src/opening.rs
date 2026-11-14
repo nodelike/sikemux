@@ -684,6 +684,7 @@ impl Workbench {
             if let Some((host, project)) = self
                 .feeds
                 .hosts()
+                .filter(|(_, feed)| feed.reached)
                 .find_map(|(host, feed)| Some((host.clone(), project_on(feed.view.as_ref()?)?)))
             {
                 Target::here(&self.asks).call_typed::<call::ChooseHost>(HostParams {

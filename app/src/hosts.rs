@@ -180,6 +180,14 @@ impl Feeds {
         }
     }
 
+    /// Whether the core at `place` answers now: this host's always, an account host's while linked.
+    pub fn reaches(&self, place: &Place) -> bool {
+        match place {
+            Place::This => true,
+            Place::Account(host) => self.host(host).is_some_and(|feed| feed.reached),
+        }
+    }
+
     pub fn at_mut(&mut self, place: &Place) -> &mut Feed {
         match place {
             Place::This => &mut self.this,

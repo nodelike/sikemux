@@ -1201,7 +1201,11 @@ pub fn renamed(
 }
 
 /// Tells the core of `place` which files to watch: every one of its files open in an editor.
+/// An account host out of reach hears it once it is back, from [`host_reached`].
 fn show_files(bench: &Workbench, place: &Place, cx: &App) {
+    if !bench.feeds.reaches(place) {
+        return;
+    }
     Target::new(&bench.asks, place.clone()).call_typed::<call::ShowFiles>(ShowFiles {
         paths: bench.editors.read(cx).watched(place),
     });
