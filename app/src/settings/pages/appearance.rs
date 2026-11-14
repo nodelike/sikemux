@@ -570,6 +570,76 @@ fn picture_rows(
             cx,
         ))
         .child(rows::row(t!("Covers"), None, coverage, cx))
+        .child(rows::row(
+            t!("Reset"),
+            None,
+            reset_picture_button(preferences, this),
+            cx,
+        ))
+}
+
+/// Puts every dither control back to its default, moving the sliders and inks with it.
+fn reset_picture_button(
+    preferences: &sikemux_view::prefs::Preferences,
+    this: &Entity<Workbench>,
+) -> ui::Button {
+    let defaults = sikemux_view::prefs::Preferences::default();
+    let changed = preferences.pane_colours != defaults.pane_colours
+        || preferences.pane_inks != defaults.pane_inks
+        || preferences.pane_pattern != defaults.pane_pattern
+        || preferences.pane_dot_size != defaults.pane_dot_size
+        || preferences.pane_contrast != defaults.pane_contrast
+        || preferences.pane_brightness != defaults.pane_brightness
+        || preferences.pane_glow != defaults.pane_glow
+        || preferences.pane_glow_size != defaults.pane_glow_size
+        || preferences.pane_coverage != defaults.pane_coverage;
+    let this = this.clone();
+    ui::Button::new("pane-picture-reset", t!("Reset"), ui::Variant::Outline)
+        .icon(Icon::Refresh)
+        .disabled(!changed)
+        .on_click(move |_, window, cx| {
+            this.update(cx, |bench, cx| reset_picture(bench, &defaults, window, cx))
+        })
+}
+
+fn reset_picture(
+    bench: &mut Workbench,
+    defaults: &sikemux_view::prefs::Preferences,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    for change in [
+        PreferenceChange::PaneColours(defaults.pane_colours),
+        PreferenceChange::PaneInks(defaults.pane_inks.clone()),
+        PreferenceChange::PanePattern(defaults.pane_pattern),
+        PreferenceChange::PaneDotSize(defaults.pane_dot_size),
+        PreferenceChange::PaneContrast(defaults.pane_contrast),
+        PreferenceChange::PaneBrightness(defaults.pane_brightness),
+        PreferenceChange::PaneGlow(defaults.pane_glow),
+        PreferenceChange::PaneGlowSize(defaults.pane_glow_size),
+        PreferenceChange::PaneCoverage(defaults.pane_coverage),
+    ] {
+        crate::settings::set(bench, change);
+    }
+    let Some(fields) = super::state(bench, cx).and_then(|pages| pages.appearance.as_ref()) else {
+        return;
+    };
+    let sliders = [
+        (fields.dot_size.clone(), defaults.pane_dot_size as f32),
+        (fields.contrast.clone(), defaults.pane_contrast as f32),
+        (fields.brightness.clone(), defaults.pane_brightness as f32),
+        (fields.glow.clone(), defaults.pane_glow as f32),
+        (fields.glow_size.clone(), defaults.pane_glow_size as f32),
+    ];
+    let inks = fields.inks.clone();
+    for (slider, value) in sliders {
+        slider.update(cx, |slider, cx| slider.set_value(value, window, cx));
+    }
+    for (picker, ink) in inks.iter().zip(&defaults.pane_inks) {
+        picker.update(cx, |picker, cx| {
+            picker.set_value(theme::color(ink), window, cx)
+        });
+    }
 }
 
 /// Wears the theme `by` places from the one worn in the library as filtered, else its first or last.
