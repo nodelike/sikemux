@@ -314,7 +314,9 @@ fn row(
                         .min_w_0()
                         .child(
                             ui::text(heavy.what, TEXT_XS, FontWeight::NORMAL)
-                                .flex_none()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_ellipsis()
                                 .whitespace_nowrap(),
                         )
                         .when(!names.is_empty(), |line| {
