@@ -74,9 +74,12 @@ pub fn plain(dir: &Path, commit: &str) -> bool {
     let sides: Vec<&str> = parent.as_deref().into_iter().chain([commit]).collect();
     files(dir, commit).iter().all(|path| {
         sides.iter().all(|side| {
-            let listed = git(dir, &["ls-tree", "--name-only", side, "--", path]);
+            let listed = git(dir, &["ls-tree", side, "--", path]);
             match listed {
                 Ok(listed) if listed.trim().is_empty() => true,
+                Ok(listed) if !(listed.starts_with("100644 ") || listed.starts_with("100755 ")) => {
+                    false
+                }
                 Ok(_) => Git::quick(dir)
                     .stdout(&["cat-file", "blob", &format!("{side}:{path}")])
                     .ok()
@@ -93,10 +96,24 @@ pub fn plain(dir: &Path, commit: &str) -> bool {
 /// another repository, and keeps its token from writing to the repository.
 fn plain_text(text: &str) -> bool {
     let scoped = text.lines().any(|line| line.starts_with("permissions:"));
+    let unescaped = unescaped(text);
     scoped
-        && [text.to_lowercase(), unescaped(text).to_lowercase()]
+        && ascii(text)
+        && ascii(&unescaped)
+        && [text.to_lowercase(), unescaped.to_lowercase()]
             .iter()
             .all(|text| reaches_nothing(text))
+}
+
+/// Whether `text` is printable ASCII in lines, so no other line break or folded letter can hide a
+/// word from the checks.
+fn ascii(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    (bytes.iter().enumerate()).all(|(at, byte)| match byte {
+        b' '..=b'~' | b'\t' | b'\n' => true,
+        b'\r' => bytes.get(at + 1) == Some(&b'\n'),
+        _ => false,
+    })
 }
 
 fn reaches_nothing(text: &str) -> bool {
@@ -111,7 +128,13 @@ fn reaches_nothing(text: &str) -> bool {
                 .is_some_and(|after| !after.is_alphanumeric() && after != '_')
     });
     let called = "/.github/workflows/";
-    let local_only = (text.match_indices(called)).all(|(at, _)| text[..at].ends_with('.'));
+    let local_only = (text.match_indices(called)).all(|(at, _)| {
+        let before = text[..at].strip_suffix('.');
+        before.is_some_and(|before| {
+            (before.chars().last())
+                .is_none_or(|last| last.is_whitespace() || matches!(last, '"' | '\''))
+        })
+    });
     let read_only = (text.lines())
         .filter(|line| line.contains("contents"))
         .all(reads_contents);
@@ -231,15 +254,15 @@ const HELD: &str = "This push carries a change to CI that waits for the person, 
 /// What an agent's push is told when a merge carries such a change, which no call could list.
 const MERGE: &str = "This push has a merge that changes CI in a way that waits for the person, which they can't pass, so replay it as plain commits and push those with git_commit and push: true.";
 
-/// What the core may forward to `remote` from `outbox`, as the `updates` to its refs, each an
-/// old and a new commit id, move them: `None` needs only the core's usual key; a grant, while it
+/// What the core may forward to `remote` from `outbox`, as the `updates` to its refs, each a
+/// full ref name with its old and new commit id, move them: `None` needs only the core's usual key; a grant, while it
 /// lives, a key that can change workflows; an error refuses the forward with what to tell the
 /// agent.
 pub fn forward(
     core: &Core,
     outbox: &Path,
     remote: &str,
-    updates: &[(String, String)],
+    updates: &[(String, String, String)],
 ) -> Result<Option<Grant>, String> {
     if plugged::acts_as(core, remote).is_none() {
         return Ok(None);
@@ -267,23 +290,29 @@ pub fn forward(
 }
 
 /// The commits that `updates` bring to the remote and that change a workflow file: those the
-/// new ids reach and neither the old ids nor any other ref of `outbox` does.
-fn carried(outbox: &Path, updates: &[(String, String)]) -> Result<Vec<String>, String> {
+/// new ids reach and neither the old ids nor any ref of `outbox` they leave alone does.
+fn carried(outbox: &Path, updates: &[(String, String, String)]) -> Result<Vec<String>, String> {
     let zero = |id: &str| id.bytes().all(|byte| byte == b'0');
     let news: Vec<&str> = (updates.iter())
-        .map(|(_, new)| new.as_str())
+        .map(|(_, _, new)| new.as_str())
         .filter(|new| !zero(new))
         .collect();
     if news.is_empty() {
         return Ok(Vec::new());
     }
-    let refs = git(outbox, &["for-each-ref", "--format=%(objectname)"])?;
+    let refs = git(
+        outbox,
+        &["for-each-ref", "--format=%(objectname) %(refname)"],
+    )?;
+    let updated = |name: &str| updates.iter().any(|(updated, _, _)| updated == name);
     let mut known: Vec<&str> = (refs.lines())
-        .filter(|tip| !tip.is_empty() && !news.contains(tip))
+        .filter_map(|entry| entry.split_once(' '))
+        .filter(|(_, name)| !updated(name))
+        .map(|(tip, _)| tip)
         .collect();
     known.extend(
         (updates.iter())
-            .map(|(old, _)| old.as_str())
+            .map(|(_, old, _)| old.as_str())
             .filter(|old| !zero(old)),
     );
     let mut args = vec!["rev-list", "--ignore-missing", "--full-history"];
