@@ -422,6 +422,15 @@ pub fn dot(tone: Tone, cx: &App) -> Div {
     }
 }
 
+/// The spinner a row of running work ends on.
+pub fn working(size: f32, tint: Hsla) -> AnyElement {
+    use gpui_kit::component::Sizable;
+    gpui_kit::component::spinner::Spinner::new()
+        .with_size(px(size))
+        .color(tint)
+        .into_any_element()
+}
+
 /// A ring `size` across, filled clockwise from the top in its tint as far as the percent,
 /// over a full track; only the track without a fill.
 pub fn ring(filled: Option<(f64, Hsla)>, size: f32, stroke: f32, track: Hsla) -> impl IntoElement {

@@ -1335,9 +1335,26 @@ pub(super) fn subagent(
     let state = match (card.state, doing) {
         (SubagentState::Running, Some(doing)) if !doing.is_empty() => div()
             .min_w_0()
-            .truncate()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
             .text_color(t.text_secondary)
-            .child(shimmer(format!("{key}:doing"), doing))
+            .child(div().flex_none().child(ui::working(11., tint)))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .child(shimmer(format!("{key}:doing"), doing)),
+            )
+            .into_any_element(),
+        (SubagentState::Running, _) => div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_color(looks.quiet)
+            .child(ui::working(11., tint))
+            .child(word)
             .into_any_element(),
         _ => div()
             .flex_none()

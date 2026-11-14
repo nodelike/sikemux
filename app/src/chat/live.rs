@@ -649,14 +649,23 @@ fn subagent_row(
         1 => t!("1 call").to_owned(),
         calls => t!("{calls} calls", calls = calls),
     });
-    let end = if card.can_stop {
-        let stopping = chat.stopping.contains(&card.session_id);
-        stop(&agent.id, &card.session_id, &card.name, stopping, t, cx)
-    } else {
-        ui::icon(Icon::Hourglass, 11.)
-            .text_color(tints.agent)
-            .into_any_element()
-    };
+    let end = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(ui::working(11., tints.agent))
+        .when(card.can_stop, |end| {
+            let stopping = chat.stopping.contains(&card.session_id);
+            end.child(stop(
+                &agent.id,
+                &card.session_id,
+                &card.name,
+                stopping,
+                t,
+                cx,
+            ))
+        })
+        .into_any_element();
     let activity = shimmer(
         SharedString::from(format!("subagent-{}", card.session_id)),
         activity,
@@ -788,9 +797,17 @@ fn workflow_agent(
         .filter(|calls| *calls > 0)
         .map(|calls| t!("{calls} tools", calls = calls));
     let end = match worker.state {
-        WorkflowAgentState::Running => Some(ui::icon(Icon::Hourglass, 11.).text_color(tints.agent)),
-        WorkflowAgentState::Completed => Some(ui::icon(Icon::Check, 10.).text_color(tints.task)),
-        WorkflowAgentState::Failed => Some(ui::icon(Icon::Close, 10.).text_color(t.danger)),
+        WorkflowAgentState::Running => Some(ui::working(11., tints.agent)),
+        WorkflowAgentState::Completed => Some(
+            ui::icon(Icon::Check, 10.)
+                .text_color(tints.task)
+                .into_any_element(),
+        ),
+        WorkflowAgentState::Failed => Some(
+            ui::icon(Icon::Close, 10.)
+                .text_color(t.danger)
+                .into_any_element(),
+        ),
         WorkflowAgentState::Queued => None,
     };
     let quiet = matches!(
@@ -807,7 +824,7 @@ fn workflow_agent(
         worker.label.clone(),
         detail.map(|detail| (detail.into_any_element(), false)),
         cost([tokens(worker.tokens), calls]),
-        end.map(IntoElement::into_any_element),
+        end,
     )
     .pl(px(33.))
     .into_any_element()
