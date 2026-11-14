@@ -229,6 +229,10 @@ def main():
     cache = next(filter(None, (shutil.which(name, path=path) for name in COMPILER_CACHES)), None)
     if cache and "RUSTC_WRAPPER" not in env:
         env["RUSTC_WRAPPER"] = cache
+    if os.path.basename(env.get("RUSTC_WRAPPER", "")) == "kache":
+        # kache's own copies of each crate's incremental state in target/*/incremental.kache-auto
+        # go only after 30 days unused, and reached 86 GB in the main checkout.
+        env.setdefault("KACHE_ADAPTIVE_INCREMENTAL", "0")
     policy = shutil.which("taskpolicy") if sys.platform == "darwin" and "SIKEMUX_AGENT_ID" in env else None
     if policy:
         command = [policy, "-c", "utility", *command]
