@@ -113,7 +113,50 @@ pub fn git_command(dir: impl AsRef<std::path::Path>) -> Command {
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_EDITOR", "true")
         .env("GIT_OPTIONAL_LOCKS", "0");
+    let every = EVERY_GIT
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    add_config(&mut command, &every);
     command
+}
+
+static EVERY_GIT: std::sync::RwLock<Vec<(String, String)>> = std::sync::RwLock::new(Vec::new());
+
+/// Settings every git the core starts from now on carries, in place of the last ones given.
+pub fn set_config_for_every_git(settings: Vec<(String, String)>) {
+    *EVERY_GIT
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = settings;
+}
+
+/// Adds `settings` to what `command` hands git through `GIT_CONFIG_*`, after
+/// what it or this process already hands it.
+pub fn add_config(command: &mut Command, settings: &[(String, String)]) {
+    if settings.is_empty() {
+        return;
+    }
+    let count = config_count(command);
+    for (at, (key, value)) in settings.iter().enumerate() {
+        command
+            .env(format!("GIT_CONFIG_KEY_{}", count + at), key)
+            .env(format!("GIT_CONFIG_VALUE_{}", count + at), value);
+    }
+    command.env("GIT_CONFIG_COUNT", (count + settings.len()).to_string());
+}
+
+/// How many `GIT_CONFIG_*` settings `command` hands git so far.
+pub fn config_count(command: &Command) -> usize {
+    let given = command
+        .get_envs()
+        .find(|(key, _)| *key == "GIT_CONFIG_COUNT")
+        .map(|(_, value)| value.map(std::ffi::OsStr::to_os_string));
+    let count = match given {
+        Some(value) => value,
+        None => std::env::var_os("GIT_CONFIG_COUNT"),
+    };
+    count
+        .and_then(|count| count.to_str()?.parse().ok())
+        .unwrap_or(0)
 }
 
 /// A commit's name as a person reads it.
@@ -162,6 +205,12 @@ impl<'a> Git<'a> {
     /// Sets `key` for this run only, as `git -c key=value` does.
     pub fn config(mut self, key: &str, value: &str) -> Self {
         self.command.arg("-c").arg(format!("{key}={value}"));
+        self
+    }
+
+    /// Adds `settings` through `GIT_CONFIG_*`.
+    pub fn settings(mut self, settings: &[(String, String)]) -> Self {
+        add_config(&mut self.command, settings);
         self
     }
 

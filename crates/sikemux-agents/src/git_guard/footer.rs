@@ -112,7 +112,7 @@ fn use_hooks(
     let Ok(ours) = hooks_for(folder, &theirs) else {
         return false;
     };
-    let count = config_count();
+    let count = sikemux_git::config_count(command);
     for (at, (key, value)) in settings.iter().enumerate() {
         let value = match value.is_empty() {
             true => ours.as_os_str(),
@@ -128,13 +128,6 @@ fn use_hooks(
         .env(REPO_HOOKS, theirs)
         .env(NOTE_FILE, note_file);
     true
-}
-
-fn config_count() -> usize {
-    std::env::var("GIT_CONFIG_COUNT")
-        .ok()
-        .and_then(|count| count.parse().ok())
-        .unwrap_or(0)
 }
 
 /// The repository's hooks folder, and where a commit's note waits for it.
