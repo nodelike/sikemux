@@ -42,7 +42,7 @@ use crate::launch::model_feed::Feed;
 use crate::launch::named_account;
 use pricing::Prices;
 pub use pricing::{PriceOverride, PricingInfo};
-pub use report::{ReportedAnswers, ReportedDay, ReportedTokens};
+pub use report::{ReportedAgent, ReportedAnswers, ReportedDay, ReportedTokens};
 
 use super::Core;
 use crate::sessions::tokens::{ReadState, TokenCount};

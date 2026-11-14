@@ -11,6 +11,7 @@ use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::usage::Step;
 use sikemux_corekit::usage::account_hash;
 pub use sikemux_corekit::usage::{do_not_track, signed_in_user, Install};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -23,7 +24,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
-use super::activity_log::{ReportedAnswers, ReportedDay, ReportedTokens};
+use super::activity_log::{ReportedAgent, ReportedAnswers, ReportedDay, ReportedTokens};
 use super::Core;
 use sikemux_view::prefs::{Preferences, UpdateChannel};
 use sikemux_wire::protocol::BuildChannel;
@@ -461,6 +462,7 @@ fn activity_events(
             "commits": day.commits,
             "agent_commits": day.agent_commits,
             "tokens": day.tokens.iter().map(total).sum::<i64>(),
+            "agents": agents(&day.agents),
             "features": features(&day.features),
             "answers": answers(&day.answers, |answers| answers.count),
             "answer_seconds": answers(&day.answers, |answers| answers.ms / 1000),
@@ -492,6 +494,21 @@ fn activity_events(
         )
     }));
     events
+}
+
+fn agents(agents: &BTreeMap<String, ReportedAgent>) -> serde_json::Map<String, Value> {
+    agents
+        .iter()
+        .map(|(name, agent)| {
+            let counts = json!({
+                "chats": agent.chats,
+                "terminals": agent.terminals,
+                "turns": agent.turns,
+                "agent_ms": agent.agent_ms,
+            });
+            (name.clone(), counts)
+        })
+        .collect()
 }
 
 /// Uses by feature, named with who asked when it was not the app: `startChat`,

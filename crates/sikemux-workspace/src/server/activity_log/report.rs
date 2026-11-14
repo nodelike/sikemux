@@ -2,7 +2,7 @@
 //! report. Never which projects, prompts or commits: only how much.
 
 use crate::server::activity_log::pricing::ModelRateExt;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use rusqlite::{params, Connection};
 
@@ -27,6 +27,8 @@ pub struct ReportedDay {
     pub commits: i64,
     pub agent_commits: i64,
     pub tokens: Vec<ReportedTokens>,
+    /// Sessions, turns and time at work by agent, such as `claude` or `opencode`.
+    pub agents: BTreeMap<String, ReportedAgent>,
     /// How often each feature was used, by name and who asked for it.
     pub features: Vec<(String, String, i64)>,
     /// Calls the person answered, by kind and client: how many, and the time they waited in all.
@@ -35,6 +37,14 @@ pub struct ReportedDay {
     pub waited_ms: i64,
     /// Chats' calls to the model, cold rewrites of their cache and compactions.
     pub model_use: ReportedModelUse,
+}
+
+#[derive(Default, Debug, PartialEq)]
+pub struct ReportedAgent {
+    pub chats: i64,
+    pub terminals: i64,
+    pub turns: i64,
+    pub agent_ms: i64,
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -82,29 +92,40 @@ fn days_between(
     let mut days: HashMap<i64, ReportedDay> = HashMap::new();
 
     let mut launches = db.prepare(
-        "SELECT at_ms, transport, resumed FROM launches WHERE at_ms >= ?1 AND at_ms < ?2",
+        "SELECT at_ms, transport, resumed, agent FROM launches WHERE at_ms >= ?1 AND at_ms < ?2",
     )?;
     let mut rows = launches.query(params![from_ms, to_ms])?;
     while let Some(row) = rows.next()? {
         let day = day_at(&mut days, row.get(0)?);
         day.sessions += 1;
         day.resumed += row.get::<_, i64>(2)?;
+        let agent = day.agents.entry(row.get(3)?).or_default();
         match row.get::<_, String>(1)?.as_str() {
-            "chat" => day.chat_sessions += 1,
-            _ => day.terminal_sessions += 1,
+            "chat" => {
+                day.chat_sessions += 1;
+                agent.chats += 1;
+            }
+            _ => {
+                day.terminal_sessions += 1;
+                agent.terminals += 1;
+            }
         }
     }
 
     let mut turns: HashMap<i64, Vec<(i64, i64)>> = HashMap::new();
     let mut statement = db.prepare(
-        "SELECT started_ms, ended_ms FROM turns WHERE started_ms >= ?1 AND started_ms < ?2",
+        "SELECT started_ms, ended_ms, agent FROM turns WHERE started_ms >= ?1 AND started_ms < ?2",
     )?;
     let mut rows = statement.query(params![from_ms, to_ms])?;
     while let Some(row) = rows.next()? {
         let (started, ended): (i64, i64) = (row.get(0)?, row.get(1)?);
         let day = day_at(&mut days, started);
+        let worked = (ended - started).max(0);
         day.turns += 1;
-        day.agent_ms += (ended - started).max(0);
+        day.agent_ms += worked;
+        let agent = day.agents.entry(row.get(2)?).or_default();
+        agent.turns += 1;
+        agent.agent_ms += worked;
         turns.entry(day.day).or_default().push((started, ended));
     }
 
