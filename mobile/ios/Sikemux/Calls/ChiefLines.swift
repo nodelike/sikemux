@@ -76,7 +76,7 @@ struct AgentDecidedLine: View {
 }
 
 /// The quiet line an Overrule leaves in the chief's chat, as the Mac words it: what was decided, quoted, and Undo until
-/// it is undone, or when it stopped Auto's run, which Undo cannot put back.
+/// it is undone.
 struct OverruledLine: View {
     @Environment(TranscriptContext.self) private var context
     let overruled: OverruledDecision
@@ -85,12 +85,11 @@ struct OverruledLine: View {
 
     private var why: String? {
         if overruled.undone == true { return CallWords.standsAgain }
-        if overruled.stoppedAuto == true { return CallWords.stoppedAuto }
         return overruled.rule != nil ? CallWords.fromNowOn : nil
     }
 
     var body: some View {
-        let undoes = context.acts && overruled.undone != true && overruled.stoppedAuto != true
+        let undoes = context.acts && overruled.undone != true
         DecisionLineLayout(
             icon: Icons.reply, head: overruled.undone == true ? CallWords.overruledUndone : CallWords.overruled,
             action: undoes ? CallWords.undo : nil, sending: sending, act: undo, quote: overruled.text, why: why,

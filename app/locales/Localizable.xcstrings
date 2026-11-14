@@ -142507,58 +142507,6 @@
         }
       }
     },
-    "this stopped Auto's run, so it can't be put back": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "esto detuvo la ejecución de Auto, así que no se puede restaurar"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "这停止了 Auto 的运行，因此无法恢复"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "das hat Autos Lauf gestoppt und lässt sich nicht zurücksetzen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cela a arrêté Auto, donc rien ne peut être rétabli"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Auto の実行を止めたため元に戻せません"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Auto 실행을 멈췄기 때문에 되돌릴 수 없습니다"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "это остановило Auto, поэтому вернуть нельзя"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "isso parou a execução do Auto, então não pode ser restaurado"
-          }
-        }
-      }
-    },
     "timer": {
       "localizations": {
         "es": {

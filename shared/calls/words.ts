@@ -301,7 +301,6 @@ export const DECIDED = "Decided";
 export const OVERRULED = "Overruled";
 export const OVERRULED_UNDONE = "Overruled, then undone";
 export const STANDS_AGAIN = "It stands again";
-export const STOPPED_AUTO = "This stopped Auto's run, so it can't be put back";
 export const FROM_NOW_ON = "Decisions like this come to you from now on";
 export const RULE_BACK = "Rule back";
 export const NOW_A_CHECK = "Now a check";

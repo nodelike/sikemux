@@ -1066,21 +1066,13 @@ fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
     let Some(overruled) = notice.overruled.clone() else {
         return div().into_any_element();
     };
-    let (head, tail) = match (
-        overruled.undone,
-        overruled.stopped_auto,
-        overruled.rule.is_some(),
-    ) {
-        (true, _, _) => (t!("Overruled, then undone"), Some(t!("it stands again"))),
-        (false, true, _) => (
-            t!("Overruled"),
-            Some(t!("this stopped Auto's run, so it can't be put back")),
-        ),
-        (false, false, true) => (
+    let (head, tail) = match (overruled.undone, overruled.rule.is_some()) {
+        (true, _) => (t!("Overruled, then undone"), Some(t!("it stands again"))),
+        (false, true) => (
             t!("Overruled"),
             Some(t!("decisions like this come to you from now on")),
         ),
-        (false, false, false) => (t!("Overruled"), None),
+        (false, false) => (t!("Overruled"), None),
     };
     let quoted =
         (!overruled.text.is_empty()).then(|| t!("“{text}”", text = overruled.text.clone()));

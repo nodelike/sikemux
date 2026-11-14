@@ -329,7 +329,6 @@ enum CallWords {
     static let overruled = String(localized: "Overruled")
     static let overruledUndone = String(localized: "Overruled, then undone")
     static let standsAgain = String(localized: "It stands again")
-    static let stoppedAuto = String(localized: "This stopped Auto's run, so it can't be put back")
     static let fromNowOn = String(localized: "Decisions like this come to you from now on")
     /// A rule change's line as the Mac words it: its title, then the short hash of the check that holds it or who did
     /// it.

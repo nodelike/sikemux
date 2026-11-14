@@ -12,7 +12,6 @@ import {
   quoted,
   ruleChange,
   STANDS_AGAIN,
-  STOPPED_AUTO,
   UNDO,
   weekCame,
   weekCount,
@@ -122,7 +121,7 @@ export function DecidedLineRow({ decided }: { decided: DecidedLine }) {
 
 /**
  * The quiet line an Overrule leaves in the chief's chat, as the Mac words it: what was decided, quoted, and Undo until
- * it is undone, or when it stopped Auto's run, which Undo cannot put back.
+ * it is undone.
  */
 export function OverruledLine({ overruled }: { overruled: OverruledDecision }) {
   const t = useT();
@@ -130,12 +129,10 @@ export function OverruledLine({ overruled }: { overruled: OverruledDecision }) {
   const { send, sending, refused } = useDecisionCall('undoOverrule', overruled);
   const why = overruled.undone
     ? t(STANDS_AGAIN)
-    : overruled.stoppedAuto
-      ? t(STOPPED_AUTO)
-      : overruled.rule !== undefined
-        ? t(FROM_NOW_ON)
-        : undefined;
-  const offersUndo = acts && !overruled.undone && !overruled.stoppedAuto;
+    : overruled.rule !== undefined
+      ? t(FROM_NOW_ON)
+      : undefined;
+  const offersUndo = acts && !overruled.undone;
   return (
     <DecisionLine
       icon="IconReply"
