@@ -574,10 +574,10 @@ fn call_asking(
         asker: CallAsker {
             agent_id: agent_id.to_owned(),
             cli: (core.repo_above().questions_cli_of)(core, agent_id),
-            name: name.clone(),
+            name,
             chief: false,
         },
-        question: format!("Change {} with @{name}'s work?", place.name()),
+        question: format!("Change {} with this work?", place.name()),
         context: [
             resolved_from.map(|from| format!("Sikemux read where it lands from {from}.")),
             subject.map(|subject| format!("The work's latest commit: {subject}")),
