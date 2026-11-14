@@ -146,6 +146,12 @@ impl Process {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0);
+        if git_guard::identity::note(&launch.cwd) {
+            for name in sikemux_process::vars::PERSON_GITHUB_TOKENS {
+                command.env_remove(name);
+            }
+            command.env(sikemux_process::vars::GITHUB_TOKENS_WITHHELD, "1");
+        }
         let mut child = command.spawn().map_err(|error| match launch.cwd.is_dir() {
             true => format!("{} could not be started: {error}", launch.program.display()),
             false => format!(

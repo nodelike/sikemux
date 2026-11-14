@@ -17,7 +17,7 @@ use sikemux_pty::task::{validate_task_request, TaskSpawnRequest};
 use sikemux_pty::user_shell::{configured_shell, login_shell_environment};
 use sikemux_pty::validate_pty_dimensions;
 
-use crate::git_guard::{homes, shim};
+use crate::git_guard::{homes, identity, shim};
 use sikemux_wire::protocol::{
     Continuation, LaunchIdentity, SessionKind, TaskSessionInfo, TerminalSpawn,
 };
@@ -166,10 +166,12 @@ pub fn prepare_terminal(
     owner.account_home = variable
         .and_then(|variable| env.get(variable))
         .map(|home| account_dir(home));
+    let mut withheld = false;
     let guard = match direct_command {
         Some(_) => {
             if let Some(cwd) = cwd.as_deref() {
                 shim::stand_in_for_heavy(std::path::Path::new(cwd));
+                withheld = identity::note(std::path::Path::new(cwd));
             }
             let mut guard = shim::environment(env.get("PATH").map(String::as_str));
             guard.extend(homes::environment(
@@ -184,6 +186,9 @@ pub fn prepare_terminal(
     };
     for (key, value) in env.into_iter().chain(guard) {
         cmd.env(key, value);
+    }
+    if withheld {
+        withhold_tokens(&mut cmd);
     }
     let shell_integration = if shell_integration_requested(
         context.as_ref(),
@@ -234,6 +239,15 @@ pub fn prepare_terminal(
         setup,
         model_grant: None,
     })
+}
+
+/// Leaves the person's GitHub tokens out of an agent's command, and has its shell drop them
+/// again after the person's startup files.
+fn withhold_tokens(cmd: &mut CommandBuilder) {
+    for name in vars::PERSON_GITHUB_TOKENS {
+        cmd.env_remove(name);
+    }
+    cmd.env(vars::GITHUB_TOKENS_WITHHELD, "1");
 }
 
 /// The command a task starts with. Blocks on the first call while
@@ -302,14 +316,19 @@ pub fn prepare_task(
     task_command.env(vars::TASK_TERMINAL_KEY, terminal_key);
     task_command.env(vars::TASK_ID, task_id);
     task_command.env(vars::TASK_SOURCE, source.as_str());
+    let mut withheld = false;
     let in_line = in_line.map(|(agent, cwd)| {
         shim::stand_in_for_heavy(std::path::Path::new(&cwd));
+        withheld = identity::note(std::path::Path::new(&cwd));
         let mut given = shim::environment(env.get("PATH").map(String::as_str));
         given.push((vars::AGENT_ID.to_owned(), agent));
         given
     });
     for (key, value) in env.into_iter().chain(in_line.into_iter().flatten()) {
         task_command.env(key, value);
+    }
+    if withheld {
+        withhold_tokens(&mut task_command);
     }
     task_command.cwd(paths.cwd);
     configure_task_command(&mut task_command, &shell, &command)?;

@@ -2,7 +2,9 @@
 //! own startup files, with three options on top. Without them zsh stops a
 //! whole command line at a glob that matches nothing, reads `echo ===` as a
 //! command lookup, and keeps `$FILES` whole, which agents written for bash
-//! tripped over hundreds of times. The person's own terminals are untouched.
+//! tripped over hundreds of times. An agent whose repository's remote has an identity of the
+//! agents' own also loses the person's GitHub tokens again after each file. The person's own
+//! terminals are untouched.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -49,6 +51,11 @@ fn startup(name: &str, options: Option<&str>) -> String {
         "_sikemux_zdotdir=$ZDOTDIR\nZDOTDIR={user}\n[[ -f $ZDOTDIR/{name} ]] && source $ZDOTDIR/{name}\nexport {}=$ZDOTDIR\nZDOTDIR=$_sikemux_zdotdir\nunset _sikemux_zdotdir\n",
         vars::USER_ZDOTDIR
     );
+    text.push_str(&format!(
+        "[[ -z ${} ]] || unset {}\n",
+        vars::GITHUB_TOKENS_WITHHELD,
+        vars::PERSON_GITHUB_TOKENS.join(" ")
+    ));
     if let Some(guard) = options {
         text.push_str(&format!("{guard}{OPTIONS}\n"));
     }
