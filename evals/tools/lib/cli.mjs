@@ -4,6 +4,17 @@ import { connect } from 'node:net';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+const GROUPS = [
+  ['agents', (name) => name.startsWith('agent_') || ['who_wrote', 'why', 'ask'].includes(name)],
+  ['processes and waits', (name) => name.startsWith('process_') || name.startsWith('trigger_') || ['workspace_inspect', 'events_wait'].includes(name)],
+  ['browser', (name) => name.startsWith('browser_')],
+  ['pages and panes', (name) => name.startsWith('page_') || name === 'ui_open'],
+  ['simulator', (name) => name === 'sim'],
+  ['git', (name) => name === 'git_commit'],
+  ['board and memory', (name) => name.startsWith('board_') || name.startsWith('memory_')],
+  ['Sikemux itself', (name) => ['guide', 'skills', 'app_console', 'gif'].includes(name)],
+];
+
 const USAGE = `usage:
   sikemux tool                     list the tools, one line each
   sikemux tool help NAME           what NAME does and the arguments it takes
@@ -23,7 +34,7 @@ try {
   else if (first === 'help' || first === '--help' || first === '-h') {
     if (!second) console.log(USAGE);
     else console.log(help(await server.tools(), second));
-  } else if (first === 'instructions') console.log(`Sikemux's tools are subcommands of \`sikemux tool\`; the sikemux skill says how to call them.\n\n${server.instructions}`);
+  } else if (first === 'instructions') console.log(instructions(await server.tools()));
   else if (second === '--help' || second === '-h') console.log(help(await server.tools(), first));
   else {
     if (extra.length) fail(`sikemux tool ${first} takes one JSON argument; quote it, such as '{"url": "…"}'`);
@@ -68,15 +79,35 @@ async function call(server, name, given) {
   return reply.result.isError ? 1 : 0;
 }
 
+// Families first, one line each, so even the top of the listing names every tool; then each tool with its first line.
 function listing(tools) {
-  const width = Math.max(...tools.map((tool) => tool.name.length)) + 2;
-  return [...tools.map((tool) => `${tool.name.padEnd(width)}${firstSentence(tool.description)}`), '', '`sikemux tool help NAME` explains one.'].join('\n');
+  const groups = grouped(tools);
+  const width = Math.max(...groups.map(([group]) => group.length)) + 2;
+  const nameWidth = Math.max(...tools.map((tool) => tool.name.length)) + 2;
+  return [
+    'Sikemux tools. Run `sikemux tool help NAME` before a tool\'s first call.',
+    '',
+    ...groups.map(([group, members]) => `${group.padEnd(width)}${members.map((tool) => tool.name).join(' ')}`),
+    ...groups.flatMap(([group, members]) => ['', `${group}:`, ...members.map((tool) => `  ${tool.name.padEnd(nameWidth)}${(tool.description ?? '').split('\n')[0]}`)]),
+  ].join('\n');
 }
 
-function firstSentence(text = '') {
-  const line = text.split('\n')[0];
-  const end = line.search(/\.(\s|$)/);
-  return end < 0 ? line : line.slice(0, end + 1);
+function grouped(tools) {
+  const plugins = tools.filter((tool) => !GROUPS.some(([, holds]) => holds(tool.name)));
+  return [
+    ['services (the person\'s sign-ins)', plugins],
+    ...GROUPS.map(([group, holds]) => [group, tools.filter((tool) => holds(tool.name))]),
+  ].filter(([, members]) => members.length);
+}
+
+function instructions(tools) {
+  const [, plugins] = grouped(tools)[0];
+  const names = plugins.map((tool) => `\`sikemux tool ${tool.name}\``).join(', ');
+  const text = readFileSync(join(import.meta.dirname, 'cli-instructions.md'), 'utf8').trim().replace('{plugins}', `The service tools (${names})`);
+  const sim = tools.some((tool) => tool.name === 'sim')
+    ? '\n- Mobile apps: sim attach a device, live on your desk, never Simulator.app. Read it with sim state; act with sim tap, sim type and sim swipe. Install with sim install and sim launch, never expo run, react-native run-* or flutter run.'
+    : '';
+  return text + sim;
 }
 
 function help(tools, name) {
