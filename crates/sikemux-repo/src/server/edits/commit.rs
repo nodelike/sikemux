@@ -48,6 +48,8 @@ pub struct Committed {
     more_left: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
 }
 
 /// What `git_commit` did: the commit, and what it pushed when asked to.
@@ -481,11 +483,7 @@ pub fn commit(
             "message must say what the commit does".into(),
         ));
     }
-    if super::footer::credits_claude(message) {
-        return Err(Refusal::Other(
-            "Nothing was committed: leave out the line crediting Claude, such as a Co-Authored-By trailer or \"Generated with Claude Code\". Sikemux's footer credits the agent already.".into(),
-        ));
-    }
+    let message = &super::footer::without_claude_credit(message);
     for _ in 0..ATTEMPTS {
         let branch = git(dir, &["symbolic-ref", "-q", "HEAD"])
             .map_or_else(|_| "HEAD".to_owned(), |branch| branch.trim().to_owned());
@@ -512,12 +510,12 @@ pub fn commit(
             return Err(Refusal::NothingYours(nothing_yours(&left)));
         }
         let lacking = unresolved(&diff, &changes)?;
-        if !lacking.is_empty() {
-            return Err(Refusal::Other(format!(
-                "Nothing was committed, since the commit would not build on its own: {}. Name the missing files in paths too, or wait until the agent writing them commits.",
+        let warning = (!lacking.is_empty()).then(|| {
+            format!(
+                "This commit may not build on its own: {}. Commit the missing files too, or check the agent writing them commits soon.",
                 lacking.join("; ")
-            )));
-        }
+            )
+        });
         let me = owners
             .authors
             .iter()
@@ -584,6 +582,7 @@ pub fn commit(
                     more_left: left.len().saturating_sub(MAX_LEFT),
                     left: left.into_iter().take(MAX_LEFT).collect(),
                     note,
+                    warning,
                 });
             }
             Err(error) if crate::git::head(&diff.top) == diff.base => return Err(error.into()),

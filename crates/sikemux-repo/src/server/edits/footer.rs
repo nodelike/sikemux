@@ -43,11 +43,22 @@ pub fn attributed(dir: &Path) -> bool {
 /// with Claude Code" line does. The person never wants that on anything an
 /// agent writes; Sikemux's footer credits the agent already.
 pub fn credits_claude(text: &str) -> bool {
-    text.lines().any(|line| {
-        let line = line.trim().to_lowercase();
-        (line.contains("claude") || line.contains("anthropic"))
-            && (line.starts_with("co-authored-by:") || line.contains("generated with"))
-    })
+    text.lines().any(is_claude_credit)
+}
+
+/// `text` without its lines crediting Claude.
+pub fn without_claude_credit(text: &str) -> String {
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|line| !is_claude_credit(line))
+        .collect();
+    kept.join("\n").trim_end().to_owned()
+}
+
+fn is_claude_credit(line: &str) -> bool {
+    let line = line.trim().to_lowercase();
+    (line.contains("claude") || line.contains("anthropic"))
+        && (line.starts_with("co-authored-by:") || line.contains("generated with"))
 }
 
 /// The footer for committing what `dir` has staged, or what `index` holds when
