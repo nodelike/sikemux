@@ -6,7 +6,7 @@
   "accountMethods": ["signIn", "signOut"],
   "tokenForm": {
     "method": "signIn",
-    "lede": "Tools for your agents to read your Play tracks, keep your upload key and send builds to testing. Every upload waits for you.",
+    "lede": "Tools for your agents to read your Play tracks, keep your upload key and send builds to testing.",
     "fields": [
       {
         "name": "keyFile",
@@ -33,7 +33,7 @@
       "name": "play_upload",
       "row": {"verb": "upload", "kind": "execute", "icon": "upload", "target": ["{file}"], "detail": ["{package}", "{track}"]},
       "method": "upload",
-      "description": "Upload a signed .aab and release it on a track. Waits for the person to approve. An app still a draft in Play Console takes only status draft.",
+      "description": "Upload a signed .aab and release it on a track. An app still a draft in Play Console takes only status draft.",
       "properties": {
         "package": { "type": "string" },
         "file": { "type": "string", "description": "Absolute path of the signed .aab." },

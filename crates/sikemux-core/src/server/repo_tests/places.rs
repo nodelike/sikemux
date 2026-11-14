@@ -178,7 +178,7 @@ fn a_production_word_wins_over_a_place_that_is_not_production() {
 }
 
 #[test]
-fn a_name_frees_a_target_only_when_nothing_else_says_production() {
+fn a_target_is_production_only_when_something_says_so() {
     let cwd = Path::new("/nowhere");
     let asks = [
         ("aws s3 sync dist s3://acme-prod --profile dev", vec![]),
@@ -194,6 +194,11 @@ fn a_name_frees_a_target_only_when_nothing_else_says_production() {
             "export AWS_PROFILE=prod; aws ecs update-service --service x",
             vec![],
         ),
+    ];
+    for (line, env) in asks {
+        assert_eq!(judge_line(&[], line, cwd, &env), Goes::Asks, "{line}");
+    }
+    let unnamed = [
         ("kubectl --context main apply -f x", vec![]),
         ("terraform apply", vec![("TF_WORKSPACE", "default")]),
         ("fly deploy -a acme", vec![]),
@@ -202,8 +207,8 @@ fn a_name_frees_a_target_only_when_nothing_else_says_production() {
             vec![("AWS_ACCESS_KEY_ID", "x")],
         ),
     ];
-    for (line, env) in asks {
-        assert_eq!(judge_line(&[], line, cwd, &env), Goes::Asks, "{line}");
+    for (line, env) in unnamed {
+        assert_eq!(judge_line(&[], line, cwd, &env), Goes::Unplaced, "{line}");
     }
     for line in [
         "kubectl --context staging apply -f x",
@@ -271,7 +276,7 @@ fn a_workflow_is_read_as_github_will_run_it() {
     let goes = |line: &str, env: &[(&str, &str)]| judge_line(&[], line, &work, env);
     assert_eq!(goes("gh workflow run deploy.yml", &[]), Goes::Asks);
     assert_eq!(goes("gh workflow run preview.yml", &[]), Goes::Unplaced);
-    assert_eq!(goes("gh workflow run docs.yml", &[]), Goes::Asks);
+    assert_eq!(goes("gh workflow run docs.yml", &[]), Goes::Unplaced);
     assert_eq!(goes("gh workflow run 4211", &[]), Goes::Unplaced);
     assert_eq!(
         goes("gh workflow run preview.yml -f target=prod", &[]),
@@ -279,17 +284,10 @@ fn a_workflow_is_read_as_github_will_run_it() {
     );
     assert_eq!(
         goes("gh workflow run release.yml --repo acme/web", &[]),
-        Goes::Asks
-    );
-    assert_eq!(
-        goes("gh workflow run cd.yml", &[("GH_REPO", "acme/infra")]),
         Goes::Unplaced
     );
     assert_eq!(
-        goes(
-            "gh workflow run deploy-site.yml",
-            &[("GH_REPO", "acme/web")]
-        ),
+        goes("gh workflow run prod-site.yml", &[("GH_REPO", "acme/web")]),
         Goes::Asks
     );
 }
@@ -391,49 +389,25 @@ fn a_graphql_read_is_not_a_write() {
             cwd,
             &[]
         ),
-        Goes::Asks
+        Goes::Unplaced
     );
     assert_eq!(
         judge_line(&[], "gh api repos/acme/web/issues -f title=x", cwd, &[]),
-        Goes::Asks
-    );
-}
-
-/// `stage: ${opt:stage, 'prod'}` and a `serverless.ts` read as dev.
-#[test]
-fn a_stage_that_cannot_be_read_asks() {
-    let project = tempfile::tempdir().unwrap();
-    let file = project.path().join("serverless.yml");
-    std::fs::write(
-        &file,
-        "service: shop\nprovider:\n  stage: ${opt:stage, 'prod'}\n",
-    )
-    .unwrap();
-    assert_eq!(
-        judge_line(&[], "serverless deploy", project.path(), &[]),
-        Goes::Asks
-    );
-    std::fs::write(&file, "service: shop\nprovider:\n  name: aws\n").unwrap();
-    assert_eq!(
-        judge_line(&[], "serverless deploy", project.path(), &[]),
-        Goes::Freely
-    );
-    std::fs::remove_file(&file).unwrap();
-    std::fs::write(project.path().join("serverless.ts"), "export default {}").unwrap();
-    assert_eq!(
-        judge_line(&[], "serverless deploy", project.path(), &[]),
-        Goes::Asks
+        Goes::Unplaced
     );
 }
 
 /// Plain `supabase db push` and `prisma migrate deploy` with its address in `.env` weren't seen.
 #[test]
-fn a_migration_asks_unless_its_database_is_local_or_named_otherwise() {
+fn a_migration_is_seen_unless_its_database_is_local_or_named_otherwise() {
     let project = tempfile::tempdir().unwrap();
     let cwd = project.path();
     let ships =
         |line: &str| crate::ship::of_command(line, &[], crate::ship::Looks::Every, cwd, &|_| None);
-    assert_eq!(judge_line(&[], "supabase db push", cwd, &[]), Goes::Asks);
+    assert_eq!(
+        judge_line(&[], "supabase db push", cwd, &[]),
+        Goes::Unplaced
+    );
     assert!(ships("supabase db push --local").is_empty());
     let env = cwd.join(".env");
     std::fs::write(&env, "DATABASE_URL=postgres://u:p@localhost:5432/app\n").unwrap();
@@ -450,7 +424,7 @@ fn a_migration_asks_unless_its_database_is_local_or_named_otherwise() {
     std::fs::write(&env, "DATABASE_URL=postgres://u:p@db.acme.dev/app\n").unwrap();
     assert_eq!(
         judge_line(&[], "prisma migrate deploy", cwd, &[]),
-        Goes::Asks
+        Goes::Unplaced
     );
 }
 
@@ -564,9 +538,9 @@ fn reads_never_reach_the_judge() {
 }
 
 /// This repository's docs workflow deploys with `npx "$VERCEL_CLI" deploy --prebuilt --prod`,
-/// which no deploy string matched, and ran unasked.
+/// which no deploy string matched.
 #[test]
-fn this_repositorys_docs_workflow_asks() {
+fn this_repositorys_docs_workflow_reads_as_deploying() {
     let docs = include_str!("../../../../../.github/workflows/docs.yml");
     let read = crate::ship::read_workflow(docs);
     assert!(read.deploys);
@@ -576,13 +550,4 @@ fn this_repositorys_docs_workflow_asks() {
         crate::ship::called_workflows(calls_another),
         [".github/workflows/_deploy.yml"]
     );
-    let named = Target::Workflow {
-        file: "deploy.yml".into(),
-        environments: Vec::new(),
-        publishes: false,
-        deploys: false,
-        read: true,
-        inputs: Vec::new(),
-    };
-    assert!(judge::workflow_asks(&named));
 }

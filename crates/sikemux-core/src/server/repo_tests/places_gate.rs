@@ -268,7 +268,7 @@ fn a_target_with_no_name_keeps_no_place() {
         what: "terraform apply".into(),
         target: None,
     };
-    assert!(run(&core, bare, Path::new("/nowhere")).is_err());
+    assert!(run(&core, bare, Path::new("/nowhere")).is_ok());
     assert!(core
         .places()
         .of("/tmp/sikemux-gate-unnamed")
@@ -413,55 +413,6 @@ fn an_unread_workflow_is_listed_once_however_often_it_runs() {
     assert!(crate::server::person_calls::shown(&core).is_empty());
 }
 
-/// A bare `kubectl apply` asked after every run, in every turn, for good.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_context_the_tool_reads_asks_once_and_the_answer_keeps_it() {
-    let home = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(home.path().join(".kube")).unwrap();
-    let config = home.path().join(".kube/config");
-    std::fs::write(&config, "current-context: acme-eks\n").unwrap();
-    let project = "/tmp/sikemux-gate-resolved";
-    let core = core_at(None, project, Vec::new());
-    let env = |name: &str| (name == "HOME").then(|| home.path().to_string_lossy().into_owned());
-    let apply = || {
-        let line = "kubectl apply -f k8s";
-        crate::ship::of_command(
-            line,
-            &[],
-            crate::ship::Looks::Every,
-            Path::new("/nowhere"),
-            &env,
-        )
-        .remove(0)
-    };
-    assert!(run(&core, apply(), Path::new("/nowhere")).is_err());
-    assert!(run(&core, apply(), Path::new("/nowhere")).is_err());
-    let calls = open_calls(&core);
-    assert_eq!(calls.len(), 1);
-    assert!(calls[0]
-        .options
-        .iter()
-        .any(|option| option.id == ship::NOT_PRODUCTION));
-    assert!(core.places().of(project).places.is_empty());
-    answer(&core, &calls[0].id, ship::NOT_PRODUCTION).await;
-
-    assert!(run(&core, apply(), Path::new("/nowhere")).is_ok());
-    let kept = core.places().of(project).places;
-    assert_eq!(kept.len(), 1);
-    assert!(!kept[0].shown.production);
-    assert_eq!(
-        kept[0].recognise,
-        [Recognise::Read {
-            at: config.to_string_lossy().into_owned(),
-            fact: Box::new(Recognise::KubeContext {
-                name: "acme-eks".into()
-            }),
-        }]
-    );
-    std::fs::write(&config, "current-context: other\n").unwrap();
-    assert!(run(&core, apply(), Path::new("/nowhere")).is_err());
-}
-
 /// Nightly tags went to the release workflow with no way to stop being asked each night.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_nightly_asks_once_and_the_person_can_stop_it_asking() {
@@ -503,30 +454,6 @@ async fn a_nightly_asks_once_and_the_person_can_stop_it_asking() {
         .options
         .iter()
         .any(|option| option.id == ship::FROM_NOW_ON));
-}
-
-fn kube_home(context: &str) -> tempfile::TempDir {
-    let home = tempfile::tempdir().unwrap();
-    std::fs::create_dir_all(home.path().join(".kube")).unwrap();
-    std::fs::write(
-        home.path().join(".kube/config"),
-        format!("current-context: {context}\n"),
-    )
-    .unwrap();
-    home
-}
-
-fn kube_apply(home: &Path) -> Ship {
-    let env = |name: &str| (name == "HOME").then(|| home.to_string_lossy().into_owned());
-    let line = "kubectl apply -f k8s";
-    crate::ship::of_command(
-        line,
-        &[],
-        crate::ship::Looks::Every,
-        Path::new("/nowhere"),
-        &env,
-    )
-    .remove(0)
 }
 
 /// A clean, pushed default branch fingerprinted the same at every commit.
@@ -572,72 +499,6 @@ async fn a_deploys_yes_ends_with_the_last_turn_of_those_on_its_call() {
     assert!(run(&core, deploy("vercel --prod"), &cwd).unwrap().is_some());
     core.ship().turn_ended("agent");
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
-}
-
-/// One tap on "context prod-eu isn't production" would have freed what addPlace refuses.
-#[test]
-fn a_name_that_says_production_is_never_offered_as_not_production() {
-    let home = kube_home("prod-eu");
-    let core = core_at(None, "/tmp/sikemux-gate-prod-eu", Vec::new());
-    assert!(run(&core, kube_apply(home.path()), Path::new("/nowhere")).is_err());
-    let call = open_calls(&core).remove(0);
-    assert!(!call
-        .options
-        .iter()
-        .any(|option| option.id == ship::NOT_PRODUCTION));
-}
-
-/// "Isn't production" saved nothing after a restart, though the agent was told it would.
-#[tokio::test(flavor = "multi_thread")]
-async fn an_offer_outlives_a_restart() {
-    let home = kube_home("acme-eks");
-    let data = tempfile::tempdir().unwrap();
-    let project = "/tmp/sikemux-gate-offer";
-    let core = core_at(Some(data.path()), project, Vec::new());
-    assert!(run(&core, kube_apply(home.path()), Path::new("/nowhere")).is_err());
-    let id = open_calls(&core).remove(0).id;
-    drop(core);
-    let again = Core::new(Default::default(), Some(data.path())).unwrap();
-    answer(&again, &id, ship::NOT_PRODUCTION).await;
-    let kept = again.places().of(project).places;
-    assert!(kept.iter().any(|place| !place.shown.production));
-}
-
-/// Two folders both on terraform's default workspace, and two kube configs naming their
-/// context `default`: freeing one freed the other.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_name_freed_where_it_was_read_frees_nothing_read_elsewhere() {
-    let folders = tempfile::tempdir().unwrap();
-    for folder in ["sandbox", "other"] {
-        std::fs::create_dir_all(folders.path().join(folder)).unwrap();
-    }
-    let project = "/tmp/sikemux-gate-read-where";
-    let core = core_at(None, project, Vec::new());
-    let apply = |folder: &str| {
-        let cwd = folders.path().join(folder);
-        crate::ship::of_command(
-            "terraform apply",
-            &[],
-            crate::ship::Looks::Every,
-            &cwd,
-            &|_| None,
-        )
-        .remove(0)
-    };
-    assert!(run(&core, apply("sandbox"), Path::new("/nowhere")).is_err());
-    let call = open_calls(&core).remove(0);
-    answer(&core, &call.id, ship::NOT_PRODUCTION).await;
-    assert!(run(&core, apply("sandbox"), Path::new("/nowhere")).is_ok());
-    assert!(run(&core, apply("other"), Path::new("/nowhere")).is_err());
-    let (one, two) = (kube_home("default"), kube_home("default"));
-    assert!(run(&core, kube_apply(one.path()), Path::new("/nowhere")).is_err());
-    let call = open_calls(&core)
-        .into_iter()
-        .find(|call| call.question.contains("Kubernetes"))
-        .unwrap();
-    answer(&core, &call.id, ship::NOT_PRODUCTION).await;
-    assert!(run(&core, kube_apply(one.path()), Path::new("/nowhere")).is_ok());
-    assert!(run(&core, kube_apply(two.path()), Path::new("/nowhere")).is_err());
 }
 
 /// "From now on just tell me" still asked while the list was unconfirmed.
@@ -759,20 +620,6 @@ async fn a_closed_askers_turn_counts_as_ended() {
     let call = open_calls(&core).remove(0);
     answer(&core, &call.id, "allow").await;
     assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
-}
-
-/// Offers past 64 were dropped by call id, a live one among them.
-#[test]
-fn a_live_offer_is_never_dropped() {
-    let home = kube_home("acme-eks");
-    let project = "/tmp/sikemux-gate-offers";
-    let core = core_at(None, project, Vec::new());
-    assert!(run(&core, kube_apply(home.path()), Path::new("/nowhere")).is_err());
-    let live = open_calls(&core).remove(0).id;
-    for at in 0..70 {
-        offer(&core, project, &format!("0{at}"), vercel_place());
-    }
-    assert!(core.places().of(project).offered.contains_key(&live));
 }
 
 /// Two folders each running `--kubeconfig kubeconfig.yaml` with a context called default gave

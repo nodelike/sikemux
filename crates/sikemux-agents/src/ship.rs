@@ -52,10 +52,6 @@ pub enum Target {
     Site {
         origin: String,
     },
-    /// A connector's service, such as Jira.
-    Connector {
-        name: String,
-    },
     /// A database the database connector marks as production, by its connection's name.
     Database {
         name: String,
@@ -70,14 +66,10 @@ pub enum Target {
         name: String,
     },
     /// A GitHub Actions workflow started by hand, by its file, with the deployment
-    /// environments its jobs name, whether it publishes, whether its file could be read as
-    /// GitHub will run it, and the inputs it was given.
+    /// environments its jobs name, as GitHub will run it, and the inputs it was given.
     Workflow {
         file: String,
         environments: Vec<String>,
-        publishes: bool,
-        deploys: bool,
-        read: bool,
         inputs: Vec<String>,
     },
     /// A tag pushed to the project's remote, which can start a release; empty when which tags
@@ -131,11 +123,10 @@ fn resolved(from: impl Into<String>, at: &Path, target: Target) -> Target {
 }
 
 impl Ship {
-    /// The site or connector it writes to, as the person reads it.
+    /// The site it writes to, as the person reads it.
     pub fn writes_to(&self) -> Option<&str> {
         match &self.target {
             Some(Target::Site { origin }) => Some(origin),
-            Some(Target::Connector { name }) => Some(name),
             _ => None,
         }
     }
@@ -901,9 +892,6 @@ fn workflow(args: &[String], env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -
     let unread = Target::Workflow {
         file,
         environments: Vec::new(),
-        publishes: false,
-        deploys: false,
-        read: false,
         inputs: inputs.clone(),
     };
     let elsewhere = has_flag(args, &["-R", "--repo"]) || env("GH_REPO").is_some();
@@ -946,18 +934,15 @@ fn workflow(args: &[String], env: &dyn Fn(&str) -> Option<String>, cwd: &Path) -
     Target::Workflow {
         file,
         environments: read.environments,
-        publishes: read.publishes,
-        deploys: read.deploys,
-        read: true,
         inputs,
     }
 }
 
-/// The programs besides git the shim stands in for, so their actions that
-/// leave this machine are checked before they run.
+/// The programs besides git the shim stands in for, so a deploy one of them makes, or a write
+/// to a database, reaching a production place is checked before it runs, whatever script
+/// starts it.
 pub(crate) const PROGRAMS: &[&str] = &[
     "gh",
-    "glab",
     "vercel",
     "netlify",
     "fly",
@@ -973,30 +958,13 @@ pub(crate) const PROGRAMS: &[&str] = &[
     "sls",
     "aws",
     "eas",
-    "docker",
-    "npm",
-    "pnpm",
-    "yarn",
-    "cargo",
-    "curl",
-    "wget",
-    "twine",
-    "poetry",
-    "gem",
     "cdk",
     "heroku",
-    "uv",
     "sst",
     "sam",
-    "supabase",
-    "prisma",
     "dokku",
     "psql",
     "mysql",
-    "npx",
-    "pnpx",
-    "bunx",
-    "changeset",
 ];
 
 /// Programs that send something out only when what they reach is another computer: a
@@ -1769,41 +1737,6 @@ pub fn leads(listed: &str, words: &[String]) -> bool {
             .iter()
             .zip(&listed)
             .all(|(word, want)| plain(word) == *want)
-}
-
-/// When a Sikemux tool's call leaves this machine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ToolShip {
-    /// Every call does.
-    Always(ShipKind),
-    /// A call does when the database it names is marked as production and
-    /// agents may change its data there.
-    ProductionDatabase,
-}
-
-/// When the Sikemux tool `name` leaves this machine. A push through
-/// git_commit is the core's own, checked where it pushes.
-pub fn of_tool(name: &str) -> Option<ToolShip> {
-    Some(match name {
-        "vercel_promote" | "vercel_redeploy" | "rundeck_run" => ToolShip::Always(ShipKind::Deploy),
-        "jira_create"
-        | "jira_edit"
-        | "jira_comment"
-        | "jira_transition"
-        | "jira_worklog"
-        | "jira_link"
-        | "bitbucket_comment"
-        | "bitbucket_create_issue"
-        | "bitbucket_create_pull"
-        | "bitbucket_edit_pull"
-        | "bitbucket_review"
-        | "bitbucket_decline"
-        | "bitbucket_issue_state"
-        | "play_upload" => ToolShip::Always(ShipKind::Publish),
-        "bitbucket_merge" => ToolShip::Always(ShipKind::Merge),
-        "db_query" => ToolShip::ProductionDatabase,
-        _ => return None,
-    })
 }
 
 /// Git's own commands, which no alias can stand in for, so only another word

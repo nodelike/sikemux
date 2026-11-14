@@ -35,7 +35,7 @@ use super::repo_events::RepoEvent;
 use super::{person_calls, plugged, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
-use crate::ship::{Looks, Ship, Target, ToolShip};
+use crate::ship::{Looks, Ship, Target};
 use sikemux_calls::board::Landing;
 use sikemux_view::calls::{
     CallAsker, CallKind, CallOption, CallOutcome, CallPlace, CallResult, CallState, PersonCall,
@@ -424,12 +424,6 @@ fn check_call(
                 place: &gated,
                 key,
                 once,
-                offered: judged.offered,
-                resolved_from: ship
-                    .target
-                    .as_ref()
-                    .and_then(Target::resolved_from)
-                    .map(str::to_owned),
             };
             gate(core, agent_id, &project, ship, cwd, asking, judged.why)
         }
@@ -512,28 +506,22 @@ fn settle_covering(core: &Core, call: &str, asking: &str) {
 }
 
 fn refused(call: &PersonCall) -> bool {
-    (call.answer.as_ref()).is_some_and(|answer| {
-        !said_yes(answer.option.as_deref()) && answer.option.as_deref() != Some(NOT_PRODUCTION)
-    })
+    (call.answer.as_ref()).is_some_and(|answer| !said_yes(answer.option.as_deref()))
 }
 
 /// The option of a call at a place whose changes recur that says yes, and stops asking.
 pub const FROM_NOW_ON: &str = "allowFromNowOn";
-/// The option of a call at a target the tool's own config named that says it isn't production.
-pub const NOT_PRODUCTION: &str = "notProduction";
 
 fn said_yes(option: Option<&str>) -> bool {
     matches!(option, Some(person_calls::HOLD_ALLOW | FROM_NOW_ON))
 }
 
-/// What a gate asks the person about: the place, the key its answer is kept under, whether a
-/// yes covers the action once, and whether the place was read from the tool's own config.
+/// What a gate asks the person about: the place, the key its answer is kept under, and whether
+/// a yes covers the action once.
 struct Asking<'a> {
     place: &'a places::Place,
     key: String,
     once: bool,
-    offered: bool,
-    resolved_from: Option<String>,
 }
 
 /// The call that puts a change of `ship` to the production place `place` to the person.
@@ -545,20 +533,6 @@ fn call_for(
     cwd: &Path,
     place: &places::Place,
     key: Option<String>,
-) -> Raise {
-    call_asking(core, agent_id, project, ship, cwd, place, key, None)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn call_asking(
-    core: &Core,
-    agent_id: &str,
-    project: &str,
-    ship: &Ship,
-    cwd: &Path,
-    place: &places::Place,
-    key: Option<String>,
-    resolved_from: Option<&str>,
 ) -> Raise {
     let name = core.names().name_or_id(agent_id);
     let subject = (ship.kind == ShipKind::Deploy)
@@ -583,13 +557,7 @@ fn call_asking(
         },
         question: (github.as_ref().map(|write| format!("{write}?")))
             .unwrap_or_else(|| format!("Change {} with this work?", place.name())),
-        context: [
-            resolved_from.map(|from| format!("Sikemux read where it lands from {from}.")),
-            subject.map(|subject| format!("The work's latest commit: {subject}")),
-        ]
-        .into_iter()
-        .flatten()
-        .reduce(|one, other| format!("{one} {other}")),
+        context: subject.map(|subject| format!("The work's latest commit: {subject}")),
         options: [
             Some(option(
                 person_calls::HOLD_ALLOW,
@@ -599,8 +567,6 @@ fn call_asking(
                 let label = format!("Change {}, and from now on just tell me", place.name());
                 option(FROM_NOW_ON, label)
             }),
-            resolved_from
-                .map(|_| option(NOT_PRODUCTION, format!("{} isn't production", place.name()))),
             Some(option(person_calls::HOLD_REFUSE, "Not now".to_owned())),
         ]
         .into_iter()
@@ -734,19 +700,13 @@ fn gate(
     asking: Asking<'_>,
     why: Option<String>,
 ) -> Result<Option<Deploy>, String> {
-    let Asking {
-        place,
-        key,
-        once,
-        offered,
-        resolved_from,
-    } = asking;
+    let Asking { place, key, once } = asking;
     if let Some(no) = person_calls::find_key(core, project, &key).filter(refused) {
         let answered = no.answer.as_ref().map_or(0, |answer| answer.at);
         let spoke = core.ship().state.locked().spoke.get(agent_id).copied();
         if spoke.is_none_or(|spoke| spoke <= answered) {
             return Err(format!(
-                "Not yet: the person said no to changing {} with this work. Do not run it again, however it is spelled, unless the work changes or they tell you to; if your work needs it, say so in your answer.",
+                "Not yet: the person said no to changing {} with this work, until the work changes or they tell you otherwise.",
                 place.name()
             ));
         }
@@ -780,7 +740,7 @@ fn gate(
         );
         tell_soon(core, agent_id, text);
     }
-    let raise = call_asking(
+    let raise = call_for(
         core,
         agent_id,
         project,
@@ -788,7 +748,6 @@ fn gate(
         cwd,
         place,
         Some(key.clone()),
-        resolved_from.as_deref().filter(|_| offered),
     );
     let id = match person_calls::raise(core, raise) {
         Ok(id) => id,
@@ -800,9 +759,6 @@ fn gate(
             ))
         }
     };
-    if offered {
-        places::offer(core, project, &id, place.clone());
-    }
     {
         let mut state = core.ship().state.locked();
 
@@ -826,17 +782,14 @@ fn gate(
     }
     core.changed(What::Agents);
     let covers = match once {
-        true => "it covers this action once, exactly as asked",
-        false => "it covers this work's deploy there, every command and retry, until the end of the turn in which you hear it",
+        true => "this action once",
+        false => "this work's deploy there until the end of that turn",
     };
     let mut said = format!(
-        "Waits for the person: `{}` changes {}, a production place, so Sikemux put one call to them for it; agents waiting on the same work there share it. They answer it in Sikemux, on the notch or on their phone; nothing passes it on a timeout, and words typed in a chat never do. You will hear their answer. After a yes, run it again: {covers}. If the work changes first, the call is withdrawn and the next try asks again. You wait on one call there: running anything else there withdraws this one, so put every change you need there in one command. Go on with other work meanwhile.",
+        "Waits for the person's yes: `{}` changes {}, a production place. You will hear their answer; a yes covers {covers}. Running anything else there withdraws this call, so put every change you need there in one command. Go on with other work meanwhile.",
         ship.what,
         place.name()
     );
-    if ship.kind == ShipKind::ProductionWrite {
-        said = format!("{said} Each statement is its own call, so send the statements you need together in one call and the person answers once.");
-    }
     if let Some(why) = why {
         said = format!("{said} {why}");
     }
@@ -1012,6 +965,49 @@ fn leaves(ship: &Ship) -> String {
     words.to_owned()
 }
 
+/// The databases marked production, as the host each is reached at and its name.
+async fn production_databases(core: &Arc<Core>) -> Vec<(String, String)> {
+    let listed = plugged::call(core, DATABASE, "agentDatabases", json!({}))
+        .await
+        .unwrap_or_default();
+    (listed.as_array().into_iter().flatten())
+        .filter(|database| database["production"] == true)
+        .filter_map(|database| {
+            let address = database["address"].as_str()?;
+            let host = address.rsplit_once('@').map_or(address, |(_, at)| at);
+            let host = host.split([':', '/']).next()?;
+            Some((host.to_owned(), database["name"].as_str()?.to_owned()))
+        })
+        .collect()
+}
+
+/// `ship` as the check sees it: a database client's write as a write to the production
+/// database it reaches, and none when the database it reaches isn't marked production.
+fn on_databases(ship: Ship, databases: &[(String, String)]) -> Option<Ship> {
+    let Some(Target::Site { origin }) = &ship.target else {
+        return Some(ship);
+    };
+    let Some(host) = (origin.strip_prefix("psql://")).or_else(|| origin.strip_prefix("mysql://"))
+    else {
+        return Some(ship);
+    };
+    let (_, name) = databases.iter().find(|(at, _)| at == host)?;
+    Some(Ship {
+        kind: ShipKind::ProductionWrite,
+        target: Some(Target::Database { name: name.clone() }),
+        what: ship.what,
+    })
+}
+
+async fn at_production_database(core: &Arc<Core>, ship: Ship) -> Option<Ship> {
+    let client = matches!(&ship.target, Some(Target::Site { origin })
+        if origin.starts_with("psql://") || origin.starts_with("mysql://"));
+    match client {
+        true => on_databases(ship, &production_databases(core).await),
+        false => Some(ship),
+    }
+}
+
 /// What the shim and the hook ask before an action leaving this machine runs:
 /// whether it may, and if not, what the agent is told. A program no agent of
 /// this core runs, as the person's own shell does, is never held. Where the asker
@@ -1031,7 +1027,9 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         .flatten();
     let follows = request.params["follows"] == true;
     let cwd = PathBuf::from(&request.project);
-    let ship = Ship { kind, what, target };
+    let Some(ship) = at_production_database(core, Ship { kind, what, target }).await else {
+        return Ok(json!({ "allowed": true }));
+    };
     let checking = core.clone();
     let checked = tokio::task::spawn_blocking(move || check(&checking, &agent_id, ship, &cwd))
         .await
@@ -1093,6 +1091,10 @@ pub async fn check_process(
         env.to_vec(),
         cwd.to_owned(),
     );
+    let databases = match command.contains("psql") || command.contains("mysql") {
+        true => production_databases(core).await,
+        false => Vec::new(),
+    };
     let going = tokio::task::spawn_blocking(move || {
         let extra = crate::git_guard::shim::project_ships(&cwd);
         let set = |name: &str| {
@@ -1103,7 +1105,10 @@ pub async fn check_process(
         };
         let ships = crate::ship::of_command(&command, &extra, Looks::Every, &cwd, &set);
         let mut going = Vec::new();
-        for ship in ships {
+        for ship in ships
+            .into_iter()
+            .filter_map(|ship| on_databases(ship, &databases))
+        {
             let checked = check(&checking, &agent_id, ship, &cwd)
                 .map_err(|said| format!("{said} Start the process with a new idempotencyKey."))?;
             going.extend(checked);
@@ -1149,55 +1154,55 @@ pub fn ran_call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, Str
     Ok(json!({}))
 }
 
-/// Where the call of Sikemux tool `name` lands, from what the tool's own plugin
-/// says. None when it can't say.
-async fn tool_target(core: &Arc<Core>, name: &str, arguments: &Value) -> Option<Target> {
-    match name {
+/// What a call to the Sikemux tool `name` changes and where it lands, for the tools that can
+/// reach a production place; the places on the list decide whether it waits.
+async fn tool_ship(
+    core: &Arc<Core>,
+    name: &str,
+    arguments: &Value,
+) -> Result<Option<(ShipKind, Option<Target>)>, String> {
+    Ok(Some(match name {
+        "db_query" => {
+            let asked = plugged::call(core, DATABASE, "agentWritesProduction", arguments.clone())
+                .await
+                .map_err(|failure| plugged::explain(&failure))?;
+            if asked != true {
+                return Ok(None);
+            }
+            let name = arguments["database"].as_str().unwrap_or("production");
+            let target = Target::Database {
+                name: name.to_owned(),
+            };
+            (ShipKind::ProductionWrite, Some(target))
+        }
         "rundeck_run" => {
             let place = plugged::call(core, RUNDECK, "agentJobPlace", arguments.clone())
                 .await
-                .ok()?;
-            Some(Target::RundeckJob {
-                path: place["path"].as_str()?.to_owned(),
-                production: place["production"].as_bool()?,
-            })
+                .ok();
+            let target = place.and_then(|place| {
+                Some(Target::RundeckJob {
+                    path: place["path"].as_str()?.to_owned(),
+                    production: place["production"].as_bool()?,
+                })
+            });
+            (ShipKind::Deploy, target)
         }
-        "play_upload" => Some(Target::Package {
-            registry: "the app stores".to_owned(),
-        }),
-        "db_query" => Some(Target::Database {
-            name: arguments["database"]
-                .as_str()
-                .unwrap_or("production")
-                .to_owned(),
-        }),
-        name if name.starts_with("jira_") => Some(Target::Connector {
-            name: "Jira".to_owned(),
-        }),
-        name if name.starts_with("bitbucket_") && name != "bitbucket_merge" => {
-            Some(Target::Connector {
-                name: "Bitbucket".to_owned(),
-            })
-        }
-        "vercel_promote" => Some(Target::Vercel { production: true }),
+        "vercel_promote" => (ShipKind::Deploy, Some(Target::Vercel { production: true })),
         "vercel_redeploy" => {
             let target = match arguments["target"].as_str() {
-                Some(target) => target.to_owned(),
-                None => {
-                    let read = plugged::call(core, VERCEL, "deployment", arguments.clone())
-                        .await
-                        .ok()?;
-                    read["target"].as_str()?.to_owned()
-                }
+                Some(target) => Some(target.to_owned()),
+                None => plugged::call(core, VERCEL, "deployment", arguments.clone())
+                    .await
+                    .ok()
+                    .and_then(|read| read["target"].as_str().map(str::to_owned)),
             };
-            match target.as_str() {
-                "production" => Some(Target::Vercel { production: true }),
-                "preview" => Some(Target::Vercel { production: false }),
-                _ => None,
-            }
+            let target = target.map(|target| Target::Vercel {
+                production: target == "production",
+            });
+            (ShipKind::Deploy, target)
         }
-        _ => None,
-    }
+        _ => return Ok(None),
+    }))
 }
 
 /// Whether an agent's call to the Sikemux tool `name` may run now, as
@@ -1208,23 +1213,13 @@ pub async fn check_tool(
     name: &str,
     arguments: &Value,
 ) -> Result<Option<Deploy>, String> {
-    let (Some(agent_id), Some(when)) = (&request.agent_id, crate::ship::of_tool(name)) else {
+    let Some(agent_id) = &request.agent_id else {
         return Ok(None);
     };
-    let kind = match when {
-        ToolShip::Always(kind) => kind,
-        ToolShip::ProductionDatabase => {
-            let asked = plugged::call(core, DATABASE, "agentWritesProduction", arguments.clone())
-                .await
-                .map_err(|failure| plugged::explain(&failure))?;
-            if asked != true {
-                return Ok(None);
-            }
-            ShipKind::ProductionWrite
-        }
+    let Some((kind, target)) = tool_ship(core, name, arguments).await? else {
+        return Ok(None);
     };
     let what = format!("{name} {arguments}");
-    let target = tool_target(core, name, arguments).await;
     let (checking, agent_id, cwd) = (core.clone(), agent_id.clone(), request.project.clone());
     let call = ToolCall {
         name: name.to_owned(),
@@ -1498,8 +1493,6 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
             }
         }
     }
-    let offered = places::take_offer(core, &call.project, &call.id)
-        .map(|place| (call.project.clone(), place));
     core.changed(What::Agents);
     let from = call.answer.as_ref().map(|answer| match answer.by {
         sikemux_view::calls::CallClient::Device { .. } => "a paired phone".to_owned(),
@@ -1510,43 +1503,24 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
             let project = call.project.clone();
             places::kept_by_tap(core, &project, place, production, level, from.clone())
         };
-    match option.as_deref() {
-        Some(NOT_PRODUCTION) => {
-            if let Some((_, place)) = offered {
-                keep(place, false, None);
-            }
+    if option.as_deref() == Some(FROM_NOW_ON) {
+        if let Some(place) = place_of(core, call) {
+            keep(place, true, Some(sikemux_view::places::Level::TellMe));
         }
-        Some(FROM_NOW_ON) => {
-            let place = offered
-                .map(|(_, place)| place)
-                .or_else(|| place_of(core, call));
-            if let Some(place) = place {
-                keep(place, true, Some(sikemux_view::places::Level::TellMe));
-            }
-        }
-        Some(person_calls::HOLD_ALLOW) => {
-            if let Some((_, place)) = offered {
-                keep(place, true, None);
-            }
-        }
-        _ => {}
     }
     let place = (call.place.as_ref()).map_or("the place", |place| place.name.as_str());
     let action = call.action.as_deref().unwrap_or("it");
     let mut text = match option.as_deref() {
-        Some(NOT_PRODUCTION) => format!(
-            "The person said {place} isn't production. Run `{action}` again now; Sikemux won't ask about it there again."
-        ),
         Some(FROM_NOW_ON) => format!(
             "The person said yes on the call \"{}\", and to just tell them from now on. Run `{action}` again now.",
             call.question
         ),
         _ if said_yes(option.as_deref()) => format!(
-            "The person said yes on the call \"{}\". Run `{action}` again now: for a deploy the yes covers this work's deploy to {place}, every command and retry, until the end of the turn in which you hear it; anything else it covers once, exactly as asked.",
+            "The person said yes on the call \"{}\". Run `{action}` again now; for a deploy the yes covers this work's deploy to {place} until the end of this turn.",
             call.question
         ),
         _ => format!(
-            "The person said no on the call \"{}\". Do not change {place} with this work, however the command is spelled, unless the work changes or they tell you to; if your work needs it, say so in your answer.",
+            "The person said no on the call \"{}\": {place} stays as it is with this work.",
             call.question
         ),
     };
@@ -1680,10 +1654,7 @@ pub async fn let_go(_core: &Arc<Core>, _params: HoldParams) -> CoreResult<()> {
 pub async fn refuse(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
     let hold = take(core, &params.hold)?;
     core.ship().remember(&hold, false);
-    let text = format!(
-        "The person did not allow `{}`. Do not run it; if your work needed it, say so in your answer.",
-        hold.ship.what
-    );
+    let text = format!("The person did not allow `{}`.", hold.ship.what);
     let _ = (core.repo_above().messages_for_person)(core, hold.agent_id, text).await;
     Ok(())
 }

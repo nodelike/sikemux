@@ -29,10 +29,6 @@ pub struct Kept {
     /// Things sent out past what `unplaced` holds, which it doesn't list.
     #[serde(default)]
     pub more_seen: u32,
-    /// The place each open call offers to keep on the person's answer, by call: a target the
-    /// tool's own config named.
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub offered: std::collections::BTreeMap<String, Place>,
 }
 
 pub struct Store {

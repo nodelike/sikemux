@@ -8,9 +8,7 @@ use crate::server::places::place::PlaceExt;
 use sikemux_view::inbox::ShipKind;
 use sikemux_view::places::{Level, Recognise};
 
-use super::place::{
-    id_of, new_place, says_not_production, says_production, Passes, Place, GITHUB_RELEASES,
-};
+use super::place::{id_of, new_place, says_not_production, says_production, Passes, Place};
 use crate::ship::{Ship, Target};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,34 +31,8 @@ pub struct Judged {
     pub place: Option<Place>,
     /// That place, when the core found it in this action and is to keep it.
     pub keep: bool,
-    /// That place was read from the tool's own config, as the command named none, so the
-    /// person's answer keeps it: production on a yes, not production when they say so.
-    pub offered: bool,
     pub why: Option<String>,
 }
-
-/// Programs whose change, with nothing naming where it lands, counts as production.
-const INFRA: &[&str] = &[
-    "kubectl",
-    "helm",
-    "terraform",
-    "aws",
-    "pulumi",
-    "cdk",
-    "sst",
-    "sam",
-    "fly",
-    "flyctl",
-    "wrangler",
-    "firebase",
-    "railway",
-    "netlify",
-    "heroku",
-    "dokku",
-    "eas",
-    "serverless",
-    "sls",
-];
 
 /// Where `ship` lands among `places`, as the person `confirmed` the list or not. `agent` is
 /// whose action it is, by name, for a place the core finds in it.
@@ -121,14 +93,7 @@ pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Ju
         let from_fact =
             (fact_place.as_ref()).is_some_and(|(found, _)| found.shown.id == place.shown.id);
         let keep = from_fact && fact_place.as_ref().is_some_and(|(_, keep)| *keep);
-        let kept = places.iter().any(|kept| kept.shown.id == place.shown.id);
-        let mut judged = by_level(place, confirmed, keep);
-        judged.offered = from_fact
-            && resolved
-            && !kept
-            && !place.recognise.is_empty()
-            && !says_production(place.name());
-        return judged;
+        return by_level(place, confirmed, keep);
     }
     if let Some(place) = recognising.first() {
         let goes = match place.passes(confirmed) {
@@ -143,7 +108,6 @@ pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Ju
             goes,
             place: Some((*place).clone()),
             keep: false,
-            offered: false,
             why: Some(why),
         };
     }
@@ -155,7 +119,6 @@ pub fn judged(places: &[Place], confirmed: bool, ship: &Ship, agent: &str) -> Ju
         goes,
         place: None,
         keep: false,
-        offered: false,
         why: None,
     }
 }
@@ -224,13 +187,12 @@ fn by_level(place: &Place, confirmed: bool, keep: bool) -> Judged {
         goes,
         place: Some(place.clone()),
         keep,
-        offered: false,
         why: Some(why),
     }
 }
 
-/// A place a deploy tool's stack, stage or app names, which is production unless its name
-/// says otherwise.
+/// A place a deploy tool's stack, stage or app names, which is production when its name says
+/// so.
 pub fn stage_place(tool: &str, name: &str, found_in: Option<String>) -> Place {
     let fact = Recognise::Stage {
         tool: tool.to_owned(),
@@ -238,18 +200,17 @@ pub fn stage_place(tool: &str, name: &str, found_in: Option<String>) -> Place {
     };
     new_place(
         &format!("{name} on {tool}"),
-        !says_not_production(name),
+        says_production(name),
         vec![fact],
         found_in,
     )
 }
 
-/// The words of `ship` that say where it lands: the origin of a site it writes to, nothing of
-/// what it writes to a connector, and every word of a command.
+/// The words of `ship` that say where it lands: the origin of a site it writes to, and every
+/// word of a command.
 fn selecting_words(ship: &Ship) -> &str {
     match ship.target.as_ref().map(Target::bare) {
         Some(Target::Site { origin }) => origin,
-        Some(Target::Connector { .. }) => "",
         _ => &ship.what,
     }
 }
@@ -258,65 +219,32 @@ fn says_production_anywhere(ship: &Ship) -> bool {
     says_production(selecting_words(ship))
 }
 
-/// Whether a workflow run reaches production: one that publishes, deploys by a known step or a
-/// command the gate would hold, or names a production environment, or one whose file name or
-/// inputs say production, or that it releases, deploys or publishes, read or not.
+/// Whether a workflow run reaches production: one that names a production environment, or
+/// whose file name or inputs say production.
 pub fn workflow_asks(target: &Target) -> bool {
     let Target::Workflow {
         file,
         environments,
-        publishes,
-        deploys,
-        read: _,
         inputs,
+        ..
     } = target
     else {
         return false;
     };
-    let named = std::iter::once(file).chain(inputs);
-    let says_it = |word: &str| {
-        word.split(|c: char| !c.is_ascii_alphanumeric())
-            .any(|part| {
-                [
-                    "release",
-                    "releases",
-                    "deploy",
-                    "deploys",
-                    "publish",
-                    "prod",
-                    "production",
-                ]
-                .iter()
-                .any(|said| part.eq_ignore_ascii_case(said))
-            })
-    };
-    *publishes
-        || *deploys
-        || environments.iter().any(|name| says_production(name))
-        || named.clone().any(|word| says_production(word))
-        || named.clone().any(|word| says_it(word))
+    environments.iter().any(|name| says_production(name))
+        || std::iter::once(file)
+            .chain(inputs)
+            .any(|word| says_production(word))
 }
 
 /// The production place a fact of `ship` names by itself, whatever the project's list says:
-/// a target its service marks as production, a package published for others, a write to a
-/// production database, a workflow that reaches production, a stack, stage, app, profile,
-/// context or workspace whose name doesn't say it isn't production, or an infrastructure
-/// program with nothing naming where it lands.
+/// a target its service marks as production, a write to a production database, a workflow
+/// that reaches production, or a stack, stage, app, profile, context or workspace whose name
+/// says production.
 fn production_fact(ship: &Ship, found_in: Option<String>) -> Option<Place> {
     let place =
         |name: String, fact: Recognise| new_place(&name, true, vec![fact], found_in.clone());
-    let Some(target) = ship.target.as_ref().map(Target::bare) else {
-        let program = ship.what.split_whitespace().next()?;
-        let program = program.rsplit('/').next().unwrap_or(program);
-        return (ship.kind == ShipKind::Deploy && INFRA.contains(&program)).then(|| {
-            new_place(
-                &format!("{program}, where nothing names it"),
-                true,
-                Vec::new(),
-                found_in,
-            )
-        });
-    };
+    let target = ship.target.as_ref().map(Target::bare)?;
     match target {
         Target::Vercel { production: true } => Some(place(
             "Production on Vercel".to_owned(),
@@ -338,59 +266,34 @@ fn production_fact(ship: &Ship, found_in: Option<String>) -> Option<Place> {
             format!("Rundeck job {path}"),
             Recognise::RundeckJob { path: path.clone() },
         )),
-        Target::AwsProfile { name } if !says_not_production(name) => Some(place(
+        Target::AwsProfile { name } if says_production(name) => Some(place(
             format!("AWS profile {name}"),
             Recognise::AwsProfile { name: name.clone() },
         )),
-        Target::KubeContext { name } if !says_not_production(name) => Some(place(
+        Target::KubeContext { name } if says_production(name) => Some(place(
             format!("Kubernetes context {name}"),
             Recognise::KubeContext { name: name.clone() },
         )),
-        Target::TerraformWorkspace { name } if !says_not_production(name) => Some(place(
+        Target::TerraformWorkspace { name } if says_production(name) => Some(place(
             format!("Terraform workspace {name}"),
             Recognise::TerraformWorkspace { name: name.clone() },
         )),
-        Target::Stage { tool, name } if name.is_empty() => Some(new_place(
-            &format!("{tool}, where nothing names it"),
-            true,
-            Vec::new(),
-            found_in,
-        )),
-        Target::Stage { tool, name } if !says_not_production(name) => {
-            let mut place = stage_place(tool, name, found_in);
-            place.shown.production = true;
-            Some(place)
+        Target::Stage { tool, name } if says_production(name) => {
+            Some(stage_place(tool, name, found_in))
         }
         Target::Database { name } => Some(place(
             format!("The {name} database"),
             Recognise::Database { name: name.clone() },
         )),
-        Target::Package { registry } if registry == GITHUB_RELEASES => Some(place(
-            "Releases on GitHub".to_owned(),
-            Recognise::Package {
-                registry: registry.clone(),
-            },
-        )),
-        Target::Package { registry } => Some(place(
-            format!("Packages on {registry}"),
-            Recognise::Package {
-                registry: registry.clone(),
-            },
-        )),
         Target::Workflow {
-            file,
-            environments,
-            publishes,
-            ..
+            file, environments, ..
         } if workflow_asks(target) => {
             let words = Recognise::Command {
                 words: format!("gh workflow run {file}"),
             };
-            let environment = environments.iter().find(|name| says_production(name));
-            let name = match (*publishes, environment) {
-                (true, _) => "Releases on GitHub".to_owned(),
-                (false, Some(environment)) => format!("{environment} on GitHub"),
-                (false, None) => format!("The {file} workflow on GitHub"),
+            let name = match environments.iter().find(|name| says_production(name)) {
+                Some(environment) => format!("{environment} on GitHub"),
+                None => format!("The {file} workflow on GitHub"),
             };
             Some(place(name, words))
         }
@@ -432,7 +335,6 @@ pub fn seen_key(ship: &Ship) -> (String, String) {
             .split_once("://")
             .map_or(origin.as_str(), |(_, host)| host)
             .to_owned(),
-        Some(Target::Connector { name }) => name.clone(),
         Some(Target::RundeckJob { path, .. }) => format!("Rundeck job {path}"),
         Some(Target::AwsProfile { name }) => format!("AWS profile {name}"),
         Some(Target::KubeContext { name }) => format!("Kubernetes context {name}"),
@@ -456,7 +358,6 @@ pub fn fact_of_seen(ship: &Ship) -> Recognise {
         Some(Target::Site { origin }) => Recognise::Site {
             origin: origin.clone(),
         },
-        Some(Target::Connector { name }) => Recognise::Connector { name: name.clone() },
         Some(Target::RundeckJob { path, .. }) => Recognise::RundeckJob { path: path.clone() },
         Some(Target::AwsProfile { name }) => Recognise::AwsProfile { name: name.clone() },
         Some(Target::KubeContext { name }) => Recognise::KubeContext { name: name.clone() },
@@ -564,24 +465,16 @@ mod tests {
     }
 
     #[test]
-    fn publishes_and_production_writes_hold_whatever_is_set() {
-        let targets = [
-            Target::Package {
-                registry: "npm".into(),
-            },
-            Target::Database {
+    fn production_writes_hold_whatever_is_set() {
+        let ship = Ship {
+            kind: ShipKind::ProductionWrite,
+            what: "dev".to_owned(),
+            target: Some(Target::Database {
                 name: "main".into(),
-            },
-        ];
-        for target in targets {
-            let ship = Ship {
-                kind: ShipKind::Publish,
-                what: "dev".to_owned(),
-                target: Some(target),
-            };
-            let judged = judged(&project(), true, &ship, "Ada");
-            assert_eq!(judged.goes, Goes::Asks);
-            assert!(judged.keep);
-        }
+            }),
+        };
+        let judged = judged(&project(), true, &ship, "Ada");
+        assert_eq!(judged.goes, Goes::Asks);
+        assert!(judged.keep);
     }
 }

@@ -602,8 +602,8 @@ agents it started, and only what follows reaches the person.
   ordinary message. A decision that is the person's goes through `ask`.
 - The person sees every decision in the log and can overrule it. If they do, the
   agent that goes by it gets a message: stop going by it and undo what rests on it.
-- A decision never passes a hold. A push, merge, deploy, publish or production
-  write still stops for the person, whatever a lead answered.
+- A decision never passes a hold. A change to a production place still stops
+  for the person, whatever a lead answered.
 - Do not end a turn offering more work ("Want me to commit it?"). A yes-or-no offer
   is not put to the person. If a project rule is about it, Sikemux sends you back
   once and the rule decides: do the work if it says to, and if it says to wait for

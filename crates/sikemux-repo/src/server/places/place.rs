@@ -44,9 +44,6 @@ pub fn covers(fact: &Recognise, ship: &Ship) -> bool {
             name == at
         }
         (Recognise::Site { origin }, Some(Target::Site { origin: at })) => origin == at,
-        (Recognise::Connector { name }, Some(Target::Connector { name: at })) => {
-            name.eq_ignore_ascii_case(at)
-        }
         (Recognise::Database { name }, Some(Target::Database { name: at })) => name == at,
         (Recognise::Tag { pattern, except }, Some(Target::Tag { name })) => {
             name.is_empty()
@@ -86,15 +83,6 @@ pub fn matches_path(pattern: &str, path: &str) -> bool {
         rest = &rest[at + piece.len()..];
     }
     rest.ends_with(last)
-}
-
-/// A Heroku app is production unless its name says it isn't; another tool's stage is when
-/// its name says so.
-pub fn stage_is_production(tool: &str, name: &str) -> bool {
-    match tool {
-        "Heroku" => !says_not_production(name),
-        _ => says_production(name),
-    }
 }
 
 /// An id made of `name`'s letters and digits, for a place or a seen action.
@@ -142,8 +130,9 @@ fn fact_says_production(fact: &Recognise) -> bool {
         Recognise::AwsProfile { name }
         | Recognise::KubeContext { name }
         | Recognise::TerraformWorkspace { name } => says_production(name),
-        Recognise::Package { .. } | Recognise::Database { .. } => true,
-        Recognise::Stage { tool, name } => stage_is_production(tool, name),
+        Recognise::Stage { name, .. } => says_production(name),
+        Recognise::Database { .. } => true,
+        Recognise::Package { .. } => false,
         Recognise::Tag { .. } => true,
         Recognise::Read { fact, .. } => fact_says_production(fact),
         Recognise::Command { .. } | Recognise::Site { .. } | Recognise::Connector { .. } => false,

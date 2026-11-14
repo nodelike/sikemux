@@ -188,35 +188,6 @@ pub fn accepted(core: &Core, project: &str, proposed: Vec<Place>) -> Result<(), 
     })
 }
 
-/// Keeps the place the call `id` offers to keep on the person's answer, with the project's
-/// places, so it outlives a restart.
-pub fn offer(core: &Core, project: &str, id: &str, place: Place) {
-    let _ = change(core, project, |kept| {
-        let open: Vec<String> = (super::person_calls::shown(core).into_iter())
-            .filter(|call| call.state == sikemux_view::calls::CallState::Open)
-            .map(|call| call.id)
-            .collect();
-        while kept.offered.len() >= MAX_SEEN {
-            let settled = (kept.offered.keys())
-                .find(|id| !open.iter().any(|call| call == *id))
-                .cloned();
-            let Some(settled) = settled else {
-                break;
-            };
-            kept.offered.remove(&settled);
-        }
-        kept.offered.insert(id.to_owned(), place);
-        Ok(())
-    });
-}
-
-/// The place the call `id` offered to keep, taken off the offers.
-pub fn take_offer(core: &Core, project: &str, id: &str) -> Option<Place> {
-    change(core, project, |kept| Ok(kept.offered.remove(id)))
-        .ok()
-        .flatten()
-}
-
 /// Keeps `place` by the person's answer on a call: production or not, at `level` when they
 /// set one, recorded as theirs, from where they tapped.
 pub fn kept_by_tap(

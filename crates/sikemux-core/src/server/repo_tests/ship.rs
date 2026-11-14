@@ -13,7 +13,7 @@ use crate::server::repo_events::RepoEvent;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::{person_calls, plugged, Core, CoreResult};
-use crate::ship::{Looks, Ship, Target, ToolShip};
+use crate::ship::{Looks, Ship, Target};
 use serde_json::{json, Value};
 use sikemux_calls::board::Landing;
 use sikemux_calls::ship::{HoldParams, WebWriteParams};

@@ -24,9 +24,7 @@ pub fn in_files(root: &Path) -> Vec<Place> {
             continue;
         };
         if let Some(name) = crate::ship::app_named(tool, &text) {
-            let mut place = stage_place(tool, &name, Some(file.to_owned()));
-            place.shown.production = true;
-            found.push(place);
+            found.push(stage_place(tool, &name, Some(file.to_owned())));
         }
     }
     workflows(root, &mut found);
@@ -89,16 +87,16 @@ fn vercel(root: &Path, found: &mut Vec<Place>) {
     ));
 }
 
-/// GitHub's releases, when a workflow publishes one, and each deployment environment a
-/// workflow names that reads as production. Where a workflow tells its tags apart, its stable
-/// releases are where any other release lands too.
+/// Each deployment environment a workflow names that reads as production, and the stable
+/// releases where a workflow tells its tags apart, which any other release a workflow
+/// publishes lands with.
 fn workflows(root: &Path, found: &mut Vec<Place>) {
     let Ok(entries) = std::fs::read_dir(root.join(".github/workflows")) else {
         return;
     };
     let mut files: Vec<_> = entries.flatten().map(|entry| entry.path()).collect();
     files.sort();
-    let mut releases: Option<(String, Vec<Recognise>)> = None;
+    let mut releases: Option<Vec<Recognise>> = None;
     let mut stable: Option<usize> = None;
     for path in files {
         let Ok(mut text) = std::fs::read_to_string(&path) else {
@@ -118,20 +116,11 @@ fn workflows(root: &Path, found: &mut Vec<Place>) {
         let read = crate::ship::read_workflow(&text);
         stable = tag_places(&text, &shown, found).or(stable);
         if read.publishes {
-            let (_, facts) = releases.get_or_insert_with(|| (shown.clone(), Vec::new()));
-            facts.push(words.clone());
+            releases.get_or_insert_with(Vec::new).push(words.clone());
         }
         let production: Vec<&String> = (read.environments.iter())
             .filter(|name| says_production(name))
             .collect();
-        if read.deploys && production.is_empty() && !read.publishes {
-            found.push(new_place(
-                &format!("The {file} workflow on GitHub"),
-                true,
-                vec![words.clone()],
-                Some(shown.clone()),
-            ));
-        }
         for environment in production {
             let name = format!("{environment} on GitHub");
             found.push(new_place(
@@ -142,17 +131,14 @@ fn workflows(root: &Path, found: &mut Vec<Place>) {
             ));
         }
     }
-    if let Some((file, mut facts)) = releases {
+    if let (Some(mut facts), Some(stable)) = (releases, stable.and_then(|at| found.get_mut(at))) {
         facts.insert(
             0,
             Recognise::Package {
                 registry: GITHUB_RELEASES.to_owned(),
             },
         );
-        match stable.and_then(|at| found.get_mut(at)) {
-            Some(stable) => stable.recognise.extend(facts),
-            None => found.push(new_place("Releases on GitHub", true, facts, Some(file))),
-        }
+        stable.recognise.extend(facts);
     }
 }
 
