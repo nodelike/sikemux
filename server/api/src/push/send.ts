@@ -134,8 +134,15 @@ export class Pusher {
 
     const target = await this.target(sender, push.to);
     if (!target) return finish("not_allowed");
-    const { token, platform } = target;
-    if (!token || !platform) return finish("no_token");
+    const activity = push.kind === "activity" || push.kind === "activity_end";
+    const platform = activity
+      ? target.phonePlatform === "ios"
+        ? "apns"
+        : null
+      : target.platform;
+    const token = activity ? push.activityToken : target.token;
+    if (!token || !platform)
+      return finish(activity ? "not_set_up" : "no_token");
 
     if (
       !this.limiter.allow(
@@ -148,18 +155,13 @@ export class Pusher {
 
     const provider = this.providers[platform];
     if (!provider) return finish("not_set_up", { platform });
-    const activity = push.kind === "activity" || push.kind === "activity_end";
-    const activityToken = activity ? push.activityToken : undefined;
-    if (activity && (platform !== "apns" || !activityToken))
-      return finish("not_set_up", { platform });
-    const to = activityToken ?? token;
 
     const giveUpAt = Math.min(expiresAt, started + this.limits.giveUpMs);
     let delivery: Delivery;
     let attempt = 0;
     for (;;) {
       delivery = await provider.send({
-        token: to,
+        token,
         kind: push.kind,
         sentAt: started,
         collapseId: push.collapseId,
@@ -209,7 +211,7 @@ export class Pusher {
         await this.db
           .deleteFrom("push_tokens")
           .where("device_key", "=", push.to)
-          .where("token", "=", target.token)
+          .where("token", "=", token)
           .execute();
         return finish("no_token", { ...detail, forgot: true });
       case "retry":
@@ -219,7 +221,7 @@ export class Pusher {
     }
   }
 
-  /** The phone's token, when the sender is a host and the phone a client on one account. */
+  /** The phone and its token, when the sender is a host and the phone a client on one account. */
   private async target(sender: Sender, phone: string) {
     const row = await this.db
       .selectFrom("devices as phone")
@@ -228,6 +230,7 @@ export class Pusher {
         "push_tokens.platform",
         "push_tokens.token",
         "push_tokens.apns_environment",
+        "phone.platform as phonePlatform",
       ])
       .where("phone.key", "=", phone)
       .where("phone.role", "=", "client")
