@@ -18,7 +18,7 @@ use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
 use crate::agents::setup::Installing;
 use crate::core;
-use crate::icons::Icon;
+use crate::icons::{self, Icon};
 use crate::theme::{
     self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
@@ -152,7 +152,7 @@ enum Act {
 #[derive(Clone)]
 struct Row {
     group: usize,
-    mark: Option<String>,
+    mark: Option<Icon>,
     label: String,
     meta: Option<String>,
     current: bool,
@@ -339,14 +339,19 @@ impl Menu {
             .routes
             .iter()
             .find(|route| self.picked.model_provider.as_deref() == Some(route.id.as_str()))
-            .filter(|_| self.picked.locked)
-            .map(|route| route.label.clone());
+            .filter(|_| self.picked.locked);
         let maker = bench
             .reads
             .catalog
             .kind(own)
-            .and_then(|kind| kind.maker.clone())
-            .unwrap_or_else(|| bench.agent_name(own).to_owned());
+            .and_then(|kind| kind.maker.clone());
+        let own_mark = match (paying, &maker) {
+            (Some(route), _) => icons::model_provider(&route.id),
+            (None, Some(maker)) => icons::model_provider(maker),
+            (None, None) => icons::agent(own),
+        };
+        let paying = paying.map(|route| route.label.clone());
+        let maker = maker.unwrap_or_else(|| bench.agent_name(own).to_owned());
         let mut groups = vec![paying.unwrap_or(maker)];
         let mut options: Vec<Row> = Vec::new();
         let query = self.query.read(cx).value().trim().to_lowercase();
@@ -365,7 +370,7 @@ impl Menu {
                     .filter(|choice| shows(choice))
                     .map(|choice| Row {
                         group: 0,
-                        mark: Some(own.to_owned()),
+                        mark: Some(own_mark),
                         label: choice.label.clone(),
                         meta: choice.is_default.then(|| t!("Default").to_owned()),
                         current: choice.value == current,
@@ -393,7 +398,7 @@ impl Menu {
             match offered.is_empty() {
                 true => options.push(Row {
                     group: 0,
-                    mark: Some(own.to_owned()),
+                    mark: Some(own_mark),
                     label: t!("Default model").into(),
                     meta: None,
                     current: false,
@@ -401,7 +406,7 @@ impl Menu {
                 }),
                 false => options.extend(offered.iter().map(|choice| Row {
                     group: 0,
-                    mark: Some(own.to_owned()),
+                    mark: Some(own_mark),
                     label: choice.label.clone(),
                     meta: choice.is_default.then(|| t!("Default").to_owned()),
                     current: false,
@@ -456,7 +461,7 @@ impl Menu {
                     let meta = facts(route, model);
                     Row {
                         group,
-                        mark: Some(own.to_owned()),
+                        mark: Some(icons::model_provider(&route.id)),
                         label: model.clone(),
                         meta: (!meta.is_empty()).then(|| meta.join(" · ")),
                         current: chosen,
@@ -765,8 +770,8 @@ impl Menu {
                 let act = act.clone();
                 menu.update(cx, |menu, cx| menu.pick(act, window, cx))
             })
-            .child(match &row.mark {
-                Some(mark) => ui::mark(mark, 14.),
+            .child(match row.mark {
+                Some(mark) => ui::picture(mark, 14., t.text_primary),
                 None => ui::mark_box(
                     14.,
                     ui::icon(
