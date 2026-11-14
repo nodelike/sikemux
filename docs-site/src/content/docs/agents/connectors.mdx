@@ -45,3 +45,11 @@ The inbox tells you when a computer can't use any of your sign-ins until you all
 Some services, such as Atlassian, void a sign-in's old token each time they hand out a new one. Only the computer that made the sign-in, or last signed in to it again, renews it. It shares the fresh token with the others, so they never sign each other out. If that computer leaves your account, another one takes over. Removing a computer from your account also replaces the vault's key, so the removed computer can't open the vault again.
 
 AWS profiles stay in the AWS CLI's own files on each computer, and agent sign-ins such as Claude Code's or Codex's are never put in the vault. A computer that isn't signed in to an account keeps its sign-ins in its own Keychain only.
+
+## How agents use their own GitHub App
+
+In a repository the agents' App is installed on, each `git` and `gh` an agent runs gets a token from Sikemux for that one command, in place of your keychain, your SSH key and your `GH_TOKEN`. That token reads the code and works on pull requests, issues and Actions. It can't push, and it can't make or edit a release. Your own terminals and the GitHub panes keep your sign-in.
+
+An agent's `git push` still works as git always has, with its checks and hooks. The push goes to Sikemux, which sends the same changes on to GitHub with a token only Sikemux holds, for that one push. `gh pr merge` is merged by Sikemux the same way. Commits made there keep you as author and name the App as committer.
+
+A repository without the App works as before.
