@@ -107,11 +107,8 @@ pub(crate) fn relayed_here(core: &Core, host: &str, params: Value) -> Result<Val
     question.undelivered = None;
     question.from_host = Some(host.to_owned());
     question.stage = match question.stage {
-        Stage::Person { lead, passed } => Stage::Person { lead, passed },
-        Stage::Lead { .. } => Stage::Person {
-            lead: None,
-            passed: false,
-        },
+        Stage::Person { lead } => Stage::Person { lead },
+        Stage::Lead { .. } => Stage::Person { lead: None },
     };
     let mut state = core.harness().questions.state.locked();
     state.open.retain(|open| open.id != question.id);

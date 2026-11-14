@@ -718,7 +718,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             verb: "ask",
             kind: "think",
             icon: "message",
-            target: &["the person for {for}", "{question}"],
+            target: &["{question}"],
             detail: &[],
             plugin: None,
         },

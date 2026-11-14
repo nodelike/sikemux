@@ -129,7 +129,7 @@ impl Raise {
         let call = PersonCall {
             id,
             project: self.project,
-            can_hand_back: self.kind == CallKind::Taste,
+            can_hand_back: false,
             kind: self.kind,
             asker: self.asker,
             joined: Vec::new(),
@@ -647,10 +647,6 @@ impl PersonCalls {
             .is_some_and(|kept| kept.seen.iter().any(|(seer, _)| seer == client))
     }
 
-    fn source_of(&self, id: &str) -> Option<Source> {
-        kept(&self.book.locked(), id).map(|kept| kept.source.clone())
-    }
-
     fn id_of(&self, source: &Source) -> Option<String> {
         (self.book.locked().iter())
             .find(|kept| raised_by(kept, source) && kept.call.state == CallState::Open)
@@ -743,19 +739,6 @@ fn same_decision(one: &PersonCall, other: &PersonCall) -> bool {
         && plain(&one.question) == plain(&other.question)
         && labels(one) == labels(other)
         && one.assumption.is_some() == other.assumption.is_some()
-}
-
-/// Whether the person let the assumption of `call` stand: Go with this with nothing picked or
-/// typed. An answer typed to a secret or an access call is recorded the same way, so it never is.
-pub fn let_stand(call: &PersonCall) -> bool {
-    (call.answer.as_ref()).is_some_and(|answer| {
-        call.assumption.is_some()
-            && !call.keeps_words_private()
-            && answer.option.is_none()
-            && answer.options.is_empty()
-            && answer.words.is_none()
-            && answer.note.is_none()
-    })
 }
 
 fn settled_at(call: &PersonCall) -> u64 {
@@ -1013,51 +996,10 @@ fn answer_of(
     };
     let (note, words) = (text(&params.note), text(&params.words));
     let known = |id: &String| call.options.iter().any(|option| option.id == *id);
-    if params.option.as_ref().is_some_and(|id| !known(id)) || !params.options.iter().all(known) {
+    if params.option.as_ref().is_some_and(|id| !known(id)) {
         return Err("that is not one of the call's options".into());
     }
-    if !params.options.is_empty() && !call.multi {
-        return Err("that call takes one option".into());
-    }
-    let picked = params.option.is_some() || !params.options.is_empty();
-    if params.none {
-        if !call.secret {
-            return Err("only a call for a secret can be answered with none to give".into());
-        }
-        if params.fine || picked || words.is_some() || note.is_some() {
-            return Err("having none to give takes no option or words".into());
-        }
-        let answer = CallAnswer {
-            option: None,
-            options: Vec::new(),
-            note: None,
-            words: None,
-            none: true,
-            by: client,
-            at: epoch_ms(),
-            waited_ms: epoch_ms().saturating_sub(call.raised_at),
-        };
-        return Ok((answer, None));
-    }
-    if params.fine {
-        if call.assumption.is_none() || !call.options.is_empty() {
-            return Err("only a call whose asker goes on with an assumption, and offers no options, can be let stand".into());
-        }
-        if picked || words.is_some() || note.is_some() {
-            return Err("letting the assumption stand takes no option or words".into());
-        }
-        let answer = CallAnswer {
-            option: None,
-            options: Vec::new(),
-            note: None,
-            words: None,
-            none: false,
-            by: client,
-            at: epoch_ms(),
-            waited_ms: epoch_ms().saturating_sub(call.raised_at),
-        };
-        return Ok((answer, None));
-    }
+    let picked = params.option.is_some();
     if picked && words.is_some() {
         return Err("answer with an option and a note, or in your own words".into());
     }
@@ -1074,7 +1016,7 @@ fn answer_of(
     };
     let answer = CallAnswer {
         option,
-        options: params.options.clone(),
+        options: Vec::new(),
         note: note.filter(|_| !call.keeps_words_private()),
         words: words.filter(|_| !call.keeps_words_private()),
         none: false,
@@ -1165,11 +1107,6 @@ async fn deliver(
     match source {
         Source::Question(_) => {
             let index = |option: &String| call.options.iter().position(|known| known.id == *option);
-            let lets_stand = call.assumption.is_some()
-                && answer.option.is_none()
-                && answer.options.is_empty()
-                && typed.is_none()
-                && !answer.none;
             let mut reached = false;
             let mut failed = None;
             for id in core.person_calls().questions_of(&call.id) {
@@ -1178,10 +1115,6 @@ async fn deliver(
                     answer: typed.clone(),
                     paths: paths.clone(),
                     choice: answer.option.as_ref().and_then(index),
-                    choices: (!answer.options.is_empty())
-                        .then(|| answer.options.iter().filter_map(index).collect()),
-                    fine: lets_stand,
-                    none: answer.none,
                     ..AnswerParams::default()
                 };
                 match (core.repo_above().questions_answer)(core, params).await {
@@ -1342,9 +1275,6 @@ async fn answer_questions_by(
                 answer: params.answer.clone(),
                 paths: params.paths.clone(),
                 choice: params.choice,
-                choices: params.choices.clone(),
-                fine: params.fine,
-                none: params.none,
                 ..AnswerParams::default()
             });
         }
@@ -1359,15 +1289,13 @@ async fn answer_questions_by(
                 let option = |index: usize| call.options.get(index).map(|option| option.id.clone());
                 let typed = (params.answer.clone())
                     .filter(|text| !text.trim().is_empty() && !call.keeps_words_private());
-                let picked = params.choice.is_some() || params.choices.is_some();
+                let picked = params.choice.is_some();
                 CallAnswer {
                     option: params.choice.and_then(option),
-                    options: (params.choices.iter().flatten())
-                        .filter_map(|&index| option(index))
-                        .collect(),
+                    options: Vec::new(),
                     note: typed.clone().filter(|_| picked),
                     words: typed.filter(|_| !picked),
-                    none: params.none,
+                    none: false,
                     by,
                     at: epoch_ms(),
                     waited_ms: epoch_ms().saturating_sub(call.raised_at),
@@ -1472,50 +1400,9 @@ pub async fn answer_hold(
     ran
 }
 
-/// The person hands a taste or direction call back: to the lead the question went to first,
-/// which decides it, or else to the asker, which goes with its pick.
-pub async fn not_mine(core: &Arc<Core>, peer: &Peer, params: CallParams) -> CoreResult<()> {
-    let client = client_of(peer).ok_or(NOT_A_CLIENT)?;
-    let call = call_of(core, &params.id)?;
-    if !call.can_hand_back {
-        return Err("only a call of taste or direction can be handed back".into());
-    }
-    let source = core.person_calls().source_of(&call.id).ok_or(GONE)?;
-    let answer = CallAnswer {
-        option: None,
-        options: Vec::new(),
-        note: None,
-        words: None,
-        none: false,
-        by: client,
-        at: epoch_ms(),
-        waited_ms: epoch_ms().saturating_sub(call.raised_at),
-    };
-    core.person_calls().take_answer(&call.id, answer)?;
-    core.person_calls().changed(core);
-    let handed = match &source {
-        Source::Question(_) => {
-            let mut handed = Err(GONE.to_owned());
-            for id in core.person_calls().questions_of(&call.id) {
-                let back = (core.repo_above().questions_hand_back)(core, &id).await;
-                handed = handed.or(back);
-            }
-            handed
-        }
-        Source::Hold(_) | Source::Raised => {
-            Err("only a call of taste or direction can be handed back".to_owned())
-        }
-    };
-    match handed {
-        Ok(()) => core.person_calls().settle(&call.id, CallResult::HandedBack),
-        Err(error) => {
-            core.person_calls().reopen(&call.id);
-            core.person_calls().changed(core);
-            return Err(error.into());
-        }
-    }
-    core.person_calls().changed(core);
-    Ok(())
+/// What an earlier release's Not mine sends. Nothing is handed back now: the person answers.
+pub async fn not_mine(_core: &Arc<Core>, _peer: &Peer, _params: CallParams) -> CoreResult<()> {
+    Err("Nothing is handed back: answer it, or tell the agent in its chat".into())
 }
 
 /// The call `id` while it waits on the person.
@@ -1671,11 +1558,9 @@ pub fn history(core: &Core, project: &str) -> Option<Vec<PersonCall>> {
 }
 
 /// The calls of `project` the person answered from `from` to `to`, read from its whole record:
-/// whether each answer was the asker's pick, chosen or typed as its label. A call handed back was
-/// not answered, and letting an assumption stand picked nothing.
+/// whether each answer was the asker's pick, chosen or typed as its label.
 pub fn answered_since(core: &Core, project: &str, from: u64, to: u64) -> Vec<bool> {
     (history(core, project).unwrap_or_default().into_iter())
-        .filter(|call| !handed_back(call))
         .filter_map(|call| {
             let answer = (call.answer.as_ref()).filter(|answer| (from..to).contains(&answer.at))?;
             let pick = (call.options.iter()).find(|option| Some(&option.id) == call.pick.as_ref());
@@ -1685,10 +1570,6 @@ pub fn answered_since(core: &Core, project: &str, from: u64, to: u64) -> Vec<boo
             Some((call.pick.is_some() && answer.option == call.pick) || typed_pick)
         })
         .collect()
-}
-
-pub fn handed_back(call: &PersonCall) -> bool {
-    (call.outcome.as_ref()).is_some_and(|outcome| outcome.result == CallResult::HandedBack)
 }
 
 /// Every call the device view shows, each asker marked when it is a project's chief.

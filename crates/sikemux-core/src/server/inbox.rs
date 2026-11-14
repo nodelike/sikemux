@@ -989,7 +989,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     let questions = core.harness().questions.for_person();
     for question in &questions {
         let case = Case::Question {
-            secret: question.access,
+            secret: question.secret,
         };
         let what = "Asks you".to_owned();
         let asker = find(&question.agent_id)
@@ -1004,9 +1004,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.question_id = Some(question.id.clone());
         item.answers.clone_from(&question.answers);
         item.pictures.clone_from(&question.pictures);
-        item.raised.clone_from(&question.raised);
         item.pick.clone_from(&question.pick);
-        item.assumption.clone_from(&question.assumption);
         items.push(item);
     }
     for waiting in core.ship().waiting() {

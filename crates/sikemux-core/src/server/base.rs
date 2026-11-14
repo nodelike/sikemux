@@ -412,7 +412,6 @@ pub(super) fn repo_above() -> RepoAbove {
         questions_is_open: |core, id| core.harness().questions.is_open(id),
         questions_answer: |core, params| Box::pin(questions::answer(core, params)),
         questions_answer_all: |core, params| Box::pin(questions::answer_all(core, params)),
-        questions_hand_back: |core, id| Box::pin(questions::hand_back(core, id)),
         plugins_caller_of: plugins::caller_of,
         plugins_run_agent_tool: |core, name, arguments, deploy| {
             Box::pin(plugins::run_agent_tool(core, name, arguments, deploy))

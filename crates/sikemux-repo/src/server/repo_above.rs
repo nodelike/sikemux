@@ -128,8 +128,6 @@ pub struct RepoAbove {
     pub questions_answer: for<'a> fn(&'a Arc<Core>, AnswerParams) -> Done<'a>,
     /// Answers questions asked together.
     pub questions_answer_all: for<'a> fn(&'a Arc<Core>, AnswersParams) -> Done<'a>,
-    /// Hands a question the person would not answer back to the lead it came through.
-    pub questions_hand_back: for<'a> fn(&'a Arc<Core>, &'a str) -> Done<'a>,
     /// Who a plugin's vault sees calling it for this request.
     pub plugins_caller_of: fn(&Core, &HarnessRequest) -> Caller,
     /// Runs the agent tool, for the deploy it is when it is one.

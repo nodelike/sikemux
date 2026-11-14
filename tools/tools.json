@@ -1970,21 +1970,11 @@
     },
     {
       "name": "ask",
-      "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["the person for {for}", "{question}"]},
+      "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["{question}"]},
       "method": "agent.ask",
-      "description": "Ask your lead or the person.",
+      "description": "Ask your lead, or the person if you have none.",
       "properties": {
-        "question": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 8192
-        },
-        "header": {
-          "description": "Two or three words",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 40
-        },
+        "question": {"type": "string", "minLength": 1, "maxLength": 8192},
         "choices": {
           "type": "array",
           "maxItems": 9,
@@ -1992,91 +1982,18 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "label": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              },
-              "detail": {
-                "type": "string",
-                "maxLength": 400
-              },
-              "picture": {
-                "description": "For a choice of look: its screenshot or mockup",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 4096
-              }
+              "label": {"type": "string", "minLength": 1, "maxLength": 200},
+              "picture": {"description": "For a choice of look: its screenshot or mockup", "type": "string", "minLength": 1, "maxLength": 4096}
             },
-            "required": [
-              "label"
-            ]
+            "required": ["label"]
           }
         },
-        "multi": {
-          "type": "boolean"
-        },
-        "blocked": {
-          "description": "Default true: end your turn and wait",
-          "type": "boolean"
-        },
-        "assumption": {
-          "description": "With blocked false: what you go on with",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 8192
-        },
-        "secret": {
-          "description": "The answer is a password or token",
-          "type": "boolean"
-        },
-        "for": {
-          "description": "Agent whose question you raise to the person",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "reason": {
-          "description": "Raising: why it is the person's to decide",
-          "type": "string",
-          "enum": [
-            "irreversible",
-            "money",
-            "taste",
-            "access"
-          ]
-        },
-        "pick": {
-          "description": "The choice you would take",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "breaks": {
-          "description": "Raising: what breaks if that is wrong",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 400
-        },
-        "context": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 600
-        },
-        "brief": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "tried": {"type": "string", "minLength": 1, "maxLength": 400},
-            "shows": {"type": "string", "minLength": 1, "maxLength": 400},
-            "cannotUndo": {"type": "string", "minLength": 1, "maxLength": 400}
-          },
-          "required": ["tried", "shows", "cannotUndo"]
-        }
+        "blocked": {"description": "Default true: end your turn and wait", "type": "boolean"},
+        "secret": {"description": "The answer is a password or token", "type": "boolean"},
+        "kind": {"description": "Why it is the person's to decide", "type": "string", "enum": ["production", "money", "taste", "access"]},
+        "pick": {"description": "The choice you recommend", "type": "string", "minLength": 1, "maxLength": 200}
       },
-      "required": [
-        "question"
-      ]
+      "required": ["question"]
     },
     {
       "name": "board_add",

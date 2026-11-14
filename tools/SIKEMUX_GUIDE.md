@@ -581,32 +581,21 @@ message, since a closed chat's name can be reused.
 The person should not have to decide for every agent. A lead decides for the
 agents it started, and only what follows reaches the person.
 
-- `ask` goes to your lead. With no lead it goes to the person. With
-  `blocked: false` and no lead, your `assumption` stands and goes on the record
-  without asking anyone, unless the question is the person's: it has a `reason`,
-  offers `choices`, or names a push, merge or deploy. Then it waits under Needs
-  you as a decision, showing your assumption, while you carry on with it.
+- `ask` goes to your lead. With no lead it goes to the person.
 - Answer a worker's question with `agent_send`, setting `answers` to its id and
   `why`. Your answer goes on the goal's decision log, or the project's when the
-  worker is on no goal, with who decided and why.
-- If your turn ends without an answer, the worker's `assumption` stands and goes
-  on the record. A worker that waits on you is handed back to you once, then goes
-  to the person as something you could not decide.
-- Raise only what is the person's: something irreversible or leaving this machine,
-  spending money, a call of taste or product direction, or access only they have
-  (`secret: true` goes straight to them). Use `ask` with `for` set to the worker,
-  or without `for` for a question of your own, and `reason`, `choices`, `pick` and
-  `breaks`. `question` has to say what is being decided so that it makes sense
-  without your chat; a raise missing any of these is refused. `context` is a line or two the
-  card shows under it; a weighty one, such as a cutover or a public release, also gives `brief`:
-  what was `tried`, what the evidence `shows` and what it `cannotUndo`. `reason: access`
-  needs no `choices` or `pick`. When the choices are looks, such as mockups of a
-  screen, give each a `picture`: the path of a screenshot or mockup of that choice,
-  never one shared by all. Sikemux keeps a copy and draws the choices as tiles; a
-  choice of what to do, such as which work to start, has none and shows as a list.
-  For choices drawn on one mockup page,
-  give each its own element and take each picture with `page_preview` and
-  `selector`, so a card shows that choice and nothing around it.
+  worker is on no goal, with who decided and why. If only the person can answer
+  it, ask them yourself with `ask`. If your turn ends with neither, the question
+  goes on to the person.
+- Ask the person only what is theirs: something irreversible or leaving this
+  machine, spending money, a call of taste or product direction, or access only
+  they have (`secret: true` goes straight to them). Write `question` so it makes
+  sense without your chat. When the choices are looks, such as mockups of a
+  screen, give each a `picture`: the path of a screenshot or mockup of that
+  choice, never one shared by all. Sikemux keeps a copy and draws the choices as
+  tiles; a choice of what to do has none and shows as a list. For choices drawn
+  on one mockup page, give each its own element and take each picture with
+  `page_preview` and `selector`, so a card shows that choice and nothing around it.
 - A question in your reply stays in this chat, where the person answers it as an
   ordinary message. A decision that is the person's goes through `ask`.
 - The person sees every decision in the log and can overrule it. If they do, the
@@ -769,24 +758,16 @@ few lines. Ask it something mid-task with `ask`.
 ### Asking a question
 
 When you cannot go on without an answer, call `ask` with `question`, written
-so it stands on its own, a `header` of two or three words naming it, such as
-`Photo access`, and `choices` when the answer is one of a few: each a short
-`label`, with a `detail` of one sentence saying what it means, and `multi: true`
-when the person may pick several of them. The person can always answer
-something else. Ask every question you have at once rather than
-one per turn: the person answers them together, and you get the answers in one
-message. Put the question only in `ask`; do not write it out in your reply too.
-A choice for the person, such as which of two mockups to build, always goes
-through `ask` with `header`, `choices` (the one you recommend first) and
-`pick`, never only in your reply.
+so it stands on its own, and `choices` when the answer is one of a few, each a
+short `label`. `pick` names the one you recommend, and `kind` (`production`,
+`money`, `taste` or `access`) says why it is the person's to decide. The person
+can always answer something else. Ask every question you have at once rather
+than one per turn: the answers come to you in one message. Put the question
+only in `ask`; do not write it out in your reply too.
 
 - `blocked` is true unless you say otherwise: stop and end your turn without
-  guessing, and the answer comes to you as a message.
-- `blocked: false` with `assumption`, such as `dates are shown in UTC`, when
-  you can go on: carry on as if it were true, and a message tells you if it is
-  overruled. With no lead, a question that is the person's still waits for
-  them as Who decides says.
-
+  guessing, and the answer comes to you as a message. With `blocked: false`
+  carry on, and the answer comes when it is given.
 - `secret: true` when the answer is a secret, such as a password or a token:
   the question goes straight to the person, never to a lead, and the answer
   comes to you as the path of a file only the person's account can read. Use
@@ -814,11 +795,8 @@ Cents
 Its question arrives as a message from it, with its choices and whether it
 waits for you, and its note names the question's id. You decide it: answer with
 `agent_send` to that agent, setting `answers` to that id and `why`; a message
-without `answers` leaves the question open. Raise it only as Who decides says,
-with `ask`, setting `for` to the agent's id and `question` to what the person
-is deciding; that agent gets the person's answer and you get a copy, so carry
-on with your own work. The copy arrives as a `<question-answer>` whose `asker`
-is that agent.
+without `answers` leaves the question open. If only the person can answer it,
+ask them yourself with `ask` and pass their answer on.
 
 ### Messages you get
 

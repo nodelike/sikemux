@@ -1,10 +1,9 @@
 //! What `ask` answers, and the CLIs' own question tools with it. An agent's
-//! question goes first to the agent that started it, which decides. A lead that
-//! ends its turn without answering leaves an assumption standing, and is handed
-//! a question the asker waits on back once before it reaches the person. Only
-//! what a lead raises itself, or what an agent with no lead asks, reaches them.
-//! The person answers in the asker's chat, the notch or Sikemux's rail, and the
-//! first answer reaches the asker as a message.
+//! question goes first to the agent that started it, which answers it or asks
+//! the person itself; a lead that ends its turn without answering passes it on
+//! to the person. An agent with no lead asks the person directly. The person
+//! answers on the question's card, and the first answer reaches the asker as a
+//! message.
 
 pub(crate) use super::person_calls::{attached, without_attached};
 use crate::server::activity::ActivityCore;
@@ -31,10 +30,7 @@ use sikemux_process::sync::Locked;
 use crate::cli::protocol::HarnessRequest;
 use crate::sessions::asked::may_hold_secret;
 use crate::text::clipped;
-use sikemux_view::calls::{
-    CallAsker, CallBrief, CallEvidence, CallKind, CallOption, CallState, PersonCall,
-};
-use sikemux_view::inbox::{InboxRaised, RaisedFor};
+use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallState, PersonCall};
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::WindowCall;
 
@@ -72,12 +68,6 @@ const MAX_QUESTION_BYTES: usize = 8 * 1024;
 const MAX_CHOICES: usize = 9;
 const MAX_LABEL_CHARS: usize = 200;
 const MAX_DETAIL_CHARS: usize = 400;
-/// What the person needs to know to decide, beside the question.
-const MAX_CONTEXT_CHARS: usize = 600;
-/// The most of what an asker goes on with that its call shows, on one line.
-const MAX_ASSUMPTION_CHARS: usize = 120;
-/// The most a raised question shows to look at.
-const MAX_EVIDENCE: usize = 4;
 /// A question's title on the tab the person picks it by.
 const MAX_HEADER_CHARS: usize = 40;
 const MAX_ANSWER_BYTES: usize = 64 * 1024;
@@ -87,53 +77,22 @@ const MAX_ANSWERED: usize = 32;
 /// A lead whose turn ended may still be handed the question back unread, so
 /// it counts as passing it over only once this long has gone by.
 const LEAD_GRACE_MS: u64 = 3_000;
-/// The fewest words that can say what is being decided without the chat around them.
-const MIN_RAISE_WORDS: usize = 5;
 const WINDOW_ANSWER_WAIT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "stage")]
 enum Stage {
     /// Sent to the agent that started the asker. `ended_at` is when that
-    /// agent's turn ended after it was handed the question, and `handed_back`
-    /// that it has had the question a second time.
+    /// agent's turn ended after it was handed the question.
     #[serde(rename_all = "camelCase")]
     Lead {
         lead_id: String,
         lead_name: String,
         ended_at: Option<u64>,
-        #[serde(default)]
-        handed_back: bool,
-        /// The person handed it back to this lead, so it never reaches them again.
-        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-        left_by_person: bool,
     },
-    /// Put to the person. `lead` is the agent it went to first, which
-    /// raised itself, which `passed` says, rather than leaving it unanswered.
+    /// Put to the person. `lead` is the agent it went to first, which left it unanswered.
     #[serde(rename_all = "camelCase")]
-    Person {
-        lead: Option<(String, String)>,
-        passed: bool,
-    },
-}
-
-/// What makes a decision put to the person stand alone, beside its question and choices.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Raise {
-    reason: RaisedFor,
-    /// The choice the lead would take.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pick: Option<String>,
-    /// What breaks if that is wrong, or what stays stuck without the access.
-    breaks: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    context: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    evidence: Vec<CallEvidence>,
-    /// What a weighty call says first.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    brief: Option<CallBrief>,
+    Person { lead: Option<(String, String)> },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -151,19 +110,15 @@ struct Question {
     #[serde(skip_serializing_if = "Option::is_none")]
     header: Option<String>,
     choices: Vec<QuestionChoice>,
-    /// The person may pick more than one of `choices`.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    multi: bool,
+    /// The asker waits for the answer; otherwise it goes on and hears the answer later.
     blocked: bool,
-    assumption: Option<String>,
     /// The answer is a secret, such as a password, so the question goes
     /// straight to the person and the answer never enters a transcript.
     #[serde(default)]
     secret: bool,
-    /// The asker asks for access only the person has, such as a credential, so its answer is
-    /// never kept or shown again, while it is with the asker's lead too.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    access: bool,
+    /// What the asker says makes it the person's to decide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kind: Option<CallKind>,
     at: u64,
     stage: Stage,
     /// The linked host it was also put to the person on, where its asker's team
@@ -188,36 +143,17 @@ struct Question {
     /// goes to it rather than arriving as a message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dialog: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    raise: Option<Raise>,
 }
 
 impl Question {
     fn view(&self) -> AgentQuestion {
         let (state, via_note) = match &self.stage {
             Stage::Lead { .. } => (QuestionState::Lead, None),
-            Stage::Person { lead, passed } => (
-                if self.blocked {
-                    QuestionState::Open
-                } else {
-                    QuestionState::Assumed
-                },
-                lead.as_ref().map(|(_, name)| {
-                    let why = if *passed {
-                        "raised this"
-                    } else {
-                        "didn't answer"
-                    };
-                    format!("@{name} {why}")
-                }),
+            Stage::Person { lead } => (
+                QuestionState::Open,
+                lead.as_ref()
+                    .map(|(_, name)| format!("@{name} didn't answer")),
             ),
-        };
-        let text = match &self.raise {
-            Some(raise) if raise.reason == RaisedFor::Access => {
-                format!("{}\n\nWithout it: {}", self.text, raise.breaks)
-            }
-            Some(raise) => format!("{}\n\nIf that pick is wrong: {}", self.text, raise.breaks),
-            None => self.text.clone(),
         };
         AgentQuestion {
             id: self.id.clone(),
@@ -226,12 +162,12 @@ impl Question {
             cli: self.cli.clone(),
             project: self.project.clone(),
             asked: self.asked.clone(),
-            text,
+            text: self.text.clone(),
             header: self.header.clone(),
             choices: self.choices.clone(),
-            multi: self.multi,
+            multi: false,
             blocked: self.blocked,
-            assumption: self.assumption.clone(),
+            assumption: None,
             secret: self.secret,
             at: self.at,
             state,
@@ -248,57 +184,22 @@ impl Question {
 
     /// Its call to the person is one for a change to production.
     fn production_call(&self) -> bool {
-        !self.secret && (self.approval.is_some() || self.production())
+        !self.secret && self.approval.is_some()
     }
 
-    /// It changes a production place, so only the person's tap on its call answers it: never its
-    /// lead, and never words typed in the chat.
-    fn production(&self) -> bool {
-        (self.raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Irreversible)
-    }
-
-    /// Its answer may be a password or a token, so it is never shown again.
-    fn hides_answer(&self) -> bool {
-        self.secret
-            || self.access
-            || (self.raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Access)
-    }
-
-    /// The option of its call that runs what it holds, on an approval of a plugin call.
-    /// The option of its call that lets what it is about run: an approval's Approve, or for a
-    /// change to a production place, the asker's pick.
+    /// The option of its call that lets a plugin call it holds run.
     fn allows(&self) -> Option<String> {
-        if let Some(approval) = &self.approval {
-            return approval
-                .approving()
-                .map(|approving| (approving + 1).to_string());
-        }
-        let pick = self.choices.iter().position(|choice| choice.recommended)?;
-        self.production().then(|| (pick + 1).to_string())
+        let approving = self.approval.as_ref()?.approving()?;
+        Some((approving + 1).to_string())
     }
 
     /// It as a call to the person.
     fn call(&self) -> PersonCall {
-        let reason = self.raise.as_ref().map(|raise| raise.reason);
-        let kind = match reason {
-            _ if self.secret || self.access => CallKind::Access,
-            _ if self.approval.is_some() || self.production() => CallKind::Production,
-            Some(RaisedFor::Money) => CallKind::Money,
-            Some(RaisedFor::Access) => CallKind::Access,
-            Some(RaisedFor::Taste | RaisedFor::Irreversible) | None => CallKind::Taste,
+        let kind = match () {
+            _ if self.secret => CallKind::Access,
+            _ if self.approval.is_some() => CallKind::Production,
+            _ => self.kind.unwrap_or(CallKind::Taste),
         };
-        let only_theirs =
-            self.approval.is_some() || self.dialog.is_some() || self.from_host.is_some();
-        let breaks = self.raise.as_ref().map(|raise| raise.breaks.clone());
-        let given = self.raise.as_ref().and_then(|raise| raise.context.clone());
-        let (context, against) = match kind {
-            CallKind::Access => (given.or(breaks), None),
-            _ => (given, breaks),
-        };
-        let assumption = (kind != CallKind::Production)
-            .then_some(self.assumption.as_deref())
-            .flatten()
-            .map(|assumption| clipped(&crate::text::one_line(assumption), MAX_ASSUMPTION_CHARS));
         let (options, pick) = call_options(&self.choices);
         PersonCall {
             id: self.id.clone(),
@@ -312,17 +213,17 @@ impl Question {
             },
             joined: Vec::new(),
             question: self.text.clone(),
-            context,
-            assumption,
+            context: None,
+            assumption: None,
             options,
             pick,
-            against,
-            evidence: (self.raise.as_ref()).map_or_else(Vec::new, |raise| raise.evidence.clone()),
+            against: None,
+            evidence: Vec::new(),
             action: None,
-            brief: self.raise.as_ref().and_then(|raise| raise.brief.clone()),
+            brief: None,
             place: None,
-            can_hand_back: kind == CallKind::Taste && !only_theirs,
-            multi: self.multi,
+            can_hand_back: false,
+            multi: false,
             secret: self.secret,
             raised_at: self.at,
             state: CallState::Open,
@@ -338,31 +239,7 @@ impl Question {
     }
 
     fn asks_person(&self) -> bool {
-        matches!(self.stage, Stage::Person { .. }) && !self.stands()
-    }
-
-    /// An assumption nobody raised needs no answer: it goes on the record as decided. One an
-    /// agent with no lead to ask went on with still reaches the person when it is theirs to
-    /// decide.
-    fn stands(&self) -> bool {
-        let unled = matches!(self.stage, Stage::Person { lead: None, .. });
         matches!(self.stage, Stage::Person { .. })
-            && self.assumption.is_some()
-            && self.raise.is_none()
-            && !(unled && self.persons_call())
-            && self.from_host.is_none()
-    }
-
-    /// Whether what it asks is the person's to decide: it offers them choices, or names a push,
-    /// a merge or a deploy.
-    fn persons_call(&self) -> bool {
-        let lower = self.text.to_lowercase();
-        let ships = (lower.split(|c: char| !c.is_alphanumeric())).any(|word| {
-            ["push", "merg", "deploy"]
-                .iter()
-                .any(|stem| word.starts_with(stem))
-        });
-        !self.choices.is_empty() || ships
     }
 
     fn lead_id(&self) -> Option<&str> {
@@ -379,9 +256,8 @@ impl Question {
             Stage::Lead { lead_id, .. } => lead_id == lead,
             Stage::Person {
                 lead: Some((lead_id, _)),
-                ..
             } => lead_id == lead,
-            Stage::Person { lead: None, .. } => false,
+            Stage::Person { lead: None } => false,
         }
     }
 }
@@ -415,7 +291,7 @@ struct State {
     told_window: Option<ClientId>,
     /// The person's open questions phones were told of, and whose they are.
     told_phones: HashMap<String, String>,
-    /// Every question put to the person, assumptions too, that devices'
+    /// Every question put to the person that devices'
     /// views last showed, and whose they are.
     shown_devices: HashMap<String, String>,
     keeper: Keeper,
@@ -438,15 +314,13 @@ pub(crate) struct ForPerson {
     pub agent_id: String,
     pub text: String,
     pub blocked: bool,
-    pub assumption: Option<String>,
-    /// Only the person has what it asks for, such as a password or a sign-in.
-    pub access: bool,
+    /// It asks for a secret, such as a password or a token.
+    pub secret: bool,
     /// The answers it can be given in one tap, in order.
     pub answers: Vec<String>,
     /// The picture each of `answers` shows, when its asker gave them.
     pub pictures: Vec<Option<String>>,
     pub at: u64,
-    pub raised: Option<InboxRaised>,
     /// The one of `answers` its asker would take.
     pub pick: Option<String>,
 }
@@ -476,14 +350,11 @@ struct Asked {
     text: String,
     header: Option<String>,
     choices: Vec<QuestionChoice>,
-    multi: bool,
     blocked: bool,
-    assumption: Option<String>,
     secret: bool,
-    access: bool,
+    kind: Option<CallKind>,
     approval: Option<Approval>,
     dialog: Option<String>,
-    raise: Option<Raise>,
 }
 
 impl Questions {
@@ -522,11 +393,7 @@ impl Questions {
             let chosen = (record.open.iter())
                 .flat_map(|question| question.choices.iter())
                 .filter_map(|choice| choice.picture.clone());
-            let evidence = (record.open.iter())
-                .filter_map(|question| question.raise.as_ref())
-                .flat_map(|raise| raise.evidence.iter())
-                .filter_map(|evidence| evidence.picture.clone());
-            let shown: HashSet<String> = chosen.chain(evidence).collect();
+            let shown: HashSet<String> = chosen.collect();
             for entry in entries.flatten() {
                 if !shown.contains(&*entry.path().to_string_lossy()) {
                     let _ = std::fs::remove_file(entry.path());
@@ -574,26 +441,6 @@ impl Questions {
     }
 
     /// Copies the pictures of the raise's evidence, as [`Self::keep_pictures`] copies choices'.
-    fn keep_evidence(&self, folder: &str, raise: &mut Option<Raise>) -> Result<(), String> {
-        let Some(raise) = raise.as_mut() else {
-            return Ok(());
-        };
-        let mut shown: Vec<QuestionChoice> = (raise.evidence.iter())
-            .map(|evidence| QuestionChoice {
-                label: evidence.what.clone(),
-                detail: None,
-                picture: evidence.picture.clone(),
-                recommended: false,
-            })
-            .collect();
-        self.keep_pictures(folder, &mut shown)?;
-        for (evidence, kept) in raise.evidence.iter_mut().zip(shown) {
-            evidence.picture = kept.picture;
-        }
-        Ok(())
-    }
-
-    /// Whether `path` is one of the pictures questions show, which any paired device may open.
     pub(crate) fn keeps_picture(&self, path: &Path) -> bool {
         (self.pictures.as_deref()).is_some_and(|dir| super::attachments::is_kept(dir, path))
     }
@@ -691,26 +538,21 @@ impl Questions {
     /// latest.
     pub(crate) fn for_person(&self) -> Vec<ForPerson> {
         let state = self.state.locked();
-        let asked = (state.open.iter())
+        let questions: Vec<ForPerson> = (state.open.iter())
             .filter(|question| question.listed_for_devices())
             .map(|question| ForPerson {
                 id: question.id.clone(),
                 agent_id: question.agent_id.clone(),
                 text: question.text.clone(),
                 blocked: question.blocked,
-                assumption: question.assumption.clone(),
-                access: question.hides_answer(),
-                answers: match question.multi {
-                    true => Vec::new(),
-                    false => (question.choices.iter())
-                        .map(|choice| choice.label.clone())
-                        .collect(),
-                },
-                pictures: match question.multi
-                    || question
-                        .choices
-                        .iter()
-                        .all(|choice| choice.picture.is_none())
+                secret: question.secret,
+                answers: (question.choices.iter())
+                    .map(|choice| choice.label.clone())
+                    .collect(),
+                pictures: match question
+                    .choices
+                    .iter()
+                    .all(|choice| choice.picture.is_none())
                 {
                     true => Vec::new(),
                     false => (question.choices.iter())
@@ -718,24 +560,11 @@ impl Questions {
                         .collect(),
                 },
                 at: question.at,
-                raised: question.raise.as_ref().map(|raise| InboxRaised {
-                    reason: raise.reason,
-                    by: match &question.stage {
-                        Stage::Person {
-                            lead: Some((_, name)),
-                            passed: true,
-                        } => Some(name.clone()),
-                        _ => None,
-                    },
-                    pick: raise.pick.clone(),
-                    breaks: raise.breaks.clone(),
-                }),
                 pick: recommended_of(&question.choices),
-            });
-        let questions: Vec<ForPerson> = asked.collect();
-        let waits = |question: &ForPerson| question.assumption.is_none() || question.blocked;
+            })
+            .collect();
         let mut latest: HashMap<&str, (u64, &str)> = HashMap::new();
-        for question in questions.iter().filter(|question| waits(question)) {
+        for question in questions.iter().filter(|question| question.blocked) {
             let kept = latest.entry(&question.agent_id).or_insert((0, ""));
             if kept.1.is_empty() || kept.0 < question.at {
                 *kept = (question.at, &question.id);
@@ -743,14 +572,14 @@ impl Questions {
         }
         let shown: HashSet<String> = latest.values().map(|(_, id)| (*id).to_owned()).collect();
         (questions.iter())
-            .filter(|question| !waits(question) || shown.contains(&question.id))
+            .filter(|question| !question.blocked || shown.contains(&question.id))
             .cloned()
             .collect()
     }
 
     /// The agent began another turn, as when the person wrote to it. A question it stopped for
     /// no longer waits, unless the call it raised is still `open`: a call waits until the person
-    /// answers it. An assumption it went on with, and a plugin call waiting for the person's
+    /// answers it. A question it did not stop for, and a plugin call waiting for the person's
     /// approval, still wait.
     pub(crate) fn turn_started(&self, agent_id: &str, open: &[String]) {
         let mut state = self.state.locked();
@@ -784,10 +613,7 @@ impl Questions {
             .open
             .iter()
             .find(|question| {
-                question.id == id
-                    && question.agent_id == agent_id
-                    && question.went_to(lead)
-                    && !question.production()
+                question.id == id && question.agent_id == agent_id && question.went_to(lead)
             })
             .map(|question| question.asked.clone())
     }
@@ -796,10 +622,7 @@ impl Questions {
     fn take_answered(&self, lead: &str, agent_id: &str, id: &str) -> Option<Question> {
         let mut state = self.state.locked();
         let at = (state.open.iter()).position(|question| {
-            question.id == id
-                && question.agent_id == agent_id
-                && question.went_to(lead)
-                && !question.production()
+            question.id == id && question.agent_id == agent_id && question.went_to(lead)
         })?;
         let question = state.open.remove(at);
         self.changed(&mut state);
@@ -846,7 +669,7 @@ pub(crate) fn lead_answered(
     let Some(question) = core.harness().questions.take_answered(lead, agent_id, id) else {
         return;
     };
-    let (asked, text, why) = match question.hides_answer() {
+    let (asked, text, why) = match question.secret {
         true => (
             private_title(&question),
             format!(
@@ -867,46 +690,6 @@ pub(crate) fn lead_answered(
             asked,
             text,
             why,
-        },
-    );
-}
-
-/// An assumption stands: its asker goes on with it, and it goes on the record, where the person
-/// can overrule it. On a question that hides its answer the record says only that it went on with
-/// it, as the assumption may restate what was asked for.
-fn stood(core: &Core, question: Question) {
-    let Some(assumption) = question.assumption.clone() else {
-        return;
-    };
-    let (asked, text) = match question.hides_answer() {
-        true => (
-            private_title(&question),
-            format!(
-                "@{} went on with its assumption on its question, kept private",
-                question.name
-            ),
-        ),
-        false => (Some(question.asked.clone()), assumption),
-    };
-    let why = match &question.stage {
-        Stage::Person {
-            lead: Some((_, lead)),
-            ..
-        } => format!(
-            "@{lead} did not answer, so @{}'s assumption stands.",
-            question.name
-        ),
-        _ => format!("@{} had no lead to ask.", question.name),
-    };
-    super::board::goal::keep_settled(
-        core,
-        super::board::goal::Settled {
-            project: question.project,
-            by: question.agent_id.clone(),
-            holder: question.agent_id,
-            asked,
-            text,
-            why: Some(why),
         },
     );
 }
@@ -1014,6 +797,16 @@ fn picture_file(folder: &str, picture: &str) -> Result<std::path::PathBuf, Strin
     }
 }
 
+/// Marks the choice labelled `pick` as the one the asker recommends, when there is one.
+fn mark_pick(pick: &str, choices: &mut [QuestionChoice]) {
+    let pick = pick.trim();
+    if let Some(at) = (choices.iter()).position(|choice| choice.label.eq_ignore_ascii_case(pick)) {
+        for (index, choice) in choices.iter_mut().enumerate() {
+            choice.recommended = index == at;
+        }
+    }
+}
+
 /// A choice's label without the "(recommended)" the agent put after it, and whether it did.
 fn recommended(label: &str) -> (&str, bool) {
     const MARK: &str = "(recommended)";
@@ -1026,131 +819,6 @@ fn recommended(label: &str) -> (&str, bool) {
         Some(at) if label[at..].eq_ignore_ascii_case(MARK) => (label[..at].trim_end(), true),
         _ => (label, false),
     }
-}
-
-/// What an access call lacks without an option, so the person is never stuck.
-const ACCESS_CHOICE: &str = "choices: at least one that needs no credential, such as \"Skip, use something else\", so the person is never stuck; what they type reaches you only as a private file";
-
-/// What `ask` was given to raise a decision to the person, refused when it does not stand alone,
-/// saying everything missing. The choice picked gets marked as recommended.
-fn raise_of(
-    params: &Value,
-    question: &str,
-    choices: &mut [QuestionChoice],
-) -> Result<Raise, String> {
-    const REASONS: &str = "irreversible, money, taste or access";
-    let reason = match text_param(params, "reason", 40)?.as_deref() {
-        Some("irreversible") => Some(RaisedFor::Irreversible),
-        Some("money") => Some(RaisedFor::Money),
-        Some("taste") => Some(RaisedFor::Taste),
-        Some("access") => Some(RaisedFor::Access),
-        Some(other) => {
-            return Err(format!(
-                "Only {REASONS} reach the person, not {other}: anything else is yours to decide, so answer it yourself"
-            ));
-        }
-        None => None,
-    };
-    let needs_choice = reason != Some(RaisedFor::Access);
-    mark_pick(params, choices)?;
-    let pick = (choices.iter())
-        .find(|choice| choice.recommended)
-        .map(|choice| choice.label.clone());
-    let breaks = text_param(params, "breaks", MAX_DETAIL_CHARS)?;
-    let mut missing = Vec::new();
-    if question.split_whitespace().count() < MIN_RAISE_WORDS {
-        missing.push(format!(
-            "question: what is being decided, in at least {MIN_RAISE_WORDS} words that make sense without this chat"
-        ));
-    }
-    if reason.is_none() {
-        missing.push(format!("reason: {REASONS}"));
-    }
-    if needs_choice && choices.len() < 2 {
-        missing.push("choices: at least two options".to_owned());
-    }
-    if !needs_choice && choices.is_empty() {
-        missing.push(ACCESS_CHOICE.to_owned());
-    }
-    if needs_choice && pick.is_none() {
-        missing.push("pick: the choice you would take".to_owned());
-    }
-    if breaks.is_none() {
-        missing.push("breaks: what breaks if that is wrong".to_owned());
-    }
-    let context = text_param(params, "context", MAX_CONTEXT_CHARS)?;
-    let evidence = evidence_of(params.get("evidence"))?;
-    let brief = brief_of(params.get("brief"))?;
-    match (reason, breaks) {
-        (Some(reason), Some(breaks)) if missing.is_empty() => Ok(Raise {
-            reason,
-            pick,
-            breaks,
-            context,
-            evidence,
-            brief,
-        }),
-        _ => Err(format!(
-            "A decision raised to the person has to stand alone, and this one is missing:\n- {}\nIf none of {REASONS} is the reason, decide it yourself.",
-            missing.join("\n- ")
-        )),
-    }
-}
-
-/// What a raised question shows to look at before deciding.
-fn evidence_of(value: Option<&Value>) -> Result<Vec<CallEvidence>, String> {
-    let list = match value {
-        None | Some(Value::Null) => return Ok(Vec::new()),
-        Some(Value::Array(list)) => list,
-        Some(_) => return Err("evidence must be a list".into()),
-    };
-    if list.len() > MAX_EVIDENCE {
-        return Err(format!(
-            "evidence takes at most {MAX_EVIDENCE} things to look at"
-        ));
-    }
-    (list.iter())
-        .map(|item| {
-            let what = text_param(item, "what", MAX_DETAIL_CHARS)?
-                .ok_or("each piece of evidence needs what: what it shows, in words")?;
-            let picture = text_param(item, "picture", 4096)?;
-            Ok(CallEvidence { what, picture })
-        })
-        .collect()
-}
-
-/// The brief of a weighty decision, which needs all three of its parts.
-fn brief_of(value: Option<&Value>) -> Result<Option<CallBrief>, String> {
-    let brief = match value {
-        None | Some(Value::Null) => return Ok(None),
-        Some(brief @ Value::Object(_)) => brief,
-        Some(_) => return Err("brief must be an object".into()),
-    };
-    let part = |key: &str| {
-        text_param(brief, key, MAX_DETAIL_CHARS)?.ok_or_else(|| {
-            format!("brief needs {key}: what was tried, what the evidence shows and what can't be undone")
-        })
-    };
-    Ok(Some(CallBrief {
-        tried: part("tried")?,
-        shows: part("shows")?,
-        cannot_undo: part("cannotUndo")?,
-    }))
-}
-
-/// Marks the choice `ask` was given as `pick` as the one recommended.
-fn mark_pick(params: &Value, choices: &mut [QuestionChoice]) -> Result<(), String> {
-    let Some(pick) = text_param(params, "pick", MAX_LABEL_CHARS)? else {
-        return Ok(());
-    };
-    let Some(at) = (choices.iter()).position(|choice| choice.label.eq_ignore_ascii_case(&pick))
-    else {
-        return Err(format!("pick must be one of the choices, not {pick}"));
-    };
-    for (index, choice) in choices.iter_mut().enumerate() {
-        choice.recommended = index == at;
-    }
-    Ok(())
 }
 
 /// Whether the person closed the agent, so its questions go with it.
@@ -1183,12 +851,6 @@ fn reachable_lead(core: &Core, agent_id: &str) -> Option<String> {
     (core.names().get(agent_id)?.parent).filter(|lead| reachable(core, lead))
 }
 
-/// Whether the agent answers to nobody but has agents of its own, so what it asks the person is
-/// a decision it raises rather than a question from a lone agent.
-fn raises(core: &Core, agent_id: &str) -> bool {
-    reachable_lead(core, agent_id).is_none() && core.names().team(agent_id).len() > 1
-}
-
 /// Opens the questions `agent_id` asked together, put to its lead when it
 /// has one a message reaches, else to the person. Opens none when they would
 /// leave the agent with too many waiting.
@@ -1204,13 +866,8 @@ fn open(
             lead_name: core.names().name_or_id(&lead_id),
             lead_id,
             ended_at: None,
-            handed_back: false,
-            left_by_person: false,
         },
-        None => Stage::Person {
-            lead: None,
-            passed: false,
-        },
+        None => Stage::Person { lead: None },
     };
     let name = named
         .as_ref()
@@ -1225,15 +882,12 @@ fn open(
         .into_iter()
         .map(|asked| Question {
             stage: if asked.secret || asked.approval.is_some() || asked.dialog.is_some() {
-                Stage::Person {
-                    lead: None,
-                    passed: false,
-                }
+                Stage::Person { lead: None }
             } else {
                 stage.clone()
             },
             secret: asked.secret,
-            access: asked.access,
+            kind: asked.kind,
             id: format!("question-{}", uuid::Uuid::new_v4().simple()),
             agent_id: agent_id.to_owned(),
             name: name.clone(),
@@ -1242,10 +896,8 @@ fn open(
             asked: asked.text.clone(),
             text: asked.text,
             header: asked.header,
-            multi: asked.multi && !asked.choices.is_empty(),
             choices: asked.choices,
             blocked: asked.blocked,
-            assumption: asked.assumption,
             at,
             relayed: None,
             relay_taken: false,
@@ -1253,7 +905,6 @@ fn open(
             from_host: None,
             approval: asked.approval,
             dialog: asked.dialog,
-            raise: asked.raise,
         })
         .collect();
     let mut state = core.harness().questions.state.locked();
@@ -1272,27 +923,19 @@ fn open(
     Ok(questions)
 }
 
-fn moves_on(question: &Question) -> String {
-    match &question.assumption {
-        Some(assumption) => {
-            format!("Go on assuming {assumption}. A message tells you if that is overruled.")
-        }
-        None => {
+fn moves_on(question: &Question) -> &'static str {
+    match question.blocked {
+        true => {
             "Stop here and end your turn without guessing: the answer comes to you as a message."
-                .to_owned()
         }
+        false => "Carry on with your work: the answer comes to you as a message.",
     }
 }
 
 /// What the asker is told about where its question went.
 fn sent_note(question: &Question) -> String {
     let to = match &question.stage {
-        Stage::Lead { lead_name, .. } => {
-            format!("Sent to @{lead_name}, your lead, which decides it.")
-        }
-        Stage::Person { .. } if question.stands() => {
-            "Nobody has to answer this: it is on the record as your decision, where the person can overrule it.".to_owned()
-        }
+        Stage::Lead { lead_name, .. } => format!("Sent to @{lead_name}, your lead."),
         Stage::Person { .. } => "Sent to the person.".to_owned(),
     };
     format!("{to} {}", moves_on(question))
@@ -1314,49 +957,15 @@ fn for_lead(question: &Question) -> (String, String) {
             }
         }
     }
-    match &question.assumption {
-        Some(assumption) => text.push_str(&format!(
-            "\n\n@{name} goes on assuming {assumption} until it hears otherwise."
-        )),
-        None => text.push_str(&format!(
+    if question.blocked {
+        text.push_str(&format!(
             "\n\n@{name} waits for the answer before it goes on."
-        )),
+        ));
     }
-    let if_silent = match &question.assumption {
-        Some(_) => "its assumption stands and goes on the record".to_owned(),
-        None => "you get it once more to decide, then it goes to the person as something you could not decide".to_owned(),
-    };
     let id = &question.agent_id;
-    let private = kept_private(question);
     let note = format!(
-        "@{name} ({id}), an agent you started, asks you this. You decide it: answer with agent_send to {id}, setting answers to {} and why. {RAISE_RULE}, setting for to {id}. If your turn ends with neither, {if_silent}.{private}",
+        "@{name} ({id}), an agent you started, asks you this. Answer with agent_send to {id}, setting answers to {}. If only the person can answer it, ask them yourself with ask. If your turn ends with neither, it goes to the person.",
         question.id
-    );
-    (text, note)
-}
-
-/// When a lead raises something rather than deciding it, and how.
-const RAISE_RULE: &str = "Raise it to the person only if it is irreversible or leaves this machine, spends money, is a call of taste or product direction, or needs access only they have: use ask with reason, choices, pick and breaks";
-
-/// The question as its lead reads it when it comes back, after a turn that left it unanswered.
-/// What a lead is told of a question whose answer is hidden, after how to answer it.
-fn kept_private(question: &Question) -> &'static str {
-    match question.hides_answer() {
-        true => {
-            " It asks for access, so what you send goes to it alone: the record keeps only that you answered it privately, and no why of yours."
-        }
-        false => "",
-    }
-}
-
-fn for_lead_again(question: &Question) -> (String, String) {
-    let (text, _) = for_lead(question);
-    let name = &question.name;
-    let id = &question.agent_id;
-    let note = format!(
-        "You ended your turn without answering @{name} ({id}), which is still waiting. Decide it now: answer with agent_send to {id}, setting answers to {} and why. {RAISE_RULE}, setting for to {id}. If this turn ends with neither, it goes to the person as something you could not decide.{}",
-        question.id,
-        kept_private(question)
     );
     (text, note)
 }
@@ -1387,10 +996,7 @@ async fn lead_reads(core: &Arc<Core>, question: &Question, text: String, note: S
     }
     let mut state = core.harness().questions.state.locked();
     if let Some(open) = state.open.iter_mut().find(|open| open.id == question.id) {
-        open.stage = Stage::Person {
-            lead: None,
-            passed: false,
-        };
+        open.stage = Stage::Person { lead: None };
         core.harness().questions.changed(&mut state);
     }
 }
@@ -1406,73 +1012,18 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let mut choices = choices(params.get("choices"))?;
     let header = text_param(params, "header", MAX_QUESTION_BYTES)?
         .map(|header| clipped(&header, MAX_HEADER_CHARS));
-    if let Some(worker) = text_param(params, "for", 200)? {
-        let mut raise = Some(raise_of(params, &text, &mut choices)?);
-        (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
-        (core.harness().questions).keep_evidence(&request.project, &mut raise)?;
-        let raise = raise.ok_or("the decision could not be raised")?;
-        if let Some(foreign) = foreign_worker(core, &agent_id, &worker)? {
-            let choices = serde_json::to_value(&choices).map_err(|error| error.to_string())?;
-            return super::hosts::route::pass_on(core, &agent_id, &foreign, text, choices, raise)
-                .await;
-        }
-        return pass_on(core, &agent_id, &worker, text, choices, raise);
-    }
-    let blocked = match params.get("blocked") {
-        None | Some(Value::Null) => true,
-        Some(Value::Bool(blocked)) => *blocked,
-        Some(_) => return Err("blocked must be a boolean".into()),
+    let flag = |key: &str| match params.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(on)) => Ok(Some(*on)),
+        Some(_) => Err(format!("{key} must be a boolean")),
     };
-    let assumption = text_param(params, "assumption", MAX_QUESTION_BYTES)?;
-    match (blocked, &assumption) {
-        (true, Some(_)) => {
-            return Err(
-                "assumption goes with blocked: false, when you carry on without the answer".into(),
-            );
-        }
-        (false, None) => {
-            return Err(
-                "blocked: false needs assumption: what you go on assuming until you hear back"
-                    .into(),
-            );
-        }
-        _ => {}
+    let secret = flag("secret")?.unwrap_or(false);
+    let blocked = secret || flag("blocked")?.unwrap_or(true);
+    let kind = (params.get("kind")).and_then(|kind| CallKind::deserialize(kind).ok());
+    if let Some(pick) = params.get("pick").and_then(Value::as_str) {
+        mark_pick(pick, &mut choices);
     }
-    let multi = match params.get("multi") {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(multi)) => *multi,
-        Some(_) => return Err("multi must be a boolean".into()),
-    };
-    if multi && choices.is_empty() {
-        return Err("multi lets the person pick several choices, so it needs choices".into());
-    }
-    let secret = match params.get("secret") {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(secret)) => *secret,
-        Some(_) => return Err("secret must be a boolean".into()),
-    };
-    if secret && !blocked {
-        return Err("a secret question is blocked: wait for the answer".into());
-    }
-    let access = !secret && params.get("reason").and_then(Value::as_str) == Some("access");
-    if access && choices.is_empty() {
-        return Err(format!(
-            "An access question can reach the person, so it needs {ACCESS_CHOICE}"
-        ));
-    }
-    let raised = !secret
-        && reachable_lead(core, &agent_id).is_none()
-        && (params.get("reason").is_some() || (blocked && raises(core, &agent_id)));
-    let mut raise = raised
-        .then(|| raise_of(params, &text, &mut choices))
-        .transpose()?;
-    let production = (raise.as_ref()).is_some_and(|raise| raise.reason == RaisedFor::Irreversible);
-    if production && !blocked {
-        return Err("A change to production waits for the person's answer; ask it with blocked: true, never going on with an assumption".into());
-    }
-    mark_pick(params, &mut choices)?;
     (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
-    (core.harness().questions).keep_evidence(&request.project, &mut raise)?;
     let question = open(
         core,
         &agent_id,
@@ -1481,14 +1032,11 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             text,
             header,
             choices,
-            multi,
             blocked,
-            assumption,
             secret,
-            access,
+            kind,
             approval: None,
             dialog: None,
-            raise,
         }],
     )?
     .remove(0);
@@ -1507,7 +1055,6 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         "questionId": question.id,
         "askedOf": match &question.stage {
             Stage::Lead { lead_name, .. } => lead_name.clone(),
-            Stage::Person { .. } if question.stands() => "nobody".to_owned(),
             Stage::Person { .. } => "the person".to_owned(),
         },
         "note": sent_note(&question),
@@ -1532,14 +1079,11 @@ pub(crate) fn put_to_person(
             text: clipped(&text, MAX_QUESTION_BYTES),
             header: Some(clipped(&header, MAX_HEADER_CHARS)),
             choices,
-            multi: false,
             blocked: true,
-            assumption: None,
             secret: false,
-            access: false,
+            kind: None,
             approval: Some(approval),
             dialog: None,
-            raise: None,
         }],
     )
     .map(drop)
@@ -1567,14 +1111,11 @@ pub(crate) fn ask_for_dialog(
             text: clipped(text, MAX_QUESTION_BYTES),
             header: Some(clipped(header, MAX_HEADER_CHARS)),
             choices,
-            multi: false,
             blocked: true,
-            assumption: None,
             secret: false,
-            access: false,
+            kind: None,
             approval: None,
             dialog: Some(dialog),
-            raise: None,
         }],
     )
     .map(drop)
@@ -1597,141 +1138,10 @@ pub(crate) fn withdraw_dialogs(core: &Core, agent_id: &str, only: Option<&str>) 
     }
 }
 
-/// The worker of `lead` on a linked host that `worker` names, by its id, its
-/// name, or its name and host.
-fn foreign_worker(
-    core: &Core,
-    lead: &str,
-    worker: &str,
-) -> Result<Option<super::hosts::team::Foreign>, String> {
-    let (wanted, on) = super::messages::on_host(worker.trim().trim_start_matches('@'));
-    let mut found: Vec<super::hosts::team::Foreign> = (core.hosts().team.all().into_iter())
-        .filter(|foreign| foreign.parent.as_deref() == Some(lead))
-        .filter(|foreign| {
-            foreign.agent_id == wanted
-                || foreign.name.eq_ignore_ascii_case(wanted)
-                    && on.is_none_or(|on| {
-                        super::hosts::name_of(core, &foreign.host).eq_ignore_ascii_case(on)
-                    })
-        })
-        .collect();
-    if found.len() > 1 {
-        return Err(format!(
-            "More than one of your agents on linked hosts is called {wanted}: {}. Set for to the agent id instead",
-            found
-                .iter()
-                .map(|foreign| format!(
-                    "{} on {}",
-                    foreign.agent_id,
-                    super::hosts::name_of(core, &foreign.host)
-                ))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    Ok(found.pop())
-}
-
 /// Whether question `id` asks for a change to production, which only its call answers.
 pub(crate) fn asks_production(core: &Core, id: &str) -> bool {
     (core.harness().questions.state.locked().open.iter())
         .any(|question| question.id == id && question.production_call())
-}
-
-/// A lead on a linked host passes on to the person a question its worker
-/// here asked it.
-pub(crate) fn pass_on_from(
-    core: &Core,
-    lead: &str,
-    worker: &str,
-    text: &str,
-    choices: &Value,
-    raise: Raise,
-) -> Result<Value, String> {
-    let text = text_param(&json!({ "text": text }), "text", MAX_QUESTION_BYTES)?
-        .ok_or("the question must be nonempty text")?;
-    let mut choices = self::choices(Some(choices))?;
-    for choice in &mut choices {
-        choice.picture = None;
-    }
-    pass_on(core, lead, worker, text, choices, raise)
-}
-
-/// A lead raises a question its agent asked it to the person.
-fn pass_on(
-    core: &Core,
-    lead_id: &str,
-    worker: &str,
-    text: String,
-    choices: Vec<QuestionChoice>,
-    raise: Raise,
-) -> Result<Value, String> {
-    let wanted = worker.trim().trim_start_matches('@');
-    let lead_name = core
-        .names()
-        .name(lead_id)
-        .unwrap_or_else(|| lead_id.to_owned());
-    let mut state = core.harness().questions.state.locked();
-    let from = |question: &Question| {
-        question.agent_id == wanted || question.name.eq_ignore_ascii_case(wanted)
-    };
-    let mut askers: Vec<(&str, &str)> = (state.open.iter())
-        .filter(|question| from(question) && question.lead_id() == Some(lead_id))
-        .map(|question| (question.agent_id.as_str(), question.project.as_str()))
-        .collect();
-    askers.sort_unstable();
-    askers.dedup();
-    if askers.len() > 1 {
-        return Err(format!(
-            "More than one of your agents called {wanted} has a question waiting: {}. Set for to the agent id instead",
-            askers
-                .iter()
-                .map(|(id, project)| format!("{id} in {project}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    let Some(question) = state
-        .open
-        .iter_mut()
-        .find(|question| from(question) && question.lead_id() == Some(lead_id))
-    else {
-        let asked_already = state.open.iter().any(|question| {
-            from(question)
-                && matches!(&question.stage, Stage::Person { lead: Some((lead, _)), .. } if lead == lead_id)
-        });
-        return if asked_already {
-            Ok(
-                json!({ "note": format!("The person already has {wanted}'s question; carry on with your own work.") }),
-            )
-        } else {
-            Err(format!(
-                "{wanted} has no question waiting on you; leave out for to ask the person something yourself"
-            ))
-        };
-    };
-    if raise.reason == RaisedFor::Irreversible && !question.blocked {
-        return Err(format!(
-            "{wanted} goes on with an assumption while it waits, and a change to production waits for the person's answer. Answer {wanted}'s question as you tell it to ask again with blocked: true and wait (agent_send with answers), so it does not stand as decided, then raise the new one"
-        ));
-    }
-    question.text = text;
-    if !choices.is_empty() {
-        question.choices = choices;
-    }
-    question.raise = Some(raise);
-    question.stage = Stage::Person {
-        lead: Some((lead_id.to_owned(), lead_name)),
-        passed: true,
-    };
-    let (id, name) = (question.id.clone(), question.name.clone());
-    core.harness().questions.changed(&mut state);
-    Ok(json!({
-        "questionId": id,
-        "askedOf": "the person",
-        "for": name,
-        "note": format!("Sikemux asks the person for {name}. {name} gets the answer and you get a copy; carry on with your own work."),
-    }))
 }
 
 /// Takes a question asked with a CLI's own tool, such as Claude's
@@ -1760,25 +1170,17 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
             Some(Asked {
                 text: text.to_owned(),
                 header,
-                multi: question["multiSelect"].as_bool().unwrap_or(false),
                 choices: choices(options.map(Value::Array).as_ref()).unwrap_or_default(),
                 blocked: true,
-                assumption: None,
                 secret: question["isSecret"].as_bool().unwrap_or(false),
-                access: false,
+                kind: None,
                 approval: None,
                 dialog: None,
-                raise: None,
             })
         })
         .collect();
     if asked.is_empty() {
         return "Sikemux could not read that question; ask it again with the ask tool.".into();
-    }
-    if raises(core, agent_id) && asked.iter().any(|asked| !asked.secret) {
-        return format!(
-            "This did not reach the person. You lead other agents, so it is yours to decide. {RAISE_RULE}."
-        );
     }
     let project = core
         .chats()
@@ -1970,15 +1372,14 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             .open
             .retain(|question| !taken.iter().any(|(taken, ..)| taken.id == question.id));
         for (question, given, text) in &taken {
-            if let (None, None, Some(text)) = (&question.from_host, &question.dialog, text) {
-                let picked = given.choice.is_some() || given.choices.is_some();
-                let text = match picked {
+            if let (None, None) = (&question.from_host, &question.dialog) {
+                let text = match given.choice.is_some() {
                     true => without_attached(text, &given.paths),
                     false => text.clone(),
                 };
                 state.answered.push(Answered {
                     question: question.clone(),
-                    answer: (!question.hides_answer()).then_some(text),
+                    answer: (!question.secret).then_some(text),
                 });
             }
         }
@@ -2006,7 +1407,6 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             super::hosts::route::relay_answer(core, host, params, asked);
             continue;
         }
-        let Some(text) = text else { continue };
         if let Some(dialog) = &question.dialog {
             if let Some(chat) = core.chats().get(&question.agent_id) {
                 let _ = chat.send(ChatCommand::AnswerDialog {
@@ -2020,11 +1420,10 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
         let typed = (given.answer.clone())
             .map(|typed| without_attached(&typed, &given.paths))
             .filter(|typed| !typed.trim().is_empty());
-        let told = match (&question.approval, question.hides_answer(), typed) {
+        let told = match (&question.approval, question.secret, typed) {
             (Some(approval), ..) => super::approvals::settle(core, approval, given.choice)
                 .await
                 .map(|done| (text, Some(done), false)),
-            (None, ..) if given.none => Ok((text, Some(NONE_TO_GIVE.to_owned()), false)),
             (None, true, Some(typed)) => kept_privately(core, &question, typed).await.map(|note| {
                 match picked_labels(&question, &given) {
                     Some(picked) => (format!("{picked}\n\n{note}"), None, true),
@@ -2075,13 +1474,9 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                     paths,
                     private,
                 } = letter;
-                let note = match (done, &question.assumption) {
-                    (Some(done), _) => done.clone(),
-                    (None, Some(assumption)) => format!(
-                        "The person answered the question you went on without. If that is not what you assumed ({assumption}), change course."
-                    ),
-                    (None, None) => "The person answered the question you asked; go on with it.".to_owned(),
-                };
+                let note = done.clone().unwrap_or_else(|| {
+                    "The person answered the question you asked; go on with it.".to_owned()
+                });
                 (
                     answered(question, &question.asked, *private),
                     text.clone(),
@@ -2140,7 +1535,6 @@ async fn kept_privately(
 /// The labels of the choices picked in `given`, when it picked any.
 fn picked_labels(question: &Question, given: &AnswerParams) -> Option<String> {
     let labels: Vec<&str> = (given.choice.iter())
-        .chain(given.choices.iter().flatten())
         .filter_map(|&choice| Some(question.choices.get(choice)?.label.as_str()))
         .collect();
     (!labels.is_empty()).then(|| labels.join(", "))
@@ -2181,12 +1575,6 @@ fn answered(question: &Question, question_text: &str, private: bool) -> messages
     }
 }
 
-/// The person's answer when they have none of the secret asked for, as the chat shows it.
-const HAVE_NONE: &str = "I don't have one.";
-
-/// What the agent is told when the person has none of the secret it asked for.
-const NONE_TO_GIVE: &str = "The person has none to give. Go on without it if you can; if you cannot, stop and say plainly what is blocked without it. Should they find one later, ask for it again as a secret question, never in the chat.";
-
 /// What the agent is told in place of the secret the person answered with.
 fn secret_note(path: &Path) -> String {
     let path = path.display();
@@ -2195,59 +1583,16 @@ fn secret_note(path: &Path) -> String {
     )
 }
 
-/// What the person's answer says, or none when they only agreed with the
-/// assumption the agent went on.
-fn answer_text(question: &Question, params: &AnswerParams) -> Result<Option<String>, String> {
-    if params.none {
-        let given = params
-            .answer
-            .as_deref()
-            .is_some_and(|text| !text.trim().is_empty())
-            || params.choice.is_some()
-            || params.choices.is_some()
-            || !params.paths.is_empty()
-            || params.fine;
-        return match (question.secret, given) {
-            (true, false) => Ok(Some(HAVE_NONE.to_owned())),
-            (true, true) => Err("Having none to give takes no words, choice or files".into()),
-            (false, _) => {
-                Err("Only a question for a secret can be answered with none to give".into())
-            }
-        };
-    }
-    if params.fine {
-        return match question.assumption {
-            Some(_) => Ok(None),
-            None => Err("Only an assumption can be agreed with; answer the question".into()),
-        };
-    }
-    if let Some(picked) = &params.choices {
-        if !question.multi {
-            return Err("That question takes one choice".into());
-        }
-        if picked.is_empty() {
-            return Err("Pick at least one choice".into());
-        }
-        let labels = picked
-            .iter()
-            .map(|&choice| {
-                question
-                    .choices
-                    .get(choice)
-                    .map(|choice| choice.label.as_str())
-                    .ok_or("That choice is not one of the question's")
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        return Ok(Some(with_picked(labels.join(", "), params)));
-    }
-    if let Some(choice) = params.choice {
-        return question
+/// What the person's answer says: the choice they picked, with any words, or their words alone.
+fn answer_text(question: &Question, params: &AnswerParams) -> Result<String, String> {
+    match params.choice {
+        Some(choice) => question
             .choices
             .get(choice)
-            .map(|choice| Some(with_picked(choice.label.clone(), params)))
-            .ok_or_else(|| "That choice is not one of the question's".into());
+            .map(|choice| with_picked(choice.label.clone(), params))
+            .ok_or_else(|| "That choice is not one of the question's".into()),
+        None => reply_text(params),
     }
-    reply_text(params).map(Some)
 }
 
 /// A picked choice's label and, when its question showed pictures, the pictures picked.
@@ -2274,12 +1619,8 @@ fn attach_picked_pictures(core: &Arc<Core>, answers: &mut [AnswerParams]) {
         (answers.iter().enumerate())
             .filter_map(|(at, given)| {
                 let question = state.open.iter().find(|open| open.id == given.id)?;
-                let picked = given
-                    .choice
-                    .into_iter()
-                    .chain(given.choices.iter().flatten().copied());
                 Some(
-                    picked
+                    (given.choice.into_iter())
                         .filter_map(|ix| question.choices.get(ix)?.picture.clone())
                         .map(move |picture| (at, picture))
                         .collect::<Vec<_>>(),
@@ -2377,10 +1718,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let now = epoch_ms();
     let mut withdrawn = Vec::new();
     let mut next = None;
-    let mut again = Vec::new();
-    let mut left_over: Vec<String> = Vec::new();
-    let left: Vec<Question>;
-    let standing: Vec<Question>;
     {
         let mut state = core.harness().questions.state.locked();
         let before = state.open.len();
@@ -2397,8 +1734,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 lead_id,
                 lead_name,
                 ended_at,
-                handed_back,
-                left_by_person,
             } = &mut question.stage
             else {
                 continue;
@@ -2410,54 +1745,24 @@ pub(crate) fn settle(core: &Arc<Core>) {
             let unread = unread.contains(&question.id);
             let passed_over =
                 ended_at.is_some_and(|at| now.saturating_sub(at) >= LEAD_GRACE_MS) && !unread;
-            if *left_by_person && !busy && (!reachable || passed_over) {
-                left_over.push(question.id.clone());
-            } else if busy {
+            if busy {
                 *ended_at = None;
-            } else if reachable && passed_over && !*handed_back && question.assumption.is_none() {
-                *ended_at = None;
-                *handed_back = true;
-                again.push(question.clone());
-                changed = true;
             } else if !reachable || passed_over {
                 if unread {
                     withdrawn.push((lead_id.clone(), question.id.clone()));
                 }
                 question.stage = Stage::Person {
                     lead: (!unread).then(|| (lead_id.clone(), lead_name.clone())),
-                    passed: false,
                 };
                 changed = true;
             } else if let Some(at) = ended_at.filter(|_| !unread) {
                 next = sooner(next, Some(at + LEAD_GRACE_MS));
             }
         }
-        let (gone_back, open) = std::mem::take(&mut state.open)
-            .into_iter()
-            .partition::<Vec<_>, _>(|question| left_over.contains(&question.id));
-        left = gone_back;
-        let (stands, open) = open.into_iter().partition::<Vec<_>, _>(Question::stands);
-        state.open = open;
-        changed |= !stands.is_empty() || !left.is_empty();
-        standing = stands;
         if changed {
             core.harness().questions.changed(&mut state);
             core.boards().wake.now();
         }
-    }
-    for question in standing {
-        stood(core, question);
-    }
-    for question in left {
-        let core = core.clone();
-        tokio::spawn(async move { left_to_asker(&core, &question).await });
-    }
-    for question in again {
-        let core = core.clone();
-        tokio::spawn(async move {
-            let (text, note) = for_lead_again(&question);
-            lead_reads(&core, &question, text, note).await;
-        });
     }
     for (lead, question) in withdrawn {
         messages::withdraw(core, &lead, &question);
@@ -2517,10 +1822,7 @@ fn tell_phones(core: &Core) {
             .collect();
         state.shown_devices = shown;
         let now: HashMap<String, Asking> = (state.open.iter())
-            .filter(|question| {
-                let waits = question.blocked || question.raise.is_some() || question.persons_call();
-                waits && question.listed_for_devices()
-            })
+            .filter(|question| question.listed_for_devices())
             .map(|question| {
                 let asking = Asking::new(
                     &question.agent_id,
@@ -2583,90 +1885,6 @@ fn tell_calls(core: &Core) {
     };
     person_calls::sync_questions(core, wanted);
     person_calls::close_left(core, |agent_id| gone(core, agent_id));
-}
-
-/// What the asker hears when the person leaves its question to it.
-const LEFT_TO_ASKER: &str = "The person left this to you. Go with what you would pick, and say in your answer what you chose.";
-
-/// The person hands the question back: the lead it went to first decides it, and it never reaches
-/// the person again. With no lead to take it, the asker goes with its own pick.
-pub(crate) async fn hand_back(core: &Arc<Core>, id: &str) -> Result<(), String> {
-    let lead = {
-        let state = core.harness().questions.state.locked();
-        let question = (state.open.iter()).find(|question| question.id == id);
-        question.and_then(|question| match &question.stage {
-            Stage::Person {
-                lead: Some(lead), ..
-            } => Some(lead.clone()),
-            _ => None,
-        })
-    };
-    let Some((lead_id, lead_name)) = lead.filter(|(lead_id, _)| reachable(core, lead_id)) else {
-        return answer(
-            core,
-            AnswerParams {
-                id: id.to_owned(),
-                answer: Some(LEFT_TO_ASKER.to_owned()),
-                ..AnswerParams::default()
-            },
-        )
-        .await;
-    };
-    let question = {
-        let mut state = core.harness().questions.state.locked();
-        let question = (state.open.iter_mut())
-            .find(|question| question.id == id)
-            .ok_or("That question has been answered already")?;
-        question.stage = Stage::Lead {
-            lead_id: lead_id.clone(),
-            lead_name,
-            ended_at: None,
-            handed_back: true,
-            left_by_person: true,
-        };
-        let question = question.clone();
-        core.harness().questions.changed(&mut state);
-        question
-    };
-    let (text, _) = for_lead(&question);
-    let name = &question.name;
-    let note = format!(
-        "The person left @{name}'s question to you. Decide it: answer with agent_send to {name}, setting answers to {id} and why. It does not go back to the person; if your turn ends without an answer, @{name} goes with its own pick."
-    );
-    let sent = messages::question(
-        core,
-        id.to_owned(),
-        question.agent_id.clone(),
-        lead_id,
-        text,
-        note,
-    )
-    .await;
-    if sent.is_err() {
-        let taken = {
-            let mut state = core.harness().questions.state.locked();
-            let at = state.open.iter().position(|open| open.id == id);
-            let taken = at.map(|at| state.open.remove(at));
-            core.harness().questions.changed(&mut state);
-            taken
-        };
-        if let Some(question) = taken {
-            left_to_asker(core, &question).await;
-        }
-    }
-    Ok(())
-}
-
-/// Nobody decided a question the person handed back, so its asker goes with its own pick.
-async fn left_to_asker(core: &Arc<Core>, question: &Question) {
-    let note = "Nobody else decides this one: the person handed it back.".to_owned();
-    let letter = (
-        answered(question, &question.asked, false),
-        LEFT_TO_ASKER.to_owned(),
-        note,
-        Vec::new(),
-    );
-    let _ = messages::answer(core, question.agent_id.clone(), vec![letter]).await;
 }
 
 /// Sends the window the open questions when they changed, or when a window

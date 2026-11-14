@@ -812,12 +812,6 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
             let asker = called(core, &call.asker.agent_id);
             let question = quoted(&call.question);
             let line = match (answer.option.as_ref(), answer.words.as_ref()) {
-                _ if super::person_calls::handed_back(call) => {
-                    format!("- handed {asker}'s call {question} back to be decided without them")
-                }
-                _ if super::person_calls::let_stand(call) => {
-                    format!("- let {asker}'s assumption stand on its call {question}")
-                }
                 (Some(id), _) => {
                     let picked = (call.options.iter())
                         .find(|option| &option.id == id)

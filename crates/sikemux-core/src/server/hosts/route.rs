@@ -30,7 +30,7 @@ use super::super::follow::{self, Happened};
 use super::super::messages::{self, Carried, MessageKind};
 use super::super::names::Worker;
 use super::super::roster::{self, Reach};
-use super::super::{inbox, questions, Core, CoreResult};
+use super::super::{inbox, Core, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::team::{Foreign, Role, Said};
 use super::{ask, call, call_id, goes_now, name_of, post, Failed, Sending};
@@ -1235,62 +1235,17 @@ pub(crate) fn relay_closed(core: &Core, host: &str, id: &str) {
     );
 }
 
-/// A lead here passes a question its worker on another host asked it on to
-/// the person.
-pub(crate) async fn pass_on(
-    core: &Arc<Core>,
-    lead: &str,
-    worker: &Foreign,
-    text: String,
-    choices: Value,
-    raise: questions::Raise,
-) -> Result<Value, String> {
-    let params = params_of::<asks::PassOn>(&PassOnParams {
-        lead: lead.to_owned(),
-        worker: worker.agent_id.clone(),
-        text,
-        choices,
-        raise,
-    });
-    ask(
-        core,
-        &worker.host,
-        asks::PassOn::METHOD,
-        params,
-        None,
-        ASK_WAIT,
-    )
-    .await
-    .map_err(|error| error.to_string())
-}
-
+/// What a linked host of an earlier release sent to pass a worker's question on to the person.
 #[derive(Serialize, Deserialize)]
-pub(super) struct PassOnParams {
-    lead: String,
-    worker: String,
-    text: String,
-    choices: Value,
-    raise: questions::Raise,
-}
+pub(super) struct PassOnParams {}
 
-pub(super) fn pass_on_here(core: &Core, host: &str, params: PassOnParams) -> Result<Value, String> {
-    let lead = params.lead.as_str();
-    if core
-        .hosts()
-        .team
-        .get(lead)
-        .is_none_or(|foreign| foreign.host != host)
-    {
-        return Err("that lead is not one of a team this host shares with yours".into());
-    }
-    questions::pass_on_from(
-        core,
-        lead,
-        &params.worker,
-        &params.text,
-        &params.choices,
-        params.raise,
-    )
+/// A lead asks the person itself now, so nothing is passed on for it.
+pub(super) fn pass_on_here(
+    _core: &Core,
+    _host: &str,
+    _params: PassOnParams,
+) -> Result<Value, String> {
+    Err("This host no longer passes questions on; ask the person yourself with ask".into())
 }
 
 #[cfg(test)]
