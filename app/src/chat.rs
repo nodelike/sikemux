@@ -575,6 +575,9 @@ pub struct Chats {
     pub open: HashMap<String, Chat>,
     /// The chat in front and whether its session was ready when its draft last took the keys.
     pub(crate) focused: Option<(String, bool)>,
+    /// The chat that was in front when the window last settled, so one coming forward takes
+    /// the keys even from the rail, a terminal or a closing picker.
+    pub(crate) front: Option<String>,
     /// Text handed to agents whose composer is not made yet, put in once it is.
     pub(crate) deliveries: HashMap<String, String>,
     /// What to find in chats opened from a search of what was said, once each one shows.
@@ -2150,6 +2153,7 @@ impl Workbench {
                 self.release_keys(composing.draft.read(cx).focus_handle(cx), cx);
             }
             self.chats.focused.take_if(|(shown, _)| *shown == agent);
+            self.chats.front.take_if(|shown| *shown == agent);
             self.ask_chat(ChatAsk::Detach { agent });
         }
         if closed {

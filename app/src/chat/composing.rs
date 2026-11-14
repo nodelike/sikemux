@@ -1290,6 +1290,7 @@ impl Workbench {
     /// Keeps what the empty draft of the chat in front says in step with how the chat stands.
     pub(crate) fn hint(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(agent) = self.agent().map(|agent| agent.id) else {
+            self.chats.front = None;
             return;
         };
         self.send_after_worktree(&agent, window, cx);
@@ -1367,17 +1368,13 @@ impl Workbench {
             .update(cx, |draft, cx| draft.set_placeholder(hint, window, cx));
     }
 
-    /// Puts the keys in the draft of the chat in front when it comes to the front and again
-    /// once its session is ready, unless the person is typing somewhere other than a draft or
+    /// Puts the keys in the draft of the chat in front when it comes to the front, and again
+    /// once its session is ready unless the person is typing somewhere other than a draft or
     /// the window itself.
     pub(crate) fn focus_draft(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(chat) = self.chats.open.get(agent) else {
             return;
         };
-        let shown = (agent.to_owned(), chat.ready());
-        if self.chats.focused.as_ref() == Some(&shown) {
-            return;
-        }
         let Some(draft) = chat
             .composer
             .as_ref()
@@ -1385,16 +1382,23 @@ impl Workbench {
         else {
             return;
         };
+        let shown = (agent.to_owned(), chat.ready());
+        let came_forward = self.chats.front.as_deref() != Some(agent);
+        self.chats.front = Some(agent.to_owned());
+        if !came_forward && self.chats.focused.as_ref() == Some(&shown) {
+            return;
+        }
         self.chats.focused = Some(shown);
         let held = window.focused(cx);
-        let free = held.as_ref().is_none_or(|held| {
-            *held == self.keys.focus
-                || self.chats.open.values().any(|chat| {
-                    chat.composer
-                        .as_ref()
-                        .is_some_and(|composing| composing.draft.read(cx).focus_handle(cx) == *held)
-                })
-        });
+        let free = came_forward
+            || held.as_ref().is_none_or(|held| {
+                *held == self.keys.focus
+                    || self.chats.open.values().any(|chat| {
+                        chat.composer.as_ref().is_some_and(|composing| {
+                            composing.draft.read(cx).focus_handle(cx) == *held
+                        })
+                    })
+            });
         if free {
             // A draft made in this same frame misses its own focus event, so start its caret here.
             draft.update(cx, |draft, cx| draft.focus(window, cx));
