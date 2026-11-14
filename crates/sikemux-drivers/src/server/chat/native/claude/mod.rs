@@ -108,8 +108,13 @@ fn transcript(launch: &ChatLaunch, session_id: &str) -> Option<PathBuf> {
     sessions::transcript::find(AgentKind::Claude, &root, Some(&cwd), session_id)
 }
 
-/// The models Claude offers, from its answer to `initialize` with no session saved.
-pub async fn read_options(command: tokio::process::Command) -> Result<Value, String> {
+/// The models Claude offers, and the efforts `model` takes, from its answer to `initialize`
+/// with no session saved.
+pub async fn read_options(
+    command: tokio::process::Command,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> Result<Value, String> {
     const ASKED: &str = "sikemux-options";
     let request = json!({
         "type": "control_request",
@@ -126,10 +131,11 @@ pub async fn read_options(command: tokio::process::Command) -> Result<Value, Str
     let models = crate::agent_accounts::usage::control_answer(&said, ASKED)
         .and_then(|answer| answer.get("models")?.as_array().cloned())
         .ok_or("Claude named no models")?;
+    let model = model.filter(|model| config::offers_model(&models, model));
     Ok(config::options(
         &models,
-        config::DEFAULT,
-        config::DEFAULT,
+        model.unwrap_or(config::DEFAULT),
+        effort.unwrap_or(config::DEFAULT),
         false,
     ))
 }

@@ -70,7 +70,9 @@ pub async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
         )
         .kill_on_drop(true);
     match driver(&launch.provider) {
-        Some(ChatDriver::Claude) => claude::read_options(command).await,
+        Some(ChatDriver::Claude) => {
+            claude::read_options(command, launch.model.as_deref(), launch.effort.as_deref()).await
+        }
         Some(ChatDriver::Codex) => codex::read_options(command).await,
         Some(ChatDriver::Pi) => pi::read_options(command).await,
         Some(ChatDriver::Muse | ChatDriver::Acp { .. }) | None => Err(format!(
