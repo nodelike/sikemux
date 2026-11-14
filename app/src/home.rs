@@ -331,7 +331,7 @@ pub fn centred(welcome: impl IntoElement) -> Div {
 /// The welcome across the middle and resting on the bottom of the space it is given, so it sits
 /// just over a composer drawn below it.
 pub fn over_composer(welcome: impl IntoElement) -> Div {
-    centred(welcome).justify_end().pb(SPACE_6)
+    centred(welcome).justify_end().pb(SPACE_6 + SPACE_3)
 }
 
 fn pane_header(
