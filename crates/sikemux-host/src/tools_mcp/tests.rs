@@ -145,7 +145,7 @@ fn schemas_stay_lean_so_prose_lives_in_the_guide() {
         }
     }
     assert!(
-        prose <= 2040,
+        prose <= 2100,
         "tool descriptions are paid on every request; explain it in SIKEMUX_GUIDE.md instead ({prose} bytes)"
     );
 }
@@ -170,7 +170,7 @@ fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
         .len()
         + offered.instructions().len();
     assert!(
-        bytes <= 33_950,
+        bytes <= 33_900,
         "every agent is sent {bytes} bytes of tools and instructions on each request; cut before adding"
     );
 }

@@ -2821,7 +2821,7 @@
       "name": "theme_read",
       "row": {"verb": "read", "kind": "read", "icon": "highlighter", "target": ["{theme}", "the themes"]},
       "method": "theme.read",
-      "description": "Sikemux's own themes; how to theme_set.",
+      "description": "Sikemux's themes.",
       "properties": {
         "theme": {
           "type": "string",
@@ -2834,7 +2834,7 @@
       "name": "theme_set",
       "row": {"verb": "restyle", "kind": "edit", "icon": "highlighter", "target": ["{theme}", "Sikemux"]},
       "method": "theme.set",
-      "description": "Restyle Sikemux itself, only when the person asks.",
+      "description": "Restyle Sikemux when the person asks.",
       "properties": {
         "theme": {
           "type": "string",
