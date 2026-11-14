@@ -390,7 +390,7 @@ pub struct BackdropLook {
     pub own_colours: bool,
     pub pattern: PanePattern,
     /// In points.
-    pub dot_size: u32,
+    pub dot_size: f64,
     /// From -1 to 1.
     pub contrast: f64,
     /// From -1 to 1.

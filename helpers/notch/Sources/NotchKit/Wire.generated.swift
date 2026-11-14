@@ -5,7 +5,7 @@ import Foundation
 /// The core's protocol as this build speaks it, so a core that no longer serves this version turns it away at hello.
 enum WireProtocol {
     static let name = "sikemux-core"
-    static let version = 15
+    static let version = 16
     /// The largest payload the core sends in one frame.
     static let maxFrameBytes = 16777216
 }

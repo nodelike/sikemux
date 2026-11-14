@@ -5,7 +5,7 @@ import Foundation
 /// The core's protocol as this build speaks it, so a core that no longer serves this version turns it away at hello.
 enum WireProtocol {
     static let name = "sikemux-core"
-    static let version = 15
+    static let version = 16
     /// The largest payload the core sends in one frame.
     static let maxFrameBytes = 16777216
 }
@@ -1042,7 +1042,7 @@ struct BackdropLook: Codable, Hashable, Sendable {
     var ownColours: Bool
     var pattern: PanePattern
     /// In points.
-    var dotSize: Int
+    var dotSize: Double
     /// From -1 to 1.
     var contrast: Double
     /// From -1 to 1.
@@ -5428,7 +5428,7 @@ struct Preferences: Codable, Hashable, Sendable {
     var paneInks: [String]
     var panePattern: PanePattern
     /// How wide each of the picture's dots is, from 1 to 6 points.
-    var paneDotSize: Int
+    var paneDotSize: Double
     /// From -1 to 1.
     var paneContrast: Double
     /// From -1 to 1.

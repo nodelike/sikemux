@@ -308,8 +308,8 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         cx,
     );
     let (dot_size, moved_dot_size) = slider(
-        |value| PreferenceChange::PaneDotSize(value.round() as u32),
-        (1., 6., 1.),
+        |value| PreferenceChange::PaneDotSize(hundredths(value)),
+        (1., 6., 0.01),
         preferences.pane_dot_size as f32,
         cx,
     );
@@ -539,7 +539,10 @@ fn picture_rows(
         .child(rows::row(
             t!("Dot size"),
             None,
-            knob(&fields.dot_size, format!("{}pt", preferences.pane_dot_size)),
+            knob(
+                &fields.dot_size,
+                format!("{:.2}pt", preferences.pane_dot_size),
+            ),
             cx,
         ))
         .child(rows::row(

@@ -18,7 +18,7 @@ pub use message::*;
 pub use session::*;
 
 pub const PROTOCOL: &str = "sikemux-core";
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
 /// The oldest version a device may speak and still be served. A change a
 /// device from an older release can still read bumps only `PROTOCOL_VERSION`,
 /// so phones waiting on an app store review keep working.

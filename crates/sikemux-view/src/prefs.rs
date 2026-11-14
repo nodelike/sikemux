@@ -133,7 +133,7 @@ pub struct Preferences {
     pub pane_inks: Vec<String>,
     pub pane_pattern: PanePattern,
     /// How wide each of the picture's dots is, from 1 to 6 points.
-    pub pane_dot_size: u32,
+    pub pane_dot_size: f64,
     /// From -1 to 1.
     pub pane_contrast: f64,
     /// From -1 to 1.
@@ -262,7 +262,7 @@ preference_changes! {
     PaneColours pane_colours: PaneColours,
     PaneInks pane_inks: Vec<String>,
     PanePattern pane_pattern: PanePattern,
-    PaneDotSize pane_dot_size: u32,
+    PaneDotSize pane_dot_size: f64,
     PaneContrast pane_contrast: f64,
     PaneBrightness pane_brightness: f64,
     PaneGlow pane_glow: f64,
@@ -446,7 +446,7 @@ impl Default for Preferences {
                 "#fff0fa".to_owned(),
             ],
             pane_pattern: PanePattern::default(),
-            pane_dot_size: 2,
+            pane_dot_size: 2.0,
             pane_contrast: 0.0,
             pane_brightness: 0.0,
             pane_glow: 0.4,
