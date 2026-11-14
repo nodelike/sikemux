@@ -419,15 +419,16 @@ impl RenderOnce for Composer {
                     || self.agent_label.to_string(),
                     |model| chosen(model, t!("Model")),
                 );
-            let trigger = picker_trigger(
-                "model",
+            let effort = picked
+                .effort
+                .as_ref()
+                .map(|effort| chosen(effort, t!("Effort")));
+            let face = Face {
                 label,
-                t!("Model"),
-                Some(&self.provider),
-                enabled,
-                room,
-                cx,
-            );
+                provider: Some(&self.provider),
+                effort,
+            };
+            let trigger = picker_trigger("model", face, t!("Model"), enabled, room, cx);
             let menu = crate::chat::model_picker::around(trigger, &self.provider, picked, &bench);
             match self.model_open.clone() {
                 Some((open, opened)) => menu.open(open).on_open_change(
@@ -452,7 +453,7 @@ impl RenderOnce for Composer {
                     cx,
                 )
             }));
-            bar = bar.children(effort.map(|effort| {
+            bar = bar.children(effort.filter(|_| !has_menu).map(|effort| {
                 picker(
                     effort,
                     t!("Reasoning effort"),
@@ -1085,9 +1086,8 @@ pub(crate) fn chosen(picker: &ConfigPicker, name: &str) -> String {
 /// The button a picker opens from: the agent's mark beside the first, the choice, a chevron.
 fn picker_trigger(
     id: &str,
-    label: String,
+    face: Face,
     name: &'static str,
-    provider: Option<&str>,
     enabled: bool,
     room: Room,
     cx: &App,
@@ -1104,15 +1104,26 @@ fn picker_trigger(
                 })
             })
         });
-    picker_face(trigger, label, provider, enabled, room, cx)
+    picker_face(trigger, face, enabled, room, cx)
+}
+
+/// What a picker's trigger shows: the choice, the agent's mark on the first, and the effort
+/// on the model's.
+struct Face<'a> {
+    label: String,
+    provider: Option<&'a str>,
+    effort: Option<String>,
 }
 
 /// How a picker's trigger looks, on whichever button opens it: the agent's mark when it is
-/// the first, what is chosen, and a chevron.
+/// the first, what is chosen, the effort after its gauge when it has one, and a chevron.
 fn picker_face<E: Styled + ParentElement + IntoElement>(
     trigger: E,
-    label: String,
-    provider: Option<&str>,
+    Face {
+        label,
+        provider,
+        effort,
+    }: Face,
     enabled: bool,
     room: Room,
     cx: &App,
@@ -1127,7 +1138,7 @@ fn picker_face<E: Styled + ParentElement + IntoElement>(
     trigger
         .h(px(31.))
         .px(px(if named { 11. } else { 9.5 }))
-        .max_w(px(220.))
+        .max_w(px(if effort.is_some() { 300. } else { 220. }))
         .when(first, |trigger| trigger.min_w_0())
         .when(!first, |trigger| trigger.flex_none())
         .flex()
@@ -1158,6 +1169,23 @@ fn picker_face<E: Styled + ParentElement + IntoElement>(
                     .child(label),
             )
         })
+        .when_some(effort.filter(|_| room > Room::Bare), |trigger, effort| {
+            trigger
+                .child(
+                    ui::icon(Icon::Gauge, 13.)
+                        .flex_none()
+                        .text_color(t.text_tertiary),
+                )
+                .when(room == Room::Full, |trigger| {
+                    trigger.child(
+                        div()
+                            .flex_none()
+                            .whitespace_nowrap()
+                            .text_color(t.text_tertiary)
+                            .child(effort),
+                    )
+                })
+        })
         .child(
             div().opacity(0.6).child(
                 ui::icon(Icon::Chevron, 10.)
@@ -1180,8 +1208,12 @@ fn picker(
     let label = chosen(&picker, name);
     let enabled = settable && !picker.choices.is_empty();
     if !enabled {
-        return picker_trigger(&picker.id, label, name, provider, enabled, room, cx)
-            .into_any_element();
+        let face = Face {
+            label,
+            provider,
+            effort: None,
+        };
+        return picker_trigger(&picker.id, face, name, enabled, room, cx).into_any_element();
     }
     let ConfigPicker {
         id,
@@ -1192,7 +1224,12 @@ fn picker(
         .ghost()
         .compact()
         .accessibility_label(name);
-    picker_face(trigger, label, provider, enabled, room, cx)
+    let face = Face {
+        label,
+        provider,
+        effort: None,
+    };
+    picker_face(trigger, face, enabled, room, cx)
         .dropdown_menu_with_anchor(
             if first {
                 Anchor::BottomLeft

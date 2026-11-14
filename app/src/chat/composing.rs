@@ -629,6 +629,15 @@ pub(super) fn composer(
         )
     };
     let model = head.and_then(|head| head.model.clone());
+    let effort = head.and_then(|head| head.effort.clone()).or_else(|| {
+        reads_models.then(|| ConfigPicker {
+            id: "effort".into(),
+            current: saved
+                .and_then(|saved| saved.effort.clone())
+                .unwrap_or_else(|| t!("Effort").into()),
+            choices: Vec::new(),
+        })
+    });
     if let Some(saved) = saved.filter(|_| fresh || model.is_some()) {
         let moving: crate::chat::model_picker::Move = {
             let (this, agent) = (this.clone(), agent.id.clone());
@@ -645,6 +654,7 @@ pub(super) fn composer(
             provider: agent.provider.clone(),
             profile: saved.profile_id.clone(),
             model: model.clone(),
+            effort: effort.clone(),
             speed: head.and_then(|head| head.speed.clone()).filter(|_| started),
             model_provider: saved.model_provider.clone(),
             locked: !fresh,
@@ -677,15 +687,6 @@ pub(super) fn composer(
             .model_menu(picked, cx.entity())
             .model_open(open, opened);
     }
-    let effort = head.and_then(|head| head.effort.clone()).or_else(|| {
-        reads_models.then(|| ConfigPicker {
-            id: "effort".into(),
-            current: saved
-                .and_then(|saved| saved.effort.clone())
-                .unwrap_or_else(|| t!("Effort").into()),
-            choices: Vec::new(),
-        })
-    });
     if model.is_some() || effort.is_some() {
         composer = composer.pickers(model, effort, pick);
     }

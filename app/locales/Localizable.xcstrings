@@ -31526,6 +31526,7 @@
         }
       }
     },
+    "Effort shows once the agent starts": {},
     "Empty uses PATH.": {
       "localizations": {
         "es": {
@@ -84116,58 +84117,6 @@
         }
       }
     },
-    "Search model…": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar modelo…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索模型…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Modell suchen …"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rechercher un modèle…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "モデルを検索…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "모델 검색…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поиск модели…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Buscar modelo…"
-          }
-        }
-      }
-    },
     "Search or enter address": {
       "localizations": {
         "es": {
@@ -84376,6 +84325,7 @@
         }
       }
     },
+    "Search {agent}'s models…": {},
     "Searching": {
       "localizations": {
         "es": {
@@ -106281,6 +106231,7 @@
         }
       }
     },
+    "This model has no effort to pick": {},
     "This pane image's format can't be read.": {
       "localizations": {
         "es": {
@@ -148835,6 +148786,8 @@
         }
       }
     },
+    "{agent} · Install failed": {},
+    "{agent} · Installing": {},
     "{age} ago": {
       "localizations": {
         "es": {

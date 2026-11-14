@@ -10,9 +10,9 @@ use gpui_kit::base::{Popover, Selectable};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, App, AppContext, Context, Entity, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
-    Styled, Subscription, WeakEntity, Window,
+    actions, div, px, Anchor, AnyElement, App, AppContext, Context, Entity, InteractiveElement,
+    IntoElement, KeyBinding, ParentElement, Render, ScrollHandle, SharedString,
+    StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
 use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
@@ -20,8 +20,7 @@ use crate::agents::setup::Installing;
 use crate::core;
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_XS,
-    TEXT_XS_H,
+    self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS_H, TEXT_3XS_H, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
@@ -34,8 +33,42 @@ use sikemux_calls::params::NoParams;
 
 const CONTEXT: &str = "ModelPicker";
 
+actions!(model_picker, [LessEffort, MoreEffort]);
+
+/// Picks the model at this place in the list, from ⌘1 to ⌘4.
+#[derive(Clone, PartialEq, gpui::Action)]
+#[action(name = "model_picker.pickNth", no_json)]
+struct PickNth(usize);
+
+/// How many of the first models take a number key.
+const NUMBERED: usize = 4;
+
 pub fn install(cx: &mut App) {
+    let context = Some("ModelPicker > Input");
     list_picker::bind("ModelPicker > Input", list_picker::Tab::Nothing, cx);
+    let numbers = if cfg!(target_os = "macos") {
+        ["cmd-1", "cmd-2", "cmd-3", "cmd-4"]
+    } else {
+        ["ctrl-1", "ctrl-2", "ctrl-3", "ctrl-4"]
+    };
+    cx.bind_keys([
+        KeyBinding::new("left", LessEffort, context),
+        KeyBinding::new("right", MoreEffort, context),
+    ]);
+    cx.bind_keys(
+        numbers
+            .into_iter()
+            .enumerate()
+            .map(|(at, keys)| KeyBinding::new(keys, PickNth(at), context)),
+    );
+}
+
+/// What a number key is drawn as beside the model it picks.
+fn numbered(at: usize) -> String {
+    match cfg!(target_os = "macos") {
+        true => format!("⌘{}", at + 1),
+        false => format!("Ctrl+{}", at + 1),
+    }
 }
 
 /// Where a chat that has not started moves to: an agent, the account it runs on, and the
@@ -61,6 +94,8 @@ pub struct Picked {
     /// The account it runs on.
     pub profile: Option<String>,
     pub model: Option<ConfigPicker>,
+    /// How hard the model thinks, when its agent says.
+    pub effort: Option<ConfigPicker>,
     /// Standard speed or the agent's faster tiers for the model, while the session runs one.
     pub speed: Option<ConfigPicker>,
     /// The connected provider paying for its turns, when one is.
@@ -142,6 +177,10 @@ pub struct Menu {
     follow: bool,
     /// The older releases of the agent's models show, which start folded away.
     older: bool,
+    /// The effort just picked, shown as current until the session says it took.
+    asked_effort: Option<String>,
+    /// The agent the search field names.
+    named: Option<String>,
     _typing: Subscription,
     _bench: Subscription,
 }
@@ -195,7 +234,7 @@ impl Menu {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let query = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Search model…")));
+        let query = cx.new(|cx| InputState::new(window, cx));
         query.update(cx, |query, cx| query.focus(window, cx));
         let typing = cx.subscribe(&query, |menu, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -218,6 +257,8 @@ impl Menu {
             scroll: ScrollHandle::new(),
             follow: false,
             older: false,
+            asked_effort: None,
+            named: None,
             _typing: typing,
             _bench: cx.observe(bench, |_, _, cx| cx.notify()),
         }
@@ -610,71 +651,99 @@ fn install_agent(bench: &WeakEntity<Workbench>, provider: &str, cx: &mut App) {
     }
 }
 
-fn chip(
-    id: SharedString,
+/// An agent in the rail down the menu's left: its mark, lit while the chat runs on it, and its
+/// name and how its install goes on hover.
+fn agent_button(
     agent: &Agent,
     pressed: bool,
     t: &Tokens,
     on: impl Fn(&mut Window, &mut App) + 'static,
 ) -> AnyElement {
-    let state = match agent.installing {
-        Some(Installing::Running) => Some((t!("Installing"), t.text_tertiary)),
-        Some(Installing::Failed) => Some((t!("Install failed"), t.danger)),
-        None => None,
+    let tip = match agent.installing {
+        Some(Installing::Running) => t!("{agent} · Installing", agent = agent.label),
+        Some(Installing::Failed) => t!("{agent} · Install failed", agent = agent.label),
+        None => agent.label.clone(),
     };
     div()
-        .id(id)
+        .id(SharedString::from(format!(
+            "model-agent-{}",
+            agent.provider
+        )))
+        .relative()
+        .flex_none()
+        .size(px(30.))
         .flex()
         .items_center()
-        .gap(px(5.))
-        .h(px(24.))
-        .px(SPACE_2)
+        .justify_center()
         .rounded(theme::RADIUS_2)
-        .border_1()
         .cursor_pointer()
-        .text_size(crate::theme::ui_text(TEXT_2XS_H))
-        .map(|chip| match pressed {
-            true => chip
-                .border_color(gpui::transparent_black())
-                .bg(t.surface_chosen)
-                .text_color(t.text_primary),
-            false => chip
-                .border_color(t.border)
-                .text_color(t.text_secondary)
-                .hover(|style| style.bg(t.surface_hover)),
+        .map(|button| match pressed {
+            true => button.bg(t.surface_chosen),
+            false => button.hover(|style| style.bg(t.surface_hover)),
         })
         .child(
             div()
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .when(!agent.installed, |label| label.opacity(0.55))
-                .child(ui::mark(&agent.provider, 14.))
-                .child(agent.label.clone()),
+                .when(!agent.installed, |mark| mark.opacity(0.55))
+                .when(agent.installing == Some(Installing::Running), |mark| {
+                    mark.opacity(0.3)
+                })
+                .child(ui::mark(&agent.provider, 16.)),
         )
-        .children(state.map(|(words, ink)| div().text_color(ink).child(words)))
+        .when(agent.installing == Some(Installing::Failed), |button| {
+            button.child(
+                div()
+                    .absolute()
+                    .top(px(4.))
+                    .right(px(4.))
+                    .size(px(6.))
+                    .rounded_full()
+                    .bg(t.danger),
+            )
+        })
+        .tooltip(ui::tooltip(tip))
         .clicks(move |_, window, cx| on(window, cx))
         .into_any_element()
 }
 
+/// Five bars rising left to right, `lit` of them in the accent, as each step of effort shows.
+fn strength(lit: usize, t: &Tokens) -> impl IntoElement {
+    div()
+        .flex_none()
+        .flex()
+        .items_end()
+        .gap(px(1.5))
+        .h(px(11.))
+        .children((0..5).map(|bar| {
+            div()
+                .w(px(2.5))
+                .h(px(3. + 2. * bar as f32))
+                .rounded(px(1.))
+                .bg(if bar < lit { t.accent } else { t.border_strong })
+        }))
+}
+
 impl Menu {
+    #[allow(clippy::too_many_arguments)]
     fn row(
         &self,
         at: usize,
         row: Row,
+        nth: Option<usize>,
         typed: &str,
         found: gpui::HighlightStyle,
-        t: &Tokens,
         this: &Entity<Self>,
+        cx: &App,
     ) -> AnyElement {
+        let t = Tokens::get(cx);
         let (menu, act) = (this.clone(), row.act.clone());
         let adds = matches!(row.act, Act::AddProvider | Act::Fold | Act::Update);
+        let key = nth.map(|nth| ui::keycap(numbered(nth), cx));
         div()
             .id(("model-option", at))
             .flex()
             .items_center()
             .gap(px(9.))
-            .py(px(7.))
+            .h(px(30.))
             .px(SPACE_2H)
             .rounded(theme::RADIUS_2)
             .cursor_pointer()
@@ -683,7 +752,11 @@ impl Menu {
             } else {
                 t.text_primary
             })
-            .when(at == self.chosen, |row| row.bg(t.surface_hover))
+            .map(|line| match (row.current, at == self.chosen) {
+                (true, _) => line.bg(t.surface_chosen),
+                (false, true) => line.bg(t.surface_hover),
+                (false, false) => line,
+            })
             .map(|row| list_picker::hover_chooses(row, at, &menu, |list, at| list.chosen = at))
             .clicks(move |_, window, cx| {
                 let act = act.clone();
@@ -707,87 +780,281 @@ impl Menu {
             })
             .child(
                 div()
-                    .flex_1()
                     .min_w_0()
                     .truncate()
                     .text_size(crate::theme::ui_text(TEXT_XS_H))
                     .child(ui::found_with(row.label.clone(), typed, found)),
             )
-            .children(row.meta.map(|meta| {
+            .child(
                 div()
+                    .flex_1()
                     .min_w_0()
-                    .max_w(px(170.))
                     .truncate()
                     .text_size(crate::theme::ui_text(TEXT_3XS_H))
                     .text_color(t.text_tertiary)
-                    .child(meta)
-            }))
+                    .children(row.meta),
+            )
             .when(row.current, |row| {
-                row.child(ui::icon(Icon::Check, 14.).text_color(t.text_secondary))
+                row.child(ui::icon(Icon::Check, 14.).text_color(t.accent))
             })
+            .children(key)
             .into_any_element()
     }
 }
+
+/// Where the rows that pick a model sit among all the rows, the first of them taking ⌘1 to ⌘4.
+fn models(options: &[Row]) -> Vec<usize> {
+    options
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| matches!(row.act, Act::Set(_) | Act::Move(_)))
+        .map(|(at, _)| at)
+        .take(NUMBERED)
+        .collect()
+}
+
+impl Menu {
+    /// The effort shown as current: the one just picked until the session takes it.
+    fn effort_now(&self) -> Option<String> {
+        let effort = self.picked.effort.as_ref()?;
+        Some(
+            self.asked_effort
+                .clone()
+                .filter(|asked| *asked != effort.current)
+                .unwrap_or_else(|| effort.current.clone()),
+        )
+    }
+
+    fn set_effort(&mut self, value: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(effort) = self.picked.effort.clone() else {
+            return;
+        };
+        if Some(&value) == self.effort_now().as_ref() {
+            return;
+        }
+        (self.picked.set)(&effort.id, &value, window, cx);
+        self.asked_effort = Some(value);
+        cx.notify();
+    }
+
+    /// Steps the effort one choice up or down, from the arrow keys while nothing is typed.
+    fn step_effort(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.query.read(cx).value().is_empty() {
+            cx.propagate();
+            return;
+        }
+        let Some(effort) = self.picked.effort.clone() else {
+            return;
+        };
+        let now = self.effort_now();
+        let at = effort
+            .choices
+            .iter()
+            .position(|choice| Some(&choice.value) == now.as_ref());
+        let to = match at {
+            Some(at) => at
+                .checked_add_signed(by)
+                .filter(|to| *to < effort.choices.len()),
+            None => (!effort.choices.is_empty()).then_some(0),
+        };
+        if let Some(choice) = to.and_then(|to| effort.choices.get(to)) {
+            self.set_effort(choice.value.clone(), window, cx);
+        }
+    }
+
+    /// The column of efforts the model can think at, each led by its strength bars.
+    fn effort(&self, this: &Entity<Self>, cx: &App) -> AnyElement {
+        let t = Tokens::get(cx);
+        let model = self
+            .picked
+            .model
+            .as_ref()
+            .filter(|model| !model.current.is_empty())
+            .map(|model| crate::chat::composer::chosen(model, t!("Model")));
+        let header = div()
+            .flex_none()
+            .h(px(38.))
+            .px(SPACE_3)
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .border_b_1()
+            .border_color(t.line)
+            .text_size(crate::theme::ui_text(TEXT_XS_H))
+            .text_color(t.text_secondary)
+            .child(ui::icon(Icon::Gauge, 14.).text_color(t.text_tertiary))
+            .child(t!("Effort"))
+            .child(div().flex_1())
+            .children(model.map(|model| {
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(crate::theme::ui_text(TEXT_2XS_H))
+                    .text_color(t.text_tertiary)
+                    .child(model)
+            }));
+        let choices = self
+            .picked
+            .effort
+            .as_ref()
+            .map(|effort| effort.choices.clone())
+            .unwrap_or_default();
+        let now = self.effort_now();
+        let steps = choices.len();
+        let body: Vec<AnyElement> = match steps {
+            0 => vec![div()
+                .px(SPACE_2H)
+                .py(SPACE_1H)
+                .text_size(crate::theme::ui_text(TEXT_XS))
+                .text_color(t.text_tertiary)
+                .child(
+                    match self.picked.pending.filter(|_| self.picked.effort.is_some()) {
+                        Some(_) => t!("Effort shows once the agent starts"),
+                        None => t!("This model has no effort to pick"),
+                    },
+                )
+                .into_any_element()],
+            _ => choices
+                .into_iter()
+                .enumerate()
+                .map(|(at, choice)| {
+                    let current = Some(&choice.value) == now.as_ref();
+                    let lit = ((at + 1) * 5).div_ceil(steps);
+                    let (menu, value) = (this.clone(), choice.value.clone());
+                    div()
+                        .id(("model-effort", at))
+                        .flex()
+                        .items_center()
+                        .gap(px(9.))
+                        .h(px(30.))
+                        .px(SPACE_2H)
+                        .rounded(theme::RADIUS_2)
+                        .cursor_pointer()
+                        .text_size(crate::theme::ui_text(TEXT_XS_H))
+                        .text_color(t.text_primary)
+                        .map(|row| match current {
+                            true => row.bg(t.surface_chosen),
+                            false => row.hover(|style| style.bg(t.surface_hover)),
+                        })
+                        .clicks(move |_, window, cx| {
+                            let value = value.clone();
+                            menu.update(cx, |menu, cx| menu.set_effort(value, window, cx))
+                        })
+                        .child(strength(lit, t))
+                        .child(div().flex_1().min_w_0().truncate().child(choice.label))
+                        .when(current, |row| {
+                            row.child(ui::icon(Icon::Check, 14.).text_color(t.accent))
+                        })
+                        .into_any_element()
+                })
+                .collect(),
+        };
+        div()
+            .w(px(EFFORT_WIDTH))
+            .flex_none()
+            .flex()
+            .flex_col()
+            .border_l_1()
+            .border_color(t.line)
+            .child(header)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .p(px(ui::PANEL_INSET))
+                    .children(body),
+            )
+            .into_any_element()
+    }
+
+    /// The rail of agents down the left, each the chat can move to.
+    fn rail(&self, this: &Entity<Self>, t: &Tokens, cx: &App) -> Option<AnyElement> {
+        let agents = self.agents(cx);
+        if agents.is_empty() {
+            return None;
+        }
+        let buttons = agents.into_iter().map(|agent| {
+            let pressed = agent.provider == self.picked.provider;
+            let (moving, close, menu) =
+                (self.picked.moving.clone(), self.close.clone(), this.clone());
+            let going = Moving {
+                provider: agent.provider.clone(),
+                profile: agent.profile.clone(),
+                model: None,
+                model_provider: None,
+            };
+            let (installed, installing) = (agent.installed, agent.installing);
+            agent_button(&agent, pressed, t, move |window, cx| {
+                let provider = going.provider.clone();
+                match (installed, installing) {
+                    (true, _) if !pressed => {
+                        if menu.read(cx).picked.locked {
+                            close(window, cx);
+                        }
+                        moving(going.clone(), window, cx);
+                    }
+                    (true, _) => {}
+                    (false, Some(Installing::Failed)) => {
+                        close(window, cx);
+                        let bench = menu.read(cx).bench.upgrade();
+                        if let Some(bench) = bench {
+                            bench.update(cx, |bench, cx| {
+                                crate::agents::setup::show_install(bench, &provider, window, cx)
+                            });
+                        }
+                    }
+                    (false, _) if menu.read(cx).here() => {
+                        let bench = menu.read(cx).bench.clone();
+                        install_agent(&bench, &provider, cx)
+                    }
+                    (false, _) => {}
+                }
+            })
+        });
+        Some(
+            div()
+                .id("model-agents")
+                .flex_none()
+                .w(px(46.))
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap(px(3.))
+                .py(px(ui::PANEL_INSET + 2.))
+                .border_r_1()
+                .border_color(t.line)
+                .overflow_y_scroll()
+                .children(buttons)
+                .into_any_element(),
+        )
+    }
+
+    /// Puts the agent's name in the search field, as the menu follows a chat that moves.
+    fn name_search(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.named.as_deref() == Some(agent) {
+            return;
+        }
+        self.named = Some(agent.to_owned());
+        let hint = t!("Search {agent}'s models…", agent = agent);
+        self.query
+            .update(cx, |query, cx| query.set_placeholder(hint, window, cx));
+    }
+}
+
+/// How wide the menu's effort column is.
+const EFFORT_WIDTH: f32 = 184.;
 
 impl Render for Menu {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
         let (groups, options) = self.options(cx);
+        let numbers = models(&options);
         let (typed, found) = (
             self.query.read(cx).value().trim().to_owned(),
             ui::found_mark(cx),
         );
         let this = cx.entity();
-        let agents: Vec<AnyElement> = self
-            .agents(cx)
-            .into_iter()
-            .map(|agent| {
-                let pressed = agent.provider == self.picked.provider;
-                let (moving, close, menu) =
-                    (self.picked.moving.clone(), self.close.clone(), this.clone());
-                let going = Moving {
-                    provider: agent.provider.clone(),
-                    profile: agent.profile.clone(),
-                    model: None,
-                    model_provider: None,
-                };
-                let (installed, installing) = (agent.installed, agent.installing);
-                chip(
-                    SharedString::from(format!("model-agent-{}", agent.provider)),
-                    &agent,
-                    pressed,
-                    &t,
-                    move |window, cx| {
-                        let provider = going.provider.clone();
-                        match (installed, installing) {
-                            (true, _) if !pressed => {
-                                if menu.read(cx).picked.locked {
-                                    close(window, cx);
-                                }
-                                moving(going.clone(), window, cx);
-                            }
-                            (true, _) => {}
-                            (false, Some(Installing::Failed)) => {
-                                close(window, cx);
-                                let bench = menu.read(cx).bench.upgrade();
-                                if let Some(bench) = bench {
-                                    bench.update(cx, |bench, cx| {
-                                        crate::agents::setup::show_install(
-                                            bench, &provider, window, cx,
-                                        )
-                                    });
-                                }
-                            }
-                            (false, _) if menu.read(cx).here() => {
-                                let bench = menu.read(cx).bench.clone();
-                                install_agent(&bench, &provider, cx)
-                            }
-                            (false, _) => {}
-                        }
-                    },
-                )
-            })
-            .collect();
         let empty_own = options.iter().all(|row| row.group != 0);
         let note = match (typed.is_empty(), self.picked.pending) {
             (false, _)
@@ -807,8 +1074,8 @@ impl Render for Menu {
             .cloned()
             .enumerate()
             .find(|(_, row)| matches!(row.act, Act::AddProvider))
-            .map(|(at, row)| self.row(at, row, &typed, found, &t, &this));
-        let footer: Vec<AnyElement> = self.speed(&t).into_iter().chain(add).collect();
+            .map(|(at, row)| self.row(at, row, None, &typed, found, &this, cx));
+        let speed = self.speed(&t);
         let mut list: Vec<AnyElement> = Vec::new();
         let mut chosen_at = None;
         for (group, heading) in groups.iter().enumerate() {
@@ -822,21 +1089,14 @@ impl Render for Menu {
             if rows.is_empty() && !noted {
                 continue;
             }
-            list.push(match heading.is_empty() {
-                true => div()
-                    .h(px(1.))
-                    .mx(px(3.))
-                    .my(px(5.))
-                    .bg(t.line)
-                    .into_any_element(),
-                false => ui::text(heading.to_uppercase(), TEXT_3XS, FontWeight::MEDIUM)
-                    .letter_spacing(0.08)
-                    .text_color(t.text_tertiary)
-                    .px(SPACE_2H)
-                    .pt(px(if list.is_empty() { 4. } else { 9. }))
-                    .pb(px(3.))
-                    .into_any_element(),
-            });
+            if !heading.is_empty() {
+                list.push(
+                    ui::caps(heading, cx)
+                        .px(SPACE_2H)
+                        .pt(px(if list.is_empty() { 2. } else { 8. }))
+                        .into_any_element(),
+                );
+            }
             if let Some(note) = note.filter(|_| noted) {
                 list.push(
                     div()
@@ -852,23 +1112,86 @@ impl Render for Menu {
                 if at == self.chosen {
                     chosen_at = Some(list.len());
                 }
-                list.push(self.row(at, row, &typed, found, &t, &this));
+                let nth = numbers.iter().position(|model| *model == at);
+                list.push(self.row(at, row, nth, &typed, found, &this, cx));
             }
         }
         if let Some(at) = chosen_at.filter(|_| std::mem::take(&mut self.follow)) {
             self.scroll.scroll_to_item(at);
         }
+        let middle = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_none()
+                    .h(px(38.))
+                    .px(SPACE_3)
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_2)
+                    .border_b_1()
+                    .border_color(t.line)
+                    .text_size(crate::theme::ui_text(TEXT_XS_H))
+                    .text_color(t.text_primary)
+                    .child(ui::icon(Icon::Search, 13.).text_color(t.text_tertiary))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&self.query).appearance(false).bordered(false)),
+                    ),
+            )
+            .child(
+                div()
+                    .id("model-options")
+                    .flex()
+                    .flex_col()
+                    .gap(px(2.))
+                    .p(px(ui::PANEL_INSET))
+                    .max_h(px(360.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
+                    .children(list),
+            );
+        let footer = (add.is_some() || speed.is_some()).then(|| {
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(SPACE_2)
+                .min_h(px(40.))
+                .px(px(ui::PANEL_INSET))
+                .border_t_1()
+                .border_color(t.line)
+                .child(div().children(add))
+                .children(speed)
+        });
         div()
             .key_context(format!("{CONTEXT} Modal").as_str())
             .on_action(cx.listener(|menu, _: &Previous, _, cx| menu.step(-1, cx)))
             .on_action(cx.listener(|menu, _: &Next, _, cx| menu.step(1, cx)))
+            .on_action(
+                cx.listener(|menu, _: &LessEffort, window, cx| menu.step_effort(-1, window, cx)),
+            )
+            .on_action(
+                cx.listener(|menu, _: &MoreEffort, window, cx| menu.step_effort(1, window, cx)),
+            )
+            .on_action(cx.listener(|menu, PickNth(nth): &PickNth, window, cx| {
+                let options = menu.options(cx).1;
+                if let Some(option) = models(&options).get(*nth).and_then(|at| options.get(*at)) {
+                    menu.pick(option.act.clone(), window, cx);
+                }
+            }))
             .on_action(cx.listener(|menu, _: &Choose, window, cx| {
                 if let Some(option) = menu.options(cx).1.get(menu.chosen).cloned() {
                     menu.pick(option.act, window, cx);
                 }
             }))
             .on_action(cx.listener(|menu, _: &Close, window, cx| (menu.close)(window, cx)))
-            .w(px(360.))
+            .w(px(600.))
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -879,47 +1202,12 @@ impl Render for Menu {
             .shadow(t.shadow_float())
             .child(
                 div()
-                    .px(px(ui::PANEL_INSET + 10.))
-                    .py(SPACE_2H)
-                    .border_b_1()
-                    .border_color(t.line)
-                    .text_size(crate::theme::ui_text(TEXT_XS))
-                    .text_color(t.text_primary)
-                    .child(Input::new(&self.query).appearance(false).bordered(false)),
+                    .flex()
+                    .children(self.rail(&this, &t, cx))
+                    .child(middle)
+                    .child(self.effort(&this, cx)),
             )
-            .when(!agents.is_empty(), |menu| {
-                menu.child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(SPACE_1)
-                        .p(px(ui::PANEL_INSET + 2.))
-                        .border_b_1()
-                        .border_color(t.line)
-                        .children(agents),
-                )
-            })
-            .child(
-                div()
-                    .id("model-options")
-                    .p(px(ui::PANEL_INSET))
-                    .max_h(px(360.))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .children(list),
-            )
-            .when(!footer.is_empty(), |menu| {
-                menu.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.))
-                        .p(px(ui::PANEL_INSET))
-                        .border_t_1()
-                        .border_color(t.line)
-                        .children(footer),
-                )
-            })
+            .children(footer)
     }
 }
 
@@ -941,10 +1229,14 @@ pub fn around(
             let popover = cx.entity();
             let close = list_picker::dismiss(popover);
             let shown = picked.clone();
+            let agent = this.read(cx).agent_name(&shown.provider).to_owned();
             let menu = window.use_keyed_state(key, cx, |window, cx| {
                 Menu::new(&this, picked, close, window, cx)
             });
-            menu.update(cx, |menu, _| menu.picked = shown);
+            menu.update(cx, |menu, cx| {
+                menu.picked = shown;
+                menu.name_search(&agent, window, cx);
+            });
             menu
         })
 }
