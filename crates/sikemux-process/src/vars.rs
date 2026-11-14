@@ -23,6 +23,17 @@ pub const BUILD_TURN: &str = "SIKEMUX_BUILD_TURN";
 /// makes one the project marks final wait as any other.
 pub const PRIORITY: &str = "SIKEMUX_PRIORITY";
 pub const USER_ZDOTDIR: &str = "SIKEMUX_USER_ZDOTDIR";
+/// Set on an agent whose repository's remote has an identity of the agents' own, for its shell
+/// to drop [`PERSON_GITHUB_TOKENS`] again after the person's startup files set them.
+pub const GITHUB_TOKENS_WITHHELD: &str = "SIKEMUX_GITHUB_TOKENS_WITHHELD";
+pub const PERSON_GITHUB_TOKENS: [&str; 4] = [
+    "GH_TOKEN",
+    "GITHUB_TOKEN",
+    "GH_ENTERPRISE_TOKEN",
+    "GITHUB_ENTERPRISE_TOKEN",
+];
+/// Set on the git the core starts to forward a push, naming the credential that push may have.
+pub const PUSH_GRANT: &str = "SIKEMUX_PUSH_GRANT";
 pub const PROJECT: &str = "SIKEMUX_PROJECT";
 pub const SHELL: &str = "SIKEMUX_SHELL";
 pub const TOOLS_MCP_COMMAND: &str = "SIKEMUX_TOOLS_MCP_COMMAND";
@@ -58,7 +69,7 @@ pub const CLAUDE_ENTRYPOINT: (&str, &str) = ("CLAUDE_CODE_ENTRYPOINT", "sikemux"
 /// agent's transcript saving off and hand it the session's messaging socket, its Claude home, and
 /// Sikemux's names for that session's agent, which Sikemux sets afresh for each program. Claude
 /// Code's own settings, such as `CLAUDE_CODE_USE_BEDROCK`, are the person's and go through.
-pub const LAUNCHING_SESSION: [&str; 18] = [
+pub const LAUNCHING_SESSION: [&str; 20] = [
     "CLAUDECODE",
     "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_ENTRYPOINT",
@@ -77,6 +88,8 @@ pub const LAUNCHING_SESSION: [&str; 18] = [
     SKILLS_DIR,
     REAL_GIT,
     BUILD_TURN,
+    GITHUB_TOKENS_WITHHELD,
+    PUSH_GRANT,
 ];
 
 /// What the Linux AppImage sets so its own copies of GTK, GLib and GStreamer find their parts.
