@@ -12,9 +12,9 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, div, px, uniform_list, AnyElement, App, AppContext, Context, Entity,
-    InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Window,
+    AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement, KeyBinding,
+    ParentElement, PathPromptOptions, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Window, actions, div, px, uniform_list,
 };
 use sikemux_view::prefs::{ChatWidth, PaneColours, PaneCoverage, PanePattern};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
@@ -22,14 +22,14 @@ use sikemux_view::theme::{ThemeSource, ThemeSummary};
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::reads::Read;
-use crate::settings::index::Page::{Buddies, Interface, Theme};
-use crate::settings::index::{row, section, Entry};
-use crate::settings::rows;
 use crate::settings::Page;
 use crate::settings::Settings;
+use crate::settings::index::Page::{Buddies, Interface, Theme};
+use crate::settings::index::{Entry, row, section};
+use crate::settings::rows;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS,
-    TEXT_2XS_H, TEXT_SM, TEXT_XS,
+    self, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS, TEXT_2XS_H,
+    TEXT_SM, TEXT_XS, Tokens,
 };
 use crate::ui;
 use crate::workbench::Workbench;
@@ -1214,13 +1214,17 @@ pub fn render(
     let text = div()
         .child(rows::row(
             t!("Text size"),
-            Some(t!("Scales labels and controls without loosening the layout.")),
+            Some(t!(
+                "Scales labels and controls without loosening the layout."
+            )),
             text_size,
             cx,
         ))
         .child(rows::row(
             t!("Chat width"),
-            Some(t!("How wide a chat's messages and composer grow on a wide window.")),
+            Some(t!(
+                "How wide a chat's messages and composer grow on a wide window."
+            )),
             chat_width,
             cx,
         ));
