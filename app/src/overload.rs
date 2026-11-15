@@ -5,9 +5,9 @@
 use gpui_kit::base::Popover;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, App, AsyncApp, Context, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity,
-    Window,
+    div, px, relative, Anchor, AnyElement, App, AsyncApp, Context, Entity, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
+    Styled, WeakEntity, Window,
 };
 use sikemux_calls::call;
 use sikemux_calls::params::GoFirstParams;
@@ -132,7 +132,8 @@ pub(crate) fn chip(
                 }
                 .into_any_element()
             })
-            .content(move |_, _, cx| {
+            .content(move |_, window, cx| {
+                let hovered = window.use_keyed_state("overload-hovered-row", cx, |_, _| None);
                 let Some(bench) = this.upgrade() else {
                     return div().into_any_element();
                 };
@@ -140,7 +141,7 @@ pub(crate) fn chip(
                 let Some(load) = bench.this_view().and_then(|view| view.load.as_ref()) else {
                     return div().into_any_element();
                 };
-                popover(bench, load, &this, cx)
+                popover(bench, load, &this, &hovered, cx)
             })
             .into_any_element(),
     )
@@ -150,6 +151,7 @@ fn popover(
     bench: &Workbench,
     load: &HostLoad,
     told: &WeakEntity<Workbench>,
+    hovered: &Entity<Option<usize>>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
@@ -173,7 +175,7 @@ fn popover(
         .map(|(at, (label, rows))| {
             let rows = rows.into_iter().map(|heavy| {
                 index += 1;
-                row(bench, index, heavy, told.clone(), cx)
+                row(bench, index, heavy, told.clone(), hovered, cx)
             });
             let group = Group::new(label, "").children(rows);
             match at {
@@ -237,10 +239,10 @@ fn row(
     index: usize,
     heavy: Heavy,
     told: WeakEntity<Workbench>,
+    hovered: &Entity<Option<usize>>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
-    let group = SharedString::from(format!("overload-row-{index}"));
     let mut agents = heavy.agents.iter().filter_map(|id| bench.agent_by_id(id));
     let first = agents.next();
     let mark = match &first {
@@ -258,7 +260,7 @@ fn row(
     let what = heavy.what.clone();
     let waiting = heavy.place.is_some();
     let go_first = match (&heavy.stop, heavy.place) {
-        (Stop::Build(id), Some(place)) if place > 1 => Some(
+        (Stop::Build(id), Some(place)) if place > 1 && *hovered.read(cx) == Some(index) => Some(
             go_first_button(
                 ("overload-go-first", index),
                 Target::here(&asks),
@@ -290,7 +292,18 @@ fn row(
         .collect::<Vec<_>>();
     div()
         .id(("overload-row", index))
-        .group(group.clone())
+        .on_hover({
+            let hovered = hovered.clone();
+            move |over, _, cx| {
+                hovered.update(cx, |hovered, cx| {
+                    let now = over.then_some(index).or(hovered.filter(|at| *at != index));
+                    if *hovered != now {
+                        *hovered = now;
+                        cx.notify();
+                    }
+                })
+            }
+        })
         .relative()
         .min_h(px(42.))
         .py(SPACE_1)
@@ -322,7 +335,8 @@ fn row(
                         .when(!names.is_empty(), |line| {
                             line.child(
                                 ui::text(names.join(", "), TEXT_XS, FontWeight::NORMAL)
-                                    .min_w_0()
+                                    .flex_none()
+                                    .max_w(relative(0.4))
                                     .overflow_hidden()
                                     .text_ellipsis()
                                     .whitespace_nowrap()
@@ -360,14 +374,7 @@ fn row(
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
-                .when_some(go_first, |buttons, go_first| {
-                    buttons.child(
-                        div()
-                            .opacity(0.)
-                            .group_hover(group, |shown| shown.opacity(1.))
-                            .child(go_first),
-                    )
-                })
+                .children(go_first)
                 .child(
                     Button::new(
                         ("overload-stop", index),
