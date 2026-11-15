@@ -91,10 +91,9 @@ fn a_dev_job_is_not_held() {
 }
 
 #[test]
-fn a_staging_job_waits_on_the_check_and_asks_nobody() {
+fn a_staging_job_runs_and_asks_nobody() {
     let core = core_set(project());
-    let said = try_ship(&core, at("staging/deploy", false)).unwrap_err();
-    assert!(said.contains("once the project's check passes"), "{said}");
+    assert_eq!(try_ship(&core, at("staging/deploy", false)), Ok(true));
     assert!(core.ship().waiting().is_empty());
 }
 
