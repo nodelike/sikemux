@@ -232,7 +232,7 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
     let spawned = lead
         .tool(
             "agent.spawn",
-            json!({ "cli": "omp", "checkout": "own", "prompt": "hello" }),
+            json!({ "cli": "omp", "checkout": "own", "title": "Say hello", "prompt": "hello" }),
         )
         .await
         .expect("a worker");

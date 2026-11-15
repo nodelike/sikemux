@@ -922,6 +922,7 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
             provider: &params.provider,
             session: None,
             reports: params.reports,
+            task: None,
         },
         core.open_agents(),
     )?;

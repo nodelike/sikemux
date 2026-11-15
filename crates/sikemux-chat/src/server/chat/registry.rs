@@ -532,9 +532,9 @@ impl Chats {
             feed.offer_effort();
         }
         feed.work_in(launch.cwd.clone());
-        let (named_by, caller) = (Arc::downgrade(core), launch.agent_id.clone());
-        feed.know_agents(Arc::new(move |named: &str| {
-            named_by.upgrade()?.names().called(named, &caller)
+        feed.know_agents(Arc::new(Book {
+            core: Arc::downgrade(core),
+            caller: launch.agent_id.clone(),
         }));
         feed.set_handoff(self.handoffs.shown(&launch.agent_id));
         (core.chat_above().triggers_seed)(core, &feed, &launch.agent_id);
@@ -634,6 +634,26 @@ fn whole_record(shelved: &shelf::Shelved) -> Option<Reach> {
         .ok()?
         .len();
     Some(Reach::Bytes(length))
+}
+
+/// The agents one chat's calls reach, read from the core's names book as they are now.
+struct Book {
+    core: std::sync::Weak<Core>,
+    caller: String,
+}
+
+impl sikemux_fold::AgentBook for Book {
+    fn called(&self, named: &str) -> Option<(String, String)> {
+        self.core.upgrade()?.names().called(named, &self.caller)
+    }
+
+    fn hired(&self, task: &str) -> Option<(String, String)> {
+        self.core.upgrade()?.names().hired(&self.caller, task)
+    }
+
+    fn model(&self, agent_id: &str) -> Option<String> {
+        self.core.upgrade()?.workspaces().agent(agent_id)?.model
+    }
 }
 
 #[cfg(test)]

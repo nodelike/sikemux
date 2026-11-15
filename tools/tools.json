@@ -1710,7 +1710,7 @@
     },
     {
       "name": "agent_spawn",
-      "row": {"verb": "start", "kind": "execute", "icon": "square-plus", "target": ["session {resume}", "{cli} agent", "a helper"], "detail": ["{prompt}"]},
+      "row": {"verb": "start", "kind": "execute", "icon": "square-plus", "target": ["session {resume}", "{cli} agent", "a helper"], "detail": ["{title}"]},
       "method": "agent.spawn",
       "description": "Start a Sikemux agent.",
       "properties": {
@@ -1724,6 +1724,12 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 64
+        },
+        "title": {
+          "description": "The task in a few words, e.g. Fix the cart total",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
         },
         "prompt": {
           "type": "string",
@@ -1795,6 +1801,7 @@
         }
       },
       "required": [
+        "title",
         "prompt"
       ]
     },

@@ -77,6 +77,7 @@ pub(crate) async fn reopen(
             parent: Some(&lead_id),
             provider: &closed.cli,
             reports,
+            task: None,
         },
         core.open_agents(),
     );

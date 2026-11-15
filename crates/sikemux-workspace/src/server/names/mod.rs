@@ -95,6 +95,9 @@ struct Entry {
     /// The standing role it was hired for, in a line. A hired chat keeps its session for weeks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<String>,
+    /// The task title its lead started it with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    task: Option<String>,
 }
 
 impl Entry {
@@ -201,6 +204,8 @@ pub struct Worker<'a> {
     pub session: Option<&'a str>,
     /// Its final answer goes to its lead each time its turn ends.
     pub reports: bool,
+    /// The task title its lead starts it with.
+    pub task: Option<&'a str>,
 }
 
 /// An agent that wants a name.
@@ -221,6 +226,7 @@ pub struct Adopted<'a> {
     pub parent: Option<&'a str>,
     pub provider: &'a str,
     pub reports: bool,
+    pub task: Option<&'a str>,
 }
 
 pub struct Names {
@@ -309,6 +315,7 @@ impl Names {
             profile: None,
             terminal: false,
             role: None,
+            task: adopted.task.map(str::to_owned),
         };
         let named = entry.view();
         book.agents.push(entry);
@@ -341,6 +348,7 @@ impl Names {
                 profile: None,
                 terminal: false,
                 role: None,
+                task: None,
             });
         }
         self.save(&book);
@@ -383,13 +391,26 @@ impl Names {
         let project = (book.agents.iter())
             .find(|entry| entry.agent_id == near)
             .map(|entry| entry.project.as_str());
-        let by_id = book.agents.iter().find(|entry| entry.agent_id == named);
+        let by_id = book
+            .agents
+            .iter()
+            .find(|entry| entry.agent_id == named || entry.session_id.as_deref() == Some(named));
         let by_name = || {
             (book.agents.iter())
                 .filter(|entry| entry.name.eq_ignore_ascii_case(named))
                 .max_by_key(|entry| Some(entry.project.as_str()) == project)
         };
         (by_id.or_else(by_name)).map(|entry| (entry.agent_id.clone(), entry.name.clone()))
+    }
+
+    /// The id and name of the worker `lead` most lately started for the task titled `task`.
+    pub fn hired(&self, lead: &str, task: &str) -> Option<(String, String)> {
+        let book = self.book.locked();
+        (book.agents.iter())
+            .filter(|entry| entry.parent.as_deref() == Some(lead))
+            .filter(|entry| entry.task.as_deref() == Some(task))
+            .max_by_key(|entry| entry.at)
+            .map(|entry| (entry.agent_id.clone(), entry.name.clone()))
     }
 
     pub fn get(&self, agent_id: &str) -> Option<AgentName> {
@@ -459,6 +480,9 @@ impl Names {
             if let Some(session) = worker.session {
                 entry.session_id = Some(session.to_owned());
             }
+            if let Some(task) = worker.task {
+                entry.task = Some(task.to_owned());
+            }
             let named = entry.view();
             self.save(&book);
             return Ok(named);
@@ -481,6 +505,7 @@ impl Names {
             profile: None,
             terminal: false,
             role: None,
+            task: worker.task.map(str::to_owned),
         };
         let named = entry.view();
         book.agents.push(entry);
@@ -1097,6 +1122,7 @@ impl Book {
             profile: None,
             terminal: false,
             role: None,
+            task: None,
         };
         let named = entry.view();
         self.agents.push(entry);
@@ -1154,6 +1180,7 @@ impl Book {
             profile: closed.ran.profile,
             terminal: closed.ran.terminal,
             role: None,
+            task: None,
         });
         Some(Returned { buddy, same_name })
     }
@@ -1407,6 +1434,7 @@ mod tests {
             provider: "claude",
             session: Some("ses-1"),
             reports: true,
+            task: None,
         };
         let open = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect();
         let first = names

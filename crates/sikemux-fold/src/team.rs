@@ -104,6 +104,7 @@ impl Run {
                 self.agents.push(sender);
             }
             self.latest = Some(TeamSaid {
+                agent_id: letter.agent_id.clone(),
                 name: letter.name.clone(),
                 text: one_line(&letter.text),
             });
@@ -252,6 +253,7 @@ impl Fold {
                 };
                 placed.entry(team.id.clone()).or_insert_with(|| TeamNeed {
                     kind: need.kind,
+                    agent_id: letter.agent_id.clone(),
                     name: letter.name.clone(),
                     text: need.text.clone(),
                 });

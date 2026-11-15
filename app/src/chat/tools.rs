@@ -17,7 +17,7 @@ use gpui_kit::{
 use gpui_transcript::{FileKind, FilePress};
 use sikemux_view::chat::{
     ChatPart, DiffLine, DiffSummary, OutputPage, OutputSummary, ToolAction, ToolCall, ToolDetail,
-    ToolRow,
+    ToolIntent, ToolRow,
 };
 
 use super::Drawn;
@@ -670,18 +670,43 @@ fn row(
     node.into_any_element()
 }
 
-/// Where the call reached, in its row: a file it names opens as a file the chat names does,
-/// and a page it names as a link does, without opening or closing the row.
-/// The agents the call reached, each as the chip prose draws it, when the app knows them all.
-fn agent_pills(row: &ToolRow, looks: &Drawn, cx: &App) -> Option<Div> {
+/// The agents the call reached, each as the chip prose draws it, then what it said of them:
+/// for an agent it started, the task in full ink and the model it runs on.
+fn agent_pills(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Option<Div> {
     if row.agents.is_empty() {
         return None;
     }
     let bench = looks.bench.upgrade()?;
-    let agents = (row.agents.iter())
-        .map(|id| bench.read(cx).agent_by_id(id))
-        .collect::<Option<Vec<_>>>()?;
-    let pills = (agents.iter()).map(|agent| super::agent_pill(agent, TEXT_2XS, &looks.bench, cx));
+    let from = bench.read(cx).chat_target(&looks.agent);
+    let names = row
+        .target
+        .split(", ")
+        .map(|name| name.trim_start_matches('@'));
+    let pills = (row.agents.iter().zip(names)).map(|(agent, name)| {
+        let mark = looks.mark_of(agent, &looks.provider, TEXT_2XS + 1., cx);
+        super::agent_pill_of(agent, name, mark, TEXT_2XS, from.clone(), &looks.bench, cx)
+    });
+    let started = row.intent == ToolIntent::Start;
+    let words = |said: Div| match started {
+        true => said
+            .font_family(theme::ui_font())
+            .text_size(theme::ui_text(TEXT_XS)),
+        false => said,
+    };
+    let detail = row.detail.clone().map(|detail| {
+        let said = words(div().ml(px(MONO_CHAR)).min_w_0().truncate());
+        match (started, running) {
+            (true, true) => said.child(shimmer(format!("target:{id}:task"), detail)),
+            (true, false) => said.text_color(looks.ink).child(detail),
+            (false, _) => said.text_color(looks.quiet).child(detail),
+        }
+    });
+    let model = (row.model.as_deref()).filter(|_| started).map(|model| {
+        words(div())
+            .flex_none()
+            .text_color(looks.quiet)
+            .child(format!("· {}", ui::model_name(model)))
+    });
     Some(
         div()
             .min_w_0()
@@ -689,27 +714,24 @@ fn agent_pills(row: &ToolRow, looks: &Drawn, cx: &App) -> Option<Div> {
             .items_center()
             .gap(px(4.))
             .children(pills)
-            .children(row.detail.clone().map(|detail| {
-                div()
-                    .ml(px(MONO_CHAR))
-                    .truncate()
-                    .text_color(looks.quiet)
-                    .child(detail)
-            })),
+            .children(detail)
+            .children(model),
     )
 }
 
+/// Where the call reached, in its row: a file it names opens as a file the chat names does,
+/// and a page it names as a link does, without opening or closing the row.
 fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Div {
     let ink = if running { looks.quiet } else { looks.ink };
     let text = row.target.as_str();
+    if let Some(pills) = agent_pills(row, running, id, looks, cx) {
+        return pills;
+    }
     if running && !text.is_empty() {
         return div()
             .min_w_0()
             .flex()
             .child(shimmer(format!("target:{id}:live"), text.to_owned()));
-    }
-    if let Some(pills) = agent_pills(row, looks, cx) {
-        return pills;
     }
     let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
     let opens: Option<(std::ops::Range<usize>, Opens)> = match &row.path {

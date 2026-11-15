@@ -40,29 +40,26 @@ fn elapsed(took: u64) -> String {
     }
 }
 
-/// What a run's line says after its count, and what an agent in it needs of the person.
-fn said(line: &TeamLine) -> (String, Option<TeamNeedKind>) {
+/// What a run's line says after its count: the agent it is about, by id and name, what that
+/// agent said or needs of the person, and the need itself.
+fn said(line: &TeamLine) -> (Option<(&str, &str)>, String, Option<TeamNeedKind>) {
     if let Some(need) = &line.need {
-        let name = &need.name;
         let text = need.text.as_deref();
         let words = match (need.kind, text) {
-            (TeamNeedKind::Asks, Some(text)) => {
-                t!("@{name} asks: {text}", name = name, text = text)
-            }
-            (TeamNeedKind::Asks, None) => t!("@{name} has a question", name = name),
-            (TeamNeedKind::Waits, Some(text)) => format!("@{name}: {text}"),
-            (TeamNeedKind::Waits, None) => t!("@{name} waits on you", name = name),
-            (TeamNeedKind::Failed, Some(text)) => {
-                t!("@{name} failed: {text}", name = name, text = text)
-            }
-            (TeamNeedKind::Failed, None) => t!("@{name} failed", name = name),
-            (TeamNeedKind::Stopped, _) => t!("@{name} stopped", name = name),
+            (TeamNeedKind::Asks, Some(text)) => t!("asks: {text}", text = text),
+            (TeamNeedKind::Asks, None) => t!("has a question").to_owned(),
+            (TeamNeedKind::Waits, Some(text)) => text.to_owned(),
+            (TeamNeedKind::Waits, None) => t!("waits on you").to_owned(),
+            (TeamNeedKind::Failed, Some(text)) => t!("failed: {text}", text = text),
+            (TeamNeedKind::Failed, None) => t!("failed").to_owned(),
+            (TeamNeedKind::Stopped, _) => t!("stopped").to_owned(),
         };
-        return (words, Some(need.kind));
+        return (Some((&need.agent_id, &need.name)), words, Some(need.kind));
     }
-    let latest = line.latest.as_ref();
-    let words = latest.map_or_else(String::new, |said| format!("@{}: {}", said.name, said.text));
-    (words, None)
+    match &line.latest {
+        Some(said) => (Some((&said.agent_id, &said.name)), said.text.clone(), None),
+        None => (None, String::new(), None),
+    }
 }
 
 /// The one line a run folds to, and while it is open and has more than it opens on, the way to
@@ -75,15 +72,39 @@ pub(super) fn head(
     cx: &mut App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (words, need) = said(line);
+    let (sender, words, need) = said(line);
     let tone = match need {
         Some(TeamNeedKind::Failed) => t.danger,
         Some(_) => t.accent,
         None => looks.quiet,
     };
-    let marks = line
-        .agents
-        .iter()
+    let pill = sender
+        .filter(|(agent, _)| !agent.is_empty())
+        .and_then(|(agent, name)| {
+            let bench = looks.bench.upgrade()?;
+            let cli = (line.agents.iter())
+                .find(|sent| sent.agent_id == agent)
+                .map_or(looks.provider.as_str(), |sent| sent.cli.as_str());
+            let mark = looks.mark_of(agent, cli, TEXT_XS_H + 1., cx);
+            let from = bench.read(cx).chat_target(&looks.agent);
+            Some(super::agent_pill_of(
+                agent,
+                name,
+                mark,
+                TEXT_XS_H,
+                from,
+                &looks.bench,
+                cx,
+            ))
+        });
+    let words = match (&pill, sender) {
+        (None, Some((_, name))) if need.is_none() => format!("@{name}: {words}"),
+        (None, Some((_, name))) => format!("@{name} {words}"),
+        _ => words,
+    };
+    let alone = pill.is_some() && line.agents.len() == 1 && line.more == 0;
+    let marks = (line.agents.iter())
+        .filter(|_| !alone)
         .map(|agent| looks.mark_of(&agent.agent_id, &agent.cli, MARK, cx))
         .collect::<Vec<_>>();
     let count = match line.messages {
@@ -163,6 +184,7 @@ pub(super) fn head(
                     .text_color(looks.ink)
                     .child(count),
             )
+            .children(pill)
             .child(
                 div()
                     .flex_1()

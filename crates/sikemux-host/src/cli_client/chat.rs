@@ -22,6 +22,7 @@ struct Options {
     all: bool,
     agent: Option<String>,
     model: Option<String>,
+    title: Option<String>,
 }
 
 fn options(args: &[String]) -> Result<Options, String> {
@@ -32,6 +33,7 @@ fn options(args: &[String]) -> Result<Options, String> {
         all: false,
         agent: None,
         model: None,
+        title: None,
     };
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -41,6 +43,7 @@ fn options(args: &[String]) -> Result<Options, String> {
             "--all" => parsed.all = true,
             "--agent" => parsed.agent = Some(args.next().ok_or("--agent needs a name")?.clone()),
             "--model" => parsed.model = Some(args.next().ok_or("--model needs a name")?.clone()),
+            "--title" => parsed.title = Some(args.next().ok_or("--title needs the task")?.clone()),
             flag if flag.starts_with("--") => return Err(format!("chat takes no {flag}")),
             word => parsed.words.push(word.to_owned()),
         }
@@ -243,7 +246,7 @@ impl Caller {
             Caller::Agent(_) => self.tool(
                 "",
                 "agent.spawn",
-                json!({ "prompt": text, "cli": options.agent, "model": options.model }),
+                json!({ "prompt": text, "title": options.title, "cli": options.agent, "model": options.model }),
             ),
             Caller::Outside(_) => self.tool(
                 "chat_start",

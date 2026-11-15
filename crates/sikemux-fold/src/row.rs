@@ -59,33 +59,26 @@ pub(super) fn row(tool: &ToolCall) -> ToolRow {
 }
 
 /// Names each agent one of our agent tools reached by its `@name`, keeping their ids for clients
-/// that draw the agent, when every one it named is an agent the core knows.
+/// that draw the agent, when every one it named is an agent the core knows. A worker being
+/// started is found by the task title its lead gave it, and carries the model it runs on.
 pub(super) fn name_agents(tool: &mut ToolCall, agents: Option<&super::Agents>) {
     let Some(agents) = agents else {
         return;
     };
     let args = arguments(tool.raw_input.as_ref());
-    let ours = spec(&sikemux_tool(&tool.title, &args)).is_some();
+    let name = sikemux_tool(&tool.title, &args);
+    let ours = spec(&name).is_some();
     if !ours || !matches!(tool.row.family, ToolFamily::Agents | ToolFamily::Waiting) {
         return;
     }
-    let named: Vec<&str> = ["to", "agent", "agents", "resume", "name"]
-        .iter()
-        .filter_map(|key| args.get(*key))
-        .flat_map(|value| match value {
-            Value::String(text) => text.split(',').collect(),
-            Value::Array(items) => items.iter().filter_map(Value::as_str).collect(),
-            _ => Vec::new(),
-        })
-        .map(|named| named.trim().trim_start_matches('@'))
-        .filter(|named| !named.is_empty())
-        .collect();
-    let Some(found) = named
-        .iter()
-        .map(|named| agents(named))
-        .collect::<Option<Vec<_>>>()
-        .filter(|found| !found.is_empty())
-    else {
+    let text = |key: &str| args.get(key).and_then(Value::as_str).map(str::trim);
+    let found = match (name.as_ref(), text("resume"), text("title")) {
+        ("agent_spawn", Some(session), _) => agents.called(session).map(|found| vec![found]),
+        ("agent_spawn", None, Some(task)) => agents.hired(task).map(|found| vec![found]),
+        ("agent_spawn", None, None) => None,
+        _ => called(&args, agents.as_ref()),
+    };
+    let Some(found) = found.filter(|found| !found.is_empty()) else {
         return;
     };
     let target = found
@@ -97,9 +90,33 @@ pub(super) fn name_agents(tool: &mut ToolCall, agents: Option<&super::Agents>) {
     if let Some(verb) = &row.verb {
         row.activity = Some(activity(verb, &target));
     }
+    if name == "agent_spawn" {
+        row.model = (found.first())
+            .and_then(|(id, _)| agents.model(id))
+            .or_else(|| text("model").map(str::to_owned));
+    }
     row.subject = Some(target.clone());
     row.target = target;
     row.agents = found.into_iter().map(|(id, _)| id).collect();
+}
+
+/// The agents a call names by id or `@name`, when the core knows every one.
+fn called(
+    args: &Map<String, Value>,
+    agents: &dyn super::AgentBook,
+) -> Option<Vec<(String, String)>> {
+    let named: Vec<&str> = ["to", "agent", "agents"]
+        .iter()
+        .filter_map(|key| args.get(*key))
+        .flat_map(|value| match value {
+            Value::String(text) => text.split(',').collect(),
+            Value::Array(items) => items.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        })
+        .map(|named| named.trim().trim_start_matches('@'))
+        .filter(|named| !named.is_empty())
+        .collect();
+    named.iter().map(|named| agents.called(named)).collect()
 }
 
 /// The lines a read asked for, as `first-last`, when it gave where to start and how many.

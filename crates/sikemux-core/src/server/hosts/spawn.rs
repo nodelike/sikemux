@@ -79,6 +79,7 @@ pub(crate) async fn spawn(
     let reports = !matches!(params.get("report"), Some(Value::Bool(false)));
     let uncommitted = matches!(params.get("uncommitted"), Some(Value::Bool(true)));
     let agent_id = crate::server::names::new_agent_id();
+    let task = text(params, "title").map(str::to_owned);
     let (lead, cwd, named, provider) = {
         let (core, request, agent_id) = (core.clone(), request.clone(), agent_id.clone());
         let cli = text(params, "cli").map(str::to_lowercase);
@@ -96,6 +97,7 @@ pub(crate) async fn spawn(
                     provider: &provider,
                     session: None,
                     reports,
+                    task: task.as_deref(),
                 },
             )?;
             Ok((lead, cwd, named, provider))
@@ -104,6 +106,7 @@ pub(crate) async fn spawn(
         .map_err(|error| error.to_string())?
     };
     let lead_id = request.agent_id.clone().unwrap_or_default();
+    crate::server::spawn::rename_in(core, &lead_id);
     let packed = {
         let cwd = cwd.clone();
         blocking(move || code::package_for(&cwd, uncommitted).map_err(Into::into)).await
@@ -678,6 +681,7 @@ pub(super) fn take_lead(core: &Core, host: &str, lead: &LeadParams, project: &st
                 parent: None,
                 provider: &lead.cli,
                 reports: true,
+                task: None,
             },
             core.open_agents(),
         );
@@ -764,7 +768,8 @@ pub(super) fn commits_for(
 /// A worker the host its team's lead runs on named for an agent here.
 #[derive(Clone)]
 pub(crate) struct Hired {
-    pub host: String,
+    /// The linked host that named it, or none when this host did.
+    pub host: Option<String>,
     pub agent_id: String,
     pub name: String,
 }
@@ -783,13 +788,16 @@ pub(crate) async fn hire_elsewhere(
     let agent_id = crate::server::names::new_agent_id();
     let name = super::route::hire(core, &host, &agent_id, lead, provider, reports).await?;
     Ok(Some(Hired {
-        host,
+        host: Some(host),
         agent_id,
         name,
     }))
 }
 
-/// A worker the lead's host named never started here.
+/// A worker named for a spawn that never started, which frees its name.
 pub(crate) fn never_started(core: &Core, hired: &Hired) {
-    super::route::forget_hired(core, &hired.host, &hired.agent_id);
+    match &hired.host {
+        Some(host) => super::route::forget_hired(core, host, &hired.agent_id),
+        None => core.names().forget(&hired.agent_id),
+    }
 }

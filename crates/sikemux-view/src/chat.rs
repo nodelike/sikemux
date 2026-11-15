@@ -888,6 +888,8 @@ pub struct TeamAgent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamSaid {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub agent_id: String,
     pub name: String,
     pub text: String,
 }
@@ -897,6 +899,8 @@ pub struct TeamSaid {
 #[serde(rename_all = "camelCase")]
 pub struct TeamNeed {
     pub kind: TeamNeedKind,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub agent_id: String,
     pub name: String,
     /// What it asks or what went wrong, in a line, when it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1470,6 +1474,9 @@ pub struct ToolRow {
     /// The agents `target` names by `@name`, by id in the same order, so a client can draw each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agents: Vec<String>,
+    /// The model the agent a call started runs on, by its id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl ToolRow {

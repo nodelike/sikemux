@@ -100,8 +100,17 @@ pub fn detail_of(raw: &Map<String, Value>, work: Option<(&Path, &Place)>) -> Too
 /// path the agent gave and that text; none unless it is there exactly once.
 pub type Place = std::sync::Arc<dyn Fn(&str, &str) -> Option<u64> + Send + Sync>;
 
-/// The id and name of the agent a call named, by its id or its name.
-pub type Agents = std::sync::Arc<dyn Fn(&str) -> Option<(String, String)> + Send + Sync>;
+/// The agents a chat's calls reach, as the core knows them.
+pub trait AgentBook: Send + Sync {
+    /// The id and name of the agent a call named, by its id, its name or its session.
+    fn called(&self, named: &str) -> Option<(String, String)>;
+    /// The id and name of the worker this chat's agent is starting for the task titled `task`.
+    fn hired(&self, task: &str) -> Option<(String, String)>;
+    /// The model the agent runs on, once it has started.
+    fn model(&self, agent_id: &str) -> Option<String>;
+}
+
+pub type Agents = std::sync::Arc<dyn AgentBook>;
 
 /// A picture bigger than the transcript can reasonably hold onto is kept by
 /// name instead of by its bytes: the row still says what it was.
@@ -283,6 +292,7 @@ impl Transcript {
 }
 
 /// Where a tool call's part is, and while it runs, everything said of it.
+#[derive(Clone)]
 struct ToolPlace {
     within: Option<String>,
     row: String,
@@ -646,6 +656,24 @@ impl Fold {
 
     pub fn know_agents(&mut self, agents: Agents) {
         self.agents = Some(agents);
+    }
+
+    /// Names again the agents the running calls reach, as one the core has just hired.
+    pub fn rename_agents(&mut self) {
+        let running: Vec<(ToolPlace, Map<String, Value>)> = (self.tools.values())
+            .filter_map(|place| Some((place.clone(), place.raw.clone()?)))
+            .collect();
+        for (place, raw) in running {
+            let call = self.shown_call(&raw);
+            if call.row.agents.is_empty() {
+                continue;
+            }
+            self.replace_tool(&place.within, &place.row, place.part, |part| {
+                if let ChatPart::Tool { tool, .. } = part {
+                    *tool = same_times(tool, call);
+                }
+            });
+        }
     }
 
     /// A call made whole for its row: its paths against the chat's folder, its agents by name.

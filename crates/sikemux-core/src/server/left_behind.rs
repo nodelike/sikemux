@@ -340,6 +340,7 @@ mod tests {
                     provider: "claude",
                     session: None,
                     reports: true,
+                    task: None,
                 };
                 core.names().hire(worker, HashSet::new()).expect("named");
             }

@@ -80,6 +80,7 @@ fn core_at(data: Option<&Path>, project: &str, places: Vec<Place>) -> Arc<Core> 
         parent: None,
         provider: "claude",
         reports: false,
+        task: None,
     };
     core.names().adopt(adopted, ["agent".to_owned()].into());
     change(&core, project, |kept| {
@@ -501,6 +502,7 @@ async fn a_deploys_yes_ends_with_the_last_turn_of_those_on_its_call() {
         parent: None,
         provider: "claude",
         reports: false,
+        task: None,
     };
     core.names()
         .adopt(other, ["agent".to_owned(), "other".to_owned()].into());

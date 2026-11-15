@@ -864,6 +864,16 @@ impl Feed {
         }
     }
 
+    /// An agent one of its running calls reaches has just been named; clients already hearing
+    /// the chat are told.
+    pub fn rename_agents(&self) {
+        let mut inner = self.inner.locked();
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.rename_agents();
+            self.flush_locked(&mut inner);
+        }
+    }
+
     /// The chat's unsent draft changed; clients already hearing the chat are told.
     pub fn set_draft(&self, draft: Option<ChatDraft>) {
         let mut inner = self.inner.locked();

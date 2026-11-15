@@ -631,7 +631,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             kind: "execute",
             icon: "square-plus",
             target: &["session {resume}", "{cli} agent", "a helper"],
-            detail: &["{prompt}"],
+            detail: &["{title}"],
             plugin: None,
         },
     ),

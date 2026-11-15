@@ -48,6 +48,7 @@ const MAX_MODEL_CHARS: usize = 200;
 const MAX_BRANCH_BYTES: usize = 200;
 const MAX_REPO_BYTES: usize = 4096;
 const MAX_SESSION_ID_CHARS: usize = 4_096;
+const MAX_TITLE_CHARS: usize = 80;
 /// How much of a worker's final answer its lead is sent.
 const MAX_REPORT_BYTES: usize = 6 * 1024;
 
@@ -122,6 +123,20 @@ fn reports_back(params: &Value) -> Result<bool, String> {
         None | Some(Value::Null) => Ok(true),
         Some(Value::Bool(reports)) => Ok(*reports),
         Some(_) => Err("report must be a boolean".into()),
+    }
+}
+
+/// The short title of the task the new agent is started on, which names its row and its tab.
+fn task_title(params: &Value) -> Result<String, String> {
+    match text_param(params, "title", MAX_TITLE_CHARS * 4)?.map(str::trim) {
+        Some(title) if !title.is_empty() && title.chars().count() <= MAX_TITLE_CHARS => {
+            Ok(title.to_owned())
+        }
+        Some(title) if !title.is_empty() => Err(format!(
+            "title is {} characters; keep it to {MAX_TITLE_CHARS}, such as \"Fix the cart total\"",
+            title.chars().count()
+        )),
+        _ => Err("title must name the task in a few words, such as \"Fix the cart total\"".into()),
     }
 }
 
@@ -279,6 +294,7 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
             parent: Some(&plan.lead_id),
             provider: &plan.provider,
             reports: plan.reports,
+            task: None,
         },
         open(core),
     );
@@ -329,6 +345,7 @@ fn start(
     let model = text_param(params, "model", MAX_MODEL_CHARS)?.map(|model| model.trim().to_owned());
     let named_provider = text_param(params, "provider", 64)?.map(|id| id.trim().to_owned());
     let reports = reports_back(params)?;
+    let task = task_title(params)?;
     let own = own_checkout(params)?;
     if own && resume.is_some() {
         return Err("resume reopens a session where it ran; leave checkout out".into());
@@ -424,6 +441,7 @@ fn start(
                     parent: Some(&lead_id),
                     provider: &provider,
                     reports,
+                    task: Some(&task),
                 },
                 open(core),
             );
@@ -445,6 +463,7 @@ fn start(
                     provider: &provider,
                     session: resume.map(|saved| saved.session_id.as_str()),
                     reports,
+                    task: Some(&task),
                 },
             )?;
             (agent_id, named)
@@ -471,6 +490,7 @@ fn start(
     if let Some(was) = was {
         launching::put_back(core, was);
     }
+    super::workspace::retitle(core, &agent_id, Some(task), false);
     core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
     core.changed(What::View);
     let lead_name = core
@@ -560,10 +580,23 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
                         .map(|chat| chat.provider().to_owned())
                 })
                 .unwrap_or_default();
-            elsewhere::hire_elsewhere(core, lead, &provider, reports_back(&request.params)?).await?
+            let reports = reports_back(&request.params)?;
+            match elsewhere::hire_elsewhere(core, lead, &provider, reports).await? {
+                Some(hired) => Some(hired),
+                None => Some(hire_here(
+                    core,
+                    lead,
+                    &provider,
+                    reports,
+                    &task_title(&request.params)?,
+                )?),
+            }
         }
         _ => None,
     };
+    if let Some(lead) = &request.agent_id {
+        rename_in(core, lead);
+    }
     let opened = {
         let (owner, request, resumed) = (core.clone(), request.clone(), saved.clone());
         let named = hired.clone();
@@ -578,6 +611,9 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             error.to_string()
         })?
     };
+    if let Some(lead) = &request.agent_id {
+        rename_in(core, lead);
+    }
     let started = match (opened, &saved) {
         (Opened::New(started), _) => started,
         (Opened::AlreadyOpen(agent_id, name), Some(saved)) => {
@@ -618,6 +654,41 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
     let core = core.clone();
     tokio::spawn(async move { hand_task(&core, started, prompt).await });
     Ok(woken_by_answers(answer, reports))
+}
+
+/// Names a worker for `lead` here before anything slow, so the lead's row shows it at once.
+fn hire_here(
+    core: &Core,
+    lead: &str,
+    provider: &str,
+    reports: bool,
+    task: &str,
+) -> Result<Hired, String> {
+    let agent_id = crate::server::names::new_agent_id();
+    let named = hire_held(
+        core,
+        Worker {
+            agent_id: &agent_id,
+            lead,
+            project: None,
+            provider,
+            session: None,
+            reports,
+            task: Some(task),
+        },
+    )?;
+    Ok(Hired {
+        host: None,
+        agent_id,
+        name: named.name,
+    })
+}
+
+/// The lead's running calls name the agents just hired for them.
+pub(crate) fn rename_in(core: &Core, lead: &str) {
+    if let Some(chat) = core.chats().get(lead) {
+        chat.feed.rename_agents();
+    }
 }
 
 /// Hands the prompt to the agent that already has the session open, as
@@ -810,6 +881,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
         return Err("provider works only for a chat; leave mode out to start one".into());
     }
     let reports = reports_back(params)?;
+    let task = task_title(params)?;
     if super::hosts::route::lead_host(core, &lead_id).is_some() {
         return Err("your team's lead runs on another host, so the agents you start run as chats; leave out mode".into());
     }
@@ -834,9 +906,11 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
             provider: &provider,
             session: None,
             reports,
+            task: Some(&task),
         },
     )?;
     core.harness().spawning.opening().insert(agent_id.clone());
+    rename_in(core, &lead_id);
     let lead_name = core
         .names()
         .name(&lead_id)
