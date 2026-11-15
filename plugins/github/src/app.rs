@@ -264,7 +264,8 @@ fn installed_on(known: &Known, repo: &Repo) -> Option<(App, u64)> {
 }
 
 /// Who commits to `remote` carry as committer, from what is known here. A miss on a GitHub
-/// with an App starts a look at every App's installations there, for the next ask.
+/// with an App starts a look at the installations of each App there not checked lately, for
+/// the next ask.
 pub fn acts_as(ctx: &sikemux_plugin_api::PluginContext, remote: &str) -> Option<Actor> {
     let data_dir = ctx.data_dir();
     let repo = repo::from_remote(remote)?;
@@ -272,15 +273,16 @@ pub fn acts_as(ctx: &sikemux_plugin_api::PluginContext, remote: &str) -> Option<
     if let Some((app, _)) = installed_on(&known, &repo) {
         return Some(app.actor());
     }
-    let stale = candidates(&known, &repo).iter().any(|app| {
+    let mut stale = candidates(&known, &repo);
+    stale.retain(|app| {
         let checked_at = (known.installations.get(&app.key_account()))
             .map_or(0, |installations| installations.checked_at);
         epoch_ms().saturating_sub(checked_at) > RECHECK.as_millis() as u64
     });
-    if stale && !REFRESHING.swap(true, Ordering::AcqRel) {
+    if !stale.is_empty() && !REFRESHING.swap(true, Ordering::AcqRel) {
         let data_dir = data_dir.to_path_buf();
         ctx.spawn(async move {
-            for app in apps(&data_dir) {
+            for app in stale {
                 let _ = refresh(&data_dir, &app).await;
             }
             REFRESHING.store(false, Ordering::Release);
