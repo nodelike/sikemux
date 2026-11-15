@@ -990,10 +990,10 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
                     .call_quietly::<call::FirstRunStep>(Step::SetupFinished { skipped });
             }
             leave(bench, cx);
-            bench.activate_project(&project);
             if let Some(agent) = opened {
                 bench.open_here(OpenTab::new(At::project(&project), PaneKind::Agent, agent));
             }
+            bench.activate_project(&project);
         });
     })
     .detach();

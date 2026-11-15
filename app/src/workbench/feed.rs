@@ -17,7 +17,7 @@ use crate::core::{utc_offset_minutes, ChatAsk, ChatNews, Target, Update};
 use crate::hosts::Place;
 use crate::reads::Read;
 use crate::toast;
-use crate::workbench::Workbench;
+use crate::workbench::{Strip, Workbench};
 use sikemux_calls::layout::HostParams;
 
 /// What the watches that follow the front were last made for.
@@ -29,6 +29,9 @@ pub(crate) struct Watched {
     pub place: Place,
     /// The agent in front whose worktree its header reads, by id and folder, and where it is.
     pub worktree: Option<(String, String, Place)>,
+    /// The strip in front when a view last arrived, and where, so a newly shown empty project
+    /// opens on a new chat once.
+    pub strip: Option<(Place, Strip)>,
 }
 
 impl Workbench {
@@ -209,6 +212,7 @@ impl Workbench {
         // This host's view says which host is in front, so it can move what the front shows.
         if here || self.place() == place {
             self.watch_project();
+            self.chat_in_empty_project();
             self.watch_worktree();
             self.close_chats(cx);
             self.open_chat(cx);
@@ -329,6 +333,31 @@ impl Workbench {
     }
 
     /// Points the watches that follow the project in front at it.
+    /// Opens a new chat in a project that comes to the front with nothing open, so it never
+    /// lands on an empty stage. The chat's agent starts only once the person writes in it.
+    fn chat_in_empty_project(&mut self) {
+        let front = self.strip().map(|strip| (self.place(), strip));
+        if front == self.watched.strip {
+            return;
+        }
+        let Some(launcher) = self.launcher() else {
+            return;
+        };
+        let launcher = self.new_chat_launcher(launcher);
+        self.watched.strip = front.clone();
+        if let Some((_, Strip::Project(project))) = front {
+            if self.tabs(&Strip::Project(project.clone())).is_empty() {
+                self.target().start_chat(launcher, project, None, None);
+            }
+        }
+    }
+
+    /// Whether bringing `project` to the front opens a new chat in it by itself.
+    pub(crate) fn opens_on_chat(&self, project: &str) -> bool {
+        let strip = Strip::Project(project.to_owned());
+        self.strip().as_ref() != Some(&strip) && self.tabs(&strip).is_empty()
+    }
+
     pub(crate) fn watch_project(&mut self) {
         let path = self
             .project()

@@ -414,8 +414,9 @@ impl Workbench {
             return;
         }
         if let Some(project) = key.strip_prefix(PROJECT) {
+            let opens_on_chat = self.opens_on_chat(project);
             self.activate_project(project);
-            if then == ThenPicked::StartChat {
+            if then == ThenPicked::StartChat && !opens_on_chat {
                 self.start_chat_in(project, window, cx);
             }
         } else if let Some(path) = key.strip_prefix(FOLDER) {
@@ -425,8 +426,9 @@ impl Workbench {
                     return;
                 };
                 let _ = bench.update_in(cx, |bench, window, cx| {
+                    let opens_on_chat = bench.opens_on_chat(&project);
                     bench.activate_project(&project);
-                    if then == ThenPicked::StartChat {
+                    if then == ThenPicked::StartChat && !opens_on_chat {
                         bench.start_chat_in(&project, window, cx);
                     }
                 });
@@ -470,8 +472,9 @@ impl Workbench {
                         None => t!("Made {path}", path = path),
                     };
                     bench.notify(toast::success(said), cx);
+                    let opens_on_chat = bench.opens_on_chat(&project.id);
                     bench.activate_project(&project.id);
-                    if then == ThenPicked::StartChat {
+                    if then == ThenPicked::StartChat && !opens_on_chat {
                         bench.start_chat_in(&project.id, window, cx);
                     }
                 }
