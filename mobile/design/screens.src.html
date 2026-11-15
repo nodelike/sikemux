@@ -566,6 +566,49 @@
   .week .when { font-size: 12px; color: var(--text-tertiary); }
   .week p { margin-top: 4px; font-size: 14.5px; line-height: 1.57; color: var(--ink); }
 
+  /* ---------- the chief's Now card ---------- */
+  .screen.with-now { position: relative; }
+  .now { position: absolute; top: 108px; left: 12px; right: 12px; z-index: 3; border-radius: 14px; background: var(--surface-raised); border: 1px solid var(--border); box-shadow: 0 24px 44px -16px rgba(0,0,0,.75); overflow: hidden; }
+  .now-hd { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px 0 14px; }
+  .now-hd b { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .now-hd span { font-size: 13px; color: var(--text-tertiary); }
+  .now-hd .sp { flex: 1; }
+  .now-chev { width: 28px; height: 28px; display: grid; place-items: center; color: var(--text-tertiary); }
+  .now-chev.up svg { transform: rotate(-90deg); }
+  .now-chev.down svg { transform: rotate(90deg); }
+  .now-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 2px 8px 8px; border-bottom: 1px solid var(--border); }
+  .now-st { padding: 4px 8px; }
+  .now-st b { display: block; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .now-st.you b { color: var(--acc); }
+  .now-st.zero b { color: var(--ink-faint); }
+  .now-st span { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 10px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: var(--text-tertiary); white-space: nowrap; }
+  .now i.k, .now-cap i.k { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+  i.k.you { background: var(--acc); } i.k.rdy { background: var(--live); } i.k.mov { background: var(--text-tertiary); } i.k.uns { background: var(--warn); }
+  .now-bd { padding: 2px 6px 8px; }
+  .now-sl { display: flex; align-items: center; gap: 8px; height: 26px; margin-top: 4px; padding: 0 10px; font-size: 10.5px; font-weight: 500; letter-spacing: .2em; text-transform: uppercase; color: var(--text-tertiary); }
+  .now-sl em { font-style: normal; letter-spacing: 0; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .now-r { display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 10px; border-radius: 8px; }
+  .now-r .f { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; color: var(--text-secondary); }
+  .now-r .clk { flex: none; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .now-r .clk.late { color: var(--warn); }
+  .now-r .ring { flex: none; width: 6px; height: 6px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--text-tertiary); }
+  .now-r .re { flex: none; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border-strong); display: grid; place-items: center; font-size: 13px; font-weight: 500; color: var(--ink); }
+  .now-ap { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 21px; padding: 0 6px 0 4px; border-radius: 5px; background: var(--surface-overlay); font-size: 13px; font-weight: 500; color: var(--ink); }
+  .now-ap > span, .now-mk > span, .now-star > span { display: grid; }
+  .now-mks { flex: none; display: inline-flex; }
+  .now-mk { width: 20px; height: 20px; border-radius: 6px; background: var(--surface-active); display: grid; place-items: center; margin-left: -4px; box-shadow: 0 0 0 2px var(--surface-raised); }
+  .now-mk:first-child { margin-left: 0; }
+  .now-sky { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 10px 6px; }
+  .now-star { position: relative; min-width: 28px; height: 28px; border-radius: 8px; background: var(--surface-active); display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .now-star::after { content: ""; position: absolute; right: -2px; bottom: -2px; width: 7px; height: 7px; border-radius: 50%; background: var(--live); box-shadow: 0 0 0 2px var(--surface-raised); }
+  .now-star.lead { padding: 0 7px; font-size: 12.5px; font-weight: 500; color: var(--text-secondary); }
+  .now-star.lead i { font-style: normal; font-weight: 400; color: var(--text-tertiary); }
+  .now-who { flex-basis: 100%; padding-top: 2px; font-size: 12.5px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now-cap { position: absolute; top: 108px; right: 14px; z-index: 3; display: flex; align-items: center; gap: 4px; height: 36px; padding: 0 4px 0 5px; border-radius: 18px; background: var(--surface-raised); border: 1px solid var(--border); box-shadow: 0 24px 44px -16px rgba(0,0,0,.75); }
+  .now-cap .c { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 13px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+  .now-cap .c.you { background: color-mix(in oklab, var(--acc) 16%, transparent); color: var(--acc); }
+  .now-cap .c.zero { color: var(--ink-faint); }
+
   /* ---------- a call docked on its asker's chat, and the turn's last line ---------- */
   .call { margin: 0 0 8px; padding: 12px; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface-overlay); }
   .call-who { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-tertiary); }
@@ -3140,6 +3183,56 @@
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>While you were away</b><div class="note">The chief's chat ends with what happened while the person was away, from ChatHead.away, as the Mac draws it: the head says how long only when back is set ("2 h 2 min"); it is the chief's own chat, so it does not say who it is from. Needs you counts the project's open calls and points down: they are the queue the chat already docks above the composer, 1 of 3 with the rest folded, never a second card. Decided for you lists each decision with what it rested on, or who made it, under it; Overrule sends overruleDecision, and like it needs the phone's Full access, so a phone that can only watch draws no Overrule. A decision overruled since the card came is struck and offers none. Landed lists each agent's finished work with its mark, title, name, when, and the lines its landing removed and added, removed first, in the git colours; the Mac's Try it opens the result on the desk, which a phone does not have, so the row opens that agent's chat instead, where its turn line offers what the phone can do. The card stays until every call in it is answered, or, with none, until the person next writes to the chief.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen with-now">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="acc-mark">{{Logo:17}}</span><span class="named"><b>@Chief</b><i>·</i><em>Payments rollout</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="now" style="top:54px"><div class="now-hd"><span class="acc-mark">{{Logo:14}}</span><b>Now</b><span>18 agents</span><span class="sp"></span><span class="now-chev up">{{IconChevron:11}}</span></div><div class="now-stats"><div class="now-st you"><b>2</b><span><i class="k you"></i>For you</span></div><div class="now-st"><b>3</b><span><i class="k rdy"></i>Ready</span></div><div class="now-st"><b>6</b><span><i class="k mov"></i>Moving</span></div><div class="now-st"><b>1</b><span><i class="k uns"></i>Not sure</span></div></div><div class="now-bd"><div class="now-sl">Waiting on you<em>2</em></div><div class="now-r"><span class="now-ap"><span class="opencode">{{IconOpenCode:13}}</span>@Seiji</span><span class="f">asked you 2 things</span><span class="clk late">14m</span></div><div class="now-r"><span class="now-ap"><span class="opencode">{{IconOpenCode:13}}</span>@Sayaka</span><span class="f">asks you something</span><span class="clk">now</span></div><div class="now-sl">Ready to look at<em>3</em></div><div class="now-r"><span class="now-ap"><span class="opencode">{{IconOpenCode:13}}</span>@Hakudoshi</span><span class="f">in your app</span><span class="clk">3m</span></div><div class="now-r"><span class="now-ap"><span class="opencode">{{IconOpenCode:13}}</span>@Finral</span><span class="f">in v0.6.1-nightly.22</span><span class="clk">40m</span></div><div class="now-r"><span class="now-ap"><span class="claude">{{IconClaude:13}}</span>@Tessie</span><span class="f">landed</span><span class="clk">22m</span></div><div class="now-sl">Moving<em>6</em></div><div class="now-sky"><span class="now-star"><span class="opencode">{{IconOpenCode:14}}</span></span><span class="now-star"><span class="opencode">{{IconOpenCode:14}}</span></span><span class="now-star"><span class="opencode">{{IconOpenCode:14}}</span></span><span class="now-star"><span class="claude">{{IconClaude:14}}</span></span><span class="now-star"><span class="codex">{{IconCodex:14}}</span></span><span class="now-star lead"><span class="claude">{{IconClaude:14}}</span>@Haruka<i>+6</i></span><span class="now-who">@Takeomi 3rd in line</span></div><div class="now-sl">Not sure<em>1</em></div><div class="now-r"><span class="now-ap"><span class="opencode">{{IconOpenCode:13}}</span>@Bluenote</span><span class="f">stopped, nothing set to wake it</span><span class="ring"></span><span class="clk">47m</span></div><div class="now-sl">Closed lately<em>1</em></div><div class="now-r"><span class="f">Closed @Gilda, landed</span><span class="re">Reopen</span><span class="clk">2h</span></div></div></div>
+        <div class="chat">
+          <div class="from"><div class="from-head"><span class="acc-mark">{{Logo:17}}</span><b>@Chief</b><span class="when">11:02</span></div><div class="msg-theirs">On it. @Takeomi is third in the land queue. I'll tag nightly.23 the moment main is green behind it.</div></div>
+          <div class="msg-user">anything for me?</div>
+          <div class="from"><div class="from-head"><span class="acc-mark">{{Logo:17}}</span><b>@Chief</b><span class="when">11:16</span></div><div class="msg-theirs">Two things, both in Now: @Seiji on the lease, and @Sayaka needs a code.</div></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Tell @Chief what you want</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Now, open</b><div class="note">On the chief's chat only, for its own project, the core's DeviceView.now draws the Now card over the top of the transcript, as the Mac floats it at the top right of the chief's chat. The four counts lead, set large: For you in the accent and dimmed at zero, Ready, Moving and Not sure, each over its tinted label; a lead's workers count under their lead, except those waiting on the person. Waiting on you and Ready to look at list up to four rows each, the agent's chip, its one fact and how long it has stood, late in amber past ten minutes; the rest fold into one row of marks and names. Moving is a cluster of marks, each with its live dot; a lead is a chip, @Haruka +6, and under them the longest standing says what it is on. Not sure lists its rows with a hollow dot. Closed lately has a line per agent, Closed @Gilda, landed, with Reopen, which sends reopenAgent and needs Full access, so a watching phone draws none. A tap on a row or a mark opens that agent; the header folds the card. A project with no rows and nothing closed draws no card. The words are the Mac's, so the three clients say the same things.</div></figcaption></figure>
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen with-now">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="acc-mark">{{Logo:17}}</span><span class="named"><b>@Chief</b><i>·</i><em>Payments rollout</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="now-cap" style="top:54px"><span class="c you"><i class="k you"></i>2</span><span class="c"><i class="k rdy"></i>3</span><span class="c"><i class="k mov"></i>6</span><span class="c zero"><i class="k uns"></i>0</span><span class="now-chev down">{{IconChevron:11}}</span></div>
+        <div class="chat">
+          <div class="from"><div class="from-head"><span class="acc-mark">{{Logo:17}}</span><b>@Chief</b><span class="when">11:02</span></div><div class="msg-theirs">On it. @Takeomi is third in the land queue. I'll tag nightly.23 the moment main is green behind it.</div></div>
+          <div class="msg-user">anything for me?</div>
+          <div class="from"><div class="from-head"><span class="acc-mark">{{Logo:17}}</span><b>@Chief</b><span class="when">11:16</span></div><div class="msg-theirs">Two things, both in Now: @Seiji on the lease, and @Sayaka needs a code.</div></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Tell @Chief what you want</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Now, folded</b><div class="note">Folded, the card is the four counts alone in a capsule at the top right, under the header; the person's own count is lit only while something waits on them, and a zero greys out. A tap opens it again. The chat remembers which way the person left it while it stays open.</div></figcaption></figure>
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">

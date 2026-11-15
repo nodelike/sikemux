@@ -48,6 +48,8 @@ private struct ChatPane: View {
     @State private var find: ChatFind?
     @State private var away = false
     @State private var stillness: (() -> Void)?
+    /// How tall the transcript stands, which the Now card stays well inside.
+    @State private var tall: CGFloat = 0
 
     init(core: String, agentId: String) {
         self.core = core
@@ -113,6 +115,12 @@ private struct ChatPane: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            .onGeometryChange(for: CGFloat.self) {
+                $0.size.height
+            } action: {
+                tall = $0
+            }
+            .overlay(alignment: .top) { nowCard(rows) }
             .safeAreaInset(edge: .bottom, spacing: 0) { bottom(rows) }
         }
         .environment(context)
@@ -291,6 +299,19 @@ private struct ChatPane: View {
     }
 
     // MARK: Around the transcript
+
+    /// The chief's Now card for its project, while anything stands on it.
+    @ViewBuilder private func nowCard(_ rows: ChatRows) -> some View {
+        if rows.head.chief == true, let project = listed?.project,
+            let now = live.view?.now?.first(where: { $0.project == project }),
+            !(now.rows ?? []).isEmpty || !(now.closed ?? []).isEmpty
+        {
+            NowCard(
+                core: core, now: now, full: full, folds: session.folds, maxHeight: tall > 0 ? tall * 0.72 : .infinity
+            )
+            .padding(.top, 8)
+        }
+    }
 
     @ViewBuilder private var status: some View {
         let unreachable = session.attached != .live && isClosed
