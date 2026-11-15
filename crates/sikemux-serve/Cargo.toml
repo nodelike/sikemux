@@ -29,9 +29,6 @@ serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.11"
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_Threading"] }
-
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
 

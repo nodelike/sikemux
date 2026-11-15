@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use sikemux_client::local::Connection;
+use sikemux_client::local::{Connection, Peer as Credentials};
 
 use super::access::Peer;
 use crate::host_update;
@@ -92,11 +92,11 @@ fn app_paths_beside(own: &Path) -> Vec<PathBuf> {
 
 /// The process on the other end of a connection from this host.
 pub fn pid(stream: &Connection) -> Option<u32> {
-    platform::credentials(stream).map(|credentials| credentials.pid())
+    sikemux_client::local::peer(stream).map(|credentials| credentials.pid())
 }
 
 pub async fn identify(stream: &Connection) -> Peer {
-    let Some(credentials) = platform::credentials(stream) else {
+    let Some(credentials) = sikemux_client::local::peer(stream) else {
         return Peer::Local;
     };
     let app = tokio::task::spawn_blocking(move || is_app(&credentials))
@@ -117,7 +117,7 @@ pub fn app_is_signed() -> bool {
 
 /// Root may do anything on this host already, so it acts as the app, unless
 /// the core runs as root and its agents do too.
-fn is_app(credentials: &platform::Credentials) -> bool {
+fn is_app(credentials: &Credentials) -> bool {
     let pid = credentials.pid();
     let trust = trust();
     if outranks_core(credentials)
@@ -136,7 +136,7 @@ fn is_app(credentials: &platform::Credentials) -> bool {
 }
 
 #[cfg(unix)]
-fn outranks_core(credentials: &platform::Credentials) -> bool {
+fn outranks_core(credentials: &Credentials) -> bool {
     // SAFETY: geteuid takes nothing and cannot fail.
     let core_is_root = unsafe { libc::geteuid() } == 0;
     credentials.uid() == 0 && !core_is_root
@@ -144,7 +144,7 @@ fn outranks_core(credentials: &platform::Credentials) -> bool {
 
 /// Only this user can open the core's pipe, so no peer outranks the core.
 #[cfg(windows)]
-fn outranks_core(_credentials: &platform::Credentials) -> bool {
+fn outranks_core(_credentials: &Credentials) -> bool {
     false
 }
 
@@ -170,28 +170,19 @@ struct Examined {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use std::os::fd::AsRawFd;
-
-    use sikemux_client::local::Connection;
-
     use core_foundation::base::TCFType;
     use core_foundation::data::CFData;
     use security_framework::os::macos::code_signing::{
         Flags, GuestAttributes, SecCode, SecRequirement,
     };
 
-    use super::Examined;
+    use super::{Credentials, Examined};
 
     macro_rules! team {
         () => {
             r#"anchor apple generic and certificate leaf[subject.OU] = "D577WD6Z5U""#
         };
     }
-
-    const SOL_LOCAL: libc::c_int = 0;
-    const LOCAL_PEERTOKEN: libc::c_int = 6;
-    const TOKEN_EUID: usize = 1;
-    const TOKEN_PID: usize = 5;
 
     /// Signed by Sikemux's team as its app or its notch, never as the core
     /// agents run as their `sikemux` command.
@@ -209,42 +200,9 @@ mod platform {
             .is_ok_and(|requirement| code.check_validity(Flags::NONE, &requirement).is_ok())
     }
 
-    /// The peer's audit token, which names the process as it was when it
-    /// connected, so one that has since run another program no longer matches.
-    pub struct Credentials([u32; 8]);
-
-    impl Credentials {
-        pub fn pid(&self) -> u32 {
-            self.0.get(TOKEN_PID).copied().unwrap_or_default()
-        }
-
-        pub fn uid(&self) -> u32 {
-            self.0.get(TOKEN_EUID).copied().unwrap_or(u32::MAX)
-        }
-    }
-
-    pub fn credentials(stream: &Connection) -> Option<Credentials> {
-        let fd = stream.as_raw_fd();
-        let mut token = [0u32; 8];
-        let mut length = std::mem::size_of_val(&token) as libc::socklen_t;
-        // SAFETY: `token` is a writable buffer of `length` bytes, and the
-        // kernel writes at most that many.
-        let read = unsafe {
-            libc::getsockopt(
-                fd,
-                SOL_LOCAL,
-                LOCAL_PEERTOKEN,
-                token.as_mut_ptr().cast(),
-                &mut length,
-            )
-        };
-        (read == 0 && length as usize == std::mem::size_of_val(&token))
-            .then_some(Credentials(token))
-    }
-
     pub fn examine(credentials: &Credentials) -> Examined {
         let token: Vec<u8> = credentials
-            .0
+            .audit_token()
             .iter()
             .flat_map(|word| word.to_ne_bytes())
             .collect();
@@ -270,53 +228,9 @@ mod platform {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "macos"))]
 mod platform {
-    use std::os::fd::AsRawFd;
-
-    use sikemux_client::local::Connection;
-
-    use super::Examined;
-
-    pub struct Credentials {
-        pid: u32,
-        uid: u32,
-    }
-
-    impl Credentials {
-        pub fn pid(&self) -> u32 {
-            self.pid
-        }
-
-        pub fn uid(&self) -> u32 {
-            self.uid
-        }
-    }
-
-    pub fn credentials(stream: &Connection) -> Option<Credentials> {
-        let fd = stream.as_raw_fd();
-        let mut credentials = libc::ucred {
-            pid: 0,
-            uid: 0,
-            gid: 0,
-        };
-        let mut length = std::mem::size_of_val(&credentials) as libc::socklen_t;
-        // SAFETY: `credentials` is a writable `ucred` of `length` bytes, and
-        // the kernel writes at most that many.
-        let read = unsafe {
-            libc::getsockopt(
-                fd,
-                libc::SOL_SOCKET,
-                libc::SO_PEERCRED,
-                std::ptr::from_mut(&mut credentials).cast(),
-                &mut length,
-            )
-        };
-        (read == 0 && credentials.pid > 0).then(|| Credentials {
-            pid: credentials.pid.unsigned_abs(),
-            uid: credentials.uid,
-        })
-    }
+    use super::{Credentials, Examined};
 
     pub fn own_code_signed_by_team() -> bool {
         false
@@ -325,129 +239,9 @@ mod platform {
     pub fn examine(credentials: &Credentials) -> Examined {
         Examined {
             signed_app: false,
-            program: std::fs::read_link(format!("/proc/{}/exe", credentials.pid)).ok(),
+            program: credentials
+                .program()
+                .and_then(|program| program.canonicalize().ok()),
         }
-    }
-}
-
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
-mod platform {
-    use sikemux_client::local::Connection;
-
-    use super::Examined;
-
-    pub struct Credentials;
-
-    impl Credentials {
-        pub fn pid(&self) -> u32 {
-            0
-        }
-
-        pub fn uid(&self) -> u32 {
-            u32::MAX
-        }
-    }
-
-    pub fn credentials(_stream: &Connection) -> Option<Credentials> {
-        None
-    }
-
-    pub fn own_code_signed_by_team() -> bool {
-        false
-    }
-
-    pub fn examine(_credentials: &Credentials) -> Examined {
-        Examined {
-            signed_app: false,
-            program: None,
-        }
-    }
-}
-
-#[cfg(windows)]
-mod platform {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::OsStringExt;
-    use std::os::windows::io::AsRawHandle;
-    use std::path::PathBuf;
-
-    use sikemux_client::local::Connection;
-    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
-    use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
-    use windows_sys::Win32::System::SystemInformation::GetSystemTimeAsFileTime;
-    use windows_sys::Win32::System::Threading::{
-        GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-        PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-
-    use super::Examined;
-
-    /// The pipe names its client by pid alone, so this keeps when the connection was taken
-    /// up: a process started after that has only been given the pid of one that left.
-    pub struct Credentials {
-        pid: u32,
-        connected: u64,
-    }
-
-    impl Credentials {
-        pub fn pid(&self) -> u32 {
-            self.pid
-        }
-    }
-
-    fn ticks(time: FILETIME) -> u64 {
-        u64::from(time.dwHighDateTime) << 32 | u64::from(time.dwLowDateTime)
-    }
-
-    pub fn credentials(stream: &Connection) -> Option<Credentials> {
-        let mut pid = 0u32;
-        // SAFETY: the pipe's handle is open while `stream` lives, and the call writes one u32.
-        let read = unsafe { GetNamedPipeClientProcessId(stream.as_raw_handle(), &mut pid) };
-        let mut now = FILETIME::default();
-        // SAFETY: the call writes one FILETIME.
-        unsafe { GetSystemTimeAsFileTime(&mut now) };
-        (read != 0 && pid != 0).then(|| Credentials {
-            pid,
-            connected: ticks(now),
-        })
-    }
-
-    pub fn own_code_signed_by_team() -> bool {
-        false
-    }
-
-    pub fn examine(credentials: &Credentials) -> Examined {
-        Examined {
-            signed_app: false,
-            program: program(credentials),
-        }
-    }
-
-    fn program(credentials: &Credentials) -> Option<PathBuf> {
-        // SAFETY: OpenProcess takes plain values; the handle is closed below.
-        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, credentials.pid) };
-        if process.is_null() {
-            return None;
-        }
-        let mut times = [FILETIME::default(); 4];
-        let [created, exited, kernel, user] = &mut times;
-        // SAFETY: `process` is open, and the call writes four FILETIMEs.
-        let timed = unsafe { GetProcessTimes(process, created, exited, kernel, user) } != 0;
-        let mut path = vec![0u16; 32 * 1024];
-        let mut length = path.len() as u32;
-        // SAFETY: `path` is writable for `length` characters, and the call writes at most
-        // that many and the length it wrote.
-        let named = unsafe {
-            QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, path.as_mut_ptr(), &mut length)
-        } != 0;
-        // SAFETY: `process` was opened above and is closed once.
-        unsafe { CloseHandle(process) };
-        if !timed || ticks(times[0]) > credentials.connected || !named {
-            return None;
-        }
-        path.truncate(length as usize);
-        PathBuf::from(OsString::from_wide(&path))
-            .canonicalize()
-            .ok()
     }
 }

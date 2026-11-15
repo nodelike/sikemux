@@ -9932,6 +9932,7 @@ dependencies = [
  "base64 0.22.1",
  "hex",
  "iroh",
+ "libc",
  "semver",
  "serde",
  "serde_json",
@@ -10741,7 +10742,6 @@ dependencies = [
  "sikemux-view",
  "sikemux-wire",
  "tokio",
- "windows-sys 0.61.2",
  "workspace-hack",
 ]
 
