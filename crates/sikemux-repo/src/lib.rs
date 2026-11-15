@@ -6,8 +6,12 @@
 //! the other features built over it; what it asks of them it asks through
 //! [`RepoAbove`](server::repo_above::RepoAbove), which the core fills.
 
-#![cfg(unix)]
-
+#[cfg(unix)]
+#[path = "os/unix.rs"]
+mod os;
+#[cfg(windows)]
+#[path = "os/windows.rs"]
+mod os;
 pub mod server;
 
 use sikemux_agents::{agent_catalog, git, git_guard, ship, skills};
