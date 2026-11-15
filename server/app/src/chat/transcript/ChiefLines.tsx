@@ -5,7 +5,6 @@ import {
   OVERRULED_UNDONE,
   quoted,
   STANDS_AGAIN,
-  STOPPED_AUTO,
   weekCame,
   weekCount,
 } from "@shared/calls/words";
@@ -15,11 +14,9 @@ import type { ChiefWeek, OverruledDecision } from "@shared/wire.generated";
 export function OverruledLine({ overruled }: { overruled: OverruledDecision }) {
   const why = overruled.undone
     ? STANDS_AGAIN
-    : overruled.stoppedAuto
-      ? STOPPED_AUTO
-      : overruled.rule !== undefined
-        ? FROM_NOW_ON
-        : undefined;
+    : overruled.rule !== undefined
+      ? FROM_NOW_ON
+      : undefined;
   return (
     <div className="chat-chief-line">
       <div className="chat-chief-head">
