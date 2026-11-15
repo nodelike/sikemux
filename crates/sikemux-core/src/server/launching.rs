@@ -630,6 +630,14 @@ pub(crate) async fn reopen_agent(core: &Arc<Core>, agent_id: String) -> CoreResu
     Ok(taken)
 }
 
+/// The person takes a closed agent up again, which counts as their writing to it, so it stays
+/// open the hour it would after they did.
+pub(crate) async fn person_reopens(core: &Arc<Core>, agent_id: String) -> CoreResult<SessionTaken> {
+    let taken = reopen_agent(core, agent_id).await?;
+    core.seen().person_wrote(&taken.agent_id);
+    Ok(taken)
+}
+
 async fn take_up_again(core: &Arc<Core>, agent_id: String) -> CoreResult<SessionTaken> {
     let project_of = |agent: &str| core.workspaces().agent_projects().remove(agent);
     if let Some(project) = project_of(&agent_id) {
@@ -719,7 +727,8 @@ pub(crate) async fn start_new(
     let branch = (was.as_ref())
         .and_then(|was| was.worktree.as_ref())
         .map(|tree| tree.branch.clone());
-    let resumed = match choice.cwd {
+    let cwd = (choice.cwd.clone()).or_else(|| was.as_ref().map(|was| was.cwd.clone()));
+    let resumed = match cwd {
         Some(cwd) => Some(
             blocking(move || Ok(super::worktree::agent::resumed_in(&cwd, branch.as_deref())?))
                 .await?,

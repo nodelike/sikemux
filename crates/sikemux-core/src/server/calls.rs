@@ -163,7 +163,7 @@ calls! { core, client, method, params;
         super::launching::start_asked(&core, params).await?
     },
     "resumeSession" = ResumeSession: Full, counted => super::launching::resume_session(&core, params).await?,
-    "reopenAgent" = ReopenAgent: Full, counted => super::launching::reopen_agent(&core, params.agent_id).await?,
+    "reopenAgent" = ReopenAgent: Full, counted => super::launching::person_reopens(&core, params.agent_id).await?,
     "openChief" = OpenChief: Full, counted => super::chief::open(&core, params).await?,
     "handOff" = HandOff: Full, counted => super::chat::handoff::hand_off(&core, params).await?,
     "dropHandoff" = DropHandoff: Full => super::chat::handoff::drop_handoff(&core, params)?,
@@ -661,7 +661,7 @@ pub(crate) async fn row_action(core: &Arc<Core>, method: &str, params: Value) ->
         "snoozeAgents" => answer(super::settling::snooze(core, parse(params)?)?),
         "reopenAgent" => {
             let params: AgentParams = parse(params)?;
-            let taken = super::launching::reopen_agent(core, params.agent_id).await?;
+            let taken = super::launching::person_reopens(core, params.agent_id).await?;
             super::launching::wake_chat(core, taken.agent_id.clone()).await?;
             answer(taken)
         }

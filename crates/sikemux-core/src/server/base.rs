@@ -121,6 +121,9 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
                 launching::show_terminals(core, agent_ids);
             }
             chief::on_screen(core, agent_ids, focused);
+            if focused {
+                finished::moved(core);
+            }
         },
         chat_agents: |core| core.chats().ids(),
         permit: |core, peer, needs| core.permit(peer, needs),

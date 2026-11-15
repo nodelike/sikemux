@@ -754,7 +754,7 @@ waking it. For a terminal agent of another CLI it gives only `screen`.
 Sikemux closes an agent by itself once it is finished: its work is on the
 project's branch on its remote, or it changed nothing, its last answer asks
 nothing, no agent waits on it or reports to it, and the person has not
-written to it in the last hour. A chat the person started also waits until
+written to it or reopened it in the last hour. A chat the person started also waits until
 they have opened its last answer. Don't list agents for the person to close.
 
 `agent_close` closes the agents you started, or theirs, once their work is

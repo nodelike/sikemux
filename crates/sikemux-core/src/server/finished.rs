@@ -142,7 +142,10 @@ fn at_rest(
     if agent.terminal || super::chief::is_chief(core, &agent.id) || waited.contains(&agent.id) {
         return false;
     }
-    if turn.state != TurnPhase::Done || turn.call.is_some() || agent.lead.is_none() && !turn.seen {
+    if turn.state != TurnPhase::Done
+        || turn.call.is_some()
+        || agent.lead.is_none() && core.seen().unread(&agent.id)
+    {
         return false;
     }
     if matches!(
