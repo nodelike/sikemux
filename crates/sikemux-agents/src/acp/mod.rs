@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn agents_without_permission_modes_are_answered_by_the_host() {
-        for provider in ["opencode", "omp", "grok"] {
+        for provider in ["omp", "grok"] {
             assert_eq!(
                 permission_mode_id(provider, PermissionMode::Bypass, &json!({})).unwrap(),
                 None

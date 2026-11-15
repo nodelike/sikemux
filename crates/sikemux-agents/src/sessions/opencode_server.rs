@@ -155,7 +155,9 @@ impl Client {
             .map_err(|error| unreached(format!("OpenCode did not answer {path}: {error}")))?;
         let status = answer.status();
         let text = answer.text().await.map_err(|error| {
-            unreached(format!("Could not read OpenCode's answer to {path}: {error}"))
+            unreached(format!(
+                "Could not read OpenCode's answer to {path}: {error}"
+            ))
         })?;
         let body: Value = serde_json::from_str(&text).unwrap_or_default();
         if !status.is_success() {
@@ -183,7 +185,10 @@ impl Client {
             .await
             .map_err(|error| format!("OpenCode's events could not be followed: {error}"))?;
         if !answer.status().is_success() {
-            return Err(format!("OpenCode answered its events with {}", answer.status()));
+            return Err(format!(
+                "OpenCode answered its events with {}",
+                answer.status()
+            ));
         }
         let mut reader = EventReader::default();
         let (connected, is_connected) = tokio::sync::oneshot::channel();

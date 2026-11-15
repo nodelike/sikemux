@@ -242,7 +242,7 @@
             "accounts": false,
             "usage": true,
             "freeModels": true,
-            "deletableChats": false,
+            "deletableChats": true,
             "efforts": [],
             "install": "curl -fsSL https://opencode.ai/install | bash",
             "login": ["auth", "login"],
@@ -263,10 +263,7 @@
                 },
                 "withChoices": []
             },
-            "chat": {
-                "driver": "acp",
-                "args": ["acp"]
-            },
+            "chat": { "driver": "opencode", "bypass": true },
             "providers": "reads",
             "routed": { "api": "chat", "rank": 4 },
             "resumesByPath": false,

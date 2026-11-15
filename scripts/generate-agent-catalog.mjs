@@ -43,7 +43,7 @@ const FLAGS = [
 ];
 /** Yes-or-no facts only the core reads, which clients are never sent. */
 const CORE_FLAGS = ["historyBeforeStart"];
-const DRIVERS = ["claude", "codex", "muse", "pi", "acp"];
+const DRIVERS = ["claude", "codex", "muse", "pi", "opencode", "acp"];
 const PROVIDERS = ["routed", "reads"];
 const ROUTED_APIS = ["anthropic", "responses", "chat"];
 
@@ -515,6 +515,8 @@ pub enum ChatDriver {
     Codex,
     Muse,
     Pi,
+    /// OpenCode's own server, \`opencode serve\`.
+    Opencode,
     /// The agent's own ACP mode, started with \`args\`.
     Acp {
         args: &'static [&'static str],
@@ -527,7 +529,7 @@ pub enum ChatDriver {
 impl ChatDriver {
     /// Whether a chat of it picks a reasoning effort, even on a model that names none.
     pub fn offers_effort(&self) -> bool {
-        !matches!(self, Self::Acp { .. })
+        !matches!(self, Self::Acp { .. } | Self::Opencode)
     }
 }
 
