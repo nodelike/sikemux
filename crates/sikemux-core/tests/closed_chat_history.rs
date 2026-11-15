@@ -503,7 +503,11 @@ async fn close(sandbox: &mut Sandbox, app: &CoreClient, agent_id: &str) {
         .expect("close");
     let workspace = sandbox.root.join("data").join("workspace.json");
     let deadline = Instant::now() + WAIT;
-    while std::fs::read_to_string(&workspace).is_ok_and(|saved| saved.contains(agent_id)) {
+    let open = |saved: String| {
+        let saved: Value = serde_json::from_str(&saved).unwrap_or_default();
+        (saved["agents"].as_array().into_iter().flatten()).any(|agent| agent["id"] == agent_id)
+    };
+    while std::fs::read_to_string(&workspace).is_ok_and(open) {
         assert!(Instant::now() < deadline, "the close was never saved");
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
