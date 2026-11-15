@@ -97,7 +97,7 @@ struct DeviceAgents: View {
     private func teams(_ open: [AgentShown]) -> [Team] {
         if provider != nil { return [Team(project: nil, agents: open)] }
         if let scope { return [Team(project: scope, agents: open)] }
-        let shown = view.workspace.projects.filter { $0.chief != nil || ($0.agents ?? 0) > 0 }
+        let shown = view.workspace.projects.filter { $0.chief != nil || $0.chiefHome != nil || ($0.agents ?? 0) > 0 }
         let ranked = shown.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
         var teams = ranked.map { project in
             Team(project: project.element, agents: open.filter { $0.project == project.element.id })

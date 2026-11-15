@@ -3,6 +3,7 @@ import SwiftUI
 
 /// A project's chief, @Chief, first among its agents: drawn from the project itself, whether or not its chat exists
 /// yet. A tap opens its chat, or asks the host for it, which makes it the first time and brings a closed one back.
+/// A chief that lives on another host is tagged with that host and opens there.
 struct ChiefRow: View {
     @Environment(\.palette) private var palette
     let core: String
@@ -19,8 +20,8 @@ struct ChiefRow: View {
 
     var body: some View {
         Row(
-            title: CallWords.chief, aside: shown?.titled == true ? shown?.title : nil, detail: refused,
-            onPress: open,
+            title: CallWords.chief, host: homeTag, aside: shown?.titled == true ? shown?.title : nil,
+            detail: refused, onPress: open,
             mark: { AskerMark(agentId: shown?.agentId ?? "", provider: shown?.cli ?? "", chief: true) },
             end: {
                 HStack(spacing: 8) {
@@ -42,9 +43,24 @@ struct ChiefRow: View {
         .onDisappear { here = false }
     }
 
+    private var homeTag: String? {
+        guard let home = project.chiefHome else { return nil }
+        guard let since = home.awaySince else { return home.hostName }
+        return CallWords.chiefAway(home.hostName, since: ChatWords.clock(since))
+    }
+
     private func open() {
         if let shown {
             Router.shared.push(.chat(core: core, agent: shown.agentId))
+            return
+        }
+        if let home = project.chiefHome {
+            if Hub.shared.device(home.host) != nil {
+                Router.shared.push(.chat(core: home.host, agent: home.agentId))
+            } else {
+                Haptics.failure()
+                refused = CallWords.chiefElsewhere(home.hostName)
+            }
             return
         }
         guard !opening else { return }

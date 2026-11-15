@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
+import { clockLabel } from '@shared/chat/messageMeta';
 import { CHIEF, CHIEF_OFFLINE } from '@shared/calls/words';
 import type { AgentShown, ProjectInfo } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 import { TurnMark, Working } from '@/devices/AgentMarks';
-import { connectionOf, liveOf } from '@/devices/hub';
+import { connectionOf, liveOf, useDevices } from '@/devices/hub';
 import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { Row } from '@/ui/list';
@@ -16,6 +17,7 @@ import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 /**
  * A project's chief, @Chief, first among its agents: drawn from the project itself, whether or not its chat exists
  * yet. A tap opens its chat, or asks the host for it, which makes it the first time and brings a closed one back.
+ * A chief that lives on another host is tagged with that host and opens there.
  */
 export function ChiefRow({
   core,
@@ -35,6 +37,13 @@ export function ChiefRow({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const t = useT();
+  const { devices } = useDevices();
+  const home = project.chiefHome;
+  const homeTag =
+    home &&
+    (home.awaySince == null
+      ? home.hostName
+      : t('{host} · out of reach since {at}', { host: home.hostName, at: clockLabel(home.awaySince, now, undefined, t) }));
   const [opening, setOpening] = useState(false);
   const [refused, setRefused] = useState<string>();
   // The row is on screen, so the chat it asked for may open over it.
@@ -49,6 +58,14 @@ export function ChiefRow({
   const open = async () => {
     if (shown) {
       router.push(`/device/${core}/chat/${shown.agentId}`);
+      return;
+    }
+    if (home) {
+      if (devices.some((device) => device.core === home.host)) {
+        router.push(`/device/${home.host}/chat/${home.agentId}`);
+      } else {
+        setRefused(t('@Chief lives on {host}. Pair this phone with {host} to open its chat.', { host: home.hostName }));
+      }
       return;
     }
     if (opening) return;
@@ -73,6 +90,7 @@ export function ChiefRow({
     <Row
       mark={<Icon name="Logo" size={15} color={colors.accent} />}
       title={CHIEF}
+      host={homeTag}
       aside={shown?.titled ? shown.title : undefined}
       detail={refused}
       end={

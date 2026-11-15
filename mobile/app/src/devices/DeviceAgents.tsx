@@ -50,7 +50,9 @@ const rankOf = (project: ProjectInfo) => RANK[project.standing ?? 'atRest'] ?? 2
 function teamsOf(snapshot: Snapshot, open: AgentShown[], scope: ProjectInfo | undefined, provider: string): Team[] {
   if (provider !== 'all') return [{ id: '', agents: open }];
   if (scope) return [{ id: scope.id, project: scope, agents: open }];
-  const shown = snapshot.workspace.projects.filter((project) => project.chief != null || (project.agents ?? 0) > 0);
+  const shown = snapshot.workspace.projects.filter(
+    (project) => project.chief != null || project.chiefHome != null || (project.agents ?? 0) > 0,
+  );
   const ranked = shown
     .map((project, index) => ({ project, index, rank: rankOf(project) }))
     .sort((a, b) => a.rank - b.rank || a.index - b.index)

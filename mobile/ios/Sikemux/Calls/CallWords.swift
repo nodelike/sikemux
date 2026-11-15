@@ -287,6 +287,12 @@ enum CallWords {
     /// The composer's words in the chief's own chat.
     static let tellChief = String(localized: "Tell @Chief what you want")
     /// Under the chief's row when a tap cannot reach the host to open its chat.
+    static func chiefAway(_ host: String, since: String) -> String {
+        String(localized: "\(host) · out of reach since \(since)")
+    }
+    static func chiefElsewhere(_ host: String) -> String {
+        String(localized: "@Chief lives on \(host). Pair this phone with \(host) to open its chat.")
+    }
     static let chiefOffline = String(localized: "Not connected to this host yet, so its chief can't open.")
     /// The composer's words in a worker's chat whose project's chief hears what is typed there.
     static func sendToTold(_ name: String) -> String { String(localized: "Send to @\(name) · @Chief is told") }
