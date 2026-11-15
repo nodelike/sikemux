@@ -4,8 +4,10 @@
 //! branch's tip in order, checks the stack once, and on a pass moves the branch
 //! to it, so the branch stays a straight line of commits. Lands that change no
 //! Rust are not built; the others are checked with the crates they change. A
-//! failed check is traced to the land that broke it, which goes back to its
-//! agent as a message while the rest stay in line.
+//! failed check is traced to the land that broke it, which is sent back while
+//! the rest stay in line. Every land ends in a message to its agent naming its
+//! commits, landed or sent back; a newer land of the same agent queues behind
+//! one being checked rather than taking its place.
 
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -57,12 +59,25 @@ struct Waiting {
     push: bool,
     /// The branch's commit it was tried alone on, while that commit failed its own check.
     failed_over: Option<String>,
+    /// A check holding it is running, so a newer land of its agent queues behind it.
+    checking: bool,
 }
 
 impl Waiting {
     fn is(&self, other: &Waiting) -> bool {
         self.agent == other.agent && self.head == other.head
     }
+
+    fn short(&self) -> &str {
+        &self.head[..self.head.len().min(9)]
+    }
+}
+
+fn shorts(commits: &[String]) -> String {
+    (commits.iter())
+        .map(|commit| &commit[..commit.len().min(9)])
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[derive(Serialize)]
@@ -73,6 +88,12 @@ pub struct Queued {
     /// Lands ahead of it in the queue.
     ahead: usize,
     note: String,
+}
+
+/// What a new land of an agent did to the one it had in line already.
+enum Replaced {
+    Took(String),
+    Behind(String),
 }
 
 /// Puts the calling agent's commits in line for the branch its checkout was
@@ -95,18 +116,31 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         head,
         push,
         failed_over: None,
+        checking: false,
     };
-    let ahead = {
+    let short = waiting.short().to_owned();
+    let (ahead, replaced) = {
         let mut lines = core.land_queue().0.locked();
         let line = lines.entry(key.clone()).or_default();
-        match (line.waiting.iter()).position(|w| w.agent == agent_id) {
+        let earlier = (line.waiting.iter()).position(|w| w.agent == agent_id && !w.checking);
+        match earlier {
+            Some(at) if line.waiting[at].head == waiting.head => (at, None),
             Some(at) => {
+                let replaced = Replaced::Took(line.waiting[at].short().to_owned());
                 line.waiting[at] = waiting;
-                at
+                (at, Some(replaced))
+            }
+            None if (line.waiting.iter()).any(|w| w.is(&waiting)) => {
+                return Err(format!(
+                    "Your land of {short} is being checked already; you hear how it ends"
+                ));
             }
             None => {
+                let behind = (line.waiting.iter())
+                    .find(|w| w.agent == agent_id)
+                    .map(|w| Replaced::Behind(w.short().to_owned()));
                 line.waiting.push(waiting);
-                line.waiting.len() - 1
+                (line.waiting.len() - 1, behind)
             }
         }
     };
@@ -115,8 +149,17 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         true => " and pushed",
         false => "",
     };
+    let replaces = match replaced {
+        Some(Replaced::Took(earlier)) => format!(
+            " It takes the place of your land of {earlier}, which had not been checked yet."
+        ),
+        Some(Replaced::Behind(earlier)) => format!(
+            " Your land of {earlier} is being checked, so this one goes after it and lands only what it adds."
+        ),
+        None => String::new(),
+    };
     Ok(Queued {
-        note: format!("Queued: Sikemux checks it with the lands beside it, running Clippy on the crates they change, and puts it on {base}{pushed} when that passes. If the check fails because of it, it comes back to you as a message; until then your checkout keeps its commits, and you need not run the final checks yourself."),
+        note: format!("Queued {short}:{replaces} Sikemux checks it with the lands beside it, running Clippy on the crates they change, and puts it on {base}{pushed} when that passes. Either way a message tells you how it ended, naming {short}; until then your checkout keeps its commits, and you need not run the final checks yourself."),
         branch: base,
         commits: laid.listed,
         ahead,
@@ -144,6 +187,9 @@ fn wake(core: &Core, key: Key) {
     runtime.spawn(async move {
         while let Some(batch) = next(&core, &key) {
             check_and_land(&core, &key, batch).await;
+            with_line(&core, &key, |line| {
+                line.waiting.iter_mut().for_each(|w| w.checking = false)
+            });
         }
     });
 }
@@ -159,7 +205,11 @@ fn next(core: &Arc<Core>, key: &Key) -> Option<Vec<Waiting>> {
         })
         .collect();
     match line.lane.next(&waiters) {
-        Some((at, Next::Take(count))) => Some(line.waiting[at..at + count].to_vec()),
+        Some((at, Next::Take(count))) => {
+            let taken = &mut line.waiting[at..at + count];
+            taken.iter_mut().for_each(|w| w.checking = true);
+            Some(taken.to_vec())
+        }
         Some((_, Next::LookAt(at))) => {
             line.lane.running = false;
             let (core, key) = (core.clone(), key.clone());
@@ -189,7 +239,8 @@ fn leave(core: &Core, key: &Key, waiting: &Waiting) {
 fn send_back(core: &Arc<Core>, key: &Key, waiting: &Waiting, why: &str) {
     leave(core, key, waiting);
     let text = format!(
-        "Your land onto {} was sent back: {why}\n\nYour commits are still in your checkout. Fix it, commit, and land again.",
+        "Your land of {} onto {} was sent back: {why}\n\nYour commits are still in your checkout. Fix it, commit, and land again.",
+        waiting.short(),
         key.1
     );
     tell(core, &waiting.agent, text);
@@ -292,6 +343,12 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     };
     for waiting in &stacked.done {
         leave(core, key, waiting);
+        let text = format!(
+            "Your land of {} had nothing left to put on {}: it has every change of those commits already.",
+            waiting.short(),
+            key.1
+        );
+        tell(core, &waiting.agent, text);
     }
     for (waiting, why) in &stacked.refused {
         send_back(core, key, waiting, why);
@@ -441,20 +498,24 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
     with_line(core, key, |line| {
         line.lane.one_at_a_time = false;
         line.waiting
-            .retain(|w| !landed.iter().any(|(laid, _)| laid.is(w)));
+            .retain(|w| !landed.iter().any(|(laid, _, _)| laid.is(w)));
     });
-    for (waiting, stays) in &landed {
-        if let Some(stays) = stays {
-            tell(
-                core,
-                &waiting.agent,
-                format!("Your commits landed on {}. {stays}", key.1),
-            );
-        }
+    for (waiting, commits, stays) in &landed {
+        let stays = stays
+            .as_deref()
+            .map(|stays| format!(" {stays}"))
+            .unwrap_or_default();
+        let text = format!(
+            "Your land of {} is on {} as {}.{stays}",
+            waiting.short(),
+            key.1,
+            shorts(commits)
+        );
+        tell(core, &waiting.agent, text);
     }
     let pushers: Vec<String> = (landed.iter())
-        .filter(|(waiting, _)| waiting.push)
-        .map(|(waiting, _)| waiting.agent.clone())
+        .filter(|(waiting, _, _)| waiting.push)
+        .map(|(waiting, _, _)| waiting.agent.clone())
         .collect();
     if pushers.is_empty() {
         return;
@@ -474,10 +535,10 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
     }
 }
 
-type Landed = Vec<(Waiting, Option<String>)>;
+type Landed = Vec<(Waiting, Vec<String>, Option<String>)>;
 
-/// The lands put on the branch, each with why its checkout stayed behind
-/// when it did, and those refused with why.
+/// The lands put on the branch, each with the commits made for it and why its
+/// checkout stayed behind when it did, and those refused with why.
 fn put_stack(core: &Core, key: &Key, stacked: Stack) -> (Landed, Vec<(Waiting, String)>) {
     let (repo, base) = key;
     let signing = Signing::of(core);
@@ -559,7 +620,7 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
         (core.repo_above().chief_landed)(core, &project, &waiting.agent, &subject, lines);
         (core.repo_above().turn_state_committed)(core, &waiting.agent);
         onto = laid.tip.clone();
-        landed.push((waiting.clone(), stays));
+        landed.push((waiting.clone(), laid.commits.clone(), stays));
     }
     landed
 }
