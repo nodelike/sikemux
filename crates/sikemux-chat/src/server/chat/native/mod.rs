@@ -21,7 +21,7 @@ use sikemux_wire::protocol::ChatLaunch;
 use super::rebind::Outcome;
 use super::{Chat, ChatCommand};
 
-pub use claude::{saved_window, terminal_cache_env, AutoCompact};
+pub use claude::{saved_window, terminal_cache_env};
 pub use process::{kill_and_reap, kill_group, AgentRecord, Released};
 pub use session::{Adopted, Begin, Handed, SessionState, Steered};
 

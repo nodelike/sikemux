@@ -1,4 +1,4 @@
-//! Replaces a capped chat's vendor session with a fresh one, behind the person's switch, and a
+//! Replaces a chief's vendor session with a fresh one, behind the person's switch, and a
 //! big Claude chat's when it moves to another account, whose cache it would write anew. The
 //! chat the person sees is the core's record and stays one conversation. A session found full
 //! when a turn ends only writes its handoff note then; the fresh session starts with the next
@@ -203,9 +203,9 @@ fn may_start_fresh(chat: &Chat) -> bool {
         && chat.feed.running_subagents() == 0
 }
 
-/// Whether rotation may touch the chat at all now: a capped chat with the switch on.
+/// Whether rotation may touch the chat at all now: a chief's chat with the switch on.
 fn may(core: &Core, chat: &Chat) -> bool {
-    chat.capped() && on(core) && may_start_fresh(chat)
+    chat.chief() && on(core) && may_start_fresh(chat)
 }
 
 /// Whether, at rest after a turn, `session` has grown full and its note should be taken now,
@@ -236,7 +236,7 @@ pub fn due(core: &Core, chat: &Chat, now: &Footing) -> Option<RotationReason> {
     if !may_start_fresh(chat) {
         return None;
     }
-    let rotating = chat.capped() && on(core);
+    let rotating = chat.chief() && on(core);
     let inner = chat.rotation.inner.locked();
     let was = inner.footing.as_ref()?;
     if was.session != now.session {
@@ -262,7 +262,7 @@ pub fn due(core: &Core, chat: &Chat, now: &Footing) -> Option<RotationReason> {
 /// Whether starting fresh from `brief` costs the new account less than its cold cache reading
 /// the whole history. A rotation the person switched on always goes ahead.
 pub fn pays(core: &Core, chat: &Chat, reason: RotationReason, brief: &RotationBrief) -> bool {
-    if reason != RotationReason::Account || (chat.capped() && on(core)) {
+    if reason != RotationReason::Account || (chat.chief() && on(core)) {
         return true;
     }
     let briefed: u64 = (brief.sections.iter())

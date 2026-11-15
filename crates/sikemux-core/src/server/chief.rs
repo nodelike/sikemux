@@ -415,7 +415,7 @@ fn called(core: &Core, agent_id: &str) -> String {
 
 /// Keeps where a chief's session stands when it changed, so a sleep or a new core goes on from it.
 pub(crate) fn keep_session(core: &Core, chat: &Chat) {
-    if !chat.capped() {
+    if !chat.chief() {
         return;
     }
     let kept = rotation::kept(chat);

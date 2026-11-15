@@ -329,9 +329,6 @@ pub trait Told: Send + Sync {
 
     fn reached(&self, session: &str, reach: Reach);
 
-    /// Whether the chat's session is kept small.
-    fn capped(&self) -> bool;
-
     /// Whether the chat's session gives way to fresh ones, so it may be asked for a handoff note.
     fn rotates(&self) -> bool;
 

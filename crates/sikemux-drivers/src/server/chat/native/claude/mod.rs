@@ -2,7 +2,6 @@
 //! Anthropic's own Agent SDK speaks to the `claude` binary.
 
 mod apps;
-mod compaction;
 mod config;
 mod control;
 mod failure;
@@ -41,7 +40,6 @@ use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling};
 use crate::sessions::for_agent::context_text;
-pub use compaction::AutoCompact;
 pub use config::{saved_window, terminal_cache_env};
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
@@ -388,15 +386,12 @@ impl Claude {
         .map(str::to_owned)
         .collect();
         args.extend(["--permission-mode".to_owned(), mode.to_owned()]);
-        let capped = sink.capped();
         let rotates = sink.rotates();
         shared.locked().tool_hook = rotates;
-        if capped {
-            args.extend([
-                "--autocompact".to_owned(),
-                format!("{}k", cap::CLAUDE_WINDOW / 1000),
-            ]);
-        }
+        args.extend([
+            "--autocompact".to_owned(),
+            format!("{}k", cap::CLAUDE_WINDOW / 1000),
+        ]);
         if let Some(settings) = crate::git_guard::shim::claude_settings() {
             args.extend(["--settings".to_owned(), settings]);
         }
@@ -447,7 +442,6 @@ impl Claude {
         if let Some(model) = model {
             reader.note_model(model);
         }
-        reader.compacts(AutoCompact::of(launch, capped));
         let asking = reader.asking();
         let (reading, task_stops) = Reading::start(reader, lines);
         apps.nudges(task_stops.clone());
@@ -462,7 +456,7 @@ impl Claude {
         let initialized = tokio::select! {
             answer = control.request(json!({
                 "subtype": "initialize",
-                "hooks": cap::claude_hooks(capped, rotates),
+                "hooks": cap::claude_hooks(rotates),
                 "forwardSubagentText": true,
                 "perTaskStopAffordance": true,
             })) => answer,

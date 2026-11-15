@@ -383,8 +383,8 @@ pub struct Chat {
     brief: Mutex<Option<String>>,
     /// How big its agent's session is and when it last called the model.
     pub meter: cap::Meter,
-    /// Its agent's session is kept small.
-    capped: AtomicBool,
+    /// A chief's chat, which hands over to fresh sessions and compacts more eagerly when idle.
+    chief: bool,
     pub rotation: rotation::State,
 }
 
@@ -393,10 +393,8 @@ impl Chat {
         &self.launch.agent_id
     }
 
-    /// Its agent's session compacts near 150K tokens and before the prompt cache dies while
-    /// idle: a chief's.
-    pub fn capped(&self) -> bool {
-        self.capped.load(Ordering::Acquire)
+    pub fn chief(&self) -> bool {
+        self.chief
     }
 
     /// What Sikemux keeps for the project, as the chat began.

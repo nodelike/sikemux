@@ -149,12 +149,8 @@ impl Told for ChatTelling {
         self.chat.feed.reached(session, reach);
     }
 
-    fn capped(&self) -> bool {
-        self.chat.capped()
-    }
-
     fn rotates(&self) -> bool {
-        self.chat.capped()
+        self.chat.chief()
             && (self.chat.core.upgrade()).is_some_and(|core| super::super::rotation::on(&core))
     }
 

@@ -1,5 +1,5 @@
-//! Keeps a capped chat's vendor session small. Claude compacts it near 150K tokens, told by
-//! the core what to keep and handed the core's facts after. The core compacts any big session
+//! Keeps every chat's vendor session small. Claude compacts it near 150K tokens, told by the
+//! core what to keep and handed the core's facts after. The core compacts any big session
 //! itself when it sits idle long enough that the prompt cache is about to die, so coming back
 //! to it later does not read it all again uncached. The chat the person sees is the core's
 //! record, so none of this changes it.
@@ -45,11 +45,11 @@ fn cache_ms() -> u64 {
             .unwrap_or(CACHE_MS)
     })
 }
-/// Below this a cold start costs less than a compaction would save.
-const IDLE_COMPACT_TOKENS: u64 = 40_000;
-/// A chat that is not capped keeps its whole session unless it is this big, as the person may
-/// come back for its detail.
-const IDLE_COMPACT_UNCAPPED_TOKENS: u64 = 150_000;
+/// Below this a cold start costs a chief less than a compaction would save.
+const IDLE_COMPACT_CHIEF_TOKENS: u64 = 40_000;
+/// Any other chat keeps its whole session unless it is this big: most never wake again, so
+/// compacting a smaller one costs more than its next cold start would.
+const IDLE_COMPACT_TOKENS: u64 = 150_000;
 /// When the chat's session last called the model and how much context that call carried.
 #[derive(Default)]
 pub struct Meter {
@@ -186,13 +186,13 @@ pub fn keep_list(core: &Core, chat: &Chat) -> String {
 }
 
 /// What a session is handed back after its compaction: what Sikemux keeps for the project,
-/// unless its system prompt holds that already, and for a capped chat what is open now.
+/// unless its system prompt holds that already, and for a chief what is open now.
 pub fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
     let agent_id = chat.agent_id();
     let brief = (chat.brief().is_none())
         .then(|| (core.chat_above().memory_brief)(core, agent_id, None))
         .flatten();
-    let open = if chat.capped() {
+    let open = if chat.chief() {
         (core.chat_above().open_work)(core, agent_id)
     } else {
         Vec::new()
@@ -263,10 +263,10 @@ pub fn ago(now: u64, at: u64) -> String {
 }
 
 fn big_from(chat: &Chat) -> u64 {
-    if chat.capped() {
-        IDLE_COMPACT_TOKENS
+    if chat.chief() {
+        IDLE_COMPACT_CHIEF_TOKENS
     } else {
-        IDLE_COMPACT_UNCAPPED_TOKENS
+        IDLE_COMPACT_TOKENS
     }
 }
 
@@ -282,7 +282,7 @@ fn expired_from(claude: bool, meter: KeptMeter, now: u64) -> Option<ExpiredCache
     let expired = claude
         && meter.last_call_ms > 0
         && now.saturating_sub(meter.last_call_ms) >= cache_ms()
-        && meter.context >= IDLE_COMPACT_UNCAPPED_TOKENS
+        && meter.context >= IDLE_COMPACT_TOKENS
         && !meter.compacted;
     expired.then_some(ExpiredCache {
         tokens: meter.context,
@@ -374,9 +374,9 @@ pub fn compact_before_sleep(core: &Core, agent_id: &str, now: u64) -> bool {
     let Some(chat) = core.chats().get(agent_id) else {
         return false;
     };
-    let due = !chat.capped()
+    let due = !chat.chief()
         && (chat.meter)
-            .worth_compacting(now, IDLE_COMPACT_UNCAPPED_TOKENS)
+            .worth_compacting(now, IDLE_COMPACT_TOKENS)
             .is_some();
     if due {
         compact(core, &chat, now);
@@ -387,7 +387,7 @@ pub fn compact_before_sleep(core: &Core, agent_id: &str, now: u64) -> bool {
 fn compact(core: &Core, chat: &Chat, now: u64) {
     chat.meter.compacted.store(true, Ordering::Release);
     chat.meter.compacting_since.store(now, Ordering::Release);
-    let command = if chat.capped() && super::rotation::on(core) {
+    let command = if chat.chief() && super::rotation::on(core) {
         ChatCommand::TakeHandoff
     } else {
         ChatCommand::Compact
@@ -395,11 +395,12 @@ fn compact(core: &Core, chat: &Chat, now: u64) {
     let _ = chat.send(command);
 }
 
-/// A chat stays awake while it compacts, and a capped one until its idle stretch has been
+/// A chat stays awake while it compacts, and a chief's until its idle stretch has been
 /// compacted, since a sleeping agent cannot compact.
 pub fn holds_awake(core: &Core, agent_id: &str, now: u64) -> bool {
     core.chats().get(agent_id).is_some_and(|chat| {
         chat.meter.compacting()
-            || (chat.capped() && (chat.meter.worth_compacting(now, IDLE_COMPACT_TOKENS)).is_some())
+            || (chat.chief()
+                && (chat.meter.worth_compacting(now, IDLE_COMPACT_CHIEF_TOKENS)).is_some())
     })
 }

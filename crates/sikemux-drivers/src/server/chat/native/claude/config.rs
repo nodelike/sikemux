@@ -71,11 +71,7 @@ pub fn terminal_cache_env(cwd: &Path, account_root: Option<&Path>) -> Option<(St
         account_root.map(|root| root.join("settings.json")),
     ];
     let mut settings = json!({ "env": {} });
-    for found in files
-        .into_iter()
-        .flatten()
-        .filter_map(|file| super::compaction::read(&file))
-    {
+    for found in files.into_iter().flatten().filter_map(|file| read(&file)) {
         if settings.get("promptCacheTtl").is_none() {
             if let Some(ttl) = found.get("promptCacheTtl") {
                 settings["promptCacheTtl"] = ttl.clone();
@@ -329,6 +325,10 @@ pub fn options(models: &[Value], model: &str, effort: &str, fast: bool) -> Value
         options.push(pickers::speed_select(current, vec![tier]));
     }
     Value::Array(options)
+}
+
+fn read(file: &Path) -> Option<Value> {
+    serde_json::from_str(&std::fs::read_to_string(file).ok()?).ok()
 }
 
 #[cfg(test)]

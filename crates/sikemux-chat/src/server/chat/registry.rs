@@ -558,7 +558,7 @@ impl Chats {
             unstarted: AtomicBool::new(false),
             brief: Mutex::new(None),
             meter: Default::default(),
-            capped: AtomicBool::new(chief),
+            chief,
             rotation: Default::default(),
             wanted: tokio::sync::Notify::new(),
             person_came: tokio::sync::Notify::new(),

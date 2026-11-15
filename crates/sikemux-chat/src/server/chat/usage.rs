@@ -11,8 +11,9 @@ use crate::sessions::roots::account_root;
 use sikemux_fold::ChatEventKind;
 use sikemux_wire::protocol::ChatStart;
 
-use super::native::{saved_window, AutoCompact};
+use super::native::saved_window;
 use super::Chat;
+use sikemux_drivers::server::chat::cap::compact_at;
 
 impl Chat {
     pub fn tell_saved_usage(&self, start: &ChatStart) {
@@ -27,7 +28,6 @@ impl Chat {
         let core = self.core.clone();
         let agent_id = self.agent_id().to_owned();
         let generation = self.generation;
-        let capped = self.capped();
         let start = start.clone();
         tokio::task::spawn_blocking(move || {
             let cwd = launch.cwd.to_string_lossy();
@@ -46,10 +46,7 @@ impl Chat {
             };
             let mut update = sikemux_fold::update::usage(saved.used, size);
             if kind == AgentKind::Claude {
-                let model = launch.model.as_deref();
-                if let Some(at) = AutoCompact::of(&launch, capped).at(model, size) {
-                    update["compactAt"] = json!(at);
-                }
+                update["compactAt"] = json!(compact_at(size));
             }
             if chat.generation == generation {
                 chat.feed.emit(
