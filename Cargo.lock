@@ -10730,6 +10730,7 @@ dependencies = [
  "sha2 0.11.0",
  "sikemux-agents",
  "sikemux-calls",
+ "sikemux-client",
  "sikemux-corekit",
  "sikemux-grid",
  "sikemux-kernel",
@@ -10739,6 +10740,7 @@ dependencies = [
  "sikemux-view",
  "sikemux-wire",
  "tokio",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 

@@ -14,14 +14,14 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
-/// What a client holds of its connection to the core.
-pub use platform::Stream;
 /// What the core holds of a client's connection.
 pub use platform::Connection;
+pub use platform::Listener;
+/// What a client holds of its connection to the core.
+pub use platform::Stream;
 /// A blocking [`Stream`] whose every read and write gives up after the timeout it was opened
 /// with.
 pub use platform::SyncStream;
-pub use platform::Listener;
 
 pub async fn connect(path: &Path) -> io::Result<Stream> {
     platform::connect(path).await

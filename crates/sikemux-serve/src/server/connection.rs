@@ -5,9 +5,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use sikemux_client::local::{Connection, Split};
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, Notify};
 
 use sikemux_wire::protocol::{
@@ -289,10 +289,10 @@ async fn handshake(
     }
 }
 
-pub async fn serve_local(core: Arc<Core>, stream: UnixStream) {
+pub async fn serve_local(core: Arc<Core>, stream: Connection) {
     let peer = local_peer::identify(&stream).await;
     let pid = local_peer::pid(&stream);
-    let (read_half, write_half) = stream.into_split();
+    let (read_half, write_half) = stream.split();
     serve_client(core, peer, pid, Box::new(read_half), Box::new(write_half)).await;
 }
 

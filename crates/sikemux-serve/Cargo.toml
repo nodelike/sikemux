@@ -11,6 +11,7 @@ testing = []
 [target.'cfg(unix)'.dependencies]
 sikemux-agents = { path = "../sikemux-agents" }
 sikemux-calls = { path = "../sikemux-calls" }
+sikemux-client = { path = "../sikemux-client" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-grid = { path = "../sikemux-grid" }
 sikemux-kernel = { path = "../sikemux-kernel" }
@@ -27,6 +28,9 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha2 = "0.11"
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_Threading"] }
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"

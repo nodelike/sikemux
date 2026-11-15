@@ -859,8 +859,7 @@ pub(crate) async fn run_core(
     let config = core.config().clone();
     core.chats().clear_history();
     local_peer::settle();
-    listener.set_nonblocking(true)?;
-    let listener = tokio::net::UnixListener::from_std(listener)?;
+    let mut listener = sikemux_client::local::Listener::from_std(listener)?;
     remote::start(
         &core,
         &config.socket,
@@ -915,7 +914,7 @@ pub(crate) async fn run_core(
         let accepting = !*frozen.borrow_and_update();
         tokio::select! {
             accepted = listener.accept(), if accepting => match accepted {
-                Ok((stream, _)) => {
+                Ok(stream) => {
                     tokio::spawn(connection::serve_local(core.clone(), stream));
                 }
                 Err(error) => {

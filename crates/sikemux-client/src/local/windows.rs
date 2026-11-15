@@ -10,7 +10,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
-use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions};
+use tokio::net::windows::named_pipe::{
+    ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
+};
 use tokio::runtime::Runtime;
 use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, ERROR_PIPE_BUSY, HANDLE};
 use windows_sys::Win32::Security::Authorization::{
@@ -163,14 +165,14 @@ fn create_instance(name: &OsString, first: bool) -> io::Result<NamedPipeServer> 
         bInheritHandle: 0,
     };
     let mut options = ServerOptions::new();
-    options.first_pipe_instance(first).reject_remote_clients(true);
+    options
+        .first_pipe_instance(first)
+        .reject_remote_clients(true);
     // SAFETY: `attributes` is a valid SECURITY_ATTRIBUTES whose descriptor lives until
     // `descriptor` drops, after the pipe is created.
     unsafe {
-        options.create_with_security_attributes_raw(
-            name,
-            std::ptr::from_mut(&mut attributes).cast(),
-        )
+        options
+            .create_with_security_attributes_raw(name, std::ptr::from_mut(&mut attributes).cast())
     }
 }
 
@@ -256,7 +258,9 @@ impl UserSid {
             return Err(io::Error::last_os_error());
         }
         // SAFETY: the call wrote a nul-terminated string.
-        let length = (0..).take_while(|&at| unsafe { *text.add(at) } != 0).count();
+        let length = (0..)
+            .take_while(|&at| unsafe { *text.add(at) } != 0)
+            .count();
         // SAFETY: `text` holds `length` characters before its nul.
         let sid = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, length) });
         // SAFETY: the string came from LocalAlloc in ConvertSidToStringSidW.

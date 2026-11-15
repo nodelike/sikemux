@@ -11,12 +11,15 @@
 //! connection. The installed core trusts only the AppImage unpacked beside it, never one
 //! running from its own mount, which any program could make. A dev build also trusts the
 //! program that started it, such as a test.
+//!
+//! On Windows the path is all there is too. A process cannot become another program there, but
+//! any process of the same user may write into another's memory, so a program that reaches into
+//! the running app passes as the app; nothing on Windows tells the two apart.
 
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use tokio::net::UnixStream;
+use sikemux_client::local::Connection;
 
 use super::access::Peer;
 use crate::host_update;
@@ -88,12 +91,12 @@ fn app_paths_beside(own: &Path) -> Vec<PathBuf> {
 }
 
 /// The process on the other end of a connection from this host.
-pub fn pid(stream: &UnixStream) -> Option<u32> {
-    platform::credentials(stream.as_raw_fd()).map(|credentials| credentials.pid())
+pub fn pid(stream: &Connection) -> Option<u32> {
+    platform::credentials(stream).map(|credentials| credentials.pid())
 }
 
-pub async fn identify(stream: &UnixStream) -> Peer {
-    let Some(credentials) = platform::credentials(stream.as_raw_fd()) else {
+pub async fn identify(stream: &Connection) -> Peer {
+    let Some(credentials) = platform::credentials(stream) else {
         return Peer::Local;
     };
     let app = tokio::task::spawn_blocking(move || is_app(&credentials))
@@ -117,13 +120,9 @@ pub fn app_is_signed() -> bool {
 fn is_app(credentials: &platform::Credentials) -> bool {
     let pid = credentials.pid();
     let trust = trust();
-    // SAFETY: geteuid takes nothing and cannot fail.
-    let core_is_root = unsafe { libc::geteuid() } == 0;
-    if credentials.uid() == 0 && !core_is_root
+    if outranks_core(credentials)
         || pid == std::process::id()
-        || cfg!(debug_assertions)
-            && !trust.team_signed
-            && pid == std::os::unix::process::parent_id()
+        || cfg!(debug_assertions) && !trust.team_signed && Some(pid) == parent_id()
     {
         return true;
     }
@@ -134,6 +133,29 @@ fn is_app(credentials: &platform::Credentials) -> bool {
     examined
         .program
         .is_some_and(|program| trust.app_paths.contains(&program))
+}
+
+#[cfg(unix)]
+fn outranks_core(credentials: &platform::Credentials) -> bool {
+    // SAFETY: geteuid takes nothing and cannot fail.
+    let core_is_root = unsafe { libc::geteuid() } == 0;
+    credentials.uid() == 0 && !core_is_root
+}
+
+/// Only this user can open the core's pipe, so no peer outranks the core.
+#[cfg(windows)]
+fn outranks_core(_credentials: &platform::Credentials) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn parent_id() -> Option<u32> {
+    Some(std::os::unix::process::parent_id())
+}
+
+#[cfg(windows)]
+fn parent_id() -> Option<u32> {
+    sikemux_process::procs::parent(std::process::id()).map(|(parent, _)| parent)
 }
 
 fn own_executable() -> Option<PathBuf> {
@@ -148,7 +170,9 @@ struct Examined {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use std::os::fd::RawFd;
+    use std::os::fd::AsRawFd;
+
+    use sikemux_client::local::Connection;
 
     use core_foundation::base::TCFType;
     use core_foundation::data::CFData;
@@ -199,7 +223,8 @@ mod platform {
         }
     }
 
-    pub fn credentials(fd: RawFd) -> Option<Credentials> {
+    pub fn credentials(stream: &Connection) -> Option<Credentials> {
+        let fd = stream.as_raw_fd();
         let mut token = [0u32; 8];
         let mut length = std::mem::size_of_val(&token) as libc::socklen_t;
         // SAFETY: `token` is a writable buffer of `length` bytes, and the
@@ -247,7 +272,9 @@ mod platform {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    use std::os::fd::RawFd;
+    use std::os::fd::AsRawFd;
+
+    use sikemux_client::local::Connection;
 
     use super::Examined;
 
@@ -266,7 +293,8 @@ mod platform {
         }
     }
 
-    pub fn credentials(fd: RawFd) -> Option<Credentials> {
+    pub fn credentials(stream: &Connection) -> Option<Credentials> {
+        let fd = stream.as_raw_fd();
         let mut credentials = libc::ucred {
             pid: 0,
             uid: 0,
@@ -302,9 +330,9 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
 mod platform {
-    use std::os::fd::RawFd;
+    use sikemux_client::local::Connection;
 
     use super::Examined;
 
@@ -320,7 +348,7 @@ mod platform {
         }
     }
 
-    pub fn credentials(_fd: RawFd) -> Option<Credentials> {
+    pub fn credentials(_stream: &Connection) -> Option<Credentials> {
         None
     }
 
@@ -333,5 +361,93 @@ mod platform {
             signed_app: false,
             program: None,
         }
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::io::AsRawHandle;
+    use std::path::PathBuf;
+
+    use sikemux_client::local::Connection;
+    use windows_sys::Win32::Foundation::{CloseHandle, FILETIME};
+    use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    use windows_sys::Win32::System::SystemInformation::GetSystemTimeAsFileTime;
+    use windows_sys::Win32::System::Threading::{
+        GetProcessTimes, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    use super::Examined;
+
+    /// The pipe names its client by pid alone, so this keeps when the connection was taken
+    /// up: a process started after that has only been given the pid of one that left.
+    pub struct Credentials {
+        pid: u32,
+        connected: u64,
+    }
+
+    impl Credentials {
+        pub fn pid(&self) -> u32 {
+            self.pid
+        }
+    }
+
+    fn ticks(time: FILETIME) -> u64 {
+        u64::from(time.dwHighDateTime) << 32 | u64::from(time.dwLowDateTime)
+    }
+
+    pub fn credentials(stream: &Connection) -> Option<Credentials> {
+        let mut pid = 0u32;
+        // SAFETY: the pipe's handle is open while `stream` lives, and the call writes one u32.
+        let read = unsafe { GetNamedPipeClientProcessId(stream.as_raw_handle(), &mut pid) };
+        let mut now = FILETIME::default();
+        // SAFETY: the call writes one FILETIME.
+        unsafe { GetSystemTimeAsFileTime(&mut now) };
+        (read != 0 && pid != 0).then(|| Credentials {
+            pid,
+            connected: ticks(now),
+        })
+    }
+
+    pub fn own_code_signed_by_team() -> bool {
+        false
+    }
+
+    pub fn examine(credentials: &Credentials) -> Examined {
+        Examined {
+            signed_app: false,
+            program: program(credentials),
+        }
+    }
+
+    fn program(credentials: &Credentials) -> Option<PathBuf> {
+        // SAFETY: OpenProcess takes plain values; the handle is closed below.
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, credentials.pid) };
+        if process.is_null() {
+            return None;
+        }
+        let mut times = [FILETIME::default(); 4];
+        let [created, exited, kernel, user] = &mut times;
+        // SAFETY: `process` is open, and the call writes four FILETIMEs.
+        let timed = unsafe { GetProcessTimes(process, created, exited, kernel, user) } != 0;
+        let mut path = vec![0u16; 32 * 1024];
+        let mut length = path.len() as u32;
+        // SAFETY: `path` is writable for `length` characters, and the call writes at most
+        // that many and the length it wrote.
+        let named = unsafe {
+            QueryFullProcessImageNameW(process, PROCESS_NAME_WIN32, path.as_mut_ptr(), &mut length)
+        } != 0;
+        // SAFETY: `process` was opened above and is closed once.
+        unsafe { CloseHandle(process) };
+        if !timed || ticks(times[0]) > credentials.connected || !named {
+            return None;
+        }
+        path.truncate(length as usize);
+        PathBuf::from(OsString::from_wide(&path))
+            .canonicalize()
+            .ok()
     }
 }
