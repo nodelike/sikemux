@@ -1,0 +1,38 @@
+name: Rehearsal artifacts proof
+on:
+  push:
+    branches: [proof-rehearsal-artifacts]
+permissions:
+  contents: read
+jobs:
+  stage:
+    name: Lay out a run's host artifacts as Release does
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p x86_64 aarch64 sigs
+          for arch in x86_64 aarch64; do
+            gh release download v0.6.1-nightly.22 -R "$GITHUB_REPOSITORY" -D "$arch" -p "sikemux-host-0.6.1-nightly.22-linux-$arch.tar.gz"
+            gh release download v0.6.1-nightly.22 -R "$GITHUB_REPOSITORY" -D sigs -p "sikemux-host-0.6.1-nightly.22-linux-$arch.tar.gz.sig"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sikemux-host-x86_64-${{ github.ref_name }}
+          path: x86_64
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sikemux-host-aarch64-${{ github.ref_name }}
+          path: aarch64
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: host-signatures-${{ github.ref_name }}
+          path: sigs
+  rehearsal:
+    needs: stage
+    uses: ./.github/workflows/update-rehearsal.yml
+    with:
+      version: 0.6.1-nightly.22
+      artifacts: true
