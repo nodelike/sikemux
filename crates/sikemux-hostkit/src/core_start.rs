@@ -18,6 +18,13 @@ use sikemux_wire::protocol::BuildIdentity;
 
 use crate::login_item::{start_core, CoreLaunch};
 
+#[cfg(unix)]
+#[path = "core_start/unix.rs"]
+mod platform;
+#[cfg(windows)]
+#[path = "core_start/windows.rs"]
+mod platform;
+
 /// The core first checks that the new binary starts, which can take a while
 /// the first time macOS sees it.
 const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
@@ -27,9 +34,6 @@ const RETURN_TIMEOUT: Duration = Duration::from_secs(20);
 const DEFERRED_RETURN_TIMEOUT: Duration = Duration::from_secs(150);
 /// How long a core that holds its lock gets to answer before it counts as stuck.
 const STUCK_PROBE: Duration = Duration::from_secs(3);
-/// How long a stuck core gets to exit after it is asked to by signal, before it is forced.
-const TERM_GRACE: Duration = Duration::from_secs(5);
-const KILL_GRACE: Duration = Duration::from_secs(2);
 
 pub enum Upgrade {
     Done,
@@ -158,22 +162,15 @@ pub fn stuck(socket: &Path) -> Option<u32> {
     probe(socket, STUCK_PROBE).is_err().then_some(pid)
 }
 
-/// Ends core `pid` while it still holds the lock at `socket`: asks it to by signal, then forces
-/// it, so a core that stopped answering cannot keep another from starting. Answers whether
-/// it is gone.
+/// Ends core `pid` while it still holds the lock at `socket`: asks it to where the system can,
+/// then forces it, so a core that stopped answering cannot keep another from starting. Answers
+/// whether it is gone.
 pub fn end(socket: &Path, pid: u32) -> bool {
-    for (signal, grace) in [(libc::SIGTERM, TERM_GRACE), (libc::SIGKILL, KILL_GRACE)] {
+    for (stop, grace) in platform::STOPS {
         if sikemux_corekit::lock::lock_holder(socket) != Some(pid) {
             return true;
         }
-        let Ok(id) = libc::pid_t::try_from(pid) else {
-            return false;
-        };
-        // SAFETY: kill only takes integers; the pid is a single process above
-        // init, so this never signals a group or every process.
-        unsafe {
-            libc::kill(id, signal);
-        }
+        stop(pid);
         let deadline = Instant::now() + grace;
         while Instant::now() < deadline {
             if sikemux_corekit::lock::lock_holder(socket) != Some(pid) {

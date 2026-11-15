@@ -3,7 +3,6 @@
 //! hang reports.
 
 pub mod cli_paths;
-#[cfg(unix)]
 pub mod core_start;
 pub mod crash_reports;
 pub mod environment;
