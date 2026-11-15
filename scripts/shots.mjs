@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 /*
- * Takes before and after pictures of a commit, its parent first, on throwaway data: no account,
- * no paired device, never the person's core or app. Both are built in one checkout kept only for
- * pictures, so the second build is incremental and the next run starts warm.
+ * Takes pictures of a commit on throwaway data: no account, no paired device, never the person's
+ * core or app. It builds in one checkout kept only for pictures, so each run after the first is
+ * incremental. The "before" of each picture is the last one taken under the same scene name.
  *
  *   node scripts/shots.mjs mac <commit> <film scene>...       film/scenes/<scene>.film, its snaps
  *   node scripts/shots.mjs phone <commit> <showcase scene>... mobile/showcase/capture.mjs scenes
- *   node scripts/shots.mjs iphone <commit>                    builds both iPhone apps on the showcase's data,
+ *   node scripts/shots.mjs iphone <commit>                    builds the iPhone app on the showcase's data,
  *                                                             then prints the sim calls that take each picture
- *   node scripts/shots.mjs iphone <commit> --compare  once its pictures are in <out>/before and <out>/after
+ *   node scripts/shots.mjs iphone <commit> --compare  once its pictures are in <out>/after
  *     [--out <folder>]   default ~/Library/Caches/com.nodelike.sikemux/shots/out/<commit>
  *
- * Both sides use the commit's own scenes and data, so a scene it adds also draws the before.
  * It writes compare.html beside the pictures, each pair stacked at full width, for page_show.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -34,11 +34,7 @@ const { values: options, positionals } = parseArgs({
   options: { out: { type: "string" }, compare: { type: "boolean" } },
 });
 const [platform, wanted, ...scenes] = positionals;
-const PLATFORMS = {
-  mac: { overlay: ["film"], shoot: shootMac },
-  phone: { overlay: ["mobile/showcase"], shoot: shootPhone },
-  iphone: { overlay: ["mobile/showcase"], shoot: buildIphone },
-};
+const PLATFORMS = { mac: shootMac, phone: shootPhone, iphone: buildIphone };
 if (
   !PLATFORMS[platform] ||
   !wanted ||
@@ -55,9 +51,9 @@ const git = (cwd, ...args) =>
   execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 const store = resolve(here, git(here, "rev-parse", "--git-common-dir"));
 const commit = git(here, "rev-parse", "--verify", `${wanted}^{commit}`);
-const parent = git(here, "rev-parse", "--verify", `${commit}^`);
 const home = join(homedir(), "Library/Caches/com.nodelike.sikemux/shots");
 const checkout = join(home, "checkout");
+const kept = join(home, "last", platform);
 const out = resolve(options.out ?? join(home, "out", commit.slice(0, 10)));
 
 const say = (text) => console.error(`\x1b[35m›\x1b[0m ${text}`);
@@ -115,12 +111,6 @@ function moveTo(rev) {
   }
   run("git", ["checkout", "--quiet", "--force", "--detach", rev], checkout);
   run("git", ["clean", "-fdq"], checkout);
-  const overlay = PLATFORMS[platform].overlay;
-  const archive = execFileSync("git", ["archive", commit, ...overlay], {
-    cwd: checkout,
-    maxBuffer: 1 << 30,
-  });
-  execFileSync("tar", ["-x", "-C", checkout], { input: archive });
   if (
     platform === "iphone" &&
     !existsSync(join(checkout, "mobile/ios/Sikemux/Core/Showcase.swift"))
@@ -229,7 +219,7 @@ function shootPhone(side) {
   );
 }
 
-/** sim install takes an app only from inside the caller's project, so both are copied into its ignored build folder. */
+/** sim install takes an app only from inside the caller's project, so it is copied into its ignored build folder. */
 const iphoneApps = join(here, "mobile/ios/build/shots");
 const showcaseData = join(out, "showcase.json");
 
@@ -289,12 +279,12 @@ function buildIphone(side) {
 
 function iphoneSteps() {
   const core = JSON.parse(readFileSync(showcaseData, "utf8")).paired[0]?.core;
-  console.log(`Both apps are built. Take each picture with the sim tool, before then after:
+  console.log(`The app is built. Take each picture with the sim tool:
   sim attach
-  sim install ${relative(here, join(iphoneApps, "before.app"))}
+  sim install ${relative(here, join(iphoneApps, "after.app"))}
   sim launch com.nodelike.sikemux.mobile.dev arguments: ["-SikemuxShowcase", "${showcaseData}", "-SikemuxShowcaseOpen", "sikemux-dev://device/${core}"]
-  sim screenshot, saving the picture as ${relative(here, join(out, "before"))}/<name>.jpg
-then the same with after.app into after/, and run this again with --compare for compare.html. -SikemuxShowcaseOpen takes any of the app's links, such as sikemux-dev://device/${core}/chat/<agent>; the agents are in ${showcaseData}.`);
+  sim screenshot, saving the picture as ${relative(here, join(out, "after"))}/<name>.jpg
+then run this again with --compare for compare.html; a picture keeps its name across commits to have a before. -SikemuxShowcaseOpen takes any of the app's links, such as sikemux-dev://device/${core}/chat/<agent>; the agents are in ${showcaseData}.`);
 }
 
 function pictures(folder) {
@@ -310,11 +300,18 @@ function compare() {
   const after = pictures(join(out, "after"))
     .map((path) => relative(join(out, "after"), path))
     .sort();
+  if (!existsSync(join(out, "before"))) {
+    for (const name of after) {
+      if (existsSync(join(kept, name)))
+        cpSync(join(kept, name), join(out, "before", name));
+    }
+  }
+  for (const name of after) cpSync(join(out, "after", name), join(kept, name));
   const pairs = after
     .map((name) => {
       const before = existsSync(join(out, "before", name))
         ? `<img src="before/${name}">`
-        : "<p>No before: the parent draws no such picture.</p>";
+        : "<p>No before: no picture was taken under this name yet.</p>";
       return `<h2>${name}</h2><h3>Before</h3>${before}<h3>After</h3><img src="after/${name}">`;
     })
     .join("\n");
@@ -337,14 +334,9 @@ if (options.compare) {
 lock();
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
-for (const [side, rev] of [
-  ["before", parent],
-  ["after", commit],
-]) {
-  say(`${side}: ${rev.slice(0, 10)}`);
-  moveTo(rev);
-  PLATFORMS[platform].shoot(side);
-}
+say(`after: ${commit.slice(0, 10)}`);
+moveTo(commit);
+PLATFORMS[platform]("after");
 if (platform === "iphone") {
   iphoneSteps();
 } else {

@@ -129,19 +129,22 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 
 - A picture never needs the person: no account, no paired device, no signed-in simulator. Never ask
   them to sign one in for a shot.
-- `node scripts/shots.mjs mac <commit> <scene>…` draws the Mac window at the commit's parent and at
-  the commit, from the `snap` steps of `film/scenes/<scene>.film`, on a throwaway core and the
-  stand-in Claude. `phone` does the same for the Android app's showcase scenes
-  (`mobile/showcase/capture.mjs`). `iphone` builds the native app at both in its showcase mode
-  (`-SikemuxShowcase`, Debug builds only, from 4819b46d8 on) on the same data, and prints the
-  `sim` calls that take each picture; `--compare` then writes the page.
-- Both sides use the commit's own scenes and data, so add the scene that shows a change in the
-  commit that makes it. Keep the data what a real core folded (the showcase's `recorded` chats, a
-  scene's replies played through the core), never rows drawn by hand.
+- Take pictures only when the look changes and the person will judge it. Shoot the phones only
+  when a phone screen changed.
+- `node scripts/shots.mjs mac <commit> <scene>…` draws the Mac window at the commit, from the
+  `snap` steps of `film/scenes/<scene>.film`, on a throwaway core and the stand-in Claude. `phone`
+  does the same for the Android app's showcase scenes (`mobile/showcase/capture.mjs`). `iphone`
+  builds the native app in its showcase mode (`-SikemuxShowcase`, Debug builds only, from
+  4819b46d8 on) on the same data, and prints the `sim` calls that take each picture; `--compare`
+  then writes the page.
+- Nothing is built at the parent. The "before" of each picture is the last one taken under the
+  same scene name, so keep a scene's name when the change is to how it looks.
+- Keep the data what a real core folded (the showcase's `recorded` chats, a scene's replies played
+  through the core), never rows drawn by hand.
 - It builds in one checkout kept for pictures, `~/Library/Caches/com.nodelike.sikemux/shots`, one
-  run at a time, so after the first run both builds are incremental. Take shots there after the
-  land, not with a build of your own checkout. `compare.html` beside the pictures stacks each pair
-  for `page_show`.
+  run at a time, so after the first run builds are incremental. Take shots there after the land,
+  not with a build of your own checkout. `compare.html` beside the pictures stacks each pair for
+  `page_show`.
 
 ## Server
 
