@@ -804,6 +804,26 @@ async fn reach_hosts(
     }
 }
 
+/// This app on the network, and what it hears from the hosts it joins there.
+type Reached = (Arc<Linked>, mpsc::UnboundedReceiver<Happened>);
+
+/// Reaches the hosts this one is linked with on a task of its own, as that goes over the
+/// network and the window's first view must not wait for it.
+fn reach_hosts_later(
+    client: &Arc<CoreClient>,
+    updates: &mpsc::UnboundedSender<Update>,
+    reaching: &mut bool,
+    reached: &mpsc::UnboundedSender<Option<Reached>>,
+) {
+    if std::mem::replace(reaching, true) {
+        return;
+    }
+    let (client, updates, reached) = (client.clone(), updates.clone(), reached.clone());
+    tokio::spawn(async move {
+        let _ = reached.send(reach_hosts(&client, &updates).await);
+    });
+}
+
 /// Joins every host the core is linked with, and lets go of the rest.
 fn follow_links(linked: &Option<Arc<Linked>>, client: &Arc<CoreClient>) {
     let Some(linked) = linked.clone() else {
@@ -1246,6 +1266,8 @@ async fn run(
     let mut watches = Watches::default();
     let mut linked: Option<Arc<Linked>> = None;
     let mut heard: Option<mpsc::UnboundedReceiver<Happened>> = None;
+    let (reached_hosts_tx, mut reached_hosts) = mpsc::unbounded_channel::<Option<Reached>>();
+    let mut reaching = false;
     let current = watches.generations.clone();
     let failed = FailedWatches::default();
     let mut reconnect = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
@@ -1294,10 +1316,7 @@ async fn run(
                     read(&client, key, watch, (&current, &failed), &updates);
                 }
                 if linked.is_none() {
-                    if let Some((reached, events)) = reach_hosts(&client, &updates).await {
-                        linked = Some(reached);
-                        heard = Some(events);
-                    }
+                    reach_hosts_later(&client, &updates, &mut reaching, &reached_hosts_tx);
                 }
                 follow_links(&linked, &client);
                 let (settle_tx, mut settled) = mpsc::unbounded_channel();
@@ -1359,10 +1378,7 @@ async fn run(
                             }
                             Some(ClientEvent::Event(Event::Remote { status })) => {
                                 if linked.is_none() && status.owner.is_some() {
-                                    if let Some((reached, events)) = reach_hosts(&client, &updates).await {
-                                        linked = Some(reached);
-                                        heard = Some(events);
-                                    }
+                                    reach_hosts_later(&client, &updates, &mut reaching, &reached_hosts_tx);
                                 }
                                 follow_links(&linked, &client);
                                 if remote_on != Some(status.enabled) {
@@ -1406,6 +1422,14 @@ async fn run(
                             Some(_) => {}
                             None => break,
                         },
+                        hosts = reached_hosts.recv() => {
+                            reaching = false;
+                            if let Some(Some((reached, events))) = hosts {
+                                linked = Some(reached);
+                                heard = Some(events);
+                                follow_links(&linked, &client);
+                            }
+                        }
                         happened = heard_from(&mut heard) => match happened {
                             Some(Happened::Connected(host)) => {
                                 for (&key, watch) in watches.hosts.get(&host).into_iter().flatten() {
