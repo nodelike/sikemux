@@ -1451,7 +1451,7 @@ fn tracked(uri: &str) -> Option<(Icon, &str)> {
 
 /// A context item's chip: `#12 Title` for an issue or pull request, its title for an
 /// earlier chat or anything else.
-fn context_chip(
+pub(crate) fn context_chip(
     id: String,
     uri: &str,
     title: &str,
@@ -1714,6 +1714,29 @@ pub fn thumbnail(
         .into_any_element()
 }
 
+/// The icon of a file named `name`'s kind.
+fn file_icon(name: &str, t: &Tokens, cx: &App) -> gpui_kit::AnyElement {
+    crate::file_icons::icon(&SharedString::from(name.to_owned()), cx)
+        .map(|icon| gpui_kit::img(icon).size(px(14.)).into_any_element())
+        .unwrap_or_else(|| {
+            ui::icon(Icon::File, 13.)
+                .text_color(t.text_tertiary)
+                .into_any_element()
+        })
+}
+
+/// A file as a small chip like a context item's: its kind's icon and its name.
+pub(crate) fn file_chip(id: String, path: &Path, t: &Tokens, cx: &App) -> Attachment {
+    let name = crate::ui::path::file_name(path);
+    let icon = file_icon(&name, t, cx);
+    Attachment::new()
+        .id(SharedString::from(id))
+        .with_size(gpui_kit::component::Size::Small)
+        .tooltip(path.to_string_lossy().into_owned())
+        .media(AttachmentMedia::new().child(icon))
+        .content(AttachmentContent::new().title(AttachmentTitle::new(name)))
+}
+
 /// A file sent with an answer, as a slim pill with its icon and name that opens it.
 pub fn file_pill(
     id: String,
@@ -1723,13 +1746,7 @@ pub fn file_pill(
     cx: &App,
 ) -> gpui_kit::AnyElement {
     let name = crate::ui::path::file_name(&path);
-    let icon = crate::file_icons::icon(&SharedString::from(name.clone()), cx)
-        .map(|icon| gpui_kit::img(icon).size(px(14.)).into_any_element())
-        .unwrap_or_else(|| {
-            ui::icon(Icon::File, 13.)
-                .text_color(t.text_tertiary)
-                .into_any_element()
-        });
+    let icon = file_icon(&name, t, cx);
     let (full, menu_full, menu_file) = (
         path.to_string_lossy().into_owned(),
         path.to_string_lossy().into_owned(),

@@ -8,6 +8,8 @@ use gpui_kit::{
     ObjectFit, ParentElement, SharedString, StatefulInteractiveElement, Styled, StyledImage,
     WeakEntity,
 };
+use std::path::PathBuf;
+
 use sikemux_view::now::{AskStand, NowAsk, NowGroup, ProjectNow};
 
 use crate::icons::Icon;
@@ -116,7 +118,10 @@ pub(super) fn board(bench: &Workbench, chief: &str, cx: &mut Context<Workbench>)
                     .flex_col()
                     .gap(SPACE_2)
                     .child(lane_label(lane.words(), asks.len(), cx))
-                    .children(asks.iter().map(|ask| card(bench, ask, *lane, &handle, cx)))
+                    .children(
+                        asks.iter()
+                            .map(|ask| card(bench, ask, chief, *lane, &handle, cx)),
+                    )
             }))
             .into_any_element(),
     };
@@ -190,6 +195,7 @@ fn lane_label(words: &str, count: usize, cx: &App) -> Div {
 fn card(
     bench: &Workbench,
     ask: &NowAsk,
+    chief: &str,
     lane: Lane,
     handle: &WeakEntity<Workbench>,
     cx: &App,
@@ -234,6 +240,7 @@ fn card(
                 .child(ask.title.clone()),
         )
         .children(thumbnail(ask, &t))
+        .children(links(bench, ask, chief, handle, cx))
         .child(
             div()
                 .h(px(FOOT_H))
@@ -300,6 +307,82 @@ fn thumbnail(ask: &NowAsk, t: &Tokens) -> Option<Div> {
                     )
                 }),
         ),
+    )
+}
+
+enum Link {
+    Page(String),
+    File(PathBuf),
+}
+
+/// The pages and files the ask's agent opened on its desk while on it, the first two as chips
+/// that open on `chief`'s desk with one click, and how many more.
+fn links(
+    bench: &Workbench,
+    ask: &NowAsk,
+    chief: &str,
+    handle: &WeakEntity<Workbench>,
+    cx: &App,
+) -> Option<Div> {
+    const SHOWN: usize = 2;
+    let t = Tokens::get(cx);
+    let count = ask.pages.len() + ask.files.len();
+    if count == 0 {
+        return None;
+    }
+    let opener = |link: Link| {
+        let (handle, chief) = (handle.clone(), chief.to_owned());
+        move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
+            cx.stop_propagation();
+            let _ = handle.update(cx, |bench, cx| match &link {
+                Link::Page(url) => {
+                    bench.open_on_desk(&chief, url, cx);
+                }
+                Link::File(path) => bench.open_file_on_desk(&chief, path.clone(), None, None, cx),
+            });
+        }
+    };
+    let pages = ask.pages.iter().map(|page| {
+        let chip = crate::chat::context_chip(
+            format!("ask-{}-page-{}", ask.id, page.id),
+            &page.url,
+            &page.title,
+            Some(&bench.asks),
+            t,
+        );
+        (chip, opener(Link::Page(page.url.clone())))
+    });
+    let files = ask.files.iter().map(|path| {
+        let path = PathBuf::from(path);
+        let id = format!("ask-{}-file-{}", ask.id, path.display());
+        let chip = crate::chat::file_chip(id, &path, t, cx);
+        (chip, opener(Link::File(path)))
+    });
+    let chips = (pages.chain(files).take(SHOWN).enumerate()).map(|(at, (chip, open))| {
+        div()
+            .id(SharedString::from(format!("ask-{}-link-{at}", ask.id)))
+            .min_w_0()
+            .clicks(open)
+            .child(chip)
+    });
+    let more = count.saturating_sub(SHOWN);
+    Some(
+        div()
+            .px(SPACE_3)
+            .pt(SPACE_2)
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .overflow_hidden()
+            .children(chips)
+            .when(more > 0, |row| {
+                row.child(
+                    ui::text(format!("+{more}"), TEXT_XS, FontWeight::MEDIUM)
+                        .flex_none()
+                        .font_features(theme::tabular())
+                        .text_color(t.text_tertiary),
+                )
+            }),
     )
 }
 
