@@ -1,176 +1,48 @@
 name: Windows
 
-# Kept apart from CI on purpose: Release starts from CI's verdict, and Windows is still coming up,
-# so a red run here must never hold a nightly back.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "crates/**"
-      - "app/**"
-      - "plugins/**"
-      - Cargo.toml
-      - Cargo.lock
-      - rust-toolchain.toml
-      - .github/workflows/windows.yml
-      - .github/windows-crates.txt
   workflow_dispatch:
     inputs:
-      packages:
-        description: Cargo package flags, such as "-p sikemux-process -p sikemux-pty" or "--workspace"; empty takes .github/windows-crates.txt
-        type: string
-        default: ""
-      command:
-        description: What to run on them
-        type: choice
-        options: [check, clippy, test]
-        default: check
       window:
-        description: Open the app in a real window on both runners and keep a picture, instead of the crates' checks
         type: boolean
         default: false
 
-permissions:
-  contents: read
-
-# Each dispatch runs on its own: workers start several at once on one branch, and a group named
-# after the crate list grew past GitHub's limit.
-concurrency:
-  group: windows-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
-  cancel-in-progress: false
-
 env:
-  DEPS_OPT_LEVEL: 1
-  CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_TERM_COLOR: always
 
 jobs:
-  rust:
-    name: Windows ${{ matrix.arch }}
-    if: ${{ !inputs.window }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-latest
-            arch: x86_64
-          - runner: windows-11-arm
-            arch: aarch64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+  size:
+    name: What W5 adds to the Windows app
+    runs-on: windows-latest
+    timeout-minutes: 180
     defaults:
       run:
         shell: bash
     steps:
-      # Cargo's target folder nests deeper than Windows' old 260-character limit, and
-      # tests compare generated files byte for byte with the Unix line endings in git.
       - name: Configure git
         run: |
           git config --global core.longpaths true
           git config --global core.autocrlf false
-
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Pick the crates
-        id: crates
-        env:
-          PACKAGES: ${{ inputs.packages }}
-          COMMAND: ${{ inputs.command || 'main' }}
-        run: |
-          packages="$PACKAGES"
-          if [ -z "$packages" ]; then
-            while read -r crate; do
-              [ -n "$crate" ] && packages+=" -p $crate"
-            done < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' .github/windows-crates.txt)
-          fi
-          if [ -z "$packages" ]; then
-            echo "No crates are listed in .github/windows-crates.txt yet" >>"$GITHUB_STEP_SUMMARY"
-          fi
-          echo "packages=$packages" >>"$GITHUB_OUTPUT"
-          echo "command=$COMMAND" >>"$GITHUB_OUTPUT"
-          echo "\`$COMMAND\` on:$packages" >>"$GITHUB_STEP_SUMMARY"
-
-      - name: Setup Rust
-        if: steps.crates.outputs.packages != ''
-        uses: ./.github/actions/setup-rust
-        with:
-          cache: "true"
-          components: clippy
-
-      - name: Check
-        if: steps.crates.outputs.command == 'check' && steps.crates.outputs.packages != ''
-        env:
-          PACKAGES: ${{ steps.crates.outputs.packages }}
-        run: |
-          read -ra packages <<<"$PACKAGES"
-          cargo check "${packages[@]}" --all-targets --keep-going
-
-      - name: Clippy
-        if: (steps.crates.outputs.command == 'clippy' || steps.crates.outputs.command == 'main') && steps.crates.outputs.packages != ''
-        env:
-          PACKAGES: ${{ steps.crates.outputs.packages }}
-        run: |
-          read -ra packages <<<"$PACKAGES"
-          cargo clippy "${packages[@]}" --all-targets -- -D warnings
-
-      - name: Test
-        if: (steps.crates.outputs.command == 'test' || steps.crates.outputs.command == 'main') && steps.crates.outputs.packages != ''
-        env:
-          PACKAGES: ${{ steps.crates.outputs.packages }}
-        run: |
-          read -ra packages <<<"$PACKAGES"
-          cargo test "${packages[@]}" --all-targets --no-fail-fast
-
-  window:
-    name: The app's window on Windows ${{ matrix.arch }}
-    if: inputs.window || github.event_name == 'schedule'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-latest
-            arch: x86_64
-          - runner: windows-11-arm
-            arch: aarch64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
-    steps:
-      - name: Configure git
-        run: |
-          git config --global core.longpaths true
-          git config --global core.autocrlf false
-
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
+          fetch-depth: 4
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
-          cache: "true"
-
-      - name: Build the app
-        run: cargo build --locked -p sikemux-app --bin sikemux
-
-      # Windows PowerShell, which carries System.Drawing for the picture.
-      - name: Open the app in a real window and take a picture
-        shell: powershell
-        run: app\ci\windows-window.ps1 -App target\debug\sikemux.exe -Out "$env:RUNNER_TEMP\window"
-
-      - name: Build the browser's proof
-        run: cargo build --locked -p sikemux-browser --example windows_tools
-
-      - name: Drive a page through the browser tools and take a picture
-        shell: powershell
-        run: app\ci\windows-window.ps1 -App target\debug\examples\windows_tools.exe -Out "$env:RUNNER_TEMP\window\browser" -Arguments "$env:RUNNER_TEMP\window\browser" -Expect "$env:RUNNER_TEMP\window\browser\passed" -Settle 40
-
-      - name: Upload the picture
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: app-window-${{ matrix.arch }}
-          path: ${{ runner.temp }}/window
+          cache: "false"
+      - name: Build both and compare
+        run: |
+          measure() {
+            cargo build --locked --release -p sikemux-app --bin sikemux
+            exe=target/release/sikemux.exe
+            size=$(stat -c %s "$exe")
+            7z a -tzip -mx=9 "$RUNNER_TEMP/$1.zip" "./$exe" >/dev/null
+            zipped=$(stat -c %s "$RUNNER_TEMP/$1.zip")
+            echo "$1: exe $size bytes, zipped $zipped bytes ($(git rev-parse --short HEAD))" | tee -a "$GITHUB_STEP_SUMMARY"
+          }
+          git checkout -q HEAD~1
+          measure with-w5
+          git checkout -q HEAD~2
+          measure without-w5
