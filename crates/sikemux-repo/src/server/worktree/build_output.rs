@@ -467,10 +467,10 @@ fn all_landed(tree: &AgentWorktree) -> bool {
 /// Whether the checkout at `tree` has nothing uncommitted, untracked files included, and `base`
 /// holds a commit with the same change as each of its own, as landing rebases them.
 fn on_base(tree: &Path, base: &str) -> bool {
-    let git = Git::quick(tree);
-    git.trimmed(&["status", "--porcelain"])
+    Git::quick(tree)
+        .trimmed(&["status", "--porcelain"])
         .is_ok_and(|status| status.is_empty())
-        && git
+        && Git::quick(tree)
             .trimmed(&["cherry", base, "HEAD"])
             .is_ok_and(|missing| !missing.lines().any(|line| line.starts_with('+')))
 }
