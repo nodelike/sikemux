@@ -247,7 +247,7 @@ jobs:
               [ $pid = $core ] && continue
               for task in /proc/$pid/task/*; do if grep ^Gid $task/status | grep -qw $gid; then echo "$pid $(cat $task/comm) holds the group"; [ "$GROUP_STRICT" = no ] || exit 1; fi; done
             done
-            readlink /proc/$(pgrep -u person -x sikemux | head -1)/exe
+            runuser -u person -- readlink /proc/$(pgrep -u person -x sikemux | head -1)/exe
             import -display :99 -window root /out/window.png || echo "no screenshot"
             socket=/home/person/.config/sikemux/core.sock
             test -S $socket
@@ -336,6 +336,10 @@ jobs:
           '
 
   omarchy:
+    strategy:
+      fail-fast: false
+      matrix:
+        patched: [yes, no]
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     env:
@@ -357,7 +361,8 @@ jobs:
           ref: 574da542516d6dc29b8dcdfb0d423461bc33b178
           path: src/omarchy-pkgs
           persist-credentials: false
-      - run: git -C src/omarchy -c user.name=proof -c user.email=proof@localhost am "$PWD/proof/proof/omarchy.patch"
+      - if: matrix.patched == 'yes'
+        run: git -C src/omarchy -c user.name=proof -c user.email=proof@localhost am "$PWD/proof/proof/omarchy.patch"
       - name: Fetch Omarchy's VM image, as their Tests workflow does
         run: |
           sudo apt-get update -qq
@@ -388,6 +393,6 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: omarchy-tests
+          name: omarchy-tests-patched-${{ matrix.patched }}
           path: out
           if-no-files-found: warn
