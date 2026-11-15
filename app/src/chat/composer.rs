@@ -1456,7 +1456,7 @@ fn context_card(
         )
         .child(
             ui::text(
-                format!("/ {}", crate::ui::numbers::compact(usage.size)),
+                format!("/ {}", crate::ui::numbers::compact(usage.limit())),
                 TEXT_2XS_H,
                 FontWeight::NORMAL,
             )
@@ -1499,16 +1499,6 @@ fn context_card(
                 .flex_col()
                 .gap(px(3.))
                 .child(row(t!("Tokens"), tokens.into_any_element()))
-                .children(usage.compact_at.map(|at| {
-                    let at = ui::text(
-                        crate::ui::numbers::compact(at),
-                        TEXT_2XS_H,
-                        FontWeight::NORMAL,
-                    )
-                    .font_features(theme::tabular())
-                    .text_color(t.text_primary);
-                    row(t!("Compacts at"), at.into_any_element())
-                }))
                 .children(compactions.map(|compactions| {
                     let ink = match compactions.count {
                         10.. => t.danger,
