@@ -35,3 +35,4 @@ gpui-transcript
 gpui-terminal-grid
 gpui-clicks
 sikemux-hostkit
+sikemux-wire
