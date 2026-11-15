@@ -3,7 +3,7 @@ title: Chats and terminals
 description: "An agent's chat, its own terminal UI, and how to talk to it while it works."
 ---
 
-Start an agent with `⌘N`. Each agent opens in the chat Sikemux draws for it. A chat you open yourself, with `⌘N`, **New chat** or the agent picker, starts its agent at once, so it is ready by the time you send; one left empty with nothing sent for 5 minutes goes to sleep and starts again as you begin writing. A chat that opens by itself, such as in a project with nothing open, starts its agent only as you begin writing. An agent that went to sleep shows its chat as it was and wakes as you begin writing to it.
+Start an agent with `⌘N`. Each agent opens in the chat Sikemux draws for it. A chat you open yourself, with `⌘N`, **New chat** or the agent picker, starts its agent at once, so it is ready by the time you send; one left empty with nothing sent for 5 minutes goes to sleep and starts again as you begin writing. A chat that opens by itself, such as in a project with nothing open, starts its agent only as you begin writing. A chat idle for 2 minutes goes to sleep too, open on screen or not, so it holds no memory while it waits. It stays awake while it works, runs a background task, or has a draft in its composer, and a chat you started stays awake until you have seen its last answer. Agents that cannot load a saved conversation, such as some ACP agents, never sleep this way. A chat that went to sleep shows its chat as it was and wakes as you begin writing to it, or when a trigger or another agent writes to it. It wakes on the same conversation, so its prompt cache still holds and the answer comes back about as fast as from a chat that never slept.
 
 ## GUI and TUI
 

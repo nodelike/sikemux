@@ -352,6 +352,8 @@ pub struct Chat {
     /// The last turn failed for want of the network, and its prompt goes
     /// again once the network is back.
     pub offline_failed: AtomicBool,
+    /// The agent can load its saved conversation again, so the chat may sleep and wake on it.
+    pub reloadable: AtomicBool,
     /// The turn at work is being stopped only to go on under another account, so its lead
     /// is not told it stopped.
     pub moving_on: AtomicBool,
@@ -879,6 +881,8 @@ impl Chat {
 
     /// Writes down where the chat stands, with how its loop says its turns go.
     pub fn keep(&self, progress: kept::Progress<'_>) {
+        self.reloadable
+            .store(progress.reloadable, Ordering::Release);
         let (running, working) = {
             let state = self.turn.locked();
             (state.turn == Turn::Prompted, state.turn != Turn::Idle)

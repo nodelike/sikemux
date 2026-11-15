@@ -552,6 +552,7 @@ impl Chats {
             at_rest: AtomicBool::new(false),
             releasing: AtomicBool::new(false),
             offline_failed: AtomicBool::new(false),
+            reloadable: AtomicBool::new(true),
             moving_on: AtomicBool::new(false),
             edits: (core.chat_above().new_edits)(),
             cli_version: Mutex::new(None),

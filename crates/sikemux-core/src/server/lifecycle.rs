@@ -1,9 +1,12 @@
 //! When the core puts a chat to sleep and wakes it, and starts a terminal
-//! agent again. A chat no client has on screen sleeps once it has been idle for
-//! a while, the oldest first when more than a few sit idle, and one a client
-//! brings on screen wakes again. A chat at work, one waiting to send again a
-//! turn the network cut short, or one the person keeps alive, is never put to sleep. A terminal agent that crashes comes back on
-//! its saved session below its last screen, unless it crashes again at once.
+//! agent again. A chat sleeps once it has been idle for a while, on screen or
+//! not, and off screen the oldest go first when more than a few sit idle. A
+//! message, a trigger or the person's first key wakes it on its saved session.
+//! A chat at work, one waiting to send again a turn the network cut short, one
+//! the person keeps alive or is writing in, and one the person started whose
+//! last answer they have not read, is never put to sleep. A terminal agent that
+//! crashes comes back on its saved session below its last screen, unless it
+//! crashes again at once.
 
 use crate::server::activity::ActivityCore;
 use crate::server::chat_state::ChatParts;
@@ -25,8 +28,9 @@ use sikemux_wire::protocol::{AgentState, Continuation, SessionId};
 use super::agent::AgentActivity;
 use super::{launching, session, Core, CoreResult};
 
-/// How long a chat nobody looks at stays idle before it sleeps.
-const IDLE_SLEEP_MS: u64 = 10 * 60_000;
+/// How long a chat stays idle before it sleeps. Over half of all replies come within it, and a
+/// later one loses nothing: the person's first key wakes the chat and its cache holds on resume.
+const IDLE_SLEEP_MS: u64 = 2 * 60_000;
 /// How many idle chats nobody looks at stay awake, so the ones switched
 /// back to most come back at once.
 const MAX_WARM: usize = 3;
@@ -352,41 +356,51 @@ pub(crate) async fn serve(core: Arc<Core>) {
     }
 }
 
-/// The chats to sleep now: every one idle off screen for [`IDLE_SLEEP_MS`],
-/// and the oldest beyond [`MAX_WARM`] of the rest.
+/// The chats to sleep now: every one idle for [`IDLE_SLEEP_MS`], and the
+/// oldest beyond [`MAX_WARM`] of the rest no client has on screen.
 fn due(core: &Core, began: u64, now: u64) -> Vec<String> {
-    let mut idle: Vec<(u64, String)> = core
-        .chats()
-        .ids()
-        .into_iter()
-        .filter(|agent_id| may_sleep(core, agent_id))
-        .map(|agent_id| {
-            let quiet = core
-                .seen()
-                .quiet_since(&agent_id)
-                .unwrap_or(began)
-                .max(began);
-            (quiet, agent_id)
-        })
-        .collect();
-    idle.sort();
-    let stale = idle
-        .iter()
-        .filter(|(quiet, _)| now.saturating_sub(*quiet) >= IDLE_SLEEP_MS)
-        .count();
-    let sleeping = stale.max(idle.len().saturating_sub(MAX_WARM));
-    idle.into_iter()
-        .take(sleeping)
-        .map(|(_, agent_id)| agent_id)
-        .collect()
+    let mut stale = Vec::new();
+    let mut off_screen: Vec<(u64, String)> = Vec::new();
+    for agent_id in core.chats().ids() {
+        if !may_sleep(core, &agent_id) {
+            continue;
+        }
+        let quiet = core
+            .seen()
+            .quiet_since(&agent_id)
+            .unwrap_or(began)
+            .max(began);
+        if now.saturating_sub(quiet) >= IDLE_SLEEP_MS {
+            stale.push(agent_id);
+        } else if !core.seen().viewed(&agent_id) {
+            off_screen.push((quiet, agent_id));
+        }
+    }
+    off_screen.sort();
+    let beyond_warm = off_screen.len().saturating_sub(MAX_WARM);
+    stale.extend(
+        off_screen
+            .into_iter()
+            .take(beyond_warm)
+            .map(|(_, agent_id)| agent_id),
+    );
+    stale
 }
 
 /// Whether the chat could sleep now: it is in the workspace, the person does
-/// not keep it alive, no client has it on screen, and it rests on a session
-/// it can be woken on.
+/// not keep it alive, it has a conversation to wake on, nothing is drafted in
+/// it, and the person has read its last answer if they started it.
 fn may_sleep(core: &Core, agent_id: &str) -> bool {
-    kept(core, agent_id)
-        && !core.seen().viewed(agent_id)
+    let Some(agent) = core.workspaces().agent(agent_id) else {
+        return false;
+    };
+    let drafted =
+        (core.drafts().chat_draft(agent_id)).is_some_and(|draft| !draft.text.trim().is_empty());
+    let unread_by_starter = agent.lead.is_none() && core.seen().unread(agent_id);
+    !agent.keep_alive
+        && agent.resume_id.is_some()
+        && !drafted
+        && !unread_by_starter
         && idle(core, agent_id)
         && !super::chat::cap::holds_awake(core, agent_id, epoch_ms())
 }
@@ -399,10 +413,12 @@ fn kept(core: &Core, agent_id: &str) -> bool {
 
 /// A chat waking from sleep reads as idle while it starts, since it keeps the feed it slept with,
 /// so only a ready one counts. One with a background task still running is not idle, as sleep
-/// would end the task with the agent.
+/// would end the task with the agent, and one whose agent cannot load its conversation again
+/// would wake on a new one.
 fn idle(core: &Core, agent_id: &str) -> bool {
     core.chats().get(agent_id).is_some_and(|chat| {
         chat.is_ready()
+            && chat.reloadable.load(Ordering::Acquire)
             && !chat.offline_failed.load(Ordering::Acquire)
             && chat.state_now() == AgentState::Idle
             && chat.feed.running_tasks() == 0
