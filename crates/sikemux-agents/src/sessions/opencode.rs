@@ -66,6 +66,25 @@ pub(super) fn opencode_db_paths() -> Vec<PathBuf> {
     paths
 }
 
+/// The API key OpenCode keeps for `integration`, the one it uses when it has several.
+pub fn saved_key(integration: &str) -> Option<String> {
+    opencode_db_paths().iter().find_map(|db| {
+        let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+        let value: String = conn
+            .query_row(
+                "SELECT value FROM credential WHERE integration_id = ?1 \
+                 ORDER BY active DESC, time_updated DESC LIMIT 1",
+                [integration],
+                |row| row.get(0),
+            )
+            .ok()?;
+        let value: serde_json::Value = serde_json::from_str(&value).ok()?;
+        (value["type"] == "key")
+            .then(|| value["key"].as_str().map(str::to_owned))
+            .flatten()
+    })
+}
+
 fn normalize_unix_secs(raw: u64) -> u64 {
     if raw > 10_000_000_000 {
         raw / 1000

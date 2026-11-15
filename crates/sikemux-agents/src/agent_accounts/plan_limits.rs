@@ -155,18 +155,8 @@ fn grok_usage(answer: &Value) -> Option<Usage> {
 }
 
 fn opencode_go_key() -> Option<String> {
-    let data = shell_var("XDG_DATA_HOME")
-        .map(|data| Path::new(&data).join("opencode"))
-        .or_else(|| {
-            sikemux_process::paths::home().map(|home| home.join(".local/share/opencode"))
-        })?;
-    let saved = read_json(&data.join("auth.json"));
-    let stored = saved
-        .as_ref()
-        .and_then(|saved| saved.get("opencode-go"))
-        .filter(|go| go.get("type").and_then(Value::as_str) == Some("api"))
-        .and_then(|go| go.get("key")?.as_str().map(str::to_owned));
-    let key = stored.or_else(|| shell_var("OPENCODE_API_KEY"))?;
+    let key = crate::sessions::opencode::saved_key("opencode-go")
+        .or_else(|| shell_var("OPENCODE_API_KEY"))?;
     let key = key.trim();
     (!key.is_empty()).then(|| key.to_owned())
 }
