@@ -80,6 +80,13 @@ export function docked(line: Said, waiting: number, say: Say = english): Said {
     return { ...line, parts: [...(waiting > 1 ? [say("{count} calls", { count: waiting })] : []), ...line.parts.slice(-1)] };
 }
 
+/** The agent a wait names first, with how many more it waits on: `@Otter +14`. */
+function agentsWaitedOn(wait: TurnWait): string {
+    const first = wait.what.startsWith("@") ? wait.what : `@${wait.what}`;
+    const more = (wait.agents?.length ?? 0) - 1;
+    return more > 0 ? `${first} +${more}` : first;
+}
+
 export function waitingOn(wait: TurnWait, say: Say = english): string {
     switch (wait.kind) {
         case "ci":
@@ -89,7 +96,7 @@ export function waitingOn(wait: TurnWait, say: Say = english): string {
         case "check":
             return say("Waiting on the checks");
         case "agent":
-            return say("Waiting on {what}", { what: wait.what.startsWith("@") ? wait.what : `@${wait.what}` });
+            return say("Waiting on {what}", { what: agentsWaitedOn(wait) });
         case "timer":
             return wait.until != null ? say("Waiting until {when}", { when: clockLabel(wait.until, undefined, undefined, say) }) : say("Waiting");
         case "line":

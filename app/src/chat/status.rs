@@ -587,7 +587,7 @@ pub(super) fn trouble(
             word: t!("Failed").into(),
             phase: TurnPhase::Failed,
             parts: parts.into_iter().map(SharedString::from).collect(),
-            agent: None,
+            agents: Vec::new(),
         };
         turn_line::line(agent.mark(21., cx), &said, key.clone(), None, buttons, cx)
             .flex_wrap()

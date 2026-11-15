@@ -46,11 +46,26 @@ struct TurnLine: View {
 
     private static var minuteStart: Date { Calendar.current.dateInterval(of: .minute, for: .now)?.start ?? .now }
 
+    /// The most agents the line names by their chips; the rest are counted in one chip that lists them.
+    private static let shownAgents = 2
+
+    /// The agents the turn waits on that this host lists, longest at work first.
+    private var waitedOn: [Crew.Named] {
+        guard let wait = turn.wait, wait.kind == .agent, let crew else { return [] }
+        let ids = wait.agents ?? wait.agent.map { [$0] } ?? []
+        return ids.compactMap { crew.agent($0) }
+    }
+
     private func words(_ said: CallWords.Said) -> some View {
         HStack(spacing: 6) {
-            if said.phase == .waiting, turn.wait?.kind == .agent, let agent = crew?.agent(turn.wait?.agent) {
+            if said.phase == .waiting, !waitedOn.isEmpty {
                 Text("Waiting on").font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).fixedSize()
-                AgentPill(agent: agent, size: 12.5).fixedSize()
+                ForEach(waitedOn.prefix(Self.shownAgents), id: \.id) { agent in
+                    AgentPill(agent: agent, size: 12.5).fixedSize()
+                }
+                if waitedOn.count > Self.shownAgents {
+                    MoreAgents(agents: Array(waitedOn.dropFirst(Self.shownAgents))).fixedSize()
+                }
             } else if said.phase == .waiting {
                 // A wait's place, holder and minutes matter more than its long name, which gives way first.
                 Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).lineLimit(1)
@@ -120,6 +135,37 @@ struct TurnLine: View {
                 Haptics.failure()
                 refused = problem(error)
             }
+        }
+    }
+}
+
+/// The count of the agents a line waits on past the ones it names; a tap lists them as their chips.
+private struct MoreAgents: View {
+    @Environment(\.palette) private var palette
+    let agents: [Crew.Named]
+    @State private var open = false
+
+    var body: some View {
+        Button {
+            Haptics.select()
+            open = true
+        } label: {
+            Text("+\(agents.count)")
+                .font(Theme.ui(12.5, .medium))
+                .foregroundStyle(palette.secondary)
+                .padding(.horizontal, 6)
+                .frame(height: 20.5)
+                .background(palette.active, in: RoundedRectangle(cornerRadius: Radius.control * 0.5))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(agents.map(\.written).joined(separator: ", "))
+        .popover(isPresented: $open) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(agents, id: \.id) { AgentPill(agent: $0, size: 13).fixedSize() }
+            }
+            .padding(12)
+            .simultaneousGesture(TapGesture().onEnded { open = false })
+            .presentationCompactAdaptation(.popover)
         }
     }
 }

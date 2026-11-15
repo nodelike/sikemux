@@ -75,14 +75,19 @@ enum CallWords {
         return Said(word: said.word, phase: said.phase, parts: more + Array(said.parts.suffix(1)))
     }
 
+    /// The agent a wait names first, with how many more it waits on: `@Otter +14`.
+    private static func agentsWaitedOn(_ wait: TurnWait) -> String {
+        let first = wait.what.hasPrefix("@") ? wait.what : "@\(wait.what)"
+        let more = (wait.agents?.count ?? 0) - 1
+        return more > 0 ? "\(first) +\(more)" : first
+    }
+
     static func waitingOn(_ wait: TurnWait) -> String {
         switch wait.kind {
         case .ci: String(localized: "Waiting on CI")
         case .deploy: String(localized: "Waiting on the deploy")
         case .check: String(localized: "Waiting on the checks")
-        case .agent:
-            wait.what.hasPrefix("@")
-                ? String(localized: "Waiting on \(wait.what)") : String(localized: "Waiting on @\(wait.what)")
+        case .agent: String(localized: "Waiting on \(agentsWaitedOn(wait))")
         case .timer:
             wait.until.map { String(localized: "Waiting until \(ChatWords.clock($0))") } ?? String(localized: "Waiting")
         case .line: wait.what

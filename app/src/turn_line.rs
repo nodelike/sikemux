@@ -4,8 +4,8 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, Context, Div, FontWeight, Hsla, IntoElement, ParentElement, Render,
-    SharedString, Styled, WeakEntity, Window,
+    div, px, AnyElement, App, Context, Div, FontWeight, Hsla, InteractiveElement, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use sikemux_view::chat::FailureKind;
 use sikemux_view::turn::{
@@ -22,8 +22,8 @@ pub struct Said {
     pub word: SharedString,
     pub phase: TurnPhase,
     pub parts: Vec<SharedString>,
-    /// The agent the word names, by id, which a line that can open it draws as its chip.
-    pub agent: Option<String>,
+    /// The agents the word names, by id, which a line that can open them draws as their chips.
+    pub agents: Vec<String>,
 }
 
 /// What `turn` says, for an agent of `maker` (the agent's own name, such as Claude). Working
@@ -38,14 +38,16 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
         }
         TurnPhase::Waiting => {
             let wait = turn.wait.as_ref()?;
-            let agent = (wait.kind == TurnWaitKind::Agent)
-                .then(|| wait.agent.clone())
-                .flatten();
+            let agents = match (wait.kind, wait.agents.is_empty()) {
+                (TurnWaitKind::Agent, true) => wait.agent.clone().into_iter().collect(),
+                (TurnWaitKind::Agent, false) => wait.agents.clone(),
+                _ => Vec::new(),
+            };
             return Some(Said {
                 word: waiting_on(wait).into(),
                 phase: turn.state,
                 parts: (waited(wait, now).into_iter()).map(Into::into).collect(),
-                agent,
+                agents,
             });
         }
         TurnPhase::NeedsYou => {
@@ -68,7 +70,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
                     word: t!("Done").into(),
                     phase: turn.state,
                     parts: Vec::new(),
-                    agent: None,
+                    agents: Vec::new(),
                 });
             };
             let mut parts = vec![changed(done.changes).to_owned()];
@@ -113,7 +115,7 @@ pub fn said(turn: &TurnState, maker: &str, now: u64) -> Option<Said> {
         word: word.into(),
         phase: turn.state,
         parts: parts.into_iter().map(SharedString::from).collect(),
-        agent: None,
+        agents: Vec::new(),
     })
 }
 
@@ -230,15 +232,24 @@ pub fn moment(at: u64) -> String {
     crate::chat::clock(at).unwrap_or_default()
 }
 
+/// The agent a wait names first, with how many more it waits on: `@Otter +14`.
+fn agents_waited_on(wait: &TurnWait) -> String {
+    let first = match wait.what.starts_with('@') {
+        true => wait.what.clone(),
+        false => format!("@{}", wait.what),
+    };
+    match wait.agents.len() {
+        0 | 1 => first,
+        count => format!("{first} +{}", count - 1),
+    }
+}
+
 fn waiting_on(wait: &TurnWait) -> String {
     match wait.kind {
         TurnWaitKind::Ci => t!("Waiting on CI").into(),
         TurnWaitKind::Deploy => t!("Waiting on the deploy").into(),
         TurnWaitKind::Check => t!("Waiting on the checks").into(),
-        TurnWaitKind::Agent if wait.what.starts_with('@') => {
-            t!("Waiting on {what}", what = wait.what)
-        }
-        TurnWaitKind::Agent => t!("Waiting on {what}", what = format!("@{}", wait.what)),
+        TurnWaitKind::Agent => t!("Waiting on {what}", what = agents_waited_on(wait)),
         TurnWaitKind::Timer => match wait.until {
             Some(until) => t!("Waiting until {when}", when = moment(until)),
             None => t!("Waiting").into(),
@@ -351,18 +362,18 @@ pub fn words(
 ) -> Div {
     let t = Tokens::get(cx);
     let dot = || div().flex_none().text_color(t.text_disabled).child("·");
-    let pill = (bench.zip(said.agent.as_deref())).and_then(|(bench, agent)| {
-        let row = bench.upgrade()?.read(cx).agent_by_id(agent)?;
-        Some(crate::chat::agent_pill(&row, size, bench, cx))
-    });
+    let pills = bench.and_then(|bench| agent_pills(&said.agents, size, bench, cx));
     let word = div()
         .flex_none()
         .flex()
         .items_center()
         .gap(px(5.))
         .font_weight(FontWeight::MEDIUM)
-        .map(|word| match (tint(said.phase, cx), pill) {
-            (Some(tint), Some(pill)) => word.text_color(tint).child(t!("Waiting on")).child(pill),
+        .map(|word| match (tint(said.phase, cx), pills) {
+            (Some(tint), Some(pills)) => word
+                .text_color(tint)
+                .child(t!("Waiting on"))
+                .children(pills),
             (Some(tint), None) => word.text_color(tint).child(said.word.clone()),
             (None, _) => word.child(ui::shimmer::shimmer(key, said.word.clone())),
         });
@@ -389,6 +400,71 @@ pub fn words(
                 .child(part.clone());
             [dot().into_any_element(), shown.into_any_element()]
         }))
+}
+
+/// The most agents a line names by their chips; the rest are counted in one chip that lists them.
+const SHOWN_AGENTS: usize = 2;
+
+/// The chips of the agents a line waits on: the first two, then a count of the rest, which
+/// lists them on hover. None when the bench knows none of them.
+fn agent_pills(
+    agents: &[String],
+    size: f32,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> Option<Vec<AnyElement>> {
+    let rows: Vec<_> = {
+        let bench = bench.upgrade()?;
+        let bench = bench.read(cx);
+        (agents.iter())
+            .filter_map(|agent| bench.agent_by_id(agent))
+            .collect()
+    };
+    if rows.is_empty() {
+        return None;
+    }
+    let shown = match rows.len() {
+        count if count <= SHOWN_AGENTS => count,
+        _ => SHOWN_AGENTS,
+    };
+    let mut pills: Vec<AnyElement> = (rows[..shown].iter())
+        .map(|row| crate::chat::agent_pill(row, size, bench, cx).into_any_element())
+        .collect();
+    let hidden = rows[shown..].to_vec();
+    if hidden.is_empty() {
+        return Some(pills);
+    }
+    let t = Tokens::get(cx);
+    let more = div()
+        .id(SharedString::from(format!("waiting-more:{}", agents[0])))
+        .flex_none()
+        .px(SPACE_1H)
+        .rounded(crate::theme::RADIUS_2)
+        .bg(t.surface_raised)
+        .text_color(t.text_secondary)
+        .text_size(crate::theme::ui_text(size))
+        .child(format!("+{}", hidden.len()))
+        .tooltip(ui::card_tooltip(180., {
+            let bench = bench.clone();
+            move |cx| hidden_list(&hidden, &bench, cx)
+        }));
+    pills.push(more.into_any_element());
+    Some(pills)
+}
+
+/// The agents a count of more stands for, as their chips, longest at work first.
+fn hidden_list(
+    rows: &[crate::agents::rows::AgentRow],
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .items_start()
+        .gap(px(4.))
+        .children((rows.iter()).map(|row| crate::chat::agent_pill(row, TEXT_SM, bench, cx)))
+        .into_any_element()
 }
 
 /// The line at the end of a chat: the agent's `mark`, what `said` says, and `buttons` on the

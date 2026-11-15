@@ -245,6 +245,7 @@
   .apill > span { display: grid; width: 1.05em; height: 1.05em; }
   .apill > span svg { width: 100%; height: 100%; }
   .apill .chief { color: var(--acc); }
+  .apill.more { padding: 0 6px; color: var(--ink-dim); }
   .crumbs { display: flex; align-items: center; gap: 4px; flex: none; font-size: 12.5px; }
   .crumbs .sep { color: var(--ink-faint); display: grid; }
   .crumbs .sep svg { width: 9px; height: 9px; }
@@ -2576,7 +2577,7 @@
           <div class="result-card"><span data-buddy="buddies ghostie 2 idle" style="width:17px;height:17px;display:grid"></span><b>@Zetsu</b><em>Land queue slimming</em><span class="facts"><i></i>no changes</span><span class="ch">{{IconChevron:11}}</span></div>
           <div class="work"><span class="work-sum"><span style="color:var(--acc)">{{Logo:15}}</span>Thought for 5s{{IconChevron:10}}</span></div>
           <div class="prose">The fix is on main now. <span class="apill"><span data-buddy="buddies ghostie 2 idle"></span>@Zetsu</span> is watching CI on it.</div>
-          <div class="turn-line"><span class="tl-mark"><span style="color:var(--acc)">{{Logo:15}}</span></span><span class="turn-words"><b class="wait">Waiting on</b> <span class="apill"><span data-buddy="buddies bean 1 idle"></span>@Yuzu</span><i>·</i><span class="p2">1 min</span></span></div>
+          <div class="turn-line"><span class="tl-mark"><span style="color:var(--acc)">{{Logo:15}}</span></span><span class="turn-words"><b class="wait">Waiting on</b> <span class="apill"><span data-buddy="buddies bean 1 idle"></span>@Yuzu</span> <span class="apill"><span data-buddy="buddies ghostie 2 idle"></span>@Zetsu</span> <span class="apill more">+3</span><i>·</i><span class="p2">1 min</span></span></div>
         </div>
         <div class="composer-wrap">
           <div class="composer">
@@ -2592,7 +2593,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A chief's chat</b><div class="note">As the Mac draws it. The chief's own rows wear Sikemux's S, never its CLI's logo: its work's line, its live line and its turn's last line. Each agent of the host that its words name by @name is drawn in the line as the Mac's chip, its mark and name on a grey lift, and a tap opens its chat; the phone matches only the names its host lists. A worker's finished work sits after the message it finished behind, as the host sends it: its mark, @name, what it worked on, a dot and where its work is, Try it and Undo when the core offers them, and a chevron that opens its chat. Waiting on another agent names it with the same chip.</div></figcaption>
+      <figcaption><b>A chief's chat</b><div class="note">As the Mac draws it. The chief's own rows wear Sikemux's S, never its CLI's logo: its work's line, its live line and its turn's last line. Each agent of the host that its words name by @name is drawn in the line as the Mac's chip, its mark and name on a grey lift, and a tap opens its chat; the phone matches only the names its host lists. A worker's finished work sits after the message it finished behind, as the host sends it: its mark, @name, what it worked on, a dot and where its work is, Try it and Undo when the core offers them, and a chevron that opens its chat. Waiting on other agents names them with the same chip, longest at work first: two at most, then a +N chip whose tap lists the rest as chips. Android, which draws no chips in this line, says Waiting on @Yuzu +4.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
