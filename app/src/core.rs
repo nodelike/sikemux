@@ -1328,6 +1328,12 @@ async fn run(
                                 let _ = updates.send(Update::AccountDevice { key, name });
                             }
                             Some(ClientEvent::Event(Event::Remote { status })) => {
+                                if linked.is_none() && status.owner.is_some() {
+                                    if let Some((reached, events)) = reach_hosts(&client, &updates).await {
+                                        linked = Some(reached);
+                                        heard = Some(events);
+                                    }
+                                }
                                 follow_links(&linked, &client);
                                 if remote_on != Some(status.enabled) {
                                     remote_on = Some(status.enabled);
