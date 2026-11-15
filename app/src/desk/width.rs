@@ -274,7 +274,7 @@ pub(super) fn all(
                             .aspect_ratio(shape.max(1. / TALLEST_PICTURE))
                             .overflow_hidden()
                             .rounded(px(6.))
-                            .border_1()
+                            .border(crate::theme::border())
                             .border_color(t.border)
                             .bg(t.surface_raised)
                             .hover(move |frame| frame.border_color(t.border_strong))

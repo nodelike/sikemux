@@ -404,7 +404,7 @@ pub fn run(
         .items_center()
         .gap(SPACE_2)
         .max_w_full()
-        .font_family(theme::UI)
+        .font_family(theme::ui_font())
         .rounded(theme::radius_2())
         .cursor_pointer()
         .hover(move |sum| sum.bg(hover).text_color(ink))
@@ -420,7 +420,7 @@ pub fn run(
         .children(time.map(|time| {
             div()
                 .flex_none()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_color(looks.quiet)
                 .child(time)
         }))
@@ -481,7 +481,7 @@ pub fn run(
         )
     });
     let run = div()
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .child(div().flex().child(sum))
         .children(body);
@@ -825,8 +825,8 @@ pub(super) fn spine(last: bool, looks: &Drawn) -> Div {
             .left_0()
             .w(px(9.))
             .h(px(11.5))
-            .border_l_1()
-            .border_b_1()
+            .border_l(crate::theme::border())
+            .border_b(crate::theme::border())
             .border_color(spine)
             .rounded_bl(px(4.));
     }
@@ -890,7 +890,7 @@ fn well(looks: &Drawn) -> Div {
     div()
         .rounded(px(8.))
         .bg(looks.tints.sunken)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_XS))
 }
 
@@ -971,7 +971,7 @@ fn terminal(
                 .py(px(1.))
                 .rounded(px(10.))
                 .bg(looks.tints.failed_ground)
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(looks.tints.failed_ink)
@@ -1073,7 +1073,7 @@ fn shot_card(
             .flex()
             .items_center()
             .gap(px(7.))
-            .border_t_1()
+            .border_t(crate::theme::border())
             .border_color(looks.line)
             .text_size(crate::theme::ui_text(TEXT_XS))
             .child(div().flex_none().child(icon))
@@ -1082,7 +1082,7 @@ fn shot_card(
                 div()
                     .flex_none()
                     .ml_auto()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .text_color(looks.faint)
                     .child(site),
@@ -1095,7 +1095,7 @@ fn shot_card(
             .max_w(px(300.))
             .rounded(px(8.))
             .overflow_hidden()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(looks.line)
             .bg(looks.tints.sunken)
             .child(thumb)
@@ -1177,7 +1177,7 @@ fn diff_gap(id: &str, gap: usize, looks: &Drawn) -> AnyElement {
         .flex()
         .items_center()
         .gap(px(6.))
-        .font_family(theme::UI)
+        .font_family(theme::ui_font())
         .text_color(quiet)
         .hover(move |gap| gap.text_color(ink))
         .clicks(move |_, _, cx| {

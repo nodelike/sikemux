@@ -88,7 +88,7 @@ pub(crate) fn command_log(pane: &GitPane, cx: &mut Context<GitPane>) -> impl Int
             .disabled(disabled)
             .px(SPACE_2)
             .py(SPACE_0)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .text_size(crate::theme::ui_text(TEXT_3XS_H))
             .text_color(t.text_secondary)
@@ -144,9 +144,9 @@ pub(crate) fn command_log(pane: &GitPane, cx: &mut Context<GitPane>) -> impl Int
         .flex()
         .flex_col()
         .bg(t.surface)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_color(t.text_secondary)
         .child(
             div()
@@ -155,7 +155,7 @@ pub(crate) fn command_log(pane: &GitPane, cx: &mut Context<GitPane>) -> impl Int
                 .gap(SPACE_2H)
                 .px(SPACE_3)
                 .py(SPACE_1H)
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .child(ui::kbd("@", cx))
@@ -228,7 +228,7 @@ pub(crate) fn pages(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoEleme
         .gap(SPACE_1)
         .px(SPACE_2)
         .py(SPACE_1)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .child(page(
             "git-page-changes",
@@ -334,7 +334,7 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
         (value > 0).then(|| {
             div()
                 .flex_none()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(colour)
                 .child(format!("{arrow}{value}"))
@@ -397,7 +397,7 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
         .gap(SPACE_2)
         .flex_none()
         .pt(SPACE_2)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .child(
             div()
@@ -418,10 +418,10 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
                             .px(SPACE_1H)
                             .flex()
                             .items_center()
-                            .border_1()
+                            .border(crate::theme::border())
                             .border_color(t.danger.opacity(0.32))
                             .rounded(px(4.))
-                            .font_family(theme::MONO)
+                            .font_family(theme::mono_font())
                             .text_size(crate::theme::ui_text(TEXT_2XS))
                             .text_color(t.danger)
                             .child(t!("git error")),
@@ -440,7 +440,7 @@ pub(crate) fn head(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoEl
         .child(
             div()
                 .flex()
-                .border_t_1()
+                .border_t(crate::theme::border())
                 .border_color(t.border)
                 .child(sync(
                     "git-fetch",
@@ -614,7 +614,7 @@ pub(crate) fn away_note(host: &str, cx: &App) -> Div {
         .px(SPACE_3)
         .py(SPACE_2)
         .rounded(crate::theme::radius_2())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.warn.opacity(0.4))
         .bg(t.warn.opacity(0.08))
         .text_size(crate::theme::ui_text(TEXT_XS))
@@ -744,7 +744,7 @@ pub(crate) fn filter_row(field: &Entity<InputState>, count: Option<usize>, cx: &
         .flex()
         .items_center()
         .gap(SPACE_2)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(ui::icon(Icon::Search, 12.).text_color(t.text_tertiary))
@@ -757,7 +757,7 @@ pub(crate) fn filter_row(field: &Entity<InputState>, count: Option<usize>, cx: &
         .children(count.filter(|count| *count > 0).map(|count| {
             div()
                 .flex_none()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
                 .child(count.to_string())
@@ -842,7 +842,7 @@ pub(crate) fn writer_picker(pane: &GitPane, cx: &mut Context<GitPane>) -> impl I
             .flex()
             .items_center()
             .justify_center()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .hover(move |style| style.bg(t.surface_hover).border_color(t.border_strong))
             .child(
@@ -906,7 +906,7 @@ pub(crate) fn composer(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl In
     div()
         .flex_none()
         .mb(SPACE_1H)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .capture_key_down(cx.listener(|pane, event: &KeyDownEvent, window, cx| {
             let keys = &event.keystroke;
@@ -949,7 +949,7 @@ pub(crate) fn composer(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl In
                         .flex()
                         .items_center()
                         .gap(SPACE_1H)
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.border)
                         .text_size(crate::theme::ui_text(TEXT_XS))
                         .text_color(t.text_secondary)
@@ -978,7 +978,7 @@ pub(crate) fn composer(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl In
                         .px(SPACE_3)
                         .flex()
                         .items_center()
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.accent)
                         .bg(t.accent)
                         .text_color(t.on_accent)
@@ -1173,7 +1173,7 @@ pub(crate) fn entry_row(
                     .flex_none()
                     .w(px(14.))
                     .text_center()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(colour)
@@ -1269,8 +1269,8 @@ pub(crate) fn tree_lines(first: bool, last: bool, t: &Tokens) -> Vec<Div> {
             .top(top)
             .w(px(5.))
             .h(px(if first { 27. } else { 14.5 }))
-            .border_l_1()
-            .border_b_1()
+            .border_l(crate::theme::border())
+            .border_b(crate::theme::border())
             .border_color(t.tree_spine)
             .rounded_bl(px(4.))];
     }
@@ -1493,7 +1493,7 @@ impl Render for GitPane {
             .size_full()
             .flex()
             .gap(SPACE_2)
-            .font_family(theme::UI)
+            .font_family(theme::ui_font())
             .on_key_down(cx.listener(Self::key))
             .child(side(self, window, cx))
             .child(

@@ -219,7 +219,7 @@ pub fn render(
                     .gap(SPACE_0)
                     .px(SPACE_4)
                     .py(px(9.))
-                    .border_b_1()
+                    .border_b(crate::theme::border())
                     .border_color(t.line_soft)
                     .cursor_pointer()
                     .when_else(
@@ -300,7 +300,7 @@ pub fn render(
             .gap(SPACE_2)
             .px(SPACE_4)
             .py(SPACE_2H)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 div()
@@ -374,10 +374,10 @@ pub fn render(
             t!("Command"),
             t!("Runs unsandboxed in the active session's directory, with SIKEMUX_SESSION_* and SIKEMUX_PROJECT set."),
             div()
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.line)
                 .rounded(theme::radius_2())
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .child(Textarea::new(&fields.command).h(px(96.)).bordered(false))
                 .into_any_element(),

@@ -160,7 +160,7 @@ pub fn render(
         .flex_none()
         .flex()
         .flex_col()
-        .border_r_1()
+        .border_r(crate::theme::border())
         .border_color(t.line_soft)
         .children(profiles.iter().map(|profile| {
             let chosen = profile.id == fields.id;
@@ -262,7 +262,7 @@ pub fn render(
             .gap(SPACE_1H)
             .px(SPACE_4)
             .py(SPACE_2H)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 div()

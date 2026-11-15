@@ -70,7 +70,7 @@ pub fn select_field(
         .items_center()
         .gap(SPACE_1H)
         .rounded(radius_2())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(if disabled {

@@ -339,7 +339,7 @@ impl Line {
     fn height(self) -> f32 {
         match self {
             Line::Rule => RULE_HEIGHT,
-            _ => ROW_HEIGHT,
+            _ => crate::theme::dense(ROW_HEIGHT),
         }
     }
 }
@@ -570,7 +570,11 @@ impl Workbench {
             input,
             lines: Vec::new(),
             selected: None,
-            list: ListState::new(0, ListAlignment::Top, px(ROW_HEIGHT * 8.)),
+            list: ListState::new(
+                0,
+                ListAlignment::Top,
+                px(crate::theme::dense(ROW_HEIGHT) * 8.),
+            ),
             before,
             _typing: typing,
         };
@@ -676,8 +680,9 @@ pub(crate) fn list_room(window: &Window, deck: bool) -> f32 {
         true => 680_f32.min(height * 0.72),
         false => height * 0.62,
     };
-    let rows = ((panel - HEAD_HEIGHT - 1. - 2. * INSET - 2.) / ROW_HEIGHT).floor();
-    rows.max(1.) * ROW_HEIGHT
+    let row = crate::theme::dense(ROW_HEIGHT);
+    let rows = ((panel - HEAD_HEIGHT - 1. - 2. * INSET - 2.) / row).floor();
+    rows.max(1.) * row
 }
 
 pub fn overlay(
@@ -773,7 +778,7 @@ pub fn overlay(
                             .gap(SPACE_2H)
                             .h(px(HEAD_HEIGHT))
                             .px(px(2. * INSET))
-                            .border_b_1()
+                            .border_b(crate::theme::border())
                             .border_color(t.border)
                             .child(ui::icon(Icon::Search, 15.).text_color(t.text_tertiary))
                             .child(
@@ -850,7 +855,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
         Some(Line::Heading(place)) => {
             let group = palette.spec.rows[*place].group.clone().unwrap_or_default();
             return div()
-                .h(px(ROW_HEIGHT))
+                .h(px(crate::theme::dense(ROW_HEIGHT)))
                 .px(SPACE_2)
                 .flex()
                 .items_end()
@@ -890,7 +895,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
         .flex()
         .items_center()
         .gap(SPACE_2H)
-        .h(px(ROW_HEIGHT))
+        .h(px(crate::theme::dense(ROW_HEIGHT)))
         .px(SPACE_2)
         .rounded(theme::radius_2())
         .text_size(crate::theme::ui_text(TEXT_SM))
@@ -988,7 +993,7 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
         .items_center()
         .gap(SPACE_0)
         .p(SPACE_0)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_2())
         .bg(Hsla {
@@ -1017,7 +1022,7 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
                         .when(on, |option| {
                             option
                                 .bg(t.surface_raised)
-                                .border_1()
+                                .border(crate::theme::border())
                                 .border_color(t.border)
                         })
                         .when(!on, |option| {
@@ -1040,7 +1045,7 @@ fn mode_switch(choice: Choice, cx: &mut Context<Workbench>) -> impl IntoElement 
                                         .letter_spacing(0.08)
                                 }
                             }
-                            .font_family(theme::MONO),
+                            .font_family(theme::mono_font()),
                         )
                 }),
         )

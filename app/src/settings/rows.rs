@@ -133,13 +133,16 @@ pub fn section_with(
         } else {
             card_fill(cx)
         })
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_3())
         .when(headed, |card| card.child(heading))
         .child(
             div()
-                .when(headed, |body| body.border_t_1().border_color(t.line_soft))
+                .when(headed, |body| {
+                    body.border_t(crate::theme::border())
+                        .border_color(t.line_soft)
+                })
                 .child(div().mb(px(-1.)).flex().flex_col().child(body)),
         )
         .into_any_element()
@@ -155,7 +158,7 @@ pub fn card(flash: bool, body: impl IntoElement, cx: &App) -> AnyElement {
         } else {
             card_fill(cx)
         })
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_3())
         .child(body)
@@ -275,7 +278,7 @@ fn laid_out(
         .gap(SPACE_4)
         .px(SPACE_4)
         .py(px(11.))
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(named)
         .child(div().flex_none().ml_auto().child(control))

@@ -207,7 +207,7 @@ fn pull_row(
         .px(SPACE_1H)
         .py(SPACE_0)
         .rounded(radius_2())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_3XS))
         .text_color(t.text_secondary)

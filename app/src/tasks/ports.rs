@@ -135,7 +135,7 @@ impl PortRow {
                 .child(div().flex_1().min_w_0().truncate().child(process.clone()))
                 .child(
                     div()
-                        .font_family(crate::theme::MONO)
+                        .font_family(crate::theme::mono_font())
                         .text_color(t.text_tertiary)
                         .child(t!(":{port}", port = port)),
                 )

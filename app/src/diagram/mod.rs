@@ -778,7 +778,7 @@ impl Render for Diagram {
                     .p(px(3.))
                     .rounded(theme::radius_3())
                     .bg(t.surface_overlay)
-                    .border_1()
+                    .border(crate::theme::border())
                     .border_color(t.border)
                     .shadow(t.shadow_float())
                     .text_size(theme::ui_text(TEXT_2XS))
@@ -1563,7 +1563,7 @@ impl Frame {
             let at = origin + point(px(10.), px(7. + row as f32 * line));
             let (font, ink) = match (row, strong) {
                 (0, _) => (name_font(), t.text_primary),
-                (_, true) => (gpui_kit::font(theme::UI), t.text_secondary),
+                (_, true) => (gpui_kit::font(theme::ui_font()), t.text_secondary),
                 (_, false) => (type_font(), t.text_tertiary),
             };
             text(said, font, size, ink, at, line, window, cx);
@@ -2119,7 +2119,7 @@ fn fnv(text: &str) -> u64 {
 fn name_font() -> Font {
     Font {
         weight: FontWeight::SEMIBOLD,
-        ..gpui_kit::font(theme::UI)
+        ..gpui_kit::font(theme::ui_font())
     }
 }
 
@@ -2130,12 +2130,12 @@ fn column_font(primary: bool) -> Font {
         } else {
             FontWeight::NORMAL
         },
-        ..gpui_kit::font(theme::UI)
+        ..gpui_kit::font(theme::ui_font())
     }
 }
 
 fn type_font() -> Font {
-    gpui_kit::font(theme::MONO)
+    theme::mono()
 }
 
 fn rgb(colour: u32) -> Hsla {

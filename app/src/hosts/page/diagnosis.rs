@@ -68,7 +68,9 @@ fn row(step: &DiagnosisStep, name: &str, t: &Tokens) -> AnyElement {
                 .rounded_full()
                 .bg(ground)
                 .when(unchecked, |mark| {
-                    mark.border_1().border_dashed().border_color(t.border)
+                    mark.border(crate::theme::border())
+                        .border_dashed()
+                        .border_color(t.border)
                 })
                 .text_color(tint)
                 .child(ui::text(glyph, TEXT_2XS, FontWeight::MEDIUM)),
@@ -270,7 +272,7 @@ pub(super) fn evidence(text: &str, t: &Tokens, cx: &mut Context<Workbench>) -> A
         .py(SPACE_2)
         .rounded(radius_2())
         .bg(t.surface_sunken)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .gap(SPACE_1H)
         .child(ui::mono(text.to_owned(), TEXT_2XS, cx).text_color(t.text_secondary))

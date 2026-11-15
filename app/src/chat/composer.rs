@@ -537,7 +537,7 @@ impl RenderOnce for Composer {
                             .p(SPACE_2)
                             .flex()
                             .flex_col()
-                            .border_1()
+                            .border(crate::theme::border())
                             .border_color(if yolo_on {
                                 Hsla {
                                     a: YOLO_EDGE,
@@ -1378,7 +1378,7 @@ fn context_meter(
                 .pb(px(11.))
                 .rounded(radius_3())
                 .bg(t.surface_overlay)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
                 .shadow(t.shadow_float())
                 .text_color(t.text_primary)

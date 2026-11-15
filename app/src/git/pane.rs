@@ -121,7 +121,7 @@ pub fn status_mark(change: GitChange, cx: &App) -> Option<Div> {
     let (letter, colour, _) = decoration(change, Tokens::get(cx))?;
     Some(
         div()
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_3XS))
             .font_weight(FontWeight::BOLD)
             .text_color(colour)

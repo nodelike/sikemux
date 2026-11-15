@@ -29,7 +29,10 @@ pub(crate) fn state_dot(state: SliceState, size: f32, cx: &App) -> AnyElement {
     match state {
         SliceState::Done => dot.bg(t.live),
         SliceState::Moving => dot.border(px(1.5)).border_color(t.live),
-        SliceState::Waiting => dot.border_1().border_dashed().border_color(t.text_tertiary),
+        SliceState::Waiting => dot
+            .border(crate::theme::border())
+            .border_dashed()
+            .border_color(t.text_tertiary),
         SliceState::NeedsYou => dot.bg(t.warn),
         SliceState::Failed => dot.bg(t.danger),
     }

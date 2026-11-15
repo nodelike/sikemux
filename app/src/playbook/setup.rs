@@ -209,7 +209,7 @@ fn step_row(
         .gap(SPACE_3)
         .px(SPACE_3H)
         .py(SPACE_2H)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(
             ui::text((at + 1).to_string(), TEXT_XS, FontWeight::NORMAL)
@@ -221,7 +221,7 @@ fn step_row(
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(theme::ui_text(TEXT_XS_H))
                 .text_color(ink)
                 .child(command.to_owned()),
@@ -300,7 +300,7 @@ fn failure_line(step: &SetupStep, cx: &mut Context<Workbench>) -> AnyElement {
         .pb(SPACE_2H)
         .pl(px(46.))
         .bg(t.danger.opacity(0.08))
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(
             div()
@@ -310,14 +310,14 @@ fn failure_line(step: &SetupStep, cx: &mut Context<Workbench>) -> AnyElement {
                 .px(SPACE_2H)
                 .py(SPACE_1H)
                 .rounded(theme::radius_2())
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.danger.opacity(0.3))
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(theme::ui_text(TEXT_XS))
                         .text_color(t.danger)
                         .child(step.last_line.clone().unwrap_or_default()),
@@ -364,7 +364,7 @@ fn ports_card(config: &ProjectConfig, cx: &mut Context<Workbench>) -> Option<Any
         .items_center()
         .px(SPACE_3H)
         .py(SPACE_2)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(column(t!("Name"), Some(118.)))
         .child(column(t!("This folder"), Some(170.)))
@@ -375,7 +375,7 @@ fn ports_card(config: &ProjectConfig, cx: &mut Context<Workbench>) -> Option<Any
             .items_center()
             .px(SPACE_3H)
             .py(SPACE_2H)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 ui::text(name.to_string(), TEXT_XS_H, FontWeight::NORMAL)
@@ -425,7 +425,7 @@ fn heavy_card(config: &ProjectConfig, cx: &mut Context<Workbench>) -> Option<Any
             .gap(SPACE_2)
             .px(SPACE_3H)
             .py(SPACE_2H)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(ui::mono(command.command.clone(), TEXT_XS_H, cx).text_color(t.text_primary))
             .when(command.before_commit, |row| {
@@ -479,7 +479,7 @@ fn one_at_a_time_card(config: &ProjectConfig, cx: &mut Context<Workbench>) -> Op
             .gap(SPACE_2)
             .px(SPACE_3H)
             .py(SPACE_2H)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 ui::icon(

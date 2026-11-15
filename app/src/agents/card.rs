@@ -439,7 +439,7 @@ fn frame(
         .flex_col()
         .gap(SPACE_2H)
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(crate::theme::radius_3())
         .shadow(t.shadow_float())
@@ -457,7 +457,7 @@ fn frame(
             card.child(
                 div()
                     .pt(SPACE_2H)
-                    .border_t_1()
+                    .border_t(crate::theme::border())
                     .border_color(t.border)
                     .flex()
                     .flex_col()

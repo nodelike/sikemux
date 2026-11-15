@@ -115,7 +115,7 @@ pub(super) fn block(
         .flex_col()
         .gap(SPACE_2)
         .bg(t.surface_raised)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .rounded(radius_4())
         .child(head)

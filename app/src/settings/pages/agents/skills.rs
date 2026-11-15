@@ -288,7 +288,7 @@ fn row(label: String, line: AnyElement, controls: impl IntoElement, t: &Tokens) 
         .gap(SPACE_3)
         .px(SPACE_4)
         .py(SPACE_2H)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(
             div()
@@ -398,7 +398,7 @@ pub fn render(
                 .child(ui::Field::new(&fields.description))
                 .child(
                     div()
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.line)
                         .rounded(theme::radius_2())
                         .text_size(crate::theme::ui_text(TEXT_XS))

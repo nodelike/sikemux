@@ -449,7 +449,7 @@ pub fn review(pane: &mut GitPane, window: &mut Window, cx: &mut Context<GitPane>
     div()
         .size_full()
         .relative()
-        .font_family(crate::theme::MONO)
+        .font_family(crate::theme::mono_font())
         .child(rows)
         .children(pinned)
         .into_any_element()
@@ -489,8 +489,8 @@ fn draw(
     let body = |inner: Div| {
         div().child(
             inner
-                .border_l_1()
-                .border_r_1()
+                .border_l(crate::theme::border())
+                .border_r(crate::theme::border())
                 .border_color(t.border)
                 .bg(t.surface),
         )
@@ -502,9 +502,9 @@ fn draw(
             .child(
                 div()
                     .h(px(1.))
-                    .border_b_1()
-                    .border_l_1()
-                    .border_r_1()
+                    .border_b(crate::theme::border())
+                    .border_l(crate::theme::border())
+                    .border_r(crate::theme::border())
                     .border_color(t.border)
                     .rounded_b(radius_2())
                     .bg(t.surface),
@@ -530,9 +530,9 @@ fn draw(
                     .flex()
                     .items_center()
                     .gap(px(7.))
-                    .when(at > 0, |title| title.border_t_1())
+                    .when(at > 0, |title| title.border_t(crate::theme::border()))
                     .bg(t.surface.opacity(0.55))
-                    .font_family(crate::theme::UI)
+                    .font_family(crate::theme::ui_font())
                     .text_size(crate::theme::ui_text(TEXT_3XS))
                     .text_color(t.text_tertiary)
                     .children(status_mark(change, cx))
@@ -550,7 +550,7 @@ fn draw(
             body(
                 div()
                     .p(SPACE_3)
-                    .font_family(crate::theme::UI)
+                    .font_family(crate::theme::ui_font())
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .text_color(colour)
                     .child(text),

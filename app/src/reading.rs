@@ -35,12 +35,9 @@ pub(crate) fn render(text: &str) -> Markdown {
 /// shrinking with the person's choice as the rest of the interface's text does.
 pub(crate) fn reading_style(text_size: f32, cx: &App) -> Style {
     let t = Tokens::get(cx);
-    let mut mono = gpui_kit::font(theme::MONO);
-    mono.fallbacks = Some(gpui_kit::FontFallbacks::from_fonts(vec![
-        theme::MONO_ICONS.into()
-    ]));
+    let mono = theme::mono();
     Style {
-        font: theme::UI.into(),
+        font: theme::ui_font(),
         mono,
         text_size: px(text_size * theme::text_scale(cx)),
         line_height: 1.72,

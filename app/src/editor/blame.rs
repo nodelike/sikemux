@@ -153,7 +153,7 @@ pub(super) fn overlay(
             let Some(bounds) = state.range_to_bounds(&(end..end)) else {
                 return;
             };
-            let mut font = gpui_kit::font(theme::MONO);
+            let mut font = theme::mono();
             font.style = FontStyle::Italic;
             let colour = Hsla {
                 a: if note.uncommitted { ink.a * 0.7 } else { ink.a },

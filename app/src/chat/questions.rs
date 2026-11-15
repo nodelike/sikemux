@@ -233,7 +233,7 @@ pub(super) fn questions(
             })
             .child(
                 div()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_color(t.text_tertiary)
                     .child(count.to_string()),
             )
@@ -278,7 +278,7 @@ fn question_tabs(
                     .into_any_element()
             } else {
                 div()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_3XS))
                     .text_color(t.text_disabled)
                     .child((ix + 1).to_string())
@@ -298,7 +298,7 @@ fn question_tabs(
                     if on {
                         tab.bg(t.surface_chosen).text_color(t.text_primary)
                     } else {
-                        tab.border_1()
+                        tab.border(crate::theme::border())
                             .border_color(edge)
                             .text_color(t.text_secondary)
                     }
@@ -350,7 +350,7 @@ fn send_button(
             if ready {
                 send.bg(t.surface_chosen).text_color(t.text_primary)
             } else {
-                send.border_1()
+                send.border(crate::theme::border())
                     .border_color(edge)
                     .text_color(t.text_disabled)
             }
@@ -367,7 +367,7 @@ fn send_button(
         .child(
             div()
                 .pl(SPACE_1H)
-                .border_l_1()
+                .border_l(crate::theme::border())
                 .border_color(t.line)
                 .text_size(crate::theme::ui_text(9.5))
                 .text_color(t.text_disabled)
@@ -617,7 +617,7 @@ pub(crate) fn radio(on: bool, t: &Tokens) -> AnyElement {
         .items_center()
         .justify_center()
         .rounded_full()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(match on {
             true => t.text_primary,
             false => Hsla {
@@ -668,7 +668,7 @@ pub(super) fn answered_questions(
             .py(SPACE_2H)
             .rounded(rows::BUBBLE_RADIUS)
             .rounded_bl(SPACE_1H)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(looks.line)
             .bg(looks.asked)
             .text_color(looks.ink)

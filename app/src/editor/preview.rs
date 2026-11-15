@@ -124,7 +124,7 @@ pub(super) fn toolbar(
         .gap(SPACE_0)
         .h(px(28.))
         .px(SPACE_2)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(choice("markdown-source", t!("Source"), Mode::Source))

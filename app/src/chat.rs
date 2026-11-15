@@ -1690,10 +1690,10 @@ pub fn pane(
                             div()
                                 .block_mouse_except_scroll()
                                 .rounded(theme::radius_2())
-                                .border_1()
+                                .border(crate::theme::border())
                                 .border_color(line)
                                 .bg(ground)
-                                .shadow_md()
+                                .shadow(theme::shadow_medium())
                                 .child(
                                     IconButton::new(
                                         "chat-latest",

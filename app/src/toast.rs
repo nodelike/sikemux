@@ -193,7 +193,7 @@ fn toast(kind: Kind, text: SharedString, action: Option<Action>) -> Notification
 fn measure(text: &SharedString, size: f32, rem: Pixels, window: &mut Window, cx: &App) -> Pixels {
     let run = TextRun {
         len: text.len(),
-        font: gpui_kit::font(theme::UI),
+        font: gpui_kit::font(theme::ui_font()),
         color: Tokens::get(cx).text_primary,
         background_color: None,
         underline: None,

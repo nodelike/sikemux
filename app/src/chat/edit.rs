@@ -170,7 +170,7 @@ pub fn editor(agent: &str, editing: &Editing, looks: &Drawn) -> gpui_kit::AnyEle
         .gap(SPACE_2)
         .px(SPACE_3)
         .py(SPACE_2)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(looks.line)
         .rounded(theme::radius_3())
         .bg(looks.bubble)

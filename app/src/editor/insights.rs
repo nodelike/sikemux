@@ -292,7 +292,7 @@ pub(super) fn bar(
         .gap(SPACE_1)
         .h(px(29.))
         .px(SPACE_2)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .child(tab(
             "insights-problems",
@@ -452,7 +452,7 @@ pub(super) fn bar(
     div()
         .flex()
         .flex_col()
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(header)
         .children(body)

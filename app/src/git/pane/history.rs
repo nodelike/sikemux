@@ -349,7 +349,7 @@ fn ref_badge(label: &str, cx: &App) -> Div {
         .pl(SPACE_1H)
         .pr(px(7.))
         .py(SPACE_0)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(edge)
         .rounded(radius_2())
         .when_some(ground, |badge, ground| badge.bg(ground))
@@ -446,7 +446,7 @@ pub fn commit_row(
             row.child(
                 div()
                     .flex_none()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .text_color(t.text_tertiary)
                     .child(commit.hash.clone()),
@@ -455,7 +455,7 @@ pub fn commit_row(
         .child(
             div()
                 .flex_none()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_tertiary)
                 .child(commit.date.clone()),
@@ -502,10 +502,10 @@ pub fn commit_card(
             .px(SPACE_1H)
             .flex()
             .items_center()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(edge)
             .rounded(px(4.))
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_3XS))
             .text_color(colour)
             .child(text)
@@ -517,7 +517,7 @@ pub fn commit_card(
         .gap(SPACE_1H)
         .child(
             div()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_color(t.text_secondary)
                 .child(commit.hash.clone()),
         )
@@ -580,7 +580,7 @@ pub fn commit_card(
         );
     ui::panel(cx)
         .flex_none()
-        .font_family(theme::UI)
+        .font_family(theme::ui_font())
         .child(body)
         .child(commit_foot(commit, cx))
 }
@@ -612,7 +612,7 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
         .gap(SPACE_0)
         .px(SPACE_2)
         .py(SPACE_1H)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .child(
             foot_button("commit-branch", Icon::Git, t!("Branch from here")).on_click(
@@ -801,7 +801,7 @@ fn commit_agents(pane: &GitPane, hash: &str, compact: bool, cx: &App) -> Option<
             .items_center()
             .gap(SPACE_1)
             .overflow_hidden()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .rounded(radius_2())
             .text_size(crate::theme::ui_text(TEXT_2XS))

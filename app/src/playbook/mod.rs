@@ -549,7 +549,7 @@ pub fn pane(
         .flex_col()
         .gap(SPACE_0)
         .p(SPACE_3)
-        .border_r_1()
+        .border_r(crate::theme::border())
         .border_color(t.border)
         .child(
             div()
@@ -733,7 +733,7 @@ fn tasks(
             .gap(SPACE_3)
             .px(SPACE_3H)
             .py(SPACE_2)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 div()
@@ -751,7 +751,7 @@ fn tasks(
                     .child(
                         div()
                             .truncate()
-                            .font_family(theme::MONO)
+                            .font_family(theme::mono_font())
                             .text_size(crate::theme::ui_text(TEXT_2XS_H))
                             .text_color(t.text_tertiary)
                             .child(task.command.clone()),
@@ -906,7 +906,7 @@ fn tasks(
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
-                                .font_family(theme::MONO)
+                                .font_family(theme::mono_font())
                                 .text_size(crate::theme::ui_text(TEXT_2XS_H))
                                 .text_color(t.text_tertiary)
                                 .child(task.command.clone()),
@@ -919,7 +919,7 @@ fn tasks(
                         ))
                 });
             div()
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.line_soft)
                 .child(head)
                 .children(tasks)
@@ -930,7 +930,7 @@ fn tasks(
                 div()
                     .px(SPACE_3H)
                     .py(SPACE_2H)
-                    .border_b_1()
+                    .border_b(crate::theme::border())
                     .border_color(t.line_soft)
                     .child(Field::new(&settings.filter)),
             )
@@ -1017,7 +1017,7 @@ fn git(
                     .gap(SPACE_2H)
                     .px(SPACE_3H)
                     .py(px(9.))
-                    .border_b_1()
+                    .border_b(crate::theme::border())
                     .border_color(t.line_soft)
                     .when(on, |row| row.bg(t.surface_chosen))
                     .when(!on, |row| row.hover(|row| row.bg(t.surface_hover)))
@@ -1193,7 +1193,7 @@ fn config(
             .text_size(crate::theme::ui_text(TEXT_XS))
             .child(
                 div()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_color(t.text_secondary)
                     .child(error.path.clone()),
             )

@@ -272,7 +272,7 @@ pub fn render(
                 .justify_center()
                 .rounded(crate::theme::radius_3())
                 .bg(t.surface_raised)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
                 .child(ui::icon(Icon::Logo, 22.).text_color(t.accent)),
         )

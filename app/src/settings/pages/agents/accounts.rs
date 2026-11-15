@@ -283,7 +283,7 @@ fn account_row(
         .gap(SPACE_3)
         .px(SPACE_4)
         .py(SPACE_2H)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(accounts::avatar(bench.accounts.avatar(profile), 24.))
         .child(

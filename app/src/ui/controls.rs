@@ -375,7 +375,7 @@ impl RenderOnce for Button {
             Variant::Outline | Variant::Ghost => base
                 .h(px(TOOLBAR_HEIGHT))
                 .px(SPACE_3)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(fade(
                     "edge",
                     match (lit, self.variant) {
@@ -414,7 +414,7 @@ impl RenderOnce for Button {
                 .h(px(22.))
                 .px(SPACE_2)
                 .gap(px(5.))
-                .border_1()
+                .border(crate::theme::border())
                 .border_dashed()
                 .border_color(t.border)
                 .text_size(crate::theme::ui_text(TEXT_2XS))
@@ -478,7 +478,7 @@ impl RenderOnce for Button {
         .children(self.trail)
         .children(self.keys.map(|keys| {
             kbd(keys, cx)
-                .font_family(crate::theme::MONO)
+                .font_family(crate::theme::mono_font())
                 .when(self.variant == Variant::Primary, |keys| {
                     keys.text_color(t.on_accent.opacity(0.8))
                 })
@@ -609,7 +609,7 @@ impl Segmented {
             .p(px(1.))
             .rounded(px(7.))
             .bg(t.surface_hover)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .when_some(self.disabled, |track, reason| {
                 track.opacity(0.5).tooltip(super::tooltip(reason))
@@ -685,7 +685,7 @@ impl RenderOnce for Segmented {
             .h(px(TOOLBAR_HEIGHT))
             .p(px(2.))
             .rounded(radius_2())
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .children(
                 self.options
@@ -842,12 +842,12 @@ impl RenderOnce for Field {
             true => field
                 .h(px(if self.small { 34. } else { 32. }))
                 .px(px(if self.small { 18. } else { 12. }))
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border),
             false => field
                 .h(px(if self.small { TOOLBAR_HEIGHT } else { 34. }))
                 .px(px(if self.small { 8. } else { 10. }))
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.line)
                 .rounded(radius_2())
                 .bg(Hsla {
@@ -865,7 +865,7 @@ impl RenderOnce for Field {
                 .flex_1()
                 .map(|text| match self.mono {
                     true => text
-                        .font_family(crate::theme::MONO)
+                        .font_family(crate::theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_XS)),
                     false => {
                         text.text_size(crate::theme::ui_text(if self.small { 12. } else { 13. }))
@@ -926,7 +926,7 @@ impl RenderOnce for Toggle {
             .px(SPACE_2)
             .flex()
             .items_center()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(if self.pressed {
                 t.border
             } else {
@@ -948,7 +948,7 @@ impl RenderOnce for Toggle {
             .children(self.count.map(|(count, tint)| {
                 text(count.to_string(), TEXT_3XS, FontWeight::NORMAL)
                     .ml(SPACE_1H)
-                    .font_family(crate::theme::MONO)
+                    .font_family(crate::theme::mono_font())
                     .text_color(tint)
             }))
     }

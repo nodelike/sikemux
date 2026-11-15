@@ -56,7 +56,7 @@ impl Render for Panes {
             .flex()
             .flex_wrap()
             .bg(gpui::rgb(0x0f0f13))
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .children(panes.into_iter().map(|pane| {
                 div()
                     .w(relative(1. / columns as f32))

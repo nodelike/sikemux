@@ -222,7 +222,7 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
             .items_start()
             .gap(SPACE_2)
             .pt(SPACE_2)
-            .border_t_1()
+            .border_t(crate::theme::border())
             .border_color(t.border)
             .child(
                 ui::icon(if ok { Icon::Check } else { Icon::Close }, 11.)

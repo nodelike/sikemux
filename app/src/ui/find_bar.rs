@@ -114,7 +114,7 @@ impl RenderOnce for FindBar {
             .items_center()
             .gap(px(3.))
             .p(px(5.))
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.line)
             .rounded(theme::radius_3())
             .bg(t.surface_overlay)

@@ -414,7 +414,7 @@ fn floating(cx: &App) -> Div {
     let t = Tokens::get(cx);
     div()
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(radius_4())
         .shadow(t.shadow_float())
@@ -1022,7 +1022,7 @@ fn tier_pill(tier: &str, cx: &App) -> Div {
         .flex()
         .items_center()
         .rounded(radius_1())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .bg(t.surface_hover)
         .text_color(t.text_secondary)
@@ -1229,7 +1229,7 @@ fn reset_row(
             a: 0.08,
             ..t.accent
         })
-        .border_1()
+        .border(crate::theme::border())
         .border_color(Hsla {
             a: 0.25,
             ..t.accent

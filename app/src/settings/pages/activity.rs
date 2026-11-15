@@ -245,7 +245,7 @@ fn share_row(
         .gap(SPACE_3)
         .px(SPACE_4)
         .py(px(9.))
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(ui::mark_box(20., mark))
         .child(
@@ -264,7 +264,7 @@ fn share_row(
                 .children(under.map(|under| {
                     div()
                         .truncate()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.text_tertiary)
                         .child(under)
@@ -367,7 +367,7 @@ fn price_form(
         .gap(SPACE_2H)
         .px(SPACE_4)
         .py(SPACE_3)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .bg(t.surface_sunken)
         .child(
@@ -512,7 +512,7 @@ fn models(
             };
             let split = (model.priced && cost > 0.).then(|| cost_split(model, &t));
             div()
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.line_soft)
                 .child(row.border_b_0())
                 .children(split)

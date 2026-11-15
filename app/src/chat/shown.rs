@@ -138,7 +138,7 @@ fn framed(
         .flex_none()
         .overflow_hidden()
         .rounded(px(6.))
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .bg(t.surface_raised)
         .cursor_pointer()

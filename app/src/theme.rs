@@ -1,19 +1,21 @@
 //! DESIGN.md's tokens for the theme the core resolves, as GPUI colours.
 
 use std::borrow::Cow;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 
 use gpui_kit::base::ScrollbarMode;
 use gpui_kit::component::theme::{Theme as KitTheme, ThemeTokens};
 use gpui_kit::{
-    px, rems, Anchor, App, BoxShadow, FontFeatures, Global, Hsla, Pixels, Rems, Rgba, SharedString,
+    px, rems, Anchor, App, BoxShadow, Font, FontFallbacks, FontFeatures, Global, Hsla, Pixels,
+    Rems, Rgba, SharedString,
 };
 use sikemux_grid::TerminalColors;
 use sikemux_view::prefs::Scrollbars;
 use sikemux_view::theme::{Palette, ThemeEditor, ThemeHighlight, UiStyle};
 
-pub const UI: &str = "Figtree";
+/// The interface's own face, bundled, which a theme's font falls back to.
+pub const BUNDLED_UI: &str = "Figtree";
 pub const UI_REGULAR: &[u8] = include_bytes!("../../helpers/notch/Fonts/Figtree_400Regular.ttf");
 pub const UI_SEMIBOLD: &[u8] = include_bytes!("../../helpers/notch/Fonts/Figtree_600SemiBold.ttf");
 
@@ -67,15 +69,64 @@ pub fn set_text_scale(scale: f32, cx: &mut App) {
     cx.refresh_windows();
 }
 
-pub const MONO: &str = "JetBrainsMono NFM";
+const BUNDLED_MONO: &str = "JetBrainsMono NFM";
 /// The Nerd Font icon glyphs, which mono text falls back to.
-pub const MONO_ICONS: &str = "JetBrainsMono NFM Icons";
+const MONO_ICONS: &str = "JetBrainsMono NFM Icons";
+
+thread_local! {
+    /// The interface's and the mono face's families, which [`apply`] sets from the worn theme.
+    static FONTS: RefCell<[SharedString; 2]> = const {
+        RefCell::new([SharedString::new_static(BUNDLED_UI), SharedString::new_static(BUNDLED_MONO)])
+    };
+    /// The families the worn theme asked for, so the installed fonts are looked up again only
+    /// when they change.
+    static WANTED_FONTS: RefCell<[String; 2]> = const { RefCell::new([String::new(), String::new()]) };
+}
+
+/// The interface's font family.
+pub fn ui_font() -> SharedString {
+    FONTS.with_borrow(|fonts| fonts[0].clone())
+}
+
+/// The mono font family, which code, terminals and what the machine says are set in.
+pub fn mono_font() -> SharedString {
+    FONTS.with_borrow(|fonts| fonts[1].clone())
+}
+
+/// The mono face, falling back to the Nerd Font's icon glyphs.
+pub fn mono() -> Font {
+    Font {
+        fallbacks: Some(FontFallbacks::from_fonts(vec![MONO_ICONS.into()])),
+        ..gpui_kit::font(mono_font())
+    }
+}
+
 /// Key caps in the Mac's own system font, which has the ⌘ ⌥ ⇧ ⌃ glyphs; elsewhere the UI's.
-pub const KBD: &str = if cfg!(target_os = "macos") {
-    ".SystemUIFont"
-} else {
-    UI
-};
+pub fn kbd_font() -> SharedString {
+    if cfg!(target_os = "macos") {
+        SharedString::new_static(".SystemUIFont")
+    } else {
+        ui_font()
+    }
+}
+
+/// Sets the interface's and the mono face's families, each the bundled one when the theme names
+/// none (empty) or one this computer does not have.
+fn wear_fonts(ui: &str, mono: &str, cx: &App) {
+    if WANTED_FONTS.with_borrow(|[asked_ui, asked_mono]| asked_ui == ui && asked_mono == mono) {
+        return;
+    }
+    WANTED_FONTS.set([ui.to_owned(), mono.to_owned()]);
+    let installed = (!ui.is_empty() || !mono.is_empty()).then(|| cx.text_system().all_font_names());
+    let family = |wanted: &str, bundled: &'static str| match &installed {
+        Some(names) if names.iter().any(|name| name == wanted) => {
+            SharedString::from(wanted.to_owned())
+        }
+        _ => SharedString::new_static(bundled),
+    };
+    let worn = [family(ui, BUNDLED_UI), family(mono, BUNDLED_MONO)];
+    FONTS.with_borrow_mut(|fonts| *fonts = worn);
+}
 
 /// The spacing scale, as DESIGN.md names it; an `H` step is the half-way size between two.
 pub const SPACE_0: Pixels = px(2.);
@@ -107,6 +158,59 @@ thread_local! {
     static RADII: Cell<[f32; 4]> = const { Cell::new([4., 5., 10., 14.]) };
     /// The worn theme's corners, as a share of the default roundness.
     static CORNERS: Cell<f32> = const { Cell::new(1.) };
+    /// How dark the worn theme's shadows are, as a share of the default.
+    static SHADOWS: Cell<f32> = const { Cell::new(1.) };
+    /// How wide the worn theme's borders are, in points.
+    static BORDER: Cell<f32> = const { Cell::new(1.) };
+    /// How tall the worn theme's rows are, as a share of the default.
+    static DENSITY: Cell<f32> = const { Cell::new(1.) };
+}
+
+/// A row `points` tall at the default density, as tall as the worn theme's density makes it.
+pub fn dense(points: f32) -> f32 {
+    (points * DENSITY.with(Cell::get)).round()
+}
+
+/// How wide a border is in the worn theme.
+pub fn border() -> Pixels {
+    px(BORDER.with(Cell::get))
+}
+
+/// `layers` as dark as the worn theme's shadows are, and none when it has none.
+pub fn shadow(mut layers: Vec<BoxShadow>) -> Vec<BoxShadow> {
+    let strength = SHADOWS.with(Cell::get);
+    if strength <= 0. {
+        return Vec::new();
+    }
+    for layer in &mut layers {
+        layer.color.a = (layer.color.a * strength).min(1.);
+    }
+    layers
+}
+
+fn layer(down: f32, blur: f32, spread: f32, alpha: f32) -> BoxShadow {
+    BoxShadow {
+        color: black(alpha),
+        offset: gpui_kit::point(px(0.), px(down)),
+        blur_radius: px(blur),
+        spread_radius: px(spread),
+        inset: false,
+    }
+}
+
+/// A slight lift, for a strip resting on a pane.
+pub fn shadow_small() -> Vec<BoxShadow> {
+    shadow(vec![layer(1., 3., 0., 0.1), layer(1., 2., -1., 0.1)])
+}
+
+/// A small button floating over text.
+pub fn shadow_medium() -> Vec<BoxShadow> {
+    shadow(vec![layer(4., 6., -1., 0.1), layer(2., 4., -2., 0.1)])
+}
+
+/// A card standing over a chat.
+pub fn shadow_large() -> Vec<BoxShadow> {
+    shadow(vec![layer(10., 15., -3., 0.1), layer(4., 6., -4., 0.1)])
 }
 
 fn radius(step: usize) -> Pixels {
@@ -134,6 +238,9 @@ fn wear_style(style: &UiStyle) {
         radii.set([style.radius1, style.radius2, style.radius3, style.radius4].map(|r| r as f32))
     });
     CORNERS.with(|corners| corners.set(style.corners as f32));
+    DENSITY.with(|density| density.set(style.density as f32));
+    BORDER.with(|border| border.set(style.border as f32));
+    SHADOWS.with(|shadows| shadows.set(style.shadows as f32));
 }
 
 /// What a find in a terminal tints its matches with, the current one brighter, in every theme.
@@ -281,42 +388,12 @@ impl Tokens {
 
     /// DESIGN.md's `--shadow-2`, for a tile raised off the surface it sits on.
     pub fn shadow_raised(&self) -> Vec<BoxShadow> {
-        vec![
-            BoxShadow {
-                color: black(0.32),
-                offset: gpui_kit::point(px(0.), px(2.)),
-                blur_radius: px(4.),
-                spread_radius: px(-2.),
-                inset: false,
-            },
-            BoxShadow {
-                color: black(0.34),
-                offset: gpui_kit::point(px(0.), px(4.)),
-                blur_radius: px(10.),
-                spread_radius: px(-3.),
-                inset: false,
-            },
-        ]
+        shadow(vec![layer(2., 4., -2., 0.32), layer(4., 10., -3., 0.34)])
     }
 
     /// DESIGN.md's `--shadow-4`, for anything that floats.
     pub fn shadow_float(&self) -> Vec<BoxShadow> {
-        vec![
-            BoxShadow {
-                color: black(0.44),
-                offset: gpui_kit::point(px(0.), px(8.)),
-                blur_radius: px(16.),
-                spread_radius: px(-8.),
-                inset: false,
-            },
-            BoxShadow {
-                color: black(0.62),
-                offset: gpui_kit::point(px(0.), px(28.)),
-                blur_radius: px(64.),
-                spread_radius: px(-16.),
-                inset: false,
-            },
-        ]
+        shadow(vec![layer(8., 16., -8., 0.44), layer(28., 64., -16., 0.62)])
     }
 }
 
@@ -378,11 +455,16 @@ pub fn text_scale(cx: &App) -> f32 {
 /// Draws with `palette` from the next frame, GPUI Kit's widgets too.
 pub fn apply(palette: &Palette, cx: &mut App) {
     wear_style(&palette.style);
+    wear_fonts(
+        &palette.theme.style.ui_font,
+        &palette.theme.style.mono_font,
+        cx,
+    );
     let tokens = Tokens::new(palette);
     let scale = text_scale(cx);
     let kit = KitTheme::global_mut(cx);
-    kit.font_family = SharedString::new_static(UI);
-    kit.mono_font_family = SharedString::new_static(MONO);
+    kit.font_family = ui_font();
+    kit.mono_font_family = mono_font();
     kit.font_size = px(REM * scale);
     kit.mono_font_size = px(11.);
     kit.radius = radius_2();
@@ -603,8 +685,18 @@ pub fn page_rule(t: &Tokens, ground: Option<Hsla>) -> String {
             "--radius".to_owned(),
             format!("{}px", 8. * CORNERS.with(Cell::get)),
         ),
-        ("--font-sans".to_owned(), format!("{UI}, system-ui")),
-        ("--font-mono".to_owned(), format!("{MONO}, ui-monospace")),
+        (
+            "--border-width".to_owned(),
+            format!("{}px", BORDER.with(Cell::get)),
+        ),
+        (
+            "--font-sans".to_owned(),
+            format!("\"{}\", system-ui", ui_font()),
+        ),
+        (
+            "--font-mono".to_owned(),
+            format!("\"{}\", ui-monospace", mono_font()),
+        ),
     ]);
     sikemux_base::pages::theme_rule(t.dark, &variables)
 }

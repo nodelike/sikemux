@@ -239,6 +239,14 @@ Colours are `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` or `transparent`; anything
 else is refused. `chrome.ink` must read at 4.5:1 on `chrome.bg`. Style:
 
 - `corners` — 0 is square, 1 the default, 2 twice as round.
+- `uiFont`, `monoFont` — an installed font family by name, such as `"Inter"` or
+  `"Iosevka"`; `""` is Sikemux's own. A family the Mac lacks falls back to
+  Sikemux's own. No files, paths or URLs. The mono font is the terminal's too.
+- `density` — row height, 0.85 (tighter) to 1.3 (roomier); 1 is the default.
+- `borders` — border width in points, 1 to 2.
+- `shadows` — 0 (none) to 2 (twice as dark); 1 is the default.
+
+`{"base": "nord", "name": "Nord Mono", "style": {"uiFont": "Iosevka", "monoFont": "Iosevka", "density": 0.9, "shadows": 0}}`
 
 Out-of-range values are clamped and the answer lists each one in `clamped`.
 
@@ -249,7 +257,7 @@ and 16 ANSI colours make the rest. A change takes effect as soon as the file is
 written; a file that fails keeps its last good version, and `theme_read`'s
 `problems` says why. Ghostty's theme files in `~/.config/ghostty/themes` are
 listed too.
-Fonts, spacing and layout cannot be changed; say so plainly when asked.
+Text size stays the person's, in Settings.
 
 The answer shows Sikemux's window as it now looks; look at it before saying
 the change worked. When no picture can be taken, `picture` says why. The

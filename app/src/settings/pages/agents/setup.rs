@@ -181,7 +181,7 @@ fn list(
                 .px(SPACE_2)
                 .h(px(22.))
                 .rounded_full()
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
                 .child(ui::dot(tone, cx))
                 .child(
@@ -265,7 +265,7 @@ fn list(
                     ui::mark_box(32., ui::mark(&agent.kind, 18.))
                         .rounded(crate::theme::radius_2())
                         .bg(t.surface_raised)
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.border)
                         .into_any_element(),
                 ),

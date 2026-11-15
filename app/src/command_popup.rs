@@ -72,7 +72,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
         .flex_col()
         .overflow_hidden()
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_4())
         .shadow(t.shadow_float())
@@ -86,7 +86,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
                 .pl(SPACE_4)
                 .pr(SPACE_2)
                 .py(SPACE_1H)
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     div()

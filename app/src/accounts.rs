@@ -186,7 +186,7 @@ pub fn popup_item(
             .children(used.map(|used| {
                 div()
                     .flex_none()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(theme::ui_text(TEXT_3XS_H))
                     .text_color(t.text_tertiary)
                     .child(format!("{}%", used.round()))

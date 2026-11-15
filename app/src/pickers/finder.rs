@@ -314,7 +314,7 @@ pub fn overlay(
                             .gap(SPACE_2H)
                             .h(px(crate::palette::HEAD_HEIGHT))
                             .px(px(2. * ui::FLOAT_INSET))
-                            .border_b_1()
+                            .border_b(crate::theme::border())
                             .border_color(t.border)
                             .child(ui::icon(Icon::Search, 15.).text_color(t.text_tertiary))
                             .child(

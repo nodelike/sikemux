@@ -100,7 +100,7 @@ pub fn popup(width: f32, cx: &App) -> Div {
         .gap(SPACE_1)
         .p(px(crate::ui::PANEL_INSET))
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_3())
         .shadow(t.shadow_float())

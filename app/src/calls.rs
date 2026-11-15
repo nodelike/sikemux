@@ -646,7 +646,7 @@ fn card(
         let hover = t.surface_hover;
         BaseButton::new(SharedString::from(format!("call-{}-{option}", call.id)))
             .w_full()
-            .min_h(px(ROW_HEIGHT))
+            .min_h(px(crate::theme::dense(ROW_HEIGHT)))
             .py(px(7.))
             .px(SPACE_3_PX)
             .flex()
@@ -678,14 +678,16 @@ fn card(
     let mut block = div()
         .flex()
         .flex_col()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .rounded(px(8.))
         .overflow_hidden();
     for (ix, row) in rows.enumerate() {
         block = block.child(
             div()
-                .when(ix > 0, |row| row.border_t_1().border_color(t.line))
+                .when(ix > 0, |row| {
+                    row.border_t(crate::theme::border()).border_color(t.line)
+                })
                 .child(row),
         );
     }
@@ -848,7 +850,7 @@ fn what_runs(
     let command = open.then(|| {
         div()
             .mt(SPACE_1H)
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(theme::ui_text(12.))
             .line_height(relative(1.5))
             .text_color(t.text_secondary)
@@ -875,17 +877,17 @@ fn note_row(
         ..t.accent
     };
     div()
-        .h(px(ROW_HEIGHT))
+        .h(px(crate::theme::dense(ROW_HEIGHT)))
         .px(SPACE_3_PX)
         .flex()
         .items_center()
         .gap(px(10.))
         .bg(t.surface_sunken)
         .when(under_options && !lit, |row| {
-            row.border_t_1().border_color(t.line)
+            row.border_t(crate::theme::border()).border_color(t.line)
         })
         .when(lit, |row| {
-            row.border_1()
+            row.border(crate::theme::border())
                 .border_color(ring)
                 .when(under_options, |row| row.rounded_b(px(7.)))
                 .when(!under_options, |row| row.rounded(px(7.)))
@@ -964,7 +966,7 @@ fn picture(
         .overflow_hidden()
         .rounded(px(8.))
         .bg(t.surface_sunken)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .cursor_pointer()
         .child(match fill {
@@ -1083,10 +1085,13 @@ fn panel(t: &Tokens) -> gpui_kit::Div {
         .w_full()
         .p(SPACE_1H)
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .rounded(radius_4())
-        .shadow(vec![card_shadow(2., 4., 0.35), card_shadow(14., 40., 0.45)])
+        .shadow(crate::theme::shadow(vec![
+            card_shadow(2., 4., 0.35),
+            card_shadow(14., 40., 0.45),
+        ]))
 }
 
 fn card_shadow(down: f32, blur: f32, alpha: f32) -> gpui_kit::BoxShadow {
@@ -1459,7 +1464,7 @@ fn popover(
     .w(px(CARD_WIDTH))
     .p(SPACE_1H)
     .bg(t.surface_overlay)
-    .border_1()
+    .border(crate::theme::border())
     .border_color(t.line)
     .rounded(radius_4())
     .shadow(t.shadow_float())

@@ -161,7 +161,7 @@ impl RenderOnce for DockMenu {
                     .px(SPACE_2H)
                     .pt(px(7.))
                     .pb(px(3.))
-                    .border_t_1()
+                    .border_t(crate::theme::border())
                     .border_color(t.line_soft)
                     .text_size(crate::theme::ui_text(9.5))
                     .text_color(t.text_disabled)
@@ -195,7 +195,7 @@ impl RenderOnce for DockMenu {
                 .child(
                     div()
                         .flex_none()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_3XS_H))
                         .text_color(t.text_primary)
                         .child(super::found_with(row.name, &query, mark)),
@@ -223,7 +223,7 @@ impl RenderOnce for DockMenu {
                         .overflow_hidden()
                         .text_ellipsis()
                         .whitespace_nowrap()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(9.5))
                         .text_color(t.text_disabled)
                         .child(aside)
@@ -273,7 +273,7 @@ impl RenderOnce for DockMenu {
                             }
                             false => chip.child(
                                 div()
-                                    .font_family(theme::MONO)
+                                    .font_family(theme::mono_font())
                                     .text_size(crate::theme::ui_text(9.5))
                                     .child(scope.key),
                             ),
@@ -291,7 +291,7 @@ impl RenderOnce for DockMenu {
                 .child(
                     div()
                         .pr(SPACE_1)
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(9.5))
                         .text_color(t.text_disabled)
                         .child(aside),
@@ -361,9 +361,9 @@ pub fn shell(cx: &App) -> Div {
         .mb(px(1.))
         .flex()
         .flex_col()
-        .border_t_1()
-        .border_l_1()
-        .border_r_1()
+        .border_t(crate::theme::border())
+        .border_l(crate::theme::border())
+        .border_r(crate::theme::border())
         .border_color(t.border)
         .rounded_t(theme::radius_3())
         .bg(t.surface_composer)

@@ -590,6 +590,9 @@ impl World {
                 let value = match step.text(1) {
                     Err(_) => expand_home(&self.world["preferences"][key]),
                     Ok("null") => Value::Null,
+                    Ok(file) if file.ends_with(".json") => {
+                        serde_json::from_slice(&std::fs::read(self.scenes.join(file))?)?
+                    }
                     Ok(text) => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
                 };
                 self.call("setPreference", json!({ "key": key, "value": value }))?;

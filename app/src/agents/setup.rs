@@ -872,7 +872,7 @@ fn body(
                 .gap(SPACE_3)
                 .px(SPACE_4)
                 .py(SPACE_2H)
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     div()
@@ -885,7 +885,7 @@ fn body(
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_2XS_H))
                         .text_color(t.text_tertiary)
                         .child(sheet.shown.clone()),
@@ -905,7 +905,7 @@ fn body(
                 .gap(SPACE_2)
                 .px(SPACE_4)
                 .py(SPACE_2H)
-                .border_t_1()
+                .border_t(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     div()
@@ -962,7 +962,7 @@ pub fn sheet(
         .w(px(760.))
         .h(px(520.))
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_4())
         .shadow(t.shadow_float())

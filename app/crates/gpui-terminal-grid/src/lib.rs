@@ -151,6 +151,11 @@ pub struct Metrics {
 }
 
 impl Metrics {
+    /// The family the cells are measured in.
+    pub fn family(&self) -> &SharedString {
+        &self.fonts[0].family
+    }
+
     /// Measures `font` at `font_size`, spacing its letters a whole cell apart.
     /// Rows are `line_height` times the size tall, or the font's own height
     /// when that is taller.

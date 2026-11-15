@@ -120,7 +120,7 @@ impl KeyedRows {
                     .absolute()
                     .inset_0()
                     .rounded(radius_2())
-                    .border_1()
+                    .border(crate::theme::border())
                     .border_color(Tokens::get(cx).border_selected),
             )
             .child(

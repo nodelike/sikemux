@@ -688,7 +688,7 @@ fn open_files(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
         let row = BaseButton::new(SharedString::from(format!("open-file-{tab}")))
             .accessibility_label(SharedString::from(name.clone()))
             .w_full()
-            .h(px(ROW_HEIGHT))
+            .h(px(crate::theme::dense(ROW_HEIGHT)))
             .pl(SPACE_1)
             .pr(SPACE_2)
             .flex()
@@ -732,7 +732,7 @@ fn open_files(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
             .pb(SPACE_1)
             .flex()
             .flex_col()
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.border)
             .children(rows)
             .into_any_element(),
@@ -795,7 +795,7 @@ fn row_view(
     let drawn = BaseButton::new(SharedString::from(format!("file-{}", row.path.display())))
         .accessibility_label(SharedString::from(row.entry.name.clone()))
         .w_full()
-        .h(px(ROW_HEIGHT))
+        .h(px(crate::theme::dense(ROW_HEIGHT)))
         .pl(px(if row.entry.dir { pad } else { pad + 13. }))
         .pr(SPACE_2)
         .flex()
@@ -967,7 +967,7 @@ fn naming_row(naming: &Naming, depth: usize, cx: &mut Context<Workbench>) -> Any
     let t = Tokens::get(cx).clone();
     div()
         .w_full()
-        .h(px(ROW_HEIGHT))
+        .h(px(crate::theme::dense(ROW_HEIGHT)))
         .pl(px(4.
             + depth as f32 * 13.
             + if naming.dir { 0. } else { 13. }))

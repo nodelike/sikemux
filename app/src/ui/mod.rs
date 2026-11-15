@@ -44,9 +44,9 @@ use std::f32::consts::TAU;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, img, point, px, svg, AnyElement, App, Context, Div, ElementId, FontFallbacks,
-    FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
-    Render, SharedString, Stateful, Styled, StyledText, Svg, Window,
+    canvas, div, img, point, px, svg, AnyElement, App, Context, Div, ElementId, FontWeight,
+    HighlightStyle, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder, Render,
+    SharedString, Stateful, Styled, StyledText, Svg, Window,
 };
 
 use sikemux_view::workspace::AgentFace;
@@ -310,11 +310,10 @@ pub fn meta(value: impl Into<SharedString>, cx: &App) -> Div {
 /// What the machine says: the mono face, with tabular figures and its icon glyphs.
 pub fn mono(value: impl Into<SharedString>, size: f32, cx: &App) -> Div {
     let mut mono = text(value, size, FontWeight::NORMAL)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .font_features(theme::tabular())
         .text_color(Tokens::get(cx).text_tertiary);
-    mono.text_style().font_fallbacks =
-        Some(FontFallbacks::from_fonts(vec![theme::MONO_ICONS.into()]));
+    mono.text_style().font_fallbacks = theme::mono().fallbacks;
     mono
 }
 
@@ -369,7 +368,7 @@ pub fn found_with(value: impl Into<SharedString>, query: &str, mark: HighlightSt
 /// A shortcut as the system draws key names.
 pub fn kbd(keys: impl Into<SharedString>, cx: &App) -> Div {
     text(keys, TEXT_2XS, FontWeight::MEDIUM)
-        .font_family(theme::KBD)
+        .font_family(theme::kbd_font())
         .line_height(crate::theme::ui_text(TEXT_2XS))
         .text_color(Tokens::get(cx).text_tertiary)
 }
@@ -384,7 +383,7 @@ pub fn keycap(keys: impl Into<SharedString>, cx: &App) -> Div {
         .line_height(theme::ui_text(theme::TEXT_SM))
         .flex()
         .justify_center()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .bg(t.surface_sunken)
         .rounded(theme::radius_1())
@@ -398,7 +397,7 @@ pub fn panel(cx: &App) -> Div {
         .flex_col()
         .overflow_hidden()
         .when(!crate::see_through::clear(cx), |panel| panel.bg(t.surface))
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_3())
 }

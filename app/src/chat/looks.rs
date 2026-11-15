@@ -170,12 +170,9 @@ impl Looks {
         files: Rc<RefCell<files::Files>>,
     ) -> Looks {
         let scale = Rc::new(Cell::new(1.));
-        let mut mono = gpui_kit::font(theme::MONO);
-        mono.fallbacks = Some(gpui_kit::FontFallbacks::from_fonts(vec![
-            theme::MONO_ICONS.into()
-        ]));
+        let mono = theme::mono();
         let text = Style {
-            font: theme::UI.into(),
+            font: theme::ui_font(),
             mono,
             ink: t.text_primary,
             ink_dim: t.text_tertiary,

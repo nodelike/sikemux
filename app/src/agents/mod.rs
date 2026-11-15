@@ -437,7 +437,7 @@ fn header_frame(
         .pr(SPACE_1H)
         .pb(SPACE_1H)
         .pl(SPACE_2H)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line_soft)
         .child(
             div()
@@ -619,7 +619,11 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
         let unpin = pin.1.clone();
         ui::hover_actions(RECENT_ROW)
             .top_0()
-            .h(px(if bench.rail_compact() { 27. } else { 28. }))
+            .h(px(crate::theme::dense(if bench.rail_compact() {
+                27.
+            } else {
+                28.
+            })))
             .child(
                 IconButton::new(
                     SharedString::from(format!("unpin-{}", recent.id)),
@@ -989,8 +993,8 @@ fn hang_lines(hang: &tree::Hang, cx: &App) -> Vec<AnyElement> {
                     .left(at(level))
                     .w(px(8.))
                     .h(px(17.))
-                    .border_l_1()
-                    .border_b_1()
+                    .border_l(crate::theme::border())
+                    .border_b(crate::theme::border())
                     .border_color(t.tree_spine)
                     .rounded_bl(px(4.))
                     .into_any_element(),
@@ -1194,7 +1198,11 @@ fn agent_row(
     let close = agent.id.clone();
     let actions = ui::hover_actions(AGENT_ROW)
         .top_0()
-        .h(px(if bench.rail_compact() { 27. } else { 28. }))
+        .h(px(crate::theme::dense(if bench.rail_compact() {
+            27.
+        } else {
+            28.
+        })))
         .children(pin.map(|(pinned, pin)| {
             let label = match pinned {
                 true => t!("Unpin {title}", title = agent.title),
@@ -1571,7 +1579,7 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .flex()
         .justify_center()
         .gap(SPACE_1)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(border)
         .child(page(
             "page-agents",
@@ -1727,7 +1735,7 @@ impl OutOfSight {
             })
             .rounded(px(10.))
             .bg(t.surface)
-            .shadow_sm()
+            .shadow(theme::shadow_small())
             .child(
                 div()
                     .flex()

@@ -82,7 +82,7 @@ pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Opti
             .items_center()
             .gap(px(5.))
             .rounded(radius_2())
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .cursor_pointer()
             .when(open, |chip| {
@@ -101,7 +101,7 @@ pub fn chip(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Opti
             .child(ui::icon(Icon::Plug, 11.).text_color(t.text_tertiary))
             .child(
                 ui::text(range(first), TEXT_3XS_H, FontWeight::NORMAL)
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .font_features(theme::tabular())
                     .text_color(t.text_secondary),
             )
@@ -145,7 +145,7 @@ fn card(
         .pb(px(11.))
         .rounded(radius_3())
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .shadow(t.shadow_float())
         .text_color(t.text_primary);
@@ -164,7 +164,7 @@ fn card(
     };
     let mono = |value: String, ink| {
         ui::text(value, TEXT_XS, FontWeight::NORMAL)
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .font_features(theme::tabular())
             .text_color(ink)
     };
@@ -334,7 +334,7 @@ fn env_group(
                     .min_w_0()
                     .flex()
                     .text_size(theme::ui_text(TEXT_XS))
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .font_features(theme::tabular())
                     .whitespace_nowrap()
                     .child(

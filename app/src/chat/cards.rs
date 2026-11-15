@@ -44,7 +44,7 @@ pub(super) fn permission(
                 .px(SPACE_2H)
                 .flex()
                 .items_center()
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(if allow {
                     Hsla { a: 0.45, ..t.warn }
                 } else {
@@ -99,7 +99,7 @@ pub(super) fn permission(
             .mt(SPACE_3)
             .mb(SPACE_3)
             .p(SPACE_3)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(Hsla { a: 0.44, ..t.warn })
             .rounded(theme::radius_3())
             .bg(Hsla { a: 0.07, ..t.warn })
@@ -208,7 +208,7 @@ pub(super) fn secret(
                             .flex()
                             .items_center()
                             .gap(SPACE_2)
-                            .border_1()
+                            .border(crate::theme::border())
                             .border_color(if focused { t.accent } else { t.line })
                             .rounded(theme::radius_2())
                             .bg(t.surface_sunken)
@@ -223,7 +223,7 @@ pub(super) fn secret(
                                         Textarea::new(&field)
                                             .xsmall()
                                             .appearance(false)
-                                            .font_family(theme::MONO)
+                                            .font_family(theme::mono_font())
                                             .text_size(text_size)
                                             .text_color(gpui_kit::transparent_black()),
                                     )
@@ -233,7 +233,7 @@ pub(super) fn secret(
                                             .inset_0()
                                             .px(SPACE_1)
                                             .overflow_hidden()
-                                            .font_family(theme::MONO)
+                                            .font_family(theme::mono_font())
                                             .text_size(text_size)
                                             .text_color(t.text_primary)
                                             .child(dots)

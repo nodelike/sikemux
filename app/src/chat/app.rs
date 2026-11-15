@@ -284,7 +284,7 @@ pub(super) fn app(
         .flex_col()
         .rounded(px(10.))
         .overflow_hidden()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .bg(ground)
         .child(
@@ -295,7 +295,7 @@ pub(super) fn app(
                 .items_center()
                 .gap(px(7.))
                 .px(px(10.))
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .text_color(t.text_secondary)
                 .child(ui::icon(Icon::Plug, 13.).text_color(t.text_tertiary))
@@ -431,7 +431,7 @@ pub(super) fn expanded(agent: &str, cx: &mut App) -> Option<AnyElement> {
                     .items_center()
                     .gap(px(7.))
                     .px(px(10.))
-                    .border_b_1()
+                    .border_b(crate::theme::border())
                     .border_color(t.border)
                     .text_color(t.text_secondary)
                     .child(ui::icon(Icon::Plug, 13.).text_color(t.text_tertiary))
@@ -692,8 +692,8 @@ fn host_page(id: &str, app: &McpApp, height: f32, cx: &App) -> String {
         "--color-border-primary": theme::css(t.border),
         "--color-border-secondary": theme::css(t.border_strong),
         "--color-ring-primary": theme::css(t.accent),
-        "--font-sans": format!("{}, system-ui, sans-serif", theme::UI),
-        "--font-mono": format!("{}, ui-monospace, monospace", theme::MONO),
+        "--font-sans": format!("\"{}\", system-ui, sans-serif", theme::ui_font()),
+        "--font-mono": format!("\"{}\", ui-monospace, monospace", theme::mono_font()),
         "--border-radius-sm": "4px",
         "--border-radius-md": "6px",
         "--border-radius-lg": "10px",

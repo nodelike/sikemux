@@ -139,12 +139,12 @@ pub(crate) fn field(name: &'static str, input: &Entity<InputState>, mono: bool, 
                 .px(SPACE_2H)
                 .flex()
                 .items_center()
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border_strong)
                 .rounded(radius_2())
                 .bg(t.surface_sunken)
                 .text_size(crate::theme::ui_text(TEXT_XS))
-                .when(mono, |field| field.font_family(theme::MONO))
+                .when(mono, |field| field.font_family(theme::mono_font()))
                 .child(Input::new(input).appearance(false)),
         )
 }
@@ -227,7 +227,7 @@ fn framed(
             .pr(SPACE_3)
             .pb(SPACE_3)
             .pl(SPACE_4)
-            .border_t_1()
+            .border_t(crate::theme::border())
             .border_color(t.border)
             .bg(t.surface_sunken),
     );
@@ -269,7 +269,7 @@ pub(crate) fn floating(
                 .flex_col()
                 .overflow_hidden()
                 .bg(t.surface_overlay)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
                 .rounded(radius_4())
                 .shadow(t.shadow_float())
@@ -291,7 +291,7 @@ pub(crate) fn button(
         .h(px(30.))
         .px(SPACE_3)
         .rounded(radius_2())
-        .border_1()
+        .border(crate::theme::border())
         .text_size(crate::theme::ui_text(TEXT_SM))
         .font_weight(FontWeight::MEDIUM)
         .on_click(move |_, window, cx| answer(window, cx))
@@ -511,7 +511,7 @@ impl RenderOnce for Prompt {
                 .px(SPACE_2)
                 .flex()
                 .items_center()
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
                 .rounded(radius_2())
                 .bg(t.surface_sunken)
@@ -570,11 +570,11 @@ impl RenderOnce for Prompt {
                         .px(SPACE_2H)
                         .flex()
                         .items_center()
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.border_strong)
                         .rounded(radius_2())
                         .bg(t.surface_sunken)
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_XS))
                         .child(Input::new(&self.field).appearance(false)),
                 )
@@ -687,7 +687,7 @@ impl RenderOnce for Choices {
                 .items_center()
                 .justify_start()
                 .gap(SPACE_2H)
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .text_color(ink)
                 .when(choice.disabled, |row| row.opacity(0.6))
@@ -700,7 +700,7 @@ impl RenderOnce for Choices {
                         .w(px(18.))
                         .flex_none()
                         .text_center()
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(if choice.destructive {
                             t.danger.opacity(0.3)
                         } else {
@@ -801,7 +801,9 @@ impl RenderOnce for Cheatsheet {
                     .pt(SPACE_2)
                     .pb(SPACE_3)
                     .when(index + 1 < count, |section| {
-                        section.border_b_1().border_color(t.border)
+                        section
+                            .border_b(crate::theme::border())
+                            .border_color(t.border)
                     })
                     .child(
                         div()
@@ -840,7 +842,7 @@ impl RenderOnce for Cheatsheet {
                 .py(SPACE_1)
                 .max_h(px(560.))
                 .overflow_y_scroll()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .children(sections)
                 .into_any_element(),
             div()

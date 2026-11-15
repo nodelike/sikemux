@@ -573,7 +573,7 @@ fn sample(draft: &Value) -> AnyElement {
                 .text_color(theme::color(
                     draft["editor"]["fg"].as_str().unwrap_or_default(),
                 ))
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .child(
                     div()
@@ -745,7 +745,7 @@ pub fn view(editor: &Editor, this: &Entity<Workbench>, cx: &App) -> AnyElement {
         .flex_col()
         .gap(SPACE_3)
         .p(SPACE_4)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.line_soft)
         .child(named)
         .child(head)

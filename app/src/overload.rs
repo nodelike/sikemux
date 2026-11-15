@@ -189,7 +189,7 @@ fn popover(
         .p(SPACE_1H)
         .pb(SPACE_2)
         .bg(t.surface_overlay)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(radius_4())
         .shadow(t.shadow_float())

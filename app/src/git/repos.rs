@@ -110,7 +110,7 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 div()
                     .w(px(24.))
                     .text_right()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .text_color(if changes > 0 {
                         t.git_modified
@@ -152,7 +152,7 @@ pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .child(ui::icon(Icon::Git, 13.).text_color(t.text_tertiary))
                 .child(ui::text(name, TEXT_XS_H, FontWeight::MEDIUM).text_color(t.text_primary))

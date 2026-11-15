@@ -165,7 +165,7 @@ pub fn history(series: Series, height: f32, t: &Tokens) -> AnyElement {
                     })
                     .child(
                         ui::text(words, TEXT_3XS, FontWeight::NORMAL)
-                            .font_family(crate::theme::MONO)
+                            .font_family(crate::theme::mono_font())
                             .text_color(label_ink),
                     )
             }))

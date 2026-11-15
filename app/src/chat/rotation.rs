@@ -126,7 +126,7 @@ fn brief(rotation: &SessionRotation, looks: &Drawn, cx: &App) -> AnyElement {
         .flex_col()
         .text_size(crate::theme::ui_text(TEXT_XS_H))
         .bg(t.surface_raised)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .rounded(theme::radius_3())
         .children(sections)

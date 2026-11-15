@@ -241,12 +241,14 @@ impl RenderOnce for Row {
             .accessibility_label(self.title.clone())
             .relative()
             .w_full()
-            .h(px(match (self.height, two_lines, self.compact) {
-                (Some(height), ..) => height,
-                (None, true, _) => 40.,
-                (None, false, true) => 27.,
-                (None, false, false) => 28.,
-            }))
+            .h(px(crate::theme::dense(
+                match (self.height, two_lines, self.compact) {
+                    (Some(height), ..) => height,
+                    (None, true, _) => 40.,
+                    (None, false, true) => 27.,
+                    (None, false, false) => 28.,
+                },
+            )))
             .pl(px(4. + (20. - self.slot) / 2.))
             .pr(px(right))
             .when_some(self.hover_right, |row, (group, room)| {
@@ -601,7 +603,7 @@ impl RenderOnce for Tab {
             .id(wrap_id)
             .relative()
             .flex_none()
-            .h(px(26.))
+            .h(px(crate::theme::dense(26.)))
             .min_w(px(120.))
             .flex()
             .items_center()
@@ -609,7 +611,9 @@ impl RenderOnce for Tab {
             .rounded(radius_2())
             .bg(tint)
             .text_color(ink)
-            .when(!self.active, |tab| tab.border_1().border_color(edge))
+            .when(!self.active, |tab| {
+                tab.border(crate::theme::border()).border_color(edge)
+            })
             .on_hover(keep_over)
             .child(
                 BaseButton::new(self.id)

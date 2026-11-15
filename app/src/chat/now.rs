@@ -53,9 +53,9 @@ pub(super) fn card(
         .id("now-card")
         .block_mouse_except_scroll()
         .bg(t.surface_raised)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
-        .shadow_lg();
+        .shadow(theme::shadow_large());
     let card = match chat.now_folded {
         true => face
             .rounded_full()
@@ -152,7 +152,7 @@ impl Counts {
             .flex()
             .px(SPACE_2)
             .pb(SPACE_2)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .children(each.map(|(at, (n, label, tint))| {
                 let ink = match (at, n) {

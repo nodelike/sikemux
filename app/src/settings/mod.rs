@@ -455,7 +455,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         .gap(px(1.))
         .pt(SPACE_1H)
         .mt(SPACE_1H)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .child(me)
         .children(index::FOOT.map(|page| {
@@ -472,7 +472,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
         .flex()
         .flex_col()
         .bg(rows::card_fill(cx).opacity(0.7))
-        .border_r_1()
+        .border_r(crate::theme::border())
         .border_color(t.border)
         .child(
             div()
@@ -584,7 +584,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
             .flex_col()
             .p(SPACE_1)
             .bg(rows::card_fill(cx))
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .rounded(theme::radius_3())
             .children(found.iter().enumerate().map(|(at, entry)| {

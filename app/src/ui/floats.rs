@@ -34,7 +34,7 @@ pub fn float(cx: &App) -> Div {
             a: 0.94,
             ..t.surface_overlay
         })
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(radius_4())
         .shadow(t.shadow_float())
@@ -102,7 +102,7 @@ impl<T: Selectable + IntoElement + 'static> DropdownMenu for MenuTrigger<T> {}
 
 /// The side padding and height Kit gives a menu row.
 const ROW_PADDING: gpui_kit::Pixels = px(8.);
-const ROW_HEIGHT: gpui_kit::Pixels = px(26.);
+const ROW_HEIGHT: f32 = 26.;
 
 /// A menu row with what Kit's own rows lack: a mark in its own colours where the icon goes,
 /// words at its end, and the danger colour for a choice that deletes or discards. A row can
@@ -120,7 +120,7 @@ pub struct MenuRow {
 }
 
 /// How tall a row with a line under its name is, and the tile its icon sits in.
-const ABOUT_ROW_HEIGHT: gpui_kit::Pixels = px(40.);
+const ABOUT_ROW_HEIGHT: f32 = 40.;
 const TILE: f32 = 26.;
 
 impl FluentBuilder for MenuRow {}
@@ -229,7 +229,7 @@ impl MenuRow {
                     .items_center()
                     .gap(SPACE_2)
                     .when(chosen, |row| {
-                        row.relative().h(ROW_HEIGHT).child(
+                        row.relative().h(px(crate::theme::dense(ROW_HEIGHT))).child(
                             div()
                                 .absolute()
                                 .top_0()
@@ -316,8 +316,8 @@ impl MenuRow {
                 .flex_1()
                 .min_w_0()
                 .h(match about {
-                    Some(_) => ABOUT_ROW_HEIGHT,
-                    None => ROW_HEIGHT,
+                    Some(_) => px(crate::theme::dense(ABOUT_ROW_HEIGHT)),
+                    None => px(crate::theme::dense(ROW_HEIGHT)),
                 })
                 .flex()
                 .items_center()
@@ -382,7 +382,7 @@ impl Render for TooltipView {
             .py(px(5.))
             .rounded(radius_2())
             .bg(t.surface_tooltip)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(Hsla {
                 a: 0.72,
                 ..t.border_strong
@@ -421,7 +421,7 @@ impl Render for CardTooltipView {
             .pb(px(11.))
             .rounded(radius_3())
             .bg(t.surface_overlay)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .shadow(t.shadow_float())
             .text_color(t.text_primary)

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, font, px, Action, App, AppContext, Context, Div, HighlightStyle, Hsla, InteractiveElement,
+    div, px, Action, App, AppContext, Context, Div, HighlightStyle, Hsla, InteractiveElement,
     IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled,
     StyledText, Task, Window,
 };
@@ -479,7 +479,7 @@ pub fn row(
                             code.child(
                                 div()
                                     .ml(look.advance * 4.)
-                                    .font_family(theme::UI)
+                                    .font_family(theme::ui_font())
                                     .text_size(crate::theme::ui_text(TEXT_2XS))
                                     .text_color(look.number)
                                     .child(note),
@@ -565,7 +565,7 @@ impl Notes {
 /// The width of a character of code, which every character of the code font has.
 pub(crate) fn advance(window: &Window) -> Pixels {
     let text = window.text_system();
-    let id = text.resolve_font(&font(theme::MONO));
+    let id = text.resolve_font(&theme::mono());
     text.advance(id, CODE_SIZE, 'm')
         .map_or(CODE_SIZE * 0.6, |size| size.width)
 }

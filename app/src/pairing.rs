@@ -427,7 +427,7 @@ pub fn overlay(
             .items_center()
             .justify_center()
             .rounded(theme::radius_4())
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .bg(t.surface_raised)
             .child(ui::icon(icon, 36.).text_color(t.text_primary))
@@ -444,7 +444,7 @@ pub fn overlay(
             .px(SPACE_3H)
             .py(SPACE_2H)
             .rounded(theme::radius_3())
-            .border_1()
+            .border(crate::theme::border())
             .border_color(if on { t.text_secondary } else { t.border })
             .when(on, |choice| choice.bg(t.surface_chosen))
             .child(ui::icon(icon, 16.).text_color(t.text_secondary))
@@ -534,7 +534,7 @@ pub fn overlay(
                 )
                 .child(
                     div()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(28.))
                         .text_color(t.text_primary)
                         .child(app.check.clone()),

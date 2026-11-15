@@ -392,7 +392,7 @@ fn tile(plugin: &Listed, cx: &App) -> AnyElement {
         .justify_center()
         .rounded(theme::radius_2())
         .bg(t.surface_hover)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line_soft)
         .when(!plugin.enabled, |tile| tile.opacity(0.5))
         .child(ui::picture(mark(&plugin.id), 16., t.text_secondary))
@@ -1450,7 +1450,8 @@ fn settings_dialog(
             div()
                 .py(SPACE_3)
                 .when(at + 1 < count, |item| {
-                    item.border_b_1().border_color(t.line_soft)
+                    item.border_b(crate::theme::border())
+                        .border_color(t.line_soft)
                 })
                 .child(item)
         }))

@@ -467,7 +467,7 @@ fn from(who: Div, row: &ChatRow, body: Option<AnyElement>, looks: &Looks) -> Div
                 .py(SPACE_2H)
                 .rounded(BUBBLE_RADIUS)
                 .rounded_bl(SPACE_1H)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(looks.line)
                 .bg(looks.asked)
                 .children(body),
@@ -532,7 +532,7 @@ pub(super) fn fired_request(
             div()
                 .min_w_0()
                 .truncate()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_3XS_H))
                 .text_color(looks.faint)
                 .child(summary),
@@ -561,7 +561,7 @@ pub(super) fn fired_request(
             .flex()
             .flex_col()
             .gap(SPACE_2)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(looks.line)
             .rounded(theme::radius_2())
             .bg(t.surface_raised)
@@ -570,7 +570,7 @@ pub(super) fn fired_request(
                     .flex()
                     .flex_col()
                     .gap(SPACE_0)
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_3XS_H))
                     .children(headers),
             )
@@ -961,7 +961,7 @@ fn task_ended(notice: &TaskNotice, looks: &Drawn, cx: &App) -> AnyElement {
         .items_center()
         .gap(SPACE_2)
         .min_w_0()
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(crate::theme::TEXT_3XS))
         .child(super::tools::spine(true, looks))
         .child(div().w(px(9.)).flex_none())
@@ -1336,7 +1336,7 @@ pub(super) fn notice_name(name: String, mono: bool, looks: &Drawn) -> Div {
     div()
         .min_w_0()
         .truncate()
-        .when(mono, |name| name.font_family(theme::MONO))
+        .when(mono, |name| name.font_family(theme::mono_font()))
         .text_color(looks.ink)
         .child(name)
 }

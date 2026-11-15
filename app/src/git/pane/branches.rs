@@ -858,7 +858,7 @@ fn branch_row(
     let age = |date: &str| {
         div()
             .flex_none()
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(t.text_tertiary)
             .child(date.to_owned())
@@ -951,7 +951,7 @@ fn branch_row(
                         .items_center()
                         .gap(SPACE_0)
                         .rounded(radius_2())
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.warn)
                         .hover(move |style| style.bg(t.surface_hover))
@@ -966,7 +966,7 @@ fn branch_row(
                 row = row.child(
                     div()
                         .flex_none()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.git_renamed)
                         .child(format!("↓{behind}")),
@@ -1045,7 +1045,7 @@ fn branch_row(
                 row = row.child(
                     div()
                         .flex_none()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_2XS))
                         .text_color(t.text_tertiary)
                         .child(t!("tracked")),
@@ -1108,9 +1108,9 @@ fn pull_chip(pane: &GitPane, branch: &str, index: usize, cx: &App) -> Option<Any
             .items_center()
             .gap(px(3.))
             .rounded(radius_2())
-            .border_1()
+            .border(crate::theme::border())
             .border_color(ink.opacity(0.32))
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(ink)
             .hover(move |style| style.bg(ink.opacity(0.12)))
@@ -1370,7 +1370,7 @@ pub(super) fn branch_card(
                             .flex()
                             .items_center()
                             .gap(SPACE_2)
-                            .font_family(theme::MONO)
+                            .font_family(theme::mono_font())
                             .text_size(crate::theme::ui_text(TEXT_LG))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(t.text_primary)
@@ -1382,7 +1382,7 @@ pub(super) fn branch_card(
                                         .px(SPACE_1H)
                                         .flex()
                                         .items_center()
-                                        .border_1()
+                                        .border(crate::theme::border())
                                         .border_color(t.live.opacity(0.35))
                                         .rounded(px(4.))
                                         .text_size(crate::theme::ui_text(TEXT_3XS))
@@ -1466,7 +1466,7 @@ fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> 
         .justify_between()
         .px(SPACE_2)
         .py(SPACE_1H)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border);
     match entry {
         BranchEntry::Branch(branch) if branch.current => {

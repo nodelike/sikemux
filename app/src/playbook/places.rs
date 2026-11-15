@@ -588,7 +588,7 @@ fn add_form(
         .gap(SPACE_2)
         .px(crate::theme::SPACE_4)
         .py(px(11.))
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(Tokens::get(cx).line_soft)
         .child(Field::new(&settings.place_name))
         .child(

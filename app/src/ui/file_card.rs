@@ -62,7 +62,7 @@ pub fn file_head(
         .flex()
         .items_center()
         .gap(px(7.))
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .map(|head| {
             if open {
@@ -72,7 +72,7 @@ pub fn file_head(
             }
         })
         .bg(t.surface)
-        .font_family(theme::UI)
+        .font_family(theme::ui_font())
         .cursor_pointer()
         .child(motion::turn(
             format!("{id}:chevron"),

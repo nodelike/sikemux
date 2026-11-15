@@ -162,7 +162,7 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
                 .min_w_0()
                 .overflow_hidden()
                 .whitespace_nowrap()
-                .font_family(crate::theme::MONO)
+                .font_family(crate::theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .children(status),
         )

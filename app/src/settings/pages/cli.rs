@@ -126,7 +126,7 @@ pub fn render(
             .px(SPACE_1H)
             .rounded(theme::radius_2())
             .bg(t.surface_sunken)
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_XS))
             .child(text)
     };
@@ -196,7 +196,7 @@ pub fn render(
         );
     let usage = div()
         .p(SPACE_4)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)
         .flex()

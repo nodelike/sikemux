@@ -183,6 +183,7 @@ struct Look {
     cluster: String,
     note: String,
     note_edge: String,
+    font: SharedString,
     /// The screen's scale, in hundredths.
     scale: u32,
 }
@@ -204,6 +205,7 @@ impl Look {
             cluster: tint(t.text_primary, 0.025),
             note: tint(t.warn, 0.14),
             note_edge: tint(t.warn, 0.45),
+            font: theme::ui_font(),
             scale: (scale * 100.).round() as u32,
         }
     }
@@ -233,7 +235,7 @@ impl Look {
             flow_label_bg: own(&self.ground),
             flow_cluster_fill: own(&self.cluster),
             flow_cluster_stroke: own(&self.rule),
-            font_family: Cow::Borrowed(theme::UI),
+            font_family: Cow::Owned(self.font.to_string()),
             font_size: 13.,
             responsive: false,
             ..base
@@ -282,7 +284,7 @@ static FONTS: LazyLock<Arc<usvg::fontdb::Database>> = LazyLock::new(|| {
     fonts.load_system_fonts();
     fonts.load_font_data(theme::UI_REGULAR.to_vec());
     fonts.load_font_data(theme::UI_SEMIBOLD.to_vec());
-    fonts.set_sans_serif_family(theme::UI);
+    fonts.set_sans_serif_family(theme::BUNDLED_UI);
     Arc::new(fonts)
 });
 
@@ -290,7 +292,7 @@ fn draw(wanted: &Wanted) -> Result<Drawing, String> {
     let svg = mermaid_svg::render_with(&wanted.code, &wanted.look.theme())
         .map_err(|fault| fault.to_string())?;
     let options = usvg::Options {
-        font_family: theme::UI.to_owned(),
+        font_family: wanted.look.font.to_string(),
         fontdb: FONTS.clone(),
         ..usvg::Options::default()
     };

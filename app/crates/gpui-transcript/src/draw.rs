@@ -224,8 +224,8 @@ impl Style {
 impl Default for Style {
     fn default() -> Self {
         Style {
-            font: "Figtree".into(),
-            mono: gpui::font("JetBrainsMono NFM"),
+            font: ".SystemUIFont".into(),
+            mono: gpui::font("Menlo"),
             text_size: px(14.),
             line_height: 1.65,
             code_size: px(12.5),

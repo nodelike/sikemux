@@ -98,11 +98,21 @@ macro_rules! theme_parts {
 
 theme_parts! {
 /// How a theme draws beside its colours.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ThemeStyle / ThemeStyleChanges {
     /// How round corners are, from square at 0 through the default at 1 to twice as round at 2.
     pub corners: f64,
+    /// The interface's font family, installed on the computer; empty is Sikemux's own.
+    pub ui_font: String,
+    /// The code and terminal font family, installed on the computer; empty is Sikemux's own.
+    pub mono_font: String,
+    /// How tall rows are, as a share of the default.
+    pub density: f64,
+    /// How wide borders are, in points.
+    pub borders: f64,
+    /// How dark shadows are, from none at 0 through the default at 1 to twice at 2.
+    pub shadows: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,7 +197,14 @@ impl Eq for ThemeStyle {}
 
 impl Default for ThemeStyle {
     fn default() -> Self {
-        Self { corners: 1. }
+        Self {
+            corners: 1.,
+            ui_font: String::new(),
+            mono_font: String::new(),
+            density: 1.,
+            borders: 1.,
+            shadows: 1.,
+        }
     }
 }
 
@@ -232,7 +249,7 @@ pub struct Palette {
     pub style: UiStyle,
 }
 
-/// DESIGN.md's corner radii for one theme, in points.
+/// DESIGN.md's corner radii, row density, border width and shadow depth for one theme.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UiStyle {
@@ -242,6 +259,12 @@ pub struct UiStyle {
     pub radius2: f64,
     pub radius3: f64,
     pub radius4: f64,
+    /// Row heights' share of the default.
+    pub density: f64,
+    /// Border width in points.
+    pub border: f64,
+    /// Shadows' darkness as a share of the default.
+    pub shadows: f64,
 }
 
 impl Eq for UiStyle {}

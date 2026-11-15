@@ -64,10 +64,14 @@ pub fn find(shelf: &Shelf, id: &str) -> Option<Theme> {
         .or_else(|| shelf.not_own(id))
 }
 
-/// DESIGN.md's corner radii at a theme's corners.
+/// DESIGN.md's corner radii at a theme's corners, with its density, borders and shadows.
 fn style(theme: &Theme) -> UiStyle {
-    let corners = theme.style.corners.clamp(0., MOST_CORNERS);
+    let worn = &theme.style;
+    let corners = worn.corners.clamp(0., MOST_CORNERS);
     UiStyle {
+        density: worn.density.clamp(DENSITY.0, DENSITY.1),
+        border: worn.borders.clamp(BORDERS.0, BORDERS.1),
+        shadows: worn.shadows.clamp(SHADOWS.0, SHADOWS.1),
         corners,
         radius1: 4. * corners,
         radius2: 5. * corners,
@@ -319,6 +323,12 @@ pub fn palette_of(theme: Theme, contrast: Contrast) -> Palette {
 
 /// The roundest a theme's corners can be, as a share of the default.
 pub const MOST_CORNERS: f64 = 2.;
+/// How tight to how roomy a theme's rows can be, as a share of the default.
+pub const DENSITY: (f64, f64) = (0.85, 1.3);
+/// The thinnest and widest a theme's borders can be, in points.
+pub const BORDERS: (f64, f64) = (1., 2.);
+/// The lightest and darkest a theme's shadows can be, as a share of the default.
+pub const SHADOWS: (f64, f64) = (0., 2.);
 /// The most themes of the person's own that are kept.
 pub const MOST_CUSTOM_THEMES: usize = 64;
 /// The longest a theme's id or name can be, in characters.
@@ -359,13 +369,34 @@ pub fn checked(theme: Theme) -> Result<(Theme, Vec<String>), String> {
         }
     }
     let mut theme: Theme = serde_json::from_value(value).map_err(|error| error.to_string())?;
-    let corners = theme.style.corners;
-    let within = ((corners.clamp(0., MOST_CORNERS)) * 100.).round() / 100.;
-    if within != corners {
-        clamped.push(format!(
-            "style.corners {corners} is outside 0 to {MOST_CORNERS}, used {within}"
-        ));
-        theme.style.corners = within;
+    let style = &mut theme.style;
+    for (key, value, (least, most)) in [
+        ("corners", &mut style.corners, (0., MOST_CORNERS)),
+        ("density", &mut style.density, DENSITY),
+        ("borders", &mut style.borders, BORDERS),
+        ("shadows", &mut style.shadows, SHADOWS),
+    ] {
+        let within = (value.clamp(least, most) * 100.).round() / 100.;
+        if within != *value {
+            clamped.push(format!(
+                "style.{key} {value} is outside {least} to {most}, used {within}"
+            ));
+            *value = within;
+        }
+    }
+    for (key, family) in [
+        ("uiFont", &mut style.ui_font),
+        ("monoFont", &mut style.mono_font),
+    ] {
+        *family = family.trim().to_owned();
+        let named = family.chars().count() <= MOST_NAME_CHARS
+            && !family.contains(['/', '\\', ':', '"', ';', '{', '}'])
+            && !family.chars().any(char::is_control);
+        if !named {
+            return Err(format!(
+                "style.{key} is a font family installed on the Mac, by its name: no files, paths or URLs"
+            ));
+        }
     }
     Ok((theme, clamped))
 }

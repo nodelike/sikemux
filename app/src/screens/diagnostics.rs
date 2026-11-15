@@ -157,7 +157,7 @@ pub fn render(
     };
     let kicker = |text: &'static str| {
         ui::text(text.to_uppercase(), 9., FontWeight::SEMIBOLD)
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .letter_spacing(0.08)
             .text_color(t.accent)
     };
@@ -166,7 +166,7 @@ pub fn render(
             .px(px(30.))
             .py(SPACE_5)
             .bg(t.surface_sunken)
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_3XS_H))
             .line_height(relative(1.55))
             .text_color(ink)
@@ -271,7 +271,7 @@ pub fn render(
         .flex_col()
         .overflow_hidden()
         .bg(t.surface)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(div().absolute().top_0().bottom_0().left_0().w(px(4.)).bg(t.accent))
@@ -283,7 +283,7 @@ pub fn render(
                 .pr(px(26.))
                 .pt(px(22.))
                 .pb(SPACE_4)
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     div()
@@ -301,7 +301,7 @@ pub fn render(
                     let this = this.clone();
                     div()
                         .id("diagnostics-esc")
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_3XS))
                         .text_color(t.text_tertiary)
                         .clicks(move |_, _, cx| this.update(cx, experience::close))
@@ -312,7 +312,7 @@ pub fn render(
             div()
                 .px(px(30.))
                 .py(px(18.))
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .text_size(crate::theme::ui_text(TEXT_XS))
                 .line_height(relative(1.6))
@@ -328,7 +328,7 @@ pub fn render(
                 .child(signals)
                 .children(diagnostics.explain.as_ref().map(|explain| {
                     mono_block(serde_json::to_string_pretty(explain).unwrap_or_default(), t.warn)
-                        .border_b_1()
+                        .border_b(crate::theme::border())
                         .border_color(t.border)
                 }))
                 .child(match &diagnostics.error {
@@ -344,7 +344,7 @@ pub fn render(
                 .gap(SPACE_2)
                 .px(px(26.))
                 .py(SPACE_3H)
-                .border_t_1()
+                .border_t(crate::theme::border())
                 .border_color(t.border)
                 .children(diagnostics.saved.clone().map(|path| {
                     div().flex_1().truncate().text_size(crate::theme::ui_text(TEXT_2XS)).text_color(t.text_tertiary).child(t!("Saved to {path}", path = path))

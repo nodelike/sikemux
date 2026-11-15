@@ -269,7 +269,7 @@ fn done_chip(lands: Lands, cx: &App) -> AnyElement {
         .py(px(3.))
         .rounded(theme::radius_1())
         .bg(t.surface_sunken)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line_soft)
         .text_size(theme::ui_text(TEXT_2XS_H))
         .text_color(t.text_secondary)

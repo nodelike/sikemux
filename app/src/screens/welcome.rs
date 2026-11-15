@@ -1258,7 +1258,7 @@ fn said_mono(text: String, room: Room, t: &Tokens) -> AnyElement {
     div()
         .min_w_0()
         .truncate()
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .font_features(FontFeatures::disable_ligatures())
         .text_size(theme::ui_text(room.mono_size()))
         .line_height(relative(1.3))
@@ -1369,7 +1369,7 @@ fn poster(
         .w(px(room.poster_width()))
         .h_full()
         .overflow_hidden()
-        .border_r_1()
+        .border_r(crate::theme::border())
         .border_color(t.border)
         .bg(t.surface_sunken)
         .children(mark)
@@ -1708,7 +1708,7 @@ fn agents_pane(
                 div()
                     .flex_none()
                     .h(px(room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT)))
-                    .border_t_1()
+                    .border_t(crate::theme::border())
                     .border_color(t.border)
                     .bg(t.surface_sunken)
                     .py(px(room.pick(20., 10.)))
@@ -1737,7 +1737,9 @@ fn tick(on: bool, t: &Tokens) -> Div {
         true => tick
             .bg(t.accent)
             .child(ui::icon(Icon::Check, 12.).text_color(t.on_accent)),
-        false => tick.border_1().border_color(t.border_strong),
+        false => tick
+            .border(crate::theme::border())
+            .border_color(t.border_strong),
     }
 }
 
@@ -1818,7 +1820,7 @@ fn project_row(
                         .flex_1()
                         .min_w_0()
                         .truncate()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(theme::ui_text(room.fit(13., 11.5)))
                         .text_color(t.text_tertiary)
                         .child(candidate.shown.clone()),
@@ -1982,10 +1984,10 @@ fn projects_pane(
                                 .bg(t.surface_raised)
                                 .map(|field| match typing {
                                     true => field
-                                        .font_family(theme::MONO)
+                                        .font_family(theme::mono_font())
                                         .text_size(theme::ui_text(room.fit(15., 12.5))),
                                     false => field
-                                        .font_family(theme::UI)
+                                        .font_family(theme::ui_font())
                                         .text_size(theme::ui_text(room.fit(15., 13.))),
                                 })
                                 .children(welcome.path.as_ref().map(|path| {

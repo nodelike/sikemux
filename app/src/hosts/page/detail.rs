@@ -678,7 +678,7 @@ fn alert_card(
         .pr(px(18.))
         .py(SPACE_4)
         .rounded(radius_3())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(crate::theme::mix(tint, t.border, 0.26))
         .bg(wash(tint, t, 0.06))
         .child(
@@ -886,7 +886,7 @@ fn resources(
                 .flex()
                 .flex_col()
                 .rounded(radius_3())
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(hair(t))
                 .bg(card(t))
                 .child(
@@ -935,7 +935,9 @@ fn resources(
                     .px(SPACE_4)
                     .pt(SPACE_3H)
                     .pb(SPACE_3)
-                    .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                    .when(at > 0, |row| {
+                        row.border_t(crate::theme::border()).border_color(hair(t))
+                    })
                     .child(
                         div()
                             .flex()
@@ -1014,7 +1016,7 @@ fn resources(
                 div()
                     .mt(SPACE_2)
                     .rounded(radius_3())
-                    .border_1()
+                    .border(crate::theme::border())
                     .border_color(hair(t))
                     .bg(card(t))
                     .overflow_hidden()
@@ -1073,7 +1075,7 @@ fn disk_parts(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Opt
                     .px(SPACE_4)
                     .py(SPACE_1)
                     .rounded(radius_3())
-                    .border_1()
+                    .border(crate::theme::border())
                     .border_color(hair(t))
                     .bg(card(t))
                     .children(stats.disk_parts.iter().enumerate().map(|(at, part)| {
@@ -1082,7 +1084,9 @@ fn disk_parts(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Opt
                             .flex()
                             .items_center()
                             .gap(SPACE_3)
-                            .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                            .when(at > 0, |row| {
+                                row.border_t(crate::theme::border()).border_color(hair(t))
+                            })
                             .child(
                                 ui::text(part_words(part.kind), TEXT_SM, FontWeight::NORMAL)
                                     .flex_1()
@@ -1221,7 +1225,9 @@ fn agents(
                 false => list(t)
                     .children(rows.into_iter().enumerate().map(|(at, row)| {
                         div()
-                            .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                            .when(at > 0, |row| {
+                                row.border_t(crate::theme::border()).border_color(hair(t))
+                            })
                             .child(row)
                     }))
                     .into_any_element(),
@@ -1234,7 +1240,7 @@ fn list(t: &Tokens) -> Div {
         .flex()
         .flex_col()
         .rounded(radius_3())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(hair(t))
         .bg(card(t))
         .overflow_hidden()
@@ -1612,7 +1618,9 @@ fn top(
                     .gap(SPACE_2H)
                     .px(SPACE_3)
                     .h(px(34.))
-                    .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                    .when(at > 0, |row| {
+                        row.border_t(crate::theme::border()).border_color(hair(t))
+                    })
                     .child(app_icon(bench, process, t))
                     .child(
                         ui::mono(process.name.clone(), TEXT_XS, cx)
@@ -1664,7 +1672,7 @@ pub(super) fn app_icon(bench: &Workbench, process: &ProcessUse, t: &Tokens) -> A
             .flex_none()
             .rounded(px(4.5))
             .bg(ink(t, 0.05))
-            .border_1()
+            .border(crate::theme::border())
             .border_color(hair(t))
             .into_any_element(),
     }
@@ -1802,7 +1810,7 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                 .px(SPACE_4)
                 .py(SPACE_1H)
                 .rounded(radius_3())
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(hair(t))
                 .bg(card(t))
                 .child(
@@ -1864,7 +1872,7 @@ fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbenc
                 .px(SPACE_4)
                 .py(SPACE_1)
                 .rounded(radius_3())
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(hair(t))
                 .bg(card(t))
                 .children(
@@ -1876,7 +1884,9 @@ fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbenc
                                 .flex()
                                 .items_center()
                                 .gap(px(9.))
-                                .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                                .when(at > 0, |row| {
+                                    row.border_t(crate::theme::border()).border_color(hair(t))
+                                })
                                 .child(glyph)
                                 .child(
                                     ui::text(label, TEXT_SM, FontWeight::NORMAL)

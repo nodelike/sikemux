@@ -89,7 +89,7 @@ impl Label {
             .child(div().child(self.word.to_uppercase()))
             .child(
                 div()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_color(t.text_tertiary)
                     .child(self.count.to_string()),
             )
@@ -100,7 +100,7 @@ impl Label {
                         .min_w_0()
                         .ml(SPACE_0)
                         .truncate()
-                        .font_family(theme::MONO)
+                        .font_family(theme::mono_font())
                         .text_size(crate::theme::ui_text(TEXT_3XS_H))
                         .text_color(t.text_tertiary)
                         .child(self.peek.join(" · ")),
@@ -309,9 +309,9 @@ pub fn dock(
         .flex()
         .flex_col()
         .rounded_t(theme::radius_3())
-        .border_t_1()
-        .border_l_1()
-        .border_r_1()
+        .border_t(crate::theme::border())
+        .border_l(crate::theme::border())
+        .border_r(crate::theme::border())
         .border_color(t.line)
         .bg(linear_gradient(
             180.,
@@ -607,7 +607,7 @@ fn work_row(
                 .children(detail.map(|(detail, command)| {
                     div()
                         .truncate()
-                        .when(command, |detail| detail.font_family(theme::MONO))
+                        .when(command, |detail| detail.font_family(theme::mono_font()))
                         .child(detail)
                 }))
         }))
@@ -905,7 +905,7 @@ fn handoff(agent: &AgentRow, chat: &Chat, cx: &mut Context<Workbench>) -> Option
         .px(px(7.))
         .flex()
         .items_center()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .rounded(theme::radius_1())
         .hover(|button| button.bg(t.surface_hover))
@@ -1037,7 +1037,7 @@ fn tinted_button(id: SharedString, label: &str, tint: Hsla, t: &Tokens) -> BaseB
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .rounded(theme::radius_1())
         .bg(Hsla { a: 0.08, ..tint })
@@ -1324,7 +1324,7 @@ pub fn trigger_row(
             let mut when = div()
                 .min_w_0()
                 .truncate()
-                .font_family(theme::MONO)
+                .font_family(theme::mono_font())
                 .text_size(crate::theme::ui_text(TEXT_3XS))
                 .text_color(t.text_disabled)
                 .child(fires(trigger));

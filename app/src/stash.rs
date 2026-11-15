@@ -537,7 +537,7 @@ pub fn tray(
             .mt(SPACE_2)
             .mx(SPACE_1H)
             .pt(px(9.))
-            .border_t_1()
+            .border_t(crate::theme::border())
             .border_color(t.line)
             .flex()
             .items_center()
@@ -1107,7 +1107,7 @@ fn file_chip(file: &StashItem, t: &Tokens) -> Div {
                 .items_center()
                 .rounded(px(3.))
                 .bg(t.surface_raised)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.line)
                 .text_size(theme::ui_text(8.5))
                 .font_weight(FontWeight::BOLD)
@@ -1136,7 +1136,7 @@ fn pages_chip(bench: &Workbench, said: &Said, t: &Tokens) -> Div {
             .justify_center()
             .rounded(px(4.))
             .bg(t.surface_raised)
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.line)
             .overflow_hidden()
             .child(favicon_small(bench, *page, t))
@@ -1365,7 +1365,7 @@ fn empty(signed_in: bool, t: &Tokens) -> Div {
                 .justify_center()
                 .rounded(theme::radius_3())
                 .bg(t.surface_raised)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.line)
                 .child(ui::icon(Icon::Stack, 18.).text_color(t.text_tertiary)),
         )
@@ -1446,7 +1446,7 @@ fn card(bench: &Workbench, at: usize, item: &StashItem, cx: &mut Context<Workben
         .flex_col()
         .rounded(theme::radius_3())
         .overflow_hidden()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .bg(t.surface_raised)
         .hover(move |card| card.border_color(t.border_strong))
@@ -1470,7 +1470,7 @@ fn favicon(bench: &Workbench, item: &StashItem, t: &Tokens, cx: &App) -> AnyElem
         .rounded(theme::radius_2())
         .overflow_hidden()
         .bg(t.surface_sunken)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line);
     let icon = item.url.as_deref().and_then(|url| {
         let url = url::Url::parse(url).ok()?;
@@ -1512,7 +1512,7 @@ fn preview(bench: &Workbench, item: &StashItem, t: &Tokens, cx: &App) -> AnyElem
         .justify_center()
         .overflow_hidden()
         .bg(t.surface_sunken)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.line);
     let plain = |cx: &App| {
         let site = match item.kind {

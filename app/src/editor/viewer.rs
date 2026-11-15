@@ -662,7 +662,7 @@ fn bytes(bytes: Vec<u8>, t: &Tokens) -> AnyElement {
             .collect()
     })
     .size_full()
-    .font_family(theme::MONO)
+    .font_family(theme::mono_font())
     .text_size(crate::theme::ui_text(TEXT_XS))
     .into_any_element()
 }
@@ -696,7 +696,7 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
         .gap(SPACE_2H)
         .h(px(32.))
         .px(SPACE_3)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(ui::icon(Icon::File, 14.).text_color(t.text_tertiary))

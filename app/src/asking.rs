@@ -260,7 +260,7 @@ fn panel(
                 .occlude()
                 .clicks_keep_cursor(|_, _, cx| cx.stop_propagation())
                 .bg(t.surface_overlay)
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
                 .rounded(crate::theme::radius_3())
                 .shadow(t.shadow_float())

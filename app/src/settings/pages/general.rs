@@ -224,14 +224,14 @@ pub fn render(
             .gap(SPACE_3)
             .px(SPACE_4)
             .py(SPACE_2)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(t.text_primary)
                     .child(crate::ui::path::tilde(
@@ -377,7 +377,7 @@ pub fn render(
             .px(SPACE_4)
             .pt(SPACE_2H)
             .pb(SPACE_1)
-            .border_b_1()
+            .border_b(crate::theme::border())
             .border_color(t.line_soft)
             .child(div().flex_1().child(ui::caps(t!("Folder"), cx)))
             .child(

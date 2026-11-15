@@ -177,7 +177,7 @@ impl Render for AgentReview {
                             .id(("review-file", index))
                             .pl(px(72.))
                             .truncate()
-                            .font_family(theme::MONO)
+                            .font_family(theme::mono_font())
                             .text_size(crate::theme::ui_text(TEXT_2XS))
                             .text_color(t.accent)
                             .hover(|style| style.underline())

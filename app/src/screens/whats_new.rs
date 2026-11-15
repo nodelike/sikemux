@@ -294,7 +294,7 @@ pub fn render(
         .flex()
         .overflow_hidden()
         .bg(t.surface)
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .rounded(theme::radius_4())
         .shadow(t.shadow_float())
@@ -379,7 +379,7 @@ fn side(
         .px(px(22.))
         .pb(SPACE_5)
         .overflow_y_scroll()
-        .border_r_1()
+        .border_r(crate::theme::border())
         .border_color(t.border)
         .child(
             div()
@@ -533,7 +533,7 @@ fn contributors(
                 .min_w_0()
                 .px(SPACE_2H)
                 .py(px(9.))
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(gpui_kit::transparent_black())
                 .rounded(theme::radius_2())
                 .bg(t.surface_overlay)
@@ -664,9 +664,9 @@ fn main(
             .id("whats-new-esc")
             .px(px(7.))
             .py(px(5.))
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
-            .font_family(theme::MONO)
+            .font_family(theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_3XS))
             .font_weight(FontWeight::MEDIUM)
             .line_height(crate::theme::ui_text(TEXT_3XS))
@@ -688,7 +688,7 @@ fn main(
                 .pl(px(32.))
                 .pr(SPACE_6)
                 .py(px(18.))
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     ui::text(t!("What’s new"), 15., FontWeight::SEMIBOLD)
@@ -721,7 +721,7 @@ fn main(
                 .pl(px(32.))
                 .pr(SPACE_5)
                 .py(SPACE_3)
-                .border_t_1()
+                .border_t(crate::theme::border())
                 .border_color(t.border)
                 .child(match compare {
                     Some(compare) => {
@@ -808,7 +808,7 @@ fn waiting(
             .id(id)
             .px(SPACE_3)
             .py(px(7.))
-            .border_1()
+            .border(crate::theme::border())
             .border_color(if danger {
                 Hsla { a: 0.5, ..t.danger }
             } else {
@@ -853,7 +853,7 @@ fn waiting(
         .pl(px(32.))
         .pr(SPACE_5)
         .py(SPACE_3)
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
         .text_size(crate::theme::ui_text(TEXT_XS))
         .text_color(t.text_secondary)
@@ -887,7 +887,7 @@ fn waiting(
                         .min_w_0()
                         .px(SPACE_2H)
                         .py(px(7.))
-                        .border_1()
+                        .border(crate::theme::border())
                         .border_color(t.border)
                         .rounded(theme::radius_2())
                         .bg(t.surface_raised)
@@ -913,12 +913,9 @@ fn notes_markdown(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let mut mono = gpui_kit::font(theme::MONO);
-    mono.fallbacks = Some(gpui_kit::FontFallbacks::from_fonts(vec![
-        theme::MONO_ICONS.into()
-    ]));
+    let mono = theme::mono();
     let style = Style {
-        font: theme::UI.into(),
+        font: theme::ui_font(),
         mono,
         text_size: px(13.5),
         line_height: 1.6,

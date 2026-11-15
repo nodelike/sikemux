@@ -448,7 +448,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .flex_col()
                 .gap(SPACE_1H)
                 .pt(SPACE_2H)
-                .border_t_1()
+                .border_t(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     div()

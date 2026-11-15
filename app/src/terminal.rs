@@ -15,12 +15,12 @@ use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    actions, canvas, div, font, px, AnyElement, AnyView, App, AppContext, Bounds, ClickEvent,
-    ClipboardEntry, ClipboardItem, Context, CursorStyle, Entity, ExternalPaths, FocusHandle,
-    FontFallbacks, Hsla, Image, InputHandler, InteractiveElement, IntoElement, KeyBinding,
-    KeyDownEvent, Keystroke, Modifiers, MouseButton as Button, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, Pixels, Point, Render, Rgba, ScrollEvent, SharedString,
-    StyleRefinement, Styled, Subscription, Task, UTF16Selection, WeakEntity, Window,
+    actions, canvas, div, px, AnyElement, AnyView, App, AppContext, Bounds, ClickEvent,
+    ClipboardEntry, ClipboardItem, Context, CursorStyle, Entity, ExternalPaths, FocusHandle, Hsla,
+    Image, InputHandler, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, Keystroke,
+    Modifiers, MouseButton as Button, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
+    Pixels, Point, Render, Rgba, ScrollEvent, SharedString, StyleRefinement, Styled, Subscription,
+    Task, UTF16Selection, WeakEntity, Window,
 };
 use gpui_terminal_grid::{
     Cursor, CursorShape, Grid, Highlight, Layout, Look, Marked, Metrics, Span, Underline,
@@ -810,10 +810,10 @@ fn shell_chip(shell: &ShellMetadataSnapshot, cx: &App) -> impl IntoElement {
         .px(SPACE_1H)
         .py(SPACE_0)
         .rounded_full()
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.line)
         .bg(t.surface)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(px(9.))
         .text_color(t.text_secondary)
         .opacity(0.58)
@@ -846,20 +846,18 @@ fn layout(
     cx: &mut Context<Workbench>,
 ) -> (Layout, FocusHandle) {
     let size = px(font_size(bench) as f32);
-    if bench
-        .terminals
-        .metrics
-        .as_ref()
-        .is_some_and(|metrics| metrics.font_size != size || metrics.scale != window.scale_factor())
-    {
+    if bench.terminals.metrics.as_ref().is_some_and(|metrics| {
+        metrics.font_size != size
+            || metrics.scale != window.scale_factor()
+            || *metrics.family() != theme::mono_font()
+    }) {
         bench.terminals.metrics = None;
     }
     let metrics = bench
         .terminals
         .metrics
         .get_or_insert_with(|| {
-            let mut mono = font(theme::MONO);
-            mono.fallbacks = Some(FontFallbacks::from_fonts(vec![theme::MONO_ICONS.into()]));
+            let mono = theme::mono();
             Metrics::new(mono, size, LINE_HEIGHT, window)
         })
         .clone();

@@ -110,7 +110,7 @@ pub fn top_bar(
         .items_center()
         .h(px(BAR_HEIGHT))
         .when(!crate::see_through::clear(cx), |bar| bar.bg(t.surface))
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .window_control_area(WindowControlArea::Drag)
         .when(cfg!(target_os = "macos"), |bar| {
@@ -289,7 +289,7 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
             .items_center()
             .gap(SPACE_1H)
             .rounded(crate::theme::radius_1())
-            .font_family(crate::theme::MONO)
+            .font_family(crate::theme::mono_font())
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .text_color(t.text_tertiary)
             .hover(move |style| style.text_color(t.text_primary))

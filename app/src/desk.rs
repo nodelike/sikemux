@@ -2132,7 +2132,7 @@ pub fn pane(
         .gap(SPACE_0)
         .px(SPACE_1H)
         .py(SPACE_1)
-        .border_b_1()
+        .border_b(crate::theme::border())
         .border_color(t.border)
         .child(
             IconButton::new("desk-back", Icon::Chevron, t!("Back"))
@@ -2170,7 +2170,7 @@ pub fn pane(
                 .flex()
                 .items_center()
                 .rounded(radius_2())
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(if focused {
                     t.border_selected
                 } else {
@@ -2340,7 +2340,7 @@ fn frame(
                 .h(px(SWITCH_H))
                 .p(SPACE_1)
                 .rounded(radius_3())
-                .border_1()
+                .border(crate::theme::border())
                 .border_color(t.border)
                 .bg(ground)
                 .child(kinds(bench, agent, kind, cx)),
@@ -2467,7 +2467,8 @@ fn pill_face(
             (false, None) => rest,
         })
         .when_some(tinted, |pill, tint| {
-            pill.border_1().border_color(tint.opacity(0.7))
+            pill.border(crate::theme::border())
+                .border_color(tint.opacity(0.7))
         })
         .when(!shown, |pill| {
             pill.hover(move |pill| pill.bg(t.surface_hover))

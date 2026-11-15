@@ -432,7 +432,7 @@ pub fn pane(
                     .gap(SPACE_2H)
                     .px(SPACE_3)
                     .py(SPACE_1H)
-                    .border_b_1()
+                    .border_b(crate::theme::border())
                     .border_color(t.border)
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .child(div().text_color(t.text_tertiary).child(t!("Go to line")))
@@ -512,7 +512,7 @@ pub fn pane(
                     .capture_action(window.listener_for(&this, |bench, _: &Replace, _, cx| {
                         bench.parts.redraw_stage(cx)
                     }))
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .text_size(size)
                     .text_color(t.text_primary)
                     .child(
@@ -826,9 +826,9 @@ fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoEleme
         .flex()
         .flex_col()
         .max_h(px(320.))
-        .border_t_1()
+        .border_t(crate::theme::border())
         .border_color(t.border)
-        .font_family(theme::MONO)
+        .font_family(theme::mono_font())
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(
             div()
@@ -837,7 +837,7 @@ fn peek_panel(this: &Entity<Workbench>, peek: &Peek, cx: &App) -> impl IntoEleme
                 .h(px(30.))
                 .px(SPACE_3)
                 .gap(SPACE_2)
-                .border_b_1()
+                .border_b(crate::theme::border())
                 .border_color(t.border)
                 .child(
                     div()

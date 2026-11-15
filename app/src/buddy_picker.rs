@@ -127,7 +127,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             .items_center()
             .justify_center()
             .rounded(theme::radius_2())
-            .border_1()
+            .border(crate::theme::border())
             .cursor_pointer()
             .border_color(if on {
                 gpui::transparent_black()

@@ -92,7 +92,7 @@ impl RenderOnce for Screen {
             .items_center()
             .justify_center()
             .rounded(radius_3())
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .bg(linear_gradient(
                 180.,
@@ -191,7 +191,7 @@ impl RenderOnce for Field {
                     .flex()
                     .items_center()
                     .rounded(radius_2())
-                    .border_1()
+                    .border(crate::theme::border())
                     .border_color(match focused {
                         true => t.border_selected,
                         false => t.border,
@@ -200,7 +200,7 @@ impl RenderOnce for Field {
                     .text_color(t.text_primary)
                     .map(|field| match self.mono {
                         true => field
-                            .font_family(theme::MONO)
+                            .font_family(theme::mono_font())
                             .text_size(theme::ui_text(TEXT_XS)),
                         false => field.text_size(theme::ui_text(TEXT_SM)),
                     })
@@ -258,7 +258,7 @@ pub fn waiting(
         .justify_center()
         .gap(SPACE_2)
         .rounded(radius_2())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .text_size(theme::ui_text(TEXT_SM))
         .text_color(t.text_secondary)
@@ -311,7 +311,7 @@ fn callout(tone: Hsla) -> Div {
         .px(SPACE_3)
         .py(SPACE_2)
         .rounded(radius_2())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(tone.opacity(0.34))
         .bg(tone.opacity(0.08))
         .text_left()
@@ -394,7 +394,7 @@ fn choice_box(id: impl Into<ElementId>, ink: Hsla, t: &Tokens) -> Stateful<Div> 
         .items_center()
         .cursor_pointer()
         .rounded(radius_2())
-        .border_1()
+        .border(crate::theme::border())
         .border_color(t.border)
         .bg(tint(t))
         .text_color(t.text_primary)

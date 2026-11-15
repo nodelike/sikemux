@@ -79,7 +79,7 @@ impl Render for Bench {
                         .child(
                             div()
                                 .p(px(8.))
-                                .font_family(theme::MONO)
+                                .font_family(theme::mono_font())
                                 .text_size(px(11.))
                                 .text_color(t.text_secondary)
                                 .children(lines.iter().map(|line| div().child(line.clone()))),

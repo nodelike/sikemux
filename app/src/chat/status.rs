@@ -298,7 +298,7 @@ impl Render for Activity {
                 .text_color(t.text_secondary)
                 .child(what);
             if label.typed {
-                what.font_family(crate::theme::MONO)
+                what.font_family(crate::theme::mono_font())
                     .text_size(crate::theme::ui_text(TEXT_XS))
             } else {
                 what.text_size(crate::theme::ui_text(TEXT_XS_H))
@@ -1077,7 +1077,7 @@ fn plan_step(agent: &str, index: usize, entry: &PlanEntry, cx: &App) -> AnyEleme
         PlanStatus::Pending | PlanStatus::Unknown => div()
             .size(px(7.))
             .rounded_full()
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.text_disabled)
             .into_any_element(),
     };

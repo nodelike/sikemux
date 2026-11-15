@@ -310,7 +310,7 @@ fn greeting(project: SharedString, cx: &App) -> impl IntoElement {
                 div()
                     .min_w_0()
                     .truncate()
-                    .font_family(theme::MONO)
+                    .font_family(theme::mono_font())
                     .font_weight(FontWeight::NORMAL)
                     .text_size(theme::ui_text(18.))
                     .child(project),

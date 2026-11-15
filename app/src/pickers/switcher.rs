@@ -253,7 +253,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
                             .justify_between()
                             .px(px(2. * ui::FLOAT_INSET))
                             .py(SPACE_2H)
-                            .border_b_1()
+                            .border_b(crate::theme::border())
                             .border_color(t.border)
                             .child(ui::meta(t!("Switch project"), cx))
                             .child(ui::meta(t!("release {held} to open", held = held), cx)),
@@ -273,7 +273,7 @@ pub fn overlay(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElem
                             .gap(SPACE_3)
                             .px(px(2. * ui::FLOAT_INSET))
                             .py(SPACE_2)
-                            .border_t_1()
+                            .border_t(crate::theme::border())
                             .border_color(t.border)
                             .child(ui::kbd(format!("{held}`"), cx))
                             .child(ui::meta(t!("next"), cx))

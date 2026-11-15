@@ -166,7 +166,9 @@ pub(crate) fn overview(totals: &ActivityTotals, cx: &App) -> impl IntoElement {
                 .py(SPACE_1)
                 .px(SPACE_3)
                 .when(index == 0, |stat| stat.pl_0())
-                .when(index > 0, |stat| stat.border_l_1().border_color(t.border))
+                .when(index > 0, |stat| {
+                    stat.border_l(crate::theme::border()).border_color(t.border)
+                })
                 .child(
                     div()
                         .flex()

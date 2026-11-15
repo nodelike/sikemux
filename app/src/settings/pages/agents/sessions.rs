@@ -281,7 +281,7 @@ pub fn boundary(
                 .gap(SPACE_1)
                 .p(SPACE_3)
                 .rounded(theme::radius_3())
-                .border_1()
+                .border(crate::theme::border())
                 .cursor_pointer()
                 .border_color(match (chosen, danger) {
                     (true, true) => t.danger,

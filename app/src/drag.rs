@@ -138,7 +138,7 @@ impl Render for Ghost {
             .px(SPACE_2H)
             .py(SPACE_1)
             .rounded(crate::theme::radius_2())
-            .border_1()
+            .border(crate::theme::border())
             .border_color(t.border)
             .bg(t.surface_overlay)
             .text_size(crate::theme::ui_text(TEXT_XS))

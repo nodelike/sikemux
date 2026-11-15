@@ -924,7 +924,7 @@ impl Render for Workbench {
             .map(|shell| actions::listen_others(actions::listen(shell, cx), cx))
             .flex()
             .flex_col()
-            .font_family(theme::UI)
+            .font_family(theme::ui_font())
             .text_size(crate::theme::ui_text(TEXT_SM))
             .line_height(crate::theme::ui_text(13. * 1.45))
             .text_color(t.text_secondary)
