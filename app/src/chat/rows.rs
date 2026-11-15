@@ -622,30 +622,18 @@ pub(super) fn letters(
                 });
                 let who = match &letter.trigger {
                     Some(trigger) => trigger_named(&trigger.title, Tokens::get(cx)),
-                    None => {
-                        let (bench, agent) = (looks.bench.clone(), letter.agent_id.clone());
-                        let chat = looks.agent.clone();
-                        let name = div()
-                            .id(SharedString::from(format!("{id}:from")))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(looks.ink)
-                            .hover(|name| name.underline())
-                            .child(format!("@{}", letter.name))
-                            .clicks(move |_, _, cx| {
-                                bench
-                                    .update(cx, |bench, cx| {
-                                        let from = bench.chat_target(&chat);
-                                        bench.open_agent_from(&agent, from, cx)
-                                    })
-                                    .ok();
-                            });
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(SPACE_2)
-                            .child(looks.mark_of(&letter.agent_id, &letter.cli, 17., cx))
-                            .child(name)
-                    }
+                    None => match looks.bench.upgrade() {
+                        Some(bench) => div().flex().child(super::agent_pill_of(
+                            &letter.agent_id,
+                            &letter.name,
+                            looks.mark_of(&letter.agent_id, &letter.cli, TEXT_XS + 1., cx),
+                            TEXT_XS,
+                            bench.read(cx).chat_target(&looks.agent),
+                            &looks.bench,
+                            cx,
+                        )),
+                        None => div(),
+                    },
                 };
                 from(who, row, text, looks).into_any_element()
             }

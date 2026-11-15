@@ -45,7 +45,6 @@ pub(super) fn block(
         .filter(|call| call.state == CallState::Open)
         .collect();
     let queue = open.map(|open| {
-        let mark = asker_mark(bench.read(cx), open, FACE, cx);
         let at = 1
             + (away.calls.iter())
                 .position(|call| call.id == open.id)
@@ -54,7 +53,7 @@ pub(super) fn block(
             at,
             of: away.calls.len(),
         };
-        let shown = card(open, mark, seat, through, window, cx);
+        let shown = card(open, seat, through, window, cx);
         let answered: Vec<AnyElement> = (away.calls.iter())
             .filter(|call| call.state != CallState::Open)
             .filter_map(|call| answered_row(call, &t))

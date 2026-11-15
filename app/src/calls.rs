@@ -462,7 +462,6 @@ struct Through<'a> {
 /// field under them, the point against, and the footer that answers it.
 fn card(
     call: &PersonCall,
-    mark: AnyElement,
     seat: Seat,
     through: Through,
     window: &mut Window,
@@ -483,6 +482,9 @@ fn card(
         (cards.chosen(call), cards.sending(&call.id))
     };
     let typed = !field.read(cx).value().trim().is_empty();
+    let asker = (bench.upgrade())
+        .map(|strong| asker_mark(strong.read(cx), call, 13., cx))
+        .unwrap_or_else(|| ui::mark(&call.asker.cli, 13.));
     let who = div()
         .h(px(FACE))
         .flex()
@@ -490,29 +492,29 @@ fn card(
         .gap(px(7.))
         .text_size(theme::ui_text(12.))
         .text_color(t.text_tertiary)
-        .child(mark)
-        .child(
-            div()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(t.text_secondary)
-                .child(format!("@{}", call.asker.name)),
-        )
+        .child(crate::chat::agent_pill_of(
+            &call.asker.agent_id,
+            &call.asker.name,
+            asker,
+            12.,
+            target.clone(),
+            bench,
+            cx,
+        ))
         .child(div().text_color(t.text_disabled).child("·"))
         .child(ui::time::age(call.raised_at))
         .when_some(call.about.as_ref(), |who, about| {
-            let row =
-                (bench.upgrade()).and_then(|bench| bench.read(cx).agent_by_id(&about.agent_id));
-            let pill = match row {
-                Some(row) => crate::chat::agent_pill(&row, 12., bench, cx).into_any_element(),
-                None => div()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(t.text_secondary)
-                    .child(format!("@{}", about.name))
-                    .into_any_element(),
-            };
             who.child(div().text_color(t.text_disabled).child("·"))
                 .child(t!("about"))
-                .child(pill)
+                .child(crate::chat::agent_pill_of(
+                    &about.agent_id,
+                    &about.name,
+                    ui::mark(&about.cli, 13.),
+                    12.,
+                    target.clone(),
+                    bench,
+                    cx,
+                ))
         })
         .when_some(
             match &seat {
@@ -1270,26 +1272,18 @@ impl Render for InChat {
             return div().into_any_element();
         }
         let t = Tokens::get(cx).clone();
-        let Some(bench) = self.bench.upgrade() else {
-            return div().into_any_element();
-        };
         let opened = self.cards.read(cx).opened.clone();
         let answered = answered_in_chat(self.calls.open.iter(), opened.as_deref());
         let open: Vec<&PersonCall> = (self.calls.open.iter())
             .filter(|call| answered.is_none_or(|answered| answered.id != call.id))
             .chain(answered)
             .collect();
-        let marks: Vec<AnyElement> = (open.iter())
-            .map(|call| asker_mark(bench.read(cx), call, FACE, cx))
-            .collect();
         let notices = (self.calls.settled.iter()).filter_map(|call| notice(call, &t));
         let cards: Vec<AnyElement> = (open.into_iter())
-            .zip(marks)
-            .map(|(call, mark)| {
+            .map(|call| {
                 panel(&t)
                     .child(card(
                         call,
-                        mark,
                         Seat::Chat,
                         Through {
                             target: &self.target,
@@ -1432,13 +1426,12 @@ fn popover(
     };
     let target = Target::new(&bench.read(cx).asks, place);
     let weak = bench.downgrade();
-    let mark = asker_mark(bench.read(cx), &open, FACE, cx);
     let through = Through {
         target: &target,
         cards,
         bench: &weak,
     };
-    let shown = card(&open, mark, Seat::Popover(dismiss), through, window, cx);
+    let shown = card(&open, Seat::Popover(dismiss), through, window, cx);
     let rest: Vec<AnyElement> = (calls.iter())
         .filter(|call| call.id != open.id)
         .map(|call| folded(bench.read(cx), cards, call, cx))

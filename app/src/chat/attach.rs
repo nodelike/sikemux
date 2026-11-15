@@ -853,13 +853,35 @@ pub(crate) fn agent_pill(
     let face = chip_face(key, title, false, agent.mark(size + 1., cx), cx)
         .flex_none()
         .text_size(theme::ui_text(size));
-    opens_agent(face, &agent.id, bench, cx)
+    opens_agent(face, &agent.id, None, bench, cx)
 }
 
-/// A chip that opens `agent`'s chat, lifting a step on hover.
+/// The chip of the agent `id` named `name`: [`agent_pill`] while the window knows the agent,
+/// else the same chip wearing `mark`, which opens the agent's chat again through `from`.
+pub(crate) fn agent_pill_of(
+    id: &str,
+    name: &str,
+    mark: gpui_kit::AnyElement,
+    size: f32,
+    from: crate::core::Target,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> gpui_kit::AnyElement {
+    let known = (bench.upgrade()).and_then(|strong| strong.read(cx).agent_by_id(id));
+    if let Some(agent) = known {
+        return agent_pill(&agent, size, bench, cx).into_any_element();
+    }
+    let face = chip_face(format!("@{name}").into(), None, false, mark, cx)
+        .flex_none()
+        .text_size(theme::ui_text(size));
+    opens_agent(face, id, Some(from), bench, cx).into_any_element()
+}
+
+/// A chip that opens `agent`'s chat, through `from` when given, lifting a step on hover.
 fn opens_agent(
     face: Div,
     agent: &str,
+    from: Option<crate::core::Target>,
     bench: &WeakEntity<Workbench>,
     cx: &App,
 ) -> gpui_kit::Stateful<Div> {
@@ -870,7 +892,10 @@ fn opens_agent(
         .hover(move |chip| chip.bg(hover))
         .clicks(move |_, _, cx| {
             bench
-                .update(cx, |bench, cx| bench.open_agent(&agent, cx))
+                .update(cx, |bench, cx| match from.clone() {
+                    Some(from) => bench.open_agent_from(&agent, from, cx),
+                    None => bench.open_agent(&agent, cx),
+                })
                 .ok();
         })
 }
@@ -990,7 +1015,7 @@ fn mention_chip(
             .w_full()
             .h(height);
             let face = match id.strip_prefix(AGENT) {
-                Some(agent) => opens_agent(face, agent, &bench, cx).into_any_element(),
+                Some(agent) => opens_agent(face, agent, None, &bench, cx).into_any_element(),
                 None => face.into_any_element(),
             };
             div()
