@@ -2,7 +2,9 @@
 //! hosts and projects may use each sign-in, the recovery key, and each sign-in's use log.
 
 use crate::server::remote_state::RemoteParts;
+use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::vault::{AllowParams, ShownHost, ShownSignIn, ShownStatus, ShownVault};
+pub use sikemux_calls::vault::{KeepNewParams, KeepParams, ShownKept};
 pub use sikemux_calls::vault::{RecoverParams, RevokeParams, ShownUse, UsesParams};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -57,6 +59,11 @@ pub fn vault(core: &Core) -> ShownVault {
     let sign_ins = state
         .entries
         .iter()
+        .filter(|(_, entry)| {
+            !state
+                .marks
+                .kept(&entry.body.plugin, &entry.body.sign_in.identity)
+        })
         .map(|(id, entry)| {
             let body = &entry.body;
             let mut shown_hosts: Vec<ShownHost> = hosts
@@ -86,6 +93,7 @@ pub fn vault(core: &Core) -> ShownVault {
             ShownSignIn {
                 id: id.clone(),
                 plugin: body.plugin.clone(),
+                identity: body.sign_in.identity.clone(),
                 label: body.sign_in.label.clone(),
                 origin: named(&body.origin).0,
                 hosts: shown_hosts,
@@ -104,6 +112,17 @@ pub fn vault(core: &Core) -> ShownVault {
         holders: state.holders.len(),
         recovery: state.recovery_text.clone(),
         sign_ins,
+        kept: state
+            .here
+            .iter()
+            .filter(|held| state.marks.kept(&held.plugin, &held.identity))
+            .map(|held| ShownKept {
+                plugin: held.plugin.clone(),
+                identity: held.identity.clone(),
+                label: held.label.clone(),
+            })
+            .collect(),
+        keep_new: state.marks.keep_new,
     }
 }
 
@@ -131,6 +150,54 @@ pub async fn revoke(core: &Arc<Core>, params: RevokeParams) -> CoreResult<()> {
         }
     })
     .await
+}
+
+/// Keeps a sign-in on this host and out of the vault, or puts it back in. The next round
+/// takes it out of the vault, or puts it in as a new sign-in allowed on this host alone.
+pub async fn keep(core: &Arc<Core>, params: KeepParams) -> CoreResult<()> {
+    let label = {
+        let state = core.vault().state.locked();
+        state
+            .here
+            .iter()
+            .find(|held| held.plugin == params.plugin && held.identity == params.identity)
+            .map(|held| held.label.clone())
+    };
+    let Some(label) = label else {
+        return Err("this host does not hold that sign-in".into());
+    };
+    change_marks(core, move |marks| {
+        marks.set(local::Mark {
+            plugin: params.plugin,
+            identity: params.identity,
+            label,
+            kept: params.kept,
+        });
+    })
+    .await
+}
+
+/// Whether sign-ins first seen on this host from now on stay here.
+pub async fn keep_new(core: &Arc<Core>, params: KeepNewParams) -> CoreResult<()> {
+    change_marks(core, move |marks| marks.keep_new = params.on).await
+}
+
+async fn change_marks(
+    core: &Arc<Core>,
+    change: impl FnOnce(&mut local::Marks) + Send + 'static,
+) -> CoreResult<()> {
+    let data_dir = core.data_dir().clone();
+    let marks =
+        blocking(move || local::change_marks(data_dir.as_deref(), change).map_err(CoreError::from))
+            .await?;
+    {
+        let mut state = core.vault().state.locked();
+        state.marks = marks;
+        state.dirty = true;
+    }
+    core.vault().wake();
+    super::announce(core);
+    Ok(())
 }
 
 pub async fn recovery_saved(core: &Arc<Core>) -> CoreResult<()> {

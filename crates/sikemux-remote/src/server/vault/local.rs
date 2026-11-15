@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_plugin_api::vault::SignIn;
+use sikemux_process::sync::Locked;
 
 use super::Scope;
 
@@ -101,6 +102,85 @@ pub fn recovery(account: &str) -> Option<String> {
 
 pub fn forget_recovery(account: &str) -> Result<(), String> {
     sikemux_keychain::delete(RECOVERY_SERVICE, account).map_err(|error| error.to_string())
+}
+
+fn marks_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("vault-kept.json")
+}
+
+/// Which sign-ins stay on this host and out of the vault. Kept apart from [`Local`], which
+/// starts over with a new account or vault, so a mark is never lost to one.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Marks {
+    /// A sign-in first seen here that the vault does not hold stays here.
+    pub keep_new: bool,
+    pub sign_ins: Vec<Mark>,
+}
+
+/// What the person or the host's rule decided for one sign-in.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Mark {
+    pub plugin: String,
+    pub identity: String,
+    pub label: String,
+    pub kept: bool,
+}
+
+impl Marks {
+    pub fn of(&self, plugin: &str, identity: &str) -> Option<&Mark> {
+        self.sign_ins
+            .iter()
+            .find(|mark| mark.plugin == plugin && mark.identity == identity)
+    }
+
+    pub fn kept(&self, plugin: &str, identity: &str) -> bool {
+        self.of(plugin, identity).is_some_and(|mark| mark.kept)
+    }
+
+    pub fn set(&mut self, mark: Mark) {
+        match self
+            .sign_ins
+            .iter_mut()
+            .find(|kept| kept.plugin == mark.plugin && kept.identity == mark.identity)
+        {
+            Some(kept) => *kept = mark,
+            None => self.sign_ins.push(mark),
+        }
+    }
+}
+
+pub fn marks(data_dir: Option<&Path>) -> Marks {
+    data_dir
+        .and_then(|dir| std::fs::read(marks_path(dir)).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+static CHANGING_MARKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Changes the marks on disk, one change at a time, and returns them as they now are.
+pub fn change_marks(
+    data_dir: Option<&Path>,
+    change: impl FnOnce(&mut Marks),
+) -> Result<Marks, String> {
+    let _turn = CHANGING_MARKS.locked();
+    let mut kept = marks(data_dir);
+    let before = kept.clone();
+    change(&mut kept);
+    if kept != before {
+        save_marks(data_dir, &kept)?;
+    }
+    Ok(kept)
+}
+
+fn save_marks(data_dir: Option<&Path>, marks: &Marks) -> Result<(), String> {
+    let Some(dir) = data_dir else { return Ok(()) };
+    let bytes = serde_json::to_vec_pretty(marks).map_err(|error| error.to_string())?;
+    sikemux_process::files::write_atomic(&marks_path(dir), &bytes, true)
+        .map(drop)
+        .map_err(|error| error.to_string())
 }
 
 fn uses_path(data_dir: &Path) -> PathBuf {

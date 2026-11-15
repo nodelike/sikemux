@@ -81,6 +81,8 @@ crate::calls! {
     "vaultRevoke" VaultRevoke (crate::vault::RevokeParams) -> ();
     "vaultRecover" VaultRecover (crate::vault::RecoverParams) -> ();
     "vaultUses" VaultUses (crate::vault::UsesParams) -> Vec<crate::vault::ShownUse>;
+    "vaultKeep" VaultKeep (crate::vault::KeepParams) -> ();
+    "vaultKeepNew" VaultKeepNew (crate::vault::KeepNewParams) -> ();
     "themeFromPixels" ThemeFromPixels (crate::wallpaper::PixelsParams) -> sikemux_view::theme::Theme;
     "accountPicture" AccountPicture (crate::account::AccountPictureParams) -> Option<crate::remote_image::PictureData>;
     "lsp.claim" LspClaim (crate::lsp::LspClaim) -> Vec<String>;

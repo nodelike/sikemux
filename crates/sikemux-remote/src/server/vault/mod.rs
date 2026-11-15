@@ -112,6 +112,10 @@ pub struct State {
     opened_at: u64,
     /// Entries this host failed to renew, and when, so it waits before trying again.
     renew_failed: HashMap<String, u64>,
+    /// Which sign-ins stay on this host, as it last read them.
+    marks: local::Marks,
+    /// The sign-ins this host's plugins held when it last compared them with the vault.
+    here: Vec<local::Mark>,
 }
 
 impl State {

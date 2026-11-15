@@ -423,6 +423,8 @@ calls! { core, client, method, params;
     "vaultRecoverySaved" = VaultRecoverySaved: Owner => super::vault::shown::recovery_saved(&core).await?,
     "vaultRecover" = VaultRecover: Owner => super::vault::shown::recover(&core, params).await?,
     "vaultUses" = VaultUses: Owner => super::vault::shown::uses(&core, params).await?,
+    "vaultKeep" = VaultKeep: Owner, counted => super::vault::shown::keep(&core, params).await?,
+    "vaultKeepNew" = VaultKeepNew: Owner, counted => super::vault::shown::keep_new(&core, params).await?,
     "drafts" = Drafts: Watch => core.drafts().get(params.unwrap_or_default().keys.as_deref()),
     "setDraft" = SetDraft: Owner => super::drafts::set(&core, params)?,
     "diagramLayout" = DiagramLayout: Owner => super::diagrams::layout(&core, params),

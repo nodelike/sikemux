@@ -52,6 +52,18 @@ pub struct ShownVault {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery: Option<String>,
     pub sign_ins: Vec<ShownSignIn>,
+    /// The sign-ins that stay on this host, out of the vault.
+    pub kept: Vec<ShownKept>,
+    /// New sign-ins on this host stay here.
+    pub keep_new: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShownKept {
+    pub plugin: String,
+    pub identity: String,
+    pub label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -59,6 +71,7 @@ pub struct ShownVault {
 pub struct ShownSignIn {
     pub id: String,
     pub plugin: String,
+    pub identity: String,
     pub label: String,
     /// The host it was made on.
     pub origin: String,
@@ -88,4 +101,18 @@ pub struct AllowParams {
     pub host: String,
     #[serde(default)]
     pub projects: Option<Vec<String>>,
+}
+
+/// Keeps a sign-in on this host and out of the vault, or puts it back in.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeepParams {
+    pub plugin: String,
+    pub identity: String,
+    pub kept: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct KeepNewParams {
+    pub on: bool,
 }

@@ -25,7 +25,7 @@ use crate::accounts::vault::{
 
 use super::super::account::api::{as_host, host_request};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
-use super::local::{self, Applied, Local};
+use super::local::{self, Applied, Local, Mark, Marks};
 use super::seal::{self, Key};
 use super::{announce, Body, Entry, Scope, State, Status, Tally};
 
@@ -410,6 +410,8 @@ struct Plan {
     writes: Vec<Write>,
     deletes: Vec<(String, i64)>,
     local: Local,
+    /// What is decided for each sign-in this host holds.
+    seen: Vec<Mark>,
 }
 
 fn newest_change(dir: &Path) -> u64 {
@@ -448,12 +450,14 @@ fn plan(
     books: &[(String, PathBuf, &'static dyn Book)],
     entries: &BTreeMap<String, Entry>,
     mut local: Local,
+    marks: &Marks,
     me: &str,
 ) -> CoreResult<Plan> {
     let moving_in = !local.moved_in;
     let now = epoch_ms();
     let mut writes = Vec::new();
     let mut deletes = Vec::new();
+    let mut seen = Vec::new();
     for (plugin, dir, book) in books {
         let here = book.sign_ins(dir).map_err(CoreError::from)?;
         let made_at = newest_change(dir);
@@ -462,6 +466,30 @@ fn plan(
             let found = entries.iter().find(|(_, entry)| {
                 entry.body.plugin == *plugin && entry.body.sign_in.identity == sign_in.identity
             });
+            let kept = match marks.of(plugin, &sign_in.identity) {
+                Some(mark) => mark.kept,
+                None => {
+                    let new_here = found.is_none_or(|(id, _)| !local.applied.contains_key(id));
+                    new_here && (sign_in.starts_kept || marks.keep_new)
+                }
+            };
+            seen.push(Mark {
+                plugin: plugin.clone(),
+                identity: sign_in.identity.clone(),
+                label: sign_in.label.clone(),
+                kept,
+            });
+            if kept {
+                local.applied.retain(|_, applied| {
+                    applied.plugin != *plugin || applied.identity != sign_in.identity
+                });
+                if let Some((id, entry)) =
+                    found.filter(|(_, entry)| entry.body.access.contains_key(me))
+                {
+                    deletes.push((id.clone(), entry.revision));
+                }
+                continue;
+            }
             match found {
                 Some((id, entry)) => match local.applied.get(id) {
                     Some(applied) if applied.digest == digest => {}
@@ -583,6 +611,7 @@ fn plan(
         writes: changed,
         deletes,
         local,
+        seen,
     })
 }
 
@@ -599,6 +628,7 @@ fn apply(
     books: &[(String, PathBuf, &'static dyn Book)],
     entries: &BTreeMap<String, Entry>,
     local: &mut Local,
+    marks: &Marks,
     me: &str,
 ) {
     let book = |plugin: &str| {
@@ -608,7 +638,9 @@ fn apply(
             .map(|(_, dir, book)| (dir, *book))
     };
     for (id, entry) in entries {
-        if !entry.body.access.contains_key(me) {
+        if !entry.body.access.contains_key(me)
+            || marks.kept(&entry.body.plugin, &entry.body.sign_in.identity)
+        {
             continue;
         }
         if local
@@ -646,6 +678,9 @@ fn apply(
             ),
         }
     }
+    local
+        .applied
+        .retain(|_, applied| !marks.kept(&applied.plugin, &applied.identity));
     let gone: Vec<(String, Applied)> = local
         .applied
         .iter()
@@ -730,20 +765,45 @@ async fn reconcile(
         me.to_owned(),
         vault.recovery_key.clone(),
     );
-    let mut plan = blocking(move || {
+    let plan = blocking(move || {
         let (books, entries, account, me, vault) = planning;
         let local = local::load(data_dir.as_deref(), &account, &vault);
-        if compare || !local.moved_in {
-            plan(&books, &entries, local, &me)
+        let marks = local::marks(data_dir.as_deref());
+        let planned = compare || !local.moved_in;
+        let plan = if planned {
+            plan(&books, &entries, local, &marks, &me)?
         } else {
-            Ok(Plan {
+            Plan {
                 writes: Vec::new(),
                 deletes: Vec::new(),
                 local,
-            })
-        }
+                seen: Vec::new(),
+            }
+        };
+        let marks = local::change_marks(data_dir.as_deref(), |marks| {
+            for seen in &plan.seen {
+                match marks
+                    .sign_ins
+                    .iter_mut()
+                    .find(|mark| mark.plugin == seen.plugin && mark.identity == seen.identity)
+                {
+                    Some(mark) => mark.label.clone_from(&seen.label),
+                    None => marks.sign_ins.push(seen.clone()),
+                }
+            }
+        })
+        .map_err(CoreError::from)?;
+        Ok((plan, marks, planned))
     })
     .await?;
+    let (mut plan, marks, planned) = plan;
+    {
+        let mut state = core.vault().state.locked();
+        state.marks = marks.clone();
+        if planned {
+            state.here.clone_from(&plan.seen);
+        }
+    }
     for (id, body) in pending {
         if let Some(write) = plan.writes.iter_mut().find(|write| write.id == id) {
             if write.body.refresher == me {
@@ -759,6 +819,8 @@ async fn reconcile(
             holds: None,
         });
     }
+    plan.writes
+        .retain(|write| !marks.kept(&write.body.plugin, &write.body.sign_in.identity));
     let wrote = !plan.writes.is_empty() || !plan.deletes.is_empty();
     for write in plan.writes {
         let put = VaultEntryPut {
@@ -800,6 +862,12 @@ async fn reconcile(
             },
         );
     }
+    if !plan.deletes.is_empty() {
+        let data_dir = core.data_dir().clone();
+        let saving = plan.local.clone();
+        blocking(move || local::save(data_dir.as_deref(), &saving).map_err(CoreError::from))
+            .await?;
+    }
     for (id, revision) in plan.deletes {
         let path = format!("/v1/vault/entries/{id}?revision={revision}");
         host_request(core, Method::DELETE, &path, None).await?;
@@ -814,7 +882,7 @@ async fn reconcile(
     let me = me.to_owned();
     let mut local = plan.local;
     blocking(move || {
-        apply(&books, &entries, &mut local, &me);
+        apply(&books, &entries, &mut local, &marks, &me);
         local.rules = rules_of(&entries, &local);
         local.host = me;
         local::save(data_dir.as_deref(), &local).map_err(CoreError::from)
