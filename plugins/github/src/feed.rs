@@ -143,6 +143,12 @@ pub fn take(event: CiEvent) -> GithubResult<Option<CiMoved>> {
 }
 
 impl Kept {
+    /// It goes on, yet nothing was heard of it lately, so an event may have been lost.
+    fn quiet(&self) -> bool {
+        let going = (self.run.as_ref()).is_some_and(|run| !is_finished(&run.status));
+        going && self.touched.is_none_or(|at| at.elapsed() >= QUIET_RUN)
+    }
+
     /// A run started again is a new attempt, whose jobs are new.
     fn attempt_is(&mut self, attempt: u64) {
         if attempt > self.attempt {
@@ -196,23 +202,25 @@ fn matches(run: &Run, query: &RunQuery) -> bool {
 }
 
 /// The first page of runs `query` asks for, when the kept runs hold all of it: every run of a
-/// commit they know of, or as many runs as the page takes.
+/// commit they know of, or as many runs as the page takes, none of them going yet quiet.
 pub fn runs(query: &RunQuery, per_page: u32) -> Option<RunPage> {
     if query.page.is_some_and(|page| page > 1) {
         return None;
     }
     with_live(&query.repo, |fed| {
-        let found: Vec<Run> = (fed.runs.values().rev())
-            .filter_map(|kept| kept.run.as_ref())
-            .filter(|run| matches(run, query))
-            .cloned()
+        let found: Vec<&Kept> = (fed.runs.values().rev())
+            .filter(|kept| kept.run.as_ref().is_some_and(|run| matches(run, query)))
             .collect();
         let of_a_commit = query.head_sha.is_some() && !found.is_empty();
         if !of_a_commit && found.len() < per_page as usize {
             return None;
         }
+        let page: Vec<&Kept> = found.iter().take(per_page as usize).copied().collect();
+        if page.iter().any(|kept| kept.quiet()) {
+            return None;
+        }
+        let runs: Vec<Run> = page.iter().filter_map(|kept| kept.run.clone()).collect();
         let total = found.len() as u64;
-        let runs: Vec<Run> = found.into_iter().take(per_page as usize).collect();
         Some(RunPage {
             next_page: (total > runs.len() as u64).then_some(2),
             total,
@@ -233,8 +241,8 @@ pub fn listed(repo: &RepoRef, runs: &[Run]) {
             if newer {
                 kept.attempt_is(run.attempt);
                 kept.run = Some(run.clone());
-                kept.touched = Some(Instant::now());
             }
+            kept.touched = Some(Instant::now());
         }
         while fed.runs.len() > RUNS_KEPT {
             fed.runs.pop_first();
@@ -252,7 +260,7 @@ pub fn detail(repo: &RepoRef, run_id: u64) -> Option<RunDetail> {
         let holds = if is_finished(&run.status) {
             kept.whole
         } else {
-            kept.touched.is_some_and(|at| at.elapsed() < QUIET_RUN)
+            !kept.quiet()
         };
         holds.then(|| RunDetail {
             run,
