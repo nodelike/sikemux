@@ -174,7 +174,9 @@ impl Workbench {
         }
         self.mods_follow(&place, crate::mod_pane::Moved::View, cx);
         let settled_before = crate::agents::settled::auto_settled(self.view_at(&place));
-        let calls_moved = self.view_at(&place).is_none_or(|shown| shown.calls != view.calls);
+        let calls_moved = self
+            .view_at(&place)
+            .is_none_or(|shown| shown.calls != view.calls);
         match &place {
             Place::This => {
                 crate::ui::moving_face::set_on(view.face_style.motion, cx);
