@@ -742,7 +742,7 @@ pub(crate) fn task(
     let lead = called(lead_name, lead_id);
     let answer = if reports {
         format!(
-            "When your turn ends, your final answer goes to {lead} by itself, unless you end it on something set to wake you, such as a trigger or a land in line, and ask nothing: then {lead} hears only how your land went. Message it with agent_send if you need to ask it something first."
+            "When your turn ends, your final answer goes to {lead} by itself, unless you end it on something set to wake you, such as a trigger or a land in line, and ask nothing: then {lead} hears only how your land went. An answer of only a dash is not sent either. Message it with agent_send if you need to ask it something first."
         )
     } else {
         format!("Your answers do not go to {lead} by themselves: send it what it needs with agent_send when you are done.")

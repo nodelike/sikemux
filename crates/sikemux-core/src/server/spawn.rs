@@ -967,6 +967,7 @@ const REPORTS: &str = " Each time its turn ends, its final answer comes to you a
 
 /// Sends a worker's lead how its turn ended, unless it finished on something set to wake it and
 /// asks nothing: its row says what it waits on, and the lead hears once a land of its goes in.
+/// A turn that finished saying nothing is not sent either.
 pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
     let Some(lead) = core.names().reports_to(agent_id) else {
         return;
@@ -975,6 +976,7 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
         .chats()
         .get(agent_id)
         .map(|chat| chat.feed.last_answer().map(TerminalAnswer::Said));
+    let wrote_nothing = matches!((&ending, &chat_answer), (Ending::Finished, Some(None)));
     let (core, worker) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
         let answer = match chat_answer {
@@ -1001,7 +1003,7 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
                 turn.answer
             }
         };
-        if quiet(&core, &worker, &ending, answer.as_ref()) {
+        if wrote_nothing || quiet(&core, &worker, &ending, answer.as_ref()) {
             elsewhere::send_commits(&core, &worker).await;
             return;
         }
@@ -1012,8 +1014,23 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
 }
 
 fn quiet(core: &Core, worker: &str, ending: &Ending, answer: Option<&TerminalAnswer>) -> bool {
-    let asks = matches!(answer, Some(TerminalAnswer::Said(said)) if super::questions::asks_in(said) || out_of_usage(said));
-    matches!(ending, Ending::Finished) && !asks && super::turn_state::set_a_wake(core, worker)
+    if !matches!(ending, Ending::Finished) {
+        return false;
+    }
+    match answer {
+        Some(TerminalAnswer::Said(said)) if says_nothing(said) => true,
+        Some(TerminalAnswer::Said(said))
+            if super::questions::asks_in(said) || out_of_usage(said) =>
+        {
+            false
+        }
+        _ => super::turn_state::set_a_wake(core, worker),
+    }
+}
+
+/// Whether an answer has no letter or digit in it, such as a lone dash.
+fn says_nothing(answer: &str) -> bool {
+    !answer.chars().any(char::is_alphanumeric)
 }
 
 /// [`turn_ended`] for an agent in a terminal.
