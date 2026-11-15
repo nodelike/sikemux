@@ -83,6 +83,7 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
                 std::process::exit(2);
             }
         }
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let runtime = tokio::runtime::Runtime::new().expect("the tools' runtime starts");
         sikemux_base::runtime::set(runtime.handle().clone());
         let window = open_window();

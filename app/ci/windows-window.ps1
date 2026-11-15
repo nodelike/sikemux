@@ -25,6 +25,29 @@ public static class Grab {
       bmp.Save(path); return ok;
     }
   }
+  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+  public static void SaveScreen(IntPtr h, string path) {
+    SetForegroundWindow(h); System.Threading.Thread.Sleep(1000);
+    RECT r; GetWindowRect(h, out r);
+    using (var bmp = new Bitmap(r.R - r.L, r.B - r.T)) {
+      using (var g = Graphics.FromImage(bmp)) { g.CopyFromScreen(r.L, r.T, 0, 0, bmp.Size); }
+      bmp.Save(path);
+    }
+  }
+  delegate bool Each(IntPtr h, IntPtr p);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr h, Each f, IntPtr p);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, System.Text.StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  public static string Children(IntPtr h) {
+    var all = new System.Text.StringBuilder();
+    EnumChildWindows(h, (c, p) => {
+      var name = new System.Text.StringBuilder(256); GetClassName(c, name, 256);
+      RECT r; GetWindowRect(c, out r);
+      all.AppendFormat("{0} visible={1} {2},{3} {4}x{5}\n", name, IsWindowVisible(c), r.L, r.T, r.R - r.L, r.B - r.T);
+      return true;
+    }, IntPtr.Zero);
+    return all.ToString();
+  }
 }
 "@
 
@@ -51,6 +74,8 @@ if ($proc.HasExited) {
 }
 if (-not [Grab]::Save($proc.MainWindowHandle, (Join-Path $Out 'window.png'))) { throw 'PrintWindow drew nothing' }
 "window: $($proc.MainWindowTitle)" | Out-File (Join-Path $Out 'state.txt')
+[Grab]::Children($proc.MainWindowHandle) | Out-File -Append (Join-Path $Out 'state.txt')
+[Grab]::SaveScreen($proc.MainWindowHandle, (Join-Path $Out 'screen.png'))
 if ($Expect -and -not (Test-Path $Expect)) { Get-Content (Join-Path $Out 'stdout.txt'); throw "$Expect was not written" }
 Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion | Out-File -Append (Join-Path $Out 'state.txt')
 Stop-Process -Id $proc.Id
