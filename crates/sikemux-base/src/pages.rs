@@ -301,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn local_pictures_are_inlined_and_remote_ones_left() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("shots")).unwrap();

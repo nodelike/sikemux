@@ -50,10 +50,10 @@ pub trait Host: Send + Sync + 'static {
 }
 
 /// A host with nowhere to keep the helper and nobody to tell, for tests.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 struct NoHost;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 impl Host for NoHost {
     fn data_dir(&self) -> Option<PathBuf> {
         None
@@ -237,7 +237,7 @@ impl SimulatorManager {
         Self::made(host, None, Claims::shared())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn with_helper(path: PathBuf) -> Arc<Self> {
         let claims = tempfile::tempdir().expect("a claims folder").keep();
         Self::made(

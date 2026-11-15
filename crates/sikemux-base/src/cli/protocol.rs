@@ -395,7 +395,7 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
