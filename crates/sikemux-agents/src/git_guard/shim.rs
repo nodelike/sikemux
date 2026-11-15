@@ -55,6 +55,7 @@ pub fn install(data_dir: &Path, endpoint: Option<&Path>) {
                     eprintln!("sikemux core: agents' {program} commands go unchecked: {error}");
                 }
             }
+            remove_stale_links(&folder);
             let _ = FOLDER.set(folder);
         }
         Err(error) => eprintln!("sikemux core: agents' git commands go unchecked: {error}"),
@@ -95,6 +96,39 @@ fn link(folder: &Path, name: &str) -> std::io::Result<()> {
     let _ = std::fs::remove_file(&fresh);
     crate::os::symlink(&binary, &fresh)?;
     std::fs::rename(&fresh, &path)
+}
+
+/// Removes this binary's links for programs it no longer stands in for, which an older
+/// version linked: they would run Sikemux in place of the real program.
+fn remove_stale_links(folder: &Path) {
+    let Some(binary) = std::env::current_exe()
+        .ok()
+        .and_then(|binary| binary.file_name().map(ToOwned::to_owned))
+    else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
+    let listed = listed_programs(folder);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let stands_in = name == "git"
+            || name == TIMEOUT
+            || crate::ship::PROGRAMS.contains(&name)
+            || super::heavy::built_in_programs().any(|program| program == name)
+            || listed.iter().any(|program| program == name);
+        let ours = std::fs::read_link(&path)
+            .is_ok_and(|target| target.file_name() == Some(binary.as_os_str()));
+        if ours && !stands_in {
+            if let Err(error) = std::fs::remove_file(&path) {
+                eprintln!("sikemux core: agents' {name} still runs Sikemux: {error}");
+            }
+        }
+    }
 }
 
 fn hook_folder(data_dir: &Path) -> PathBuf {
