@@ -590,6 +590,7 @@ impl Workspaces {
                 worktree_default: false,
                 saved_chats: BTreeMap::new(),
                 chief: None,
+                chief_count: 0,
                 chief_home: None,
                 agents: 0,
                 standing: Default::default(),
@@ -604,13 +605,27 @@ impl Workspaces {
         Ok(project)
     }
 
-    /// Makes `agent_id` the project's chief.
-    pub fn set_chief(&self, project_id: &str, agent_id: &str) -> CoreResult<()> {
+    /// Makes `agent_id` the project's chief, its `count`th.
+    pub fn set_chief(&self, project_id: &str, agent_id: &str, count: u32) -> CoreResult<()> {
         self.change(|saved| {
             let project = (saved.projects.iter_mut())
                 .find(|project| project.id == project_id)
                 .ok_or_else(|| CoreError::from("that project is not on this host"))?;
             project.chief = Some(agent_id.to_owned());
+            project.chief_count = count;
+            Ok(())
+        })
+    }
+
+    /// The project no longer has a chief of its own, because another host's outranks it. Its
+    /// count stays, so the next chief made here comes after it.
+    pub fn stand_down(&self, project_id: &str) -> CoreResult<()> {
+        self.change(|saved| {
+            if let Some(project) =
+                (saved.projects.iter_mut()).find(|project| project.id == project_id)
+            {
+                project.chief = None;
+            }
             Ok(())
         })
     }
@@ -1738,6 +1753,7 @@ mod tests {
             worktree_default: false,
             saved_chats: BTreeMap::new(),
             chief: None,
+            chief_count: 0,
             chief_home: None,
             agents: 0,
             standing: Default::default(),

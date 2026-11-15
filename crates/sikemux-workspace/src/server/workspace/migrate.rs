@@ -168,6 +168,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 worktree_default: false,
                 saved_chats: BTreeMap::new(),
                 chief: None,
+                chief_count: 0,
                 chief_home: None,
                 agents: 0,
                 standing: Default::default(),

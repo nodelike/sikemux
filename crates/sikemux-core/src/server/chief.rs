@@ -105,6 +105,9 @@ struct Seat {
     project: String,
     /// When the person was last with it, with their window in front.
     with: u64,
+    /// When the person last wrote to it.
+    #[serde(default)]
+    wrote_at: u64,
     /// The weeks, by when each began, in which the person was with it, the latest two.
     with_weeks: Vec<u64>,
     /// It was asked for its first message.
@@ -203,6 +206,11 @@ impl super::part::Part for Chiefs {
 /// Every project's chief, by agent id.
 pub(crate) fn all(core: &Core) -> HashSet<String> {
     core.workspaces().chiefs()
+}
+
+/// When the person last wrote to the chief, if ever.
+pub(crate) fn person_wrote_at(core: &Core, chief: &str) -> Option<u64> {
+    (core.chiefs().read(chief, |seat| seat.wrote_at)).filter(|at| *at > 0)
 }
 
 /// Whether `agent_id` is a project's chief.
@@ -308,7 +316,10 @@ async fn seat(core: &Arc<Core>, project: &ProjectInfo) -> CoreResult<String> {
         Some(chief) => make(core, project, chief.clone()).await,
         None => {
             let chief = super::names::new_agent_id();
-            core.workspaces().set_chief(&project.id, &chief)?;
+            let heard = (project.identity.as_deref())
+                .map_or(0, |identity| core.hosts().copies.chief_count(identity));
+            let count = project.chief_count.max(heard) + 1;
+            core.workspaces().set_chief(&project.id, &chief, count)?;
             make(core, project, chief).await
         }
     }
@@ -469,6 +480,8 @@ pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
         return;
     }
     let now = epoch_ms();
+    core.chiefs().seat(agent_id, |seat| seat.wrote_at = now);
+    core.hosts().copies.wake.now();
     let stands = core.chiefs().read(agent_id, |seat| {
         let done = seat.away.as_ref().is_some_and(|away| !away.until_answered);
         (done, now.saturating_sub(seat.with) >= WITH_STEP_MS)

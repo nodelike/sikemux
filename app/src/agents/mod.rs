@@ -1344,7 +1344,7 @@ fn chief_of<'a>(project: &ProjectInfo, agents: &'a [AgentRow]) -> Option<&'a Age
         .chief_home
         .as_ref()
         .map(|home| home.agent_id.as_str());
-    (project.chief.as_deref().or(home)).and_then(|id| agents.iter().find(|agent| agent.id == id))
+    (home.or(project.chief.as_deref())).and_then(|id| agents.iter().find(|agent| agent.id == id))
 }
 
 /// A project's @Chief row: Sikemux's mark, @Chief, "Chief of staff", the project's name where

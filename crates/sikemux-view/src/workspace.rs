@@ -62,8 +62,13 @@ pub struct ProjectInfo {
     /// Its chief, @Chief, by agent id. The core keeps it; clients only read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chief: Option<String>,
+    /// Raised each time the project gets a new chief, so when two hosts each hold one, both
+    /// follow the one with the higher count. The core keeps it.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub chief_count: u32,
     /// Where its chief lives when that is another host of the account, because this
-    /// copy has none of its own. The core fills it in; clients open that chief.
+    /// copy has none of its own or its own was outranked. The core fills it in; clients open
+    /// that chief.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chief_home: Option<ChiefHome>,
     /// How many agents are open in it, the chief's whole team. The core fills it in.

@@ -181,8 +181,14 @@ export interface ProjectInfo {
     /** Its chief, @Chief, by agent id. The core keeps it; clients only read it. */
     chief?: string;
     /**
+     * Raised each time the project gets a new chief, so when two hosts each hold one, both
+     * follow the one with the higher count. The core keeps it.
+     */
+    chiefCount?: number;
+    /**
      * Where its chief lives when that is another host of the account, because this
-     * copy has none of its own. The core fills it in; clients open that chief.
+     * copy has none of its own or its own was outranked. The core fills it in; clients open
+     * that chief.
      */
     chiefHome?: ChiefHome;
     /** How many agents are open in it, the chief's whole team. The core fills it in. */

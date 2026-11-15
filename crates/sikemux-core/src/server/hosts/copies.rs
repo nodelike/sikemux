@@ -3,7 +3,10 @@
 //! told it, so it can show one project for each repository, with a copy on each host that
 //! holds one.
 
+use crate::server::agent_now::AgentNowCore;
 use crate::server::changed::ChangedCore;
+use crate::server::chat_state::ChatParts;
+use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -39,6 +42,38 @@ pub(crate) struct Held {
     /// The project's chief on that host, by agent id, once it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     chief: Option<String>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    chief_count: u32,
+    /// When the person last wrote to that chief, in Unix milliseconds, or 0 if never.
+    #[serde(default, skip_serializing_if = "never")]
+    chief_wrote: u64,
+}
+
+fn never(at: &u64) -> bool {
+    *at == 0
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
+}
+
+/// A host's chief of a project, as it counts.
+struct Rank<'a> {
+    count: u32,
+    wrote: u64,
+    host: &'a str,
+}
+
+impl Rank<'_> {
+    /// The higher count wins. Between equal counts the one the person wrote to last wins, so the
+    /// chief they are using stays, and only then the host with the lower key, so every host
+    /// picks the same one.
+    fn over(&self, other: &Rank) -> bool {
+        fn key<'b>(rank: &Rank<'b>) -> (u32, u64, std::cmp::Reverse<&'b str>) {
+            (rank.count, rank.wrote, std::cmp::Reverse(rank.host))
+        }
+        key(self) > key(other)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -65,6 +100,15 @@ impl Copies {
             told: Mutex::default(),
             wake: Wake::default(),
         }
+    }
+
+    /// The highest chief count a linked host told for the repository `identity`.
+    pub(crate) fn chief_count(&self, identity: &str) -> u32 {
+        (self.heard.locked().values().flatten())
+            .filter(|held| held.identity.as_deref() == Some(identity))
+            .map(|held| held.chief_count)
+            .max()
+            .unwrap_or_default()
     }
 
     /// Whether `host` said it holds any project.
@@ -99,6 +143,8 @@ impl Copies {
     /// here with no chief of its own takes the first linked host's that has one as its home.
     pub(crate) fn fold(&self, core: &Core, workspace: &mut Workspace) {
         let heard = self.heard.locked().clone();
+        let me = core.remote().core_id().unwrap_or_default();
+        let mut homes: BTreeMap<String, (u32, u64, String)> = BTreeMap::new();
         for link in core.remote().links() {
             let Some(held) = heard.get(&link.id) else {
                 continue;
@@ -127,11 +173,28 @@ impl Copies {
                 if let Some(here) =
                     (workspace.projects.iter_mut()).find(|here| same(&here.identity))
                 {
-                    if let Some(chief) = project
-                        .chief
-                        .clone()
-                        .filter(|_| here.chief.is_none() && here.chief_home.is_none())
-                    {
+                    let theirs = Rank {
+                        count: project.chief_count,
+                        wrote: project.chief_wrote,
+                        host: &link.id,
+                    };
+                    let ours = here.chief.as_ref().map(|chief| Rank {
+                        count: here.chief_count,
+                        wrote: crate::server::chief::person_wrote_at(core, chief).unwrap_or(0),
+                        host: &me,
+                    });
+                    let best = homes.get(identity).map(|(count, wrote, host)| Rank {
+                        count: *count,
+                        wrote: *wrote,
+                        host,
+                    });
+                    let wins = ours.is_none_or(|ours| theirs.over(&ours))
+                        && best.is_none_or(|best| theirs.over(&best));
+                    if let Some(chief) = project.chief.clone().filter(|_| wins) {
+                        homes.insert(
+                            identity.clone(),
+                            (project.chief_count, project.chief_wrote, link.id.clone()),
+                        );
                         here.chief_home = Some(ChiefHome {
                             host: link.id.clone(),
                             host_name: link.name.clone(),
@@ -165,6 +228,10 @@ fn held_here(core: &Core) -> Vec<Held> {
             name: project.name,
             path: project.path,
             identity: project.identity,
+            chief_count: project.chief_count,
+            chief_wrote: (project.chief.as_deref())
+                .and_then(|chief| crate::server::chief::person_wrote_at(core, chief))
+                .unwrap_or(0),
             chief: project.chief,
         })
         .collect()
@@ -219,7 +286,44 @@ pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
         heard.insert(host.to_owned(), params.projects);
         copies.kept.save(&*heard);
         drop(heard);
+        stand_down(core);
         core.changed(What::View);
     }
     Ok(serde_json::Value::Null)
+}
+
+/// A chief's turn ended, so it may stand down now if it was waiting to.
+pub(crate) fn chief_rested(core: &Core, agent_id: &str) {
+    if crate::server::chief::is_chief(core, agent_id) {
+        stand_down(core);
+    }
+}
+
+/// Stands this host's chiefs down where another host's outranks them, as when two hosts each
+/// made one. Each closes once it is out of its turn, and its chat stays in Recent.
+fn stand_down(core: &Core) {
+    for project in core.workspace_view().projects {
+        let (Some(chief), Some(home)) = (project.chief, project.chief_home) else {
+            continue;
+        };
+        if core.chats().at_work(&chief) || core.agent_now(&chief).mid_turn() {
+            continue;
+        }
+        if let Err(error) = core.workspaces().stand_down(&project.id) {
+            eprintln!(
+                "sikemux core: @Chief of {} did not stand down: {error}",
+                project.name
+            );
+            continue;
+        }
+        if core.workspaces().agent(&chief).is_some() {
+            if let Err(error) = super::super::workspace::close(core, &[chief]) {
+                eprintln!("sikemux core: the stood-down @Chief did not close: {error}");
+            }
+        }
+        eprintln!(
+            "sikemux core: @Chief of {} stood down for {}'s",
+            project.name, home.host_name
+        );
+    }
 }

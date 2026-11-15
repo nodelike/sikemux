@@ -87,6 +87,7 @@ impl ActivityCore for Core {
                 self.came_to_rest(agent_id);
                 super::questions::turn_ended(self, agent_id);
                 super::pins::turn_ended(self, agent_id, !cancelled);
+                super::hosts::copies::chief_rested(self, agent_id);
                 super::why::turn_ended(self, agent_id);
                 if cancelled {
                     self.seen().active(agent_id);
