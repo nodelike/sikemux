@@ -118,6 +118,34 @@ mod tests {
         let dir = checkout();
         let work = dir.path().join("work");
         let before = of(&work).unwrap();
+        for args in [
+            &[
+                "config",
+                "--show-origin",
+                "--get-regexp",
+                "autocrlf|eol|safecrlf",
+            ][..],
+            &["status", "--porcelain=v2", "--branch"],
+            &[
+                "diff",
+                "--binary",
+                "--full-index",
+                "--no-renames",
+                "origin/HEAD",
+            ],
+            &["ls-files", "--others", "--exclude-standard", "--", ":/"],
+        ] {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&work)
+                .output()
+                .unwrap();
+            eprintln!(
+                "DBG {args:?}\n{:?}\n{:?}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
         git(&work, &["checkout", "main"]);
         std::fs::write(work.join("other.txt"), "b\n").unwrap();
         git(&work, &["commit", "-am", "elsewhere"]);
@@ -125,6 +153,34 @@ mod tests {
         git(&work, &["fetch", "origin"]);
         git(&work, &["checkout", "work"]);
         git(&work, &["rebase", "origin/main"]);
+        for args in [
+            &[
+                "config",
+                "--show-origin",
+                "--get-regexp",
+                "autocrlf|eol|safecrlf",
+            ][..],
+            &["status", "--porcelain=v2", "--branch"],
+            &[
+                "diff",
+                "--binary",
+                "--full-index",
+                "--no-renames",
+                "origin/HEAD",
+            ],
+            &["ls-files", "--others", "--exclude-standard", "--", ":/"],
+        ] {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&work)
+                .output()
+                .unwrap();
+            eprintln!(
+                "DBG {args:?}\n{:?}\n{:?}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
         assert_eq!(of(&work).unwrap(), before);
     }
 
