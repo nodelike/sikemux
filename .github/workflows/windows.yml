@@ -1,0 +1,115 @@
+name: Windows
+
+# Kept apart from CI on purpose: Release starts from CI's verdict, and Windows is still coming up,
+# so a red run here must never hold a nightly back.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "app/**"
+      - "plugins/**"
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - .github/workflows/windows.yml
+      - .github/windows-crates.txt
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Cargo package flags, such as "-p sikemux-process -p sikemux-pty" or "--workspace"; empty takes .github/windows-crates.txt
+        type: string
+        default: ""
+      command:
+        description: What to run on them
+        type: choice
+        options: [check, clippy, test]
+        default: check
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}-${{ github.event_name }}-${{ inputs.packages }}-${{ inputs.command }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
+
+env:
+  DEPS_OPT_LEVEL: 1
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Windows ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x86_64
+          - runner: windows-11-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Cargo's target folder nests deeper than Windows' old 260-character limit.
+      - name: Allow long paths
+        run: git config --global core.longpaths true
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Pick the crates
+        id: crates
+        env:
+          PACKAGES: ${{ inputs.packages }}
+          COMMAND: ${{ inputs.command || 'main' }}
+        run: |
+          packages="$PACKAGES"
+          if [ -z "$packages" ]; then
+            while read -r crate; do
+              [ -n "$crate" ] && packages+=" -p $crate"
+            done < <(sed -e 's/#.*//' -e 's/[[:space:]]//g' .github/windows-crates.txt)
+          fi
+          if [ -z "$packages" ]; then
+            echo "No crates are listed in .github/windows-crates.txt yet" >>"$GITHUB_STEP_SUMMARY"
+          fi
+          echo "packages=$packages" >>"$GITHUB_OUTPUT"
+          echo "command=$COMMAND" >>"$GITHUB_OUTPUT"
+          echo "\`$COMMAND\` on:$packages" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Setup Rust
+        if: steps.crates.outputs.packages != ''
+        uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
+          components: clippy
+
+      - name: Check
+        if: steps.crates.outputs.command == 'check' && steps.crates.outputs.packages != ''
+        env:
+          PACKAGES: ${{ steps.crates.outputs.packages }}
+        run: |
+          read -ra packages <<<"$PACKAGES"
+          cargo check "${packages[@]}" --all-targets --keep-going
+
+      - name: Clippy
+        if: (steps.crates.outputs.command == 'clippy' || steps.crates.outputs.command == 'main') && steps.crates.outputs.packages != ''
+        env:
+          PACKAGES: ${{ steps.crates.outputs.packages }}
+        run: |
+          read -ra packages <<<"$PACKAGES"
+          cargo clippy "${packages[@]}" --all-targets -- -D warnings
+
+      - name: Test
+        if: (steps.crates.outputs.command == 'test' || steps.crates.outputs.command == 'main') && steps.crates.outputs.packages != ''
+        env:
+          PACKAGES: ${{ steps.crates.outputs.packages }}
+        run: |
+          read -ra packages <<<"$PACKAGES"
+          cargo test "${packages[@]}" --all-targets
