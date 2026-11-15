@@ -3,8 +3,12 @@
 //! chat what it says through a [`Sink`](server::chat::native::session::Sink); it knows nothing
 //! of the core the chat runs in.
 
-#![cfg(unix)]
-
+#[cfg(unix)]
+#[path = "os/unix.rs"]
+mod os;
+#[cfg(windows)]
+#[path = "os/windows.rs"]
+mod os;
 pub mod server;
 
 use sikemux_agents::{acp, agent_accounts, agent_catalog, git_guard, launch, sessions, skills};

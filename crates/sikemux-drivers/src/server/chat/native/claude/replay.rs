@@ -3,7 +3,6 @@ use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Map, Value};
@@ -65,7 +64,7 @@ pub fn newest<T>(path: &Path, find: impl Fn(&[Value]) -> Option<T>) -> Result<Op
     loop {
         let start = len.saturating_sub(window);
         let mut bytes = vec![0; (len - start) as usize];
-        file.read_exact_at(&mut bytes, start).map_err(failed)?;
+        crate::os::read_exact_at(&file, &mut bytes, start).map_err(failed)?;
         let whole = if start == 0 {
             &bytes[..]
         } else {
@@ -99,7 +98,7 @@ fn entries_between(path: &Path, start: u64, end: u64) -> Result<(Vec<Value>, u64
     let failed = |error: std::io::Error| format!("{}: {error}", path.display());
     let file = File::open(path).map_err(failed)?;
     let mut bytes = vec![0; end.saturating_sub(start) as usize];
-    file.read_exact_at(&mut bytes, start).map_err(failed)?;
+    crate::os::read_exact_at(&file, &mut bytes, start).map_err(failed)?;
     let line = match start {
         0 => 0,
         _ => bytes

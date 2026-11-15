@@ -3,37 +3,42 @@
 //! a core that replaces this one in the same process to take up.
 
 use std::collections::VecDeque;
-use std::os::fd::{AsRawFd, OwnedFd, RawFd};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::unix::pipe;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::git_guard;
 use sikemux_wire::protocol::ChatLaunch;
 
+#[cfg(unix)]
+#[path = "process/unix.rs"]
+mod platform;
+#[cfg(windows)]
+#[path = "process/windows.rs"]
+mod platform;
+
+pub use platform::{kill_and_reap, AgentRecord, Released};
+use platform::{AgentInput, AgentOutput, Exit, Pipes};
+
 /// How much of what the agent printed to its error stream is kept, to say why
 /// it stopped.
 const STDERR_TAIL: usize = 16 * 1024;
-/// How often the agent is looked at for having exited, besides whenever a
-/// child of this process exits.
-const REAP_POLL: Duration = Duration::from_secs(1);
 const READ_CHUNK: usize = 64 * 1024;
 
+#[cfg_attr(windows, allow(dead_code))]
 enum Input {
     Line(String),
     /// Stop writing once everything before this is written, and give the
     /// pipe back. None when the agent stopped reading.
-    Release(oneshot::Sender<Option<pipe::Sender>>),
+    Release(oneshot::Sender<Option<AgentInput>>),
 }
 
 /// Writes one message per line to the agent. Clones share the same pipe.
@@ -54,49 +59,12 @@ struct Reaping {
     released: bool,
 }
 
-/// An agent let go of by this core: its pid and the pipes still open to it,
-/// with what had been read from them but not yet used.
-pub struct Released {
-    pub pid: u32,
-    pub stdin: OwnedFd,
-    pub stdout: OwnedFd,
-    pub stderr: OwnedFd,
-    pub stderr_tail: Vec<u8>,
-    pub unread: Vec<u8>,
-}
-
-/// [`Released`] as the replacement core is told it: the pipes by their
-/// descriptor numbers, which stay open across `exec`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRecord {
-    pub pid: u32,
-    pub stdin: RawFd,
-    pub stdout: RawFd,
-    pub stderr: RawFd,
-    pub stderr_tail: Vec<u8>,
-    pub unread: Vec<u8>,
-}
-
-impl Released {
-    pub fn record(&self) -> AgentRecord {
-        AgentRecord {
-            pid: self.pid,
-            stdin: self.stdin.as_raw_fd(),
-            stdout: self.stdout.as_raw_fd(),
-            stderr: self.stderr.as_raw_fd(),
-            stderr_tail: self.stderr_tail.clone(),
-            unread: self.unread.clone(),
-        }
-    }
-
-    pub fn fds(&self) -> [RawFd; 3] {
-        [
-            self.stdin.as_raw_fd(),
-            self.stdout.as_raw_fd(),
-            self.stderr.as_raw_fd(),
-        ]
-    }
+/// What letting go of the agent needs, which only Mac and Linux do.
+#[cfg_attr(windows, allow(dead_code))]
+struct HandOver {
+    reaping: Arc<Mutex<Reaping>>,
+    input: mpsc::UnboundedSender<Input>,
+    stop_stderr: Option<oneshot::Sender<()>>,
 }
 
 /// The agent's process. Dropping it kills the agent and everything it
@@ -105,10 +73,9 @@ pub struct Process {
     pid: u32,
     exit: watch::Receiver<Option<String>>,
     stderr: Arc<Mutex<VecDeque<u8>>>,
-    reaping: Arc<Mutex<Reaping>>,
-    input: mpsc::UnboundedSender<Input>,
-    stop_stderr: Option<oneshot::Sender<()>>,
-    stderr_task: JoinHandle<Option<pipe::Receiver>>,
+    #[cfg_attr(windows, allow(dead_code))]
+    hand_over: HandOver,
+    stderr_task: JoinHandle<Option<AgentOutput>>,
     released: bool,
     /// How long the agent gets to shut down by itself before it is killed.
     grace: Option<Duration>,
@@ -144,72 +111,37 @@ impl Process {
             ))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .process_group(0);
+            .stderr(Stdio::piped());
         if git_guard::identity::note(&launch.cwd) {
             for name in sikemux_process::vars::PERSON_GITHUB_TOKENS {
                 command.env_remove(name);
             }
             command.env(sikemux_process::vars::GITHUB_TOKENS_WITHHELD, "1");
         }
-        let mut child = command.spawn().map_err(|error| match launch.cwd.is_dir() {
-            true => format!("{} could not be started: {error}", launch.program.display()),
-            false => format!(
-                "the agent's folder {} is gone, so it could not be started there",
-                launch.cwd.display()
-            ),
-        })?;
-        let pid = child.id();
-        let pipes = (|| {
-            let stdin = OwnedFd::from(child.stdin.take()?);
-            let stdout = OwnedFd::from(child.stdout.take()?);
-            let stderr = OwnedFd::from(child.stderr.take()?);
-            Some((stdin, stdout, stderr))
-        })();
-        let Some((stdin, stdout, stderr)) = pipes else {
-            kill_and_reap(pid);
-            return Err("The agent has no input or output".into());
-        };
+        let (pid, pipes, exit) =
+            platform::start(&mut command).map_err(|error| match launch.cwd.is_dir() {
+                true => format!("{} could not be started: {error}", launch.program.display()),
+                false => format!(
+                    "the agent's folder {} is gone, so it could not be started there",
+                    launch.cwd.display()
+                ),
+            })?;
         crate::server::callers::started(pid, &launch.agent_id);
-        Self::take_up(pid, stdin, stdout, stderr, Vec::new(), Vec::new())
-            .inspect_err(|_| kill_and_reap(pid))
-    }
-
-    /// Takes up an agent an earlier core released, reading on where it
-    /// stopped. The agent is a child of this process still, so its exit is
-    /// collected as one.
-    pub fn adopt(
-        record: &AgentRecord,
-        agent_id: &str,
-        stdin: OwnedFd,
-        stdout: OwnedFd,
-        stderr: OwnedFd,
-    ) -> Result<(Self, Writer, Lines), String> {
-        crate::server::callers::started(record.pid, agent_id);
-        Self::take_up(
-            record.pid,
-            stdin,
-            stdout,
-            stderr,
-            record.stderr_tail.clone(),
-            record.unread.clone(),
-        )
+        Ok(Self::take_up(pid, pipes, exit, Vec::new(), Vec::new()))
     }
 
     fn take_up(
         pid: u32,
-        stdin: OwnedFd,
-        stdout: OwnedFd,
-        stderr: OwnedFd,
+        pipes: Pipes,
+        agent: Exit,
         stderr_tail: Vec<u8>,
         unread: Vec<u8>,
-    ) -> Result<(Self, Writer, Lines), String> {
-        let pipe_error =
-            |error: std::io::Error| format!("The agent's pipes cannot be read: {error}");
-        let stdin = pipe::Sender::from_owned_fd(stdin).map_err(pipe_error)?;
-        let stdout = pipe::Receiver::from_owned_fd(stdout).map_err(pipe_error)?;
-        let stderr = pipe::Receiver::from_owned_fd(stderr).map_err(pipe_error)?;
-
+    ) -> (Self, Writer, Lines) {
+        let Pipes {
+            stdin,
+            stdout,
+            stderr,
+        } = pipes;
         let (input, queue) = mpsc::unbounded_channel();
         tokio::spawn(write_lines(stdin, queue));
 
@@ -219,16 +151,18 @@ impl Process {
 
         let reaping = Arc::new(Mutex::new(Reaping { released: false }));
         let (exited, exit) = watch::channel(None);
-        tokio::spawn(reap(pid, reaping.clone(), exited));
+        tokio::spawn(platform::reap(pid, agent, reaping.clone(), exited));
 
-        Ok((
+        (
             Self {
                 pid,
                 exit,
                 stderr: tail,
-                reaping,
-                input: input.clone(),
-                stop_stderr: Some(stop_stderr),
+                hand_over: HandOver {
+                    reaping,
+                    input: input.clone(),
+                    stop_stderr: Some(stop_stderr),
+                },
                 stderr_task,
                 released: false,
                 grace: None,
@@ -240,7 +174,7 @@ impl Process {
                 scanned: 0,
                 closed: false,
             },
-        ))
+        )
     }
 
     pub fn pid(&self) -> u32 {
@@ -298,60 +232,6 @@ impl Process {
     pub async fn ended(&self) -> String {
         self.start_error(self.exited().await)
     }
-
-    /// Lets go of the agent without stopping it: everything already sent to
-    /// it is written first, and from then on nothing here writes to it, reads
-    /// from it or collects its exit. Fails, and leaves the agent to be killed
-    /// with the process, when the agent has exited or closed a pipe.
-    pub async fn release(mut self, lines: Lines) -> Result<Released, String> {
-        {
-            let mut reaping = self.reaping.locked();
-            if self.exit.borrow().is_some() {
-                return Err("The agent has exited".into());
-            }
-            reaping.released = true;
-        }
-        let (reply, stdin) = oneshot::channel();
-        let _ = self.input.send(Input::Release(reply));
-        let stdin = stdin.await.ok().flatten();
-        if let Some(stop) = self.stop_stderr.take() {
-            let _ = stop.send(());
-        }
-        let stderr = (&mut self.stderr_task).await.ok().flatten();
-        let (Some(stdin), Some(stderr)) = (stdin, stderr) else {
-            self.unrelease();
-            return Err("The agent closed its input".into());
-        };
-        let (stdin, stdout, stderr) = match (
-            stdin.into_nonblocking_fd(),
-            lines.pipe.into_nonblocking_fd(),
-            stderr.into_nonblocking_fd(),
-        ) {
-            (Ok(stdin), Ok(stdout), Ok(stderr)) => (stdin, stdout, stderr),
-            _ => {
-                self.unrelease();
-                return Err("The agent's pipes could not be let go of".into());
-            }
-        };
-        self.released = true;
-        Ok(Released {
-            pid: self.pid,
-            stdin,
-            stdout,
-            stderr,
-            stderr_tail: self.stderr_bytes(),
-            unread: lines.buffer,
-        })
-    }
-
-    /// A release that failed leaves the agent to be killed, and its exit
-    /// collected, as if it had never been tried.
-    fn unrelease(&self) {
-        self.reaping.locked().released = false;
-        let (exited, exit) = watch::channel(None);
-        drop(exit);
-        tokio::spawn(reap(self.pid, self.reaping.clone(), exited));
-    }
 }
 
 impl Drop for Process {
@@ -378,30 +258,13 @@ impl Drop for Process {
     }
 }
 
-/// Kills an agent nothing here collects the exit of any more, and collects
-/// it, so it does not linger as a zombie.
-pub fn kill_and_reap(pid: u32) {
-    kill_group(pid);
-    let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return;
-    };
-    std::thread::spawn(move || {
-        let mut raw = 0;
-        // SAFETY: waitpid writes one int status into `raw`; a pid that is not
-        // this process's child makes it fail at once.
-        while unsafe { libc::waitpid(pid, &mut raw, 0) } < 0
-            && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
-        {}
-    });
-}
-
 /// The agent leads its own process group, so this reaches the tools and
 /// helpers it started as well as the agent itself.
 pub fn kill_group(pid: u32) {
     sikemux_process::terminate_tree(pid, true);
 }
 
-async fn write_lines(mut pipe: pipe::Sender, mut queue: mpsc::UnboundedReceiver<Input>) {
+async fn write_lines(mut pipe: AgentInput, mut queue: mpsc::UnboundedReceiver<Input>) {
     let mut open = true;
     while let Some(input) = queue.recv().await {
         match input {
@@ -420,10 +283,10 @@ async fn write_lines(mut pipe: pipe::Sender, mut queue: mpsc::UnboundedReceiver<
 }
 
 async fn keep_tail(
-    mut pipe: pipe::Receiver,
+    mut pipe: AgentOutput,
     tail: Arc<Mutex<VecDeque<u8>>>,
     mut stop: oneshot::Receiver<()>,
-) -> Option<pipe::Receiver> {
+) -> Option<AgentOutput> {
     let mut buffer = [0u8; 4096];
     loop {
         tokio::select! {
@@ -442,48 +305,11 @@ async fn keep_tail(
     stop.await.ok().map(|()| pipe)
 }
 
-fn exit_words(raw: libc::c_int) -> String {
-    let status = std::process::ExitStatus::from_raw(raw);
-    match status.code() {
+fn exit_words(code: Option<i32>) -> String {
+    match code {
         Some(0) => "The agent exited".to_owned(),
         Some(code) => format!("The agent exited with status {code}"),
         None => "The agent was stopped by a signal".to_owned(),
-    }
-}
-
-/// Collects the agent's exit and says how it ended, until the agent is
-/// released to another core.
-async fn reap(pid: u32, reaping: Arc<Mutex<Reaping>>, exited: watch::Sender<Option<String>>) {
-    let mut children = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child()).ok();
-    loop {
-        {
-            let reaping = reaping.locked();
-            if reaping.released {
-                return;
-            }
-            let mut raw = 0;
-            // SAFETY: waitpid writes one int status into `raw`.
-            let reaped = unsafe { libc::waitpid(pid as libc::pid_t, &mut raw, libc::WNOHANG) };
-            if reaped > 0 {
-                let _ = exited.send(Some(exit_words(raw)));
-                return;
-            }
-            if reaped < 0
-                && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-            {
-                let _ = exited.send(Some("The agent stopped".to_owned()));
-                return;
-            }
-        }
-        match children.as_mut() {
-            Some(children) => {
-                tokio::select! {
-                    _ = children.recv() => {}
-                    () = tokio::time::sleep(REAP_POLL) => {}
-                }
-            }
-            None => tokio::time::sleep(REAP_POLL).await,
-        }
     }
 }
 
@@ -491,7 +317,7 @@ async fn reap(pid: u32, reaping: Arc<Mutex<Reaping>>, exited: watch::Sender<Opti
 /// yet made a whole line is kept here, so a read given up part way loses
 /// nothing and a release hands it on.
 pub struct Lines {
-    pipe: pipe::Receiver,
+    pipe: AgentOutput,
     buffer: Vec<u8>,
     /// How far into `buffer` holds no line break.
     scanned: usize,
