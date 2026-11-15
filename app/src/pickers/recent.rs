@@ -1,15 +1,15 @@
 //! The front project's saved chats beyond the core's recent ones: paged further back, or
 //! searched by the rail's filter, for the rail and ⌘⇧N to take up again.
 
+use gpui_kit::component::input::InputEvent;
 use gpui_kit::AppContext as _;
 use gpui_kit::Window;
-use gpui_kit::component::input::InputEvent;
 use std::time::Duration;
 
 use gpui_kit::component::input::InputState;
 use gpui_kit::{
-    App, Context, Div, Entity, FontWeight, HighlightStyle, ParentElement, Styled, StyledText,
-    Subscription, div,
+    div, App, Context, Div, Entity, FontWeight, HighlightStyle, ParentElement, Styled, StyledText,
+    Subscription,
 };
 use sikemux_agents::sessions::said::FoundLine;
 use sikemux_view::device::{FoundBy, FoundChat, RecentInfo};

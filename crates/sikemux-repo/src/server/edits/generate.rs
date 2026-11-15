@@ -16,8 +16,8 @@ use super::footer::known;
 use super::land::{apply, steps};
 use super::owners::{git, run};
 use super::push::line;
-use crate::server::Core;
 use crate::server::trust_ask::TrustAsk;
+use crate::server::Core;
 use crate::tasks::config::{self, ConfigLoad, GenerateConfig};
 use crate::trailers::{self, Agent, Commit};
 

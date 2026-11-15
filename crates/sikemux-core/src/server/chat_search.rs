@@ -11,7 +11,7 @@ use sikemux_view::inbox::{AgentShown, Inbox};
 use sikemux_wire::protocol::AgentGroup;
 
 use super::device_view::DeviceViewCore;
-use super::{Core, CoreResult, inbox, workspace};
+use super::{inbox, workspace, Core, CoreResult};
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 

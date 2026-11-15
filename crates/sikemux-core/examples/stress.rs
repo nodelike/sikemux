@@ -16,9 +16,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use sikemux_client::client::{ClientEvent, CoreClient};
-use sikemux_wire::protocol::{
-    ask, AgentState, Event, LaunchIdentity, SpawnTarget, TerminalSpawn,
-};
+use sikemux_wire::protocol::{ask, AgentState, Event, LaunchIdentity, SpawnTarget, TerminalSpawn};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 type Failure = Box<dyn std::error::Error>;
@@ -56,10 +54,16 @@ async fn setup(client: &CoreClient, agent: &str, folder: &str) -> Result<(), Fai
     });
     client.call("setAgentAccounts", accounts).await?;
     client
-        .call("addProject", json!({ "id": PROJECT, "name": PROJECT, "path": folder }))
+        .call(
+            "addProject",
+            json!({ "id": PROJECT, "name": PROJECT, "path": folder }),
+        )
         .await?;
     client
-        .call("setAgentDefaults", json!({ "permissionMode": "workspace-write" }))
+        .call(
+            "setAgentDefaults",
+            json!({ "permissionMode": "workspace-write" }),
+        )
         .await?;
     println!("{}", json!({ "setup": "ok", "core": client.core_pid() }));
     Ok(())
@@ -97,17 +101,28 @@ fn usage(pid: u32) -> serde_json::Value {
 
 async fn probe(client: &CoreClient) -> serde_json::Value {
     let started = Instant::now();
-    let listed = client.ask(ask::List).await.map(|list| list.len()).unwrap_or(0);
+    let listed = client
+        .ask(ask::List)
+        .await
+        .map(|list| list.len())
+        .unwrap_or(0);
     let list = millis(started);
     let started = Instant::now();
-    let chats = client.ask(ask::AcpList).await.map(|list| list.len()).unwrap_or(0);
+    let chats = client
+        .ask(ask::AcpList)
+        .await
+        .map(|list| list.len())
+        .unwrap_or(0);
     let chat_list = millis(started);
     json!({ "listMs": list, "chatListMs": chat_list, "sessions": listed, "chats": chats })
 }
 
 async fn print_probe(client: &CoreClient, label: &str) {
     let probe = probe(client).await;
-    println!("{}", json!({ "at": label, "probe": probe, "core": usage(client.core_pid()) }));
+    println!(
+        "{}",
+        json!({ "at": label, "probe": probe, "core": usage(client.core_pid()) })
+    );
 }
 
 async fn open_tab(client: &CoreClient, kind: &str, target: &str) -> Result<f64, Failure> {
@@ -195,7 +210,11 @@ async fn flood(client: &CoreClient, count: usize, seconds: u64) -> Result<(), Fa
     let mut refused = Vec::new();
     for index in 0..count {
         match spawn_terminal(client).await {
-            Ok(id) => client.write(id.parse()?, format!("{script}\r").as_bytes()).await?,
+            Ok(id) => {
+                client
+                    .write(id.parse()?, format!("{script}\r").as_bytes())
+                    .await?
+            }
             Err(error) => refused.push(format!("terminal {index}: {error}")),
         }
     }
@@ -275,16 +294,24 @@ async fn tools(
         else {
             continue;
         };
-        if let ClientEvent::Event(Event::Chat { agent_id, changes, .. }) = event {
+        if let ClientEvent::Event(Event::Chat {
+            agent_id, changes, ..
+        }) = event
+        {
             if !probes.contains(&agent_id) || answers.iter().any(|(id, ..)| *id == agent_id) {
                 continue;
             }
-            if let Some(text) = said(&changes, "tool answered").or_else(|| said(&changes, "tool failed")) {
+            if let Some(text) =
+                said(&changes, "tool answered").or_else(|| said(&changes, "tool failed"))
+            {
                 answers.push((agent_id, millis(started), text));
             }
         }
     }
-    let failed = answers.iter().filter(|(_, _, text)| text.starts_with("tool failed")).count();
+    let failed = answers
+        .iter()
+        .filter(|(_, _, text)| text.starts_with("tool failed"))
+        .count();
     println!(
         "{}",
         json!({
