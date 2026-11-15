@@ -769,6 +769,7 @@ fn chat_launch(core: &CoreProcess, agent_id: &str) -> ChatLaunch {
 
 const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
 const FAKE_CODEX: &str = env!("CARGO_BIN_EXE_sikemux-fake-codex");
+const FAKE_OPENCODE: &str = env!("CARGO_BIN_EXE_sikemux-fake-opencode");
 
 /// A chat of `provider`'s stand-in agent, asking before it acts.
 fn agent_launch(core: &CoreProcess, provider: &str, agent_id: &str) -> ChatLaunch {
@@ -778,6 +779,16 @@ fn agent_launch(core: &CoreProcess, provider: &str, agent_id: &str) -> ChatLaunc
     let (program, variable) = match provider {
         "claude" => (FAKE_CLAUDE, "CLAUDE_CONFIG_DIR"),
         "codex" => (FAKE_CODEX, "CODEX_HOME"),
+        "opencode" => {
+            return ChatLaunch {
+                provider: provider.into(),
+                program: PathBuf::from(FAKE_OPENCODE),
+                args: Vec::new(),
+                env: Default::default(),
+                model: Some("fake/fake-model".into()),
+                ..chat_launch(core, agent_id)
+            }
+        }
         _ => return chat_launch(core, agent_id),
     };
     ChatLaunch {
@@ -862,7 +873,7 @@ async fn attached(client: &CoreClient, agent_id: &str, since: Option<ChatMark>) 
 async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     let core = CoreProcess::start("first");
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let providers = ["omp", "claude", "codex"];
+    let providers = ["omp", "claude", "codex", "opencode"];
     let asking: Vec<String> = providers.iter().map(|p| format!("{p}-ask")).collect();
     let holding: Vec<String> = providers.iter().map(|p| format!("{p}-hold")).collect();
     let mut sessions = HashMap::new();
@@ -915,7 +926,7 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     })
     .await;
     let agents = children(core.pid());
-    assert_eq!(agents.len(), 6, "{agents:?}");
+    assert_eq!(agents.len(), 8, "{agents:?}");
     drop(client);
     drop(events);
 
@@ -926,7 +937,7 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
 
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
     let chats = client.ask(ask::AcpList).await.expect("list");
-    assert_eq!(chats.len(), 6, "{}", core.log());
+    assert_eq!(chats.len(), 8, "{}", core.log());
     for chat in &chats {
         assert!(
             chat.running,

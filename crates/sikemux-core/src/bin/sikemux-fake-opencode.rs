@@ -10,6 +10,7 @@
 //! - `push` does the same for `git push`, which the person's own config denies;
 //! - `count` says how many messages came before it;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on an interrupt;
+//!   `hold PATH` waits while that file is there;
 //! - `fail` fails the turn as a provider that will not answer;
 //! - `todo` writes a todo list of two;
 //! - `subagent` starts an `explore` subagent, which says `found it` once the turn has ended;
@@ -36,6 +37,7 @@ struct Fake {
     sessions: Mutex<HashMap<String, Value>>,
     answers: Mutex<HashMap<String, Sender<String>>>,
     seq: AtomicU64,
+    log: Mutex<Vec<Value>>,
     interrupted: AtomicBool,
 }
 
@@ -139,6 +141,7 @@ impl Fake {
         let seq = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let event = json!({ "type": kind, "data": data, "durable": { "seq": seq } });
         let frame = format!("data: {event}\n\n");
+        self.log.locked().push(event);
         self.listeners
             .locked()
             .retain_mut(|stream| stream.write_all(frame.as_bytes()).is_ok());
@@ -303,8 +306,21 @@ impl Fake {
                 let text = format!("ran {}", request.body["name"].as_str().unwrap_or_default());
                 std::thread::spawn(move || fake.turn(&session, &text));
             }
-            ("GET", ["api", "experimental", "session", _, "log"]) => {
-                answer(&stream, 200, json!({ "data": [] }))
+            ("GET", ["api", "experimental", "session", id, "log"]) => {
+                let after = request
+                    .path
+                    .split_once("after=")
+                    .and_then(|(_, after)| after.parse::<u64>().ok())
+                    .unwrap_or(0);
+                let missed: Vec<Value> = self
+                    .log
+                    .locked()
+                    .iter()
+                    .filter(|event| event["durable"]["seq"].as_u64() > Some(after))
+                    .filter(|event| event["data"]["sessionID"] == *id)
+                    .cloned()
+                    .collect();
+                answer(&stream, 200, json!({ "data": missed }))
             }
             _ => answer(
                 &stream,
@@ -458,8 +474,15 @@ impl Fake {
             }
             "hold" => {
                 say("holding");
-                let until = Instant::now() + Duration::from_millis(rest.parse().unwrap_or(1000));
-                while Instant::now() < until && !self.interrupted.load(Ordering::SeqCst) {
+                let until = rest
+                    .parse()
+                    .ok()
+                    .map(|ms| Instant::now() + Duration::from_millis(ms));
+                let waiting = || match until {
+                    Some(until) => Instant::now() < until,
+                    None => std::path::Path::new(rest).exists(),
+                };
+                while waiting() && !self.interrupted.load(Ordering::SeqCst) {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 match self.interrupted.load(Ordering::SeqCst) {
