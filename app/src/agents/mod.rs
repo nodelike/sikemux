@@ -124,14 +124,18 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         pins.iter()
             .any(|pin| pin.agent_id.as_deref() == Some(agent.id.as_str()))
     });
-    let agents: Vec<_> = (agents.into_iter())
-        .filter(|agent| agent.settled_at.is_none())
-        .collect();
-    let (snoozed, agents): (Vec<_>, Vec<_>) =
-        (agents.into_iter()).partition(|agent| agent.snoozed_until.is_some());
-    let snoozed: Vec<AnyElement> = (snoozed.iter())
-        .map(|agent| agent_row(bench, agent, agent.team, None, false, cx).into_any_element())
-        .collect();
+    let (away, agents): (Vec<_>, Vec<_>) = (agents.into_iter())
+        .partition(|agent| agent.snoozed_until.is_some() || agent.settled_at.is_some());
+    let (settled, snoozed): (Vec<_>, Vec<_>) = away
+        .into_iter()
+        .partition(|agent| agent.settled_at.is_some());
+    let away_rows = |agents: &[AgentRow], cx: &mut Context<Workbench>| -> Vec<AnyElement> {
+        (agents.iter())
+            .map(|agent| agent_row(bench, agent, agent.team, None, false, cx).into_any_element())
+            .collect()
+    };
+    let snoozed = away_rows(&snoozed, cx);
+    let settled = away_rows(&settled, cx);
     let heads: Vec<(String, AnyElement)> = match bench.rails.all_projects {
         true => (ranked_projects(bench).iter())
             .map(|project| {
@@ -186,7 +190,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
     }
-    let quiet = rows.is_empty() && snoozed.is_empty();
+    let quiet = rows.is_empty() && snoozed.is_empty() && settled.is_empty();
     let empty = (quiet && pinned.is_empty() && recent.is_empty()).then(|| {
         let shown = (project.zip(other_host(bench)))
             .filter(|_| bench.filter_text().is_empty())
@@ -319,6 +323,12 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                             .children(snoozed),
                     )
                 })
+                .when(!settled.is_empty(), |scroll| {
+                    scroll.child(
+                        folding(Group::new(t!("Settled"), ""), SETTLED, bench, cx)
+                            .children(settled),
+                    )
+                })
                 .when(!pinned.is_empty(), |scroll| {
                     scroll.child(
                         folding(Group::new(t!("Pinned"), ""), PINNED, bench, cx).children(pinned),
@@ -341,6 +351,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
 const PINNED: &str = "pinned";
 const RECENT: &str = "recent";
 const SNOOZED: &str = "snoozed";
+const SETTLED: &str = "settled";
 
 /// `group` folding on a click on its heading, and staying folded under `key` across restarts.
 pub(crate) fn folding(
@@ -436,7 +447,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         None => {
             return ui::text(t!("Agents"), TEXT_SM, FontWeight::SEMIBOLD)
                 .text_color(t.text_primary)
-                .into_any_element();
+                .into_any_element()
         }
     };
     let name = ui::text(label, TEXT_SM, FontWeight::SEMIBOLD)
@@ -821,6 +832,13 @@ fn team_rows(
     let mut in_team = false;
     let mut team_members: Vec<&AgentRow> = Vec::new();
     let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(agents.len());
+    // For each row drawn, the project of the chief it reports to and whether it reports to the
+    // chief itself rather than to a lead under it.
+    let mut reports: Vec<Option<(String, bool)>> = Vec::with_capacity(agents.len());
+    let chiefs: Vec<String> = heads.iter().map(|(project, _)| project.clone()).collect();
+    let under_chief = |agent: &AgentRow, direct: bool| {
+        (!agent.chief && chiefs.contains(&agent.project)).then(|| (agent.project.clone(), direct))
+    };
     let mut shown = Vec::new();
     for (ix, agent) in agents.iter().enumerate() {
         if let Some(at) = heads
@@ -829,6 +847,7 @@ fn team_rows(
         {
             for (project, head) in heads.drain(..=at) {
                 drawn.push((format!("chief:{project}"), head));
+                reports.push(None);
             }
         }
         if teams && under_lead(agent) {
@@ -880,6 +899,10 @@ fn team_rows(
         shown.push((agent.id.clone(), agent.clone()));
         let row = agent_row(bench, agent, team, fold, glided, cx);
         drawn.push((agent.id.clone(), row.into_any_element()));
+        reports.push(under_chief(
+            agent,
+            !matches!(team, Some(TeamLink::Member | TeamLink::Last)),
+        ));
         if team.is_some() && !folded && !continues(ix + 1) {
             let workers = remote_of(&team_members);
             let last = workers.len().saturating_sub(1);
@@ -898,6 +921,7 @@ fn team_rows(
                     row.id.clone(),
                     agent_row(bench, &row, Some(link), None, glided, cx),
                 ));
+                reports.push(under_chief(agent, false));
                 shown.push((row.id.clone(), row));
             }
         }
@@ -907,6 +931,7 @@ fn team_rows(
             .into_iter()
             .map(|(project, head)| (format!("chief:{project}"), head)),
     );
+    let drawn = under_chiefs(drawn, &reports, cx);
     let view = format!(
         "{}:{}:{}",
         bench.rails.all_projects,
@@ -942,6 +967,69 @@ fn team_rows(
     let chosen = Tokens::get(cx).surface_chosen;
     let copy = glide.copy(move |copy| copy.rounded(theme::RADIUS_2).bg(chosen));
     (copy, rows)
+}
+
+/// Hangs the rows that report to a project's chief under its row, as a team hangs under its
+/// lead: a spine down from the chief, a tick to each agent it runs, and the spine carried past
+/// the workers of a lead between them.
+fn under_chiefs(
+    drawn: Vec<(String, AnyElement)>,
+    reports: &[Option<(String, bool)>],
+    cx: &App,
+) -> Vec<(String, AnyElement)> {
+    let last_direct = |project: &str| {
+        reports.iter().rposition(|report| {
+            report
+                .as_ref()
+                .is_some_and(|(of, direct)| of == project && *direct)
+        })
+    };
+    drawn
+        .into_iter()
+        .enumerate()
+        .map(|(at, (id, row))| {
+            let (lines, indent) = match (
+                id.strip_prefix("chief:"),
+                reports.get(at).cloned().flatten(),
+            ) {
+                (Some(project), _) if last_direct(project).is_some() => {
+                    (team_lines(Some(TeamLink::Head), true, cx), false)
+                }
+                (_, Some((project, direct))) => {
+                    let last = last_direct(&project);
+                    let lines = match (direct, last) {
+                        (true, Some(last)) if last == at => {
+                            team_lines(Some(TeamLink::Last), false, cx)
+                        }
+                        (true, _) => team_lines(Some(TeamLink::Member), false, cx),
+                        (false, Some(last)) if at < last => chief_spine(cx),
+                        (false, _) => Vec::new(),
+                    };
+                    (lines, true)
+                }
+                _ => return (id, row),
+            };
+            let row = div()
+                .relative()
+                .children(lines)
+                .child(div().when(indent, |row| row.pl(px(18.))).child(row))
+                .into_any_element();
+            (id, row)
+        })
+        .collect()
+}
+
+/// The chief's spine running past a lead's worker that sits between two of the chief's agents.
+fn chief_spine(cx: &App) -> Vec<AnyElement> {
+    let t = Tokens::get(cx);
+    vec![div()
+        .absolute()
+        .left(px(14.))
+        .w(px(1.))
+        .top(px(-2.))
+        .bottom(px(-2.))
+        .bg(t.tree_spine)
+        .into_any_element()]
 }
 
 /// The spine and tick that hang a team's rows under its lead.
