@@ -692,6 +692,7 @@ impl Android {
             return Ok(json!({}));
         };
         let started = Instant::now();
+        let mut emulator_exit = None;
         if target.serial.is_none() {
             let root = self.sdk().ok_or(NO_SDK)?;
             let emulator = sdk::emulator(&root);
@@ -718,16 +719,26 @@ impl Android {
                 .env("ANDROID_SDK_ROOT", &root)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null());
+                .stderr(Stdio::piped());
             #[cfg(unix)]
             std::os::unix::process::CommandExt::process_group(&mut command, 0);
-            command
+            let child = tokio::process::Command::from(command)
                 .spawn()
                 .map_err(|error| format!("could not start the emulator: {error}"))?;
+            let (exited, on_exit) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let _ = exited.send(watch_emulator(child).await);
+            });
+            emulator_exit = Some(on_exit);
         }
         loop {
             if started.elapsed() >= limit {
                 return Err(format!("{avd} did not finish starting in time"));
+            }
+            if let Some(Ok(why)) = emulator_exit.as_mut().map(|exit| exit.try_recv()) {
+                return Err(format!(
+                    "the emulator for {avd} stopped as it started: {why}"
+                ));
             }
             if let Some(serial) = self.target(udid).serial {
                 let booted = self
@@ -851,6 +862,41 @@ impl Android {
                     .spawn();
             }
         }
+    }
+}
+
+/// Waits for an emulator to exit, reading its stderr all the while so it never blocks on a
+/// full pipe, and says how it ended with the last of what it wrote.
+async fn watch_emulator(mut child: tokio::process::Child) -> String {
+    use tokio::io::AsyncReadExt;
+    const TAIL: usize = 2048;
+    enum Event {
+        Exited(std::io::Result<std::process::ExitStatus>),
+        Read(Option<usize>),
+    }
+    let mut stderr = child.stderr.take();
+    let mut tail = Vec::new();
+    let mut chunk = [0; 1024];
+    let status = loop {
+        let event = tokio::select! {
+            status = child.wait() => Event::Exited(status),
+            read = async { stderr.as_mut()?.read(&mut chunk).await.ok() }, if stderr.is_some() => Event::Read(read),
+        };
+        match event {
+            Event::Exited(status) => break status,
+            Event::Read(Some(read @ 1..)) => tail.extend_from_slice(&chunk[..read]),
+            Event::Read(_) => stderr = None,
+        }
+        tail.drain(..tail.len().saturating_sub(TAIL));
+    };
+    if let Some(mut stderr) = stderr {
+        let _ = tokio::time::timeout(Duration::from_secs(1), stderr.read_to_end(&mut tail)).await;
+    }
+    let status = status.map_or_else(|error| error.to_string(), |status| status.to_string());
+    let written = String::from_utf8_lossy(&tail[tail.len().saturating_sub(TAIL)..]);
+    match written.trim() {
+        "" => status,
+        written => format!("{status}\n{written}"),
     }
 }
 
