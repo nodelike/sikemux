@@ -203,10 +203,10 @@ grep -Fq 'group: release' .github/workflows/release.yml || {
   exit 1
 }
 
-grep -Fxq "OLDEST_GLIBC=2.34" scripts/install.sh && grep -Fq "container: almalinux:9" .github/workflows/release.yml || {
+if ! grep -Fxq "OLDEST_GLIBC=2.34" scripts/install.sh || ! grep -Fq "container: almalinux:9" .github/workflows/release.yml; then
   echo "the host core is built on AlmaLinux 9 for glibc 2.34; change the installer's OLDEST_GLIBC and build-host's container together" >&2
   exit 1
-}
+fi
 
 CARGO_METADATA="$(cargo metadata --offline --locked --no-deps --format-version 1)"
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
