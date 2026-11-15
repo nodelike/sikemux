@@ -117,6 +117,7 @@ fn fd_count() -> Option<usize> {
     std::fs::read_dir("/dev/fd").ok().map(Iterator::count)
 }
 
+#[cfg(unix)]
 fn fd_limit() -> (Option<u64>, Option<u64>) {
     let mut limit = libc::rlimit {
         rlim_cur: 0,
@@ -127,6 +128,12 @@ fn fd_limit() -> (Option<u64>, Option<u64>) {
         return (None, None);
     }
     (Some(limit.rlim_cur), Some(limit.rlim_max))
+}
+
+/// Windows has no limit on open files to read.
+#[cfg(not(unix))]
+fn fd_limit() -> (Option<u64>, Option<u64>) {
+    (None, None)
 }
 
 fn snapshot_text(bench: &Workbench) -> String {

@@ -1,9 +1,7 @@
 //! What the app prints to stderr, kept as it goes so an agent can read it with `app_console`.
 
 use std::collections::VecDeque;
-use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::os::fd::FromRawFd;
 use std::sync::Mutex;
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -22,35 +20,31 @@ struct Entry {
 
 static ENTRIES: Mutex<VecDeque<Entry>> = Mutex::new(VecDeque::new());
 
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+use unix as platform;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as platform;
+
 /// Sends stderr through a pipe whose reader keeps each line and still prints it.
 pub fn install() {
-    let mut ends = [0; 2];
-    // SAFETY: `ends` has room for the two descriptors pipe writes.
-    if unsafe { libc::pipe(ends.as_mut_ptr()) } != 0 {
+    let Ok((lines, pipe)) = std::io::pipe() else {
         return;
-    }
-    let [read, write] = ends;
-    // SAFETY: dup takes and returns plain descriptors; stderr stays open until dup2 replaces it.
-    let printed = unsafe { libc::dup(libc::STDERR_FILENO) };
-    // SAFETY: both descriptors are open; dup2 points stderr at the pipe.
-    if printed < 0 || unsafe { libc::dup2(write, libc::STDERR_FILENO) } < 0 {
-        // SAFETY: the descriptors were opened above and nothing else holds them.
-        unsafe {
-            libc::close(read);
-            libc::close(write);
-        }
+    };
+    let Some(mut printed) = platform::redirect(pipe) else {
         return;
-    }
-    // SAFETY: stderr now holds the pipe's write end, so this copy is no longer needed.
-    unsafe { libc::close(write) };
-    // SAFETY: each descriptor was opened above and is owned by its File from here on.
-    let (lines, mut printed) = unsafe { (File::from_raw_fd(read), File::from_raw_fd(printed)) };
+    };
     let spawned = std::thread::Builder::new()
         .name("console".into())
         .spawn(move || {
             for line in BufReader::new(lines).lines() {
                 let Ok(line) = line else { break };
-                let _ = writeln!(printed, "{line}");
+                if let Some(printed) = printed.as_mut() {
+                    let _ = writeln!(printed, "{line}");
+                }
                 keep(line);
             }
         });
