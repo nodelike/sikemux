@@ -865,6 +865,7 @@ fn land_checks_due(repo: &Path, from: &str, to: &str) -> Vec<(LandCheck, Vec<Str
     let Ok(config) = serde_json::from_str(&source)
         .map_err(|_| ())
         .and_then(|value| crate::tasks::config::validate(&value).map_err(|_| ()))
+        .map(|(config, _)| config)
     else {
         return Vec::new();
     };

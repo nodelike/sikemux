@@ -516,11 +516,20 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
         "ports": ports,
     });
     if let Some(object) = value.as_object_mut() {
-        if let ConfigLoad::Invalid { errors, .. } = &config {
-            object.insert(
-                "configErrors".into(),
-                serde_json::to_value(errors).unwrap_or_default(),
-            );
+        match &config {
+            ConfigLoad::Invalid { errors, .. } => {
+                object.insert(
+                    "configErrors".into(),
+                    serde_json::to_value(errors).unwrap_or_default(),
+                );
+            }
+            ConfigLoad::Valid { warnings, .. } if !warnings.is_empty() => {
+                object.insert(
+                    "configWarnings".into(),
+                    serde_json::to_value(warnings).unwrap_or_default(),
+                );
+            }
+            _ => {}
         }
         if let Some(checkout) = checkout {
             object.insert(

@@ -85,7 +85,7 @@ fn one(name: &str, entry: &Value, errors: &mut Vec<ConfigError>) -> Option<Resou
         ));
         return None;
     };
-    reject_unknown(entry, &path, errors);
+    note_unknown(entry, &path, errors);
     let label = match entry.get("label").and_then(Value::as_str).map(str::trim) {
         Some(label) if !label.is_empty() && label.chars().count() <= MAX_LABEL_CHARS => label,
         _ => {
@@ -189,7 +189,7 @@ fn is_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
-fn reject_unknown(record: &Map<String, Value>, path: &str, errors: &mut Vec<ConfigError>) {
+fn note_unknown(record: &Map<String, Value>, path: &str, errors: &mut Vec<ConfigError>) {
     for key in record.keys().filter(|key| !FIELDS.contains(&key.as_str())) {
         errors.push(issue(
             format!("{path}.{key}"),

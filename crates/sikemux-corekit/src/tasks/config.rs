@@ -463,6 +463,9 @@ pub enum ConfigLoad {
         config: Box<ProjectConfig>,
         fingerprint: String,
         trust: TrustSummary,
+        /// Fields this build does not know, often ones a newer build added. They are skipped, not refused.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        warnings: Vec<ConfigError>,
     },
 }
 
@@ -525,13 +528,14 @@ pub fn load(project: &Path) -> ConfigLoad {
         }
     };
     match validate(&value) {
-        Ok(config) => {
+        Ok((config, warnings)) => {
             let trust = trust_summary(&config);
             ConfigLoad::Valid {
                 path,
                 config: Box::new(config),
                 fingerprint,
                 trust,
+                warnings,
             }
         }
         Err(errors) => ConfigLoad::Invalid {
@@ -542,8 +546,9 @@ pub fn load(project: &Path) -> ConfigLoad {
     }
 }
 
-/// Checks a parsed file, collecting every problem rather than stopping at the first.
-pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
+/// Checks a parsed file, collecting every problem rather than stopping at the first. Unknown
+/// fields come back as warnings beside the config, so an older build still reads a newer file.
+pub fn validate(value: &Value) -> Result<(ProjectConfig, Vec<ConfigError>), Vec<ConfigError>> {
     let Some(root) = value.as_object() else {
         return Err(vec![issue(
             "$",
@@ -552,7 +557,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         )]);
     };
     let mut errors = Vec::new();
-    reject_unknown_fields(root, ROOT_FIELDS, "$", &mut errors);
+    note_unknown_fields(root, ROOT_FIELDS, "$", &mut errors);
     let version = root.get("version");
     if version.and_then(Value::as_f64) != Some(CONFIG_VERSION as f64) {
         errors.push(match version {
@@ -599,6 +604,8 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         .map(|value| parse_heavy(value, &resources, &mut errors));
     let ports = checkout::parse_ports(root.get("ports"), &mut errors);
     let env = parse_task_env(root.get("env"), "$.env", &mut errors);
+    let (warnings, mut errors): (Vec<_>, Vec<_>) =
+        (errors.into_iter()).partition(|error| error.code == ConfigErrorCode::UnknownField);
     if !errors.is_empty() {
         return Err(errors);
     }
@@ -627,7 +634,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     if !errors.is_empty() {
         return Err(errors);
     }
-    Ok(config)
+    Ok((config, warnings))
 }
 
 /// Whether the nearest `sikemux.json` at or above `dir` names `resources`, read alone so a tool
@@ -847,7 +854,7 @@ fn issue(
     }
 }
 
-fn reject_unknown_fields(
+fn note_unknown_fields(
     record: &Map<String, Value>,
     allowed: &[&str],
     path: &str,
@@ -1005,7 +1012,7 @@ fn parse_actions(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Pr
             ));
             continue;
         };
-        reject_unknown_fields(candidate, ACTION_FIELDS, &path, errors);
+        note_unknown_fields(candidate, ACTION_FIELDS, &path, errors);
         let id = parse_id(candidate.get("id"), &format!("{path}.id"), errors);
         let label = bounded_required(
             candidate.get("label"),
@@ -1215,7 +1222,7 @@ fn parse_tasks(
             ));
             continue;
         };
-        reject_unknown_fields(candidate, TASK_FIELDS, &path, errors);
+        note_unknown_fields(candidate, TASK_FIELDS, &path, errors);
         let id = parse_id(candidate.get("id"), &format!("{path}.id"), errors);
         let label = bounded_required(
             candidate.get("label"),
@@ -1266,7 +1273,7 @@ fn parse_preview(
             return None;
         }
     };
-    reject_unknown_fields(record, PREVIEW_FIELDS, "$.preview", errors);
+    note_unknown_fields(record, PREVIEW_FIELDS, "$.preview", errors);
     let url = bounded_optional(
         record.get("url"),
         "$.preview.url",
@@ -1332,7 +1339,7 @@ fn parse_worktree(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Optio
         ));
         return None;
     };
-    reject_unknown_fields(record, WORKTREE_FIELDS, "$.worktree", errors);
+    note_unknown_fields(record, WORKTREE_FIELDS, "$.worktree", errors);
     Some(WorktreeConfig {
         on_create: parse_hooks(record, "onCreate", errors),
         on_settle: parse_hooks(record, "onSettle", errors),
@@ -1376,7 +1383,7 @@ fn parse_hooks(
             ));
             continue;
         };
-        reject_unknown_fields(candidate, HOOK_FIELDS, &path, errors);
+        note_unknown_fields(candidate, HOOK_FIELDS, &path, errors);
         let id = parse_id(candidate.get("id"), &format!("{path}.id"), errors);
         let label = bounded_optional(
             candidate.get("label"),
@@ -1415,7 +1422,7 @@ fn parse_check(
             return None;
         }
     };
-    reject_unknown_fields(record, CHECK_FIELDS, "$.check", errors);
+    note_unknown_fields(record, CHECK_FIELDS, "$.check", errors);
     let Some(listed) = record.get("ci").and_then(Value::as_array) else {
         errors.push(issue(
             "$.check.ci",
@@ -1477,7 +1484,7 @@ fn parse_generate(
         ));
         return None;
     };
-    reject_unknown_fields(record, GENERATE_FIELDS, "$.generate", errors);
+    note_unknown_fields(record, GENERATE_FIELDS, "$.generate", errors);
     let command = parse_command(record.get("command"), "$.generate.command", errors);
     let Some(listed) = record.get("outputs").and_then(Value::as_array) else {
         errors.push(issue(
@@ -1561,7 +1568,7 @@ fn parse_role(
         ));
         return None;
     };
-    reject_unknown_fields(record, ROLE_FIELDS, path, errors);
+    note_unknown_fields(record, ROLE_FIELDS, path, errors);
     let name = bounded_required(
         record.get("name"),
         &format!("{path}.name"),
@@ -1628,7 +1635,7 @@ fn parse_heavy(
                 ));
                 return None;
             };
-            reject_unknown_fields(entry, HEAVY_FIELDS, &path, errors);
+            note_unknown_fields(entry, HEAVY_FIELDS, &path, errors);
             let flag = |name: &str, errors: &mut Vec<ConfigError>| match entry.get(name) {
                 None => false,
                 Some(Value::Bool(set)) => *set,
@@ -1764,7 +1771,7 @@ fn parse_land_checks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Ve
                 ));
                 return None;
             };
-            reject_unknown_fields(record, LAND_CHECK_FIELDS, &at, errors);
+            note_unknown_fields(record, LAND_CHECK_FIELDS, &at, errors);
             let label = bounded_required(
                 record.get("label"),
                 &format!("{at}.label"),

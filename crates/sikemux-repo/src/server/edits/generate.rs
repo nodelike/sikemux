@@ -49,6 +49,7 @@ pub fn trust_needed_for(
         config,
         fingerprint,
         trust,
+        warnings,
         ..
     } = config::load(checkout)
     else {
@@ -67,6 +68,7 @@ pub fn trust_needed_for(
             config,
             fingerprint,
             trust,
+            warnings,
         },
     )
 }

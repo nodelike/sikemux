@@ -54,7 +54,8 @@ For one area in depth, call `guide` with one of these as `topic`:
 
 `configStatus` is `absent` with no `sikemux.json` at the project root, and
 `invalid` when it failed to load; `configErrors` lists each problem by path.
-Inspect again after writing.
+A field the running core does not know is skipped and listed in `configWarnings`,
+so a typo still loads. Inspect again after writing.
 
 ```json
 {

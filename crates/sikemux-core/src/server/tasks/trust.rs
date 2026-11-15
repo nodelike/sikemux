@@ -31,6 +31,7 @@ pub(crate) fn config_needs(core: &Core, config: &ConfigLoad) -> Option<TrustAsk>
         config,
         fingerprint,
         trust,
+        ..
     } = config
     else {
         return None;
