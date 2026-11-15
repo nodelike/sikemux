@@ -301,6 +301,7 @@ fn with_core(work: Work) -> Result<(), String> {
 }
 
 /// The user whose process answers at `socket`, as the kernel says.
+#[cfg(unix)]
 fn socket_owner(socket: &Path) -> Option<u32> {
     use std::os::fd::AsRawFd;
     let stream = std::os::unix::net::UnixStream::connect(socket).ok()?;
@@ -333,6 +334,11 @@ fn socket_owner(socket: &Path) -> Option<u32> {
         } == 0;
         read.then_some(credentials.uid)
     }
+}
+
+#[cfg(windows)]
+fn socket_owner(_socket: &Path) -> Option<u32> {
+    None
 }
 
 async fn login(core: &CoreClient) -> Result<(), String> {
