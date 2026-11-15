@@ -672,7 +672,8 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
 }
 
 /// Whether `head` has landed on the project's branch, as the project counts landing: on that
-/// branch once committed, else on its remote. A side branch, pushed or not, has not landed.
+/// branch once committed, else on its remote. A side branch, pushed or not, has not landed,
+/// unless every one of its commits is on the branch as the same change, as a rebased land is.
 pub(crate) fn landed(
     core: &Core,
     project: &str,
@@ -681,10 +682,41 @@ pub(crate) fn landed(
 ) -> bool {
     let repo = worktree.map_or(Path::new(project), |worktree| worktree.repo.as_path());
     landing_tip(core, project, repo).is_some_and(|tip| {
-        Git::quick(repo)
+        let on_tip = Git::quick(repo)
             .output(&["merge-base", "--is-ancestor", head, &tip])
-            .is_ok_and(|output| output.status.success())
+            .is_ok_and(|output| output.status.success());
+        on_tip
+            || Git::quick(repo)
+                .text(&[
+                    "log",
+                    "--cherry-pick",
+                    "--right-only",
+                    "--no-merges",
+                    "-n",
+                    "1",
+                    "--format=%H",
+                    &format!("{tip}...{head}"),
+                ])
+                .is_ok_and(|left| left.trim().is_empty())
     })
+}
+
+/// The branch of the project at `path` moved: the idle agents of it whose work stood committed
+/// read it again, since a land made after their turn ended moves nothing of theirs.
+pub(crate) fn branch_moved(core: &Arc<Core>, path: &str) {
+    let Some(project) = (core.workspaces().projects().into_iter())
+        .find(|project| project.path.to_string_lossy() == path)
+    else {
+        return;
+    };
+    for (agent, of) in core.workspaces().agent_projects() {
+        let committed = (core.inbox().ending(&agent))
+            .and_then(|ended| ended.work)
+            .is_some_and(|work| work.changes == WorkAt::Committed);
+        if of == project.id && committed && !core.agent_now(&agent).mid_turn() {
+            keep_work(core, &agent);
+        }
+    }
 }
 
 /// What a commit in `repo` must be on to have landed in `project`, as the project counts

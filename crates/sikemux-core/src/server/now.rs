@@ -523,7 +523,8 @@ pub(crate) fn refs_moved(core: &Arc<Core>, path: &str) {
             .get(&path)
             .cloned()
             .unwrap_or_default();
-        let ask_ci = before.ci_asked.as_deref() != Some(tip.as_str())
+        let tip_moved = before.ci_asked.as_deref() != Some(tip.as_str());
+        let ask_ci = tip_moved
             || before
                 .release
                 .as_ref()
@@ -547,9 +548,17 @@ pub(crate) fn refs_moved(core: &Arc<Core>, path: &str) {
                 ci_asked: Some(tip),
             },
         );
-        if tag_moved {
+        if tip_moved || tag_moved {
             let (core, path) = (core.clone(), path.clone());
-            let _ = tokio::task::spawn_blocking(move || refix_project(&core, &path)).await;
+            let _ = tokio::task::spawn_blocking(move || {
+                if tip_moved {
+                    super::turn_state::branch_moved(&core, &path);
+                }
+                if tag_moved {
+                    refix_project(&core, &path);
+                }
+            })
+            .await;
         }
         if changed {
             core.changed(What::View);
