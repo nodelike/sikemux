@@ -866,7 +866,7 @@ mod tests {
     #[test]
     fn a_branch_the_remote_lacks_is_published_with_only_the_callers_commits() {
         let root = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root.path()).unwrap();
+        let root = crate::os::real_path(root.path()).unwrap();
         let remote = root.join("remote.git");
         let work = root.join("work");
         git_in(&root, &["init", "-q", "--bare", "-b", "main", "remote.git"]);
@@ -903,7 +903,7 @@ mod tests {
     #[test]
     fn only_the_callers_commits_are_pushed_and_the_branch_keeps_its_files() {
         let root = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root.path()).unwrap();
+        let root = crate::os::real_path(root.path()).unwrap();
         let remote = root.join("remote.git");
         let work = root.join("work");
         git_in(&root, &["init", "-q", "--bare", "-b", "main", "remote.git"]);
@@ -950,7 +950,7 @@ mod tests {
     #[test]
     fn a_landed_commit_that_clashes_with_the_remote_comes_off_and_the_rest_push() {
         let root = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(root.path()).unwrap();
+        let root = crate::os::real_path(root.path()).unwrap();
         let remote = root.join("remote.git");
         let (work, other) = (root.join("work"), root.join("other"));
         git_in(&root, &["init", "-q", "--bare", "-b", "main", "remote.git"]);
