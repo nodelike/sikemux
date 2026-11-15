@@ -3,9 +3,9 @@
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
+#[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-use std::os::unix::net::UnixStream as StdUnixStream;
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 #[cfg(not(target_os = "macos"))]
@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use crate::frozen::{FrozenReply, FrozenRequest};
 use crate::waiting;
 use sikemux_client::client::{hello_frame, hello_reply, ClientError, CoreHello};
+use sikemux_client::local::{connect_sync, SyncStream};
 use sikemux_wire::protocol::{
     encode_frozen, read_frame_sync, BuildIdentity, FrameKind, ServerMessage, PROTOCOL_VERSION,
 };
@@ -30,12 +31,8 @@ pub enum ProbeError {
 }
 
 pub fn probe(socket: &Path, timeout: Duration) -> Result<CoreHello, ProbeError> {
-    let mut stream = StdUnixStream::connect(socket).map_err(ProbeError::NotRunning)?;
+    let mut stream = connect_sync(socket, timeout).map_err(ProbeError::NotRunning)?;
     let unanswered = |error: &dyn std::fmt::Display| ProbeError::Unanswered(error.to_string());
-    stream
-        .set_read_timeout(Some(timeout))
-        .and_then(|()| stream.set_write_timeout(Some(timeout)))
-        .map_err(|error| unanswered(&error))?;
     let hello = hello_frame().map_err(|error| unanswered(&error))?;
     stream
         .write_all(&hello)
@@ -72,17 +69,15 @@ fn send_frozen(
     socket: &Path,
     request: &FrozenRequest,
     timeout: Duration,
-) -> Result<(FrozenReply, StdUnixStream), ClientError> {
-    let mut stream = StdUnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
+) -> Result<(FrozenReply, SyncStream), ClientError> {
+    let mut stream = connect_sync(socket, timeout)?;
     stream.write_all(&encode_frozen(request)?)?;
     let reply = read_frozen(&mut stream)?
         .ok_or_else(|| ClientError::Handshake("the core closed without answering".into()))?;
     Ok((reply, stream))
 }
 
-fn read_frozen(stream: &mut StdUnixStream) -> Result<Option<FrozenReply>, ClientError> {
+fn read_frozen(stream: &mut SyncStream) -> Result<Option<FrozenReply>, ClientError> {
     let Some(frame) = read_frame_sync(stream)? else {
         return Ok(None);
     };
@@ -198,20 +193,47 @@ fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -
     if let Some(folder) = log.parent() {
         std::fs::create_dir_all(folder)?;
     }
-    let log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(log)?;
+    let mut options = OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let log = options.open(log)?;
     let mut command = sikemux_process::user_environment::command(binary);
     command.arg("core").arg("--socket").arg(socket).args(args);
     #[cfg(target_os = "macos")]
     return spawn_responsible(&command, &log);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     return spawn_double_forked(command, log);
+    #[cfg(windows)]
+    return spawn_detached(command, log);
 }
 
-#[cfg(not(target_os = "macos"))]
+/// The core outlives the app, so it leaves any job the app runs in when the job lets it.
+#[cfg(windows)]
+fn spawn_detached(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::{
+        CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS,
+    };
+
+    command
+        .stdin(Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log);
+    let detached = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+    match command
+        .creation_flags(detached | CREATE_BREAKAWAY_FROM_JOB)
+        .spawn()
+    {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            command.creation_flags(detached).spawn().map(drop)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
 fn spawn_double_forked(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
     command
         .stdin(Stdio::null())

@@ -20,12 +20,18 @@ bitflags = { version = "2", default-features = false, features = ["serde"] }
 bstr = { version = "1" }
 crc32fast = { version = "1" }
 crossbeam-utils = { version = "0.8" }
-digest = { version = "0.11", features = ["alloc", "mac", "oid"] }
+crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["rand_core"] }
+crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
+data-encoding = { version = "2" }
+derive_more = { version = "2", features = ["add", "add_assign", "debug", "deref", "deref_mut", "display", "from", "from_str", "into_iterator", "try_into"] }
+digest = { version = "0.11", features = ["alloc", "mac", "oid", "rand_core"] }
+fastrand = { version = "2" }
 flate2 = { version = "1" }
 form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-io = { version = "0.3" }
+futures-lite = { version = "2" }
 futures-sink = { version = "0.3" }
 futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
@@ -48,29 +54,31 @@ serde_core = { version = "1", default-features = false, features = ["alloc", "rc
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
 simd-adler32 = { version = "0.3" }
 slab = { version = "0.4" }
+smallvec = { version = "1", default-features = false, features = ["const_new"] }
 subtle = { version = "2", default-features = false, features = ["const-generics"] }
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+tokio-util = { version = "0.7", features = ["codec", "io-util", "rt"] }
 tracing = { version = "0.1" }
 url = { version = "2", features = ["serde"] }
 uuid = { version = "1", features = ["serde", "v4", "v7"] }
+zeroize = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 cc = { version = "1", default-features = false, features = ["parallel"] }
+data-encoding = { version = "2", default-features = false, features = ["alloc"] }
+derive_more-impl = { version = "2", features = ["add", "add_assign", "debug", "deref", "deref_mut", "display", "from", "from_str", "into_iterator", "try_into"] }
 digest = { version = "0.11", features = ["alloc", "oid"] }
+once_cell = { version = "1" }
 proc-macro2 = { version = "1" }
 quote = { version = "1" }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
-syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit-mut"] }
+syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "full", "visit", "visit-mut"] }
 time-macros = { version = "0.2", default-features = false, features = ["formatting", "parsing"] }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 block2 = { version = "0.6" }
-crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["rand_core"] }
-crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
-data-encoding = { version = "2" }
-digest = { version = "0.11", default-features = false, features = ["rand_core"] }
 dispatch2 = { version = "0.3" }
 errno = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
@@ -85,15 +93,9 @@ rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "
 security-framework = { version = "3", features = ["OSX_10_15"] }
 security-framework-sys = { version = "2", features = ["OSX_10_15"] }
 simdutf8 = { version = "0.1", default-features = false, features = ["aarch64_neon", "public_imp", "std"] }
-smallvec = { version = "1", default-features = false, features = ["const_new"] }
-tokio-util = { version = "0.7", features = ["codec", "io-util", "rt"] }
 tracing = { version = "0.1", default-features = false, features = ["log"] }
-zeroize = { version = "1", features = ["derive"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
-data-encoding = { version = "2", default-features = false, features = ["alloc"] }
 libc = { version = "0.2" }
-once_cell = { version = "1" }
-syn-f595c2ba2a3f28df = { package = "syn", version = "2", default-features = false, features = ["visit"] }
 
 ### END HAKARI SECTION
