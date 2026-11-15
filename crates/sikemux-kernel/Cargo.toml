@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
-[target.'cfg(unix)'.dependencies]
+[dependencies]
 sikemux-git = { path = "../sikemux-git" }
 sikemux-pty = { path = "../sikemux-pty" }
 sikemux-wire = { path = "../sikemux-wire" }
