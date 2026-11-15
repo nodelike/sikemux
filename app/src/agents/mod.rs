@@ -13,6 +13,7 @@ use sikemux_calls::saved_sessions::RecentChat;
 use sikemux_calls::saved_sessions::RecentRenamed;
 use sikemux_calls::workspace::PinChatParams;
 use sikemux_wire::protocol::SessionId;
+use std::collections::HashMap;
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
@@ -153,11 +154,12 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
             .collect(),
     };
     let mut agents: Vec<AgentRow> = agents.into_iter().filter(|agent| !agent.chief).collect();
+    let homes = home_projects(bench);
     if bench.rails.all_projects {
         let at = |project: &str| heads.iter().position(|(id, _)| id == project);
-        agents.sort_by_key(|agent| at(&agent.project).unwrap_or(usize::MAX));
+        agents.sort_by_key(|agent| at(home_of(&homes, agent)).unwrap_or(usize::MAX));
     }
-    let (copy, rows) = team_rows(bench, &agents, heads, cx);
+    let (copy, rows) = team_rows(bench, &agents, &homes, heads, cx);
     let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
     let tagged = bench.rails.tag.is_some();
     let pinned: Vec<_> = pins
@@ -447,7 +449,7 @@ fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
         None => {
             return ui::text(t!("Agents"), TEXT_SM, FontWeight::SEMIBOLD)
                 .text_color(t.text_primary)
-                .into_any_element()
+                .into_any_element();
         }
     };
     let name = ui::text(label, TEXT_SM, FontWeight::SEMIBOLD)
@@ -794,6 +796,7 @@ pub type RailSeen = crate::motion::ListMemory<AgentRow>;
 fn team_rows(
     bench: &Workbench,
     agents: &[AgentRow],
+    homes: &HashMap<(Place, String), String>,
     mut heads: Vec<(String, AnyElement)>,
     cx: &mut Context<Workbench>,
 ) -> (Option<AnyElement>, Vec<AnyElement>) {
@@ -837,14 +840,14 @@ fn team_rows(
     let mut reports: Vec<Option<(String, bool)>> = Vec::with_capacity(agents.len());
     let chiefs: Vec<String> = heads.iter().map(|(project, _)| project.clone()).collect();
     let under_chief = |agent: &AgentRow, direct: bool| {
-        (!agent.chief && chiefs.contains(&agent.project)).then(|| (agent.project.clone(), direct))
+        let home = home_of(homes, agent);
+        (!agent.chief && chiefs.iter().any(|chief| chief == home))
+            .then(|| (home.to_owned(), direct))
     };
     let mut shown = Vec::new();
     for (ix, agent) in agents.iter().enumerate() {
-        if let Some(at) = heads
-            .iter()
-            .position(|(project, _)| *project == agent.project)
-        {
+        let home = home_of(homes, agent);
+        if let Some(at) = heads.iter().position(|(project, _)| project == home) {
             for (project, head) in heads.drain(..=at) {
                 drawn.push((format!("chief:{project}"), head));
                 reports.push(None);
@@ -1336,6 +1339,24 @@ fn ranked_projects(bench: &Workbench) -> Vec<ProjectInfo> {
         .collect();
     projects.sort_by_key(rank);
     projects
+}
+
+/// This host's project that each other host's copy of it folds into, keyed by that copy's host
+/// and project there.
+fn home_projects(bench: &Workbench) -> HashMap<(Place, String), String> {
+    (bench.folded().into_iter())
+        .filter_map(|folded| Some((folded.own?.id, folded.copies)))
+        .flat_map(|(own, copies)| {
+            (copies.into_iter())
+                .filter(|copy| copy.place != Place::This)
+                .map(move |copy| ((copy.place, copy.project), own.clone()))
+        })
+        .collect()
+}
+
+/// The project whose @Chief leads the agent's row: this host's copy of its project.
+fn home_of<'a>(homes: &'a HashMap<(Place, String), String>, agent: &'a AgentRow) -> &'a str {
+    (homes.get(&(agent.place.clone(), agent.project.clone()))).map_or(&agent.project, |home| home)
 }
 
 /// The project's chief, here or on its home host, while its chat is open.
