@@ -21,16 +21,16 @@ use std::time::{Duration, Instant};
 
 use common::usage::{peak_resident_mb, thread_cpu_ms};
 use gpui::{
-    point, px, size, AnyWindowHandle, AppContext, Entity, HeadlessAppContext, Modifiers,
-    PlatformInput, ScrollDelta, ScrollEvent, ScrollSource, TouchPhase,
+    AnyWindowHandle, AppContext, Entity, HeadlessAppContext, Modifiers, PlatformInput, ScrollDelta,
+    ScrollEvent, ScrollSource, TouchPhase, point, px, size,
 };
 use gpui_transcript::Row;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sikemux_client::client::{ClientEvent, CoreClient};
-use sikemux_fold::{ChatEvent, Fold, PageOf, PAGE_BYTES};
+use sikemux_fold::{ChatEvent, Fold, PAGE_BYTES, PageOf};
 use sikemux_gpui::core::{Ask, ChatAsk, ChatNews, Link, Update};
 use sikemux_gpui::workbench::Workbench;
-use sikemux_gpui::{icons, theme, WINDOW_SIZE};
+use sikemux_gpui::{WINDOW_SIZE, icons, theme};
 use sikemux_view::chat::{ChatChange, ChatHead, ChatMessage, ChatPage, ChatView};
 use sikemux_view::device::DeviceView;
 use sikemux_wire::protocol::{ChatAttachment, ChatMark, PermissionMode};
@@ -278,7 +278,14 @@ impl Folded {
         fold.flush();
         let head = fold.view(false).head;
         let rows = fold
-            .page_of(&events, PageOf::Before(u64::MAX), usize::MAX, None, None, None)
+            .page_of(
+                &events,
+                PageOf::Before(u64::MAX),
+                usize::MAX,
+                None,
+                None,
+                None,
+            )
             .rows;
         assert!(rows.len() >= ROWS, "the fold made {} rows", rows.len());
         let answer = Words(11).answer(TOKENS);
