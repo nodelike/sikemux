@@ -84,6 +84,8 @@ pub struct ChatAbove {
     /// The person wrote to the agent, so it may take turns of its own again, and what waited for
     /// them goes on.
     pub messages_person_wrote: fn(&Core, &str),
+    /// The person's `text` reached the agent: it is an ask until answered or in the app they run.
+    pub now_person_asked: fn(&Core, &str, &str),
     /// The agent called a tool, by the name its CLI gives it.
     pub messages_used_tool: fn(&Core, &str, &str),
     /// The agent did something besides messaging other agents, which ends any

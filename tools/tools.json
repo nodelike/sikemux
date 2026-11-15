@@ -1674,6 +1674,11 @@
       "method": "agent.send",
       "description": "Message a Sikemux agent.",
       "properties": {
+        "ask": {
+          "description": "Number of the person's ask this hands on",
+          "type": "integer",
+          "minimum": 1
+        },
         "to": {
           "description": "Name or id, comma-separated, or team",
           "type": "string",
@@ -1709,6 +1714,11 @@
       "method": "agent.spawn",
       "description": "Start a Sikemux agent.",
       "properties": {
+        "ask": {
+          "description": "Number of the person's ask this hands on",
+          "type": "integer",
+          "minimum": 1
+        },
         "cli": {
           "description": "e.g. claude, codex; omit for a helper",
           "type": "string",

@@ -1,6 +1,9 @@
 //! Each project's Now strip: its open agents in the person's four groups, each with one fact and
 //! since when, read off the turn states the device view works out anyway, and the agents closed
-//! lately, which closing writes in. Agents read the same strip as one compact text.
+//! lately, which closing writes in, and the person's asks. Agents read the same strip as one
+//! compact text.
+
+pub(crate) mod asks;
 
 use crate::git::Git;
 use crate::server::parts::Parts;
@@ -16,7 +19,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::FailureKind;
 use sikemux_view::now::{
-    CiStand, ClosedWhy, FixAt, NowClosed, NowFact, NowGroup, NowRelease, NowRow, ProjectNow,
+    AskStand, CiStand, ClosedWhy, FixAt, NowAsk, NowClosed, NowFact, NowGroup, NowRelease, NowRow,
+    ProjectNow,
 };
 use sikemux_view::turn::{ChecksStand, TurnPhase, TurnState, TurnWaitKind, WorkAt};
 
@@ -42,6 +46,10 @@ pub(crate) struct Now {
 struct Saved {
     /// By project id, newest first.
     closed: HashMap<String, Vec<NowClosed>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    asks: Vec<asks::Ask>,
+    #[serde(default)]
+    next_ask: u64,
 }
 
 impl Now {
@@ -142,7 +150,11 @@ pub(crate) fn projects<'a>(
                 since,
             });
     }
-    let closed = core.now().state.locked().closed.clone();
+    let (closed, asks) = {
+        let state = core.now().state.locked();
+        (state.closed.clone(), state.asks.clone())
+    };
+    let at = epoch_ms();
     {
         let fixes = core.now().fixes.locked();
         for row in strips.values_mut().flatten() {
@@ -164,11 +176,15 @@ pub(crate) fn projects<'a>(
             let closed = closed.get(&project.id).cloned().unwrap_or_default();
             let release =
                 (reads.get(&*project.path.to_string_lossy())).and_then(|read| read.release.clone());
-            (!rows.is_empty() || !closed.is_empty() || release.is_some()).then_some(ProjectNow {
+            let asks = asks::of_project(&asks, &project.id, at);
+            let shows =
+                !rows.is_empty() || !closed.is_empty() || !asks.is_empty() || release.is_some();
+            shows.then_some(ProjectNow {
                 project: project.id,
                 rows,
                 release,
                 closed,
+                asks,
             })
         })
         .collect();
@@ -197,6 +213,7 @@ pub(crate) fn of_path(core: &Core, path: &str) -> Option<ProjectNow> {
         rows: Vec::new(),
         release,
         closed: Vec::new(),
+        asks: Vec::new(),
     }))
 }
 
@@ -297,6 +314,7 @@ pub(crate) fn text(now: &ProjectNow, name: impl Fn(&str) -> String, at: u64) -> 
             lines.push(format!("{title}: {}", rows.join("; ")));
         }
     }
+    lines.extend(asks_words(&now.asks, at));
     if let Some(release) = &now.release {
         lines.push(release_words(release, at));
     }
@@ -390,6 +408,29 @@ fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
         NowFact::Answered => "answered, changed nothing".to_owned(),
         NowFact::Unknown => "state unknown".to_owned(),
     }
+}
+
+fn asks_words(asks: &[NowAsk], at: u64) -> Vec<String> {
+    let nobody: Vec<String> = (asks.iter())
+        .filter(|ask| ask.stand == AskStand::Nobody)
+        .map(|ask| format!("#{} \"{}\", {}", ask.id, ask.title, ago(ask.since, at)))
+        .collect();
+    let count = |kind: fn(&AskStand) -> bool| asks.iter().filter(|ask| kind(&ask.stand)).count();
+    let working = count(|stand| matches!(stand, AskStand::Working { .. }));
+    let on_branch = count(|stand| *stand == AskStand::OnBranch);
+    let mut lines = Vec::new();
+    if !nobody.is_empty() {
+        lines.push(format!(
+            "The person's asks nobody is on (give one to an agent with agent_spawn's or agent_send's ask): {}",
+            nobody.join("; ")
+        ));
+    }
+    if working + on_branch > 0 {
+        lines.push(format!(
+            "The person's asks: {working} with agents, {on_branch} landed and not in the build they run"
+        ));
+    }
+    lines
 }
 
 fn release_words(release: &NowRelease, at: u64) -> String {
@@ -632,6 +673,7 @@ pub(crate) fn work_moved(core: &Core, agent: &str) {
     if changed {
         core.changed(What::View);
     }
+    asks::work_read(core, agent);
 }
 
 /// Every agent's fix in the project at `path`, read again since its newest tag or the app's
@@ -646,6 +688,12 @@ fn refix_project(core: &Core, path: &str) {
     for (agent, _) in agents.iter().filter(|(_, of)| **of == project.id) {
         work_moved(core, agent);
     }
+    asks::build_moved(core, &project.id, &project.path);
+}
+
+/// How far `agent`'s landed work has gone, as last read.
+fn fix_now(core: &Core, agent: &str) -> Option<Fix> {
+    core.now().fixes.locked().get(agent).cloned()
 }
 
 fn fix_of(core: &Core, agent: &str) -> Option<Fix> {

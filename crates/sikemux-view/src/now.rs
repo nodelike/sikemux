@@ -1,7 +1,7 @@
 //! What stands in each project now, kept by the core for the strip at the top of its chief's
-//! chat, for the phones and for the island: every open agent in one of four groups with one fact
-//! and since when, the project's latest release, and the agents closed lately. Clients word and
-//! draw it; none works a group or a fact out of its own.
+//! chat, for the phones and for the island: the person's open asks, every open agent in one of
+//! four groups with one fact and since when, the project's latest release, and the agents closed
+//! lately. Clients word and draw it; none works a group or a fact out of its own.
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +23,44 @@ pub struct ProjectNow {
     /// Newest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub closed: Vec<NowClosed>,
+    /// What the person asked that is not yet in the app they run, nobody's first, then the
+    /// longest standing first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asks: Vec<NowAsk>,
+}
+
+/// One message the person sent an agent, from then until its change is in the app they run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NowAsk {
+    pub id: u64,
+    /// The first line of what they wrote.
+    pub title: String,
+    pub stand: AskStand,
+    /// When it came to stand so, in Unix milliseconds.
+    pub since: u64,
+}
+
+/// How far an ask has gone, in the order the card lists them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum AskStand {
+    /// Every agent on it closed before its work reached the project's branch.
+    Nobody,
+    Working {
+        /// By id.
+        agents: Vec<String>,
+    },
+    /// On the project's branch, and not in the build of the app the person runs.
+    OnBranch,
+    InYourBuild,
+    /// A value a newer core sends.
+    #[serde(other)]
+    Unknown,
 }
 
 /// The groups a strip shows, in the person's order.

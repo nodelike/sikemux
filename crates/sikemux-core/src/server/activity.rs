@@ -100,6 +100,7 @@ impl ActivityCore for Core {
                     }
                     let left = super::turn_state::left_open(self, agent_id);
                     self.inbox().ended(agent_id, None, left);
+                    super::now::asks::turn_ended(self, agent_id);
                     if super::turn_state::began_ask(self, agent_id) {
                         self.inbox().asked(agent_id);
                     }

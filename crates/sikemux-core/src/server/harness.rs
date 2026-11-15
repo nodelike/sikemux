@@ -577,8 +577,8 @@ async fn dispatch(
         }
         "events.wait" => events_wait(core, &request).await,
         "agent.list" => super::roster::list(core, &request).await,
-        "agent.send" => messages::send(core, &request).await,
-        "agent.spawn" => spawn::spawn(core, &request).await,
+        "agent.send" => handing(core, &request, messages::send(core, &request).await),
+        "agent.spawn" => handing(core, &request, spawn::spawn(core, &request).await),
         "agent.sessions" => saved::find(core, &request).await,
         "agent.ask" => questions::ask(core, &request).await,
         "agent.read" => follow::read(core, &request).await,
@@ -659,6 +659,24 @@ async fn dispatch(
         }
         _ => forward(core, request).await,
     }
+}
+
+/// The agents a start or a message reached take the asks of the caller's turn, and those it names.
+fn handing(
+    core: &Core,
+    request: &HarnessRequest,
+    answer: Result<Value, String>,
+) -> Result<Value, String> {
+    let (Ok(value), Some(from)) = (&answer, &request.agent_id) else {
+        return answer;
+    };
+    let reached: Vec<String> = std::iter::once(value)
+        .chain(value["sent"].as_array().into_iter().flatten())
+        .filter_map(|reached| reached["agentId"].as_str().map(str::to_owned))
+        .collect();
+    let named: Vec<u64> = request.params["ask"].as_u64().into_iter().collect();
+    super::now::asks::handed(core, from, &reached, &named);
+    answer
 }
 
 async fn read_output(core: &Core, id: SessionId, query: OutputQuery) -> Result<OutputPage, String> {

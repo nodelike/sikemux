@@ -943,7 +943,9 @@ async fn send_each(core: &Arc<Core>, request: &HarnessRequest, to: Vec<(String, 
     let (mut sent, mut failed) = (Vec::new(), Vec::new());
     for (name, answer) in answers {
         match answer {
-            Ok(answer) => sent.push(json!({ "to": name, "delivery": answer["delivery"] })),
+            Ok(answer) => sent.push(
+                json!({ "to": name, "agentId": answer["agentId"], "delivery": answer["delivery"] }),
+            ),
             Err(why) => failed.push(json!({ "to": name, "error": why })),
         }
     }
@@ -2082,6 +2084,7 @@ pub(crate) fn from_person(core: &Arc<Core>, agent_id: &str, text: String) -> Cor
     let text = session::typable(&text).ok_or("there is nothing to send")?;
     worked(core, agent_id);
     person_wrote(core, agent_id);
+    super::now::asks::asked(core, agent_id, &text);
     let mailbox = &core.harness().mailbox;
     mailbox.wait(
         agent_id,

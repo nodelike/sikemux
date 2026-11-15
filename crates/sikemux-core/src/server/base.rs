@@ -89,6 +89,7 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
             codehost::picked(core, path);
         },
         agent_closing: |core, agent| {
+            super::now::asks::closing(core, &agent.id);
             triggers::pause(core, &agent.id, core.workspaces().held_chat(agent));
             core.chats().handoffs.forget(&agent.id);
         },
@@ -295,6 +296,7 @@ pub(super) fn chat_above() -> ChatAbove {
         launching_own_tools: launching::own_tools,
         messages_from_person: messages::from_person,
         messages_person_wrote: messages::person_wrote,
+        now_person_asked: super::now::asks::asked,
         messages_used_tool: messages::used_tool,
         messages_worked: messages::worked,
         plugins_agent_environment: plugins::agent_environment,
