@@ -137,23 +137,25 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     };
     let snoozed = away_rows(&snoozed, cx);
     let settled = away_rows(&settled, cx);
-    let heads: Vec<(String, AnyElement)> = match bench.rails.all_projects {
-        true => (ranked_projects(bench).iter())
-            .map(|project| {
-                let chief = chief_of(project, &agents);
-                let row = chief_row(bench, project, chief, true, cx);
-                (project.id.clone(), row)
-            })
-            .collect(),
-        false => (bench.project().cloned())
-            .map(|project| {
-                let row = chief_row(bench, &project, chief_of(&project, &agents), false, cx);
-                (project.id.clone(), row)
-            })
-            .into_iter()
-            .collect(),
+    let projects: Vec<ProjectInfo> = match bench.rails.all_projects {
+        true => ranked_projects(bench),
+        false => bench.project().cloned().into_iter().collect(),
     };
-    let mut agents: Vec<AgentRow> = agents.into_iter().filter(|agent| !agent.chief).collect();
+    let heads: Vec<(String, AnyElement)> = (projects.iter())
+        .map(|project| {
+            let chief = chief_of(project, &agents);
+            let row = chief_row(bench, project, chief, bench.rails.all_projects, cx);
+            (project.id.clone(), row)
+        })
+        .collect();
+    let leading: Vec<String> = (projects.iter())
+        .filter_map(|project| chief_of(project, &agents))
+        .map(|chief| chief.id.clone())
+        .collect();
+    let place = bench.place();
+    let mut agents: Vec<AgentRow> = (agents.into_iter())
+        .filter(|agent| !agent.chief || (agent.place != place && !leading.contains(&agent.id)))
+        .collect();
     let homes = home_projects(bench);
     if bench.rails.all_projects {
         let at = |project: &str| heads.iter().position(|(id, _)| id == project);
