@@ -10,6 +10,7 @@ set -eu
 
 REPO="https://github.com/nodelike/sikemux"
 OLDEST_GLIBC=2.34
+OLDEST_APP_GLIBC=2.39
 CHANNEL="${SIKEMUX_CHANNEL:-stable}"
 SIGN_IN="${SIKEMUX_SIGN_IN:-now}"
 MODE=ask
@@ -275,6 +276,7 @@ install_linux() {
     aarch64 | arm64) ARCH=aarch64 DEB_ARCH=arm64 ;;
     *) fail "the desktop app needs an x86_64 or arm64 machine; add --host for the core" ;;
   esac
+  need_app_glibc
   # sudo asks for a password here, if it needs one, before a spinner holds the line.
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then sudo -n true 2>/dev/null || sudo -v; fi
   if command -v apt-get >/dev/null 2>&1; then
@@ -393,15 +395,33 @@ link_cli() {
   ln -sf /usr/local/lib/sikemux/sikemux-host "$bin/sikemux"
 }
 
-# Says so plainly, instead of leaving the loader's error once the core is in.
-need_glibc() {
+# Says so plainly, instead of leaving the loader's or the package manager's error.
+# Prints nothing when glibc is new enough, "musl", or the version it found.
+glibc_short_of() {
   have=$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc //p')
   if [ -z "$have" ]; then
-    ldd --version 2>&1 | grep -qi musl && fail "a Sikemux host needs glibc $OLDEST_GLIBC or later, and this system uses musl"
+    if ldd --version 2>&1 | grep -qi musl; then echo musl; fi
     return 0
   fi
-  [ "$(printf '%s\n%s\n' "$OLDEST_GLIBC" "$have" | sort -V | head -n 1)" = "$OLDEST_GLIBC" ] ||
-    fail "a Sikemux host needs glibc $OLDEST_GLIBC or later, and this system has $have; Ubuntu 22.04, Debian 12, RHEL 9 and Amazon Linux 2023 or newer have it"
+  [ "$(printf '%s\n%s\n' "$1" "$have" | sort -V | head -n 1)" = "$1" ] || echo "$have"
+}
+
+need_glibc() {
+  have=$(glibc_short_of "$OLDEST_GLIBC")
+  case "$have" in
+    "") ;;
+    musl) fail "a Sikemux host needs glibc $OLDEST_GLIBC or later, and this system uses musl" ;;
+    *) fail "a Sikemux host needs glibc $OLDEST_GLIBC or later, and this system has $have; Ubuntu 22.04, Debian 12, RHEL 9 and Amazon Linux 2023 or newer have it" ;;
+  esac
+}
+
+need_app_glibc() {
+  have=$(glibc_short_of "$OLDEST_APP_GLIBC")
+  case "$have" in
+    "") ;;
+    musl) fail "the desktop app needs glibc $OLDEST_APP_GLIBC or later, and this system uses musl; add --host for the core" ;;
+    *) fail "the desktop app needs glibc $OLDEST_APP_GLIBC or later (Ubuntu 24.04, Debian 13 or newer), and this system has $have; add --host for the core, which runs on glibc $OLDEST_GLIBC" ;;
+  esac
 }
 
 install_host() {
