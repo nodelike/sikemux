@@ -22,8 +22,8 @@ impl Render for Probe {
             .child(div().text_3xl().font_weight(FontWeight::SEMIBOLD).child("Sikemux on Windows"))
             .child(div().text_base().child("Figtree 400: the quick brown fox jumps over the lazy dog"))
             .child(div().text_sm().font_family("Segoe UI").child("Segoe UI: system font through DirectWrite"))
-            .child(div().text_sm().font_family("JetBrainsMono Nerd Font Mono").child("fn main() { println!(\"mono\"); } // 0O1lI"))
-            .child(div().text_sm().child("العربية · 日本語 · emoji 🙂"))
+            .child(div().text_sm().font_family("JetBrainsMono NFM").child("fn main() { println!(\"mono\"); } // 0O1lI"))
+            .child(div().text_sm().child("العربية · 日本語 · emoji 🙂 ✓"))
             .child(
                 div()
                     .flex()

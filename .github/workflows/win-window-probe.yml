@@ -39,7 +39,7 @@ jobs:
       - name: Build the probe
         run: cargo build --locked -p gpui-windows-probe
       - name: Open the window and take a picture
-        shell: pwsh
+        shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path shots | Out-Null
           $p = Start-Process -FilePath target\debug\gpui-windows-probe.exe -PassThru -RedirectStandardError shots\stderr.txt -RedirectStandardOutput shots\stdout.txt
@@ -50,7 +50,26 @@ jobs:
           $g = [System.Drawing.Graphics]::FromImage($bmp)
           $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
           $bmp.Save("shots\screen-${{ matrix.arch }}.png")
-          "running: $(-not $p.HasExited)" | Out-File shots\state.txt
+          Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+          using System; using System.Drawing; using System.Runtime.InteropServices;
+          public static class Grab {
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+            [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
+            [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
+            public static bool Save(IntPtr h, string path) {
+              RECT r; GetWindowRect(h, out r);
+              using (var bmp = new Bitmap(r.R - r.L, r.B - r.T)) {
+                bool ok;
+                using (var g = Graphics.FromImage(bmp)) { var dc = g.GetHdc(); ok = PrintWindow(h, dc, 2); g.ReleaseHdc(dc); }
+                bmp.Save(path); return ok;
+              }
+            }
+          }
+          "@
+          $p.Refresh()
+          "window handle: $($p.MainWindowHandle)" | Out-File shots\state.txt
+          "printwindow: $([Grab]::Save($p.MainWindowHandle, "$PWD\shots\window-${{ matrix.arch }}.png"))" | Out-File -Append shots\state.txt
+          "running: $(-not $p.HasExited)" | Out-File -Append shots\state.txt
           Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion | Out-File -Append shots\state.txt
           if (-not $p.HasExited) { Stop-Process -Id $p.Id }
           Get-Content shots\stderr.txt
