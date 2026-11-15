@@ -32,7 +32,8 @@ struct CallDock: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 CallWho(
-                    core: core, call: call, place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
+                    core: core, call: call,
+                    place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
                 Text(call.question)
                     .font(Theme.ui(17, .semibold))
                     .tracking(-0.2)

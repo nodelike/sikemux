@@ -11,7 +11,7 @@ import type { ChatCommandInfo, ExpiredCache, PermissionAsk } from '@shared/wire.
 import { problem } from '@/core/problem';
 import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
-import { AgentIcon, Icon } from '@/ui/Icon';
+import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { ComposerAttachments } from './Attachments';
 import { ComposerInput } from './ComposerInput';
