@@ -161,6 +161,13 @@ jobs:
         shell: powershell
         run: app\ci\windows-window.ps1 -App target\debug\sikemux.exe -Out "$env:RUNNER_TEMP\window"
 
+      - name: Build the browser's proof
+        run: cargo build --locked -p sikemux-browser --example windows_tools
+
+      - name: Drive a page through the browser tools and take a picture
+        shell: powershell
+        run: app\ci\windows-window.ps1 -App target\debug\examples\windows_tools.exe -Out "$env:RUNNER_TEMP\window\browser" -Arguments "$env:RUNNER_TEMP\window\browser" -Expect "$env:RUNNER_TEMP\window\browser\passed" -Settle 40
+
       - name: Upload the picture
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
