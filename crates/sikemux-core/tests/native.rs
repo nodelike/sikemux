@@ -715,6 +715,108 @@ async fn a_claude_chat_started_on_a_full_model_id_shows_that_model() {
     assert_eq!(start.setup["configOptions"][0]["currentValue"], "small");
 }
 
+/// A `claude` at `path` that lists `models` when asked what it offers, as a release of it does.
+fn claude_release(path: &Path, models: Value) {
+    use std::os::unix::fs::PermissionsExt;
+    let script = format!("#!/bin/sh\nFAKE_CLAUDE_MODELS='{models}' exec '{FAKE_CLAUDE}' \"$@\"\n");
+    let written = path.with_extension("new");
+    std::fs::write(&written, script).expect("claude");
+    std::fs::set_permissions(&written, std::fs::Permissions::from_mode(0o755)).expect("runs");
+    std::fs::rename(&written, path).expect("claude in place");
+}
+
+async fn new_chat_models(client: &CoreClient, socket: &Path) -> Vec<String> {
+    let (id, _) = client
+        .start_chat("claude:builtin-claude".into(), "widget".into(), None)
+        .await
+        .expect("chat");
+    let (watcher, events) = CoreClient::connect(socket).await.expect("connect");
+    let mut chat = Chat::new(events, &id);
+    chat.attached(&watcher.acp_attach(id.clone()).await.expect("attach"));
+    let labels = |chat: &Folded| -> Vec<String> {
+        (chat.head().model.iter())
+            .flat_map(|model| model.choices.iter().map(|choice| choice.label.clone()))
+            .collect()
+    };
+    let newest = chat
+        .until(|chat| labels(chat).iter().any(|label| label == "Opus 5.5"))
+        .await;
+    labels(newest)
+}
+
+/// Sanctum, 2026-11-15: a fresh install asked the Claude it found once, an old release, and kept
+/// that release's "Default (recommended)" and 4.5 models after Claude was updated, until the
+/// core restarted.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_claude_chat_offers_the_models_of_the_claude_it_runs_now() {
+    let core = TestCore::start();
+    let root = tempfile::tempdir().expect("root");
+    let (config, project) = (root.path().join("claude"), root.path().join("widget"));
+    for dir in [&config, &project] {
+        std::fs::create_dir_all(dir).expect("dir");
+    }
+    std::fs::write(
+        config.join("fake-account.json"),
+        serde_json::json!({ "loggedIn": true, "authMethod": "claude.ai", "email": "qa@example.com", "subscriptionType": "max" }).to_string(),
+    )
+    .expect("account");
+    let claude = root.path().join("claude-cli");
+    claude_release(
+        &claude,
+        serde_json::json!([
+            { "value": "default", "displayName": "Default (recommended)", "description": "Opus 4.5 · Most capable for complex work" },
+            { "value": "sonnet", "displayName": "Sonnet", "description": "Sonnet 4.5 · Best for everyday tasks" },
+        ]),
+    );
+    let (client, _events) = core.connect("app").await;
+    client
+        .call(
+            "setAgentAccounts",
+            serde_json::json!({ "profiles": [{
+                "id": "builtin-claude", "name": "Claude", "provider": "claude", "accent": "#d97757",
+                "executablePath": claude, "configPath": config,
+            }] }),
+        )
+        .await
+        .expect("accounts");
+    client
+        .call(
+            "addProject",
+            serde_json::json!({ "id": "widget", "name": "widget", "path": project }),
+        )
+        .await
+        .expect("project");
+    let (first, _) = client
+        .start_chat("claude:builtin-claude".into(), "widget".into(), None)
+        .await
+        .expect("chat");
+    let (watcher, events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let mut chat = Chat::new(events, &first);
+    chat.attached(&watcher.acp_attach(first.clone()).await.expect("attach"));
+    chat.until(|chat| {
+        (chat.head().model.iter())
+            .flat_map(|model| &model.choices)
+            .any(|choice| choice.label == "Default (recommended)")
+    })
+    .await;
+
+    claude_release(
+        &claude,
+        serde_json::json!([
+            { "value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)", "description": "Use the default model (currently Opus 5.5)" },
+            { "value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5", "description": "Opus 5.5 · Best for everyday, complex tasks" },
+            { "value": "sonnet", "resolvedModel": "claude-sonnet-5-5", "displayName": "Sonnet 5.5", "description": "Sonnet 5.5 · Efficient for routine tasks" },
+        ]),
+    );
+    let models = new_chat_models(&client, &core.socket).await;
+    assert!(
+        !models
+            .iter()
+            .any(|label| label.contains("Default") || label.contains("4.5")),
+        "{models:?}"
+    );
+}
+
 /// Runs the real `claude` named by `SIKEMUX_LIVE_CLAUDE` on a few short Haiku
 /// turns: `cargo test -p sikemux-core --test native live_claude -- --ignored`.
 #[tokio::test(flavor = "multi_thread")]

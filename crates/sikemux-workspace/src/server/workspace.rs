@@ -463,8 +463,8 @@ pub struct Workspaces {
     pub wake: Wake,
     /// The saved chats may have changed.
     recent_stale: Notify,
-    /// The launchers whose agents were asked what they offer since the core started.
-    offers_read: Mutex<HashSet<String>>,
+    /// The launchers whose agents are being asked what they offer.
+    offers_asking: Mutex<HashSet<String>>,
 }
 
 /// The project among `projects` that `folder` lies in, a worktree of one counting as in it.
@@ -521,7 +521,7 @@ impl Workspaces {
             missed: Mutex::default(),
             wake: Wake::default(),
             recent_stale: Notify::new(),
-            offers_read: Mutex::default(),
+            offers_asking: Mutex::default(),
         };
         if upgraded {
             workspaces.file.save(&workspaces.published.locked().saved);

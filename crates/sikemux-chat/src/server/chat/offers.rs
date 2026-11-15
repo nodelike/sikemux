@@ -76,33 +76,35 @@ pub fn offer_model(core: &Core, launch: &ChatLaunch, options: &mut Value, model:
 }
 
 /// Tells a chat that waits for the person what it offers to pick: what the launcher offered
-/// last, while its agent's CLI is asked again, with no session, once each time the core starts,
-/// so a newer CLI's models and this core's reading of them show before a session starts.
+/// last, while its agent's CLI is asked again with no session, so the models of a CLI updated
+/// or signed in since then show before a session starts.
 pub fn offer_options(core: &Arc<Core>, chat: &Arc<Chat>) {
     let Some(launcher) = chat.origin.launcher.clone() else {
         return;
     };
-    let offered = core.workspaces().launcher_options(&launcher).is_some();
     if let Some(options) = waiting_options(core, chat) {
         tell_options(chat, options);
     }
-    if !core.workspaces().first_offer_read(&launcher) {
+    if !core.workspaces().start_offer_read(&launcher) {
         return;
     }
-    if !offered {
-        core.workspaces()
-            .note_config_options(&launcher, &Value::Array(Vec::new()));
-    }
-    let (core, chat) = (core.clone(), chat.clone());
+    let (core, launch) = (core.clone(), chat.current_launch());
     tokio::spawn(async move {
-        match native::read_options(&chat.current_launch()).await {
+        let read = native::read_options(&launch).await;
+        core.workspaces().offer_read(&launcher);
+        match read {
             Ok(options) => core.workspaces().note_config_options(&launcher, &options),
             Err(error) => {
                 return eprintln!("sikemux core: {launcher} offered nothing to pick: {error}")
             }
         }
-        if let Some(options) = waiting_options(&core, &chat).filter(|_| chat.unstarted()) {
-            tell_options(&chat, options);
+        let waiting = core.chats().all().into_iter().filter(|chat| {
+            chat.unstarted() && chat.origin.launcher.as_deref() == Some(launcher.as_str())
+        });
+        for chat in waiting {
+            if let Some(options) = waiting_options(&core, &chat) {
+                tell_options(&chat, options);
+            }
         }
     });
 }

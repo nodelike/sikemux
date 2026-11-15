@@ -505,10 +505,14 @@ impl Workspaces {
         })
     }
 
-    /// Whether `launcher`'s agent is yet to be asked what it offers since the core started,
-    /// which this call counts as asking.
-    pub fn first_offer_read(&self, launcher: &str) -> bool {
-        self.offers_read.locked().insert(launcher.to_owned())
+    /// Whether `launcher`'s agent can be asked what it offers now, which this call counts as
+    /// asking until [`Self::offer_read`]: not while another ask of it is still out.
+    pub fn start_offer_read(&self, launcher: &str) -> bool {
+        self.offers_asking.locked().insert(launcher.to_owned())
+    }
+
+    pub fn offer_read(&self, launcher: &str) {
+        self.offers_asking.locked().remove(launcher);
     }
 
     /// The `configOptions` the launcher's last session offered, once one has.

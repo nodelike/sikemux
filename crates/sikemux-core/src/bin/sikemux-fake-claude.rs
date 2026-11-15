@@ -49,7 +49,7 @@
 //! `FAKE_CLAUDE_MODELS`, a JSON list, the models it lists in place of its own.
 //!
 //! Asked once with `--print`, it keeps what it was sent in `fake-claude-asked.txt` where it runs
-//! and answers with nothing.
+//! and answers with nothing, or for an `initialize` with the models it lists, as Claude Code does.
 //!
 //! An account is its `CLAUDE_CONFIG_DIR`: `auth status --json` prints its
 //! `fake-account.json`, or a signed-out status when there is none, and a usage
@@ -578,13 +578,7 @@ impl Claude {
     fn control(&self, request_id: &str, request: &Value) {
         let response = match request["subtype"].as_str() {
             Some("initialize") => json!({
-                "models": std::env::var("FAKE_CLAUDE_MODELS")
-                    .ok()
-                    .and_then(|models| serde_json::from_str::<Value>(&models).ok())
-                    .unwrap_or_else(|| json!([
-                        { "value": "default", "resolvedModel": "fake", "displayName": "Default", "description": "Fake", "supportsEffort": true, "supportedEffortLevels": ["low", "high"] },
-                        { "value": "small", "resolvedModel": "fake-small", "displayName": "Small", "description": "Smaller" },
-                    ])),
+                "models": models(),
                 "commands": [{ "name": "review", "description": "Review the change", "argumentHint": "" }],
             }),
             Some("set_permission_mode")
@@ -750,6 +744,16 @@ fn account_file(name: &str) -> Option<Value> {
     serde_json::from_slice(&std::fs::read(folder.join(name)).ok()?).ok()
 }
 
+fn models() -> Value {
+    std::env::var("FAKE_CLAUDE_MODELS")
+        .ok()
+        .and_then(|models| serde_json::from_str::<Value>(&models).ok())
+        .unwrap_or_else(|| json!([
+            { "value": "default", "resolvedModel": "fake", "displayName": "Default", "description": "Fake", "supportsEffort": true, "supportedEffortLevels": ["low", "high"] },
+            { "value": "small", "resolvedModel": "fake-small", "displayName": "Small", "description": "Smaller" },
+        ]))
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args[1..] == ["auth", "status", "--json"] {
@@ -762,6 +766,17 @@ fn main() {
         let mut asked = String::new();
         let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut asked);
         let _ = std::fs::write("fake-claude-asked.txt", &asked);
+        let initialize = asked
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .find(|line| line["request"]["subtype"] == "initialize");
+        if let Some(asked) = initialize {
+            let answer = json!({ "subtype": "success", "request_id": asked["request_id"], "response": { "models": models() } });
+            println!(
+                "{}",
+                json!({ "type": "control_response", "response": answer })
+            );
+        }
         println!(
             "{}",
             json!({ "type": "result", "subtype": "success", "result": "{}" })
