@@ -1550,6 +1550,7 @@ impl Draw<'_> {
             .when(!wrapped, |lines| lines.whitespace_nowrap())
             .text_color(style.ink)
             .flex()
+            .items_start()
             .children(gutter)
             .child(
                 div()
