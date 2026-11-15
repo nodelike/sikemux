@@ -13,7 +13,6 @@ pub mod fuzzy;
 pub mod host_update;
 pub mod join;
 pub mod lines;
-#[cfg(unix)]
 pub mod lock;
 pub mod push;
 pub mod release_feed;
