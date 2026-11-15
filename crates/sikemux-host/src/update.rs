@@ -48,6 +48,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
 /// Whether this runs as root. Under sudo, it then acts for the person who
 /// ran sudo: their core, their switch.
+#[cfg(unix)]
 pub(crate) fn as_person_of_sudo() -> bool {
     // SAFETY: geteuid takes nothing and cannot fail.
     if unsafe { libc::geteuid() } != 0 {
@@ -60,10 +61,22 @@ pub(crate) fn as_person_of_sudo() -> bool {
     true
 }
 
+#[cfg(unix)]
 pub(crate) fn sudo_uid() -> Option<u32> {
     std::env::var("SUDO_UID").ok()?.parse().ok()
 }
 
+#[cfg(windows)]
+pub(crate) fn as_person_of_sudo() -> bool {
+    false
+}
+
+#[cfg(windows)]
+pub(crate) fn sudo_uid() -> Option<u32> {
+    None
+}
+
+#[cfg(unix)]
 fn home_of(uid: u32) -> Option<std::path::PathBuf> {
     use std::os::unix::ffi::OsStrExt;
     // SAFETY: getpwuid's record is read at once, before anything else here
