@@ -832,6 +832,7 @@ pub(crate) fn put_back(core: &Core, was: WorkspaceAgent) {
         eprintln!("sikemux core: a reopened agent did not get back what it had: {error}");
     }
     core.workspaces().reopened(&was.id);
+    super::now::reopened(core, &was.id);
 }
 
 /// What a client starting an agent hears before its chat session has begun, or of an
