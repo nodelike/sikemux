@@ -185,69 +185,77 @@ pub(super) fn opencode(
     session_id: &str,
 ) -> Result<Vec<Value>, String> {
     for db in databases {
-        let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
-            continue;
-        };
-        let parts = opencode_parts(&conn, session_id).map_err(|error| error.to_string())?;
-        if !parts.is_empty() {
-            return Ok(parts
+        let messages = opencode_messages(db.as_ref(), session_id)?;
+        if !messages.is_empty() {
+            return Ok(messages
                 .iter()
-                .flat_map(|(id, role, part)| opencode_part(id, role, part))
+                .flat_map(|(id, kind, data)| opencode_message(id, kind, data))
                 .collect());
         }
     }
     Ok(Vec::new())
 }
 
-fn opencode_parts(
-    conn: &Connection,
+/// The id, type and contents of each message OpenCode 2 kept of the session, in order.
+pub(super) fn opencode_messages(
+    db: &Path,
     session_id: &str,
-) -> rusqlite::Result<Vec<(String, String, Value)>> {
-    let mut statement = conn.prepare(
-        "SELECT m.id, json_extract(m.data, '$.role'), p.data FROM part p \
-         JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 \
-         ORDER BY m.time_created, m.id, p.time_created, p.id",
-    )?;
-    let rows = statement.query_map([session_id], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-            row.get::<_, String>(2)?,
-        ))
-    })?;
-    Ok(rows
-        .map_while(Result::ok)
-        .filter_map(|(id, role, data)| Some((id, role, serde_json::from_str(&data).ok()?)))
+) -> Result<Vec<(String, String, Value)>, String> {
+    let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+        return Ok(Vec::new());
+    };
+    let read = || -> rusqlite::Result<Vec<(String, String, String)>> {
+        let mut statement = conn.prepare(
+            "SELECT id, type, data FROM session_message WHERE session_id = ?1 ORDER BY seq",
+        )?;
+        let rows = statement.query_map([session_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        Ok(rows.map_while(Result::ok).collect())
+    };
+    Ok(read()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .filter_map(|(id, kind, data)| Some((id, kind, serde_json::from_str(&data).ok()?)))
         .collect())
 }
 
-fn opencode_part(id: &str, role: &str, part: &Value) -> Vec<Value> {
-    let said = part["text"].as_str().unwrap_or_default();
-    match (part["type"].as_str(), role) {
-        (Some("text"), _) if part["synthetic"].as_bool() == Some(true) => Vec::new(),
-        (Some("text"), "user") => vec![chunk(UpdateKind::UserMessageChunk, id, text(said))],
-        (Some("text"), _) => vec![chunk(UpdateKind::AgentMessageChunk, id, text(said))],
-        (Some("reasoning"), _) => vec![chunk(UpdateKind::AgentThoughtChunk, id, text(said))],
-        (Some("tool"), _) => opencode_tool(part),
+fn opencode_message(id: &str, kind: &str, data: &Value) -> Vec<Value> {
+    match kind {
+        "user" => data["text"]
+            .as_str()
+            .map(|said| chunk(UpdateKind::UserMessageChunk, id, text(said)))
+            .into_iter()
+            .collect(),
+        "assistant" => (data["content"].as_array().into_iter().flatten())
+            .flat_map(|block| opencode_block(id, block))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn opencode_block(id: &str, block: &Value) -> Vec<Value> {
+    let said = block["text"].as_str().unwrap_or_default();
+    match block["type"].as_str() {
+        Some("text") => vec![chunk(UpdateKind::AgentMessageChunk, id, text(said))],
+        Some("reasoning") => vec![chunk(UpdateKind::AgentThoughtChunk, id, text(said))],
+        Some("tool") => opencode_tool(block),
         _ => Vec::new(),
     }
 }
 
 /// A tool call titled as OpenCode titles it live: a command by itself, else the tool's name.
-fn opencode_tool(part: &Value) -> Vec<Value> {
-    let name = part["tool"].as_str().unwrap_or_default();
-    let state = &part["state"];
+fn opencode_tool(block: &Value) -> Vec<Value> {
+    let name = block["name"].as_str().unwrap_or_default();
+    let state = &block["state"];
     let input = &state["input"];
     let title = match name {
-        "bash" => input["command"].as_str().unwrap_or(name),
-        _ => state["title"]
-            .as_str()
-            .filter(|title| !title.is_empty())
-            .unwrap_or(name),
+        "bash" | "shell" => input["command"].as_str().unwrap_or(name),
+        _ => name,
     };
     let mut call = json!({
         "sessionUpdate": UpdateKind::ToolCall,
-        "toolCallId": part["callID"],
+        "toolCallId": block["id"],
         "title": title,
         "kind": tool_kind(name),
         "status": "pending",
@@ -256,21 +264,31 @@ fn opencode_tool(part: &Value) -> Vec<Value> {
     if let Some(path) = input["filePath"].as_str().or(input["path"].as_str()) {
         call["locations"] = json!([{ "path": path }]);
     }
-    let status = match state["status"].as_str() {
-        Some("completed") => "completed",
-        Some("error") => "failed",
+    let (status, said, raw) = match state["status"].as_str() {
+        Some("completed") => (
+            "completed",
+            (state["content"].as_array().into_iter().flatten())
+                .filter(|block| block["type"] == "text")
+                .cloned()
+                .collect(),
+            json!({ "metadata": state["metadata"] }),
+        ),
+        Some("error") => {
+            let message = state["error"]["message"].as_str().unwrap_or_default();
+            (
+                "failed",
+                vec![text(message)],
+                json!({ "error": state["error"] }),
+            )
+        }
         _ => return vec![call],
     };
-    let output = state["output"]
-        .as_str()
-        .or(state["error"].as_str())
-        .unwrap_or_default();
     let result = json!({
         "sessionUpdate": UpdateKind::ToolCallUpdate,
-        "toolCallId": part["callID"],
+        "toolCallId": block["id"],
         "status": status,
-        "rawOutput": { "output": output },
-        "content": wrapped(&json!([text(output)])),
+        "rawOutput": raw,
+        "content": wrapped(&Value::Array(said)),
     });
     vec![call, result]
 }

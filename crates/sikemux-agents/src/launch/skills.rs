@@ -79,8 +79,8 @@ pub fn inherited_opencode_config() -> Option<String> {
     shell_var("OPENCODE_CONFIG_CONTENT")
 }
 
-/// An OpenCode chat's inline config with the skills library added. A config
-/// that is not plain JSON is left as the person wrote it, without the skills.
+/// An OpenCode chat's inline config with the skills library added and its todo list on. A
+/// config that is not plain JSON is left as the person wrote it, without either.
 fn chat_opencode_config(
     existing: Option<&str>,
     own_paths: &[String],
@@ -93,6 +93,10 @@ fn chat_opencode_config(
             .filter(Value::is_object)?,
     };
     add_opencode_paths(&mut config, own_paths, library);
+    if !config["experimental"].is_object() {
+        config["experimental"] = json!({});
+    }
+    config["experimental"]["todo"] = json!(true);
     Some(config.to_string())
 }
 

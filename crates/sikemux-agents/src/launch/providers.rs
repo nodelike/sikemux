@@ -13,7 +13,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use super::model_feed::{Feed, Model, Snapshot};
+use super::model_feed::{Cost, Feed, Model, Snapshot};
 use crate::agent_catalog::{self, ProviderUse, RoutedApi, AGENTS};
 
 /// A development build keeps entries of its own, so it never spends or replaces the
@@ -95,6 +95,10 @@ pub struct ChatRoute<'a> {
     pub agent_model: String,
     /// Whether the model reads pictures.
     pub images: bool,
+    /// What models.dev says of the model: under this provider, else under any that serves it.
+    pub about: Option<&'a Model>,
+    /// The model's price at this provider, when models.dev lists it there.
+    pub cost: Option<Cost>,
     /// Where the extension that tells OMP of the provider is kept.
     pub(crate) omp_extension: &'a Path,
 }
@@ -155,7 +159,7 @@ impl ListedProvider<'_> {
 }
 
 /// models.dev does not say how long a reply can be, and agents only use this as a ceiling.
-const LISTED_MAX_OUTPUT_TOKENS: u64 = 16_384;
+pub(crate) const LISTED_MAX_OUTPUT_TOKENS: u64 = 16_384;
 
 /// What DeepSeek's models need from an agent that speaks chat completions.
 pub(crate) fn chat_compat(model: &str) -> Option<serde_json::Value> {
@@ -501,11 +505,15 @@ impl Provider {
     /// Whether `model` reads pictures, as models.dev says; one it does not know is taken to,
     /// as most models an agent codes with do, so pictures reach it rather than drop silently.
     fn reads_images(&self, feed: &Snapshot, agent: &str, model: &str) -> bool {
-        let model = self.api_model(agent, model);
-        self.models_dev
-            .as_deref()
-            .and_then(|id| feed.models(id)?.get(model)?.images)
+        self.listed_model(feed, agent, model)
+            .and_then(|model| model.images)
             .unwrap_or(true)
+    }
+
+    /// `model` as models.dev lists it under this provider.
+    fn listed_model<'f>(&self, feed: &'f Snapshot, agent: &str, model: &str) -> Option<&'f Model> {
+        let model = self.api_model(agent, model);
+        feed.models(self.models_dev.as_deref()?)?.get(model)
     }
 
     pub fn agent_model(&self, agent: &str, model: &str) -> String {
@@ -529,13 +537,13 @@ impl Provider {
     /// `agent` pointed at this provider and running `model`.
     /// Local runners take any token; Ollama's and LM Studio's guides use their names.
     /// OMP loads the extension at `omp_extension` to learn of the provider.
-    /// Agents that speak chat completions are told the model reads pictures when `images`.
+    /// Agents that speak chat completions are told what models.dev in `feed` says of the model.
     fn wiring(
         &self,
         agent: &str,
         model: Option<&str>,
         omp_extension: &Path,
-        images: bool,
+        feed: &Snapshot,
         listed: Wiring,
     ) -> Option<Wiring> {
         if !self.routes(agent) {
@@ -550,7 +558,9 @@ impl Provider {
         let openai = self.reached_at("openai", &self.openai);
         let api = routed_api(agent)?;
         if api == RoutedApi::Chat {
-            let model = self.api_model(agent, model?);
+            let picked = model?;
+            let listed_here = self.listed_model(feed, agent, picked);
+            let model = self.api_model(agent, picked);
             let key_name = if self.key.is_some() {
                 MODEL_TOKEN_ENV
             } else {
@@ -564,7 +574,9 @@ impl Provider {
                 key_name,
                 model,
                 agent_model: self.agent_model(agent, model),
-                images,
+                images: self.reads_images(feed, agent, picked),
+                about: listed_here.or_else(|| feed.serving(model)),
+                cost: listed_here.and_then(|model| model.cost),
                 omp_extension,
             };
             agent_catalog::AgentKind::from_name(agent)?
@@ -946,10 +958,8 @@ impl Providers {
                     )
                 })?;
         }
-        let images = routed_api(agent) == Some(RoutedApi::Chat)
-            && model.is_none_or(|model| provider.reads_images(&self.feed(), agent, model));
         let mut wiring = provider
-            .wiring(agent, model, &self.omp_extension, images, listed)
+            .wiring(agent, model, &self.omp_extension, &self.feed(), listed)
             .ok_or_else(|| format!("Pick a model of {} for {agent} to run", provider.label))?;
         wiring.env.extend(subagent);
         Ok(wiring)

@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 
 use super::history;
+use super::opencode_server::Server;
 use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::environment_path;
 use super::search::{Hear, Speaker};
@@ -14,8 +14,11 @@ use super::FileStamp;
 use crate::agent_accounts::defaults::json_model;
 use crate::agent_accounts::status::{self, AgentStatus};
 use crate::agent_ops::Pending;
-use crate::agent_ops::{AgentOps, SessionPlaces};
-use crate::launch::providers::{ChatRoute, ListedProvider, MODEL_TOKEN_ENV};
+use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
+use crate::launch::model_feed::{Cost, Model};
+use crate::launch::providers::{
+    ChatRoute, ListedProvider, LISTED_MAX_OUTPUT_TOKENS, MODEL_TOKEN_ENV,
+};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use serde_json::Value;
@@ -122,106 +125,84 @@ pub(super) fn opencode_recent(scan: &PageScan<'_>) -> Vec<Hit> {
     scan.collect(listed, |found| Some(found.clone()))
 }
 
+/// How OpenCode 2 names a session it lists: its title, else the name it made up for it.
+const TITLE: &str =
+    "COALESCE(NULLIF(TRIM(s.title), ''), NULLIF(TRIM(s.slug), ''), substr(s.id, 1, 13))";
+
 fn opencode_every_session(conn: &Connection) -> Vec<(String, AgentSession)> {
-    let sql = "\
-        SELECT id, \
-               COALESCE(NULLIF(TRIM(title), ''), NULLIF(TRIM(slug), ''), substr(id, 1, 13)) AS title, \
-               CAST(COALESCE(time_updated, time_created, 0) AS INTEGER) AS mtime, \
-               directory \
-        FROM session \
-        ORDER BY COALESCE(time_updated, time_created, 0) DESC \
-        LIMIT 2000";
-    let Ok(mut stmt) = conn.prepare(sql) else {
+    let sql = format!(
+        "SELECT s.id, {TITLE}, s.time_updated, s.directory FROM session_v2 s \
+         WHERE s.parent_id IS NULL ORDER BY s.time_updated DESC LIMIT 2000"
+    );
+    let Ok(mut stmt) = conn.prepare(&sql) else {
         return Vec::new();
     };
-    let Ok(rows) = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(3)?,
-            AgentSession {
-                id: row.get::<_, String>(0)?,
-                title: row.get::<_, String>(1)?,
-                mtime: normalize_unix_secs(row.get::<_, i64>(2).unwrap_or(0).max(0) as u64),
-            },
-        ))
-    }) else {
+    let Ok(rows) = stmt.query_map([], |row| Ok((row.get::<_, String>(3)?, session_row(row)?)))
+    else {
         return Vec::new();
     };
     rows.filter_map(Result::ok).collect()
 }
 
+/// The sessions started in `cwd`, or in the project whose worktree it is, leaving out the
+/// ones subagents ran in.
 fn opencode_sessions_from_conn(conn: &Connection, cwd: &str) -> Vec<AgentSession> {
-    let with_project = "\
-        SELECT s.id, \
-               COALESCE(NULLIF(TRIM(s.title), ''), NULLIF(TRIM(s.slug), ''), substr(s.id, 1, 13)) AS title, \
-               CAST(COALESCE(s.time_updated, s.time_created, 0) AS INTEGER) AS mtime \
-        FROM session s \
-        LEFT JOIN project p ON p.id = s.project_id \
-        WHERE s.directory = ?1 OR s.path = ?1 OR p.worktree = ?1 \
-        ORDER BY COALESCE(s.time_updated, s.time_created, 0) DESC \
-        LIMIT 400";
-    if let Some(rows) = opencode_query(conn, with_project, cwd) {
-        return rows;
-    }
-
-    let session_only = "\
-        SELECT id, \
-               COALESCE(NULLIF(TRIM(title), ''), NULLIF(TRIM(slug), ''), substr(id, 1, 13)) AS title, \
-               CAST(COALESCE(time_updated, time_created, 0) AS INTEGER) AS mtime \
-        FROM session \
-        WHERE directory = ?1 OR path = ?1 \
-        ORDER BY COALESCE(time_updated, time_created, 0) DESC \
-        LIMIT 400";
-    if let Some(rows) = opencode_query(conn, session_only, cwd) {
-        return rows;
-    }
-
-    let minimal = "\
-        SELECT id, \
-               COALESCE(NULLIF(TRIM(title), ''), substr(id, 1, 13)) AS title, \
-               CAST(COALESCE(time_updated, time_created, 0) AS INTEGER) AS mtime \
-        FROM session \
-        WHERE directory = ?1 \
-        ORDER BY COALESCE(time_updated, time_created, 0) DESC \
-        LIMIT 400";
-    opencode_query(conn, minimal, cwd).unwrap_or_default()
+    let sql = format!(
+        "SELECT s.id, {TITLE}, s.time_updated FROM session_v2 s \
+         LEFT JOIN project p ON p.id = s.project_id \
+         WHERE s.parent_id IS NULL AND (s.directory = ?1 OR p.worktree = ?1) \
+         ORDER BY s.time_updated DESC LIMIT 400"
+    );
+    let Ok(mut stmt) = conn.prepare(&sql) else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([cwd], session_row) else {
+        return Vec::new();
+    };
+    rows.filter_map(Result::ok).collect()
 }
 
-fn opencode_query(conn: &Connection, sql: &str, cwd: &str) -> Option<Vec<AgentSession>> {
-    let mut stmt = conn.prepare(sql).ok()?;
-    let rows = stmt
-        .query_map([cwd], |row| {
-            Ok(AgentSession {
-                id: row.get::<_, String>(0)?,
-                title: row.get::<_, String>(1)?,
-                mtime: normalize_unix_secs(row.get::<_, i64>(2).unwrap_or(0).max(0) as u64),
-            })
-        })
-        .ok()?;
-    Some(rows.filter_map(|r| r.ok()).collect())
+fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentSession> {
+    Ok(AgentSession {
+        id: row.get::<_, String>(0)?,
+        title: row.get::<_, String>(1)?,
+        mtime: normalize_unix_secs(row.get::<_, i64>(2).unwrap_or(0).max(0) as u64),
+    })
 }
 
-/// Sets the title the way OpenCode's own rename does; a title it did not generate is never replaced.
-pub(super) fn rename_opencode_session(session_id: &str, name: &str) -> Result<(), String> {
-    rename_in_databases(&opencode_db_paths(), session_id, name)
+/// Renames the session through a server OpenCode runs for it, as its own clients do, since
+/// OpenCode keeps a session's name in its event log as well as in its tables.
+pub(super) async fn rename_opencode_session(
+    executable: &Path,
+    session_id: &str,
+    name: &str,
+) -> Result<(), String> {
+    let directory = opencode_db_paths()
+        .iter()
+        .find_map(|db| session_directory(db, session_id))
+        .ok_or("session not found")?;
+    let command =
+        tokio::process::Command::from(sikemux_process::user_environment::agent_command(executable));
+    let server = Server::start(command, &directory).await?;
+    let renamed = server
+        .patch(
+            &format!("/api/session/{session_id}"),
+            serde_json::json!({ "title": name }),
+        )
+        .await;
+    server.close().await;
+    renamed.map(|_| ())
 }
 
-fn rename_in_databases(databases: &[PathBuf], session_id: &str, name: &str) -> Result<(), String> {
-    for db in databases {
-        let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_WRITE) else {
-            continue;
-        };
-        let _ = conn.busy_timeout(Duration::from_secs(5));
-        let changed = conn
-            .execute(
-                "UPDATE session SET title = ?1 WHERE id = ?2",
-                (name, session_id),
-            )
-            .map_err(|error| error.to_string())?;
-        if changed > 0 {
-            return Ok(());
-        }
-    }
-    Err("session not found".to_string())
+fn session_directory(db: &Path, session_id: &str) -> Option<PathBuf> {
+    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+    conn.query_row(
+        "SELECT directory FROM session_v2 WHERE id = ?1",
+        [session_id],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+    .map(PathBuf::from)
 }
 
 /// The provider and model of the session's last reply.
@@ -229,10 +210,10 @@ pub(super) fn opencode_last_model(session_id: &str) -> Option<(String, String)> 
     opencode_db_paths().iter().find_map(|db| {
         let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
         conn.query_row(
-            "SELECT json_extract(data, '$.providerID'), json_extract(data, '$.modelID') \
-             FROM message WHERE session_id = ?1 AND json_extract(data, '$.role') = 'assistant' \
-             AND json_extract(data, '$.providerID') IS NOT NULL \
-             ORDER BY time_created DESC, id DESC LIMIT 1",
+            "SELECT json_extract(data, '$.model.providerID'), json_extract(data, '$.model.id') \
+             FROM session_message WHERE session_id = ?1 AND type = 'assistant' \
+             AND json_extract(data, '$.model.providerID') IS NOT NULL \
+             ORDER BY seq DESC LIMIT 1",
             [session_id],
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
         )
@@ -240,37 +221,31 @@ pub(super) fn opencode_last_model(session_id: &str) -> Option<(String, String)> 
     })
 }
 
-/// What the person and OpenCode wrote in the session: its text parts, never tool calls.
+/// What the person and OpenCode wrote in the session: its text, never tool calls.
 pub(super) fn opencode_prose(db: &Path, session_id: &str, prose: &mut dyn Hear) {
-    let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+    const MAX_CHARS: usize = 8192;
+    let Ok(messages) = history::opencode_messages(db, session_id) else {
         return;
     };
-    let Ok(mut stmt) = conn.prepare(
-        "SELECT json_extract(m.data, '$.role'), substr(json_extract(p.data, '$.text'), 1, 8192) \
-         FROM part p JOIN message m ON m.id = p.message_id \
-         WHERE p.session_id = ?1 AND json_extract(p.data, '$.type') = 'text' \
-         AND COALESCE(json_extract(p.data, '$.synthetic'), 0) = 0 \
-         ORDER BY p.time_created, p.id",
-    ) else {
-        return;
-    };
-    let Ok(rows) = stmt.query_map([session_id], |row| {
-        Ok((
-            row.get::<_, Option<String>>(0)?,
-            row.get::<_, Option<String>>(1)?,
-        ))
-    }) else {
-        return;
-    };
-    for (role, text) in rows.map_while(Result::ok) {
-        let Some(text) = text else {
-            continue;
+    for (_, kind, data) in messages {
+        let (by, texts): (Speaker, Vec<&str>) = match kind.as_str() {
+            "user" => (Speaker::Person, data["text"].as_str().into_iter().collect()),
+            "assistant" => (
+                Speaker::Agent,
+                (data["content"].as_array().into_iter().flatten())
+                    .filter(|block| block["type"] == "text")
+                    .filter_map(|block| block["text"].as_str())
+                    .collect(),
+            ),
+            _ => continue,
         };
-        let by = match role.as_deref() {
-            Some("user") => Speaker::Person,
-            _ => Speaker::Agent,
-        };
-        prose.push(by, &text);
+        for text in texts {
+            let end = text
+                .char_indices()
+                .nth(MAX_CHARS)
+                .map_or(text.len(), |(at, _)| at);
+            prose.push(by, &text[..end]);
+        }
     }
 }
 
@@ -317,14 +292,10 @@ impl AgentOps for Opencode {
         Some(())
     }
 
-    fn rename_saved(
-        &self,
-        _cwd: &str,
-        session_id: &str,
-        name: &str,
-        _config_path: Option<&str>,
-    ) -> Option<Result<(), String>> {
-        Some(rename_opencode_session(session_id, name))
+    fn rename_command(&self) -> Option<RenameCommand> {
+        Some(|executable, _config_path, session_id, name| {
+            Box::pin(rename_opencode_session(executable, session_id, name))
+        })
     }
 
     fn terminal_tools<'a>(
@@ -377,7 +348,7 @@ impl AgentOps for Opencode {
             route.base_url,
             route.key_name,
         );
-        models[route.model] = model_entry(route.model, route.images, route.input());
+        models[route.model] = model_entry(route.model, route.input(), route.about, route.cost);
         config["model"] = route.agent_model.clone().into();
         env.insert(CONFIG_ENV.into(), config.to_string());
     }
@@ -399,8 +370,8 @@ impl AgentOps for Opencode {
                 MODEL_TOKEN_ENV,
             );
             for (id, model) in &provider.models {
-                let images = model.images.unwrap_or(true);
-                models[*id] = model_entry(id, images, ListedProvider::input(model));
+                let input = ListedProvider::input(model);
+                models[*id] = model_entry(id, input, Some(model), model.cost);
             }
         }
         env.insert(CONFIG_ENV.into(), config.to_string());
@@ -427,13 +398,14 @@ fn provider_config(env: &BTreeMap<String, String>) -> Value {
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .filter(Value::is_object)
         .unwrap_or_else(|| serde_json::json!({}));
-    if !config["provider"].is_object() {
-        config["provider"] = serde_json::json!({});
+    if !config["providers"].is_object() {
+        config["providers"] = serde_json::json!({});
     }
     config
 }
 
-/// The provider `id` in `config`, reached at `base_url`, answering with its models to fill in.
+/// The provider `id` in `config`, reached at `base_url` with the key in `key_name`, answering
+/// with its models to fill in.
 fn provider_entry<'a>(
     config: &'a mut Value,
     id: &str,
@@ -441,54 +413,48 @@ fn provider_entry<'a>(
     base_url: &str,
     key_name: &str,
 ) -> &'a mut Value {
-    let entry = &mut config["provider"][id];
+    let entry = &mut config["providers"][id];
     let models = entry["models"].take();
     *entry = serde_json::json!({
-        "npm": "@ai-sdk/openai-compatible",
         "name": label,
-        "options": {
-            "baseURL": base_url,
-            "apiKey": format!("{{env:{key_name}}}"),
-        },
+        "env": [key_name],
+        "package": "@opencode/ai/providers/openai-compatible",
+        "settings": { "baseURL": base_url },
         "models": if models.is_object() { models } else { serde_json::json!({}) },
     });
     &mut entry["models"]
 }
 
-fn model_entry(id: &str, images: bool, input: &[&str]) -> Value {
-    serde_json::json!({
+/// The efforts a reasoning model takes over chat completions, which models.dev does not list.
+const REASONING_EFFORTS: [&str; 3] = ["low", "medium", "high"];
+
+/// A model as OpenCode lists it, with the window, price and efforts models.dev knows of, so
+/// OpenCode offers its efforts, fills its context meter and counts what it costs.
+fn model_entry(id: &str, input: &[&str], about: Option<&Model>, cost: Option<Cost>) -> Value {
+    let mut entry = serde_json::json!({
         "name": id,
-        "attachment": images,
-        "modalities": { "input": input, "output": ["text"] },
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{opencode_sessions_from_conn, rename_in_databases};
-    use rusqlite::Connection;
-
-    #[test]
-    fn a_renamed_opencode_session_lists_under_its_new_name() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("opencode.db");
-        let conn = Connection::open(&db).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created INTEGER, time_updated INTEGER);
-             INSERT INTO session VALUES ('ses_1', 'New session - 2026-09-30T10:00:00Z', '/repo', 1, 2);",
-        )
-        .unwrap();
-
-        rename_in_databases(std::slice::from_ref(&db), "ses_1", "Flaky test fix").unwrap();
-
-        assert_eq!(
-            opencode_sessions_from_conn(&conn, "/repo")[0].title,
-            "Flaky test fix"
-        );
-        let updated: i64 = conn
-            .query_row("SELECT time_updated FROM session", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(updated, 2);
-        assert!(rename_in_databases(&[db], "ses_missing", "Name").is_err());
+        "limit": { "output": LISTED_MAX_OUTPUT_TOKENS },
+        "capabilities": { "input": input },
+    });
+    let Some(about) = about else {
+        return entry;
+    };
+    if about.limit.context > 0 {
+        entry["limit"]["context"] = about.limit.context.into();
     }
+    if about.reasoning {
+        entry["capabilities"]["reasoning"] =
+            serde_json::json!({ "supported": true, "effort": REASONING_EFFORTS });
+    }
+    if let Some(cost) = cost {
+        entry["cost"] = serde_json::json!({
+            "input": cost.input.unwrap_or_default(),
+            "output": cost.output.unwrap_or_default(),
+            "cache": {
+                "read": cost.cache_read.unwrap_or_default(),
+                "write": cost.cache_write.unwrap_or_default(),
+            },
+        });
+    }
+    entry
 }

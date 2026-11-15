@@ -136,6 +136,18 @@ impl Snapshot {
             .map(|listing| &listing.models)
     }
 
+    /// `model` as models.dev lists it under any provider, a maker's own listing first, for a
+    /// provider models.dev does not list.
+    pub fn serving(&self, model: &str) -> Option<&Model> {
+        let makers = MAKERS.iter().filter_map(|id| self.providers.get(*id));
+        let mut listings = makers.chain(self.providers.values());
+        listings.find_map(|listing| {
+            (listing.models.iter())
+                .find(|(id, _)| id.eq_ignore_ascii_case(model))
+                .map(|(_, found)| found)
+        })
+    }
+
     /// Every priced model by its lowercase name, a maker's own price first,
     /// for pricing what an agent reported without saying where it ran.
     pub fn prices(&self) -> HashMap<String, &Model> {
