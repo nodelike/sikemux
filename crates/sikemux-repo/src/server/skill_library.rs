@@ -53,13 +53,23 @@ fn global_folders() -> Vec<(&'static str, PathBuf)> {
     folders
 }
 
+/// The skills an agent saved in its own folder. A link into another folder
+/// (agentctl fans ~/skills out this way) is the shared skill, not its own.
+fn own_skills_in(folder: &Path) -> Vec<Skill> {
+    let mut found = skills::list_in(folder);
+    found.retain(|skill| {
+        !std::fs::symlink_metadata(&skill.path).is_ok_and(|meta| meta.file_type().is_symlink())
+    });
+    found
+}
+
 fn library_overview(data_dir: &Path, folders: Vec<(&'static str, PathBuf)>) -> SkillsOverview {
     let library = skills::list(data_dir);
     let own: Vec<OwnSkills> = folders
         .into_iter()
         .map(|(agent, folder)| OwnSkills {
             agent: agent.to_owned(),
-            skills: skills::list_in(&folder),
+            skills: own_skills_in(&folder),
             folder,
         })
         .filter(|own| !own.skills.is_empty())
@@ -180,14 +190,7 @@ fn added_skills(
 ) -> Vec<GlobalSkillAdded> {
     let mut added = Vec::new();
     for (agent, folder) in folders {
-        for skill in skills::list_in(folder) {
-            // A link into another folder (agentctl fans ~/skills out this way) is
-            // the shared skill, not one the agent saved on its own.
-            let linked = std::fs::symlink_metadata(&skill.path)
-                .is_ok_and(|meta| meta.file_type().is_symlink());
-            if linked {
-                continue;
-            }
+        for skill in own_skills_in(folder) {
             if known.insert(skill.path.clone()) {
                 added.push(GlobalSkillAdded {
                     agent: (*agent).to_owned(),
@@ -320,6 +323,23 @@ mod tests {
         assert_eq!(seen.own[0].agent, "Claude");
         assert_eq!(seen.own[0].skills.len(), 2);
         assert_eq!(seen.clashes, vec!["deploy".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_skill_is_shared_not_added_or_own() {
+        let root = tempfile::tempdir().unwrap();
+        let shared = root.path().join("shared");
+        let hermes = root.path().join("hermes-skills");
+        write_skill(&shared, "linked");
+        write_skill(&hermes, "real");
+        std::os::unix::fs::symlink(shared.join("linked"), hermes.join("linked")).unwrap();
+        let folders = vec![("Hermes", hermes.clone())];
+        let added = added_skills(&folders, &mut HashSet::new());
+        assert_eq!(added.len(), 1);
+        assert_eq!(added[0].name, "real");
+        let seen = library_overview(&root.path().join("data"), folders);
+        assert_eq!(seen.own[0].skills.len(), 1);
     }
 
     #[test]
