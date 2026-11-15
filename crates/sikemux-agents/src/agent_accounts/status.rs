@@ -581,14 +581,60 @@ mod tests {
         );
     }
 
-    fn fake_cli(dir: &Path, script: &str) -> PathBuf {
+    /// A stand-in CLI that prints `says` and exits with `code` when its arguments start with
+    /// `args`, and prints and exits as `otherwise` says for anything else.
+    #[cfg(unix)]
+    fn fake_cli(dir: &Path, answers: &[(&str, &str, i32)], otherwise: (&str, i32)) -> PathBuf {
+        let quoted = |text: &str| format!("'{}'", text.replace('\'', r"'\''"));
+        let mut script = String::from("#!/bin/sh\ncase \"$*\" in\n");
+        for (args, says, code) in answers {
+            let (exact, longer) = (quoted(args), quoted(&format!("{args} ")));
+            let says = quoted(says);
+            script.push_str(&format!(
+                "  {exact}|{longer}*) printf '%s' {says}; exit {code};;\n"
+            ));
+        }
+        let (says, code) = otherwise;
+        script.push_str(&format!(
+            "esac\nprintf '%s' {}; exit {code}\n",
+            quoted(says)
+        ));
         let path = dir.join("agent");
-        write_executable(&path, &format!("#!/bin/sh\n{script}\n"));
+        write_executable(&path, &script);
+        path
+    }
+
+    #[cfg(windows)]
+    fn fake_cli(dir: &Path, answers: &[(&str, &str, i32)], otherwise: (&str, i32)) -> PathBuf {
+        let quoted = |text: &str| format!("'{}'", text.replace('\'', "''"));
+        let mut script = String::from(
+            "\u{feff}[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\n$a = $args -join ' '\n",
+        );
+        for (args, says, code) in answers {
+            let (exact, longer) = (quoted(args), quoted(&format!("{args} ")));
+            let says = quoted(says);
+            script.push_str(&format!(
+                "if ($a -eq {exact} -or $a.StartsWith({longer})) {{ [Console]::Out.Write({says}); exit {code} }}\n"
+            ));
+        }
+        let (says, code) = otherwise;
+        script.push_str(&format!(
+            "[Console]::Out.Write({}); exit {code}\n",
+            quoted(says)
+        ));
+        std::fs::write(dir.join("agent.ps1"), script).unwrap();
+        let path = dir.join("agent.cmd");
+        std::fs::write(
+            &path,
+            "@powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0agent.ps1\" %*\r\n",
+        )
+        .unwrap();
         path
     }
 
     /// A shell writes the script, never this process: a child another test forks here while the
     /// file is open for writing keeps it open, and Linux then refuses to run it as "text file busy".
+    #[cfg(unix)]
     fn write_executable(path: &Path, body: &str) {
         let written = sikemux_process::user_environment::command("/bin/sh")
             .args([
@@ -606,22 +652,19 @@ mod tests {
     #[tokio::test]
     async fn pi_is_asked_with_auth_check() {
         let dir = tempfile::tempdir().unwrap();
-        let ready = fake_cli(
-            dir.path(),
-            r#"[ "$1 $2" = "auth check" ] && exit 0; exit 64"#,
-        );
+        let ready = fake_cli(dir.path(), &[("auth check", "", 0)], ("", 64));
         assert_eq!(
             check_sign_in("pi", &ready, None, BTreeMap::new()).await,
             AgentStatus::Ready { account: None }
         );
-        for not_ready in ["exit 1", "exit 2"] {
-            let signed_out = fake_cli(dir.path(), not_ready);
+        for not_ready in [1, 2] {
+            let signed_out = fake_cli(dir.path(), &[], ("", not_ready));
             assert_eq!(
                 check_sign_in("pi", &signed_out, None, BTreeMap::new()).await,
                 AgentStatus::SignedOut
             );
         }
-        let older = fake_cli(dir.path(), "exit 64");
+        let older = fake_cli(dir.path(), &[], ("", 64));
         assert_eq!(
             check_sign_in("pi", &older, None, BTreeMap::new()).await,
             AgentStatus::Unknown
@@ -633,7 +676,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let listed = fake_cli(
             dir.path(),
-            r#"[ "$1 $2" = "auth list" ] && printf '┌  Credentials\n│\n└  2 credentials\n'"#,
+            &[("auth list", "┌  Credentials\n│\n└  2 credentials\n", 0)],
+            ("", 1),
         );
         assert_eq!(
             check_sign_in("opencode", &listed, None, BTreeMap::new()).await,
@@ -646,9 +690,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let signed_in = fake_cli(
             dir.path(),
-            r#"[ "$1" = "--version" ] && echo "2.1.0 (Claude Code)" && exit 0
-[ "$1 $2" = "auth status" ] && echo '{"loggedIn":true,"authMethod":"claude.ai","email":"a@b.c"}' && exit 0
-exit 64"#,
+            &[
+                ("--version", "2.1.0 (Claude Code)\n", 0),
+                (
+                    "auth status",
+                    "{\"loggedIn\":true,\"authMethod\":\"claude.ai\",\"email\":\"a@b.c\"}\n",
+                    0,
+                ),
+            ],
+            ("", 64),
         );
         assert_eq!(
             check_sign_in("claude", &signed_in, None, BTreeMap::new()).await,
@@ -659,8 +709,8 @@ exit 64"#,
         let other = tempfile::tempdir().unwrap();
         let signed_out = fake_cli(
             other.path(),
-            r#"[ "$1" = "--version" ] && echo "2.1.0 (Claude Code)" && exit 0
-echo '{"loggedIn":false,"authMethod":"none"}'; exit 1"#,
+            &[("--version", "2.1.0 (Claude Code)\n", 0)],
+            ("{\"loggedIn\":false,\"authMethod\":\"none\"}\n", 1),
         );
         assert_eq!(
             check_sign_in("claude", &signed_out, None, BTreeMap::new()).await,

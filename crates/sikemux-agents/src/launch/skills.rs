@@ -275,7 +275,8 @@ mod tests {
         assert_eq!(args[0], "--config");
         let text = std::fs::read_to_string(&args[1]).unwrap();
         assert!(text.contains("customDirectories:"));
-        assert!(text.contains(&library(&data).to_string_lossy().into_owned()));
+        let quoted = serde_json::to_string(&library(&data).to_string_lossy()).unwrap();
+        assert!(text.contains(&quoted), "{text}");
         std::fs::remove_dir_all(data).unwrap();
     }
 
