@@ -30,7 +30,7 @@ export const HOOK_OPTIONS: HookOptions = {
   messagesPerSecond: 50,
   maxMessageBytes: 4 * 1024,
   hooksPerHost: 100,
-  requestsPerMinute: 60,
+  requestsPerMinute: 300,
   maxBodyBytes: 1024 * 1024,
   waitingPerHost: 500,
   waitingBytesPerHost: 32 * 1024 * 1024,
