@@ -1,5 +1,5 @@
 """What the panes' backdrop costs in power: the GPU's milliwatts and the window server's CPU
-with the grain still, then moving, in a real window in front.
+with the grain still, then moving, then moving under streaming panes, in a real window in front.
 
 cargo build --release --example ground_bench   (in app/)
 python3 -I app/ci/ground-power.py [--bench PATH] [--seconds 30]
@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CASES = ["still", "moving"]
+CASES = ["still", "moving", "stream"]
 SETTLE = 5
 GPU_POWER = re.compile(r"^GPU (?:HW )?Power:\s*([\d.]+)\s*mW", re.M)
 GPU_BUSY = re.compile(r"^GPU HW active residency:\s*([\d.]+)%", re.M)

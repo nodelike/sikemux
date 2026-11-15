@@ -16,7 +16,7 @@ use gpui_kit::{
     div, px, size, AppContext, Bounds, Context, IntoElement, ParentElement, Render, Styled, Window,
     WindowBounds, WindowOptions,
 };
-use sikemux_gpui::grain;
+use sikemux_gpui::ui::grain;
 use sikemux_gpui::theme::{self, Tokens};
 use sikemux_gpui::WINDOW_SIZE;
 use sikemux_view::prefs::Preferences;
