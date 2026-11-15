@@ -77,6 +77,9 @@ pub struct SpawnedChildGuard(Option<Box<dyn Child + Send + Sync>>);
 
 impl SpawnedChildGuard {
     pub fn new(child: Box<dyn Child + Send + Sync>) -> Self {
+        if let Some(pid) = child.process_id() {
+            sikemux_process::own_tree(pid);
+        }
         Self(Some(child))
     }
 
@@ -94,20 +97,43 @@ impl Drop for SpawnedChildGuard {
     }
 }
 
+/// The terminal a shell runs in, as [`shell_at_prompt`] reads it.
+#[derive(Clone, Copy, Debug)]
+pub struct Terminal {
+    #[cfg(unix)]
+    fd: std::os::fd::RawFd,
+}
+
+impl Terminal {
+    /// The terminal whose master side is `fd`.
+    #[cfg(unix)]
+    pub fn from_fd(fd: std::os::fd::RawFd) -> Self {
+        Self { fd }
+    }
+
+    /// A pseudoconsole, which keeps nothing a shell's state can be read from.
+    #[cfg(windows)]
+    pub fn pseudoconsole() -> Self {
+        Self {}
+    }
+}
+
 /// Whether `shell` holds the terminal alone, so it is waiting at its prompt
 /// rather than running a command.
 #[cfg(unix)]
-pub fn shell_at_prompt(terminal: std::os::fd::RawFd, shell: u32) -> bool {
+pub fn shell_at_prompt(terminal: Terminal, shell: u32) -> bool {
     // SAFETY: tcgetpgrp only reads the terminal's foreground process group.
-    let foreground = unsafe { libc::tcgetpgrp(terminal) };
+    let foreground = unsafe { libc::tcgetpgrp(terminal.fd) };
     foreground > 0
         && foreground as u32 == shell
         && process_group_members(shell).is_some_and(|members| members == 1)
 }
 
+/// Whether `shell` has started nothing that still runs, so it is waiting at its prompt
+/// rather than running a command. A Windows console has no foreground group to ask.
 #[cfg(windows)]
-pub fn shell_at_prompt(_terminal: i32, _shell: u32) -> bool {
-    false
+pub fn shell_at_prompt(_terminal: Terminal, shell: u32) -> bool {
+    sikemux_process::procs::descendants(shell).is_empty()
 }
 
 #[cfg(target_os = "macos")]
@@ -149,22 +175,30 @@ fn process_group_members(group: u32) -> Option<usize> {
     Some(members)
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
-    /// Whether `/bin/sh args` comes to read as `at_prompt`, however long the shell takes to start.
+    #[cfg(unix)]
+    const SHELL: &str = "/bin/sh";
+    #[cfg(windows)]
+    const SHELL: &str = "cmd.exe";
+
+    /// Whether `SHELL args` comes to read as `at_prompt`, however long the shell takes to start.
     fn comes_to_read_as(at_prompt: bool, args: &[&str]) -> bool {
         let pair = native_pty_system()
             .openpty(PtySize::default())
             .expect("open pty");
-        let mut command = CommandBuilder::new("/bin/sh");
+        let mut command = CommandBuilder::new(SHELL);
         command.args(args);
         let mut child = pair.slave.spawn_command(command).expect("spawn shell");
         let pid = child.process_id().expect("shell pid");
-        let terminal = pair.master.as_raw_fd().expect("master fd");
+        #[cfg(unix)]
+        let terminal = super::Terminal::from_fd(pair.master.as_raw_fd().expect("master fd"));
+        #[cfg(windows)]
+        let terminal = super::Terminal::pseudoconsole();
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         let mut read_so = super::shell_at_prompt(terminal, pid) == at_prompt;
         while !read_so && std::time::Instant::now() < deadline {
@@ -178,11 +212,20 @@ mod tests {
 
     #[test]
     fn an_interactive_shell_waiting_for_input_is_at_its_prompt() {
+        #[cfg(unix)]
         assert!(comes_to_read_as(true, &["-i"]));
+        #[cfg(windows)]
+        assert!(comes_to_read_as(true, &[]));
     }
 
     #[test]
     fn a_shell_running_a_command_is_not_at_its_prompt() {
+        #[cfg(unix)]
         assert!(comes_to_read_as(false, &["-c", "sleep 60; true"]));
+        #[cfg(windows)]
+        assert!(comes_to_read_as(
+            false,
+            &["/D", "/C", "ping -n 60 127.0.0.1"]
+        ));
     }
 }
