@@ -607,8 +607,7 @@ fn adopt_lock(
         .truncate(false)
         .mode(0o600)
         .open(lock_path(socket))?;
-    // SAFETY: flock only reads the integer fd, which `lock` keeps open.
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+    if !sikemux_corekit::lock::hold(&lock) {
         eprintln!("sikemux core: another process holds the single-instance lock");
     }
     Ok(lock)

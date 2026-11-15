@@ -736,8 +736,7 @@ fn claim_socket(socket: &Path) -> Result<(std::os::unix::net::UnixListener, File
         .truncate(false)
         .mode(0o600)
         .open(lock_path(socket))?;
-    // SAFETY: flock only reads the integer fd, which `lock` keeps open.
-    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+    if !sikemux_corekit::lock::hold(&lock) {
         let path = socket.to_path_buf();
         return Err(match probe(socket, PROBE_TIMEOUT) {
             Ok(hello) => ServerError::AlreadyRunning {
