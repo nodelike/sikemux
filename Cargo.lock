@@ -10208,6 +10208,8 @@ name = "sikemux-host"
 version = "0.6.1-nightly.22"
 dependencies = [
  "backtrace",
+ "base64 0.22.1",
+ "image",
  "libc",
  "log",
  "reqwest",
@@ -13881,6 +13883,7 @@ dependencies = [
  "digest 0.11.3",
  "dispatch2",
  "errno",
+ "flate2",
  "form_urlencoded",
  "futures-channel",
  "futures-core",
@@ -13918,6 +13921,7 @@ dependencies = [
  "serde",
  "serde_core",
  "serde_json",
+ "simd-adler32",
  "simdutf8",
  "slab",
  "smallvec",

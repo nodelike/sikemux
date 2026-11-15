@@ -18,8 +18,10 @@ publish = false
 aho-corasick = { version = "1" }
 bitflags = { version = "2", default-features = false, features = ["serde"] }
 bstr = { version = "1" }
+crc32fast = { version = "1" }
 crossbeam-utils = { version = "0.8" }
 digest = { version = "0.11", features = ["alloc", "mac", "oid"] }
+flate2 = { version = "1" }
 form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
@@ -31,6 +33,7 @@ getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-f
 hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
+num-traits = { version = "0.2", features = ["i128"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }
 regex-automata = { version = "0.4" }
@@ -43,6 +46,7 @@ sentry-core = { version = "0.49", default-features = false, features = ["client"
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
+simd-adler32 = { version = "0.3" }
 slab = { version = "0.4" }
 subtle = { version = "2", default-features = false, features = ["const-generics"] }
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
@@ -63,7 +67,6 @@ time-macros = { version = "0.2", default-features = false, features = ["formatti
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
 block2 = { version = "0.6" }
-crc32fast = { version = "1" }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["rand_core"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
 data-encoding = { version = "2" }
@@ -73,7 +76,6 @@ errno = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 idna = { version = "1" }
-num-traits = { version = "0.2", features = ["i128"] }
 objc2 = { version = "0.6" }
 objc2-core-foundation = { version = "0.3" }
 objc2-foundation = { version = "0.3", default-features = false, features = ["NSAppleEventDescriptor", "NSArray", "NSAttributedString", "NSBundle", "NSCoder", "NSData", "NSDate", "NSDictionary", "NSEnumerator", "NSError", "NSException", "NSFileManager", "NSFileWrapper", "NSFormatter", "NSGeometry", "NSHTTPCookie", "NSItemProvider", "NSJSONSerialization", "NSKeyValueCoding", "NSKeyValueObserving", "NSLocale", "NSNotification", "NSNull", "NSObjCRuntime", "NSObject", "NSOrthography", "NSProcessInfo", "NSProgress", "NSRange", "NSRunLoop", "NSSet", "NSString", "NSTextCheckingResult", "NSThread", "NSURL", "NSURLAuthenticationChallenge", "NSURLCredential", "NSURLRequest", "NSURLResponse", "NSURLSession", "NSUUID", "NSUndoManager", "NSUserActivity", "NSValue", "objc2-core-foundation", "std"] }

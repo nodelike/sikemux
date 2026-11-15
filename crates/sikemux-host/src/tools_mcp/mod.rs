@@ -12,6 +12,7 @@ mod bound;
 mod family;
 mod harness;
 mod manifest;
+mod shrink;
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
@@ -762,9 +763,13 @@ fn content_for(kind: Option<&str>, value: &Value) -> Vec<Value> {
                 .get("mimeType")
                 .and_then(Value::as_str)
                 .unwrap_or("image/png");
+            let picture = shrink::for_model(data, mime_type);
             let mut caption = format!("{} {}", field("title"), field("url"))
                 .trim()
                 .to_owned();
+            if let Some(scale) = picture.scale {
+                caption.push_str(&scaled_note(scale));
+            }
             if let Some(height) = value.get("cutAt").and_then(Value::as_f64) {
                 caption.push_str(&format!("\n(cut at {height}px; the page is taller)"));
             }
@@ -774,7 +779,7 @@ fn content_for(kind: Option<&str>, value: &Value) -> Vec<Value> {
             }
             let caption = caption.trim();
             return vec![
-                json!({ "type": "image", "data": data, "mimeType": mime_type }),
+                image_block(&picture),
                 text(if caption.is_empty() {
                     "screenshot"
                 } else {
@@ -800,16 +805,31 @@ fn picture(value: &Value) -> Vec<Value> {
         fields.remove("mimeType");
     }
     match mime_type {
-        Some(mime_type) if mime_type.starts_with("image/") => vec![
-            json!({ "type": "image", "data": data, "mimeType": mime_type }),
-            text(&rest.to_string()),
-        ],
+        Some(mime_type) if mime_type.starts_with("image/") => {
+            let picture = shrink::for_model(data, mime_type);
+            let mut caption = rest.to_string();
+            if let Some(scale) = picture.scale {
+                caption.push_str(&scaled_note(scale));
+            }
+            vec![image_block(&picture), text(&caption)]
+        }
         _ => vec![text(&format!(
             "{rest} ({} bytes of {} left out)",
             data.len(),
             mime_type.unwrap_or("data")
         ))],
     }
+}
+
+fn image_block(picture: &shrink::Picture) -> Value {
+    json!({ "type": "image", "data": picture.data, "mimeType": picture.mime_type })
+}
+
+fn scaled_note(scale: f64) -> String {
+    format!(
+        "\n(shown at {:.0}% of its size: divide a point in the picture by {scale:.3} for the page's own)",
+        scale * 100.0
+    )
 }
 
 fn text(body: &str) -> Value {
