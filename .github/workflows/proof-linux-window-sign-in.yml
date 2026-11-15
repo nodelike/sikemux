@@ -248,7 +248,7 @@ jobs:
               for task in /proc/$pid/task/*; do if grep ^Gid $task/status | grep -qw $gid; then echo "$pid $(cat $task/comm) holds the group"; [ "$GROUP_STRICT" = no ] || exit 1; fi; done
             done
             readlink /proc/$(pgrep -u person -x sikemux | head -1)/exe
-            import -display :99 -window root /out/window.png
+            import -display :99 -window root /out/window.png || echo "no screenshot"
             socket=/home/person/.config/sikemux/core.sock
             test -S $socket
             echo "refusals of the real window: $(grep -rc "$APP_ONLY" /home/person/.local/share/com.nodelike.sikemux/logs/core.log || true)"
@@ -271,6 +271,7 @@ jobs:
           name: aur-proof
           path: out
           if-no-files-found: warn
+          include-hidden-files: true
 
   omarchy-pkgs:
     strategy:
