@@ -303,7 +303,7 @@ fn slow_agent(dir: &Path) -> PathBuf {
     let path = dir.join("slow-agent");
     std::fs::write(
         &path,
-        "#!/bin/sh\n[ \"$1\" = acp ] && exec sleep 600\nexit 0\n",
+        "#!/bin/sh\n[ \"$1\" = serve ] && exec sleep 600\nexit 0\n",
     )
     .expect("the slow agent");
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("runnable");
