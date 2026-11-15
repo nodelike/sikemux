@@ -941,3 +941,50 @@ async fn a_new_chat_signed_in_after_its_agent_started_answers_on_a_fresh_session
     until_answered(&mut chat, "account personal").await;
     assert_eq!(chat.errors, 0, "{:?}", chat.head());
 }
+
+/// Card #265: a failed chat moved while no agent runs it opens on the new account, not on the
+/// failure the account before left.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_chat_moved_while_asleep_opens_without_the_failure() {
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("agent-moved").await;
+    let history = tempfile::tempdir().expect("history");
+    let sign_in = history.path().join("signed-in");
+    std::fs::write(&sign_in, "").expect("sign out");
+    let mut launch = account_launch("agent-moved", history.path(), "");
+    launch.env.insert(
+        "FAKE_ACP_SIGN_IN".into(),
+        sign_in.to_string_lossy().into_owned(),
+    );
+    client.acp_start(launch).await.expect("start");
+    client
+        .ask(ask::AcpPrompt {
+            agent_id: "agent-moved".into(),
+            message_id: None,
+            text: "who".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt");
+    chat.until(|chat| chat.head().failure.is_some()).await;
+    let stopped = client
+        .call("stopChatIfIdle", json!({ "agentId": "agent-moved" }))
+        .await
+        .expect("sleep");
+    assert_eq!(stopped["stopped"], true);
+    assert!(client.ask(ask::AcpList).await.expect("list").is_empty());
+
+    client
+        .ask(ask::AcpSwitchAccount {
+            agent_id: "agent-moved".into(),
+            account: account("spare", "Spare"),
+        })
+        .await
+        .expect("switch");
+
+    let (opening, _) = core.connect("agent-moved").await;
+    let opened = attach(&opening, "agent-moved").await;
+    assert!(opened.head().failure.is_none(), "{:?}", opened.head());
+    assert!(opened.head().error.is_none(), "{:?}", opened.head());
+}
