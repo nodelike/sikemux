@@ -68,8 +68,7 @@ pub async fn call(
         return Ok(json!({}));
     };
     let grant = request.params["grant"].as_str();
-    let person = matches!(asker, Asker::Core)
-        && crate::server::plugged::acts_as(core, &remote) == Some(Acting::Person);
+    let person = crate::server::plugged::acts_as(core, &remote) == Some(Acting::Person);
     match answer(core, asker, &remote, grant, project).await {
         Ok(Some(credential)) => Ok(json!({
             "username": credential.username,
