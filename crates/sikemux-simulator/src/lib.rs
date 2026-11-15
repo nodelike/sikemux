@@ -530,6 +530,7 @@ impl SimulatorManager {
                 .attachments
                 .values()
                 .any(|attachment| attachment.device.udid == udid)
+            && !shared.desk.values().any(|shown| shown == udid)
             && self.claims.holder(udid).is_none()
     }
 

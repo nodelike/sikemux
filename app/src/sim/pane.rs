@@ -66,6 +66,8 @@ pub struct Simulators {
     /// The agents whose screen stopped streaming, held back from streaming again until their
     /// device is checked, so a device that went away shows as off rather than black.
     rechecking: HashSet<String>,
+    /// Why each agent's device would not stream its screen, shown in place of the screen.
+    refused: HashMap<String, SharedString>,
     /// Why the last listing or start of a device failed.
     problem: Option<SharedString>,
     acting: HashSet<String>,
@@ -135,6 +137,7 @@ enum Heard {
     AndroidReady(Option<String>),
     Frame,
     Ended(u64),
+    Refused(String, String),
     Load,
 }
 
@@ -207,6 +210,7 @@ impl Simulators {
             booting: HashSet::new(),
             stopping: HashSet::new(),
             rechecking: HashSet::new(),
+            refused: HashMap::new(),
             problem: None,
             acting: HashSet::new(),
             progress: None,
@@ -361,6 +365,11 @@ impl Simulators {
                     self.screens.remove(agent);
                 }
                 self.recheck(ended, cx);
+            }
+            Heard::Refused(agent, error) => {
+                self.screens.remove(&agent);
+                self.refused.insert(agent.clone(), error.into());
+                self.recheck(vec![agent], cx);
             }
         }
         cx.notify();
@@ -530,6 +539,11 @@ impl Simulators {
                                 device.booted = true;
                             }
                         }
+                        sims.refused.retain(|agent, _| {
+                            sims.attached
+                                .get(agent)
+                                .is_none_or(|device| device.udid != udid)
+                        });
                         sims.list_devices(cx);
                         sims.problem = None;
                     }
@@ -602,6 +616,7 @@ impl Simulators {
     }
 
     fn stop_screen(&mut self, agent: &str) {
+        self.refused.remove(agent);
         let Some(screen) = self.screens.remove(agent) else {
             return;
         };
@@ -651,6 +666,9 @@ impl Simulators {
                         if let Some(now) = listed.iter().find(|now| now.udid == device.udid) {
                             device.booted = now.booted;
                         }
+                        if !device.booted {
+                            sims.refused.remove(agent);
+                        }
                     }
                     sims.devices = Some(listed);
                 }
@@ -668,7 +686,10 @@ impl Simulators {
         let Some(device) = self.attached.get(agent).cloned() else {
             return;
         };
-        if self.screens.contains_key(agent) || self.rechecking.contains(agent) {
+        if self.screens.contains_key(agent)
+            || self.rechecking.contains(agent)
+            || self.refused.contains_key(agent)
+        {
             return;
         }
         let engine = Arc::clone(&self.engine);
@@ -708,6 +729,7 @@ impl Simulators {
                 device.udid.clone(),
             );
             let (fresh, heard) = (Arc::clone(&fresh), self.heard.clone());
+            let (refused, agent) = (self.heard.clone(), agent.to_owned());
             let android = is_android(&udid);
             crate::desk::spawn(async move {
                 if android {
@@ -730,9 +752,7 @@ impl Simulators {
                     match started {
                         Ok(id) => watch.store(id, Ordering::SeqCst),
                         Err(error) => {
-                            eprintln!(
-                                "sikemux: the Android device's screen did not stream: {error}"
-                            )
+                            let _ = refused.send(Heard::Refused(agent, error.to_string()));
                         }
                     }
                     return;
@@ -760,7 +780,7 @@ impl Simulators {
                 match started {
                     Ok(id) => watch.store(id, Ordering::SeqCst),
                     Err(error) => {
-                        eprintln!("sikemux: the simulator's screen did not stream: {error}")
+                        let _ = refused.send(Heard::Refused(agent, error.to_string()));
                     }
                 }
             });
@@ -1537,6 +1557,21 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
                         })),
                 )
             })
+            .into_any_element();
+    }
+    if let Some(why) = sims.refused.get(agent) {
+        let agent = agent.to_owned();
+        return says(why.to_string())
+            .child(
+                Button::new("sim-stream-again")
+                    .label(t!("Try again"))
+                    .on_click(cx.listener(move |bench, _, _, cx| {
+                        bench.sims.update(cx, |sims, cx| {
+                            sims.refused.remove(&agent);
+                            cx.notify();
+                        })
+                    })),
+            )
             .into_any_element();
     }
     let Some(screen) = sims.screens.get(agent) else {
