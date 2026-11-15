@@ -57,10 +57,10 @@ pub(crate) mod retitle;
 pub mod review;
 pub mod rows;
 pub mod settled;
-pub(crate) mod tree;
 pub mod setup;
 pub(crate) mod tags;
 mod terminal_pages;
+pub(crate) mod tree;
 
 pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let frame = bench.rails.frame.clone();
@@ -999,7 +999,12 @@ fn hang_lines(hang: &tree::Hang, cx: &App) -> Vec<AnyElement> {
         }
     }
     if hang.open {
-        lines.push(spine(hang.depth).top(px(26.)).bottom(px(-2.)).into_any_element());
+        lines.push(
+            spine(hang.depth)
+                .top(px(26.))
+                .bottom(px(-2.))
+                .into_any_element(),
+        );
     }
     lines
 }
