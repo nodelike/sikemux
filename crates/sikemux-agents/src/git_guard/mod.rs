@@ -592,11 +592,11 @@ mod tests {
         let refused = |command: &str| refusal(command, top, &others).is_some();
         assert!(refused("git add store.ts"));
         assert!(refused("git commit -qm 'fix: store' -- store.ts"));
-        assert!(refused(&format!("git apply -R {}", patch.display())));
+        assert!(refused(&format!("git apply -R '{}'", patch.display())));
         assert!(!refused("git commit -m store.ts"));
         assert!(!refused("git add other.ts"));
         assert!(!refused(&format!(
-            "git apply -R --cached {}",
+            "git apply -R --cached '{}'",
             patch.display()
         )));
     }
