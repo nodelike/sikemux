@@ -29,3 +29,8 @@ sikemux-plugin-signoz
 sikemux-plugin-slack
 sikemux-plugin-vercel
 sikemux-fold
+sikemux-browser
+gpui-native-view
+gpui-transcript
+gpui-terminal-grid
+gpui-clicks
