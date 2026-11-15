@@ -38,6 +38,7 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
 ];
 /// Told with the guide's setup topic, which lists setup_check for the agent that read it.
 const SETUP_LISTED: &str = "setup_check is now in your tools. If your list does not show it, your tools were not read again: ask the person to press Check again on the Playbook's Setup page, which runs the same check, and read its result there.";
+#[cfg(unix)]
 const PARENT_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// Asking whether to list the simulator tools must not hold up the host's handshake for long.
 const OFFER_TIMEOUT: Duration = Duration::from_secs(3);

@@ -177,14 +177,8 @@ fn gather() -> Result<PathBuf, String> {
     Ok(folder)
 }
 
-#[cfg(unix)]
 fn status() -> Value {
     scrub_value(crate::headless::status_without_identity())
-}
-
-#[cfg(not(unix))]
-fn status() -> Value {
-    Value::Null
 }
 
 fn scrub_value(value: Value) -> Value {
