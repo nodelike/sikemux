@@ -110,7 +110,7 @@ const ship = fs.readFileSync("scripts/ship-release.sh", "utf8");
 if (!ship.includes("gh workflow run packages.yml -f suite=stable") || !ship.includes("gh workflow run packages.yml -f suite=nightly")) fail("shipping a stable release does not move both package suites");
 if (!publish.includes('"${RELEASE_CMD[@]}" "$MANIFEST" --prerelease\n  scripts/move-feed.sh staff "$VERSION"')) fail("a stable build does not publish as a candidate only the staff feed serves");
 const shipWorkflow = fs.readFileSync(".github/workflows/ship.yml", "utf8");
-if (!/approve:[\s\S]*?needs: gate[\s\S]*?environment: approval/.test(shipWorkflow)) fail("Ship does not wait for the owner's approval after its gate");
+if (!/ship:[\s\S]*?needs: \[find, gate\]\n\s*if: needs\.gate\.outputs\.ready == 'true'/.test(shipWorkflow)) fail("Ship publishes without its gate passing");
 if (!moveFeed.includes("gh workflow run packages.yml -f suite=nightly")) fail("moving the nightly feed does not move the nightly package suite");
 if (!/promote:[\s\S]*?actions: write/.test(soakWorkflow)) fail("the soak's promote job cannot start the package suite move");
 if (!signHost.includes('"${HOSTS[@]}" "${APPIMAGES[@]}"')) fail("releases do not sign the AppImages with the updater key");

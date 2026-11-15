@@ -2,11 +2,11 @@ name: Mobile update
 run-name: ${{ inputs.update_id && format('{0} phone update {1}', inputs.action, inputs.update_id) || format('Phone update from {0}', github.sha) }}
 
 # The phone's JavaScript and assets go out over the air: every push to main that changes them
-# publishes an Android update to nightly. Running this by hand with an update id, once the owner
-# approves, promotes that update to stable, withdraws it from every channel so phones that have not
-# taken it never do, or rolls back the phones that took it to the code in their build. Phones only
-# take an update made for their runtime version, so one that needs new native code waits for the
-# build that has it. test/updatePaths.test.ts fails when the bundle reads a file these paths miss.
+# publishes an Android update to nightly. Running this by hand with an update id promotes that
+# update to stable, withdraws it from every channel so phones that have not taken it never do, or
+# rolls back the phones that took it to the code in their build. Phones only take an update made
+# for their runtime version, so one that needs new native code waits for the build that has it.
+# test/updatePaths.test.ts fails when the bundle reads a file these paths miss.
 on:
   push:
     branches: [main]
@@ -168,22 +168,9 @@ jobs:
           export DEPLOY_SSH_KEY_FILE=~/.ssh/deploy_key
           node mobile/app/scripts/publish-update.mjs publish "$RUNNER_TEMP/update"
 
-  approve:
-    name: Approve ${{ inputs.action }}
-    if: github.repository == 'nodelike/sikemux' && github.ref == 'refs/heads/main' && inputs.update_id
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: approval
-    steps:
-      - name: Approved
-        env:
-          ACTION: ${{ inputs.action }}
-          UPDATE_ID: ${{ inputs.update_id }}
-        run: echo "Approved to $ACTION $UPDATE_ID" >>"$GITHUB_STEP_SUMMARY"
-
   manage:
     name: ${{ inputs.action }} on citadel
-    needs: approve
+    if: github.repository == 'nodelike/sikemux' && github.ref == 'refs/heads/main' && inputs.update_id
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: production

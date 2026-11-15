@@ -2,7 +2,7 @@ name: Release
 run-name: Release ${{ github.event_name == 'workflow_run' && format('nightly from {0}', github.event.workflow_run.head_sha) || github.ref_name }}
 
 # A stable release starts from a v* tag, which only the owner may push, and publishes a candidate
-# that only the staff feed serves; the Ship workflow makes it stable on the owner's approval. A
+# that only the staff feed serves; the Ship workflow makes it stable once it soaked there. A
 # nightly is built from each push to main as CI starts checking it, and once CI passes goes to the
 # staff feed at once and to nightly after a soak.
 on:

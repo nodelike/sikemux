@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Works out, from GitHub and Sentry, whether a stable candidate is ready to ship, and writes the
-# evidence the owner reads before approving. Exits 1 when it is not ready, so no approval is asked.
+# evidence on the run's page. Sets ready=true when it is, leaves it unset while the candidate is
+# still soaking, and exits 1 when something is wrong with it, so it never ships.
 #   SENTRY_READ_TOKEN=… scripts/ship-gate.sh <version> [minutes on staff] [Macs]
 set -euo pipefail
 
@@ -14,6 +15,7 @@ OUTPUT="${GITHUB_OUTPUT:-/dev/null}"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "v$VERSION is not a stable version" >&2; exit 1; }
 
 problems=()
+waiting=()
 release="$(gh release view "v$VERSION" --json isPrerelease,name,publishedAt)"
 [[ "$(jq -r .isPrerelease <<<"$release")" == true ]] || problems+=("v$VERSION is not a waiting candidate: it has shipped already")
 [[ "$(jq -r .name <<<"$release")" != *"(pulled)" ]] || problems+=("v$VERSION was pulled")
@@ -21,7 +23,7 @@ staff="$(gh release download staff -p latest.json -O - 2>/dev/null | jq -r .vers
 [[ "$staff" == "$VERSION" ]] || problems+=("the staff feed serves ${staff:+v$staff}${staff:-nothing}, not the candidate")
 published="$(jq -r .publishedAt <<<"$release")"
 minutes=$((($(date +%s) - $(date -d "$published" +%s)) / 60))
-((minutes >= MINUTES)) || problems+=("the candidate has been on staff for $minutes min, under $MINUTES")
+((minutes >= MINUTES)) || waiting+=("the candidate has been on staff for $minutes min, under $MINUTES")
 
 run="$(gh run list --workflow release.yml --event push --branch "v$VERSION" --limit 1 --json databaseId,conclusion,url --jq '.[0]')"
 [[ "$(jq -r .conclusion <<<"$run")" == success ]] || problems+=("its Release run did not pass")
@@ -47,7 +49,7 @@ macs="$(count "logger:update tags[update.to]:$VERSION tags[update.result]:done t
 ((crashes == 0)) || problems+=("$crashes crash reports from v$VERSION")
 ((failed == 0)) || problems+=("$failed updates to it failed")
 ((rolled_back == 0)) || problems+=("$rolled_back machines went back from it")
-((macs >= MACS)) || problems+=("$macs Macs updated to it, under $MACS")
+((macs >= MACS)) || waiting+=("$macs Macs updated to it, under $MACS")
 
 headline="Ship v$VERSION · $minutes min on staff · $crashes crashes · $failed failed updates"
 {
@@ -69,4 +71,9 @@ if ((${#problems[@]})); then
   printf 'Not ready: %s\n' "${problems[@]}" | tee -a "$SUMMARY" >&2
   exit 1
 fi
+if ((${#waiting[@]})); then
+  printf 'Still soaking: %s\n' "${waiting[@]}" | tee -a "$SUMMARY"
+  exit 0
+fi
+echo "ready=true" >>"$OUTPUT"
 echo "v$VERSION is ready to ship"

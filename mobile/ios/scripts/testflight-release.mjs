@@ -4,6 +4,10 @@
 //
 //   node scripts/testflight-release.mjs submit 0.1.0-nightly.10 10010
 //
+// `app-store` puts a stable build up for App Store review, released by itself once Apple approves:
+//
+//   node scripts/testflight-release.mjs app-store 0.2.0 20000
+//
 // `prune-certificates` revokes the development certificates earlier CI archives made. Each runner
 // starts with an empty keychain, so Xcode makes a new one every run until Apple's limit refuses.
 //
@@ -169,13 +173,107 @@ async function submit(version, build) {
   }
 }
 
+const IN_REVIEW = ['WAITING_FOR_REVIEW', 'IN_REVIEW', 'PENDING_DEVELOPER_RELEASE', 'PROCESSING_FOR_APP_STORE', 'READY_FOR_SALE'];
+const RELEASED = ['READY_FOR_SALE', 'REPLACED_WITH_NEW_VERSION'];
+const EDITABLE = ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED', 'REJECTED', 'METADATA_REJECTED'];
+
+async function appStoreVersion(appId, version) {
+  const found = await call(`/v1/apps/${appId}/appStoreVersions?filter[platform]=IOS&limit=200`);
+  const released = found.data.some((item) => RELEASED.includes(item.attributes.appStoreState));
+  // Apple keeps one version open for editing, so an unsubmitted older one is renamed to this one.
+  const existing =
+    found.data.find((item) => item.attributes.versionString === version) ??
+    found.data.find((item) => EDITABLE.includes(item.attributes.appStoreState));
+  if (existing) {
+    await call(`/v1/appStoreVersions/${existing.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        data: { type: 'appStoreVersions', id: existing.id, attributes: { versionString: version, releaseType: 'AFTER_APPROVAL' } },
+      }),
+    });
+    return { id: existing.id, state: existing.attributes.appStoreState, released };
+  }
+  const made = await call('/v1/appStoreVersions', {
+    method: 'POST',
+    body: JSON.stringify({
+      data: {
+        type: 'appStoreVersions',
+        attributes: { platform: 'IOS', versionString: version, releaseType: 'AFTER_APPROVAL' },
+        relationships: { app: { data: { type: 'apps', id: appId } } },
+      },
+    }),
+  });
+  return { id: made.data.id, state: made.data.attributes.appStoreState, released };
+}
+
+/** Apple takes "What's New" only on an update, not on an app's first version. */
+async function setWhatsNew(versionId, notes) {
+  const found = await call(`/v1/appStoreVersions/${versionId}/appStoreVersionLocalizations`);
+  const english = found.data.find((item) => item.attributes.locale === 'en-US');
+  if (!english) throw new Error('The App Store version has no en-US localization');
+  await call(`/v1/appStoreVersionLocalizations/${english.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ data: { type: 'appStoreVersionLocalizations', id: english.id, attributes: { whatsNew: notes } } }),
+  });
+}
+
+async function reviewSubmission(appId) {
+  const open = await call(`/v1/reviewSubmissions?filter[app]=${appId}&filter[platform]=IOS&filter[state]=READY_FOR_REVIEW`);
+  if (open.data[0]) return open.data[0].id;
+  const made = await call('/v1/reviewSubmissions', {
+    method: 'POST',
+    body: JSON.stringify({
+      data: { type: 'reviewSubmissions', attributes: { platform: 'IOS' }, relationships: { app: { data: { type: 'apps', id: appId } } } },
+    }),
+  });
+  return made.data.id;
+}
+
+async function appStore(version, build) {
+  const apps = await call(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
+  const appId = apps.data[0]?.id;
+  if (!appId) throw new Error(`App Store Connect has no app with the bundle id ${BUNDLE_ID}`);
+  const { id: buildId } = await processedBuild(appId, version, build);
+
+  const target = await appStoreVersion(appId, version);
+  if (IN_REVIEW.includes(target.state)) {
+    console.log(`App Store: ${version} is already ${target.state}`);
+    return;
+  }
+  await call(`/v1/appStoreVersions/${target.id}/relationships/build`, {
+    method: 'PATCH',
+    body: JSON.stringify({ data: { type: 'builds', id: buildId } }),
+  });
+  if (target.released) await setWhatsNew(target.id, releaseNotes(version));
+
+  const submission = await reviewSubmission(appId);
+  await call('/v1/reviewSubmissionItems', {
+    method: 'POST',
+    body: JSON.stringify({
+      data: {
+        type: 'reviewSubmissionItems',
+        relationships: {
+          reviewSubmission: { data: { type: 'reviewSubmissions', id: submission } },
+          appStoreVersion: { data: { type: 'appStoreVersions', id: target.id } },
+        },
+      },
+    }),
+  });
+  await call(`/v1/reviewSubmissions/${submission}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ data: { type: 'reviewSubmissions', id: submission, attributes: { submitted: true } } }),
+  });
+  console.log(`App Store: ${version} (${build}) is submitted for review and releases once Apple approves it`);
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const [command, version, build] = process.argv.slice(2);
   try {
     if (command === 'submit' && version && build) await submit(version, build);
+    else if (command === 'app-store' && version && build) await appStore(version, build);
     else if (command === 'prune-certificates') await pruneCertificates();
     else {
-      console.error('usage: testflight-release.mjs submit <version> <build number> | prune-certificates');
+      console.error('usage: testflight-release.mjs submit <version> <build number> | app-store <version> <build number> | prune-certificates');
       process.exit(2);
     }
   } catch (error) {

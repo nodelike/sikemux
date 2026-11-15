@@ -96,8 +96,8 @@ Each of these folders has its own `AGENTS.md`; read it before working there.
 - `helpers/notch/`: the island over the MacBook notch.
 - `brand/`: every logo and icon. Take them from there; never draw or render the logo again.
 - `.github/`: releases, nightlies and the download the site reads. Releases publish only from
-  the Release workflow; never run `scripts/release.sh --publish`, and never approve a stable
-  release for the owner.
+  the Release workflow; never run `scripts/release.sh --publish`. A stable release publishes by
+  itself once its staff soak passes, with nobody asked.
 
 Two places live outside this repo. sikemux.com is `nodelike/sikemux-front`, checked out at
 `~/projects/personal/sikemux-front`; pushing its `main` deploys it. `marketing/` is a separate

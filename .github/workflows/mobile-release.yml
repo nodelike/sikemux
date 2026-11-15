@@ -1,8 +1,8 @@
 name: Mobile release
 run-name: Mobile release ${{ github.ref_name }}
 
-# A phone release starts from a mobile-v* tag, separate from the Mac's v* tags. A stable one waits
-# for the owner's approval on the approval environment; a nightly publishes once its checks pass.
+# A phone release starts from a mobile-v* tag, separate from the Mac's v* tags, and publishes once its
+# checks pass. A stable iPhone build also goes up for App Store review and releases when Apple approves.
 on:
   push:
     tags: ["mobile-v*"]
@@ -15,16 +15,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  approve:
-    name: Approve the stable release
-    if: ${{ !contains(github.ref_name, '-nightly.') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: approval
-    steps:
-      - name: Approved
-        run: echo "Approved ${GITHUB_REF_NAME}" >>"$GITHUB_STEP_SUMMARY"
-
   plan:
     name: Plan the release
     runs-on: ubuntu-latest
@@ -86,8 +76,7 @@ jobs:
     name: Build Android
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    needs: [approve, plan]
-    if: &approved_plan ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    needs: plan
     env:
       APP_VARIANT: production
       SIKEMUX_MOBILE_VERSION: ${{ needs.plan.outputs.version }}
@@ -331,8 +320,7 @@ jobs:
     name: Build iOS
     runs-on: macos-26
     timeout-minutes: 90
-    needs: [approve, plan]
-    if: *approved_plan
+    needs: plan
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -510,6 +498,17 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           BUILD: ${{ steps.upload.outputs.build }}
         run: node scripts/testflight-release.mjs submit "$VERSION" "$BUILD"
+
+      - name: Submit it for App Store review, released once Apple approves
+        if: needs.plan.outputs.channel == 'stable'
+        working-directory: mobile/ios
+        env:
+          APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          BUILD: ${{ steps.upload.outputs.build }}
+        run: node scripts/testflight-release.mjs app-store "$VERSION" "$BUILD"
 
       # The dSYMs hold the Swift's and the Rust client's debug info, so crash reports read as source lines.
       - name: Send the debug symbols to Sentry
