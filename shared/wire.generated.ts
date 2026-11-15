@@ -4534,7 +4534,7 @@ export interface BoardSettings {
      * agent on another CLI than its builder's.
      */
     reviewer: ReviewerChoice | null;
-    /** Whole dollars of Auto's spending in the project past which it starts no new cards. */
+    /** Whole dollars a chat spends in the project between each notice to the person. */
     spendCeiling: number | null;
     /** The linked hosts cards go to past this host's places, by key, the first with room first. */
     hosts?: string[];

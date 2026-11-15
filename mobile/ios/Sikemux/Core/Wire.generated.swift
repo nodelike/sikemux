@@ -6851,7 +6851,7 @@ struct BoardSettings: Codable, Hashable, Sendable {
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     var reviewer: ReviewerChoice?
-    /// Whole dollars of Auto's spending in the project past which it starts no new cards.
+    /// Whole dollars a chat spends in the project between each notice to the person.
     var spendCeiling: Int?
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
     var hosts: [String]?
