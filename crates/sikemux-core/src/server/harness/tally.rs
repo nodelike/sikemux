@@ -1,5 +1,7 @@
 //! How often each agent tool was called, and how often it worked.
 
+use serde::{Deserialize, Serialize};
+
 use super::*;
 
 /// A plugin tool is named by the agent's tool name, anything else by its
