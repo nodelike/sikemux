@@ -127,6 +127,23 @@ curl -fsS -o /dev/null https://github.com/nodelike/sikemux/releases/latest/downl
   fail "the local github.com does not answer"
 
 export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
+# The installer starts the core as a systemd user service, which sees only the user manager's
+# environment, not this run's CI, so a rehearsal would count as a person's install.
+export DO_NOT_TRACK=1
+systemctl --user set-environment DO_NOT_TRACK=1 2>/dev/null || true
+core_env() {
+  local pid
+  pid=$(pgrep -n -f '/sikemux-host core' || true)
+  [[ -n "$pid" ]] || fail "no core is running"
+  as_root cat "/proc/$pid/environ" | tr '\0' '\n' | cut -d= -f1 | sort | tr '\n' ' '
+}
+untracked() {
+  local names
+  names=$(core_env)
+  echo "  the core's environment holds: $names"
+  [[ " $names " == *" DO_NOT_TRACK "* ]] || fail "the core would report usage: DO_NOT_TRACK is not in its environment"
+}
+
 echo "→ Installing v$FROM with its own installer"
 curl -fsSL -o "$WORK/install.sh" "https://github.com/nodelike/sikemux/releases/download/v$FROM/install.sh" ||
   fail "could not fetch the v$FROM installer from the local github.com"
@@ -138,6 +155,7 @@ sikemux start >/dev/null 2>&1 || true
 core_version() { sikemux status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version") or "")' 2>/dev/null || true; }
 for _ in $(seq 30); do [[ "$(core_version)" == "$FROM" ]] && break; sleep 1; done
 [[ "$(core_version)" == "$FROM" ]] || fail "the v$FROM core does not answer"
+untracked
 
 echo "→ Offering v$TO on the stable feed"
 latest "$TO"
@@ -152,4 +170,5 @@ echo "  the core answers as v$TO after $((SECONDS - began))s"
 # A new core that stops within its first start is put back, so it must still answer after that.
 sleep 40
 [[ "$(core_version)" == "$TO" ]] || fail "after 40s the core answers as $(core_version)"
+untracked
 echo "✓ v$FROM updated itself to v$TO and the new core stayed up"
