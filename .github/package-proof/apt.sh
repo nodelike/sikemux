@@ -4,23 +4,30 @@
 # scripts/move-package-suite.sh moves it.
 set -eu
 S=/serve/objects/packages-stable
-N=/proof/index-1.0.1/apt/gz
+N=/proof/index-1.0.1/apt/stable/gz
 installed() { dpkg-query -W -f '${Version}' sikemux; }
 apt-get install -y -qq /serve/objects/v1.0.0/Sikemux_1.0.0_amd64.deb >/dev/null
 cat /etc/apt/sources.list.d/sikemux.sources
-echo "== suite on 1.0.0"; apt-get update -qq; apt-cache policy sikemux
+update() {
+  apt-get update 2>&1 | tee /tmp/update
+  if grep -q '^[WE]:' /tmp/update; then exit 1; fi
+}
+candidate() { apt-cache policy sikemux | sed -n 's/ *Candidate: //p'; }
+echo "== suite on 1.0.0"
+update
+apt-cache policy sikemux | tee /tmp/policy; grep -q 'releases/download packages-stable/' /tmp/policy
 
 echo "== the new index is up, InRelease still names the old one"
 cp $N/Packages.gz $S/
-apt-get update -qq; [ "$(apt-cache policy sikemux | sed -n 's/ *Candidate: //p')" = 1.0.0 ]
+update; [ "$(candidate)" = 1.0.0 ]
 
 echo "== InRelease is gone for a moment: apt reads Release and Release.gpg"
 mv $S/InRelease $S/InRelease.old
-apt-get update -qq; [ "$(apt-cache policy sikemux | sed -n 's/ *Candidate: //p')" = 1.0.0 ]
+update; [ "$(candidate)" = 1.0.0 ]
 
 echo "== InRelease names the new index; Release is still the old one"
 cp $N/InRelease $S/InRelease
-apt-get update -qq; [ "$(apt-cache policy sikemux | sed -n 's/ *Candidate: //p')" = 1.0.1 ]
+update; [ "$(candidate)" = 1.0.1 ]
 cp $N/Release $N/Release.gpg $S/
 rm $S/Packages.xz $S/InRelease.old
 

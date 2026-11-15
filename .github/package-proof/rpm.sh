@@ -8,8 +8,8 @@ if command -v dnf >/dev/null; then
   dnf install -y -q "$RPM"
   cat /etc/yum.repos.d/sikemux.repo
   dnf makecache -y -q --repo sikemux
-  [ "$(dnf repoquery -q --repo sikemux --qf '%{version}\n' sikemux | tail -n 1)" = 1.0.0 ]
-  rm -rf $P/repodata && cp -R /proof/index-1.0.1/rpm/repodata $P/repodata
+  [ "$(dnf repoquery -q --repo sikemux --qf '%{version}' sikemux | grep . | tail -n 1)" = 1.0.0 ]
+  rm -rf $P/repodata && cp -R /proof/index-1.0.1/rpm/repodata $P/repodata && cp /serve/objects/v1.0.1/*.rpm $P/
   dnf upgrade -y -q --refresh sikemux
   [ "$(rpm -q --qf '%{version}' sikemux)" = 1.0.1 ] && [ "$(/usr/lib/sikemux/sikemux-host)" = 1.0.1 ]
   dnf remove -y -q sikemux
@@ -19,7 +19,7 @@ else
   zypper --non-interactive install "$RPM"
   cat /etc/zypp/repos.d/sikemux.repo
   zypper --non-interactive --gpg-auto-import-keys refresh sikemux
-  rm -rf $P/repodata && cp -R /proof/index-1.0.1/rpm/repodata $P/repodata
+  rm -rf $P/repodata && cp -R /proof/index-1.0.1/rpm/repodata $P/repodata && cp /serve/objects/v1.0.1/*.rpm $P/
   zypper --non-interactive --gpg-auto-import-keys refresh sikemux
   zypper --non-interactive update sikemux
   [ "$(rpm -q --qf '%{version}' sikemux)" = 1.0.1 ] && [ "$(/usr/lib/sikemux/sikemux-host)" = 1.0.1 ]

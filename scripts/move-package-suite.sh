@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Points a package repository suite, the fixed `packages-stable` or `packages-nightly`
-# release apt reads, at a published release by copying the signed index that release
-# carries, then has GitHub Pages serve its rpm index too. Nothing is rebuilt or signed.
-#   move-package-suite.sh <stable|nightly> <version> [--if-newer]
+# release apt reads and GitHub Pages serves dnf from, at the release its update feed
+# names, by copying the signed index that release carries. Nothing is rebuilt or signed.
+# Stable follows the latest stable release; nightly follows the nightly feed, or stable
+# when that is newer, as the app does. Taking the target from the feeds lets a run that
+# replaced another one waiting do that one's move too. Run it only from the Package
+# repository workflow, which moves one suite at a time:
+#   gh workflow run packages.yml -f suite=<stable|nightly>
 #
 # apt reads InRelease, then the index it names. Each move switches the index between
 # Packages.xz and Packages.gz, so the previous InRelease keeps naming a file that is
@@ -13,11 +17,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 SUITE="${1:-}"
-VERSION="${2:-}"
-IF_NEWER="${3:-}"
-[[ "$SUITE" == stable || "$SUITE" == nightly ]] && [[ -n "$VERSION" ]] &&
-  [[ -z "$IF_NEWER" || "$IF_NEWER" == --if-newer ]] || {
-  echo "Usage: $0 <stable|nightly> <version> [--if-newer]" >&2
+[[ "$SUITE" == stable || "$SUITE" == nightly ]] || {
+  echo "Usage: $0 <stable|nightly>" >&2
   exit 2
 }
 TAG="packages-$SUITE"
@@ -32,12 +33,24 @@ order() {
   printf '%06d%06d%06d%06d' "$major" "$minor" "$patch" "$build"
 }
 
+VERSION="$(gh release view --json tagName --jq .tagName)"
+VERSION="${VERSION#v}"
+if [[ "$SUITE" == nightly ]]; then
+  nightly="$(gh release download nightly -p latest.json -O - | jq -r .version)"
+  [[ "$(order "$nightly")" > "$(order "$VERSION")" ]] && VERSION="$nightly"
+fi
+if ! gh release view "v$VERSION" --json assets --jq '.assets[].name' | grep -qx "packages-index-$VERSION.tar"; then
+  echo "✓ v$VERSION carries no package index, so the $SUITE packages stay as they are"
+  exit 0
+fi
+
 dir="$(mktemp -d)"
 trap 'rm -rf "$dir"' EXIT
 gh release download "v$VERSION" -p "packages-index-$VERSION.tar" -D "$dir"
 mkdir "$dir/index"
 tar -xf "$dir/packages-index-$VERSION.tar" -C "$dir/index"
-tar -cf "$dir/rpm-repodata.tar" -C "$dir/index/rpm" repodata
+printf '%s\n' "$VERSION" >"$dir/index/rpm/version"
+tar -cf "$dir/rpm-repodata.tar" -C "$dir/index/rpm" repodata version
 
 TITLE="Packages, $SUITE (v$VERSION)"
 NOTES="The $SUITE suite of Sikemux's apt repository, and the source of its rpm repository on GitHub Pages.
@@ -59,18 +72,17 @@ replace() {
 }
 
 if ! gh release view "$TAG" >/dev/null 2>&1; then
-  apt="$dir/index/apt/xz"
+  apt="$dir/index/apt/$SUITE/xz"
   gh release create "$TAG" --target "$(gh api "repos/{owner}/{repo}/commits/v$VERSION" --jq .sha)" \
     --title "$TITLE" --notes "$NOTES" --prerelease --latest=false \
     "$apt/Packages.xz" "$apt/InRelease" "$apt/Release" "$apt/Release.gpg" "$dir/rpm-repodata.tar"
 else
-  current="$(gh release view "$TAG" --json name --jq .name | sed -n 's/.*(v\(.*\))$/\1/p')"
-  if [[ -n "$IF_NEWER" && -n "$current" && ! "$(order "$VERSION")" > "$(order "$current")" ]]; then
-    echo "✓ The $SUITE packages stay on v$current, newer than v$VERSION"
+  if [[ "$(gh release view "$TAG" --json name --jq .name)" == "$TITLE" ]]; then
+    echo "✓ The $SUITE packages already serve v$VERSION"
     exit 0
   fi
   if [[ -n "$(asset_id Packages.xz)" ]]; then format=gz old=xz; else format=xz old=gz; fi
-  apt="$dir/index/apt/$format"
+  apt="$dir/index/apt/$SUITE/$format"
   gh release upload "$TAG" "$apt/Packages.$format" "$dir/rpm-repodata.tar" --clobber
   replace InRelease "$apt/InRelease"
   replace Release "$apt/Release"
@@ -80,5 +92,4 @@ else
   stale="$(asset_id "Packages.$old")"
   [[ -z "$stale" ]] || gh api -X DELETE "repos/{owner}/{repo}/releases/assets/$stale" >/dev/null
 fi
-gh workflow run packages-site.yml --ref main
 echo "✓ The $SUITE packages now serve v$VERSION"

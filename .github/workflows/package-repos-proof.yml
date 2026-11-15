@@ -43,11 +43,12 @@ jobs:
             cp "$RUNNER_TEMP"/bundle-$version/deb/*.deb "$RUNNER_TEMP"/bundle-$version/rpm/*.rpm $S/objects/v$version/
             tar -xf target/packages/packages-index-$version.tar -C proof/index-$version
           done
-          cp proof/index-1.0.0/apt/xz/* $S/objects/packages-stable/
+          cp proof/index-1.0.0/apt/stable/xz/* $S/objects/packages-stable/
+          cp $S/objects/v1.0.0/*.rpm $S/pages/packages-stable/
           cp -R proof/index-1.0.0/rpm/repodata $S/pages/packages-stable/
           cp packaging/linux/sikemux-archive.asc proof/archive.asc
           cp .github/package-proof/*.sh proof/
-          gunzip -c proof/index-1.0.1/apt/gz/Packages.gz
+          gunzip -c proof/index-1.0.1/apt/stable/gz/Packages.gz; cat proof/index-1.0.1/apt/stable/gz/Release
           zcat proof/index-1.0.1/rpm/repodata/*primary.xml.gz | grep -o '<location[^>]*>'
           find serve proof -type f | sort
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

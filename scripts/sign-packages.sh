@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Signs the .rpm files a release publishes and writes the signed indexes its
 # apt and rpm repositories serve, packed as the one archive the release carries:
-#   apt/xz/  Packages.xz with the InRelease, Release and Release.gpg that name it
-#   apt/gz/  the same index as Packages.gz, so a suite can move with no moment
-#            where its index and the signed file naming it disagree
-#   rpm/repodata/  for dnf and zypper, fetching each .rpm from the release itself
+#   apt/<suite>/xz/  Packages.xz with the InRelease, Release and Release.gpg that name
+#                    it, for each suite this version may serve: nightly, and stable too
+#                    for a stable version, since apt refuses a Release of another suite
+#   apt/<suite>/gz/  the same index as Packages.gz, so a suite can move with no moment
+#                    where its index and the signed file naming it disagree
+#   rpm/repodata/    for dnf, which fetches each .rpm from the release itself, and
+#                    zypper, which ignores that and fetches it beside the index
 # The key comes in PACKAGES_SIGNING_KEY (an armored signing subkey) and
 # PACKAGES_SIGNING_KEY_PASSWORD; it never reaches a job that builds.
 #   scripts/sign-packages.sh <version> <bundle dir>
@@ -71,22 +74,31 @@ mkdir -p "$WORK/apt/v$VERSION"
 cp "${DEBS[@]}" "$WORK/apt/v$VERSION/"
 (cd "$WORK/apt" && apt-ftparchive packages "v$VERSION") >"$WORK/Packages"
 [[ "$(grep -c '^Filename: ' "$WORK/Packages")" -eq ${#DEBS[@]} ]] || fail "the apt index does not list every .deb"
-for format in xz gz; do
-  mkdir "$TREE/apt/$format"
-  case "$format" in
-    xz) xz -c "$WORK/Packages" >"$TREE/apt/xz/Packages.xz" ;;
-    gz) gzip -9nc "$WORK/Packages" >"$TREE/apt/gz/Packages.gz" ;;
-  esac
-  apt-ftparchive \
-    -o APT::FTPArchive::Release::Origin=Sikemux \
-    -o APT::FTPArchive::Release::Label=Sikemux \
-    -o APT::FTPArchive::Release::Description="Sikemux $VERSION" \
-    release "$TREE/apt/$format" >"$WORK/Release"
-  mv "$WORK/Release" "$TREE/apt/$format/Release"
-  sign --clearsign --output "$TREE/apt/$format/InRelease" "$TREE/apt/$format/Release"
-  sign --detach-sign --output "$TREE/apt/$format/Release.gpg" "$TREE/apt/$format/Release"
-  gpgv --quiet --keyring "$WORK/public.gpg" "$TREE/apt/$format/InRelease" 2>/dev/null ||
-    fail "the $format InRelease does not check against the key"
+SUITES=(nightly)
+[[ "$VERSION" == *-* ]] || SUITES=(stable nightly)
+for suite in "${SUITES[@]}"; do
+  for format in xz gz; do
+    apt="$TREE/apt/$suite/$format"
+    mkdir -p "$apt"
+    case "$format" in
+      xz) xz -c "$WORK/Packages" >"$apt/Packages.xz" ;;
+      gz) gzip -9nc "$WORK/Packages" >"$apt/Packages.gz" ;;
+    esac
+    # apt skips an index whose Release does not list it uncompressed too.
+    cp "$WORK/Packages" "$apt/Packages"
+    apt-ftparchive \
+      -o APT::FTPArchive::Release::Origin=Sikemux \
+      -o APT::FTPArchive::Release::Label=Sikemux \
+      -o APT::FTPArchive::Release::Suite="packages-$suite" \
+      -o APT::FTPArchive::Release::Description="Sikemux $VERSION" \
+      release "$apt" >"$WORK/Release"
+    rm "$apt/Packages"
+    mv "$WORK/Release" "$apt/Release"
+    sign --clearsign --output "$apt/InRelease" "$apt/Release"
+    sign --armor --detach-sign --output "$apt/Release.gpg" "$apt/Release"
+    gpgv --quiet --keyring "$WORK/public.gpg" "$apt/InRelease" 2>/dev/null ||
+      fail "the $suite $format InRelease does not check against the key"
+  done
 done
 
 echo "→ Writing the rpm index"
