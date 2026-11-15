@@ -93,10 +93,15 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
             folder: folder.clone(),
         });
         std::thread::spawn(move || {
-            if !drive(host, &folder) {
+            let manager = BrowserManager::new(host);
+            if !drive(&manager, &folder) {
                 std::process::exit(1);
             }
             let _ = std::fs::write(folder.join("passed"), "");
+            // The tab closes with its manager, so both stay until the window is pictured.
+            loop {
+                std::thread::park();
+            }
         });
         let mut message = MSG::default();
         // SAFETY: the window's own message loop, on the thread that made it.
@@ -153,10 +158,9 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
         unsafe { DefWindowProcW(window, message, wparam, lparam) }
     }
 
-    fn drive(host: Arc<ProofHost>, folder: &Path) -> bool {
+    fn drive(manager: &BrowserManager, folder: &Path) -> bool {
         let page = folder.join("page.html");
         std::fs::write(&page, PAGE).expect("the page is written");
-        let manager = BrowserManager::new(host);
         let url = match manager.local_file_url(&page) {
             Ok(url) => url,
             Err(why) => return failed("local_file_url", &why),
@@ -191,7 +195,7 @@ input,button{font:inherit;padding:8px 12px}button{position:absolute;left:40px;to
                 method: method.into(),
                 params,
             };
-            let answer = tools::execute(&manager, &request, &|_, _| Box::pin(async { Ok(()) }));
+            let answer = tools::execute(manager, &request, &|_, _| Box::pin(async { Ok(()) }));
             let name = method.trim_start_matches("browser.");
             match answer {
                 Ok(mut answer) => {
