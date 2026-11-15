@@ -61,6 +61,11 @@ pub struct BoardAbove {
     pub chief_undoable: fn(&Core, &str, Option<u64>, u64) -> Result<Overrule, String>,
     /// The overruling was undone: what it kept goes back.
     pub chief_overrule_undone: Undone,
+    /// The board closed a card by itself once the project's check passed on `commit`: the chief's
+    /// chat says so, with Undo.
+    pub chief_card_closed: fn(&Core, &str, u64, &str, &str),
+    /// The person reopened a card the board closed by itself.
+    pub chief_card_reopened: fn(&Core, &str, u64),
     /// The agent that started the agent, when it runs on a linked host.
     pub hosts_started_by: fn(&Core, &str) -> Option<String>,
     /// The rows of linked hosts' agents changed.

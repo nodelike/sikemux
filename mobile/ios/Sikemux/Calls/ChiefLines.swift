@@ -116,6 +116,42 @@ struct OverruledLine: View {
     }
 }
 
+/// The line the board leaves in the chief's chat when it closed a card by itself, as the Mac words it: the card, the
+/// commit the check passed on, and Undo until the person reopens it.
+struct ClosedCardLine: View {
+    @Environment(TranscriptContext.self) private var context
+    let closed: ClosedCard
+    @State private var sending = false
+    @State private var refused: String?
+
+    var body: some View {
+        let reopened = closed.reopened == true
+        DecisionLineLayout(
+            icon: Icons.check, head: reopened ? CallWords.closedReopened : CallWords.closedByItself,
+            action: context.acts && !reopened ? CallWords.undo : nil, sending: sending, act: reopen,
+            quote: "#\(closed.card) \(closed.title)", why: CallWords.checkPassed(on: closed.commit), refused: refused)
+    }
+
+    private func reopen() {
+        guard !sending else { return }
+        guard let core = context.core, let connection = Hub.shared.live(core).connection else {
+            refused = CallWords.notConnected
+            return
+        }
+        sending = true
+        refused = nil
+        let params = BoardUpdateParams(project: closed.project, id: closed.card, status: .progress)
+        Task {
+            defer { sending = false }
+            do {
+                _ = try await connection.call(PhoneCall.BoardUpdate.self, params)
+            } catch {
+                refused = problem(error)
+            }
+        }
+    }
+}
+
 /// The chief's count of last week, in its own words under the day and time it came.
 struct WeekLine: View {
     @Environment(\.palette) private var palette

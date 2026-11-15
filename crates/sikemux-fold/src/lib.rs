@@ -37,12 +37,12 @@ use sikemux_wire::protocol::PermissionMode;
 use sikemux_view::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
-    ChiefAway, Compactions, ContentBlock, ContextUsage, EndedTasks, FailureKind, GifRef,
-    GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity, NoticeState, OverruledDecision,
-    PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage, RestoredPart,
-    Retrying, RuleChange, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState,
-    TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart, Unsourced,
-    UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
+    ChiefAway, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks, FailureKind,
+    GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity, NoticeState,
+    OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
+    RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason, SubagentCard,
+    SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart,
+    Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -2627,6 +2627,9 @@ impl Fold {
             worker_page: update
                 .get("workerPage")
                 .and_then(|page| serde_json::from_value(page.clone()).ok()),
+            closed_card: update
+                .get("closedCard")
+                .and_then(|closed| serde_json::from_value(closed.clone()).ok()),
         };
         if let Some(page) = notice.worker_page.as_ref() {
             if self.worker_page_again(page) {
@@ -2656,6 +2659,11 @@ impl Fold {
                 return;
             }
         }
+        if let Some(reopened) = notice.closed_card.as_ref().filter(|closed| closed.reopened) {
+            if self.card_reopened(reopened, &notice.title) {
+                return;
+            }
+        }
         // A chat a usage limit stopped says when it resumes, or that it no longer will.
         if let Some(failure) = self
             .head
@@ -2680,7 +2688,8 @@ impl Fold {
             || notice.rule.as_ref().is_some_and(|rule| rule.undone)
             || notice.week.is_some()
             || notice.rule_change.is_some()
-            || notice.worker_page.is_some();
+            || notice.worker_page.is_some()
+            || notice.closed_card.is_some();
         if own_line && !self.head.running {
             let at = stamped_at(update);
             self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
@@ -2721,6 +2730,32 @@ impl Fold {
 
     /// A rule an agent took off the list or reworded is back: its line says so. Answers whether
     /// the chat held that line.
+    /// The person reopened a card the board closed by itself: its line says so in place, rather
+    /// than as a new line. Answers whether the chat held that line.
+    fn card_reopened(&mut self, reopened: &ClosedCard, title: &str) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.closed_card.as_ref().is_some_and(|line| {
+                    line.project == reopened.project && line.card == reopened.card && !line.reopened
+                }))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            notice.closed_card = Some(Box::new(reopened.clone()));
+            notice.title = title.to_owned();
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
+    }
+
     fn rule_restored(&mut self, back: &RuleChange) -> bool {
         let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
             let part = held.msg.parts.iter().position(|part| {

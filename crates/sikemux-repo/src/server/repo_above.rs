@@ -134,6 +134,8 @@ pub struct RepoAbove {
     pub board_ci_ruled: fn(&Arc<Core>, &str, &str, &[FailedJob]),
     /// The open card that holds the project's failing CI.
     pub board_ci_card: fn(&Core, &str) -> Option<CiCard>,
+    /// The project's check passed on `commit`, on its branch, which holds these agents' commits.
+    pub board_check_passed: fn(&Arc<Core>, &str, &[String], &str),
     /// Notes in the project's journal that its repository moved, by the kind of move.
     pub harness_note_repository: fn(&Core, &str, &str),
     /// Whether the question still waits for its answer.

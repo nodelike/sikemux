@@ -1407,6 +1407,7 @@ mod reducer {
                     rule_change: None,
                     decided: None,
                     worker_page: None,
+                    closed_card: None,
                 }
             ),
             other => panic!("expected an agent notice, got {other:?}"),

@@ -103,6 +103,8 @@ struct AgentNoticeLine: View {
             RuleLine(line: rule)
         } else if let page = notice.workerPage {
             WorkerPageLine(page: page)
+        } else if let closed = notice.closedCard {
+            ClosedCardLine(closed: closed)
         } else {
             let tint =
                 notice.severity == .error ? palette.danger : notice.severity == .warning ? palette.warn : palette.inkDim

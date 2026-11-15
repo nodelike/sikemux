@@ -6,8 +6,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_view::chat::{
-    ChiefWeek, DecidedLine, GoalMarker, KeptRule, OverruledDecision, RuleChange, StopReason,
-    WorkerPage,
+    ChiefWeek, ClosedCard, DecidedLine, GoalMarker, KeptRule, OverruledDecision, RuleChange,
+    StopReason, WorkerPage,
 };
 
 use crate::ChatEventKind;
@@ -379,6 +379,13 @@ pub fn week_notice(title: &str, week: ChiefWeek) -> Value {
 pub fn rule_change_notice(title: &str, rule_change: RuleChange) -> Value {
     let mut update = notice("info", title, None);
     update["ruleChange"] = json!(rule_change);
+    update
+}
+
+/// The line in the chief's chat that says the board closed a card by itself.
+pub fn closed_card_notice(title: &str, closed_card: ClosedCard) -> Value {
+    let mut update = notice("info", title, None);
+    update["closedCard"] = json!(closed_card);
     update
 }
 

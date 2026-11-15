@@ -1152,6 +1152,55 @@ fn overruled(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
         .into_any_element()
 }
 
+/// The quiet line the board leaves in the chief's chat when it closed a card by itself, with Undo
+/// until the person reopens it.
+fn closed_card(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
+    let Some(closed) = notice.closed_card.as_deref().cloned() else {
+        return div().into_any_element();
+    };
+    let head = match closed.reopened {
+        true => t!("Closed by itself, then reopened"),
+        false => t!("Closed by itself"),
+    };
+    let quoted = t!(
+        "“{text}”",
+        text = format!("#{} {}", closed.card, closed.title)
+    );
+    let passed = t!(
+        "the check passed on {commit}",
+        commit = closed.commit.chars().take(7).collect::<String>()
+    );
+    let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
+    notice_box(looks)
+        .child(ui::icon(Icon::Check, 12.).text_color(looks.quiet))
+        .child(div().flex_none().child(head))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_color(looks.ink)
+                .child(format!("· {quoted}")),
+        )
+        .child(div().flex_none().child(format!("· {passed}")))
+        .when(!closed.reopened, |line| {
+            line.child("·").child(
+                div()
+                    .id(SharedString::from(format!("closed-card-{}", closed.card)))
+                    .flex_none()
+                    .text_color(looks.ink)
+                    .child(t!("Undo"))
+                    .clicks(move |_, _, cx| {
+                        let closed = closed.clone();
+                        let _ = bench.update(cx, |bench, cx| {
+                            let target = bench.chat_target(&agent);
+                            crate::playbook::reopen_card(bench, &target, closed, cx)
+                        });
+                    }),
+            )
+        })
+        .into_any_element()
+}
+
 /// The quiet line a rule leaves when a check in the repository holds it now, with Undo until the
 /// person brings it back.
 fn rule_change(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
@@ -1624,6 +1673,9 @@ pub(super) fn part(
         ChatPart::AgentNotice { notice, .. } if notice.decided.is_some() => decided(notice, looks),
         ChatPart::AgentNotice { notice, .. } if notice.rule_change.is_some() => {
             rule_change(notice, looks)
+        }
+        ChatPart::AgentNotice { notice, .. } if notice.closed_card.is_some() => {
+            closed_card(notice, looks)
         }
         ChatPart::AgentNotice {
             notice: AgentNotice {

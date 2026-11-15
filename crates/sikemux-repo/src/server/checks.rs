@@ -1074,6 +1074,10 @@ fn ended(
         let covered: Vec<String> = commits.iter().map(|commit| commit.sha.clone()).collect();
         (core.repo_above().pictures_checked)(core, project, &covered);
     }
+    if let (true, Tier::Full, Some(newest)) = (passed, tier, commits.last()) {
+        let agents: Vec<String> = agents.iter().map(|agent| (*agent).clone()).collect();
+        (core.repo_above().board_check_passed)(core, project, &agents, &newest.sha);
+    }
     (core.repo_above().harness_note_repository)(
         core,
         project,

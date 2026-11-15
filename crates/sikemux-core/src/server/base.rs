@@ -433,6 +433,7 @@ pub(super) fn repo_above() -> RepoAbove {
         board_landing: board::landing,
         board_ci_ruled: board::ci_ruled,
         board_ci_card: board::ci_card,
+        board_check_passed: board::check_passed,
         harness_note_repository: |core, project, kind| {
             core.harness().note_repository(project, kind)
         },
@@ -480,6 +481,8 @@ pub(super) fn board_above() -> BoardAbove {
                 core, project, goal, decision, overrule,
             ))
         },
+        chief_card_closed: chief::card_closed,
+        chief_card_reopened: chief::card_reopened,
         hosts_started_by: |core, agent| core.hosts().team.get(agent)?.parent,
         hosts_rows_moved: hosts::route::rows_moved,
     }

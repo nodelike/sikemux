@@ -130,6 +130,10 @@ pub struct Card {
     /// until someone takes it up again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     aside_at: Option<u64>,
+    /// The landed commit of its owner's that the project's check passed on while the owner worked
+    /// it. The card closes by itself once the owner leaves it or waits on the person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    checked: Option<String>,
 }
 
 /// Bumped by a change to what a board file holds that an earlier file needs
@@ -1285,6 +1289,7 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         updated_at: now,
         acted_at: now,
         aside_at: None,
+        checked: None,
     }
 }
 
@@ -1380,6 +1385,44 @@ pub fn add_for_trigger(
 
 pub fn triggers_changed(core: &Core, project: &str) {
     core.changed(What::ReadIn(Topic::Boards, Some(project), None));
+}
+
+/// The project's check passed on `sha` of its branch, which holds commits of `agents`: the card
+/// each of them works now keeps it, to close by itself once its owner leaves it.
+pub fn check_passed(core: &Arc<Core>, project: &str, agents: &[String], sha: &str) {
+    let mut state = core.boards().state.locked();
+    let Some(board) = state.boards.get_mut(project) else {
+        return;
+    };
+    let working: Vec<u64> = (agents.iter())
+        .filter_map(|agent| {
+            (board.cards.iter())
+                .filter(|card| {
+                    card.status == CardStatus::Progress
+                        && card.owner_id() == Some(agent.as_str())
+                        && !board.is_goal(card)
+                })
+                .max_by_key(|card| card.acted_at)
+                .map(|card| card.id)
+        })
+        .collect();
+    if working.is_empty() {
+        return;
+    }
+    for card in (board.cards.iter_mut()).filter(|card| working.contains(&card.id)) {
+        card.checked = Some(sha.to_owned());
+    }
+    core.boards().save(&mut state, project);
+    drop(state);
+    core.boards().wake.now();
+}
+
+/// Whether card `id` is one the board closed by itself, which the person's reopening puts back.
+fn closed_by_check(core: &Core, project: &str, id: u64) -> bool {
+    let state = core.boards().state.locked();
+    (state.boards.get(project))
+        .and_then(|board| board.card(id).ok())
+        .is_some_and(|card| card.status == CardStatus::Done && card.checked.is_some())
 }
 
 pub fn ci_card(core: &Core, project: &str) -> Option<CiCard> {
@@ -1513,6 +1556,12 @@ fn change_in(
     }
     if let Some(parent) = changes.parent {
         card.parent = parent;
+    }
+    if changes
+        .status
+        .is_some_and(|status| status != CardStatus::Done)
+    {
+        card.checked = None;
     }
     match changes.status {
         Some(CardStatus::Open) => {
@@ -2065,7 +2114,14 @@ pub async fn person_update(
             let project = project_at(&core, &params.project)?;
             let id = card_number(Some(params.id), "id")?;
             let changes = params.changes()?;
+            let reopening = changes
+                .status
+                .is_some_and(|status| status != CardStatus::Done)
+                && closed_by_check(&core, &project, id);
             let (_, notices) = change_card(&core, &project, &By::Person, id, changes)?;
+            if reopening {
+                (core.board_above().chief_card_reopened)(&core, &project, id);
+            }
             Ok((project_view(&core, &project), notices))
         })
         .await

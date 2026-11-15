@@ -335,6 +335,12 @@ enum CallWords {
     static let overruledUndone = String(localized: "Overruled, then undone")
     static let standsAgain = String(localized: "It stands again")
     static let fromNowOn = String(localized: "Decisions like this come to you from now on")
+    /// The line the board leaves when it closed a card by itself.
+    static let closedByItself = String(localized: "Closed by itself")
+    static let closedReopened = String(localized: "Closed by itself, then reopened")
+    static func checkPassed(on commit: String) -> String {
+        String(localized: "The check passed on \(String(commit.prefix(7)))")
+    }
     /// A rule change's line as the Mac words it: its title, then the short hash of the check that holds it or who did
     /// it.
     static func ruleChange(_ line: RuleChange) -> (head: String, tail: String?) {

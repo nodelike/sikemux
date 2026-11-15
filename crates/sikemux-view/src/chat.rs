@@ -1794,6 +1794,24 @@ pub struct AgentNotice {
     /// A page one of the agent's workers showed, as a row that opens it on that worker's desk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_page: Option<WorkerPage>,
+    /// A card the board closed by itself, with Undo (`boardUpdate` back to progress).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_card: Option<Box<ClosedCard>>,
+}
+
+/// A card the board closed once the project's check passed on its owner's landed commit, and
+/// the owner had left it or was waiting on the person.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClosedCard {
+    pub project: String,
+    pub card: u64,
+    pub title: String,
+    /// The landed commit the check passed on.
+    pub commit: String,
+    /// The person reopened it: the line offers no Undo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub reopened: bool,
 }
 
 /// A page a worker showed with `page_show`, in its lead's chat. Shown again under the same

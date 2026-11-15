@@ -3,6 +3,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { getCalendars } from 'expo-localization';
 
 import {
+  checkPassed,
+  CLOSED_BY_ITSELF,
+  CLOSED_REOPENED,
   DECIDED,
   FROM_NOW_ON,
   NOT_CONNECTED,
@@ -16,7 +19,7 @@ import {
   weekCame,
   weekCount,
 } from '@shared/calls/words';
-import type { ChiefWeek, DecidedLine, OverruledDecision, RuleChange } from '@shared/wire.generated';
+import type { ChiefWeek, ClosedCard, DecidedLine, OverruledDecision, RuleChange } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 import { connectionOf, liveOf } from '@/devices/hub';
@@ -138,6 +141,40 @@ export function OverruledLine({ overruled }: { overruled: OverruledDecision }) {
       sending={sending}
       quote={overruled.text}
       why={why}
+      refused={refused}
+    />
+  );
+}
+
+/**
+ * The line the board leaves in the chief's chat when it closed a card by itself, as the Mac words it: the card, the
+ * commit the check passed on, and Undo until the person reopens it.
+ */
+export function ClosedCardLine({ closed }: { closed: ClosedCard }) {
+  const t = useT();
+  const acts = useContext(ActsContext);
+  const core = useContext(HostContext);
+  const [sending, setSending] = useState(false);
+  const [refused, setRefused] = useState<string>();
+  const reopen = () => {
+    if (sending) return;
+    const connection = connectionOf(liveOf(core));
+    if (!connection) return setRefused(t(NOT_CONNECTED));
+    setSending(true);
+    setRefused(undefined);
+    callHost(connection, 'boardUpdate', { project: closed.project, id: closed.card, status: 'progress' })
+      .catch((error: unknown) => setRefused(problem(error)))
+      .finally(() => setSending(false));
+  };
+  return (
+    <DecisionLine
+      icon="IconCheck"
+      head={t(closed.reopened ? CLOSED_REOPENED : CLOSED_BY_ITSELF)}
+      action={acts && !closed.reopened ? t(UNDO) : undefined}
+      act={reopen}
+      sending={sending}
+      quote={`#${closed.card} ${closed.title}`}
+      why={checkPassed(closed.commit, t)}
       refused={refused}
     />
   );

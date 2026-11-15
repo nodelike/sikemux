@@ -316,6 +316,10 @@ export const OVERRULED = "Overruled";
 export const OVERRULED_UNDONE = "Overruled, then undone";
 export const STANDS_AGAIN = "It stands again";
 export const FROM_NOW_ON = "Decisions like this come to you from now on";
+/** The line the board leaves when it closed a card by itself. */
+export const CLOSED_BY_ITSELF = "Closed by itself";
+export const CLOSED_REOPENED = "Closed by itself, then reopened";
+export const checkPassed = (commit: string, say: Say = english) => say("The check passed on {commit}", { commit: commit.slice(0, 7) });
 export const RULE_BACK = "Rule back";
 export const NOW_A_CHECK = "Now a check";
 export const RULE_CHANGED = "Rule changed";

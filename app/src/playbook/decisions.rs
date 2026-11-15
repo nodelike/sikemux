@@ -1,11 +1,10 @@
 //! Overruling what agents decided for the person, and putting it back, on the host whose chat
-//! shows the decision.
+//! shows the decision. A card the board closed by itself is put back the same way.
 
 use gpui_kit::Context;
-use sikemux_calls::board::OverruleParams;
-use sikemux_calls::board::UndoOverruleParams;
+use sikemux_calls::board::{BoardUpdateParams, CardStatus, OverruleParams, UndoOverruleParams};
 use sikemux_calls::call;
-use sikemux_view::chat::OverruledDecision;
+use sikemux_view::chat::{ClosedCard, OverruledDecision};
 
 use crate::core::Target;
 use crate::toast;
@@ -47,6 +46,34 @@ pub(crate) fn undo_overrule(
         asked,
         t!("It was not put back"),
         |bench, _, cx| bench.notify(toast::success(t!("The decision stands again")), cx),
+        cx,
+    );
+}
+
+/// Reopens a card the board closed by itself, back to being worked.
+pub(crate) fn reopen_card(
+    bench: &mut Workbench,
+    target: &Target,
+    closed: ClosedCard,
+    cx: &mut Context<Workbench>,
+) {
+    let asked = target.request_typed::<call::BoardUpdate>(BoardUpdateParams {
+        project: closed.project,
+        id: closed.card,
+        title: None,
+        details: None,
+        acceptance: None,
+        promise: None,
+        asserts: None,
+        status: Some(CardStatus::Progress),
+        result: None,
+        depends_on: None,
+        parent: None,
+    });
+    bench.report(
+        asked,
+        t!("It was not reopened"),
+        |bench, _, cx| bench.notify(toast::success(t!("Reopened")), cx),
         cx,
     );
 }

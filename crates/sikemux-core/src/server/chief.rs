@@ -25,8 +25,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::calls::{CallState, PersonCall};
 use sikemux_view::chat::{
-    AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, DecidedLine, LinesChanged,
-    OverruledDecision, RuleChange, WorkerPage,
+    AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, ClosedCard, DecidedLine,
+    LinesChanged, OverruledDecision, RuleChange, WorkerPage,
 };
 use sikemux_view::slice::Decision;
 use sikemux_view::turn::{TurnPhase, TurnStep};
@@ -1312,6 +1312,45 @@ pub(crate) fn overruled(
         &chief,
         format!("The person overruled {named}, which an agent wrote as {said}.{from_now_on}"),
     );
+}
+
+/// The board closed card `card` of `project` (a path) by itself, as the project's check passed on
+/// `commit`: the chief's chat says so on one line with Undo.
+pub(crate) fn card_closed(core: &Core, project: &str, card: u64, title: &str, commit: &str) {
+    let Some(chief) = chief_at(core, project) else {
+        return;
+    };
+    let line = ClosedCard {
+        project: project.to_owned(),
+        card,
+        title: title.to_owned(),
+        commit: commit.to_owned(),
+        reopened: false,
+    };
+    let update = sikemux_fold::update::closed_card_notice("Closed by itself", line);
+    put_row(core, &chief, closed_key(project, card), update);
+}
+
+/// The person reopened a card the board closed by itself: its line says so and offers no Undo.
+pub(crate) fn card_reopened(core: &Core, project: &str, card: u64) {
+    let Some(chief) = chief_at(core, project) else {
+        return;
+    };
+    let key = closed_key(project, card);
+    let line = core.chiefs().read(&chief, |seat| {
+        let row = seat.rows.iter().find(|row| row.key == key)?;
+        serde_json::from_value::<ClosedCard>(row.update["closedCard"].clone()).ok()
+    });
+    let Some(mut line) = line.flatten() else {
+        return;
+    };
+    line.reopened = true;
+    let update = sikemux_fold::update::closed_card_notice("Closed by itself, then reopened", line);
+    put_row(core, &chief, key, update);
+}
+
+fn closed_key(project: &str, card: u64) -> String {
+    format!("closed|{project}|{card}")
 }
 
 /// An agent recorded `decision` of `project` (a path) itself: a line under its reply in its own

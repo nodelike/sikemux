@@ -1,5 +1,6 @@
 //! Keeps a board to the work still on it, with nobody asked: a card whose cards under it are all
-//! done is done too, finished cards leave a few days after they finish, and an open card nobody
+//! done is done too, a card whose owner's landed commit passed the project's check is done once
+//! the owner leaves it or waits on the person, finished cards leave a few days after they finish, and an open card nobody
 //! has touched for a week moves to Later until someone takes it up again.
 
 use super::*;
@@ -23,6 +24,7 @@ pub fn settle(core: &Arc<Core>) -> Option<u64> {
     let mut next = None;
     for project in projects {
         close_parents(core, &project);
+        close_checked(core, &project);
         let mut state = core.boards().state.locked();
         let kept_until = archive::finished_long_ago(core, &mut state, &project, now);
         next = sooner(next, kept_until);
@@ -78,6 +80,48 @@ fn close_parents(core: &Arc<Core>, project: &str) {
     core.boards().save(&mut state, project);
     drop(state);
     send_notices(core, notices);
+}
+
+/// Closes each card being worked whose owner's landed commit passed the project's check, once the
+/// owner has left it or waits on the person. The chief's chat says so, with Undo.
+fn close_checked(core: &Arc<Core>, project: &str) {
+    let mut state = core.boards().state.locked();
+    let Some(board) = state.boards.get(project) else {
+        return;
+    };
+    let closing: Vec<(u64, String, String)> = (board.cards.iter())
+        .filter(|card| card.status == CardStatus::Progress)
+        .filter(|card| holder(core, card).is_none() || waits_on_person(core, card))
+        .filter_map(|card| Some((card.id, card.title.clone(), card.checked.clone()?)))
+        .collect();
+    if closing.is_empty() {
+        return;
+    }
+    let mut notices = Vec::new();
+    let mut closed = Vec::new();
+    for (id, title, commit) in closing {
+        let changes = Changes {
+            status: Some(CardStatus::Done),
+            result: Some(format!(
+                "The project's check passed on {}, its landed work.",
+                crate::git::short(&commit)
+            )),
+            ..Changes::default()
+        };
+        match change_in(core, &mut state, project, &By::Auto("Board"), id, changes) {
+            Ok((_, sent)) => {
+                notices.extend(sent);
+                closed.push((id, title, commit));
+            }
+            Err(error) => eprintln!("sikemux core: the board did not close #{id}: {error}"),
+        }
+    }
+    core.boards().save(&mut state, project);
+    drop(state);
+    send_notices(core, notices);
+    for (id, title, commit) in closed {
+        (core.board_above().chief_card_closed)(core, project, id, &title, &commit);
+    }
 }
 
 /// The cards that stay on the board though nobody holds them: what a card being worked waits
