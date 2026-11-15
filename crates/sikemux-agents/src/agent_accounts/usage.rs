@@ -1173,7 +1173,7 @@ mod tests {
         pub const KEPT: &str = "COMPUTERNAME";
         pub const READ_KEPT: &str =
             "(if defined COMPUTERNAME (<nul set /p =%COMPUTERNAME%) else (<nul set /p =unset)) & exit /b 0";
-        pub const READ_ALL_THEN_DONE: &str = "more >nul & <nul set /p =done & exit /b 0";
+        pub const READ_ALL_THEN_DONE: &str = "more >nul & (<nul set /p =done) & exit /b 0";
 
         pub fn args(script: &str) -> Vec<&str> {
             vec!["/D", "/S", "/C", script]
