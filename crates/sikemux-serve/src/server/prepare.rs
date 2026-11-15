@@ -10,8 +10,9 @@ use sikemux_pty::launch::{
     PtyContext,
 };
 use sikemux_pty::shell::{
-    configure_shell_integration, configure_task_command, inherited_ssh_environment,
-    shell_integration_requested, shell_wants_login_flag, startup_bootstrap, ShellLaunchIntegration,
+    configure_shell_integration, configure_startup, configure_task_command,
+    inherited_ssh_environment, shell_integration_requested, shell_wants_login_flag,
+    ShellLaunchIntegration,
 };
 use sikemux_pty::task::{validate_task_request, TaskSpawnRequest};
 use sikemux_pty::user_shell::{configured_shell, login_shell_environment};
@@ -214,13 +215,7 @@ pub fn prepare_terminal(
         .as_ref()
         .is_some_and(|context| context.session_kind == LaunchKind::Setup);
     if let Some(startup) = startup.as_deref() {
-        cmd.env(vars::SHELL, &shell);
-        cmd.arg("-c");
-        if setup {
-            cmd.arg(format!("exec {startup}"));
-        } else {
-            cmd.arg(startup_bootstrap(startup, login_shell));
-        }
+        configure_startup(&mut cmd, &shell, startup, !setup, login_shell);
     }
     Ok(PreparedLaunch {
         cols,

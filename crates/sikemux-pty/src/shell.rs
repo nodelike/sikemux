@@ -6,13 +6,45 @@ use sikemux_process::vars;
 use crate::error::{PtyError, PtyResult};
 use crate::launch::{LaunchKind, PtyContext};
 
-/// Execute startup commands before the interactive shell is launched. Sending
-/// text to readline makes it visible in the terminal (and multi-line commands
-/// are especially fragile), so startup must be a shell argument, never PTY
-/// input. Once it returns, replace the bootstrap shell with the normal local
-/// shell so users always land at a usable prompt.
-#[cfg(unix)]
-pub fn startup_bootstrap(startup: &str, login_shell: bool) -> String {
+/// Has `shell` run `startup` first, as a shell argument rather than PTY input: text
+/// sent to readline shows in the terminal, and multi-line commands are fragile there.
+/// With `stay`, the person's shell then takes over, so they always land at a usable
+/// prompt; without it the terminal ends with the startup command.
+pub fn configure_startup(
+    cmd: &mut CommandBuilder,
+    shell: &str,
+    startup: &str,
+    stay: bool,
+    login_shell: bool,
+) {
+    cmd.env(vars::SHELL, shell);
+    match detect_shell_kind(shell) {
+        Some(ShellKind::PowerShell) => {
+            let script = if stay {
+                startup.to_string()
+            } else {
+                format!("{startup}\nexit $LASTEXITCODE")
+            };
+            if stay {
+                cmd.arg("-NoExit");
+            }
+            cmd.args(["-NoLogo", "-Command", &script]);
+        }
+        None if cfg!(windows) => {
+            cmd.args(["/D", if stay { "/K" } else { "/C" }, startup]);
+        }
+        _ => {
+            cmd.arg("-c");
+            if stay {
+                cmd.arg(startup_bootstrap(startup, login_shell));
+            } else {
+                cmd.arg(format!("exec {startup}"));
+            }
+        }
+    }
+}
+
+fn startup_bootstrap(startup: &str, login_shell: bool) -> String {
     let login = if login_shell { " -l" } else { "" };
     format!("{startup}\nexec \"$SIKEMUX_SHELL\"{login}")
 }
@@ -20,7 +52,6 @@ pub fn startup_bootstrap(startup: &str, login_shell: bool) -> String {
 /// Shells launched without an injected rc file need `-l` to read their profile,
 /// the way a normal terminal emulator starts them. Shells that do get an
 /// injected rc file are already reading the user's chain through it.
-#[cfg(unix)]
 pub fn shell_wants_login_flag(shell: &str) -> bool {
     matches!(detect_shell_kind(shell), Some(ShellKind::Zsh))
 }
@@ -135,8 +166,9 @@ function global:prompt {
     $sikemux_code = if ($sikemux_ok) { 0 } else { 1 }
     [Console]::Write("$([char]27)]133;D;$sikemux_code$([char]7)")
     try {
-        $sikemux_path = $ExecutionContext.SessionState.Path.CurrentFileSystemLocation.Path
-        $sikemux_encoded = [Uri]::EscapeDataString([string]$sikemux_path).Replace('%2F', '/').Replace('%5C', '/')
+        $sikemux_path = [string]$ExecutionContext.SessionState.Path.CurrentFileSystemLocation.Path
+        $sikemux_encoded = (($sikemux_path -split '[\\/]') | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/'
+        $sikemux_encoded = $sikemux_encoded -replace '^([A-Za-z])%3A', '$1:'
         if (-not $sikemux_encoded.StartsWith('/')) { $sikemux_encoded = '/' + $sikemux_encoded }
         [Console]::Write("$([char]27)]7;file://localhost$sikemux_encoded$([char]7)")
     } catch {}
@@ -307,12 +339,10 @@ pub fn configure_shell_integration(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
-    use super::shell_wants_login_flag;
-    #[cfg(unix)]
     use super::startup_bootstrap;
     use super::{
-        configure_shell_integration, configure_task_command, detect_shell_kind, ShellKind,
+        configure_shell_integration, configure_task_command, detect_shell_kind,
+        shell_wants_login_flag, ShellKind,
     };
     use crate::tests::env;
     use portable_pty::CommandBuilder;
@@ -348,7 +378,6 @@ mod tests {
             .is_none());
         assert_eq!(env(&zsh, "ZDOTDIR"), original_zdotdir);
         assert_eq!(env(&zsh, "SIKEMUX_SHELL_INTEGRATION"), None);
-        #[cfg(unix)]
         assert!(shell_wants_login_flag("/bin/zsh"));
 
         let mut bash = CommandBuilder::new("/bin/bash");
@@ -406,7 +435,6 @@ mod tests {
         drop((bash_guard, fish_guard, powershell_guard));
     }
 
-    #[cfg(unix)]
     #[test]
     fn startup_runs_before_the_interactive_shell_without_pty_input() {
         let bootstrap = startup_bootstrap("ssh prod-db", false);
@@ -422,7 +450,6 @@ mod tests {
     #[test]
     fn task_command_runs_noninteractive_with_exact_cwd_env_output_and_status() {
         use portable_pty::{NativePtySystem, PtySize, PtySystem};
-        use std::io::Read;
 
         let root = tempfile::tempdir().expect("task root");
         let cwd = root.path().join("project with spaces");
@@ -465,5 +492,48 @@ mod tests {
         assert_eq!(status.exit_code(), 7);
         assert!(output.contains(cwd.to_string_lossy().as_ref()));
         assert!(output.contains("value with spaces"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn task_command_runs_in_cmd_with_exact_cwd_env_output_and_status() {
+        use portable_pty::{NativePtySystem, PtySize, PtySystem};
+
+        let root = tempfile::tempdir().expect("task root");
+        let cwd = root.path().join("project with spaces");
+        std::fs::create_dir(&cwd).expect("task cwd");
+        let pair = NativePtySystem::default()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 500,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("open task pty");
+        let mut command = CommandBuilder::new("cmd.exe");
+        command.cwd(&cwd);
+        command.env("TASK_TEST_VALUE", "value with spaces");
+        configure_task_command(
+            &mut command,
+            "cmd.exe",
+            "echo %CD%^|%TASK_TEST_VALUE%& exit 7",
+        )
+        .expect("configure task command");
+        let output = crate::pseudoconsole_output::pseudoconsole_output(&*pair.master);
+        let mut child = pair
+            .slave
+            .spawn_command(command)
+            .expect("spawn task command");
+        drop(pair.slave);
+        let status = child.wait().expect("wait for task command");
+        // A pseudoconsole ends its output only once it is closed, after the task exits.
+        drop(pair.master);
+        let output =
+            String::from_utf8_lossy(&output.iter().flatten().collect::<Vec<_>>()).into_owned();
+        assert_eq!(status.exit_code(), 7);
+        assert!(
+            output.contains(&format!("{}|value with spaces", cwd.display())),
+            "{output:?}"
+        );
     }
 }
