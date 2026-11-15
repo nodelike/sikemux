@@ -176,7 +176,7 @@ function shootMac(side) {
       run(
         join(bin, "examples/film"),
         [
-          `film/scenes/${scene}.film`,
+          join(checkout, `film/scenes/${scene}.film`),
           "--core",
           join(bin, "sikemux-host"),
           "--claude",
