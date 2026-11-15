@@ -21,7 +21,7 @@ pub mod local_files;
 pub mod macos;
 mod manager;
 mod native;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 mod no_engine;
 pub mod page_view;
 mod person;
@@ -34,6 +34,8 @@ mod tab;
 mod tab_events;
 pub mod tools;
 pub mod viewport;
+#[cfg(windows)]
+mod windows;
 
 use std::path::{Path, PathBuf};
 
@@ -49,6 +51,8 @@ pub use linux::page::give_keyboard_back;
 pub use manager::BrowserManager;
 pub use strip::TabPage;
 pub use tab::{Opener, ParentView, Tab, TabSpec};
+#[cfg(windows)]
+pub use windows::{run_pages_on_this_thread, runtime_version};
 
 pub(crate) use sikemux_base::runtime::spawn;
 

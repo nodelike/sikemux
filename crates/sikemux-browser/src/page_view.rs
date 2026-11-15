@@ -11,8 +11,10 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub use crate::no_engine::PageView;
+#[cfg(windows)]
+pub use crate::windows::PageView;
 #[cfg(target_os = "linux")]
 pub use linux::PageView;
 #[cfg(target_os = "macos")]

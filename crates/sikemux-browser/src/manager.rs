@@ -22,11 +22,13 @@ use crate::linux::page;
 use crate::macos;
 #[cfg(target_os = "macos")]
 use crate::macos as page;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 use crate::no_engine::page;
 use crate::recording;
 pub(crate) use crate::strip::{TabPage, TabStrip};
 use crate::tab_events::{OpenedBy, TabListener};
+#[cfg(windows)]
+use crate::windows::page;
 use crate::{
     address, burst, documents, downloads, favicon, history, local_files, viewport, BrowserBounds,
     BrowserDownload, BrowserSnapshot, DownloadState, PageDialog, Tab, TabSpec, TabStall, BLANK_URL,
