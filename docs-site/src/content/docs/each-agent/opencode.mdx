@@ -11,7 +11,7 @@ OpenCode is an open-source coding agent that works with many model providers.
 |---|---|
 | Command | `opencode` |
 | Chat in Sikemux | Yes, and its own TUI |
-| Permission modes | Normal only |
+| Permission modes | Normal and YOLO, chat only |
 | Effort levels | Each model's own, chat only |
 | Several accounts | No |
 
@@ -39,7 +39,11 @@ With neither, OpenCode still runs the free models its own service offers, with n
 
 ## How Sikemux runs it
 
-A chat runs its own `opencode serve`, OpenCode's HTTP server, on a port and password only that chat knows, and follows the server's events as OpenCode works. OpenCode has no YOLO mode, so it always runs with its own approvals.
+A chat runs its own `opencode serve`, OpenCode's HTTP server, on a port and password only that chat knows, and follows the server's events as OpenCode works.
+
+The chat's permission mode becomes rules on its session, with the rules in your own OpenCode config kept after them. **Normal** asks before commands and file edits, unless your config allows them; reads, searches and other tools go through. **YOLO** asks about nothing, not even reading a `.env` file, but whatever your config denies, such as `git push`, stays denied. OpenCode's **Plan** agent, in the mode menu, never edits files whichever you pick.
+
+Editing a message you sent reverts the session to before it, which also puts back the files the turns after it changed. Deleting an OpenCode chat removes its session through OpenCode's own server.
 
 Before a new chat starts, its model and effort menus list what OpenCode offers, read from a short-lived server. Each model has its own efforts, such as low to max on Claude Opus, and **Default** leaves it to the provider. The effort you pick is kept for your next OpenCode chat on a model that has it.
 

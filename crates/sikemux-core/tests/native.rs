@@ -1196,3 +1196,66 @@ async fn an_opencode_compaction_shows_as_a_row() {
     });
     assert_eq!(row, Some(ToolStatus::Completed));
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_chat_moved_from_yolo_to_normal_asks_before_a_command() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-i", home.path()).await;
+    client
+        .ask(ask::AcpSetPermissionMode {
+            agent_id: "opencode-i".into(),
+            mode: PermissionMode::WorkspaceWrite,
+        })
+        .await
+        .expect("permission mode");
+    prompt(&client, "opencode-i", &message_id(), "ask").await;
+    let (request, allow) = allow_once(&until_asked(&mut chat).await);
+    client
+        .ask(ask::AcpPermissionReply {
+            agent_id: "opencode-i".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
+        .await
+        .expect("reply");
+    chat.turn_ended().await;
+    assert!(chat.text().ends_with("allowed"), "{}", chat.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edited_opencode_message_reverts_the_session_to_before_it() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-j", home.path()).await;
+    let second = message_id();
+    prompt(&client, "opencode-j", &message_id(), "first").await;
+    chat.turn_ended().await;
+    prompt(&client, "opencode-j", &second, "second").await;
+    chat.turn_ended().await;
+
+    client
+        .ask(ask::AcpEdit {
+            agent_id: "opencode-j".into(),
+            message_id: second,
+            text: "count".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("edit");
+    chat.until(|chat| !chat.head().running && chat.text().contains("earlier"))
+        .await;
+    assert!(chat.text().ends_with("1 earlier"), "{}", chat.text());
+    assert_eq!(chat.prompts(), ["first", "count"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_yolo_opencode_chat_keeps_the_persons_own_denies() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-k", home.path()).await;
+    prompt(&client, "opencode-k", &message_id(), "push").await;
+    chat.turn_ended().await;
+    assert!(chat.text().ends_with("denied"), "{}", chat.text());
+}

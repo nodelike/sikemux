@@ -143,6 +143,8 @@ pub struct Session {
     quiet: bool,
     /// The forms already put to the person.
     forms: HashSet<String>,
+    /// OpenCode's id for each message the chat sent, by the chat's id for it.
+    pub messages: HashMap<String, String>,
 }
 
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {

@@ -5,7 +5,10 @@
 //!
 //! A prompt's first word picks what the turn does:
 //! - `stream N` sends N pieces of text;
-//! - `ask` asks to run a command and says which answer it got;
+//! - `ask` asks to run `echo hi` and says which answer it got, or `allowed` at once when the
+//!   rules allow it;
+//! - `push` does the same for `git push`, which the person's own config denies;
+//! - `count` says how many messages came before it;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on an interrupt;
 //! - `fail` fails the turn as a provider that will not answer;
 //! - `todo` writes a todo list of two;
@@ -34,6 +37,11 @@ struct Fake {
     answers: Mutex<HashMap<String, Sender<String>>>,
     seq: AtomicU64,
     interrupted: AtomicBool,
+}
+
+/// The person's own permission rules, as their OpenCode config would hold them.
+fn own_rules() -> Vec<Value> {
+    vec![json!({ "action": "shell", "resource": "git push *", "effect": "deny" })]
 }
 
 fn uuid() -> String {
@@ -160,6 +168,11 @@ impl Fake {
                 }
             }
             ("GET", ["api", "model"]) => answer(&stream, 200, json!({ "data": models() })),
+            ("GET", ["api", "config"]) => answer(
+                &stream,
+                200,
+                json!({ "data": [{ "type": "document", "info": { "permissions": own_rules() } }] }),
+            ),
             ("GET", ["api", "model", "default"]) => {
                 answer(&stream, 200, json!({ "data": models()[0] }))
             }
@@ -185,6 +198,8 @@ impl Fake {
                     "title": "",
                     "model": request.body["model"],
                     "agent": request.body["agent"],
+                    "permissions": request.body["permissions"],
+                    "messages": [],
                 });
                 self.sessions.locked().insert(id, session.clone());
                 answer(&stream, 200, json!({ "data": session }));
@@ -193,7 +208,35 @@ impl Fake {
                 Some(session) => answer(&stream, 200, json!({ "data": session })),
                 None => answer(&stream, 404, json!({ "message": "no such session" })),
             },
-            ("PATCH", ["api", "session", _]) => answer(&stream, 200, json!({})),
+            ("PATCH", ["api", "session", id]) => {
+                if let Some(session) = self.sessions.locked().get_mut(*id) {
+                    if let Some(permissions) = request.body.get("permissions") {
+                        session["permissions"] = permissions.clone();
+                    }
+                }
+                answer(&stream, 200, json!({}));
+            }
+            ("POST", ["api", "session", id, "revert", "stage"]) => {
+                if let Some(session) = self.sessions.locked().get_mut(*id) {
+                    session["revert"] = request.body["messageID"].clone();
+                }
+                answer(
+                    &stream,
+                    200,
+                    json!({ "data": { "messageID": request.body["messageID"] } }),
+                );
+            }
+            ("POST", ["api", "session", id, "revert", "commit"]) => {
+                if let Some(session) = self.sessions.locked().get_mut(*id) {
+                    let revert = session["revert"].take();
+                    if let Some(messages) = session["messages"].as_array_mut() {
+                        if let Some(at) = messages.iter().position(|message| *message == revert) {
+                            messages.truncate(at);
+                        }
+                    }
+                }
+                answer(&stream, 204, json!({}));
+            }
             ("POST", ["api", "session", id, "model"]) => {
                 if let Some(session) = self.sessions.locked().get_mut(*id) {
                     session["model"] = request.body["model"].clone();
@@ -217,7 +260,17 @@ impl Fake {
                 }
             }
             ("POST", ["api", "session", id, "prompt"]) => {
-                answer(&stream, 200, json!({}));
+                let message = format!("msg_{}", uuid());
+                if let Some(session) = self.sessions.locked().get_mut(*id) {
+                    if let Some(messages) = session["messages"].as_array_mut() {
+                        messages.push(json!(message));
+                    }
+                }
+                answer(
+                    &stream,
+                    200,
+                    json!({ "data": { "id": message, "sessionID": id, "type": "user" } }),
+                );
                 let fake = self.clone();
                 let session = (*id).to_owned();
                 let text = request.body["text"].as_str().unwrap_or_default().to_owned();
@@ -296,6 +349,50 @@ impl Fake {
         self.emit("session.execution.succeeded", json!({ "sessionID": child }));
     }
 
+    /// What OpenCode's rules say to running `command`: its base policy, then the person's
+    /// config, then the session's rules, the last match winning.
+    fn effect(&self, session: &str, command: &str) -> String {
+        let sessions = self.sessions.locked();
+        let session_rules = sessions[session]["permissions"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let base = json!({ "action": "*", "resource": "*", "effect": "allow" });
+        let matches = |pattern: &str| {
+            pattern == "*"
+                || pattern == command
+                || pattern
+                    .strip_suffix(" *")
+                    .is_some_and(|stem| command == stem || command.starts_with(&format!("{stem} ")))
+        };
+        std::iter::once(base)
+            .chain(own_rules())
+            .chain(session_rules)
+            .filter(|rule| rule["action"] == "*" || rule["action"] == "shell")
+            .rfind(|rule| matches(rule["resource"].as_str().unwrap_or_default()))
+            .and_then(|rule| rule["effect"].as_str().map(str::to_owned))
+            .unwrap_or_default()
+    }
+
+    fn ask(&self, session: &str, message: &str, call: &str, command: &str) -> String {
+        let asked = format!("per_{}", uuid());
+        let (answered, heard) = channel();
+        self.answers.locked().insert(asked.clone(), answered);
+        self.emit(
+            "permission.asked",
+            json!({
+                "sessionID": session, "id": asked, "action": "shell",
+                "resources": [command], "source": { "messageID": message, "id": call },
+            }),
+        );
+        let decision = heard.recv().unwrap_or_default();
+        self.emit(
+            "permission.replied",
+            json!({ "sessionID": session, "requestID": asked, "reply": decision }),
+        );
+        decision
+    }
+
     fn turn(&self, session: &str, text: &str) {
         self.interrupted.store(false, Ordering::SeqCst);
         let message = format!("msg_{}", uuid());
@@ -319,32 +416,33 @@ impl Fake {
         let mut subagent = None;
         match verb {
             "stream" => (0..rest.parse().unwrap_or(1)).for_each(|n| say(&format!("w{n} "))),
-            "ask" => {
+            "count" => {
+                let sessions = self.sessions.locked();
+                let sent = sessions[session]["messages"].as_array().map_or(0, Vec::len);
+                drop(sessions);
+                say(&format!("{} earlier", sent.saturating_sub(1)));
+            }
+            "ask" | "push" => {
+                let command = if verb == "push" {
+                    "git push"
+                } else {
+                    "echo hi"
+                };
                 let call = format!("call_{}", uuid());
                 self.emit(
                     "session.tool.input.started",
                     json!({ "sessionID": session, "id": call, "name": "bash" }),
                 );
-                let input = json!({ "command": "echo hi" });
+                let input = json!({ "command": command });
                 self.emit(
                     "session.tool.called",
                     json!({ "sessionID": session, "id": call, "input": input }),
                 );
-                let asked = format!("per_{}", uuid());
-                let (answered, heard) = channel();
-                self.answers.locked().insert(asked.clone(), answered);
-                self.emit(
-                    "permission.asked",
-                    json!({
-                        "sessionID": session, "id": asked, "action": "bash",
-                        "resources": ["echo hi"], "source": { "messageID": message, "id": call },
-                    }),
-                );
-                let decision = heard.recv().unwrap_or_default();
-                self.emit(
-                    "permission.replied",
-                    json!({ "sessionID": session, "requestID": asked, "reply": decision }),
-                );
+                let decision = match self.effect(session, command).as_str() {
+                    "allow" => "once".to_owned(),
+                    "deny" => "deny".to_owned(),
+                    _ => self.ask(session, &message, &call, command),
+                };
                 self.emit(
                     "session.tool.success",
                     json!({
@@ -352,10 +450,10 @@ impl Fake {
                         "content": [{ "type": "text", "text": "hi" }], "metadata": {},
                     }),
                 );
-                say(if decision == "reject" {
-                    "rejected"
-                } else {
-                    "allowed"
+                say(match decision.as_str() {
+                    "reject" => "rejected",
+                    "deny" => "denied",
+                    _ => "allowed",
                 });
             }
             "hold" => {

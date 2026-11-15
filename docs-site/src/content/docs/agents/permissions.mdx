@@ -15,7 +15,7 @@ Every agent starts within a launch boundary:
 
 Auto is Claude Code's `auto` permission mode and Codex's `auto_review` approvals reviewer, in a chat and in a terminal tab. Other agents have no reviewer of their own, so Auto starts them in Normal. The reviewer runs on the agent's own account and counts toward its usage.
 
-OpenCode has no YOLO mode, so it always starts in Normal. Pi has both in a chat; in its terminal it never asks, so there is no switch there.
+OpenCode has both in a chat, as rules on its session; what your own OpenCode config denies stays denied in YOLO, and its terminal keeps your own permissions. Pi has both in a chat; in its terminal it never asks, so there is no switch there.
 
 A running chat can switch between its modes for agents that have them, from its composer, with `⌘⇧Y`, or with **Enable YOLO Mode** and **Disable YOLO Mode** in the agent's right-click menu. The switch applies to the running session at once and to the agent's next launch.
 

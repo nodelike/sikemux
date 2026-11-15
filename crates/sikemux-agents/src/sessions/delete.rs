@@ -32,10 +32,20 @@ pub async fn delete(saved: SavedRef) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?;
     };
-    let (id, config) = (session_id.clone(), config_path.clone());
-    spawn_blocking(move || saved_transcript(agent, &cwd, &id, config.as_deref()))
-        .await
-        .map_err(|error| error.to_string())??;
+    let entry = agent.entry();
+    if !entry.deletable_chats {
+        return Err(format!("{} chats cannot be deleted", entry.label));
+    }
+    if entry
+        .home
+        .as_ref()
+        .is_some_and(|home| home.sessions.is_some())
+    {
+        let (id, config) = (session_id.clone(), config_path.clone());
+        spawn_blocking(move || saved_transcript(agent, &cwd, &id, config.as_deref()))
+            .await
+            .map_err(|error| error.to_string())??;
+    }
     command(&executable, config_path.as_deref(), &session_id).await
 }
 

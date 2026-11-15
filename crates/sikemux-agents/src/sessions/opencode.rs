@@ -14,7 +14,7 @@ use super::FileStamp;
 use crate::agent_accounts::defaults::json_model;
 use crate::agent_accounts::status::{self, AgentStatus};
 use crate::agent_ops::Pending;
-use crate::agent_ops::{AgentOps, RenameCommand, SessionPlaces};
+use crate::agent_ops::{AgentOps, DeleteCommand, RenameCommand, SessionPlaces};
 use crate::launch::model_feed::{Cost, Model};
 use crate::launch::providers::{
     ChatRoute, ListedProvider, LISTED_MAX_OUTPUT_TOKENS, MODEL_TOKEN_ENV,
@@ -177,13 +177,7 @@ pub(super) async fn rename_opencode_session(
     session_id: &str,
     name: &str,
 ) -> Result<(), String> {
-    let directory = opencode_db_paths()
-        .iter()
-        .find_map(|db| session_directory(db, session_id))
-        .ok_or("session not found")?;
-    let command =
-        tokio::process::Command::from(sikemux_process::user_environment::agent_command(executable));
-    let server = Server::start(command, &directory).await?;
+    let server = session_server(executable, session_id).await?;
     let renamed = server
         .patch(
             &format!("/api/session/{session_id}"),
@@ -192,6 +186,27 @@ pub(super) async fn rename_opencode_session(
         .await;
     server.close().await;
     renamed.map(drop).map_err(String::from)
+}
+
+pub(super) async fn delete_opencode_session(
+    executable: &Path,
+    session_id: &str,
+) -> Result<(), String> {
+    let server = session_server(executable, session_id).await?;
+    let deleted = server.delete(&format!("/api/session/{session_id}")).await;
+    server.close().await;
+    deleted.map(drop).map_err(String::from)
+}
+
+/// A server of OpenCode's own in the directory the session belongs to.
+async fn session_server(executable: &Path, session_id: &str) -> Result<Server, String> {
+    let directory = opencode_db_paths()
+        .iter()
+        .find_map(|db| session_directory(db, session_id))
+        .ok_or("session not found")?;
+    let command =
+        tokio::process::Command::from(sikemux_process::user_environment::agent_command(executable));
+    Server::start(command, &directory).await
 }
 
 fn session_directory(db: &Path, session_id: &str) -> Option<PathBuf> {
@@ -295,6 +310,12 @@ impl AgentOps for Opencode {
     fn rename_command(&self) -> Option<RenameCommand> {
         Some(|executable, _config_path, session_id, name| {
             Box::pin(rename_opencode_session(executable, session_id, name))
+        })
+    }
+
+    fn delete_command(&self) -> Option<DeleteCommand> {
+        Some(|executable, _config_path, session_id| {
+            Box::pin(delete_opencode_session(executable, session_id))
         })
     }
 
