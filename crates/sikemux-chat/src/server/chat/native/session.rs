@@ -556,6 +556,8 @@ pub async fn run<B: Backend>(
             }
         }
     };
+    chat.retry_waits
+        .store(state.failed_prompt.is_some(), Ordering::Release);
 
     let (stalled_tx, mut stalled_rx) = mpsc::unbounded_channel::<u64>();
     let telling = sink(false);
@@ -934,7 +936,8 @@ impl<B: Backend> Running<'_, B> {
         if let Some(rebind) = retry {
             return ControlFlow::Break(Outcome::Rebind(Box::new(rebind)));
         }
-        state.failed_prompt = state.last_prompt.take();
+        let last_prompt = state.last_prompt.take();
+        state.hold_failed(chat, last_prompt);
         let fault = match (failed.failure.kind, &state.failed_prompt) {
             (FailureKind::Limit | FailureKind::Network, Some(_)) => Fault::Retrying,
             (FailureKind::SignIn | FailureKind::Limit, _) => Fault::Account,
@@ -1083,7 +1086,7 @@ impl<B: Backend> Running<'_, B> {
                 let _ = reply.send(self.backend.authenticate(&method_id).await);
             }
             ChatCommand::DiscardFailed => {
-                self.state.failed_prompt = None;
+                self.state.hold_failed(&self.chat, None);
                 reset::cancel(&self.chat);
             }
             ChatCommand::AnswerDialog { id, answer, choice } => {
@@ -1306,8 +1309,7 @@ impl<B: Backend> Running<'_, B> {
         }
         let replay = self
             .state
-            .failed_prompt
-            .take()
+            .take_failed(chat)
             .or_else(|| chat.unprompted().then(Switching::carry_on_prompt));
         match switch_to(chat, self.provider, self.launch, &account, replay) {
             Some(outcome) => {
@@ -1405,11 +1407,11 @@ impl<B: Backend> Running<'_, B> {
     }
 
     async fn retry_failed(&mut self) {
-        let Some(prompt) = self.state.failed_prompt.take() else {
+        let Some(prompt) = self.state.take_failed(&self.chat) else {
             return;
         };
         if self.chat.start_prompted() {
-            self.state.failed_prompt = Some(prompt);
+            self.state.hold_failed(&self.chat, Some(prompt));
             return;
         }
         self.again(prompt).await;
@@ -1497,11 +1499,22 @@ impl SessionState {
         }
     }
 
+    fn hold_failed(&mut self, chat: &Chat, prompt: Option<Replay>) {
+        chat.retry_waits.store(prompt.is_some(), Ordering::Release);
+        self.failed_prompt = prompt;
+    }
+
+    fn take_failed(&mut self, chat: &Chat) -> Option<Replay> {
+        let prompt = self.failed_prompt.take();
+        self.hold_failed(chat, None);
+        prompt
+    }
+
     /// Forgets how the last turn failed, as a new one starts in its place.
     fn fresh_turn(&mut self, chat: &Chat) {
         self.exhausted.clear();
         self.signed_in_again = false;
-        self.failed_prompt = None;
+        self.hold_failed(chat, None);
         chat.offline_failed.store(false, Ordering::Release);
         reset::cancel(chat);
     }

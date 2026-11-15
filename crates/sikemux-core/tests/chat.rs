@@ -721,6 +721,50 @@ async fn an_agent_signs_in_by_its_own_method_and_the_refused_prompt_goes_again()
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_chat_whose_turn_failed_stays_awake_for_the_retry() {
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("agent-asleep").await;
+    let history = tempfile::tempdir().expect("history");
+    let sign_in = history.path().join("signed-in");
+    std::fs::write(&sign_in, "").expect("sign out");
+    let mut launch = account_launch("agent-asleep", history.path(), "");
+    launch.env.insert(
+        "FAKE_ACP_SIGN_IN".into(),
+        sign_in.to_string_lossy().into_owned(),
+    );
+    client.acp_start(launch).await.expect("start");
+    client
+        .ask(ask::AcpPrompt {
+            agent_id: "agent-asleep".into(),
+            message_id: None,
+            text: "who".into(),
+            paths: Vec::new(),
+            context: Vec::new(),
+        })
+        .await
+        .expect("prompt");
+    chat.until(|chat| chat.head().failure.is_some()).await;
+
+    let slept = client
+        .call("sleepIdleChats", json!({}))
+        .await
+        .expect("sleep");
+    assert_eq!(slept["slept"], 0);
+    client
+        .call(
+            "authenticateChat",
+            json!({ "agentId": "agent-asleep", "methodId": "fake-key" }),
+        )
+        .await
+        .expect("authenticate");
+    client
+        .call("retryFailed", json!({ "agentId": "agent-asleep" }))
+        .await
+        .expect("retry");
+    until_answered(&mut chat, "account personal").await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_sign_in_made_elsewhere_reaches_the_chat_on_its_next_prompt() {
     let core = TestCore::start();
     let (client, mut chat) = core.connect("agent-k").await;

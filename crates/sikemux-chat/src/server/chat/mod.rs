@@ -352,6 +352,9 @@ pub struct Chat {
     /// The last turn failed for want of the network, and its prompt goes
     /// again once the network is back.
     pub offline_failed: AtomicBool,
+    /// The last turn failed and its prompt waits for the person's Retry, which only the running
+    /// chat holds, so it stays awake.
+    pub retry_waits: AtomicBool,
     /// The agent can load its saved conversation again, so the chat may sleep and wake on it.
     pub reloadable: AtomicBool,
     /// The turn at work is being stopped only to go on under another account, so its lead

@@ -412,13 +412,14 @@ fn kept(core: &Core, agent_id: &str) -> bool {
 
 /// A chat waking from sleep reads as idle while it starts, since it keeps the feed it slept with,
 /// so only a ready one counts. One with a background task still running is not idle, as sleep
-/// would end the task with the agent, and one whose agent cannot load its conversation again
-/// would wake on a new one.
+/// would end the task with the agent, one whose agent cannot load its conversation again
+/// would wake on a new one, and one whose failed turn waits to be sent again would lose it.
 fn idle(core: &Core, agent_id: &str) -> bool {
     core.chats().get(agent_id).is_some_and(|chat| {
         chat.is_ready()
             && chat.reloadable.load(Ordering::Acquire)
             && !chat.offline_failed.load(Ordering::Acquire)
+            && !chat.retry_waits.load(Ordering::Acquire)
             && chat.state_now() == AgentState::Idle
             && chat.feed.running_tasks() == 0
     })
