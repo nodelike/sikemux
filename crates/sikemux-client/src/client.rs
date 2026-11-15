@@ -9,9 +9,10 @@ use std::time::Duration;
 use sikemux_wire::pty::shell_protocol::ShellMetadataSnapshot;
 use sikemux_wire::terminal::{FindResult, GridPoint};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
+
+use crate::local::Split;
 
 use sikemux_wire::protocol::{
     ask, ask::Ask, decode_grid, decode_lines, decode_snapshot, device_view_json, encode_control,
@@ -238,8 +239,7 @@ impl CoreClient {
         socket: &Path,
         sink: Arc<dyn EventSink>,
     ) -> Result<Self, ClientError> {
-        let stream = UnixStream::connect(socket).await?;
-        let (read_half, write_half) = stream.into_split();
+        let (read_half, write_half) = crate::local::connect(socket).await?.split();
         Self::connect_streams(read_half, write_half, sink).await
     }
 
