@@ -430,8 +430,8 @@ async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEn
                     .map(drop)
             }
             (CiEnded::Failed, false) => {
-                if let Some(to) = lead_now(core, agent) {
-                    messages::report_ci(core, agent.clone(), to, said.clone());
+                if let Some(to) = crate::server::roster::hears_of(core, agent).agent() {
+                    messages::report_ci(core, agent.clone(), to.to_owned(), said.clone());
                 }
                 Ok(())
             }
@@ -455,16 +455,4 @@ fn watches_itself(core: &Core, agent: &str, run: &str) -> bool {
         trigger.agent_id == agent
             && (trigger.ci.as_ref()).is_some_and(|watch| !watch.after_push() && watch.run() == run)
     })
-}
-
-/// Who hears for a closed agent: the lead that started it while that lead is open, else the
-/// chief of its project.
-fn lead_now(core: &Core, agent: &str) -> Option<String> {
-    let closed = core.workspaces().closed_agent(agent)?;
-    if let Some(lead) = closed.lead.filter(|lead| core.open_agents().contains(lead)) {
-        return Some(lead);
-    }
-    crate::server::chief::seated(core)
-        .remove(&closed.project)
-        .filter(|chief| chief != agent)
 }

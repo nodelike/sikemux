@@ -59,18 +59,22 @@ impl Hears {
     }
 }
 
+/// Who hears of `agent_id`, open or closed.
 pub(crate) fn hears_of(core: &Core, agent_id: &str) -> Hears {
+    let agent =
+        (core.workspaces().agent(agent_id)).or_else(|| core.workspaces().closed_agent(agent_id));
     let named = core.names().get(agent_id);
-    let lead = named.as_ref().and_then(|named| named.parent.clone());
+    let lead = (agent.as_ref().and_then(|agent| agent.lead.clone()))
+        .or_else(|| named.as_ref().and_then(|named| named.parent.clone()));
     if let Some(lead) = lead.filter(|lead| core.open_agents().contains(lead)) {
         return Hears::Lead(lead);
     }
-    let chief = match core.workspaces().agent(agent_id) {
-        Some(_) => super::chief::chief_over(core, agent_id),
-        None => (named.and_then(|named| super::chief::chief_at(core, &named.project)))
-            .filter(|chief| chief != agent_id && core.workspaces().agent(chief).is_some()),
+    let chief = match agent {
+        Some(agent) => super::chief::seated(core).remove(&agent.project),
+        None => named.and_then(|named| super::chief::chief_at(core, &named.project)),
     };
-    chief.map_or(Hears::Person, Hears::Chief)
+    (chief.filter(|chief| chief != agent_id && core.workspaces().agent(chief).is_some()))
+        .map_or(Hears::Person, Hears::Chief)
 }
 
 /// An agent's status, with one at rest that has a task or messages waiting
