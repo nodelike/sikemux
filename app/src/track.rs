@@ -235,7 +235,7 @@ impl Workbench {
             Scrolled::Moved => {}
             Scrolled::Landed((shown, from, speed, step, target)) => {
                 if step != 0 {
-                    self.step_visit(step as isize, cx);
+                    self.step_visit(-step as isize, cx);
                 }
                 if step == 0 || target.is_some() {
                     let moved = self.track.travel(shown, from, Some(speed));
