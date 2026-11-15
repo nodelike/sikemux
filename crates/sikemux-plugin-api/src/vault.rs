@@ -186,6 +186,11 @@ pub trait Listing: DeserializeOwned {
     fn identity(&self) -> Option<String> {
         self.secret_account()
     }
+    /// It stays on the host it was made on unless the person moves it into the vault, whatever
+    /// that host does with new sign-ins.
+    fn starts_kept(&self) -> bool {
+        false
+    }
 }
 
 /// A plugin whose settings file lists its accounts, each with its secret under one service.
@@ -282,7 +287,7 @@ impl<A: Listing> Listed<A> {
 impl<A: Listing> Book for Listed<A> {
     fn sign_ins(&self, data_dir: &Path) -> Result<Vec<SignIn>, String> {
         let settings = read_settings(&data_dir.join(self.file))?;
-        let mut grouped: Vec<(String, String, Vec<Value>)> = Vec::new();
+        let mut grouped: Vec<(String, String, bool, Vec<Value>)> = Vec::new();
         for record in Self::records(&settings, self.list) {
             let Some(read) = Self::read(&record) else {
                 continue;
@@ -290,13 +295,13 @@ impl<A: Listing> Book for Listed<A> {
             let (Some(identity), Some(_)) = (read.identity(), read.secret_account()) else {
                 continue;
             };
-            match grouped.iter_mut().find(|(kept, _, _)| *kept == identity) {
-                Some((_, _, records)) => records.push(record),
-                None => grouped.push((identity, read.label(), vec![record])),
+            match grouped.iter_mut().find(|(kept, ..)| *kept == identity) {
+                Some((.., records)) => records.push(record),
+                None => grouped.push((identity, read.label(), read.starts_kept(), vec![record])),
             }
         }
         let mut found = Vec::new();
-        for (identity, label, records) in grouped {
+        for (identity, label, starts_kept, records) in grouped {
             let mut secrets = Vec::new();
             for account in Self::secrets_of(&settings, self.list, &identity) {
                 if let Some(secret) = read_raw(self.secrets, &account)? {
@@ -315,7 +320,7 @@ impl<A: Listing> Book for Listed<A> {
                 label,
                 secrets,
                 records: Value::Array(records),
-                starts_kept: false,
+                starts_kept,
             });
         }
         Ok(found)
