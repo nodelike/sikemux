@@ -1,10 +1,13 @@
+#[cfg(unix)]
 use std::collections::HashMap;
 #[cfg(unix)]
 use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(unix)]
 use sikemux_process::vars;
+#[cfg(unix)]
 use sikemux_pty::launch::OPTIONAL_PTY_ENV;
 
 use crate::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};

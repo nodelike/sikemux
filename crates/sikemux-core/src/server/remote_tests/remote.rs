@@ -176,9 +176,12 @@ fn the_devices_survive_a_write_and_read() {
     assert_eq!(read.owner.as_deref(), Some("user_2abc"));
     assert_eq!(read.account_event_id, 7);
     assert_eq!(read.pending_leave.as_deref(), Some("user_2old"));
-    use std::os::unix::fs::PermissionsExt;
-    let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-    assert_eq!(mode & 0o777, 0o600);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
 }
 
 #[test]

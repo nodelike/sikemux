@@ -35,9 +35,13 @@ use super::super::rebind::{
     error_message, next_account, on_account, switch_notice, switches_at_limit, Carried, Outcome,
     Rebind, Replay,
 };
+#[cfg(unix)]
+use super::super::Asked;
 use super::super::{cap, rotation};
-use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond, Whose};
-use super::process::{AgentRecord, Process, Released};
+use super::super::{reset, stall_later, Chat, ChatCommand, Delivery, Respond, Whose};
+use super::process::Released;
+#[cfg(unix)]
+use super::process::{AgentRecord, Process};
 use crate::server::activity_log::{Compaction, ModelCall};
 pub use sikemux_drivers::server::chat::native::session::{
     slim, Backend, Prompt, Sink, SinkPort, Steered, Telling, Told, TurnEnd,
@@ -1534,6 +1538,7 @@ impl SessionState {
 
 /// A chat whose agent this core could not take over: it goes on in a new
 /// agent process on the same session, and says so.
+#[cfg(unix)]
 fn not_taken_over(chat: &Chat, launch: &ChatLaunch, error: &str) -> Outcome {
     if chat.prompted() {
         chat.finish_turn(turn_answer(StopReason::Cancelled));

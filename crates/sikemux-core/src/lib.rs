@@ -2,6 +2,7 @@
 //! they outlive the window. `sikemux core` runs [`server`]; the app talks to
 //! it with [`client`].
 
+#[cfg(unix)]
 use sikemux_agents::agent_shell;
 #[cfg(test)]
 use sikemux_agents::ship;
