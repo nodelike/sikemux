@@ -5,8 +5,8 @@
   "scripts": {
     "wire": "node ../../scripts/generate-wire-types.mjs",
     "dev": "pnpm wire && vite",
-    "build": "pnpm wire && tsc --noEmit && vite build",
-    "typecheck": "pnpm wire && tsc --noEmit",
+    "build": "pnpm wire && tsc6 --noEmit && vite build",
+    "typecheck": "pnpm wire && tsc6 --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {

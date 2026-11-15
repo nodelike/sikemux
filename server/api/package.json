@@ -6,7 +6,7 @@
     "dev": "node --env-file-if-exists=.env --watch src/main.ts",
     "migrate": "node --env-file-if-exists=.env src/main.ts migrate",
     "build": "node build.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc6 --noEmit",
     "test": "vitest run",
     "schema:generate": "UPDATE_SCHEMA=1 vitest run test/schema.test.ts"
   },
