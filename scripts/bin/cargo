@@ -16,7 +16,7 @@ FINAL_CHECKS = {"clippy", "nextest", "t", "test"}
 FINAL_HEAD_START = 15 * 60
 ADMIT_GAP = 20
 SLOTS = os.path.expanduser("~/.cache/sikemux-cargo")
-COMPILING = {"b", "build", "c", "check", "clippy", "d", "doc", "fix", "rustc", "rustdoc"}
+COMPILING = {"b", "build", "c", "check", "clippy", "d", "doc", "fix", "ndk", "rustc", "rustdoc"}
 COMPILING_THEN_RUNNING = {"bench", "r", "run", "t", "test"}
 GLOBAL_OPTIONS_WITH_VALUE = {"--color", "--config", "--explain", "-C", "-Z"}
 COMPILER_CACHES = ("kache", "sccache")
@@ -237,7 +237,7 @@ def main():
     if policy:
         command = [policy, "-c", "utility", *command]
     name = subcommand(args)
-    if "-h" in args or "--help" in args or name not in COMPILING | COMPILING_THEN_RUNNING:
+    if {"-h", "--help", "-V", "--version"} & set(args) or name not in COMPILING | COMPILING_THEN_RUNNING:
         os.execve(command[0], command, env)
     try:
         slot = take_slot(run_is_final(name))

@@ -162,6 +162,9 @@ jobs:
       - name: Install XcodeGen
         run: scripts/install-xcodegen.sh
 
+      - name: Check the shared phone core's key follows every crate the phone links
+        run: python3 mobile/scripts/phone-core.py --check
+
       # Both slices, so a library that only fails to build for a phone shows here and not at release.
       - name: Build the Rust client
         run: mobile/ios/scripts/build-core.sh

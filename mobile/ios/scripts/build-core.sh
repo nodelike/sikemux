@@ -11,6 +11,7 @@ repo="$(cd "$ios/../.." && pwd)"
 export PATH="$repo/scripts/bin:$HOME/.cargo/bin:$PATH"
 export IPHONEOS_DEPLOYMENT_TARGET=17.0
 
+given=("$@")
 profile=debug
 targets=(aarch64-apple-ios-sim aarch64-apple-ios)
 while [ $# -gt 0 ]; do
@@ -21,6 +22,13 @@ while [ $# -gt 0 ]; do
     *) echo "build-core.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
+
+if [ -z "${SIKEMUX_PHONE_CORE_BUILD:-}" ]; then
+  exec python3 "$repo/mobile/scripts/phone-core.py" \
+    --kind "ios-$profile-$(IFS=+; echo "${targets[*]}")" --extra "$(xcrun xcodebuild -version | tr '\n' ' ')" \
+    --out mobile/ios/build --keep SikemuxCore.xcframework bindings headers \
+    -- env SIKEMUX_PHONE_CORE_BUILD=1 "$ios/scripts/build-core.sh" ${given[@]+"${given[@]}"}
+fi
 
 cd "$repo"
 node scripts/generate-wire-types.mjs
@@ -53,5 +61,5 @@ args=()
 for target in "${targets[@]}"; do
   args+=(-library "$(library "$target")" -headers "$headers")
 done
-xcodebuild -create-xcframework "${args[@]}" -output "$out/SikemuxCore.xcframework" >/dev/null
+xcrun xcodebuild -create-xcframework "${args[@]}" -output "$out/SikemuxCore.xcframework" >/dev/null
 echo "Built $out/SikemuxCore.xcframework ($profile_dir) and $bindings"
