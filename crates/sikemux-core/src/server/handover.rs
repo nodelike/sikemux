@@ -30,11 +30,11 @@ use portable_pty::{Child, ChildKiller, ExitStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
+use sikemux_pty::master::Master;
 use sikemux_pty::output_log::OutputLog;
 use sikemux_pty::screen::Screen;
 use sikemux_pty::shell::ShellLaunchIntegration;
 use sikemux_pty::shell_protocol::{ShellMetadataSnapshot, SshLink};
-use tokio::io::unix::AsyncFd;
 
 use crate::frozen::RESUME_FORMAT;
 use sikemux_wire::protocol::{BuildIdentity, SessionExit, SessionId, SessionKind};
@@ -687,7 +687,7 @@ fn adopt_chat(core: &Arc<Core>, live: Value, inherited: &mut Inherited) {
     );
 }
 
-fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<AsyncFd<File>, String> {
+fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<Master, String> {
     if !inherited.claim(fd, libc::S_IFCHR) {
         return Err(format!(
             "descriptor {fd} is not a terminal that was handed over"
@@ -696,16 +696,7 @@ fn terminal_io(fd: RawFd, inherited: &mut Inherited) -> Result<AsyncFd<File>, St
     // SAFETY: the descriptor was handed over open and claimed once, so this
     // File is its only owner and closes it if adopting fails below.
     let file = unsafe { File::from_raw_fd(fd) };
-    // SAFETY: F_GETFL/F_SETFL only read and set the flags of the open fd.
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFL);
-        if flags >= 0 {
-            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-        }
-    }
-    // SAFETY: `file` owns the open fd and the AsyncFd owns `file`, so the fd
-    // stays open and the same until the AsyncFd is dropped.
-    unsafe { AsyncFd::register(file) }.map_err(|error| error.to_string())
+    Master::adopt(file).map_err(|error| error.to_string())
 }
 
 fn adopt_session(
