@@ -27,6 +27,7 @@ const ROOT_FIELDS: &[&str] = &[
     "generate",
     "check",
     "fastCheck",
+    "landChecks",
     "reservoir",
     "roles",
     "planFirst",
@@ -61,6 +62,8 @@ const MAX_SHIP: usize = 50;
 const HEAVY_FIELDS: &[&str] = &["command", "final", "light", "needs"];
 const MAX_HEAVY: usize = 50;
 const CHECK_FIELDS: &[&str] = &["ci"];
+const LAND_CHECK_FIELDS: &[&str] = &["label", "command", "when"];
+const MAX_LAND_CHECKS: usize = 20;
 const MAX_WORKFLOWS: usize = 20;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
 const MAX_ACTIONS: usize = 100;
@@ -307,6 +310,10 @@ pub struct ProjectConfig {
     /// sample by.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fast_check: Option<String>,
+    /// Quick commands a land must pass before it goes on the branch, each run only
+    /// when the land changes a path it lists.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub land_checks: Vec<LandCheck>,
     /// A command that lists what is left to do, one JSON item per line, which Auto keeps a
     /// limited number of on the board as cards.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -370,6 +377,15 @@ pub struct ProjectRole {
     pub name: String,
     pub charter: String,
     pub every: u32,
+}
+
+/// A quick command a land must pass, run in a checkout at the land with the changed files
+/// that match `when` as its arguments.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct LandCheck {
+    pub label: String,
+    pub command: String,
+    pub when: PathGlobs,
 }
 
 /// Project-relative path patterns, such as `server/**`, kept as written and
@@ -571,6 +587,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let generate = parse_generate(root.get("generate"), &mut errors);
     let check = parse_check(root.get("check"), &mut errors);
     let fast_check = parse_fast_check(root.get("fastCheck"), check.as_ref(), &mut errors);
+    let land_checks = parse_land_checks(root.get("landChecks"), &mut errors);
     let reservoir = root
         .get("reservoir")
         .and_then(|value| parse_command(Some(value), "$.reservoir", &mut errors));
@@ -596,6 +613,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         generate,
         check,
         fast_check,
+        land_checks,
         reservoir,
         roles,
         plan_first,
@@ -681,7 +699,8 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     let checks = usize::from(matches!(
         config.check,
         Some(Stated::Given(ProjectCheck::Command(_)))
-    )) + usize::from(config.fast_check.is_some());
+    )) + usize::from(config.fast_check.is_some())
+        + config.land_checks.len();
     if checks > 0 {
         reasons.push("a check command".to_owned());
     }
@@ -1384,7 +1403,7 @@ fn parse_check(
         Value::Bool(false) => return Some(Stated::Off),
         Value::String(_) => {
             return parse_command(value, "$.check", errors)
-                .map(|command| Stated::Given(ProjectCheck::Command(command)))
+                .map(|command| Stated::Given(ProjectCheck::Command(command)));
         }
         Value::Object(record) => record,
         _ => {
@@ -1671,13 +1690,23 @@ fn parse_ship(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<Strin
 }
 
 fn parse_plan_first(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<PathGlobs> {
-    let listed = match value? {
-        Value::Array(listed) if !listed.is_empty() && listed.len() <= MAX_PLAN_FIRST => listed,
+    parse_globs(value?, "$.planFirst", "planFirst", MAX_PLAN_FIRST, errors)
+}
+
+fn parse_globs(
+    value: &Value,
+    at: &str,
+    name: &str,
+    max: usize,
+    errors: &mut Vec<ConfigError>,
+) -> Option<PathGlobs> {
+    let listed = match value {
+        Value::Array(listed) if !listed.is_empty() && listed.len() <= max => listed,
         _ => {
             errors.push(issue(
-                "$.planFirst",
+                at,
                 ConfigErrorCode::InvalidValue,
-                format!("planFirst must list between 1 and {MAX_PLAN_FIRST} path patterns."),
+                format!("{name} must list between 1 and {max} path patterns."),
             ));
             return None;
         }
@@ -1685,7 +1714,7 @@ fn parse_plan_first(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Opt
     let mut patterns = Vec::new();
     let mut set = globset::GlobSetBuilder::new();
     for (index, pattern) in listed.iter().enumerate() {
-        let path = format!("$.planFirst[{index}]");
+        let path = format!("{at}[{index}]");
         let Some(pattern) = bounded_required(Some(pattern), &path, "Pattern", 512, errors) else {
             continue;
         };
@@ -1707,6 +1736,63 @@ fn parse_plan_first(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Opt
     }
     let set = set.build().ok()?;
     (!patterns.is_empty()).then_some(PathGlobs { patterns, set })
+}
+
+fn parse_land_checks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<LandCheck> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let listed = match value {
+        Value::Array(listed) if listed.len() <= MAX_LAND_CHECKS => listed,
+        _ => {
+            errors.push(issue(
+                "$.landChecks",
+                ConfigErrorCode::InvalidValue,
+                format!("landChecks must list at most {MAX_LAND_CHECKS} checks."),
+            ));
+            return Vec::new();
+        }
+    };
+    (listed.iter().enumerate())
+        .filter_map(|(index, check)| {
+            let at = format!("$.landChecks[{index}]");
+            let Some(record) = check.as_object() else {
+                errors.push(issue(
+                    &at,
+                    ConfigErrorCode::InvalidType,
+                    "Each land check must be an object with a label, a command and when.",
+                ));
+                return None;
+            };
+            reject_unknown_fields(record, LAND_CHECK_FIELDS, &at, errors);
+            let label = bounded_required(
+                record.get("label"),
+                &format!("{at}.label"),
+                "Label",
+                80,
+                errors,
+            );
+            let command = parse_command(record.get("command"), &format!("{at}.command"), errors);
+            let when = match record.get("when") {
+                Some(when) => {
+                    parse_globs(when, &format!("{at}.when"), "when", MAX_PLAN_FIRST, errors)
+                }
+                None => {
+                    errors.push(issue(
+                        format!("{at}.when"),
+                        ConfigErrorCode::MissingField,
+                        "when must list the paths whose change runs the check.",
+                    ));
+                    None
+                }
+            };
+            Some(LandCheck {
+                label: label?,
+                command: command?,
+                when: when?,
+            })
+        })
+        .collect()
 }
 
 fn parse_icon(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Option<String> {

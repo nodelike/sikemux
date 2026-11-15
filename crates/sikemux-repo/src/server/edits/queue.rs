@@ -22,11 +22,12 @@ use sikemux_process::sync::Locked;
 
 use super::land::{self, NotPut};
 use super::owners::git;
-use super::push::{line, Signing};
+use super::push::{Signing, line};
+use crate::server::Core;
 use crate::server::checks;
 use crate::server::connection::blocking;
 use crate::server::merge_queue::{self, Blame, Lane, Next, Waiter};
-use crate::server::Core;
+use crate::tasks::config::LandCheck;
 use sikemux_view::workspace::AgentWorktree;
 
 const ATTEMPTS: usize = 4;
@@ -165,7 +166,9 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         None => String::new(),
     };
     Ok(Queued {
-        note: format!("Queued {short}:{replaces} Sikemux checks it with the lands beside it, running Clippy on the crates they change, and puts it on {base}{pushed} when that passes. Either way a message tells you how it ended, naming {short}; until then your checkout keeps its commits, and you need not run the final checks yourself."),
+        note: format!(
+            "Queued {short}:{replaces} Sikemux checks it with the lands beside it, running Clippy on the crates they change, and puts it on {base}{pushed} when that passes. Either way a message tells you how it ended, naming {short}; until then your checkout keeps its commits, and you need not run the final checks yourself."
+        ),
         branch: base,
         commits: laid.listed,
         ahead,
@@ -481,6 +484,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         })
         .collect();
     let repo = key.0.clone();
+    let land_ranges = ranges.clone();
     let unformatted = blocking(move || {
         Ok((ranges.iter())
             .map(|(from, to)| unformatted(&repo, from, to))
@@ -513,6 +517,10 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     .flatten();
     let repairing = red.as_deref() == Some(tip.as_str());
     let _turn = merge_queue::checkout_turn().await;
+    if let Some((laid, why)) = failing_land_check(core, key, &stacked, &land_ranges).await {
+        send_back(core, key, &laid.waiting, &why);
+        return;
+    }
     let (from, to) = (tip.clone(), stacked.top().to_owned());
     let command = match crate::server::worktree::agent::merge_queue(core, &key.0, &to).await {
         Ok(checkout) => {
@@ -675,7 +683,9 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
     for (agent, on) in &pushers {
         let text = match &pushed {
             Ok(pushed) if (pushed.blocked.iter()).any(|blocked| blocked.owners.contains(agent)) => {
-                format!("Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again.")
+                format!(
+                    "Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again."
+                )
             }
             Ok(_) => format!("Its land of {on}, and pushed."),
             Err(error) => {
@@ -724,7 +734,11 @@ fn put_stack(core: &Core, key: &Key, stacked: Stack) -> (Landed, Vec<(Waiting, S
             Err(NotPut::Clash(paths)) => {
                 let why = format!(
                     "the project's checkout has changes nobody committed in {} that clash with it. Find who made them with who_wrote on those paths and agree with them, then land again.",
-                    paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")
+                    paths
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
                 let mut clashing = clashing(repo, &stacked, &paths);
                 if clashing.is_empty() {
@@ -780,6 +794,134 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
     }
     landed
 }
+
+/// The first land of `stacked` that fails one of the `landChecks` its `sikemux.json` names for
+/// what it changes, with why. Each runs in the merge-queue checkout at that land.
+async fn failing_land_check<'a>(
+    core: &Arc<Core>,
+    key: &Key,
+    stacked: &'a Stack,
+    ranges: &[(String, String)],
+) -> Option<(&'a Laid, String)> {
+    for (laid, (from, to)) in stacked.laid.iter().zip(ranges) {
+        let (repo, range) = (key.0.clone(), (from.clone(), to.clone()));
+        let due = blocking(move || Ok(land_checks_due(&repo, &range.0, &range.1)))
+            .await
+            .unwrap_or_default();
+        if due.is_empty() {
+            continue;
+        }
+        let Some((check, files, why)) = land_checks_at(core, key, to, due).await else {
+            continue;
+        };
+        let before = vec![(check, files)];
+        if land_checks_at(core, key, from, before).await.is_none() {
+            return Some((laid, why));
+        }
+    }
+    None
+}
+
+/// The first of `due` that fails in the merge-queue checkout at `commit`, with its files and why.
+async fn land_checks_at(
+    core: &Arc<Core>,
+    key: &Key,
+    commit: &str,
+    due: Vec<(LandCheck, Vec<String>)>,
+) -> Option<(LandCheck, Vec<String>, String)> {
+    let checkout = crate::server::worktree::agent::merge_queue(core, &key.0, commit)
+        .await
+        .ok()?;
+    let (owner, project) = (core.clone(), key.0.clone());
+    blocking(move || {
+        let untrusted = super::generate::trust_needed_for(&owner, &project, &checkout, |config| {
+            !config.land_checks.is_empty()
+        });
+        Ok(match untrusted {
+            Some(_) => None,
+            None => due.into_iter().find_map(|(check, files)| {
+                let why = run_land_check(&checkout, &check, &files)?;
+                Some((check, files, why))
+            }),
+        })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// The `landChecks` of `sikemux.json` at `to` whose paths the change from `from` touches, each
+/// with the files it touches.
+fn land_checks_due(repo: &Path, from: &str, to: &str) -> Vec<(LandCheck, Vec<String>)> {
+    let Ok(source) = git(
+        repo,
+        &[
+            "show",
+            &format!("{to}:{}", crate::tasks::config::CONFIG_FILE),
+        ],
+    ) else {
+        return Vec::new();
+    };
+    let Ok(config) = serde_json::from_str(&source)
+        .map_err(|_| ())
+        .and_then(|value| crate::tasks::config::validate(&value).map_err(|_| ()))
+    else {
+        return Vec::new();
+    };
+    let Ok(changed) = git(
+        repo,
+        &["diff", "-z", "--name-only", "--diff-filter=AMR", from, to],
+    ) else {
+        return Vec::new();
+    };
+    let changed: Vec<&str> = changed
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .collect();
+    (config.land_checks.into_iter())
+        .filter_map(|check| {
+            let files: Vec<String> = (changed.iter())
+                .filter(|path| check.when.set.is_match(path))
+                .map(|path| (*path).to_owned())
+                .collect();
+            (!files.is_empty()).then_some((check, files))
+        })
+        .collect()
+}
+
+/// Why `check` fails in `checkout` on `files`, or none when it passes.
+fn run_land_check(checkout: &Path, check: &LandCheck, files: &[String]) -> Option<String> {
+    let mut shell = sikemux_process::user_environment::background_shell();
+    shell
+        .args(["-c", &check.command, &check.label])
+        .args(files)
+        .envs(crate::git_guard::shim::environment(None))
+        .current_dir(checkout);
+    let failed = |output: &str| {
+        format!(
+            "{} fails on it:\n\n{}\nFix that and land again.",
+            check.label,
+            crate::git::tail(output)
+        )
+    };
+    match sikemux_process::run(
+        &mut shell,
+        None,
+        LAND_CHECK_LIMIT,
+        METADATA_OUTPUT_LIMIT,
+        None,
+    ) {
+        Ok(ran) if ran.status.success() => None,
+        Ok(ran) => Some(failed(&format!(
+            "{}{}",
+            String::from_utf8_lossy(&ran.stdout),
+            String::from_utf8_lossy(&ran.stderr)
+        ))),
+        Err(error) => Some(failed(&error.to_string())),
+    }
+}
+
+const LAND_CHECK_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The Rust files changed from `from` to `to` that rustfmt would change, as
 /// they stand at `to`. A tree with no Cargo.toml at its root has none.

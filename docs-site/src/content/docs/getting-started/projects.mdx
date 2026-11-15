@@ -123,6 +123,25 @@ The fast check runs on each commit. The full check runs on the first commit afte
 
 When a check fails, Sikemux tests the commits since the last sound one to find the one that broke it, for up to 15 minutes, and tells only that commit's agent. If none can be singled out, one agent owns the failure and the others are told who.
 
+### Checks before a land
+
+`landChecks` lists quick commands a teammate's land must pass before it goes on the branch, each run only when the land changes a path in its `when`:
+
+```json
+{
+  "version": 1,
+  "landChecks": [
+    {
+      "label": "the phone's eslint",
+      "command": "cd app && eslint \"$@\"",
+      "when": ["app/**/*.{ts,tsx}"]
+    }
+  ]
+}
+```
+
+Each runs from the project's root in a checkout at the land, with the land's changed files that match `when` as its arguments. One that fails sends the land back to its agent with the end of its output, unless it fails on the branch without the land as well. Keep them to a few seconds: lands wait on them in turn.
+
 ### The changed page
 
 When an agent's turn changes the files a page is drawn from (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`, `.html` and stylesheets), Sikemux opens the page itself once the turn's commit passes the check, or as the turn ends when the work is uncommitted or the project names no check, in a new tab on its agent's desk, keeps screenshots of it at the tab's width and at a phone's and a tablet's with the turn, and closes the tab again. A tab the agent already has open on that site is used instead, and left open. It opens a server the agent started itself first. When the agent works in the project's own checkout, it opens the `preview` URL instead, if something is listening there, or else a server the project's run task started.

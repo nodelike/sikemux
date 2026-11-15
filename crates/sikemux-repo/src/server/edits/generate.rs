@@ -16,8 +16,8 @@ use super::footer::known;
 use super::land::{apply, steps};
 use super::owners::{git, run};
 use super::push::line;
-use crate::server::trust_ask::TrustAsk;
 use crate::server::Core;
+use crate::server::trust_ask::TrustAsk;
 use crate::tasks::config::{self, ConfigLoad, GenerateConfig};
 use crate::trailers::{self, Agent, Commit};
 
@@ -34,6 +34,17 @@ pub const UNTRUSTED: &str = "sikemux.json is not trusted yet, so its generate co
 /// looked up by the project's path and the content of the file at this commit: a commit that
 /// changes the file asks again.
 pub fn trust_needed(core: &Core, project: &Path, checkout: &Path) -> Option<TrustAsk> {
+    trust_needed_for(core, project, checkout, |config| config.generate.is_some())
+}
+
+/// What the person must trust before what `checkout`'s `sikemux.json` names runs, when `uses`
+/// says that runs anything.
+pub fn trust_needed_for(
+    core: &Core,
+    project: &Path,
+    checkout: &Path,
+    uses: impl Fn(&config::ProjectConfig) -> bool,
+) -> Option<TrustAsk> {
     let ConfigLoad::Valid {
         config,
         fingerprint,
@@ -43,7 +54,9 @@ pub fn trust_needed(core: &Core, project: &Path, checkout: &Path) -> Option<Trus
     else {
         return None;
     };
-    config.generate.as_ref()?;
+    if !uses(&config) {
+        return None;
+    }
     (core.repo_above().tasks_config_needs)(
         core,
         &ConfigLoad::Valid {
