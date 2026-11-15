@@ -498,7 +498,12 @@ mod system {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as system;
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 mod system {
     pub(super) fn footprint(_pid: u32) -> Option<u64> {
         None
@@ -630,8 +635,22 @@ pub fn descendants(root: u32) -> HashMap<u32, u32> {
     let children_of = |pid: u32| system::child_pids(pid);
     #[cfg(not(target_os = "macos"))]
     let children_of = {
+        #[cfg_attr(not(windows), allow(unused_mut))]
+        let mut processes = processes();
+        // Windows gives a freed pid to a new process, so one older than the parent it
+        // names was the child of an earlier process with that pid.
+        #[cfg(windows)]
+        {
+            let started: HashMap<u32, u64> = processes
+                .iter()
+                .map(|&(pid, _, started)| (pid, started))
+                .collect();
+            processes.retain(|&(_, parent, child)| {
+                started.get(&parent).is_none_or(|&parent| child >= parent)
+            });
+        }
         let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-        for (pid, parent, _) in processes() {
+        for (pid, parent, _) in processes {
             children.entry(parent).or_default().push(pid);
         }
         move |pid: u32| children.get(&pid).cloned().unwrap_or_default()
