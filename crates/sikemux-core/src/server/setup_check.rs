@@ -419,7 +419,7 @@ fn serve(
         .stdin(Stdio::null())
         .stdout(file.try_clone().map_err(|error| error.to_string())?)
         .stderr(file);
-    let mut child = process.spawn().map_err(|error| error.to_string())?;
+    let mut child = sikemux_process::spawn_tree(&mut process).map_err(|error| error.to_string())?;
     let until = Instant::now() + ANSWER_TIME;
     let answered = loop {
         if ports::in_use(port) {
@@ -455,7 +455,7 @@ fn checked(
         return (Err("could not write the check's log".into()), Vec::new());
     };
     process.stdin(Stdio::null()).stdout(copy).stderr(file);
-    let mut child = match process.spawn() {
+    let mut child = match sikemux_process::spawn_tree(&mut process) {
         Ok(child) => child,
         Err(error) => return (Err(error.to_string()), Vec::new()),
     };
@@ -485,6 +485,15 @@ fn checked(
 
 /// The command lines of what still runs in the process group `group`.
 fn left_in_group(group: u32) -> Vec<String> {
+    in_group(group)
+        .into_iter()
+        .filter_map(sikemux_process::procs::command_line)
+        .map(|words| words.join(" "))
+        .collect()
+}
+
+#[cfg(unix)]
+fn in_group(group: u32) -> Vec<u32> {
     let listed = sikemux_process::user_environment::command("pgrep")
         .args(["-g", &group.to_string()])
         .output()
@@ -493,7 +502,13 @@ fn left_in_group(group: u32) -> Vec<String> {
     listed
         .lines()
         .filter_map(|pid| pid.trim().parse::<u32>().ok())
-        .filter_map(sikemux_process::procs::command_line)
-        .map(|words| words.join(" "))
+        .collect()
+}
+
+/// A Windows tree has no group to list, so this is what the check started and left behind.
+#[cfg(windows)]
+fn in_group(group: u32) -> Vec<u32> {
+    sikemux_process::procs::descendants(group)
+        .into_keys()
         .collect()
 }
