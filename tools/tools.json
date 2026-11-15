@@ -1941,7 +1941,7 @@
       "name": "agent_hire",
       "row": {"verb": "hire", "kind": "edit", "icon": "user", "target": ["{agent}", "as @{name}"], "detail": ["{role}"]},
       "method": "agent.hire",
-      "description": "@Chief only: hire an agent for a standing role.",
+      "description": "@Chief only: hire for a standing role.",
       "properties": {
         "agent": {
           "description": "Name or id",
@@ -1972,7 +1972,7 @@
       "name": "ask",
       "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["{question}"]},
       "method": "agent.ask",
-      "description": "Ask your lead, or the person if you have none.",
+      "description": "Ask your lead, else the person.",
       "properties": {
         "question": {"type": "string", "minLength": 1, "maxLength": 8192},
         "choices": {

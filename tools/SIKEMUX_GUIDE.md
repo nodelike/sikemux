@@ -759,6 +759,14 @@ don't retry the ones it closed. Their chats stay in Recent, and `agent_send`
 or `agent_spawn` with `resume` reopens one. Close each teammate once its work
 has landed.
 
+### Standing roles
+
+`agent_hire`, for @Chief only, gives an open agent a standing role: `name` is
+the role's one-word name, which the agent is renamed to, and `role` one line on
+what it covers. The agent is pinned, told its role, and keeps it across
+sessions; send it the work in its area instead of starting a new worker.
+Closing a hired agent ends its role.
+
 ### When an agent started you
 
 Your lead's prompt arrives as a message from it, and your final answer goes
