@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::turn::{TurnPhase, WorkAt};
 use sikemux_view::workspace::WorkspaceAgent;
@@ -19,9 +19,9 @@ use sikemux_wire::protocol::{AgentStatus, ChatInfo, ChatState, SessionInfo};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
 
-use super::Core;
 use super::connection::blocking;
 use super::workspace::project_of;
+use super::Core;
 
 /// The terminals of agents that have no chat here, the agent's id with each.
 pub(crate) fn terminals<'a>(

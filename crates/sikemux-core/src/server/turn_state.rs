@@ -25,7 +25,7 @@ use sikemux_view::turn::{
     TurnStep, TurnStopped, TurnWait, TurnWaitKind, WorkAt,
 };
 use sikemux_view::workspace::AgentWorktree;
-use sikemux_wire::protocol::{AgentStatus, ChatContext, ChatInfo, FOR_AGENT_URI, SessionInfo};
+use sikemux_wire::protocol::{AgentStatus, ChatContext, ChatInfo, SessionInfo, FOR_AGENT_URI};
 
 use super::changed::What;
 use super::inbox::{self, Fault};
@@ -921,10 +921,10 @@ fn undo_words(core: &Core, agent_id: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::ServerCore;
     use crate::server::activity::{Activity, ActivityCore};
     use crate::server::workspace::AddProjectParamsExt;
-    use serde_json::{Value, json};
+    use crate::server::ServerCore;
+    use serde_json::{json, Value};
 
     #[tokio::test]
     async fn a_finished_turn_is_seen_once_a_focused_client_shows_it() {

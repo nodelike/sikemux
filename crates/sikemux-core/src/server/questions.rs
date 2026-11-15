@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
@@ -38,7 +38,6 @@ use sikemux_view::inbox::{InboxRaised, RaisedFor};
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::WindowCall;
 
-use super::Core;
 use super::activity::Activity;
 use super::approvals::{Approval, Keeper};
 use super::changed::Topic;
@@ -48,7 +47,8 @@ use super::kept::Kept;
 use super::messages;
 use super::notify::Signal;
 use super::person_calls;
-use super::wake::{Wake, sooner};
+use super::wake::{sooner, Wake};
+use super::Core;
 
 mod relay;
 mod reply;

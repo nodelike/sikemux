@@ -295,9 +295,14 @@ pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<Mo
                 match provider.models.clone() {
                     Some(models) => (provider, models),
                     None => {
-                        let served = models(&core, ProviderParams { id: provider.id.clone() })
-                            .await
-                            .ok();
+                        let served = models(
+                            &core,
+                            ProviderParams {
+                                id: provider.id.clone(),
+                            },
+                        )
+                        .await
+                        .ok();
                         let mut provider = provider;
                         let models = match served {
                             Some(served) => {
@@ -314,7 +319,9 @@ pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<Mo
         .collect();
     let mut routes = Vec::with_capacity(asking.len());
     for asked in asking {
-        let Ok((provider, models)) = asked.await else { continue };
+        let Ok((provider, models)) = asked.await else {
+            continue;
+        };
         if models.is_empty() && params.current.as_deref() != Some(provider.id.as_str()) {
             continue;
         }

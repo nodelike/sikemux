@@ -1340,7 +1340,10 @@ fn ranked_projects(bench: &Workbench) -> Vec<ProjectInfo> {
 
 /// The project's chief, here or on its home host, while its chat is open.
 fn chief_of<'a>(project: &ProjectInfo, agents: &'a [AgentRow]) -> Option<&'a AgentRow> {
-    let home = project.chief_home.as_ref().map(|home| home.agent_id.as_str());
+    let home = project
+        .chief_home
+        .as_ref()
+        .map(|home| home.agent_id.as_str());
     (project.chief.as_deref().or(home)).and_then(|id| agents.iter().find(|agent| agent.id == id))
 }
 
@@ -1395,14 +1398,16 @@ fn chief_row(
     .detail(t!("Chief of staff"))
     .children(place)
     .children(home)
-    .on_click(cx.listener(move |bench, _, _, cx| match (&id, &home_project) {
-        (Some(id), _) => bench.open_agent(id, cx),
-        (None, Some((host, project))) => {
-            let on = Target::new(&bench.asks, bench.place_of(host));
-            bench.open_chief_on(on, project, cx);
-        }
-        (None, None) => bench.open_chief(&project_id, cx),
-    }))
+    .on_click(
+        cx.listener(move |bench, _, _, cx| match (&id, &home_project) {
+            (Some(id), _) => bench.open_agent(id, cx),
+            (None, Some((host, project))) => {
+                let on = Target::new(&bench.asks, bench.place_of(host));
+                bench.open_chief_on(on, project, cx);
+            }
+            (None, None) => bench.open_chief(&project_id, cx),
+        }),
+    )
     .into_any_element()
 }
 
