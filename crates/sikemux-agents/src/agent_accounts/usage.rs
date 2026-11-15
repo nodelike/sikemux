@@ -1169,18 +1169,18 @@ mod tests {
 
     #[cfg(windows)]
     mod shell {
-        pub const PROGRAM: &str = "powershell";
+        pub const PROGRAM: &str = "cmd";
         pub const KEPT: &str = "COMPUTERNAME";
-        pub const READ_KEPT: &str = "if (Test-Path env:COMPUTERNAME) { [Console]::Out.Write($env:COMPUTERNAME) } else { [Console]::Out.Write('unset') }";
-        pub const READ_ALL_THEN_DONE: &str =
-            "$null = [Console]::In.ReadToEnd(); [Console]::Out.Write('done')";
+        pub const READ_KEPT: &str =
+            "if defined COMPUTERNAME (<nul set /p =%COMPUTERNAME%) else (<nul set /p =unset)";
+        pub const READ_ALL_THEN_DONE: &str = "more >nul & <nul set /p =done";
 
         pub fn args(script: &str) -> Vec<&str> {
-            vec!["-NoProfile", "-NonInteractive", "-Command", script]
+            vec!["/D", "/S", "/C", script]
         }
 
         pub fn fail_saying(detail: &str) -> String {
-            format!("[Console]::Error.Write('first' + [char]10 + 'second {detail}'); exit 7")
+            format!("(echo first& echo second {detail}) 1>&2 & exit /b 7")
         }
     }
 
