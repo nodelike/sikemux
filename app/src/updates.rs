@@ -26,6 +26,10 @@ use sikemux_calls::updates::UpdateInstallParams;
 /// How long the person's keys must rest before an update restarts the windows under them.
 const KEYS_REST: Duration = Duration::from_secs(3);
 
+/// How long the person must leave the keys alone before an update that began by itself
+/// restarts the app.
+const IDLE: Duration = Duration::from_secs(10 * 60);
+
 /// When the person last pressed a key in any window.
 pub(crate) struct LastKey(pub Instant);
 
@@ -47,6 +51,40 @@ pub(crate) fn restart_when_keys_rest(cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// Restarts into an update that began by itself once the person has been idle a while,
+/// unless a chat started a turn meanwhile, which the core reports by waiting again.
+pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
+    cx.spawn(async move |bench, cx| loop {
+        let Ok(rested) = bench.update(cx, |bench, cx| {
+            let ready = (bench.reads.update.as_ref())
+                .is_some_and(|update| update.by_itself && update.state == UpdateState::Ready);
+            ready.then(|| cx.try_global::<LastKey>().map(|key| key.0.elapsed()))
+        }) else {
+            return;
+        };
+        match rested {
+            None => return,
+            Some(Some(rested)) if rested < IDLE => {
+                cx.background_executor().timer(IDLE - rested).await;
+            }
+            Some(_) => {
+                cx.update(|cx| cx.restart());
+                return;
+            }
+        }
+    })
+    .detach();
+}
+
+/// Installs the update, or restarts into one that is in place and waiting for the person
+/// to be idle.
+pub(crate) fn install_now(bench: &Workbench, cx: &mut App) {
+    match bench.reads.update.as_ref() {
+        Some(update) if update.by_itself && update.state == UpdateState::Ready => cx.restart(),
+        _ => install(bench, false),
+    }
 }
 
 pub(crate) fn pending(bench: &Workbench) -> Option<&UpdateStatus> {
@@ -164,9 +202,16 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
             install_button(update).0,
             Icon::Download,
             ui::Variant::Outline,
-            Some(
-                t!("Some agents can't be carried over yet. Within two minutes the update goes on and starts them again on their sessions. Open to see them or update now.").into(),
-            ),
+            Some(match update.by_itself {
+                true => t!("It installs once no agent is in the middle of a turn. Open to update now.").into(),
+                false => t!("Some agents can't be carried over yet. Within two minutes the update goes on and starts them again on their sessions. Open to see them or update now.").into(),
+            }),
+        ),
+        UpdateState::Ready if update.by_itself => (
+            install_button(update).0,
+            Icon::Refresh,
+            ui::Variant::Primary,
+            Some(t!("It restarts once you leave the keys for 10 minutes; terminals and chats carry over.").into()),
         ),
         state @ (UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready) => (
             install_button(update).0,
@@ -196,7 +241,12 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
     let chip = ui::Button::new("rail-update", label, variant)
         .icon(icon)
         .tooltip(tip)
-        .on_click(cx.listener(|bench, _, _, cx| experience::open_whats_new(bench, cx)));
+        .on_click(cx.listener(|bench, _, _, cx| {
+            match bench.reads.update.as_ref() {
+                Some(update) if update.by_itself && update.state == UpdateState::Ready => cx.restart(),
+                _ => experience::open_whats_new(bench, cx),
+            }
+        }));
     Some(
         div()
             .flex_none()
@@ -356,6 +406,7 @@ pub(crate) fn install_button(update: &UpdateStatus) -> (String, bool) {
             (label, false)
         }
         UpdateState::Installing => (t!("Verifying & installing…").to_owned(), false),
+        UpdateState::Ready if update.by_itself => (t!("Restart to update").to_owned(), true),
         UpdateState::Ready => (t!("Restarting…").to_owned(), false),
         UpdateState::Waiting => (waiting_label(update.blockers.len()), false),
         UpdateState::Failed => (t!("Retry v{version}", version = version), true),

@@ -32,6 +32,12 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
         "Channel",
         "nightly stable prerelease beta",
     ),
+    row(
+        About,
+        "Updates",
+        "Install updates",
+        "automatic automatically idle ask me auto update",
+    ),
     row(About, "Updates", "Last checked", "check for updates now"),
     section(About, "Privacy", "analytics telemetry tracking"),
     row(
@@ -150,6 +156,29 @@ pub fn render(
                     cx,
                 )
             });
+            let when_idle = status.automatic.map(|on| {
+                let this = this.clone();
+                let picker = ui::Segmented::new(
+                    "update-when-idle",
+                    vec![
+                        (Icon::Hourglass, SharedString::from(t!("Automatically when idle"))),
+                        (Icon::Message, SharedString::from(t!("Ask me"))),
+                    ],
+                    usize::from(!on),
+                )
+                .on_select(move |chosen, _, cx| {
+                    let on = *chosen == 0;
+                    this.update(cx, |bench, _| {
+                        crate::settings::set(bench, PreferenceChange::UpdateWhenIdle(Some(on)))
+                    })
+                });
+                rows::row(
+                    t!("Install updates"),
+                    Some(t!("Automatically installs once no agent is mid-turn and you have left the keys for 10 minutes; terminals and chats carry over. Ask me shows the notes first and waits for Install.")),
+                    picker,
+                    cx,
+                )
+            });
             div()
                 .child(rows::row(
                     t!("Channel"),
@@ -160,6 +189,7 @@ pub fn render(
                     channel,
                     cx,
                 ))
+                .children(when_idle)
                 .child(rows::row_with(None, t!("Last checked"), Some(last), check, cx))
                 .children(by_hand)
                 .into_any_element()

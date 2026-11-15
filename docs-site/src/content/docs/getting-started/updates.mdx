@@ -1,9 +1,9 @@
 ---
 title: Updates
-description: "Stable, nightly and staff channels, and how Sikemux updates when you ask."
+description: "Stable, nightly and staff channels, and when Sikemux installs an update."
 ---
 
-On a Mac, and from the AppImage on Linux, Sikemux tells you when a new build is out and installs it only when you ask. Choose how new in **Settings → About → Updates**:
+On a Mac, and from the AppImage on Linux, Sikemux tells you when a new build is out. On stable it installs it when you ask; on nightly and staff it installs it by itself once you are idle. Choose how new, and when to install, in **Settings → About → Updates**:
 
 | Channel | What you get |
 |---|---|
@@ -13,9 +13,14 @@ On a Mac, and from the AppImage on Linux, Sikemux tells you when a new build is 
 
 Staff is for the people who make Sikemux. It takes the place of **Nightly** on an account marked as staff, and it turns on features still being tried, before anyone else gets them. The account sheet on the phone says **staff** beside the version.
 
-When an update is out, the foot of the side rail says so, then shows how its download and install are going. Click it for the release's notes and **Install**. Nothing downloads or installs, and Sikemux never restarts, until you click it.
+When an update is out, the foot of the side rail says so, then shows how its download and install are going.
 
-Terminals and chats carry on through an update. A chat in the middle of a request holds the update up for at most two minutes. After that, the update goes ahead, and that chat stops and picks up again on its session. Once the update is in place, the windows restart to load it, waiting until you pause typing. Hover the rail's note to see which version you run and when it took over.
+**Install updates** picks when it goes in:
+
+- **Ask me**, the default on stable: click the rail's note for the release's notes and **Install**. Nothing downloads or installs, and Sikemux never restarts, until you click it.
+- **Automatically when idle**, the default on nightly and staff: Sikemux installs the update once no agent, in a chat or a terminal, is in the middle of a turn, and restarts into it once you have left the keys for 10 minutes. It never stops an agent to do so; if one starts a turn before you leave the keys, the restart waits for it. What's New opens with the release's notes once the new version is running. The rail's note shows **Restart to update** while it waits for you, so you can restart sooner.
+
+Terminals and chats carry on through an update. When you click **Install**, a chat in the middle of a request holds the update up for at most two minutes. After that, the update goes ahead, and that chat stops and picks up again on its session. Once the update is in place, the windows restart to load it, waiting until you pause typing. Hover the rail's note to see which version you run and when it took over.
 
 Sikemux looks for an update every half hour, every five minutes on the nightly channel, or every minute on staff, and **Check now** looks straight away. When a check fails, such as while you are offline, **Last checked** says why.
 
@@ -25,7 +30,7 @@ If Sikemux's servers stop working with the version you have, **Update Sikemux** 
 
 ## Linux
 
-The AppImage updates like the Mac app, when you click **Install**: its core asks root for each signed release, which replaces the core and the app unpacked beside it together.
+The AppImage updates like the Mac app: its core asks root for each signed release, which replaces the core and the app unpacked beside it together.
 
 The `.deb` and, on Fedora and the RHEL 9 family, the `.rpm` add Sikemux's package repository for their channel, so they update with the rest of the system. When a new release is out, **Settings → About** shows it with **Copy command**, which copies the package manager's line:
 

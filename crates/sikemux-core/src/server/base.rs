@@ -150,7 +150,9 @@ fn chat_place(core: &Core, agent_id: &str) -> Option<Place> {
 fn preference_changed(core: &Core, change: &PreferenceChange) -> CoreResult<()> {
     match change {
         PreferenceChange::Notch(_) => notch::follow(core),
-        PreferenceChange::UpdateChannel(_) => core.updates().check_soon(),
+        PreferenceChange::UpdateChannel(_) | PreferenceChange::UpdateWhenIdle(_) => {
+            super::updates::follow_when_idle(core)
+        }
         PreferenceChange::PaneShader(_) | PreferenceChange::PaneImage(_) => backdrop::follow(core),
         PreferenceChange::PaneImageFollowsOmarchy(_) => {
             themes::follow_omarchy_background(core);

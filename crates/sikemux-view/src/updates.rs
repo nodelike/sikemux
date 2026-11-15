@@ -67,9 +67,13 @@ pub struct UpdateStatus {
     /// What to run in a terminal to install `available`, for an app that its
     /// installer updates rather than itself.
     pub install_command: Option<String>,
-    /// Whether this host puts updates in place by itself, which only the
-    /// person turns off; none on anything but a host's core.
+    /// Whether this app or host puts updates in place by itself; none on a build that
+    /// does not update itself.
     pub automatic: Option<bool>,
+    /// The update under way began by itself, so the app restarts into it only once the
+    /// person is idle.
+    #[serde(default)]
+    pub by_itself: bool,
     /// The update under way, which `outcome` names once it has one.
     pub id: Option<String>,
     /// How this host's last update ended, kept on disk by the one that put it in place.

@@ -30,7 +30,8 @@ use crate::theme::{
     TEXT_3XS, TEXT_SM, TEXT_XL, TEXT_XS,
 };
 use crate::updates::{
-    by_installer, copy_install_command, install, install_button, pending, waiting_label,
+    by_installer, copy_install_command, install, install_button, install_now, pending,
+    waiting_label,
 };
 use crate::workbench::Workbench;
 use crate::{theme, ui};
@@ -87,7 +88,10 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             return;
         };
         let Ok((version, complete)) = bench.update(cx, |bench, cx| {
-            let available = pending(bench).and_then(|update| update.available.as_ref());
+            // An app that updates by itself shows a release's notes once it runs it, not before.
+            let available = pending(bench)
+                .filter(|update| update.automatic != Some(true))
+                .and_then(|update| update.available.as_ref());
             let shown =
                 available.map_or_else(|| version.clone(), |release| release.version.clone());
             let bundled = available.and_then(Bundled::of);
@@ -753,7 +757,7 @@ fn main(
                             ui::Button::new("whats-new-install", label, ui::Variant::Primary)
                                 .disabled(!pressable)
                                 .on_click(move |_, _, cx| {
-                                    this.update(cx, |bench, _| install(bench, false))
+                                    this.update(cx, |bench, cx| install_now(bench, cx))
                                 })
                         }
                     }

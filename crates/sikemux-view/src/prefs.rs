@@ -107,6 +107,9 @@ pub struct Preferences {
     pub voice_dictation: bool,
     /// Which releases updates come from.
     pub update_channel: UpdateChannel,
+    /// The desktop app installs an update by itself once the person is idle; none
+    /// follows the channel, on for nightly and staff and off for stable.
+    pub update_when_idle: Option<bool>,
     /// Anonymous usage is reported.
     pub share_usage_data: bool,
     /// The person went through the first-run introduction.
@@ -251,6 +254,7 @@ preference_changes! {
     Notch notch: crate::notch::NotchSettings,
     VoiceDictation voice_dictation: bool,
     UpdateChannel update_channel: UpdateChannel,
+    UpdateWhenIdle update_when_idle: Option<bool>,
     ShareUsageData share_usage_data: bool,
     OnboardingComplete onboarding_complete: bool,
     OnboardingTried onboarding_tried: bool,
@@ -444,6 +448,7 @@ impl Default for Preferences {
             notch: crate::notch::NotchSettings::default(),
             voice_dictation: false,
             update_channel: UpdateChannel::default(),
+            update_when_idle: None,
             share_usage_data: true,
             onboarding_complete: false,
             onboarding_tried: false,

@@ -362,7 +362,11 @@ impl Workbench {
                         crate::core::force_next_core_update();
                     }
                     // Restarting runs the restart hooks, which update this workbench.
-                    cx.defer(crate::updates::restart_when_keys_rest);
+                    if (self.reads.update.as_ref()).is_some_and(|update| update.by_itself) {
+                        crate::updates::restart_when_idle(cx);
+                    } else {
+                        cx.defer(crate::updates::restart_when_keys_rest);
+                    }
                 }
             }
             Read::Questions => {

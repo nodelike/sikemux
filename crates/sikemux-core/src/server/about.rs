@@ -25,14 +25,14 @@ pub(crate) async fn release_avatars(params: AvatarsParams) -> HashMap<String, St
     releases::release_avatars(params.urls).await
 }
 
-/// An update the person chose to install showed its notes before it went in,
-/// so only one that went in by itself has notes left to show.
+/// An app that asks before updating showed the notes before the update went in, so only
+/// one that updates by itself has notes left to show once it runs the new release.
 pub(crate) fn whats_new(core: &Core) -> WhatsNew {
     let preferences = core.preferences().get();
     let version = core.config().build.version.clone();
-    let updated_by_itself = core.updates().status().automatic == Some(true);
+    let updates_by_itself = super::updates::updates_by_itself(core);
     WhatsNew {
-        unseen: updated_by_itself
+        unseen: updates_by_itself
             && preferences.onboarding_complete
             && preferences.last_seen_version != version,
         version,
