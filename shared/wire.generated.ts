@@ -5744,6 +5744,16 @@ export interface StashItemParams {
     id: string;
 }
 
+/**
+ * Takes up an agent's session again in the project it ran in, recent or not, and
+ * answers the agent that holds it once its session is ready.
+ * The agent a saved session came back as, and the project it is in.
+ */
+export interface SessionTaken {
+    agentId: string;
+    project: string;
+}
+
 export interface ApprovalSetting {
     requireApproval: boolean;
 }
@@ -5860,6 +5870,7 @@ export interface CoreCalls {
     readModels: { params: AgentParams; answer: null };
     recentChats: { params: RecentChatsParams; answer: RecentChats };
     removeStash: { params: StashItemParams; answer: null };
+    reopenAgent: { params: AgentParams; answer: SessionTaken };
     requireApproval: { params: NoParams; answer: ApprovalSetting };
     retryFailed: { params: ChatAccountsParams; answer: null };
     sendGuestMessage: { params: GuestMessageParams; answer: null };

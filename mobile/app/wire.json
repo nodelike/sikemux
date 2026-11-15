@@ -42,6 +42,7 @@
     "readModels",
     "recentChats",
     "removeStash",
+    "reopenAgent",
     "requireApproval",
     "retryFailed",
     "sendGuestMessage",

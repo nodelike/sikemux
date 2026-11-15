@@ -182,6 +182,7 @@ enum PhoneCall {
     enum ReadModels {}
     enum RecentChats {}
     enum RemoveStash {}
+    enum ReopenAgent {}
     enum RequireApproval {}
     enum RetryFailed {}
     enum SendGuestMessage {}
@@ -449,6 +450,12 @@ extension PhoneCall.RemoveStash: PhoneCallable {
     static let method = "removeStash"
     typealias Params = StashItemParams
     typealias Answer = WireNull
+}
+
+extension PhoneCall.ReopenAgent: PhoneCallable {
+    static let method = "reopenAgent"
+    typealias Params = AgentParams
+    typealias Answer = SessionTaken
 }
 
 extension PhoneCall.RequireApproval: PhoneCallable {
@@ -8599,6 +8606,14 @@ struct FoundRun: Codable, Hashable, Sendable {
 
 struct StashItemParams: Codable, Hashable, Sendable {
     var id: String
+}
+
+/// Takes up an agent's session again in the project it ran in, recent or not, and
+/// answers the agent that holds it once its session is ready.
+/// The agent a saved session came back as, and the project it is in.
+struct SessionTaken: Codable, Hashable, Sendable {
+    var agentId: String
+    var project: String
 }
 
 struct ApprovalSetting: Codable, Hashable, Sendable {
