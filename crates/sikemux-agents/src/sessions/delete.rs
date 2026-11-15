@@ -100,6 +100,49 @@ mod tests {
         fs::write(path, body).unwrap();
     }
 
+    #[cfg(unix)]
+    fn fake_codex(base: &Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let codex = base.join("codex");
+        write(
+            &codex,
+            concat!(
+                "#!/bin/sh\n",
+                "while IFS= read -r line; do\n",
+                "  case \"$line\" in\n",
+                "    *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}' ;;\n",
+                "    *'\"id\":2'*) echo \"$line\" > \"$0.asked\"; echo '{\"id\":2,\"result\":{}}' ;;\n",
+                "  esac\n",
+                "done\n",
+            ),
+        );
+        fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+        codex
+    }
+
+    #[cfg(windows)]
+    fn fake_codex(base: &Path) -> std::path::PathBuf {
+        write(
+            &base.join("codex.ps1"),
+            concat!(
+                "while (($line = [Console]::In.ReadLine()) -ne $null) {\n",
+                "  if ($line -like '*\"method\":\"initialize\"*') { [Console]::Out.WriteLine('{\"id\":1,\"result\":{}}') }\n",
+                "  elseif ($line -like '*\"id\":2*') {\n",
+                "    [IO.File]::WriteAllText(\"$PSScriptRoot\\codex.asked\", $line)\n",
+                "    [Console]::Out.WriteLine('{\"id\":2,\"result\":{}}')\n",
+                "  }\n",
+                "  [Console]::Out.Flush()\n",
+                "}\n",
+            ),
+        );
+        let codex = base.join("codex.cmd");
+        write(
+            &codex,
+            "@powershell -NoProfile -ExecutionPolicy Bypass -File \"%~dp0codex.ps1\"\r\n",
+        );
+        codex
+    }
+
     #[test]
     fn a_deleted_claude_session_takes_its_leftovers_with_it() {
         let root = tempfile::tempdir().unwrap();
@@ -151,25 +194,11 @@ mod tests {
 
     #[test]
     fn a_codex_session_is_deleted_by_codex_itself() {
-        use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let base = root.path();
         let rollout = base.join("sessions/2026/10/10/rollout-2026-10-10T09-00-00-abc-123.jsonl");
         write(&rollout, "{}\n");
-        let codex = base.join("codex");
-        write(
-            &codex,
-            concat!(
-                "#!/bin/sh\n",
-                "while IFS= read -r line; do\n",
-                "  case \"$line\" in\n",
-                "    *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}' ;;\n",
-                "    *'\"id\":2'*) echo \"$line\" > \"$0.asked\"; echo '{\"id\":2,\"result\":{}}' ;;\n",
-                "  esac\n",
-                "done\n",
-            ),
-        );
-        fs::set_permissions(&codex, fs::Permissions::from_mode(0o755)).unwrap();
+        let codex = fake_codex(base);
 
         tokio::runtime::Runtime::new()
             .unwrap()

@@ -462,8 +462,8 @@ mod tests {
             "---\nname: notes\ndescription: Notes\n---\n",
         )
         .unwrap();
-        std::os::unix::fs::symlink(elsewhere.join("run.sh"), source.join("run.sh")).unwrap();
-        std::os::unix::fs::symlink(elsewhere.join("lib"), source.join("lib")).unwrap();
+        crate::os::symlink(&elsewhere.join("run.sh"), &source.join("run.sh")).unwrap();
+        crate::os::symlink(&elsewhere.join("lib"), &source.join("lib")).unwrap();
 
         install_folder(&data, &source).unwrap();
         let copied = library(&data).join("notes");
@@ -492,7 +492,7 @@ mod tests {
             "---\nname: notes\ndescription: Notes\n---\n",
         )
         .unwrap();
-        std::os::unix::fs::symlink(data.join("missing"), source.join("broken")).unwrap();
+        crate::os::symlink(&data.join("missing"), &source.join("broken")).unwrap();
         assert!(install_folder(&data, &source).is_err());
 
         let looping = data.join("source/looping");
@@ -502,7 +502,7 @@ mod tests {
             "---\nname: looping\ndescription: Loops\n---\n",
         )
         .unwrap();
-        std::os::unix::fs::symlink(&looping, looping.join("again")).unwrap();
+        crate::os::symlink(&looping, &looping.join("again")).unwrap();
         assert!(install_folder(&data, &looping)
             .unwrap_err()
             .contains("links back into itself"));

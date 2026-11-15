@@ -345,8 +345,10 @@ pub fn error_detail(output: &[u8]) -> Option<String> {
 mod tests {
     #[cfg(unix)]
     use super::{first_healthy, probe_agent_executable, probe_agent_executable_with_timeout};
+    #[cfg(unix)]
     use crate::agent_catalog::agent as catalog_agent;
 
+    #[cfg(unix)]
     fn agent(name: &str) -> &'static crate::agent_catalog::AgentEntry {
         catalog_agent(name).unwrap()
     }
