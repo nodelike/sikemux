@@ -1,6 +1,7 @@
 //! Secrets kept by service and account, where no agent can reach them: in
 //! the data protection keychain for a build Sikemux's team signed on macOS,
-//! and in the guarded store for a core Sikemux's installer set up on Linux. A
+//! in the guarded store for a core Sikemux's installer set up on Linux, and
+//! sealed for the signed-in person on Windows. A
 //! development build keeps them in files only the person can read. Any other build keeps none, rather
 //! than keep them where agents could read them.
 
@@ -12,6 +13,8 @@ mod guarded;
 #[cfg(target_os = "macos")]
 mod keychain;
 pub mod reference;
+#[cfg(windows)]
+mod sealed;
 mod signature;
 
 pub use signature::{signed_by_team, TEAM_REQUIREMENT};
@@ -45,16 +48,27 @@ pub fn settle(core: bool) {
     let _ = core;
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 enum Store {
     #[cfg(target_os = "macos")]
     Keychain,
     #[cfg(target_os = "linux")]
     Guarded,
+    #[cfg(windows)]
+    Sealed,
     Files,
     Unprotected,
 }
 
 fn store() -> Store {
+    #[cfg(windows)]
+    return Store::Sealed;
+    #[cfg(not(windows))]
+    platform_store()
+}
+
+#[cfg(not(windows))]
+fn platform_store() -> Store {
     #[cfg(target_os = "macos")]
     if signed_by_team() {
         return Store::Keychain;
@@ -119,6 +133,8 @@ pub fn read(service: &str, account: &str) -> KeychainResult<Option<String>> {
         Store::Keychain => keychain::read(&service, &account),
         #[cfg(target_os = "linux")]
         Store::Guarded => guarded::run(move |root| file::read(root, &service, &account)),
+        #[cfg(windows)]
+        Store::Sealed => sealed::read(&file::home_root()?, &service, &account),
         Store::Files => file::read(&file::home_root()?, &service, &account),
         Store::Unprotected => Err(unprotected()),
     }
@@ -146,6 +162,8 @@ pub fn write(service: &str, account: &str, secret: &str) -> KeychainResult<()> {
         Store::Keychain => keychain::write(&service, &account, &secret),
         #[cfg(target_os = "linux")]
         Store::Guarded => guarded::run(move |root| file::write(root, &service, &account, &secret)),
+        #[cfg(windows)]
+        Store::Sealed => sealed::write(&file::home_root()?, &service, &account, &secret),
         Store::Files => file::write(&file::home_root()?, &service, &account, &secret),
         Store::Unprotected => Err(unprotected()),
     }
@@ -162,6 +180,8 @@ pub fn delete(service: &str, account: &str) -> KeychainResult<()> {
         Store::Keychain => keychain::delete(&service, &account),
         #[cfg(target_os = "linux")]
         Store::Guarded => guarded::run(move |root| file::delete(root, &service, &account)),
+        #[cfg(windows)]
+        Store::Sealed => file::delete(&file::home_root()?, &service, &account),
         Store::Files => file::delete(&file::home_root()?, &service, &account),
         Store::Unprotected => Err(unprotected()),
     }
