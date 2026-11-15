@@ -310,6 +310,7 @@ fn main() -> anyhow::Result<()> {
         #[cfg(target_os = "macos")]
         stand_in,
         calls: Vec::new(),
+        update: None,
         signed_in: args.world["signedIn"]["name"].as_str().map(|name| {
             sikemux_view::device::AccountInfo {
                 name: Some(name.into()),

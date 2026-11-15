@@ -30,6 +30,7 @@ const { values: options, positionals: only } = parseArgs({
 
 const SCENES = [
   { name: 'home', route: '/' },
+  { name: 'account', route: '/', tapLabel: 'Account' },
   { name: 'device', route: `/device/${CORE}` },
   // The demo host's list fits a whole phone, so a shorter screen gives it room to scroll under the tabs.
   { name: 'device-scrolled', route: `/device/${CORE}`, scroll: 400, height: 460 },
@@ -163,6 +164,8 @@ const page = await browser.newPage({
   hasTouch: true,
   colorScheme: 'dark',
 });
+// The account sheet asks the accounts server about the account; the showcase's is staff.
+await page.route('**/v1/account', (route) => route.fulfill({ json: { status: 'active', restorableDays: 30, staff: true } }));
 const devtools = await page.context().newCDPSession(page);
 await devtools.send('Emulation.setSafeAreaInsetsOverride', { insets: INSETS });
 const problems = [];

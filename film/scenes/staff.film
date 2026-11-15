@@ -1,0 +1,10 @@
+# Settings → About on a staff account: the channel reads Staff, and the check names it.
+stage 1440 900
+window 1440 900
+prefer updateChannel nightly
+staff
+updates staff
+project storefront shop
+settings About
+settle 2
+snap about

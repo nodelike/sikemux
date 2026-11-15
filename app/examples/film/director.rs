@@ -84,6 +84,8 @@ pub(super) struct Director {
     pub(super) stand_in: Option<native::StandIn>,
     /// Who the rail shows as signed in, kept over whatever the core says.
     pub(super) signed_in: Option<sikemux_view::device::AccountInfo>,
+    /// How updating stands, as Settings → About shows it, kept over whatever the core says.
+    pub(super) update: Option<sikemux_view::updates::UpdateStatus>,
     /// Calls the scene put to the person that no agent asked, kept in this host's view over
     /// whatever the core says.
     pub(super) calls: Vec<sikemux_view::calls::PersonCall>,
@@ -220,6 +222,21 @@ impl Director {
                         view.account = Some(Box::new(account));
                         cx.notify();
                     }
+                }
+            })
+        });
+    }
+
+    /// Shows the scene's update status over the core's, whose throwaway build never updates.
+    fn seed_update(&mut self) {
+        let (Some(update), Some(bench)) = (self.update.clone(), self.bench.clone()) else {
+            return;
+        };
+        self.cx.update(|cx| {
+            bench.update(cx, |bench, cx| {
+                if bench.reads.update.as_ref() != Some(&update) {
+                    bench.reads.update = Some(update);
+                    cx.notify();
                 }
             })
         });
@@ -418,6 +435,7 @@ impl Director {
             self.ticks += 1;
             self.write_clock();
             self.sign_in();
+            self.seed_update();
             self.seed_calls();
             self.apply()?;
             self.cx.advance_clock(step);
@@ -866,6 +884,32 @@ impl Director {
                 }
             }
             "mark" => self.mark(step.text(0)?, None),
+            "staff" => {
+                let account = self
+                    .signed_in
+                    .as_mut()
+                    .ok_or_else(|| anyhow!("line {}: staff needs a signed-in account", step.line))?;
+                account.staff = true;
+                account.flags = vec![sikemux_view::device::Flag::StaffFeed];
+            }
+            "updates" => {
+                let channel = match step.text(0)? {
+                    "stable" => sikemux_view::prefs::UpdateChannel::Stable,
+                    "nightly" => sikemux_view::prefs::UpdateChannel::Nightly,
+                    "staff" => sikemux_view::prefs::UpdateChannel::Staff,
+                    other => anyhow::bail!("line {}: no update channel called {other}", step.line),
+                };
+                self.update = Some(sikemux_view::updates::UpdateStatus {
+                    updates: true,
+                    current: env!("CARGO_PKG_VERSION").into(),
+                    checked: Some(sikemux_view::updates::UpdateCheck {
+                        at: sikemux_process::clock::epoch_ms(),
+                        channel,
+                        error: None,
+                    }),
+                    ..Default::default()
+                });
+            }
             "settings" => {
                 let name = step.text(0)?;
                 let page = sikemux_gpui::settings::Page::named(name)
