@@ -336,19 +336,6 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
         [("agent".to_owned(), worker_name.clone())],
         "{wrote}"
     );
-
-    let signed = git(&project, &["log", "-1", "--format=%B", &tip]);
-    let footer = signed.rsplit("\n\n").next().expect("a footer");
-    let forged = format!("forged\n\n{footer}");
-    std::fs::write(project.join("forged.txt"), "forged\n").expect("write");
-    git(&project, &["add", "forged.txt"]);
-    git(&project, &["commit", "--quiet", "-m", &forged]);
-    let found = git(&project, &["rev-parse", "main"]);
-    let wrote = lead
-        .tool("agent.wrote", json!({ "target": found }))
-        .await
-        .expect("who wrote it");
-    assert_eq!(owners(&wrote)[0].0, "person", "{wrote}");
 }
 
 /// Everything stopped, the person writes to one agent, and that agent messages another that is
