@@ -30,7 +30,7 @@ use crate::host_update::{self, HostAction, HostRequest, HostUpdate, UpdateStep, 
 use crate::release_feed::{self, Newest};
 use crate::releases::bundled_credits;
 use sikemux_view::device::Flag;
-use sikemux_view::prefs::UpdateChannel;
+use sikemux_view::prefs::{PreferenceChange, UpdateChannel};
 use sikemux_view::updates::{
     UpdateBlocker, UpdateCheck, UpdateOutcome, UpdateOutcomeState, UpdateRelease, UpdateState,
     UpdateStatus,
@@ -203,22 +203,10 @@ fn is_host() -> bool {
     matches!(own_app(), Some(OwnApp::Host))
 }
 
-/// The channel to update on: the person's, or nightly on a nightly build a
-/// host or a pacman package put in place, which the person installed on
-/// purpose and a stable release would not pass. Nightly is staff for a staff
-/// account, while the accounts server leaves the staff feed on.
+/// The channel to update on: the person's. Nightly is staff for a staff account,
+/// while the accounts server leaves the staff feed on.
 fn channel(core: &Core) -> UpdateChannel {
-    let chosen = match (
-        core.preferences().get().update_channel,
-        BuildChannel::of_release(&core.config().build.version),
-    ) {
-        (UpdateChannel::Stable, BuildChannel::Nightly)
-            if is_host() || pacman_package().is_some() =>
-        {
-            UpdateChannel::Nightly
-        }
-        (channel, _) => channel,
-    };
+    let chosen = core.preferences().get().update_channel;
     let staff_feed = core
         .account()
         .shown()
@@ -227,6 +215,18 @@ fn channel(core: &Core) -> UpdateChannel {
         UpdateChannel::Stable => UpdateChannel::Stable,
         UpdateChannel::Nightly | UpdateChannel::Staff if staff_feed => UpdateChannel::Staff,
         UpdateChannel::Nightly | UpdateChannel::Staff => UpdateChannel::Nightly,
+    }
+}
+
+/// A nightly a host or a pacman package put in place was installed on purpose, so it stays
+/// on nightly once it takes a stable build, such as a candidate on the staff feed.
+fn keep_installed_channel(core: &Core) {
+    if core.preferences().get().update_channel == UpdateChannel::Stable
+        && BuildChannel::of_release(&core.config().build.version) == BuildChannel::Nightly
+        && (is_host() || pacman_package().is_some())
+    {
+        core.preferences()
+            .change(PreferenceChange::UpdateChannel(UpdateChannel::Nightly));
     }
 }
 
@@ -319,10 +319,13 @@ fn check_every(core: &Core) -> Duration {
 pub(crate) async fn serve(core: Arc<Core>) {
     let running_since = epoch_ms();
     let asking = core.clone();
-    let by_installer = blocking(move || Ok(installer_command(channel(&asking))))
-        .await
-        .ok()
-        .flatten();
+    let by_installer = blocking(move || {
+        keep_installed_channel(&asking);
+        Ok(installer_command(channel(&asking)))
+    })
+    .await
+    .ok()
+    .flatten();
     let automatic = match is_host() {
         true => Some(blocking(|| Ok(read_switch())).await.unwrap_or(true)),
         false => None,
