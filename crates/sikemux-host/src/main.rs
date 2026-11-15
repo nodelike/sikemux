@@ -16,12 +16,12 @@ fn main() {
         if core { "core" } else { "cli" },
         sikemux_host::BUILD_COMMIT,
     );
+    sikemux_keychain::settle(core);
     #[cfg(unix)]
     if core {
         use sikemux_host::crash_reports::{self, Process};
         crash_reports::start(Process::Core, core_mode::data_dir(), core_mode::socket());
     }
-    sikemux_keychain::settle(core);
     #[cfg(unix)]
     if let Some(code) = sikemux_core::git_guard::shim::run_if_git() {
         std::process::exit(code);
