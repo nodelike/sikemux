@@ -343,7 +343,8 @@ open a new tab instead.
 Keep to a few tabs and close yours when done. `browser_switch_tab` and
 `browser_close_tab` act on this pane's tabs only. `newTab: true` on a site you
 already have a tab on goes to that tab. When your turn ends Sikemux closes
-your tabs but the one in front. Past six of your own, opening another closes
+your tabs but the one in front and those showing a local file, such as pages
+you open for the person. Past six of your own, opening another closes
 the one unused longest, named in `closedTab`. Tabs the person opened, clicked
 or typed in are theirs and are never tidied away. A tab the page opens itself
 is listed under `openedTabs` and becomes the current one.
