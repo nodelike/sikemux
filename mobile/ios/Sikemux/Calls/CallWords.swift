@@ -93,7 +93,7 @@ enum CallWords {
         case .line: wait.what
         case .inUse: String(localized: "Waiting for \(wait.what)")
         case .land: String(localized: "Waiting to land on \(wait.what)")
-        case .process, .unknown: String(localized: "Waiting on \(wait.what)")
+        case .process, .watch, .unknown: String(localized: "Waiting on \(wait.what)")
         }
     }
 
