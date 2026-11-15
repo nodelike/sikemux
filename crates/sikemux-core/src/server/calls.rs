@@ -157,7 +157,7 @@ calls! { core, client, method, params;
     "sleepIdleChats" = SleepIdleChats: NoDevice => json!({ "slept": super::lifecycle::sleep_idle(&core) }),
     "startTerminalAgent": NoDevice, counted => super::launching::start_terminal_at(&core, parse(params)?).await,
     "commandUsed" = CommandUsed: NoDevice => core.activity_log().command_used(&params.id),
-    "composing" = Composing: Owner => super::lifecycle::began_writing(&core, &params.agent_id),
+    "composing" = Composing: Owner => super::lifecycle::began_writing(&core, client.id, &params.agent_id),
     "readModels" = ReadModels: Watch => super::chat::read_models(&core, &params.agent_id),
     "startChat" = StartChat: NoDevice, counted => {
         super::launching::start_asked(&core, params).await?

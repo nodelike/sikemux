@@ -26,6 +26,7 @@ use tokio::sync::Notify;
 use sikemux_wire::protocol::{AgentState, Continuation, SessionId};
 
 use super::agent::AgentActivity;
+use super::connection::ClientId;
 use super::{launching, session, Core, CoreResult};
 
 /// How long a chat stays idle before it sleeps. Over half of all replies come within it, and a
@@ -53,6 +54,8 @@ pub(crate) struct Lifecycle {
     started: Notify,
     /// When each terminal agent was last started again after a crash.
     resumed: Mutex<HashMap<String, Instant>>,
+    /// New chats started before their first message, by the client that opened them.
+    started_early: Mutex<HashMap<String, ClientId>>,
 }
 
 /// Holds an agent's place among those starting until it is dropped.
@@ -144,8 +147,9 @@ pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
 
 /// Starts the agent of a chat the person opened or began writing in, and puts it to sleep again
 /// should it sit there with nothing sent and an empty draft, so an abandoned new chat holds no
-/// process. Their next key starts it again.
-pub(crate) fn began_writing(core: &Arc<Core>, agent_id: &str) {
+/// process. The same goes once the client that opened it leaves, as when the app quits. Their
+/// next key starts it again.
+pub(crate) fn began_writing(core: &Arc<Core>, client: ClientId, agent_id: &str) {
     let starts = core
         .chats()
         .get(agent_id)
@@ -154,24 +158,32 @@ pub(crate) fn began_writing(core: &Arc<Core>, agent_id: &str) {
     if !starts {
         return;
     }
+    (core.lifecycle().started_early.locked()).insert(agent_id.to_owned(), client);
     let (core, agent_id) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(UNSENT_SLEEP).await;
-            let new = core
-                .workspaces()
-                .agent(&agent_id)
-                .is_some_and(|agent| agent.resume_id.is_none());
-            if !new || core.chats().get(&agent_id).is_none() {
-                return;
-            }
-            let drafted = (core.drafts().chat_draft(&agent_id))
-                .is_some_and(|draft| !draft.text.trim().is_empty());
-            if !drafted && sleep(&core, &agent_id) {
+            if sleep_if_unsent(&core, &agent_id) != Some(false) {
+                core.lifecycle().started_early.locked().remove(&agent_id);
                 return;
             }
         }
     });
+}
+
+/// Puts a new chat to sleep if nothing was sent or drafted in it. Answers whether it is asleep
+/// now, or `None` once it is no longer a new chat that runs.
+fn sleep_if_unsent(core: &Core, agent_id: &str) -> Option<bool> {
+    let new = core
+        .workspaces()
+        .agent(agent_id)
+        .is_some_and(|agent| agent.resume_id.is_none());
+    if !new || core.chats().get(agent_id).is_none() {
+        return None;
+    }
+    let drafted =
+        (core.drafts().chat_draft(agent_id)).is_some_and(|draft| !draft.text.trim().is_empty());
+    Some(!drafted && sleep(core, agent_id))
 }
 
 /// Puts every chat to sleep at the person's word to stop everything, ending
@@ -428,6 +440,22 @@ fn idle(core: &Core, agent_id: &str) -> bool {
 impl super::part::Part for Lifecycle {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         vec![tokio::spawn(serve(core.clone()))]
+    }
+
+    fn client_gone(&self, core: &Arc<Core>, client: ClientId) {
+        let opened: Vec<String> = {
+            let mut started_early = self.started_early.locked();
+            let opened = started_early
+                .iter()
+                .filter(|(_, opener)| **opener == client)
+                .map(|(agent_id, _)| agent_id.clone())
+                .collect();
+            started_early.retain(|_, opener| *opener != client);
+            opened
+        };
+        for agent_id in opened {
+            sleep_if_unsent(core, &agent_id);
+        }
     }
 }
 

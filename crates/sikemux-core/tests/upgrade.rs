@@ -1199,6 +1199,16 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
 
 /// A chat saved asleep on a profile running `program`, shown without starting its agent.
 async fn show_asleep_chat(core: &CoreProcess, client: &CoreClient, program: &str) -> String {
+    show_chat(core, client, program, Some("ses-saved")).await
+}
+
+/// Shows a chat whose agent has not started, on `resume_id` if it has a conversation.
+async fn show_chat(
+    core: &CoreProcess,
+    client: &CoreClient,
+    program: &str,
+    resume_id: Option<&str>,
+) -> String {
     let accounts = json!({
         "profiles": [{
             "id": "fake",
@@ -1227,7 +1237,7 @@ async fn show_asleep_chat(core: &CoreProcess, client: &CoreClient, program: &str
         "renamed": true,
         "permissionMode": "bypass",
         "profileId": "fake",
-        "resumeId": "ses-saved",
+        "resumeId": resume_id,
         "asleep": true,
     });
     client
@@ -1295,6 +1305,39 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
         assert!(
             Instant::now() < deadline,
             "writing started the agent\n{}",
+            core.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A new chat the app started early stops with the app. On 2026-11-16, 24 such chats' Claude
+/// processes were still running 60 s after quitting the app.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_chat_started_early_stops_when_its_app_leaves() {
+    let core = CoreProcess::start("first");
+    let (app, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let agent_id = show_chat(&core, &app, FAKE_AGENT, None).await;
+    app.call("composing", json!({ "agentId": agent_id }))
+        .await
+        .expect("the app opens the chat");
+    let deadline = Instant::now() + WAIT;
+    while children(core.pid()).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "opening did not start the agent\n{}",
+            core.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    drop(app);
+
+    let deadline = Instant::now() + WAIT;
+    while !children(core.pid()).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "the agent outlived the app\n{}",
             core.log()
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
