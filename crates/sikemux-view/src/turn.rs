@@ -71,6 +71,9 @@ pub struct TurnWait {
     /// The agent it waits on, by id, so a line can draw that agent rather than its name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// Every agent it waits on, by id, longest at work first, so `agent` is the first of them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -87,8 +87,8 @@ pub(crate) struct Gathered {
     /// The permission requests each agent's chat waits on the person for. Calls are kept
     /// apart, by `person_calls`.
     asks: HashMap<String, Vec<Ask>>,
-    /// A worker each lead waits on, mid-turn, since it started.
-    workers: HashMap<String, OnAgent>,
+    /// The workers each lead waits on, mid-turn, since each started, longest at work first.
+    workers: HashMap<String, Vec<OnAgent>>,
     /// The lead each worker stopped to hear an answer from, since it asked.
     leads: HashMap<String, OnAgent>,
     /// The workers of each lead.
@@ -127,7 +127,7 @@ impl Gathered {
         for (worker, lead) in &leads {
             teams.entry(lead.clone()).or_default().push(worker.clone());
         }
-        let mut workers = HashMap::new();
+        let mut workers: HashMap<String, Vec<OnAgent>> = HashMap::new();
         let working = agents
             .iter()
             .filter(|agent| agent.status == AgentStatus::Working);
@@ -138,11 +138,14 @@ impl Gathered {
             let since = (core.seen().started_at(&worker.id))
                 .or_else(|| core.seen().active_at(&worker.id))
                 .unwrap_or_else(epoch_ms);
-            workers.entry(lead.clone()).or_insert(OnAgent {
+            workers.entry(lead.clone()).or_default().push(OnAgent {
                 id: worker.id.clone(),
                 name: worker.name.clone(),
                 since,
             });
+        }
+        for team in workers.values_mut() {
+            team.sort_by(|a, b| (a.since, &a.name).cmp(&(b.since, &b.name)));
         }
         Self {
             asks,
@@ -238,21 +241,21 @@ pub(crate) fn now(core: &Core, agent_id: &str) -> Option<TurnState> {
         .filter(|(_, lead)| *lead == agent_id)
         .map(|(worker, _)| worker.clone())
         .collect();
-    let worker = (leads.iter()).find(|(worker, lead)| *lead == agent_id && mid_turn(worker));
-    let workers = (worker.into_iter())
-        .map(|(worker, _)| {
-            let since = (core.seen().started_at(worker))
+    let mut working: Vec<OnAgent> = (team.iter())
+        .filter(|worker| mid_turn(worker))
+        .map(|worker| OnAgent {
+            id: worker.clone(),
+            name: core.names().name(worker).unwrap_or_default(),
+            since: (core.seen().started_at(worker))
                 .or_else(|| core.seen().active_at(worker))
-                .unwrap_or_else(epoch_ms);
-            let name = core.names().name(worker).unwrap_or_default();
-            let on = OnAgent {
-                id: worker.clone(),
-                name,
-                since,
-            };
-            (agent_id.to_owned(), on)
+                .unwrap_or_else(epoch_ms),
         })
         .collect();
+    working.sort_by(|a, b| (a.since, &a.name).cmp(&(b.since, &b.name)));
+    let workers = match working.is_empty() {
+        true => HashMap::new(),
+        false => HashMap::from([(agent_id.to_owned(), working)]),
+    };
     let mut leads = core.harness().questions.waiting_on_leads();
     leads.retain(|worker, _| worker == agent_id);
     let gathered = Gathered {
@@ -436,17 +439,24 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
     {
         return set;
     }
-    let on_agent = (gathered.leads.get(agent_id)).or_else(|| gathered.workers.get(agent_id));
-    if let Some(on) = on_agent {
+    let on_agents = match gathered.leads.get(agent_id) {
+        Some(lead) => std::slice::from_ref(lead),
+        None => gathered
+            .workers
+            .get(agent_id)
+            .map_or(&[][..], Vec::as_slice),
+    };
+    if let Some(first) = on_agents.first() {
         return Some(TurnWait {
             kind: TurnWaitKind::Agent,
-            what: on.name.clone(),
-            started_at: on.since,
+            what: first.name.clone(),
+            started_at: first.since,
             expected_ms: None,
             until: None,
             place: None,
             by: None,
-            agent: Some(on.id.clone()),
+            agent: Some(first.id.clone()),
+            agents: on_agents.iter().map(|on| on.id.clone()).collect(),
         });
     }
     set
@@ -728,7 +738,12 @@ pub(crate) fn line(turn: &TurnState) -> Option<String> {
             let on = match wait.kind {
                 TurnWaitKind::Ci => "CI",
                 TurnWaitKind::Deploy => "a deploy",
-                TurnWaitKind::Agent => return Some(format!("waiting on @{}", wait.what)),
+                TurnWaitKind::Agent => {
+                    return Some(match wait.agents.len() {
+                        0 | 1 => format!("waiting on @{}", wait.what),
+                        count => format!("waiting on @{} and {} more", wait.what, count - 1),
+                    })
+                }
                 TurnWaitKind::Timer => "a timer",
                 TurnWaitKind::Process => "a process",
                 TurnWaitKind::Line => "its turn on the host",

@@ -270,6 +270,7 @@ impl Triggers {
                 place: None,
                 by: None,
                 agent: None,
+                agents: Vec::new(),
             });
         }
         if let Some((trigger, park)) =
@@ -284,6 +285,7 @@ impl Triggers {
                 place: None,
                 by: None,
                 agent: park.agent().map(str::to_owned),
+                agents: park.agent().map(str::to_owned).into_iter().collect(),
             });
         }
         let soonest = mine()
@@ -300,6 +302,7 @@ impl Triggers {
             place: None,
             by: None,
             agent: None,
+            agents: Vec::new(),
         })
     }
 

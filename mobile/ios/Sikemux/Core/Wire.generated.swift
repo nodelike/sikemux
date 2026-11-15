@@ -2143,6 +2143,8 @@ struct TurnWait: Codable, Hashable, Sendable {
     var by: String?
     /// The agent it waits on, by id, so a line can draw that agent rather than its name.
     var agent: String?
+    /// Every agent it waits on, by id, longest at work first, so `agent` is the first of them.
+    var agents: [String]?
 }
 
 enum TurnWaitKind: String, Codable, Hashable, Sendable {

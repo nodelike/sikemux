@@ -1307,6 +1307,8 @@ export interface TurnWait {
     by?: string;
     /** The agent it waits on, by id, so a line can draw that agent rather than its name. */
     agent?: string;
+    /** Every agent it waits on, by id, longest at work first, so `agent` is the first of them. */
+    agents?: string[];
 }
 
 export type TurnWaitKind = "ci" | "deploy" | "agent" | "timer" | "process" | "check" | "line" | "inUse";
