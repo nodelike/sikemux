@@ -297,6 +297,28 @@ describe("what each device may read from the log", () => {
     ]);
   });
 
+  it("shows a host another host renamed, so it shows the new name", async () => {
+    const a = await account("user_a");
+    const renamed = await registered(app, "user_a", "host");
+    const before = await latestEventId(database.db, "user_a");
+    await call(
+      `/v1/devices/${renamed.key}/name`,
+      await sessionToken("user_a"),
+      {
+        method: "POST",
+        json: { name: "sanctum" },
+      },
+    );
+    const visible = await backlog(database.db, {
+      userId: "user_a",
+      role: "host",
+      key: a.host.key,
+      after: before,
+      limit: 200,
+    });
+    expect(seen(visible)).toEqual([`device.changed ${renamed.key}`]);
+  });
+
   it("never shows a phone another phone", async () => {
     const a = await account("user_a");
     const visible = await backlog(database.db, {
