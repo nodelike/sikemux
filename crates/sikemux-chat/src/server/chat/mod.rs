@@ -644,7 +644,7 @@ impl Chat {
             .is_some_and(|ending| !matches!(ending, Ending::Stopped));
         if let Some(core) = self.core.upgrade() {
             if matches!(ending, Some(Ending::Finished)) {
-                (core.chat_above().questions_offers_in_reply)(&core, self.agent_id());
+                (core.chat_above().questions_reply_read)(&core, self.agent_id());
             }
             (core.chat_above().note_activity)(&core, self.agent_id(), activity);
             if let Some(ending) = ending {

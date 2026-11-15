@@ -293,6 +293,9 @@ struct State {
     /// The rule each agent was last sent back to over what it offered, so the same rule does not
     /// send it back again until a turn ends offering nothing a rule is about.
     followed_rules: HashMap<String, String>,
+    /// The agents whose last turn ended saying they wait with nothing set to wake them: false when
+    /// that turn sent them back, true when they ended so again after being sent back.
+    unwoken: HashMap<String, bool>,
     /// Oldest first.
     answered: Vec<Answered>,
     /// Something changed that the window has not been sent yet.
@@ -1295,11 +1298,17 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
     )
 }
 
-/// The chat's turn ended by itself: an offer of more work in its reply, which a yes or a no
-/// answers, sends the agent back when a project rule covers it, and otherwise only shows as how
-/// the turn left things. An agent with a lead, here or on a linked host, answers to them
-/// instead, and one with a message still on its way is not done.
-pub(crate) fn offers_in_reply(core: &Arc<Core>, agent_id: &str) {
+/// The chat's turn ended by itself: what its reply offers, and what it says it waits on.
+pub(crate) fn reply_read(core: &Arc<Core>, agent_id: &str) {
+    offers_in_reply(core, agent_id);
+    waits_in_reply(core, agent_id);
+}
+
+/// An offer of more work in a reply, which a yes or a no answers, sends the agent back when a
+/// project rule covers it, and otherwise only shows as how the turn left things. An agent with a
+/// lead, here or on a linked host, answers to them instead, and one with a message still on its
+/// way is not done.
+fn offers_in_reply(core: &Arc<Core>, agent_id: &str) {
     let Some(chat) = core.chats().get(agent_id) else {
         return;
     };
@@ -1321,9 +1330,113 @@ pub(crate) fn offers_in_reply(core: &Arc<Core>, agent_id: &str) {
     follow_rule(core, agent_id, &project, offers);
 }
 
+/// A worker whose reply says it waits, with nothing set to wake it, is sent back once to set a
+/// wake or say what is left for its lead. Ending that way again makes its report urgent.
+fn waits_in_reply(core: &Arc<Core>, agent_id: &str) {
+    let caught = unwoken(core, agent_id);
+    let mut state = core.harness().questions.state.locked();
+    let Some(to) = caught else {
+        state.unwoken.remove(agent_id);
+        return;
+    };
+    if state.unwoken.insert(agent_id.to_owned(), true).is_some() {
+        return;
+    }
+    state.unwoken.insert(agent_id.to_owned(), false);
+    drop(state);
+    let lead = (core.names().name(&to)).map_or("your lead".to_owned(), |name| format!("@{name}"));
+    let text = format!(
+        "Your turn ended saying you wait, but nothing is set to wake you, so you would sit until someone writes to you. If you wait on something, set trigger_add for it now: process, agent or ci when it is one, else every with a check that prints once it is ready, and a timeout. If it is not yours to wait on, say plainly what is left for {lead} and end your turn."
+    );
+    let (core, agent_id) = (core.clone(), agent_id.to_owned());
+    tokio::spawn(async move {
+        let why = "Sent by Sikemux itself because your turn ended waiting with nothing set to wake you, not by the person.";
+        if let Err(error) = messages::send_back(&core, agent_id, text, why).await {
+            eprintln!("sikemux core: an agent waiting on nothing was not sent back: {error}");
+        }
+    });
+}
+
+/// Whoever hears about a worker whose reply says it waits while nothing is set to wake it: its
+/// lead while open, else the project's chief.
+fn unwoken(core: &Core, agent_id: &str) -> Option<String> {
+    core.names().reports_to(agent_id)?;
+    let to = super::roster::hears_of(core, agent_id).agent()?.to_owned();
+    let chat = core.chats().get(agent_id)?;
+    let reply = chat.feed.last_answer()?;
+    if !waits_in(&reply) || asks_in(&reply) {
+        return None;
+    }
+    let now = core.agent_now(agent_id);
+    let woken = chat.feed.running_tasks() > 0
+        || chat.feed.running_subagents() > 0
+        || chat.feed.has_queued()
+        || now.waits_on_something()
+        || now.workers_busy(agent_id)
+        || super::turn_state::set_a_wake(core, agent_id);
+    (!woken).then_some(to)
+}
+
+/// Whether the agent's last turn ended waiting on nothing set to wake it, and Sikemux sent it
+/// back for that, in place of telling its lead.
+pub(crate) fn sent_back_unwoken(core: &Core, agent_id: &str) -> bool {
+    (core.harness().questions.state.locked().unwoken).get(agent_id) == Some(&false)
+}
+
+/// Whether the agent's last turn ended waiting on nothing set to wake it.
+pub(crate) fn waits_unwoken(core: &Core, agent_id: &str) -> bool {
+    (core.harness().questions.state.locked().unwoken).contains_key(agent_id)
+}
+
 /// Whether an agent's reply asks the person anything, in its own words.
 pub(crate) fn asks_in(reply: &str) -> bool {
     !asked_in(reply).is_empty()
+}
+
+/// Whether the last paragraph of an agent's reply says it waits on something, or goes on once
+/// something happens: "Still waiting on CI.", "I'll land once clippy passes."
+pub(crate) fn waits_in(reply: &str) -> bool {
+    let reply = reply.replace('\u{2019}', "'").to_lowercase();
+    let last = last_paragraph(&reply)
+        .replace(". ", "\n")
+        .replace("! ", "\n");
+    last.lines()
+        .map(|sentence| sentence.trim_start_matches(['-', '*', '#', ' ', '>']))
+        .any(says_it_waits)
+}
+
+fn last_paragraph(reply: &str) -> &str {
+    reply.trim().rsplit("\n\n").next().unwrap_or_default()
+}
+
+fn says_it_waits(sentence: &str) -> bool {
+    if sentence.starts_with("if ") {
+        return false;
+    }
+    let padded = format!(" {} ", sentence.replace([',', ';', ':', '.', '*'], " "));
+    let has = |words: &[&str]| words.iter().any(|word| padded.contains(word));
+    let waiting_on = sentence
+        .trim_start_matches("still ")
+        .starts_with("waiting ")
+        && has(&[" waiting for ", " waiting on ", " waiting until "]);
+    let i_wait = has(&[
+        " i'm waiting ",
+        " i am waiting ",
+        " i'm still waiting ",
+        " i am still waiting ",
+    ]);
+    let goes_on_once = has(&[" i'll ", " i will "])
+        && has(&[" once ", " when ", " as soon as ", " after ", " until "]);
+    let still_going = has(&[
+        " still compiling ",
+        " still building ",
+        " still running ",
+        " still in progress ",
+        " still queued ",
+    ]) && !sentence.contains('@')
+        && !sentence.contains("n't")
+        && !has(&[" no ", " nothing ", " not "]);
+    waiting_on || i_wait || goes_on_once || still_going
 }
 
 /// The first offer of more work in an agent's reply, which a yes or a no answers.
@@ -1363,7 +1476,8 @@ fn follow_rule(
         let text = format!(
             "You ended your turn offering: {offer}\n\nA rule of this project is about that: {rule}\n\nThe rule decides, not this note. If it tells you to do the work, do it. If it says to wait for the person's word, or not to do it, leave the work as it is and end your turn without offering it again: the person sees how you left it on your row and takes it up in your chat. What leaves this machine still stops for them."
         );
-        if let Err(error) = messages::over_rule(&core, agent_id, text).await {
+        let why = "Sent by Sikemux itself over a rule of this project, not by the person.";
+        if let Err(error) = messages::send_back(&core, agent_id, text, why).await {
             eprintln!("sikemux core: an agent was not sent back over a rule: {error}");
         }
     });
@@ -2069,6 +2183,17 @@ mod tests {
         (super::asked_in(reply).into_iter())
             .map(|ask| (ask.text, ask.polar))
             .collect()
+    }
+
+    #[test]
+    fn a_worker_left_waiting_on_the_person_says_it_waits() {
+        for said in [
+            "Card #265 isn't part of my benchmark work, so I'm not taking it. Still waiting for the person to sign in on sanctum.",
+            "I'm leaving card #266 for someone else; it's unrelated to the benchmark. Still waiting for the person to sign in on sanctum before I can start the build test.",
+            "Fixed the probe.\n\nOnce that's done I'll check the setup and rerun the build test and the typing-lag test.",
+        ] {
+            assert!(super::waits_in(said), "{said}");
+        }
     }
 
     /// The shape of a reply whose three offers showed as one question, cut inside its bold.

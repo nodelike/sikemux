@@ -103,11 +103,9 @@ pub struct ChatAbove {
     /// AskUserQuestion or Codex's request_user_input, into the same questions,
     /// and says what the agent is told in place of an answer.
     pub questions_ask_from_cli: fn(&Arc<Core>, &str, &Value) -> String,
-    /// The chat's turn ended by itself: an offer of more work in its reply, which a yes or a no
-    /// answers, sends the agent back when a project rule covers it, and otherwise only shows as how
-    /// the turn left things. An agent with a lead, here or on a linked host, or that Auto runs,
-    /// answers to them instead, and one with a message still on its way is not done.
-    pub questions_offers_in_reply: fn(&Arc<Core>, &str),
+    /// The chat's turn ended by itself: its reply may send it back, over an offer a project rule
+    /// covers or a wait with nothing set to wake it.
+    pub questions_reply_read: fn(&Arc<Core>, &str),
     /// Closes the question on `agent_id`'s dialog `only`, or on all its dialogs,
     /// when they no longer wait.
     pub questions_withdraw_dialogs: fn(&Core, &str, Option<&str>),

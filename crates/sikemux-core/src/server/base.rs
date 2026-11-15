@@ -314,7 +314,7 @@ pub(super) fn chat_above() -> ChatAbove {
         messages_worked: messages::worked,
         plugins_agent_environment: plugins::agent_environment,
         questions_ask_from_cli: questions::ask_from_cli,
-        questions_offers_in_reply: questions::offers_in_reply,
+        questions_reply_read: questions::reply_read,
         questions_withdraw_dialogs: questions::withdraw_dialogs,
         triggers_seed: triggers::seed,
     }

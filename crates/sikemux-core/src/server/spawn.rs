@@ -1012,7 +1012,8 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
             let (core, worker) = (core.clone(), worker.clone());
             blocking(move || Ok(work_settled(&core, &worker))).await
         };
-        let calm = is_calm(&ending, answer.as_ref(), settled.unwrap_or(false));
+        let unwoken = super::questions::waits_unwoken(&core, &worker);
+        let calm = is_calm(&ending, answer.as_ref(), settled.unwrap_or(false), unwoken);
         if let Some(line) = calm
             .then(|| calm_line(&core, &worker, answer.as_ref()))
             .flatten()
@@ -1021,7 +1022,10 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
             messages::report_calm(&core, worker, lead, line).await;
             return;
         }
-        let text = report(&core, &worker, ending, answer);
+        let mut text = report(&core, &worker, ending, answer);
+        if unwoken {
+            text.push_str("\n\nIt says it waits, but nothing is set to wake it, and Sikemux already sent it back once to set a wake. Wake it with what it needs, take over what it waits on, or close it.");
+        }
         elsewhere::send_commits(&core, &worker).await;
         messages::report(&core, worker, lead, text).await;
     });
@@ -1041,13 +1045,15 @@ fn work_settled(core: &Arc<Core>, worker: &str) -> bool {
 }
 
 /// Whether a report can wait for its lead's next turn: the turn finished with its work
-/// `settled`, and its answer asks nothing. Any other report wakes the lead at once.
-fn is_calm(ending: &Ending, answer: Option<&TerminalAnswer>, settled: bool) -> bool {
+/// `settled`, and its answer asks nothing and does not say it waits with nothing set to wake it,
+/// being `unwoken`. Any other report wakes the lead at once.
+fn is_calm(ending: &Ending, answer: Option<&TerminalAnswer>, settled: bool, unwoken: bool) -> bool {
     let Some(TerminalAnswer::Said(said)) = answer else {
         return false;
     };
     matches!(ending, Ending::Finished)
         && settled
+        && !unwoken
         && !super::questions::asks_in(said)
         && !out_of_usage(said)
 }
@@ -1085,7 +1091,10 @@ fn quiet(core: &Core, worker: &str, ending: &Ending, answer: Option<&TerminalAns
         {
             false
         }
-        _ => super::turn_state::set_a_wake(core, worker),
+        _ => {
+            super::questions::sent_back_unwoken(core, worker)
+                || super::turn_state::set_a_wake(core, worker)
+        }
     }
 }
 

@@ -3,7 +3,8 @@
 //! A real core, git shim and fake agent: an agent's commits stay its own after
 //! a rebase by hand, a landing and a push, a footer copied onto another commit
 //! still counts for nothing, an agent can wake one held by a stop, and a file a shell command
-//! wrote reads as the turn's uncommitted work.
+//! wrote reads as the turn's uncommitted work, and a worker that ends waiting with nothing set to
+//! wake it is sent back rather than reported as done.
 
 mod folded;
 
@@ -386,6 +387,60 @@ async fn an_agent_the_person_set_going_again_wakes_one_held_by_stopping_everythi
         .await
         .expect("the message");
     assert!(answer.to_string().contains("woke it first"), "{answer}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_worker_that_ends_waiting_on_nothing_is_sent_back_and_its_lead_not_told() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    git(&project, &["init", "--quiet", "-b", "main"]);
+    commit_file(&project, "base.txt", "base\n", "base");
+    let socket: PathBuf = root.join("core.sock");
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "omp",
+            "accent": "#a277ff",
+            "executablePath": FAKE_AGENT,
+        }],
+    });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    let (lead, _) = app
+        .start_chat("omp:fake".into(), "widget".into(), None)
+        .await
+        .expect("the lead starts");
+    let mut lead = Agent::open(&socket, &lead).await;
+    let waits = "I'll run the build test once the person signs in on sanctum.";
+    let spawned = lead
+        .tool("agent.spawn", json!({ "cli": "omp", "prompt": "hello" }))
+        .await
+        .expect("a worker");
+    let worker_id = spawned["agentId"].as_str().expect("its id");
+    let mut worker = Agent::open(&socket, worker_id).await;
+    worker.chat.until_said("hello").await;
+    worker
+        .says(format!("tool trigger.list {{}}\n{waits}"), waits)
+        .await;
+    worker.chat.until_said("nothing is set to wake you").await;
+    worker.chat.until_turns_ended(3).await;
+
+    let heard = folded::prompts(&lead.chat.view.rows);
+    assert!(
+        !(heard.iter())
+            .filter(|prompt| !prompt.starts_with("tool "))
+            .any(|prompt| prompt.contains(waits)),
+        "{heard:#?}"
+    );
 }
 
 /// A file a shell command wrote is credited to its agent only once the write settles, after the
