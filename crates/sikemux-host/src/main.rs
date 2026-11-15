@@ -15,7 +15,7 @@ fn main() {
         if core { "core" } else { "cli" },
         sikemux_host::BUILD_COMMIT,
     );
-    sikemux_keychain::settle(core);
+    sikemux_keychain::settle(core && !sikemux_host::crash_reports::is_reporter());
     if core {
         use sikemux_host::crash_reports::{self, Process};
         crash_reports::start(Process::Core, core_mode::data_dir(), core_mode::socket());

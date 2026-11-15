@@ -202,6 +202,11 @@ fn leave_with_parent() {
         });
 }
 
+/// Whether this process is the crash reporter another one started to watch it.
+pub fn is_reporter() -> bool {
+    std::env::var_os(REPORTER_VARIABLE).is_some()
+}
+
 /// Ends this run's session as one that exited well, and sends what is waiting.
 pub fn stop() {
     if let Some(client) = Hub::main().client() {
