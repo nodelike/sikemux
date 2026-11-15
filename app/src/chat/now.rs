@@ -8,7 +8,9 @@ use super::*;
 use crate::ui::Clicks;
 use gpui_kit::ClickEvent;
 
-use sikemux_view::now::{ClosedWhy, FixAt, NowClosed, NowFact, NowGroup, NowRow, ProjectNow};
+use sikemux_view::now::{
+    AskStand, ClosedWhy, FixAt, NowClosed, NowFact, NowGroup, NowRow, ProjectNow,
+};
 use sikemux_view::turn::TurnWaitKind;
 
 use crate::theme::{SPACE_1, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_XS, TEXT_XS_H};
@@ -33,7 +35,7 @@ pub(super) fn card(
     }
     let now = (bench.view_at(chat.target.place())?.now.iter())
         .find(|now| now.project == chief.project)?;
-    if now.rows.is_empty() && now.closed.is_empty() {
+    if now.rows.is_empty() && now.closed.is_empty() && now.asks.is_empty() {
         return None;
     }
     let counts = Counts::of(now);
@@ -65,6 +67,7 @@ pub(super) fn card(
             .gap(px(2.))
             .clicks(fold)
             .children(counts.pills(cx))
+            .children(asks_pill(now, &chief.id, cx))
             .child(chevron(false, cx))
             .into_any_element(),
         false => {
@@ -75,7 +78,7 @@ pub(super) fn card(
                 .overflow_hidden()
                 .flex()
                 .flex_col()
-                .child(head(now, fold, cx))
+                .child(head(now, &chief.id, fold, cx))
                 .child(counts.stats(cx))
                 .child(
                     div()
@@ -223,12 +226,57 @@ fn chevron(open: bool, cx: &App) -> Div {
         )
 }
 
+/// The person's open asks as one pill opening the chief's Asks board: amber with how many have
+/// nobody on them, else quiet with how many there are.
+fn asks_pill(now: &ProjectNow, chief: &str, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    if now.asks.is_empty() {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let nobody = (now.asks.iter())
+        .filter(|ask| ask.stand == AskStand::Nobody)
+        .count();
+    let (words, ink, fill) = match nobody {
+        0 => (
+            t!("{count} asks", count = now.asks.len()),
+            t.text_secondary,
+            t.text_primary.opacity(0.06),
+        ),
+        _ => (
+            t!("{count} nobody", count = nobody),
+            t.warn,
+            t.warn.opacity(0.14),
+        ),
+    };
+    let chief = chief.to_owned();
+    Some(
+        div()
+            .id("now-asks")
+            .h(px(24.))
+            .px(px(9.))
+            .flex_none()
+            .rounded_full()
+            .flex()
+            .items_center()
+            .bg(fill)
+            .text_color(ink)
+            .hover(move |pill| pill.bg(fill.opacity((fill.a * 1.6).min(1.))))
+            .child(ui::text(words, TEXT_XS, FontWeight::SEMIBOLD).font_features(theme::tabular()))
+            .clicks(cx.listener(move |bench, _: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                bench.show_asks(&chief, cx);
+            }))
+            .into_any_element(),
+    )
+}
+
 fn head(
     now: &ProjectNow,
+    chief: &str,
     fold: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    cx: &App,
+    cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
-    let t = Tokens::get(cx);
+    let t = Tokens::get(cx).clone();
     let agents = now.rows.len();
     div()
         .id("now-card-head")
@@ -250,6 +298,7 @@ fn head(
             .text_color(t.text_tertiary),
         )
         .child(div().flex_1())
+        .children(asks_pill(now, chief, cx))
         .child(chevron(true, cx))
 }
 

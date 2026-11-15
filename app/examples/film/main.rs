@@ -19,7 +19,8 @@
 //!   chat NAME                   opens a Claude chat named NAME in the last project, first in its strip
 //!   title "TEXT"                gives the last chat that title
 //!   trigger "TITLE" SECONDS     sets the last chat a trigger that sends it TITLE every SECONDS
-//!   say "TEXT"                  sends the last chat TEXT, as the person, with no typing shown
+//!   say "TEXT" [FILE...]        sends the last chat TEXT, as the person, with no typing shown,
+//!                               with FILEs under film/scenes attached
 //!   pause ID                    pauses trigger ID as the person does
 //!   auto SLOTS DOLLARS          turns Auto on in the last project, SLOTS at once, up to DOLLARS
 //!   page ID FILE                keeps FILE as the page a scripted page_show call names by ID

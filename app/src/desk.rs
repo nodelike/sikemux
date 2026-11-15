@@ -1,6 +1,7 @@
 //! An agent's desk, beside it in its tab: the pages its browser holds, one in front.
 
 mod address;
+mod asks;
 mod downloads;
 mod pins;
 mod snip;
@@ -139,11 +140,13 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
 
 /// What a desk holds besides its pages: a file in an editor, the terminal of a task its
 /// agent started, or what a link named, shown among its pages: a pull request, issue or run,
-/// or a plugin's own item such as a Jira issue.
+/// or a plugin's own item such as a Jira issue. A chief's desk also has its Asks board pinned
+/// first among its pages.
 #[derive(Clone, PartialEq)]
 pub enum DeskItem {
     File(PathBuf),
     Terminal { session: u64, title: String },
+    Asks,
 }
 
 impl DeskItem {
@@ -151,6 +154,7 @@ impl DeskItem {
         match self {
             DeskItem::File(_) => DeskKind::Files,
             DeskItem::Terminal { .. } => DeskKind::Terminals,
+            DeskItem::Asks => DeskKind::Pages,
         }
     }
 
@@ -161,6 +165,7 @@ impl DeskItem {
                 DeskItem::Terminal { session: one, .. },
                 DeskItem::Terminal { session: other, .. },
             ) => one == other,
+            (DeskItem::Asks, DeskItem::Asks) => true,
             _ => false,
         }
     }
@@ -459,6 +464,7 @@ impl Desks {
                         title: title.clone(),
                         running: false,
                     }),
+                    DeskItem::Asks => {}
                 }
             }
         }
@@ -474,7 +480,7 @@ impl Desks {
     fn files(&self) -> impl Iterator<Item = &PathBuf> {
         self.items.values().flatten().filter_map(|item| match item {
             DeskItem::File(path) => Some(path),
-            DeskItem::Terminal { .. } => None,
+            DeskItem::Terminal { .. } | DeskItem::Asks => None,
         })
     }
 }
@@ -931,11 +937,23 @@ impl Workbench {
         }
     }
 
+    /// Brings `chief`'s Asks board to the front of its desk, bringing the desk out if it is closed.
+    pub(crate) fn show_asks(&mut self, chief: &str, cx: &mut Context<Self>) {
+        self.desks.update(cx, |desks, cx| {
+            desks.show_kind(chief, DeskKind::Pages, cx);
+            desks.bring_front(chief, DeskItem::Asks, cx);
+        });
+        if !self.desk_open_anywhere(chief) {
+            self.reveal_desk(chief);
+        }
+        self.parts.redraw_stage(cx);
+    }
+
     /// Takes an item off the agent's desk, asking first when that loses a file's unsaved edits.
     fn close_desk_item(&mut self, agent: &str, item: DeskItem, cx: &mut Context<Self>) {
         let closing = match &item {
             DeskItem::File(path) => vec![crate::editor::FileKey::new(self.place(), path)],
-            DeskItem::Terminal { .. } => Vec::new(),
+            DeskItem::Terminal { .. } | DeskItem::Asks => Vec::new(),
         };
         let agent = agent.to_owned();
         crate::editor::close_unsaved(
@@ -1084,6 +1102,11 @@ impl Workbench {
         };
         let Some(desk) = self.desk_of(tab, agent) else {
             self.split_desk(&self.target(), &strip, tab, view, agent, false);
+            if self.agent_by_id(agent).is_some_and(|row| row.chief) {
+                return self
+                    .desks
+                    .update(cx, |desks, cx| desks.bring_front(agent, DeskItem::Asks, cx));
+            }
             return self.open_first_page(agent, cx);
         };
         if self.narrow_desk(&desk, view, cx) {
@@ -1916,6 +1939,20 @@ pub fn pane(
     ui::forget_spots(|| format!("desk-close-{agent}-"));
     let mut front_pill = None;
     let mut pill_count = 0;
+    let chief = bench.agent_by_id(agent).is_some_and(|row| row.chief);
+    if chief && kind == DeskKind::Pages {
+        let shown = front_item == Some(&DeskItem::Asks);
+        if shown {
+            front_pill = Some(pill_count);
+        }
+        pill_count += 1;
+        let pick = agent.to_owned();
+        pills = pills.child(
+            pinned_pill(shown, cx).clicks(cx.listener(move |bench, _, _, cx| {
+                bench.show_asks(&pick, cx);
+            })),
+        );
+    }
     let pages = match kind {
         DeskKind::Pages => strip.map(|strip| strip.tabs.as_slice()).unwrap_or_default(),
         _ => &[],
@@ -2003,6 +2040,7 @@ pub fn pane(
                     .into_any_element(),
                 title.clone(),
             ),
+            DeskItem::Asks => continue,
         };
         let (pick_agent, pick_item) = (agent.to_owned(), item.clone());
         let (close_agent, close_item) = (agent.to_owned(), item.clone());
@@ -2178,6 +2216,7 @@ pub fn pane(
                 &session.to_string(),
                 cx,
             ),
+            DeskItem::Asks => asks::board(bench, agent, cx),
         };
         return frame(
             bench,
@@ -2361,8 +2400,51 @@ fn pill(
     close: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> gpui_kit::Stateful<gpui_kit::Div> {
-    let t = Tokens::get(cx).clone();
     let close_id = SharedString::from(format!("{id}-close"));
+    pill_face(id, mark, label, shown, at_work, cx)
+        .group_hover(DESK_PILL, |pill| pill.pr(SPACE_6))
+        .child(
+            ui::hover_actions(DESK_PILL)
+                .right(px(2.))
+                .top_0()
+                .bottom_0()
+                .child(
+                    div()
+                        .relative()
+                        .child(ui::close_button(close_id, t!("Close tab"), close, cx))
+                        .children(close_spot),
+                ),
+        )
+}
+
+/// The Asks board's tab on a chief's desk: always first, and with a pin where others close.
+fn pinned_pill(shown: bool, cx: &App) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let t = Tokens::get(cx);
+    pill_face(
+        "desk-asks".into(),
+        ui::chief_mark(13.),
+        t!("Asks").to_owned(),
+        shown,
+        None,
+        cx,
+    )
+    .w(px(PILL_MIN))
+    .child(
+        ui::icon(Icon::Pin, 12.)
+            .flex_none()
+            .text_color(t.text_tertiary),
+    )
+}
+
+fn pill_face(
+    id: SharedString,
+    mark: AnyElement,
+    label: String,
+    shown: bool,
+    at_work: Option<(Hsla, AnyElement)>,
+    cx: &App,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let t = Tokens::get(cx).clone();
     let rest = t.text_primary.opacity(0.05);
     let tinted = at_work.as_ref().map(|(tint, _)| *tint);
     div()
@@ -2375,7 +2457,6 @@ fn pill(
         .h(px(24.))
         .pl(SPACE_2)
         .pr(SPACE_2)
-        .group_hover(DESK_PILL, |pill| pill.pr(SPACE_6))
         .flex()
         .items_center()
         .gap(SPACE_1H)
@@ -2406,18 +2487,6 @@ fn pill(
                 .whitespace_nowrap(),
         )
         .children(at_work.map(|(_, mark)| ui::gives_way(DESK_PILL, mark)))
-        .child(
-            ui::hover_actions(DESK_PILL)
-                .right(px(2.))
-                .top_0()
-                .bottom_0()
-                .child(
-                    div()
-                        .relative()
-                        .child(ui::close_button(close_id, t!("Close tab"), close, cx))
-                        .children(close_spot),
-                ),
-        )
 }
 
 /// A tab of a desk's strip, as its menu needs it.
@@ -2501,6 +2570,7 @@ fn tab_menu(
                 .separator()
                 .item(close),
             DeskTab::Item(DeskItem::Terminal { .. }) => popup.item(close),
+            DeskTab::Item(DeskItem::Asks) => popup,
         }
     }
 }
