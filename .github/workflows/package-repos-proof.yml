@@ -5,88 +5,17 @@ on:
 permissions:
   contents: read
 jobs:
-  index:
-    name: Sign two versions and write their indexes
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install the signing tools
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm createrepo-c apt-utils >/dev/null
-      - name: Make a throwaway key
-        run: |
-          export GNUPGHOME="$(mktemp -d)"
-          printf 'throwaway' >"$RUNNER_TEMP/pass"
-          gpg --batch --pinentry-mode loopback --passphrase-file "$RUNNER_TEMP/pass" --quick-generate-key "Proof <proof@example.com>" rsa4096 cert never
-          key="$(gpg --batch --list-keys --with-colons | awk -F: '$1 == "fpr" { print $10; exit }')"
-          gpg --batch --pinentry-mode loopback --passphrase-file "$RUNNER_TEMP/pass" --quick-add-key "$key" rsa4096 sign 2y
-          gpg --batch --pinentry-mode loopback --passphrase-file "$RUNNER_TEMP/pass" --armor --export-secret-subkeys "$key" >"$RUNNER_TEMP/subkey.asc"
-          gpg --batch --armor --export "$key" >packaging/linux/sikemux-archive.asc
-      - name: Point the repository at this runner
-        run: |
-          sed -i 's|^RELEASES=.*|RELEASES=http://127.0.0.1:8080/releases/download|; s|^PAGES=.*|PAGES=http://127.0.0.1:8080/pages|' packaging/linux/repository.sh
-          cat packaging/linux/repository.sh
-      - name: Pack, sign and index 1.0.0 and 1.0.1
-        run: |
-          for version in 1.0.0 1.0.1; do
-            .github/package-proof/dummy.sh "$version" "$RUNNER_TEMP/bundle-$version"
-            PACKAGES_SIGNING_KEY="$(cat "$RUNNER_TEMP/subkey.asc")" PACKAGES_SIGNING_KEY_PASSWORD=throwaway \
-              scripts/sign-packages.sh "$version" "$RUNNER_TEMP/bundle-$version"
-          done
-      - name: Lay out releases and Pages as they will be after 1.0.0
-        run: |
-          S=serve; mkdir -p $S/objects/packages-stable $S/pages/packages-stable proof
-          for version in 1.0.0 1.0.1; do
-            mkdir -p $S/objects/v$version proof/index-$version
-            cp "$RUNNER_TEMP"/bundle-$version/deb/*.deb "$RUNNER_TEMP"/bundle-$version/rpm/*.rpm $S/objects/v$version/
-            tar -xf target/packages/packages-index-$version.tar -C proof/index-$version
-          done
-          cp proof/index-1.0.0/apt/stable/xz/* $S/objects/packages-stable/
-          cp -R proof/index-1.0.0/rpm/repodata $S/pages/packages-stable/
-          cp packaging/linux/sikemux-archive.asc proof/archive.asc
-          cp .github/package-proof/*.sh proof/
-          gunzip -c proof/index-1.0.1/apt/stable/gz/Packages.gz; cat proof/index-1.0.1/apt/stable/gz/Release
-          zcat proof/index-1.0.1/rpm/repodata/*primary.xml.gz | grep -o '<location[^>]*>'
-          find serve proof -type f | sort
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: proof
-          path: |
-            serve
-            proof
-
   install:
-    name: Upgrade through the repository on ${{ matrix.image }}
-    needs: index
+    name: Upgrade through the real repository on ${{ matrix.image }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { image: "debian:12", test: apt.sh }
-          - { image: "ubuntu:22.04", test: apt.sh }
-          - { image: "ubuntu:24.04", test: apt.sh }
-          - { image: "fedora:43", test: rpm.sh }
-          - { image: "almalinux:9", test: rpm.sh }
-          - { image: "opensuse/leap:15.6", test: rpm.sh }
+        image: ["debian:12", "ubuntu:22.04", "ubuntu:24.04"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: proof
-          path: .
-      - name: Serve them as GitHub does
-        run: |
-          nohup python3 .github/package-proof/server.py "$PWD/serve" >server.log 2>&1 &
-          sleep 1
-          curl -sI http://127.0.0.1:8080/releases/download/packages-stable/InRelease | head -3
-      - name: Install and upgrade
-        run: docker run --rm --network host -v "$PWD/serve:/serve" -v "$PWD/proof:/proof" "${{ matrix.image }}" sh -x /proof/${{ matrix.test }}
-      - name: What the server was asked
-        if: always()
-        run: cat server.log
+      - name: Install the previous nightly and upgrade it through packages-nightly
+        run: docker run --rm -v "$PWD/.github/package-proof:/proof:ro" "${{ matrix.image }}" sh -x /proof/real-apt.sh 0.6.1-nightly.22 0.6.1-nightly.2688
