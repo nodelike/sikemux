@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/sign-mac.sh scripts/mac-entitlements.sh scripts/verify-release.sh scripts/publish-release.sh scripts/sign-host.sh scripts/icons.sh scripts/check-release.sh scripts/check-rust.sh scripts/sentry-release.sh scripts/keep-linux-symbols.sh
+bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/sign-mac.sh scripts/mac-entitlements.sh scripts/verify-release.sh scripts/publish-release.sh scripts/ship-release.sh scripts/ship-gate.sh scripts/sign-host.sh scripts/icons.sh scripts/check-release.sh scripts/check-rust.sh scripts/sentry-release.sh scripts/keep-linux-symbols.sh
 bash -n packaging/arch/PKGBUILD packaging/arch/prepare.sh packaging/arch/build-release.sh packaging/arch/push-aur.sh packaging/homebrew/push-cask.sh
 node --check scripts/verify-updater-signature.mjs
 node --check scripts/app-metadata.mjs
@@ -107,7 +107,11 @@ if (!publish.includes('"${HOST_SIGS[@]}" "$INSTALLER"')) fail("releases do not p
 if (!releaseWorkflow.includes("scripts/sign-host.sh")) fail("the Release workflow does not sign the Linux host core");
 if (!releaseWorkflow.includes('./scripts/sign-packages.sh "${{ needs.plan.outputs.version }}" target/release/bundle')) fail("the Release workflow does not sign the rpms and the repository indexes");
 if (!publish.includes('"$PACKAGES_INDEX" "$DMG"')) fail("releases do not carry the signed package indexes their suites copy");
-if (!publish.includes("gh workflow run packages.yml -f suite=stable") || !publish.includes("gh workflow run packages.yml -f suite=nightly")) fail("a stable release does not move both package suites");
+const ship = fs.readFileSync("scripts/ship-release.sh", "utf8");
+if (!ship.includes("gh workflow run packages.yml -f suite=stable") || !ship.includes("gh workflow run packages.yml -f suite=nightly")) fail("shipping a stable release does not move both package suites");
+if (!publish.includes('"${RELEASE_CMD[@]}" "$MANIFEST" --prerelease\n  scripts/move-feed.sh staff "$VERSION"')) fail("a stable build does not publish as a candidate only the staff feed serves");
+const shipWorkflow = fs.readFileSync(".github/workflows/ship.yml", "utf8");
+if (!/approve:[\s\S]*?needs: gate[\s\S]*?environment: approval/.test(shipWorkflow)) fail("Ship does not wait for the owner's approval after its gate");
 if (!moveFeed.includes("gh workflow run packages.yml -f suite=nightly")) fail("moving the nightly feed does not move the nightly package suite");
 if (!/promote:[\s\S]*?actions: write/.test(soakWorkflow)) fail("the soak's promote job cannot start the package suite move");
 if (!signHost.includes('"${HOSTS[@]}" "${APPIMAGES[@]}"')) fail("releases do not sign the AppImages with the updater key");

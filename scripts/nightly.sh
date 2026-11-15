@@ -2,7 +2,7 @@
 # Steers the nightlies the Release workflow builds from every push to main, as docs/releasing.md describes.
 #   nightly.sh why                 what the staff and nightly feeds serve, and whether builds are held
 #   nightly.sh hold [REASON] | unhold
-#   nightly.sh pull <version>      keeps a published build from nightly and moves the feeds off it
+#   nightly.sh pull <version>      keeps a published nightly from nightly, or a stable candidate from shipping, and moves the feeds off it
 #   nightly.sh promote <version>   moves the nightly feed to a build that soaked on staff (the Nightly soak workflow runs it)
 set -euo pipefail
 
@@ -67,6 +67,7 @@ case "${1:-}" in
   why) why ;;
   hold) gh variable set NIGHTLY_HOLD --body "${2:-by hand} since $(date '+%F %R')" ;;
   unhold) gh variable delete NIGHTLY_HOLD ;;
-  pull | promote) [[ "${2:-}" == *-nightly.* ]] || { echo "Usage: $0 $1 <nightly version>" >&2; exit 2; }; "$1" "$2" ;;
+  promote) [[ "${2:-}" == *-nightly.* ]] || { echo "Usage: $0 promote <nightly version>" >&2; exit 2; }; promote "$2" ;;
+  pull) [[ -n "${2:-}" ]] || { echo "Usage: $0 pull <version>" >&2; exit 2; }; pull "$2" ;;
   *) echo "Usage: $0 why|hold [REASON]|unhold|pull <version>|promote <version>" >&2; exit 2 ;;
 esac
