@@ -122,29 +122,29 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
         let reader = looks.reader.clone();
         let over_chip = pointer.over_chip.clone();
         div()
-                .id(SharedString::from(format!("page-chip-{}", page.id)))
-                .absolute()
-                .top(px(8.))
-                .right(px(8.))
-                .on_hover(move |hovered, _, cx| {
-                    over_chip.set(*hovered);
-                    reader.update(cx, |_, cx| cx.notify());
-                })
-                .child(open_in_tab(page, looks, "page-chip", cx))
+            .id(SharedString::from(format!("page-chip-{}", page.id)))
+            .absolute()
+            .top(px(8.))
+            .right(px(8.))
+            .on_hover(move |hovered, _, cx| {
+                over_chip.set(*hovered);
+                reader.update(cx, |_, cx| cx.notify());
+            })
+            .child(open_in_tab(page, looks, "page-chip", cx))
     });
     let fade = (DRAWS_OVER_PAGES && cut).then(|| {
         let ground = theme::page_ground(t);
         div()
-                .absolute()
-                .left_0()
-                .right_0()
-                .bottom_0()
-                .h(px(FADE_HEIGHT))
-                .bg(linear_gradient(
-                    180.,
-                    linear_color_stop(gpui_kit::Hsla { a: 0., ..ground }, 0.),
-                    linear_color_stop(ground, 0.9),
-                ))
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
+            .h(px(FADE_HEIGHT))
+            .bg(linear_gradient(
+                180.,
+                linear_color_stop(gpui_kit::Hsla { a: 0., ..ground }, 0.),
+                linear_color_stop(ground, 0.9),
+            ))
     });
     let drawn = div()
         .relative()

@@ -63,17 +63,17 @@ pub(super) fn tasks(
     let shown = motion::follow(
         SharedString::from(format!("{key}:shown")),
         if open { 1. } else { 0. },
-        if open { motion::UNFOLD } else { motion::FOLD_AWAY },
+        if open {
+            motion::UNFOLD
+        } else {
+            motion::FOLD_AWAY
+        },
         window,
         cx,
     );
     let list = (shown > 0.).then(|| {
         let rows = tasks.tasks.iter().map(|task| ended(task, looks, t));
-        let list = div()
-            .flex()
-            .flex_col()
-            .children(rows)
-            .into_any_element();
+        let list = div().flex().flex_col().children(rows).into_any_element();
         tucked(format!("{key}:list"), shown, !open, vec![list], window, cx)
     });
     div()
@@ -119,7 +119,12 @@ fn ended(task: &EndedTask, looks: &Drawn, t: &Tokens) -> AnyElement {
     let watch = task.task_type.as_deref() == Some("monitor");
     let (icon, icon_ink, ink, word) = match task.state {
         NoticeState::Completed => (Icon::Check, t.live, t.text_secondary, None),
-        NoticeState::Failed => (Icon::Close, t.danger, t.text_secondary, Some((t!("failed"), t.danger))),
+        NoticeState::Failed => (
+            Icon::Close,
+            t.danger,
+            t.text_secondary,
+            Some((t!("failed"), t.danger)),
+        ),
         NoticeState::Stopped => (
             if watch { Icon::Eye } else { Icon::Run },
             looks.faint,
