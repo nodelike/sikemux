@@ -241,12 +241,14 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
     let chip = ui::Button::new("rail-update", label, variant)
         .icon(icon)
         .tooltip(tip)
-        .on_click(cx.listener(|bench, _, _, cx| {
-            match bench.reads.update.as_ref() {
-                Some(update) if update.by_itself && update.state == UpdateState::Ready => cx.restart(),
+        .on_click(
+            cx.listener(|bench, _, _, cx| match bench.reads.update.as_ref() {
+                Some(update) if update.by_itself && update.state == UpdateState::Ready => {
+                    cx.restart()
+                }
                 _ => experience::open_whats_new(bench, cx),
-            }
-        }));
+            }),
+        );
     Some(
         div()
             .flex_none()
