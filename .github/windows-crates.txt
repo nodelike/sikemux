@@ -11,6 +11,7 @@ sikemux-browser
 sikemux-buildinfo
 sikemux-calls
 sikemux-chat
+sikemux-drivers
 sikemux-fold
 sikemux-git
 sikemux-gpui
