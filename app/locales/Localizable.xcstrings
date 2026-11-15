@@ -92810,8 +92810,110 @@
         }
       }
     },
-    "Stable follows the latest signed release; staff takes each build of main the moment it is published, before nightly.": {},
-    "Staff": {},
+    "Stable follows the latest signed release; staff takes each build of main the moment it is published, before nightly.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estable sigue la última versión firmada; staff recibe cada compilación de main en cuanto se publica, antes que nightly."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "稳定版跟随最新的签名发布版；内部版在 main 的每个构建发布后立即获取，早于每夜版。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stable folgt dem neuesten signierten Release; Staff erhält jeden Build von main, sobald er veröffentlicht ist, noch vor Nightly."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stable suit la dernière version signée ; staff reçoit chaque build de main dès sa publication, avant nightly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "安定版は最新の署名済みリリースに追従します。スタッフ版は main の各ビルドを公開と同時に、ナイトリー版より先に受け取ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "안정 버전은 최신 서명된 릴리스를 따르고, 스태프는 main의 각 빌드를 게시되는 즉시 나이틀리보다 먼저 받습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стабильный канал следует за последним подписанным выпуском; staff получает каждую сборку main сразу после публикации, раньше nightly."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Estável segue a última versão assinada; staff recebe cada compilação da main assim que é publicada, antes do nightly."
+          }
+        }
+      }
+    },
+    "Staff": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staff"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内部版"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staff"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スタッフ版"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스태프"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staff"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staff"
+          }
+        }
+      }
+    },
     "Stage all": {
       "localizations": {
         "es": {
@@ -139241,7 +139343,58 @@
         }
       }
     },
-    "staff": {},
+    "staff": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "staff"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内部版"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Staff"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "staff"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スタッフ版"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스태프"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "staff"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "staff"
+          }
+        }
+      }
+    },
     "stage / unstage selected (or range)": {
       "localizations": {
         "es": {
