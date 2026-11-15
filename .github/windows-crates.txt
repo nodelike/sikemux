@@ -3,6 +3,7 @@ gpui-clicks
 gpui-native-view
 gpui-terminal-grid
 gpui-transcript
+sikemux-app
 sikemux-base
 sikemux-board
 sikemux-browser
