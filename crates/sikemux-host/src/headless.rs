@@ -224,6 +224,7 @@ fn enable() -> Result<(), String> {
             login_item::start(IDENTIFIER)?;
             wait_for_core(&launch.socket, SETTLE_TIMEOUT).map_err(|error| error.to_string())?;
         }
+        Some(_) if cfg!(windows) => login_item::start(IDENTIFIER)?,
         Some(pid) if starts_by_service(pid) => {}
         Some(pid) => style::note(&format!(
             "The core running now, pid {pid}, was started another way; `sikemux stop` and `sikemux start` hand it to the service."
@@ -249,7 +250,9 @@ fn disable() -> Result<(), String> {
     match login_item::remove(IDENTIFIER).map_err(|error| error.to_string())? {
         true => {
             style::done("The core no longer starts at boot", "");
-            style::note("It keeps running until `sikemux stop`.");
+            if running_pid(&launch()?.socket).is_some() {
+                style::note("It keeps running until `sikemux stop`.");
+            }
         }
         false => style::note("The core was not set to start at boot."),
     }

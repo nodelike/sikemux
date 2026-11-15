@@ -68,7 +68,6 @@ fn run_inner() -> Result<i32, String> {
         "chat" => return chat::chat(&args[1..]),
         "doctor" => return doctor(),
         "triage" => return triage::triage(&args[1..]),
-        #[cfg(unix)]
         _ if crate::headless::COMMANDS.contains(&command) => {
             return Ok(crate::headless::run(command, &args[1..]));
         }

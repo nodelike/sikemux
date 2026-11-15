@@ -13,6 +13,8 @@ use sikemux_hostkit::login_item::{self, CoreLaunch};
 const IDENTIFIER: &str = "com.nodelike.sikemux.restart-test";
 const COME_BACK: Duration = Duration::from_secs(30);
 const STAYS_DOWN: Duration = Duration::from_secs(8);
+/// A core told to stop everything may take a few seconds per step to exit.
+const EXITS: Duration = Duration::from_secs(30);
 
 fn answering(socket: &Path) -> Option<u32> {
     probe(socket, Duration::from_secs(1))
@@ -43,6 +45,30 @@ fn stays_down(socket: &Path, stopped: u32) -> bool {
     answering(socket).is_none()
 }
 
+fn gone(path: &Path) -> bool {
+    let deadline = Instant::now() + EXITS;
+    while path.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    !path.exists()
+}
+
+fn alive(pid: u32) -> bool {
+    sikemux_process::user_environment::command("tasklist")
+        .args(["/NH", "/FI", &format!("PID eq {pid}")])
+        .output()
+        .is_ok_and(|listed| String::from_utf8_lossy(&listed.stdout).contains(&pid.to_string()))
+}
+
+/// The `sikemux-host` command line, as the installer and uninstaller run it.
+fn host(command: &str) -> i32 {
+    let ran = sikemux_process::user_environment::command(env!("CARGO_BIN_EXE_sikemux-host"))
+        .arg(command)
+        .output()
+        .unwrap();
+    ran.status.code().unwrap_or(-1)
+}
+
 fn kill(pid: u32) {
     let killed = sikemux_process::user_environment::command("taskkill")
         .args(["/F", "/PID", &pid.to_string()])
@@ -58,7 +84,7 @@ fn a_killed_core_comes_back_and_a_stopped_one_stays_down() {
     std::env::set_var(sikemux_process::vars::CONFIG_DIR, dir.path().join("config"));
     let launch = CoreLaunch {
         binary: env!("CARGO_BIN_EXE_sikemux-host").into(),
-        socket: dir.path().join("core.sock"),
+        socket: login_item::headless_launch().unwrap().socket,
         log: dir.path().join("logs").join("core.log"),
         args: vec!["--data-dir".into(), dir.path().join("data").into()],
     };
@@ -82,7 +108,21 @@ fn a_killed_core_comes_back_and_a_stopped_one_stays_down() {
         "a core told to stop came back\n{}",
         log()
     );
-    assert!(!watching.exists(), "{}", log());
+    assert!(
+        gone(&watching),
+        "the watcher outlived its core, which is {} and {}\n{}",
+        if alive(second) {
+            "still running"
+        } else {
+            "gone"
+        },
+        if answering(&launch.socket).is_some() {
+            "answering"
+        } else {
+            "not answering"
+        },
+        log()
+    );
 
     let third = login_item::start_core(IDENTIFIER, &launch).unwrap().pid;
     assert_ne!(third, second);
@@ -100,12 +140,22 @@ fn a_killed_core_comes_back_and_a_stopped_one_stays_down() {
         .pid;
     login_item::sync(IDENTIFIER, Some(&launch), true);
     kill(fourth);
-    back_after(&launch.socket, fourth).unwrap_or_else(|| {
+    let sixth = back_after(&launch.socket, fourth).unwrap_or_else(|| {
         panic!(
             "a core the app started after `stop` did not come back\n{}",
             log()
         )
     });
+
+    assert_eq!(host("status"), 0, "{}", log());
+    assert_eq!(host("stop"), 0, "{}", log());
+    assert!(
+        stays_down(&launch.socket, sixth),
+        "a core stopped by `sikemux-host stop` came back\n{}",
+        log()
+    );
+    assert!(gone(&watching), "{}", log());
+    assert_eq!(host("status"), 3, "{}", log());
 
     let fifth = login_item::start_core(IDENTIFIER, &launch).unwrap().pid;
     assert!(login_item::remove(IDENTIFIER).unwrap());
