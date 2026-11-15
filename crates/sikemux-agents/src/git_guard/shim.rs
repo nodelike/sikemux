@@ -55,6 +55,7 @@ pub fn install(data_dir: &Path, endpoint: Option<&Path>) {
                     eprintln!("sikemux core: agents' {program} commands go unchecked: {error}");
                 }
             }
+            unlink_others(&folder);
             let _ = FOLDER.set(folder);
         }
         Err(error) => eprintln!("sikemux core: agents' git commands go unchecked: {error}"),
@@ -249,11 +250,44 @@ pub fn run_if_git() -> Option<i32> {
         TIMEOUT => Some(crate::timeout::run(args.collect())),
         footer::LINK => Some(footer::run(args.collect())),
         identity::HELPER => Some(credential::run(args.collect())),
-        program => {
-            let known = crate::ship::PROGRAMS.contains(&program)
-                || super::heavy::built_in_programs().any(|known| known == program)
-                || (!program.starts_with("sikemux") && stood_in_for(program));
-            known.then(|| run_program(program, args.collect()))
+        program => (stands_in_for(program) || linked_as(program))
+            .then(|| run_program(program, args.collect())),
+    }
+}
+
+/// Whether this build checks `program` on every host, whatever its projects list.
+fn stands_in_for(program: &str) -> bool {
+    crate::ship::PROGRAMS.contains(&program)
+        || super::heavy::built_in_programs().any(|known| known == program)
+}
+
+/// Whether this binary is linked as `program` in the shim's folder on PATH: for a project's
+/// `heavy` list, or by a build that stood in for more, whose link must still run the program.
+fn linked_as(program: &str) -> bool {
+    !program.starts_with("sikemux")
+        && std::env::var_os("PATH")
+            .iter()
+            .flat_map(std::env::split_paths)
+            .any(|folder| is_shim_folder(&folder) && folder.join(program).is_symlink())
+}
+
+/// Removes from the shim's folder the links to programs this build stands in for no longer,
+/// so agents run those straight from the person's PATH again.
+fn unlink_others(folder: &Path) {
+    let listed = listed_programs(folder);
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let kept = name.to_str().is_some_and(|name| {
+            name == "git"
+                || name == TIMEOUT
+                || stands_in_for(name)
+                || listed.iter().any(|listed| listed == name)
+        });
+        if !kept && entry.path().is_symlink() {
+            let _ = std::fs::remove_file(entry.path());
         }
     }
 }
@@ -307,20 +341,6 @@ fn listed_programs(folder: &Path) -> Vec<String> {
         .and_then(|table| serde_json::from_slice::<Value>(&table).ok())
         .and_then(|table| serde_json::from_value(table["programs"].clone()).ok())
         .unwrap_or_default()
-}
-
-/// Whether this binary, started as `program`, stands in for it because a project's `heavy`
-/// list named it.
-fn stood_in_for(program: &str) -> bool {
-    std::env::var_os("PATH")
-        .iter()
-        .flat_map(std::env::split_paths)
-        .filter(|folder| folder.file_name().is_some_and(|name| name == AGENT_BIN))
-        .any(|folder| {
-            listed_programs(&folder)
-                .iter()
-                .any(|listed| listed == program)
-        })
 }
 
 /// Checks the shell command in the tool call a harness writes to stdin, in
@@ -877,4 +897,29 @@ pub(super) fn real_git() -> Option<PathBuf> {
         .map(PathBuf::from)
         .filter(|git| git.is_file() && !is_shim(git))
         .or_else(|| real("git"))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_link_to_a_program_no_longer_stood_in_for_is_removed() {
+        let top = tempfile::tempdir().unwrap();
+        let folder = top.path().join(AGENT_BIN);
+        std::fs::create_dir(&folder).unwrap();
+        for name in ["git", TIMEOUT, "gh", "cargo", "npm", "curl", "tsc"] {
+            crate::os::symlink(Path::new("/usr/bin/true"), &folder.join(name)).unwrap();
+        }
+        std::fs::write(folder.join(LISTED), r#"{"programs":["tsc"]}"#).unwrap();
+
+        unlink_others(&folder);
+
+        let mut left: Vec<String> = std::fs::read_dir(&folder)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["cargo", "gh", "git", LISTED, TIMEOUT, "tsc"]);
+    }
 }
