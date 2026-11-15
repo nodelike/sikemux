@@ -108,7 +108,7 @@ enum AgentChip {
             AttributedString("\u{2009}") + FileGlyph.agent(agent, accent: palette.accent, size: size)
             + AttributedString("\u{2009}\(agent.written)\u{2009}")
         run.foregroundColor = palette.ink
-        run.backgroundColor = palette.active
+        run.backgroundColor = palette.raised
         var parts = URLComponents()
         parts.scheme = scheme
         parts.host = "chat"
@@ -128,8 +128,8 @@ extension Crew {
     func agent(_ id: String?) -> Named? { id.flatMap { id in named.first { $0.id == id } } }
 }
 
-/// An agent's chip outside prose, as the Mac's turn line and header draw it at their own size: its mark and name on a
-/// grey lift; a tap opens its chat.
+/// An agent's chip outside prose, as the Mac's turn line and header draw it at their own size: its mark and name on an
+/// opaque lift; a tap opens its chat.
 struct AgentPill: View {
     @Environment(\.palette) private var palette
     @Environment(\.hostCore) private var core
@@ -150,7 +150,7 @@ struct AgentPill: View {
             .padding(.leading, 4)
             .padding(.trailing, 6)
             .frame(height: size + 8)
-            .background(palette.active, in: RoundedRectangle(cornerRadius: Radius.control * 0.5))
+            .background(palette.raised, in: RoundedRectangle(cornerRadius: Radius.control * 0.5))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(agent.written)
