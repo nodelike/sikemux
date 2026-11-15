@@ -1,7 +1,7 @@
 //! Pushes the calling agent's own commits, and those of the agents it leads,
 //! leaving other agents' unpushed ones behind. A shared branch often holds several agents' commits that are
 //! not on the remote yet; pushing the branch would publish all of them. The
-//! agent's commits, told by their signed footers, are put on the remote's tip
+//! agent's commits, told by their footers' Agent: lines, are put on the remote's tip
 //! and pushed, and the branch is rebuilt on what was pushed with the other
 //! commits after it, so its files stay exactly as they are.
 
@@ -16,7 +16,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use super::committer;
-use super::footer::{self, verified};
+use super::footer::verified;
 use super::land;
 use super::note;
 use super::owners::{git, run};
@@ -87,24 +87,15 @@ impl Signing {
         }
     }
 
-    /// The agents `message`'s footer names, when this host signed it for `was`.
-    /// A host signs only for itself, so a linked host's footer is not signed again.
+    /// The agents `message`'s footer names, to sign again for where the commit now stands. A
+    /// host signs only for itself, so a footer a linked host signed is left to it; one whose
+    /// signature no longer checks out, after a rebase or a reword, keeps its agents.
     pub fn agents_of(&self, message: &str, was: &Commit) -> Option<Vec<Agent>> {
-        let (host, agents) = trailers::verify(message, was, &self.hosts)?;
-        (self.key.as_ref()?.public() == host).then_some(agents)
-    }
-
-    /// The agents of the commit `git rebase` made `commit` from, when this host signed its footer.
-    fn agents_before_rebase(&self, top: &Path, commit: &str) -> Option<Vec<Agent>> {
-        let was = footer::before_rebase(top, commit)?;
-        let (tree, parents, message) = footer::read_commit(top, &was).ok()?;
-        self.agents_of(
-            &message,
-            &Commit {
-                tree: &tree,
-                parents: &parents,
-            },
-        )
+        if let Some((host, agents)) = trailers::verify(message, was, &self.hosts) {
+            return (self.key.as_ref()?.public() == host).then_some(agents);
+        }
+        let agents = trailers::agents(message);
+        (!agents.is_empty()).then_some(agents)
     }
 }
 
@@ -687,9 +678,7 @@ pub fn replay(
             tree: &was_tree,
             parents: &old_parents,
         };
-        let agents = signing
-            .agents_of(message, &was)
-            .or_else(|| signing.agents_before_rebase(top, id));
+        let agents = signing.agents_of(message, &was);
         let message = match agents {
             Some(agents) => {
                 trailers::append(message, &trailers::footer(&agents, &made_of, key.as_ref()))
