@@ -202,7 +202,7 @@ pub fn keep_list(core: &Core, chat: &Chat) -> String {
 pub fn after_compaction(core: &Core, chat: &Chat) -> Option<String> {
     let agent_id = chat.agent_id();
     let brief = (chat.brief().is_none())
-        .then(|| (core.chat_above().memory_brief)(core, agent_id, None))
+        .then(|| (core.chat_above().memory_brief)(core, agent_id, chat.given_task().as_deref()))
         .flatten();
     let open = if chat.chief() {
         (core.chat_above().open_work)(core, agent_id)

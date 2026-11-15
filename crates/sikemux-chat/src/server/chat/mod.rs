@@ -386,6 +386,8 @@ pub struct Chat {
     /// What Sikemux keeps for the project, which a chat the person started
     /// is handed once: with its agent's instructions, or else with its first message.
     brief: Mutex<Option<String>>,
+    /// The task its lead started it with, which picks its brief again after a compaction.
+    given_task: Mutex<Option<String>>,
     /// How big its agent's session is and when it last called the model.
     pub meter: cap::Meter,
     /// A chief's chat, or one hired for a standing role, which hands over to fresh sessions and
@@ -413,6 +415,14 @@ impl Chat {
     /// What Sikemux keeps for the project, as the chat began.
     pub fn brief(&self) -> Option<String> {
         self.brief.locked().clone()
+    }
+
+    pub fn keep_task(&self, task: &str) {
+        *self.given_task.locked() = Some(task.to_owned());
+    }
+
+    pub fn given_task(&self) -> Option<String> {
+        self.given_task.locked().clone()
     }
 
     /// The chat's brief the first time it is asked for, for its first message.

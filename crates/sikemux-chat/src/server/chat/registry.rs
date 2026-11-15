@@ -569,6 +569,7 @@ impl Chats {
             published: Mutex::new(AgentState::Unknown),
             unstarted: AtomicBool::new(false),
             brief: Mutex::new(None),
+            given_task: Mutex::new(None),
             meter: Default::default(),
             chief: AtomicBool::new(capped),
             rotation: Default::default(),

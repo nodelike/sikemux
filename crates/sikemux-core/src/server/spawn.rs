@@ -752,6 +752,7 @@ async fn hand_task(core: &Arc<Core>, started: Started, prompt: String) {
             .await;
         }
     }
+    chat.keep_task(&prompt);
     let failed = match chat::until_started(core, chat).await {
         Ok(_) => {
             let task = messages::task(
