@@ -1,7 +1,7 @@
 //! Drives the window from step files, for the real-window checks of the test bundle only: it
-//! is built with the `drive` feature, which no release build turns on. Steps come
-//! over the socket named by `SIKEMUX_GPUI_DRIVE` and go through the window's own event
-//! dispatch, so nothing is posted to the system and no Accessibility grant is needed.
+//! is built with the `drive` feature, which no release build turns on. Steps come over the
+//! socket named by `SIKEMUX_GPUI_DRIVE`, a named pipe on Windows, and go through the window's
+//! own event dispatch, so nothing is posted to the system and no Accessibility grant is needed.
 //!
 //! Steps, one per line and ended by a line `end`, in points from the window's top-left corner:
 //!   activate | move x y | click x y | double x y | right x y | drag x1 y1 x2 y2 [steps]
@@ -13,8 +13,7 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui_kit::{
@@ -23,6 +22,8 @@ use gpui_kit::{
     ScrollDelta, ScrollEvent, ScrollSource, TouchPhase, Window,
 };
 use serde_json::{json, Value};
+use sikemux_client::local;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 use crate::desk::{DeskItem, DeskKind};
@@ -44,45 +45,61 @@ pub fn listen(window: AnyWindowHandle, bench: Entity<Workbench>, cx: &mut App) {
     let Some(path) = std::env::var_os("SIKEMUX_GPUI_DRIVE") else {
         return;
     };
-    let _ = std::fs::remove_file(&path);
-    let listener = match UnixListener::bind(&path) {
-        Ok(listener) => listener,
-        Err(error) => return eprintln!("sikemux: the window driver could not listen: {error}"),
-    };
-    let (runs, mut asked) = mpsc::unbounded_channel::<(String, UnixStream)>();
+    let (runs, mut asked) = mpsc::unbounded_channel::<(String, mpsc::UnboundedSender<String>)>();
     std::thread::spawn(move || {
-        for stream in listener.incoming().flatten() {
-            let Ok(reading) = stream.try_clone() else {
-                continue;
-            };
-            let steps: Vec<String> = BufReader::new(reading)
-                .lines()
-                .map_while(Result::ok)
-                .take_while(|line| line.trim() != "end")
-                .collect();
-            if runs.send((steps.join("\n"), stream)).is_err() {
-                break;
-            }
+        let runtime = match tokio::runtime::Builder::new_current_thread().enable_io().build() {
+            Ok(runtime) => runtime,
+            Err(error) => return eprintln!("sikemux: the window driver could not start: {error}"),
+        };
+        if let Err(error) = runtime.block_on(serve(PathBuf::from(path), runs)) {
+            eprintln!("sikemux: the window driver could not listen: {error}");
         }
     });
     cx.spawn(async move |cx| {
-        while let Some((steps, mut stream)) = asked.recv().await {
+        while let Some((steps, said)) = asked.recv().await {
             for line in steps.lines().map(str::trim) {
                 if line.is_empty() || line.starts_with('#') {
                     continue;
                 }
-                let said = match run(line, window, &bench, cx).await {
+                let _ = said.send(match run(line, window, &bench, cx).await {
                     Ok(None) => format!("did: {line}\n"),
                     Ok(Some(answer)) => format!("did: {line} {answer}\n"),
                     Err(problem) => format!("{problem}: {line}\n"),
-                };
-                let _ = stream.write_all(said.as_bytes());
+                });
                 cx.background_executor().timer(SETTLE).await;
             }
-            let _ = stream.write_all(b"done\n");
+            let _ = said.send("done\n".to_string());
         }
     })
     .detach();
+}
+
+/// Takes one step file at a time on the driver's socket, or its named pipe on Windows, and
+/// writes back each line the window says about it.
+async fn serve(
+    path: PathBuf,
+    runs: mpsc::UnboundedSender<(String, mpsc::UnboundedSender<String>)>,
+) -> std::io::Result<()> {
+    let _ = std::fs::remove_file(&path);
+    let mut listener = local::Listener::bind(&path)?;
+    loop {
+        let (reading, mut writing) = tokio::io::split(listener.accept().await?);
+        let mut lines = BufReader::new(reading).lines();
+        let mut steps = Vec::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if line.trim() == "end" {
+                break;
+            }
+            steps.push(line);
+        }
+        let (said, mut saying) = mpsc::unbounded_channel();
+        if runs.send((steps.join("\n"), said)).is_err() {
+            return Ok(());
+        }
+        while let Some(line) = saying.recv().await {
+            let _ = writing.write_all(line.as_bytes()).await;
+        }
+    }
 }
 
 async fn run(

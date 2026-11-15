@@ -66,7 +66,7 @@ sikemux-view = { path = "../../crates/sikemux-view" }
 sikemux-fold = { path = "../../crates/sikemux-fold" }
 sikemux-voice = { path = "../../crates/sikemux-voice" }
 textmate-highlight = { path = "../crates/textmate-highlight" }
-tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+tokio = { version = "1", features = ["io-util", "rt-multi-thread", "sync"] }
 url = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
