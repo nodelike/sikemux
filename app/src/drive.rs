@@ -47,7 +47,10 @@ pub fn listen(window: AnyWindowHandle, bench: Entity<Workbench>, cx: &mut App) {
     };
     let (runs, mut asked) = mpsc::unbounded_channel::<(String, mpsc::UnboundedSender<String>)>();
     std::thread::spawn(move || {
-        let runtime = match tokio::runtime::Builder::new_current_thread().enable_io().build() {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .build()
+        {
             Ok(runtime) => runtime,
             Err(error) => return eprintln!("sikemux: the window driver could not start: {error}"),
         };
