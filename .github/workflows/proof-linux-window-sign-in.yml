@@ -1,0 +1,171 @@
+name: Proof - Linux package window signs in
+
+on:
+  push:
+    branches: [proof/linux-window-sign-in]
+
+permissions:
+  contents: read
+
+env:
+  NIGHTLY: v0.6.1-nightly.22
+  APP_ONLY: "only Sikemux's own window or notch can do that"
+
+jobs:
+  client:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.NIGHTLY }}
+      - uses: ./.github/actions/setup-rust
+      - name: Write a client that makes one call
+        run: |
+          mkdir -p crates/sikemux-client/examples
+          cat > crates/sikemux-client/examples/call.rs <<'RUST'
+          #[tokio::main(flavor = "current_thread")]
+          async fn main() {
+              let mut args = std::env::args().skip(1);
+              let socket = std::path::PathBuf::from(args.next().expect("socket"));
+              let method = args.next().expect("method");
+              let params: serde_json::Value =
+                  serde_json::from_str(&args.next().unwrap_or_else(|| "{}".into())).expect("params");
+              let (client, _events) = sikemux_client::client::CoreClient::connect(&socket)
+                  .await
+                  .expect("connect");
+              match client.call(&method, params).await {
+                  Ok(answer) => println!("{answer}"),
+                  Err(error) => {
+                      eprintln!("refused: {error}");
+                      std::process::exit(1);
+                  }
+              }
+          }
+          RUST
+      - run: cargo build --locked -p sikemux-client --example call
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: call
+          path: target/debug/examples/call
+
+  deb:
+    needs: client
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: call
+          path: client
+      - name: Install the nightly deb, an X server, and a person outside the sikemux group
+        run: |
+          set -euxo pipefail
+          gh release download "$NIGHTLY" -R "$GITHUB_REPOSITORY" -p 'Sikemux_*_amd64.deb' -D pkg
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ./pkg/*.deb xvfb x11-utils imagemagick mesa-vulkan-drivers dbus fonts-dejavu-core >/dev/null
+          sudo useradd -m person
+          id person
+          ! id -nG person | grep -qw sikemux
+          getent group sikemux
+          stat -c '%A %U:%G %n' /usr/lib/sikemux/sikemux-host /usr/lib/sikemux/sikemux /var/lib/sikemux
+          test -g /usr/lib/sikemux/sikemux-host
+      - name: Start the packaged window as the person, which starts the packaged core
+        run: |
+          set -euxo pipefail
+          Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp &
+          for _ in $(seq 1 40); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.25; done
+          sudo -u person env -i HOME=/home/person USER=person LOGNAME=person PATH=/usr/bin:/bin DISPLAY=:99 \
+            dbus-run-session -- /usr/bin/sikemux >"$RUNNER_TEMP/window.log" 2>&1 &
+          core=
+          for _ in $(seq 1 90); do
+            for pid in $(pgrep -u person || true); do
+              [ "$(sudo readlink "/proc/$pid/exe" || true)" = /usr/lib/sikemux/sikemux-host ] && grep -q core "/proc/$pid/cmdline" && core=$pid
+            done
+            [ -n "$core" ] && break
+            sleep 1
+          done
+          test -n "$core"
+          echo "CORE=$core" >>"$GITHUB_ENV"
+          sudo cat "/proc/$core/cmdline" | tr '\0' ' '; echo
+          sudo grep -E '^(Uid|Gid)' "/proc/$core/status"
+          for task in /proc/$core/task/*; do echo "$(sudo cat "$task/comm"): $(sudo grep ^Gid "$task/status")"; done | sort | uniq -c
+          echo "Every process the person runs, with its groups:"
+          for pid in $(pgrep -u person); do echo "$pid $(sudo readlink /proc/$pid/exe) $(sudo grep ^Gid /proc/$pid/status)"; done
+          sleep 20
+          import -display :99 -window root "$RUNNER_TEMP/window.png"
+          window=$(pgrep -u person -x sikemux | head -1)
+          sudo readlink "/proc/$window/exe"
+      - name: A call only the window may make, from the window's installed path, is accepted
+        run: |
+          set -euxo pipefail
+          socket=$(sudo find /home/person -name 'core.sock' | head -1)
+          test -n "$socket"
+          echo "SOCKET=$socket" >>"$GITHUB_ENV"
+          log=$(sudo find /home/person -name core.log | head -1)
+          echo "Refusals of the real window while it started: $(sudo grep -c "$APP_ONLY" "$log" || true)"
+          sudo mv /usr/lib/sikemux/sikemux /usr/lib/sikemux/sikemux.window
+          sudo install -m 755 client/call /usr/lib/sikemux/sikemux
+          sudo -u person /usr/lib/sikemux/sikemux "$socket" accountSignIn '{}' | tee "$RUNNER_TEMP/accepted.json"
+          grep -q '/oauth/authorize?' "$RUNNER_TEMP/accepted.json"
+          sudo -u person /usr/lib/sikemux/sikemux "$socket" accountSignInCancel '{}'
+      - name: The same program anywhere else is refused
+        run: |
+          set -euxo pipefail
+          install -m 755 client/call /tmp/elsewhere
+          if sudo -u person /tmp/elsewhere "$SOCKET" accountSignIn '{}' 2>"$RUNNER_TEMP/refused.txt"; then exit 1; fi
+          cat "$RUNNER_TEMP/refused.txt"
+          grep -qF "$APP_ONLY" "$RUNNER_TEMP/refused.txt"
+      - name: The person cannot open the store
+        run: |
+          set -x
+          ! sudo -u person ls /var/lib/sikemux
+          sudo ls -la /var/lib/sikemux
+      - if: always()
+        run: |
+          sudo find /home/person -name core.log -exec tail -n 80 {} \; || true
+          tail -n 40 "$RUNNER_TEMP/window.log" || true
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: deb-proof
+          path: |
+            ${{ runner.temp }}/window.png
+            ${{ runner.temp }}/window.log
+            ${{ runner.temp }}/accepted.json
+            ${{ runner.temp }}/refused.txt
+          if-no-files-found: warn
+
+  rpm:
+    needs: client
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: call
+          path: client
+      - run: gh release download "$NIGHTLY" -R "$GITHUB_REPOSITORY" -p 'Sikemux-*.x86_64.rpm' -D pkg
+      - name: The packaged core on Fedora takes the call from the window's path only
+        run: |
+          docker run --rm -e APP_ONLY -v "$PWD/pkg:/pkg:ro" -v "$PWD/client:/client:ro" fedora:42 bash -euxc '
+            dnf install -y -q /pkg/*.rpm util-linux >/dev/null
+            useradd -m person
+            ! id -nG person | grep -qw sikemux
+            stat -c "%A %U:%G %n" /usr/lib/sikemux/sikemux-host /var/lib/sikemux
+            test -g /usr/lib/sikemux/sikemux-host
+            mv /usr/lib/sikemux/sikemux /usr/lib/sikemux/sikemux.window
+            install -m 755 /client/call /usr/lib/sikemux/sikemux
+            install -m 755 /client/call /tmp/elsewhere
+            runuser -u person -- env HOME=/home/person /usr/lib/sikemux/sikemux-host core --socket /home/person/core.sock >/tmp/core.log 2>&1 &
+            for _ in $(seq 1 60); do [ -S /home/person/core.sock ] && break; sleep 1; done
+            runuser -u person -- /usr/lib/sikemux/sikemux /home/person/core.sock accountSignIn "{}" | tee /tmp/accepted.json
+            grep -q "/oauth/authorize?" /tmp/accepted.json
+            if runuser -u person -- /tmp/elsewhere /home/person/core.sock accountSignIn "{}" 2>/tmp/refused.txt; then exit 1; fi
+            cat /tmp/refused.txt
+            grep -qF "$APP_ONLY" /tmp/refused.txt
+          '
