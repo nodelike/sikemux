@@ -210,7 +210,7 @@ fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -
 
 /// The core outlives the app, so it leaves any job the app runs in when the job lets it.
 #[cfg(windows)]
-fn spawn_detached(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
+pub fn spawn_detached(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
     use std::os::windows::process::CommandExt;
     use windows_sys::Win32::System::Threading::{
         CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS,

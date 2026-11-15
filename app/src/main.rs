@@ -103,7 +103,7 @@ fn x11_session() -> gpui_kit::GraphicalEnvironment {
 }
 
 /// Windows' Run entry starts the app, not the core, so a console window does not open at
-/// sign-in; started that way, the app starts the core and exits without a window.
+/// sign-in; started that way, the app starts what keeps the core up and exits without a window.
 #[cfg(windows)]
 fn start_core_at_sign_in() {
     use sikemux_hostkit::login_item::{start_at_sign_in, START_CORE_ARG};

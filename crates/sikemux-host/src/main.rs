@@ -16,6 +16,14 @@ fn main() {
         sikemux_host::BUILD_COMMIT,
     );
     sikemux_keychain::settle(core);
+    #[cfg(windows)]
+    if first
+        .as_ref()
+        .is_some_and(|arg| arg == sikemux_hostkit::login_item::START_CORE_ARG)
+    {
+        let file = std::env::args_os().nth(2).unwrap_or_default();
+        std::process::exit(sikemux_hostkit::login_item::keep_core_up(file.as_ref()));
+    }
     if core {
         use sikemux_host::crash_reports::{self, Process};
         crash_reports::start(Process::Core, core_mode::data_dir(), core_mode::socket());
