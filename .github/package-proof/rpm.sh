@@ -15,7 +15,7 @@ if command -v dnf >/dev/null; then
   dnf remove -y -q sikemux
   [ ! -e /etc/yum.repos.d/sikemux.repo ]
 else
-  zypper --non-interactive install --allow-unsigned-rpm "$RPM"
+  zypper --non-interactive --no-gpg-checks install --allow-unsigned-rpm "$RPM"
   [ "$(/usr/lib/sikemux/sikemux-host)" = 1.0.0 ]
   [ ! -e /etc/zypp/repos.d/sikemux.repo ] && [ ! -e /etc/yum.repos.d/sikemux.repo ]
   zypper --non-interactive remove sikemux

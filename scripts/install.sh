@@ -287,7 +287,8 @@ install_linux() {
     done_step "Installed Sikemux" "with dnf"
   elif command -v zypper >/dev/null 2>&1; then
     download "Sikemux-${VERSION}-1.${ARCH}.rpm" "the app"
-    step "Installing with zypper" as_root zypper --non-interactive install --allow-unsigned-rpm "$TMP/Sikemux-${VERSION}-1.${ARCH}.rpm"
+    # zypper does not know the key the .rpm is signed with; it came from the release over HTTPS.
+    step "Installing with zypper" as_root zypper --non-interactive --no-gpg-checks install --allow-unsigned-rpm "$TMP/Sikemux-${VERSION}-1.${ARCH}.rpm"
     done_step "Installed Sikemux" "with zypper"
   # Arch publishes no arm64 image to build the pacman package in, so arm64 takes the AppImage.
   elif [ "$ARCH" = x86_64 ] && command -v pacman >/dev/null 2>&1; then
