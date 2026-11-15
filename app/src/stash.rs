@@ -513,7 +513,7 @@ pub fn tray(
             .child(words)
             .into_any_element()
     } else {
-        let agents = crate::chat::named_agents(bench);
+        let agents = crate::chat::named_agents(bench, agent);
         let rows = tray.items.iter().enumerate().map(|(index, item)| {
             let new = fresh.contains(&item.item.id);
             let picked = index == tray.selected;

@@ -255,9 +255,8 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
             if let Some(parent) = &agent.parent {
                 fields.insert(
                     "startedBy".into(),
-                    names
-                        .get(parent)
-                        .cloned()
+                    (names.get(parent).cloned())
+                        .or_else(|| core.names().get(parent).map(|named| named.name))
                         .unwrap_or_else(|| parent.clone())
                         .into(),
                 );

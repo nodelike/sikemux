@@ -10,6 +10,7 @@ struct Crew: Equatable {
         let chief: Bool
         let provider: String
         let face: AgentFace?
+        let project: String?
     }
 
     /// Longest name first, so `@Otterly` is not read as `@Otter`.
@@ -23,10 +24,25 @@ struct Crew: Equatable {
                 (agent.chief == true ? "Chief" : agent.name).map {
                     Named(
                         id: agent.agentId, written: "@\($0)", chief: agent.chief == true, provider: agent.cli,
-                        face: agent.face ?? faces?.face(agent.agentId))
+                        face: agent.face ?? faces?.face(agent.agentId), project: agent.project)
                 }
             }
             .sorted { $0.written.count > $1.written.count }
+    }
+
+    private init(named: [Named]) { self.named = named }
+
+    /// The crew as `writer` names it: where two projects share a name, its own project's agent comes first.
+    func writtenBy(_ writer: String?) -> Crew {
+        guard let own = agent(writer)?.project else { return self }
+        let ranked = named.enumerated().sorted { a, b in
+            if a.element.written.count != b.element.written.count {
+                return a.element.written.count > b.element.written.count
+            }
+            let (ownA, ownB) = (a.element.project == own, b.element.project == own)
+            return ownA != ownB ? ownA : a.offset < b.offset
+        }
+        return Crew(named: ranked.map(\.element))
     }
 
     /// `text` cut where it names an agent: the words between, and each agent it names.

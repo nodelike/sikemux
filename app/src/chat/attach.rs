@@ -909,6 +909,7 @@ pub fn with_chips(
 fn with_named_agents(
     look: Rc<gpui_transcript::Style>,
     message: &ChatMessage,
+    writer: &str,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
     cx: &App,
@@ -923,7 +924,7 @@ fn with_named_agents(
     let Some(strong) = bench.upgrade().filter(|_| !texts.is_empty()) else {
         return look;
     };
-    let chips: Vec<gpui_transcript::Chip> = named_agents(strong.read(cx))
+    let chips: Vec<gpui_transcript::Chip> = named_agents(strong.read(cx), writer)
         .into_iter()
         .map(|(name, id)| (format!("@{name}"), id))
         .filter(|(written, _)| texts.iter().any(|text| text.contains(written.as_str())))
@@ -1009,11 +1010,12 @@ fn mention_chip(
 pub fn with_why(
     look: Rc<gpui_transcript::Style>,
     message: &ChatMessage,
+    writer: &str,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
     cx: &App,
 ) -> Rc<gpui_transcript::Style> {
-    let look = with_named_agents(look, message, bench, window, cx);
+    let look = with_named_agents(look, message, writer, bench, window, cx);
     let links = (message.parts.iter()).any(|part| match part {
         sikemux_view::chat::ChatPart::Text { text, .. } => text.contains(WHY_URI),
         _ => false,
@@ -1163,12 +1165,16 @@ pub(crate) struct Mention {
     pub carried: String,
 }
 
-/// Every named agent the app knows, by name and id, for the `@` mentions sent messages wrote.
-pub(crate) fn named_agents(bench: &Workbench) -> Vec<(String, String)> {
-    bench
-        .projects()
-        .iter()
-        .flat_map(|project| bench.agents_of(&project.id))
+/// The agents a text by `writer` may name, `(name, id)`, its own project's first, so a name two
+/// projects share is the writer's own.
+pub(crate) fn named_agents(bench: &Workbench, writer: &str) -> Vec<(String, String)> {
+    let own = bench.agent_by_id(writer).map(|row| row.project);
+    let mut projects: Vec<&str> = (bench.projects().iter())
+        .map(|project| project.id.as_str())
+        .collect();
+    projects.sort_by_key(|project| Some(*project) != own.as_deref());
+    (projects.into_iter())
+        .flat_map(|project| bench.agents_of(project))
         .filter_map(|row| Some((row.name?, row.id)))
         .collect()
 }

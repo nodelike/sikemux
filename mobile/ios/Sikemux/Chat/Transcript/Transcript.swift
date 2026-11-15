@@ -22,7 +22,8 @@ struct Transcript<Footer: View>: View {
 
     var body: some View {
         let shown = shownRows()
-        TranscriptList(
+        let crew = crew?.writtenBy(context.agentId)
+        return TranscriptList(
             order: shown.order, entries: shown.entries, drawn: drawn, touched: touched, scroll: scroll,
             hasEarlier: hasEarlier && earlier == .idle, loadEarlier: loadEarlier,
             environment: { [palette, context, crew] view in
