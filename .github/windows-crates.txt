@@ -34,3 +34,4 @@ gpui-native-view
 gpui-transcript
 gpui-terminal-grid
 gpui-clicks
+sikemux-hostkit
