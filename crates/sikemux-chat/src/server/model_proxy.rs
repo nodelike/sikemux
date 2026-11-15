@@ -7,6 +7,7 @@ use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddrV4};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
@@ -63,6 +64,7 @@ pub struct ModelProxy {
 #[derive(Clone, Copy)]
 struct Serving {
     port: u16,
+    #[cfg(unix)]
     fd: RawFd,
 }
 
@@ -201,6 +203,7 @@ impl ModelProxy {
         let listener = TcpListener::from_std(listener)?;
         let serving = Serving {
             port: listener.local_addr()?.port(),
+            #[cfg(unix)]
             fd: listener.as_raw_fd(),
         };
         tokio::spawn(accept(Arc::downgrade(core), self.grants.clone(), listener));
@@ -209,6 +212,7 @@ impl ModelProxy {
 
     /// The listening socket, which a core that replaces this one keeps serving, so a running
     /// agent's address stays good. `None` before any agent has used the proxy.
+    #[cfg(unix)]
     pub fn listener_fd(&self) -> Option<RawFd> {
         self.serving.locked().map(|serving| serving.fd)
     }
@@ -217,6 +221,7 @@ impl ModelProxy {
     ///
     /// # Safety
     /// `fd` is an open listening socket this process owns and nothing else will close.
+    #[cfg(unix)]
     pub unsafe fn adopt(&self, core: &Arc<Core>, fd: RawFd) -> std::io::Result<()> {
         // SAFETY: the caller hands this descriptor over, open and owned by nothing else.
         let listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };

@@ -136,6 +136,12 @@ fn watch(file: &Path, changed: Arc<Notify>) -> Option<RecommendedWatcher> {
     Some(watcher)
 }
 
+#[cfg(windows)]
+fn running(pid: i32) -> bool {
+    u32::try_from(pid).is_ok_and(|pid| sikemux_process::procs::started(pid).is_some())
+}
+
+#[cfg(unix)]
 fn running(pid: i32) -> bool {
     // SAFETY: signal 0 only asks whether the process exists; nothing is sent.
     let alive = unsafe { libc::kill(pid, 0) } == 0;

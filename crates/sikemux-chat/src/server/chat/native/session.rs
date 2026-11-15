@@ -5,6 +5,7 @@
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::ops::ControlFlow;
+#[cfg(unix)]
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -35,9 +36,13 @@ use super::super::rebind::{
     error_message, next_account, on_account, switch_notice, switches_at_limit, Carried, Outcome,
     Rebind, Replay,
 };
+#[cfg(unix)]
+use super::super::Asked;
 use super::super::{cap, rotation};
-use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respond, Whose};
-use super::process::{AgentRecord, Process, Released};
+use super::super::{reset, stall_later, Chat, ChatCommand, Delivery, Respond, Whose};
+use super::process::Released;
+#[cfg(unix)]
+use super::process::{AgentRecord, Process};
 use crate::server::activity_log::{Compaction, ModelCall};
 pub use sikemux_drivers::server::chat::native::session::{
     slim, Backend, Prompt, ShipHeld, Sink, SinkPort, Steered, Telling, Told, TurnEnd,
@@ -433,6 +438,7 @@ pub struct Handed {
 }
 
 /// A chat another core let go of, to take up.
+#[cfg(unix)]
 pub struct Adopted {
     pub session: SessionState,
     pub backend: Value,
@@ -449,6 +455,7 @@ pub enum Begin {
         rebind: Option<Box<Rebind>>,
         notice: Option<Value>,
     },
+    #[cfg(unix)]
     Adopt(Box<Adopted>),
 }
 
@@ -537,6 +544,7 @@ pub async fn run<B: Backend>(
             }
             (backend, state, replay)
         }
+        #[cfg(unix)]
         Begin::Adopt(adopted) => {
             let Adopted {
                 session,
@@ -1542,6 +1550,7 @@ impl SessionState {
 
 /// A chat whose agent this core could not take over: it goes on in a new
 /// agent process on the same session, and says so.
+#[cfg(unix)]
 fn not_taken_over(chat: &Chat, launch: &ChatLaunch, error: &str) -> Outcome {
     if chat.prompted() {
         chat.finish_turn(turn_answer(StopReason::Cancelled));

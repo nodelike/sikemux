@@ -1,8 +1,6 @@
 //! The core itself, below everything that hangs its state on it: when it started, how to
 //! reach it again, what it listens on, and the parts each feature keeps on it.
 
-#![cfg(unix)]
-
 use std::any::Any;
 use std::sync::{Arc, Weak};
 use std::time::Instant;
@@ -125,10 +123,15 @@ impl From<serde_json::Error> for CoreError {
 pub type CoreResult<T> = Result<T, CoreError>;
 
 /// What this core listens on, which a hand-over passes to its replacement.
+#[cfg(unix)]
 pub struct Listening {
     pub listener_fd: std::os::fd::RawFd,
     pub lock_fd: std::os::fd::RawFd,
 }
+
+/// A core on Windows is restarted rather than handed over, so it passes nothing on.
+#[cfg(windows)]
+pub struct Listening;
 
 /// What one crate's features keep on a core, as the crate that builds the core made it.
 pub type Parts = Box<dyn Any + Send + Sync>;

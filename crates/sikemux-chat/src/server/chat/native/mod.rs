@@ -23,7 +23,9 @@ use super::{Chat, ChatCommand};
 
 pub use claude::{saved_window, terminal_cache_env};
 pub use process::{kill_and_reap, kill_group, AgentRecord, Released};
-pub use session::{Adopted, Begin, Handed, SessionState, Steered};
+#[cfg(unix)]
+pub use session::Adopted;
+pub use session::{Begin, Handed, SessionState, Steered};
 
 /// Why a session ended, so the chat can tell a stop it asked for from an agent
 /// that died under it.

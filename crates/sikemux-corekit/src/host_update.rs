@@ -133,3 +133,11 @@ pub async fn ask_root(request: &HostRequest, mut seen: impl FnMut(&UpdateStep)) 
         seen(&step);
     }
 }
+
+/// Windows has no root update service: its installer replaces the core.
+#[cfg(windows)]
+pub async fn ask_root(_request: &HostRequest, _seen: impl FnMut(&UpdateStep)) -> UpdateStep {
+    UpdateStep::Failed {
+        message: "a Windows host updates through its installer".into(),
+    }
+}

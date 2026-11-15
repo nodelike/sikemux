@@ -4,8 +4,6 @@
 //! or the other features built over it; what it asks of them it asks through
 //! [`ChatAbove`](server::chat_above::ChatAbove), which the core fills.
 
-#![cfg(unix)]
-
 pub mod server;
 
 use sikemux_agents::{acp, agent_accounts, agent_catalog, launch, sessions};

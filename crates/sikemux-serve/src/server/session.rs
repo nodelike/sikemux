@@ -6,9 +6,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 pub use sikemux_calls::session::SessionParams;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -16,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{Child, ExitStatus, NativePtySystem, PtySize, PtySystem};
 use sikemux_process::sync::Locked;
+use sikemux_pty::master::{self, Master};
 use sikemux_pty::output_log::OutputLog;
 use sikemux_pty::process::SpawnedChildGuard;
 use sikemux_pty::program_status::{self, ProgramStatus};
@@ -26,7 +24,6 @@ use sikemux_pty::task::TaskProcessExit;
 use sikemux_pty::terminal::View;
 use sikemux_pty::validate_pty_dimensions;
 use sikemux_wire::terminal::{FindOptions, FindResult, GridPoint, TerminalInput};
-use tokio::io::unix::AsyncFd;
 use tokio::sync::{mpsc, Notify};
 
 use sikemux_wire::protocol::{
@@ -89,7 +86,7 @@ pub struct TaskOutput {
 pub struct Session {
     pub id: SessionId,
     pub kind: SessionKind,
-    io: AsyncFd<File>,
+    io: Master,
     input: mpsc::UnboundedSender<InputJob>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
     pid: Option<u32>,
@@ -171,7 +168,7 @@ pub struct SessionParts {
 impl Session {
     pub fn assemble(
         parts: SessionParts,
-        io: AsyncFd<File>,
+        io: Master,
         child: Box<dyn Child + Send + Sync>,
         capacity_permit: CapacityPermit,
     ) -> (Arc<Self>, mpsc::UnboundedReceiver<InputJob>) {
@@ -242,8 +239,9 @@ impl Session {
         self.pid
     }
 
+    #[cfg(unix)]
     pub fn fd(&self) -> std::os::fd::RawFd {
-        self.io.get_ref().as_raw_fd()
+        self.io.fd()
     }
 
     pub fn shell_files(&self) -> Option<&std::path::Path> {
@@ -285,12 +283,9 @@ impl Session {
 
     pub fn shell_at_prompt(&self) -> bool {
         self.is_running()
-            && self.pid.is_some_and(|pid| {
-                sikemux_pty::process::shell_at_prompt(
-                    sikemux_pty::process::Terminal::from_fd(self.fd()),
-                    pid,
-                )
-            })
+            && self
+                .pid
+                .is_some_and(|pid| sikemux_pty::process::shell_at_prompt(self.io.terminal(), pid))
     }
 
     pub fn has_subscribers(&self) -> bool {
@@ -374,10 +369,6 @@ impl Drop for Session {
         self.frames.closed.store(true, Ordering::Release);
         self.frames.notify.notify_one();
     }
-}
-
-fn os_error() -> CoreError {
-    CoreError::from(std::io::Error::last_os_error())
 }
 
 /// A session that is listed but whose output is not read yet. Starting it
@@ -484,36 +475,7 @@ pub fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreResult<Pen
     let child = SpawnedChildGuard::new(child);
     drop(pair.slave);
 
-    let master_fd = pair
-        .master
-        .as_raw_fd()
-        .ok_or_else(|| CoreError::from("pty: master pty has no fd"))?;
-    // SAFETY: `pair.master` still owns `master_fd`, so the fd is open, and
-    // F_GETFL/F_SETFL only read and set its flags without touching memory.
-    unsafe {
-        let flags = libc::fcntl(master_fd, libc::F_GETFL);
-        if flags < 0 {
-            return Err(os_error());
-        }
-        if libc::fcntl(master_fd, libc::F_SETFL, flags | libc::O_NONBLOCK) < 0 {
-            return Err(os_error());
-        }
-    }
-    // One fd serves both directions: the dup shares the master's open file
-    // description, so dropping portable_pty's master keeps the terminal alive.
-    // SAFETY: `pair.master` is dropped only after this line, so `master_fd` is
-    // still open; F_DUPFD_CLOEXEC creates a new fd and touches no memory.
-    let dup_fd = unsafe { libc::fcntl(master_fd, libc::F_DUPFD_CLOEXEC, 0) };
-    if dup_fd < 0 {
-        return Err(os_error());
-    }
-    drop(pair.master);
-    // SAFETY: `dup_fd` was just created and checked above and nothing else
-    // holds it, so the File is its only owner and closes it exactly once.
-    let io_file = unsafe { File::from_raw_fd(dup_fd) };
-    // SAFETY: `io_file` owns `dup_fd` and the AsyncFd owns `io_file`, so the fd
-    // stays open and the same until the AsyncFd is dropped.
-    let io = unsafe { AsyncFd::register(io_file) }.map_err(std::io::Error::from)?;
+    let io = Master::open(pair.master, pid)?;
 
     let id = core.next_session_id().fetch_add(1, Ordering::Relaxed);
     if owner.wants_rail_number(kind) {
@@ -609,30 +571,12 @@ fn carried_screen(core: &Core, continuation: &Continuation) -> Option<CarriedScr
     })
 }
 
-async fn write_all_async(io: &AsyncFd<File>, mut data: &[u8]) -> std::io::Result<()> {
-    while !data.is_empty() {
-        let mut guard = io.writable().await?;
-        match guard.try_io(|inner| inner.get_ref().write(data)) {
-            Ok(Ok(0)) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::WriteZero,
-                    "pty write returned 0",
-                ));
-            }
-            Ok(Ok(n)) => data = data.get(n..).unwrap_or_default(),
-            Ok(Err(error)) => return Err(error),
-            Err(_would_block) => continue,
-        }
-    }
-    Ok(())
-}
-
 /// One writer per session keeps every client's writes in the order they
 /// arrived without holding up the connection that sent them.
 async fn write_input(session: Weak<Session>, mut jobs: mpsc::UnboundedReceiver<InputJob>) {
     while let Some(job) = jobs.recv().await {
         let result = match session.upgrade() {
-            Some(session) => write_all_async(&session.io, &job.bytes).await,
+            Some(session) => session.io.write_all(&job.bytes).await,
             None => Err(std::io::Error::other("session closed")),
         };
         (job.reply)(result);
@@ -677,23 +621,6 @@ pub fn queue_input(
     }
 }
 
-enum ReadOutcome {
-    Bytes(usize),
-    Eof,
-    WouldBlock,
-}
-
-fn read_once(
-    guard: &mut tokio::io::unix::AsyncFdReadyGuard<'_, File>,
-    buf: &mut [u8],
-) -> ReadOutcome {
-    match guard.try_io(|inner| inner.get_ref().read(buf)) {
-        Ok(Ok(0)) | Ok(Err(_)) => ReadOutcome::Eof,
-        Ok(Ok(n)) => ReadOutcome::Bytes(n),
-        Err(_would_block) => ReadOutcome::WouldBlock,
-    }
-}
-
 enum PumpEnd {
     Eof,
     /// The core is handing itself over: every byte read so far reached the
@@ -714,25 +641,13 @@ async fn pump_output(core: &Arc<Core>, session: &Session) -> PumpEnd {
         }
         batch.clear();
         let mut eof = false;
-        loop {
-            let ready = tokio::select! {
-                ready = session.io.readable() => ready,
-                _ = frozen.changed() => return PumpEnd::Frozen,
-            };
-            let Ok(mut guard) = ready else {
-                return PumpEnd::Eof;
-            };
-            match read_once(&mut guard, &mut buf) {
-                ReadOutcome::Bytes(n) => {
-                    batch.extend_from_slice(buf.get(..n).unwrap_or_default());
-                    break;
-                }
-                ReadOutcome::Eof => {
-                    eof = true;
-                    break;
-                }
-                ReadOutcome::WouldBlock => continue,
-            }
+        let read = tokio::select! {
+            read = session.io.read(&mut buf) => read,
+            _ = frozen.changed() => return PumpEnd::Frozen,
+        };
+        match read {
+            master::Read::Bytes(n) => batch.extend_from_slice(buf.get(..n).unwrap_or_default()),
+            master::Read::Eof => eof = true,
         }
         if !eof && batch.len() < OUTPUT_BATCH_BYTES {
             let deadline = tokio::time::sleep(OUTPUT_COALESCE);
@@ -741,25 +656,18 @@ async fn pump_output(core: &Arc<Core>, session: &Session) -> PumpEnd {
                 tokio::select! {
                     _ = &mut deadline => break,
                     _ = frozen.changed() => break,
-                    ready = session.io.readable() => {
-                        let Ok(mut guard) = ready else {
-                            eof = true;
-                            break;
-                        };
-                        match read_once(&mut guard, &mut buf) {
-                            ReadOutcome::Bytes(n) => {
-                                batch.extend_from_slice(buf.get(..n).unwrap_or_default());
-                                if batch.len() >= OUTPUT_BATCH_BYTES {
-                                    break;
-                                }
-                            }
-                            ReadOutcome::Eof => {
-                                eof = true;
+                    read = session.io.read(&mut buf) => match read {
+                        master::Read::Bytes(n) => {
+                            batch.extend_from_slice(buf.get(..n).unwrap_or_default());
+                            if batch.len() >= OUTPUT_BATCH_BYTES {
                                 break;
                             }
-                            ReadOutcome::WouldBlock => continue,
                         }
-                    }
+                        master::Read::Eof => {
+                            eof = true;
+                            break;
+                        }
+                    },
                 }
             }
         }
@@ -1335,24 +1243,7 @@ pub fn ack(session: &Session, stream: StreamId, frame: u32) {
 }
 
 pub fn resize(session: &Session, cols: u16, rows: u16) -> CoreResult<()> {
-    let size = libc::winsize {
-        ws_row: rows,
-        ws_col: cols,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    // SAFETY: the fd belongs to `session.io`, which stays open for this call,
-    // and `size` is a live winsize on the stack, the struct TIOCSWINSZ reads.
-    let rc = unsafe {
-        libc::ioctl(
-            session.io.get_ref().as_raw_fd(),
-            libc::TIOCSWINSZ,
-            &size as *const libc::winsize,
-        )
-    };
-    if rc != 0 {
-        return Err(os_error());
-    }
+    session.io.resize(rows, cols)?;
     session.screen.locked().terminal.resize(rows, cols);
     session.frames.notify.notify_one();
     Ok(())
@@ -1522,60 +1413,6 @@ mod tests {
     use super::RESET_MODES;
     use sikemux_pty::screen::Screen;
     use sikemux_wire::terminal::{Mods, MouseAction, MouseButton, TerminalInput};
-
-    // The single-fd design rests on this: after the master is dup'd and
-    // portable_pty's `MasterPty` dropped, the dup keeps the child's terminal
-    // open. The child sleeps before printing, so a hangup on drop would end
-    // the read before the marker arrives.
-    #[test]
-    fn lone_master_dup_keeps_child_alive_after_masterpty_drop() {
-        use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
-        use std::io::Read;
-        use std::os::fd::FromRawFd;
-
-        let pair = NativePtySystem::default()
-            .openpty(PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .expect("openpty");
-        let mut cmd = CommandBuilder::new("/bin/sh");
-        cmd.arg("-c");
-        cmd.arg("sleep 0.2; printf MARKER");
-        let mut child = pair.slave.spawn_command(cmd).expect("spawn");
-        drop(pair.slave);
-
-        let master_fd = pair.master.as_raw_fd().expect("master fd");
-        // SAFETY: `pair.master` still owns `master_fd`, so it is open; dup only
-        // creates a new fd and touches no memory.
-        let dup_fd = unsafe { libc::dup(master_fd) };
-        assert!(dup_fd >= 0, "dup failed");
-        drop(pair.master);
-
-        // SAFETY: `dup_fd` is a fresh fd, checked above, that nothing else owns,
-        // so the File is its only owner and closes it exactly once.
-        let mut file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
-        let mut got = String::new();
-        let mut buf = [0u8; 256];
-        loop {
-            match file.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    got.push_str(&String::from_utf8_lossy(&buf[..n]));
-                    if got.contains("MARKER") {
-                        break;
-                    }
-                }
-            }
-        }
-        let _ = child.wait();
-        assert!(
-            got.contains("MARKER"),
-            "the child lost its terminal; got {got:?}"
-        );
-    }
 
     #[test]
     fn reset_modes_disables_interaction_modes_without_losing_normal_history() {

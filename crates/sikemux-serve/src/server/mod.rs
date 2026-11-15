@@ -12,6 +12,7 @@ pub mod log_times;
 pub mod part;
 pub mod prepare;
 pub mod prompt_draft;
+#[cfg(unix)]
 pub mod reaper;
 pub mod serving;
 pub mod session;

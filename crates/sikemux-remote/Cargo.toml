@@ -8,7 +8,7 @@ publish = false
 # For the tests of the core built on this crate: the stand-ins its own tests use.
 testing = []
 
-[target.'cfg(unix)'.dependencies]
+[dependencies]
 sikemux-agents = { path = "../sikemux-agents" }
 sikemux-base = { path = "../sikemux-base" }
 sikemux-calls = { path = "../sikemux-calls" }
