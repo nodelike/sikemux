@@ -7,7 +7,6 @@ use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -922,7 +921,7 @@ impl Planner<'_> {
         let new = std::fs::read(top.join(path)).map_err(|error| format!("{path}: {error}"))?;
         let mode = match entry {
             Some((mode, _)) => mode.clone(),
-            None if meta.permissions().mode() & 0o111 != 0 => "100755".into(),
+            None if crate::os::is_executable(&meta) => "100755".into(),
             None => "100644".into(),
         };
         let hunks = match self.diff.changed.get(path) {

@@ -8,8 +8,6 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use rustix::fs::FlockOperation;
-
 use super::included;
 use crate::git::Git;
 
@@ -136,7 +134,7 @@ pub fn hold_builds(folder: &Path) -> Option<Vec<File>> {
         let Ok(lock) = File::open(profile.join(".cargo-lock")) else {
             continue;
         };
-        rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive).ok()?;
+        lock.try_lock().ok()?;
         held.push(lock);
     }
     Some(held)
@@ -211,7 +209,7 @@ fn bring(from: &Path, to: &Path) -> std::io::Result<()> {
     {
         return Ok(());
     }
-    std::os::unix::fs::symlink(from, to)
+    sikemux_agents::os::symlink(from, to)
 }
 
 #[cfg(target_os = "macos")]

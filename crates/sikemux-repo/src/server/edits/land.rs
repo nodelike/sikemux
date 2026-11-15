@@ -8,9 +8,6 @@
 //! branch's tip in that way too, its commits made again on it.
 
 use crate::server::workspace_state::WorkspaceParts;
-use std::ffi::OsStr;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -409,7 +406,7 @@ fn entry(repo: &Path, commit: &str, path: &str) -> Option<Entry> {
 /// the path it points at.
 fn on_disk(file: &Path) -> Option<Vec<u8>> {
     match std::fs::read_link(file) {
-        Ok(target) => Some(target.as_os_str().as_bytes().to_vec()),
+        Ok(target) => Some(crate::os::link_target_bytes(&target)),
         Err(_) => std::fs::read(file).ok(),
     }
 }
@@ -422,7 +419,7 @@ fn write(file: &Path, bytes: &[u8], mode: &str) -> std::io::Result<()> {
         remove(file)?;
     }
     if mode == LINK {
-        return std::os::unix::fs::symlink(OsStr::from_bytes(bytes), file);
+        return crate::os::write_link(bytes, file);
     }
     std::fs::write(file, bytes)?;
     set_executable(file, mode)
@@ -442,15 +439,7 @@ fn set_executable(file: &Path, mode: &str) -> std::io::Result<()> {
     if !meta.is_file() {
         return Ok(());
     }
-    let now = meta.permissions().mode();
-    let wanted = match mode == EXECUTABLE {
-        true => now | (now & 0o444) >> 2,
-        false => now & !0o111,
-    };
-    if wanted == now {
-        return Ok(());
-    }
-    std::fs::set_permissions(file, std::fs::Permissions::from_mode(wanted))
+    crate::os::set_executable(file, &meta, mode == EXECUTABLE)
 }
 
 fn contents(repo: &Path, blob: &str) -> Result<Vec<u8>, String> {
@@ -659,8 +648,10 @@ mod tests {
         assert_eq!(git_in(&main, &["rev-parse", "main"]), before);
     }
 
+    #[cfg(unix)]
     #[test]
     fn landing_gives_each_file_the_mode_its_commit_holds() {
+        use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let root = std::fs::canonicalize(root.path()).unwrap();
         let main = root.join("project");

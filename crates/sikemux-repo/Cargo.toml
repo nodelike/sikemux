@@ -8,7 +8,7 @@ publish = false
 # For the tests of the core built on this crate.
 testing = []
 
-[target.'cfg(unix)'.dependencies]
+[dependencies]
 sikemux-remote = { path = "../sikemux-remote" }
 sikemux-git = { path = "../sikemux-git" }
 sikemux-client = { path = "../sikemux-client" }
@@ -19,7 +19,6 @@ regex = "1"
 sha2 = "0.11"
 hex = "0.4"
 uuid = { version = "1", features = ["v4", "v7"] }
-libc = "0.2"
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 url = "2"
 base64 = "0.22"
@@ -31,7 +30,6 @@ globset = "0.4"
 thiserror = "1"
 semver = "1"
 toml = "1"
-rustix = { version = "1", features = ["fs"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 sikemux-agents = { path = "../sikemux-agents" }
 sikemux-base = { path = "../sikemux-base" }
@@ -52,6 +50,9 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 iroh = { version = "1.3", default-features = false, features = ["tls-ring"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
