@@ -44,6 +44,21 @@ use sikemux_calls::layout::OpenPaths;
 
 pub type Answer = Box<dyn FnOnce(Result<Value, String>) + Send>;
 
+/// How long a new theme gets to reach the screen before the window's picture is taken for the agent.
+const THEME_DRAWN: std::time::Duration = std::time::Duration::from_millis(400);
+/// The longest side of that picture, in pixels: enough to judge a look, cheap in an agent's context.
+const THEME_PICTURE_SIDE: f64 = 960.;
+
+fn missed_picture(missed: crate::snapshot::Missed) -> String {
+    use crate::snapshot::Missed;
+    match missed {
+        Missed::NotAllowed => "none: Sikemux may not record the screen".into(),
+        Missed::NoWindow => "none: no Sikemux window is on screen".into(),
+        Missed::Unsupported => "none: needs macOS 14 or later".into(),
+        Missed::Failed(error) => format!("none: {error}"),
+    }
+}
+
 impl Workbench {
     /// The CLI's `open`: answers what opened, and with `--wait` tells the core once every
     /// file tab it opened has closed.
@@ -181,7 +196,23 @@ impl Workbench {
             });
         });
         self.notify(note, cx);
-        answer(Ok(json!({})));
+        cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(THEME_DRAWN).await;
+            let taken = cx
+                .background_spawn(async { crate::snapshot::own_window(THEME_PICTURE_SIDE) })
+                .await;
+            answer(Ok(match taken {
+                Ok(jpeg) => {
+                    use base64::Engine as _;
+                    json!({
+                        "mimeType": "image/jpeg",
+                        "data": base64::engine::general_purpose::STANDARD.encode(jpeg),
+                    })
+                }
+                Err(missed) => json!({ "picture": missed_picture(missed) }),
+            }));
+        })
+        .detach();
     }
 
     /// An agent's `ui_open`: a file in the editor, the project's changes, a task's terminal, a

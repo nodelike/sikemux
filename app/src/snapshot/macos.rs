@@ -85,7 +85,7 @@ pub fn capture() -> Result<Shot, Missed> {
         return Err(Missed::NotAllowed);
     }
     let found = front_window().ok_or(Missed::NoWindow)?;
-    let (jpeg, width, height, scale) = picture(&found).map_err(Missed::Failed)?;
+    let (jpeg, width, height, scale) = picture(&found, LONGEST).map_err(Missed::Failed)?;
     let text = read_text(&found);
     Ok(Shot {
         jpeg,
@@ -96,6 +96,21 @@ pub fn capture() -> Result<Shot, Missed> {
         scale,
         text,
     })
+}
+
+/// Sikemux's own front window as a JPEG, at no more than `most` pixels a side. Screen Recording
+/// must already be allowed: an agent's call never puts up macOS's prompt.
+pub fn own_window(most: f64) -> Result<Vec<u8>, Missed> {
+    if !kit_loaded() {
+        return Err(Missed::Unsupported);
+    }
+    // SAFETY: takes nothing and asks nothing of the person.
+    if !unsafe { CGPreflightScreenCaptureAccess() } {
+        return Err(Missed::NotAllowed);
+    }
+    let found = windows(true).into_iter().next().ok_or(Missed::NoWindow)?;
+    let (jpeg, ..) = picture(&found, most).map_err(Missed::Failed)?;
+    Ok(jpeg)
 }
 
 fn kit_loaded() -> bool {
@@ -111,7 +126,7 @@ fn kit_loaded() -> bool {
 /// The front window of the app the person was in last, which they are in now when they pressed
 /// the shortcut in another app; else the window in front of every other app's.
 fn front_window() -> Option<Found> {
-    let windows = windows();
+    let windows = windows(false);
     let last = last_app().map(|(pid, _)| pid);
     let at = (windows.iter())
         .position(|window| Some(window.pid) == last)
@@ -119,8 +134,8 @@ fn front_window() -> Option<Found> {
     windows.into_iter().nth(at)
 }
 
-/// Other apps' windows on screen, front to back.
-fn windows() -> Vec<Found> {
+/// Other apps' windows on screen, or with `ours` Sikemux's own, front to back.
+fn windows(ours: bool) -> Vec<Found> {
     // SAFETY: the options are valid, and the array returned is ours to release.
     let list = unsafe { CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0) };
     if list.is_null() {
@@ -128,7 +143,7 @@ fn windows() -> Vec<Found> {
     }
     // SAFETY: a CFArray of CFDictionary, returned retained.
     let list: CFArray<CFType> = unsafe { CFArray::wrap_under_create_rule(list) };
-    let ours = std::process::id() as i64;
+    let own = std::process::id() as i64;
     list.iter()
         .filter_map(|info| {
             // SAFETY: each item of the window list is a dictionary.
@@ -147,7 +162,10 @@ fn windows() -> Vec<Found> {
                     .unwrap_or_default()
             };
             let pid = number("kCGWindowOwnerPID")? as i64;
-            if number("kCGWindowLayer")? != 0. || pid == ours || number("kCGWindowAlpha")? <= 0. {
+            if number("kCGWindowLayer")? != 0.
+                || (pid == own) != ours
+                || number("kCGWindowAlpha")? <= 0.
+            {
                 return None;
             }
             let bounds = info
@@ -188,7 +206,7 @@ pub fn last_app() -> Option<(i32, String)> {
 /// in front now. Runs on the main thread, once.
 pub fn follow_apps() {
     let ours = std::process::id() as i32;
-    if let Some(front) = windows().into_iter().next() {
+    if let Some(front) = windows(false).into_iter().next() {
         set_last_app(front.pid, front.app);
     }
     let activated = RcBlock::new(move |note: *mut AnyObject| {
@@ -238,7 +256,7 @@ fn set_last_app(pid: i32, name: String) {
 }
 
 /// The window's picture as a JPEG, with its size in pixels and pixels to a point.
-fn picture(found: &Found) -> Result<(Vec<u8>, u32, u32, f64), String> {
+fn picture(found: &Found, most: f64) -> Result<(Vec<u8>, u32, u32, f64), String> {
     let (sent, got) = mpsc::channel();
     let id = found.id;
     let longest = found.bounds[2].max(found.bounds[3]);
@@ -246,7 +264,7 @@ fn picture(found: &Found) -> Result<(Vec<u8>, u32, u32, f64), String> {
         let sent = sent.clone();
         autoreleasepool(|_| {
             // SAFETY: ScreenCaptureKit hands either the shareable content or an error.
-            if let Err(error) = unsafe { shoot(content, error, id, longest, sent.clone()) } {
+            if let Err(error) = unsafe { shoot(content, error, id, longest, most, sent.clone()) } {
                 let _ = sent.send(Err(error));
             }
         });
@@ -264,7 +282,8 @@ fn picture(found: &Found) -> Result<(Vec<u8>, u32, u32, f64), String> {
 
 type Taken = Result<(Vec<u8>, u32, u32, f64), String>;
 
-/// Takes window `id` out of the shareable `content`, at no more than [`LONGEST`] pixels a side.
+/// Takes window `id`, whose longest side is `longest` points, out of the shareable `content`, at
+/// no more than `most` pixels a side.
 ///
 /// # Safety
 /// `content` is an `SCShareableContent` or null, and `error` an `NSError` or null.
@@ -273,6 +292,7 @@ unsafe fn shoot(
     error: *mut AnyObject,
     id: u32,
     longest: f64,
+    most: f64,
     sent: mpsc::Sender<Taken>,
 ) -> Result<(), String> {
     let Some(content) = (unsafe { content.as_ref() }) else {
@@ -299,7 +319,7 @@ unsafe fn shoot(
         unsafe { msg_send![filter, initWithDesktopIndependentWindow: &*window] };
     let frame: NSRect = unsafe { msg_send![&*window, frame] };
     let native: f32 = unsafe { msg_send![&*filter, pointPixelScale] };
-    let scale = f64::from(native).min(LONGEST / longest.max(1.));
+    let scale = f64::from(native).min(most / longest.max(1.));
     let width = (frame.size.width * scale).round().max(1.) as usize;
     let height = (frame.size.height * scale).round().max(1.) as usize;
     let config: Retained<AnyObject> = unsafe { msg_send![config, new] };
