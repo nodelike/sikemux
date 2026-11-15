@@ -105,7 +105,7 @@ pub struct NotificationOption {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityGlance {
-    /// How many things wait on the person.
+    /// How many agents, or teams under their lead, wait on the person: the rows listed plus `more`.
     pub needed: u32,
     /// How many agents work.
     pub working: u32,
@@ -225,7 +225,7 @@ impl ActivityGlance {
         let more = needing.len().saturating_sub(Self::ROWS);
         let small = |count: usize| u32::try_from(count).unwrap_or(u32::MAX);
         Self {
-            needed: small(inbox.needed.max(needing.len())),
+            needed: small(needing.len()),
             working: small(inbox.working),
             done: small(
                 shown
