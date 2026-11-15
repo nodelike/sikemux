@@ -458,7 +458,9 @@ fn header_frame(
                                 t!("Keep agents rail open")
                             },
                         )
-                        .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Rail::Agents, cx))),
+                        .on_click(
+                            cx.listener(|bench, _, _, cx| bench.toggle_rail(Rail::Agents, cx)),
+                        ),
                     ),
                 ),
         )
