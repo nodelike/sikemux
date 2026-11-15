@@ -1253,6 +1253,9 @@ fn chip_words(id: &str, label: &SharedString) -> (SharedString, Option<SharedStr
             return (number.to_owned().into(), title);
         }
     }
+    if id.starts_with(AGENT) {
+        return (label.clone(), None);
+    }
     let bare = label
         .strip_prefix(['@', '+', '/'])
         .map_or_else(|| label.clone(), |bare| bare.to_owned().into());

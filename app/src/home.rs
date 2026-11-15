@@ -555,7 +555,7 @@ fn chief_fact(bench: &Workbench, agent: &AgentRow, cx: &App) -> AnyElement {
 }
 
 /// The chain down to a worker in a project with a chief, leading its header: @Chief, then each
-/// lead above it, each as its chip, which opens it.
+/// lead above it from the top down, each as its chip, which opens it.
 fn chain_to(
     bench: &Workbench,
     agent: &AgentRow,
@@ -564,22 +564,33 @@ fn chain_to(
 ) -> Option<AnyElement> {
     let project = bench.project().filter(|project| project.chief.is_some())?;
     let t = Tokens::get(cx);
-    let agents = bench.agents_of(&project.id);
-    let at = agents.iter().position(|row| row.id == agent.id)?;
-    let lead = match agent.team {
-        Some(sikemux_view::inbox::TeamLink::Member | sikemux_view::inbox::TeamLink::Last) => agents
-            [..at]
-            .iter()
-            .rev()
-            .find(|row| row.team == Some(sikemux_view::inbox::TeamLink::Head)),
-        _ => None,
-    };
     let chief = (project.chief.as_deref()).and_then(|chief| bench.agent_by_id(chief));
-    let step = |row: &AgentRow| crate::chat::agent_pill(row, TEXT_SM, weak, cx);
-    let chevron = || {
-        ui::icon(Icon::Chevron, 10.)
-            .flex_none()
-            .text_color(t.text_disabled)
+    let mut leads: Vec<AgentRow> = Vec::new();
+    let mut at = agent.id.clone();
+    while let Some(lead) = bench.saved_agent(&at).and_then(|saved| saved.lead.clone()) {
+        if project.chief.as_deref() == Some(lead.as_str())
+            || lead == agent.id
+            || leads.iter().any(|row| row.id == lead)
+        {
+            break;
+        }
+        let Some(row) = bench.agent_by_id(&lead) else {
+            break;
+        };
+        leads.push(row);
+        at = lead;
+    }
+    let step = |row: &AgentRow| {
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .child(crate::chat::agent_pill(row, TEXT_SM, weak, cx))
+            .child(
+                ui::icon(Icon::Chevron, 10.)
+                    .flex_none()
+                    .text_color(t.text_disabled),
+            )
     };
     Some(
         div()
@@ -589,16 +600,7 @@ fn chain_to(
             .gap(SPACE_1H)
             .text_size(crate::theme::ui_text(TEXT_SM))
             .text_color(t.text_secondary)
-            .children(chief.as_ref().map(step))
-            .child(chevron())
-            .children(lead.map(|lead| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_1H)
-                    .child(step(lead))
-                    .child(chevron())
-            }))
+            .children(chief.iter().chain(leads.iter().rev()).map(step))
             .into_any_element(),
     )
 }
