@@ -27,12 +27,20 @@ function Check($Holds, $What) {
 }
 
 function Run-Setup($Arguments, $Log) {
-  $Setup = Start-Process $Installer -ArgumentList ($Arguments + "/LOG=`"$Out\$Log`"") -Wait -PassThru
+  $Setup = Start-Process $Installer -ArgumentList ($Arguments + "/LOG=`"$Out\$Log`"") -PassThru
+  # Not -Wait: it also waits for the app setup relaunches, which runs on.
+  if (-not $Setup.WaitForExit(300000)) { throw "failed: $Log still runs after 5 min" }
   Check ($Setup.ExitCode -eq 0) "$Log exits 0 (it exited $($Setup.ExitCode))"
 }
 
 function Installed-Running {
   @(Get-Process sikemux -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $App })
+}
+
+# Through a pipe on purpose: a core that kept the caller's output open would hang this.
+function Core-Run($Command) {
+  & $Core $Command | Out-Host
+  $LASTEXITCODE
 }
 
 function Core-Answers {
@@ -81,14 +89,14 @@ Write-Host "window: $($Window.MainWindowTitle)"
 
 if ($HasCore) {
   Check (Wait-Core 60) "the app starts its core"
-  & $Core enable | Out-Host
+  Check ((Core-Run enable) -eq 0) "sikemux-host enable exits 0"
   $Command = (Get-ItemProperty $SignIn -Name $SignInName -ErrorAction SilentlyContinue).$SignInName
   Check ($Command -like "`"$App`" --start-core *") "the core is set to start at sign-in from the app: $Command"
   Installed-Running | Stop-Process -Force
-  & $Core stop | Out-Host
+  Check ((Core-Run stop) -eq 0) "sikemux-host stop exits 0"
   Check (-not (Core-Answers)) "the core and its watcher are stopped"
   # Exactly what Windows runs at sign-in.
-  Start-Process cmd.exe -ArgumentList "/c", $Command -Wait -WindowStyle Hidden
+  Start-Process cmd.exe -ArgumentList "/d /s /c `"$Command`"" -WindowStyle Hidden
   Check (Wait-Core 30) "the sign-in command starts a core that answers"
   Start-Process $App
   $Window = Wait-Window 60
@@ -116,3 +124,5 @@ Check (-not (Test-Path $WatchFile)) "the core's watch file is gone"
 Check (@(Get-Process sikemux-host -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Core }).Count -eq 0) "the core is stopped"
 Check ((Installed-Running).Count -eq 0) "nothing runs from the install folder"
 Check (Test-Path $Preferences) "the person's data stays"
+# Every failed check throws, so reaching here passes, whatever the last program run returned.
+exit 0

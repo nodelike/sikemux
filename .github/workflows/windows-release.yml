@@ -109,6 +109,7 @@ jobs:
 
       - name: Install, open, update and uninstall it
         shell: pwsh
+        timeout-minutes: 20
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
