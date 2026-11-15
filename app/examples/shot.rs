@@ -316,7 +316,10 @@ fn main() -> anyhow::Result<()> {
                     if let Some(corners) = words.next().and_then(|corners| corners.parse().ok()) {
                         worn.style.corners = corners;
                     }
-                    theme::apply(&sikemux_corekit::themes::palette_of(worn, Default::default()), cx);
+                    theme::apply(
+                        &sikemux_corekit::themes::palette_of(worn, Default::default()),
+                        cx,
+                    );
                     cx.refresh_windows();
                     window.draw(cx).clear(cx);
                 }

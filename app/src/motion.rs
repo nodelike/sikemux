@@ -11,13 +11,12 @@ use std::time::{Duration, Instant};
 use gpui_kit::base::animation::cubic_bezier;
 use gpui_kit::base::motion::Interpolate;
 use gpui_kit::prelude::FluentBuilder;
-use sikemux_view::prefs::Motion;
 use gpui_kit::{
     div, px, radians, Animation, AnyElement, App, Bounds, Div, Element, ElementId, Global,
-    GlobalElementId,
-    Hsla, InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels,
-    Point, Rgba, SharedString, Styled, Svg, Transformation, Window,
+    GlobalElementId, Hsla, InspectorElementId, InteractiveElement, IntoElement, LayoutId,
+    ParentElement, Pixels, Point, Rgba, SharedString, Styled, Svg, Transformation, Window,
 };
+use sikemux_view::prefs::Motion;
 
 /// The person's Motion choice in Appearance, over macOS's own.
 struct Chosen(Motion);
@@ -26,7 +25,10 @@ impl Global for Chosen {}
 
 /// Moves the interface as the person chose: as macOS says, less, or not at all.
 pub fn set_motion(motion: Motion, cx: &mut App) {
-    if cx.try_global::<Chosen>().is_some_and(|chosen| chosen.0 == motion) {
+    if cx
+        .try_global::<Chosen>()
+        .is_some_and(|chosen| chosen.0 == motion)
+    {
         return;
     }
     cx.set_global(Chosen(motion));
@@ -35,7 +37,8 @@ pub fn set_motion(motion: Motion, cx: &mut App) {
 
 /// Whether the interface moves less than macOS says, or the same.
 pub fn chosen(cx: &App) -> Motion {
-    cx.try_global::<Chosen>().map_or(Motion::System, |chosen| chosen.0)
+    cx.try_global::<Chosen>()
+        .map_or(Motion::System, |chosen| chosen.0)
 }
 
 fn nothing_moves(cx: &App) -> bool {
