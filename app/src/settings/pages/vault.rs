@@ -1,56 +1,35 @@
-//! The account vault on the Connectors page: its recovery key once, a way back in with it,
-//! and under each connector the sign-ins the vault holds, with the hosts that may use each,
-//! which projects their agents may use it in, and its latest uses. A sign-in can instead stay
-//! on this host alone, out of the vault, and the host can make that the rule for new ones.
-
-use crate::ui::Clicks;
-use std::collections::{BTreeSet, HashMap};
+//! The account vault on the Connectors page: its recovery key once, or a way back in with it.
+//! Every host on the account uses the sign-ins it holds, unless one is kept on this host alone,
+//! out of the vault, and the host can make that the rule for new ones.
 
 use gpui_kit::component::input::InputState;
 use gpui_kit::component::switch::Switch;
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext, ClipboardItem, Context, Div, Entity, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Window,
+    div, px, AnyElement, App, AppContext, ClipboardItem, Context, Div, Entity, IntoElement,
+    ParentElement, SharedString, Styled, Window,
 };
 use sikemux_calls::call;
 use sikemux_calls::params::NoParams;
-use sikemux_calls::vault::AllowParams;
 use sikemux_calls::vault::KeepNewParams;
 use sikemux_calls::vault::KeepParams;
 use sikemux_calls::vault::RecoverParams;
-use sikemux_calls::vault::RevokeParams;
-use sikemux_calls::vault::ShownHost;
-use sikemux_calls::vault::ShownKept;
 use sikemux_calls::vault::ShownSignIn;
 use sikemux_calls::vault::ShownStatus;
-use sikemux_calls::vault::ShownUse;
 use sikemux_calls::vault::ShownVault;
-use sikemux_calls::vault::UsesParams;
 
 use crate::core::Target;
-use crate::settings::rows::{self, Choice};
-use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_XS,
-};
+use crate::settings::rows;
+use crate::theme::{self, Tokens, SPACE_2, SPACE_3, SPACE_4, TEXT_XS};
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
-
-const EVERY_PROJECT: &str = n!("Every project");
 
 /// What the page keeps of the vault while it shows.
 #[derive(Default)]
 pub struct Fields {
     shown: Option<ShownVault>,
-    /// The sign-ins whose hosts are open.
-    open: BTreeSet<String>,
-    /// Each allowed host's project choice, by sign-in and host.
-    scopes: HashMap<(String, String), Choice>,
-    /// The sign-in that other hosts would lose if it stayed here, while the person decides.
+    /// The connector whose sign-ins the person is about to keep on this host, while they decide.
     confirming: Option<String>,
-    /// The sign-in whose use log is open, with what it read.
-    log: Option<(String, Option<Vec<ShownUse>>)>,
     recovery: Option<Entity<InputState>>,
     refused: Option<SharedString>,
     busy: bool,
@@ -64,24 +43,12 @@ fn change(
     super::connectors::change_vault(bench, cx, change);
 }
 
-fn project_names(bench: &Workbench) -> Vec<String> {
-    let mut names: Vec<String> = bench
-        .projects()
-        .iter()
-        .filter_map(|project| Some(project.path.file_name()?.to_string_lossy().into_owned()))
-        .collect();
-    names.sort_by_key(|name| name.to_lowercase());
-    names.dedup();
-    names
-}
-
-/// Reads the vault, and makes the project choice of each host allowed a sign-in.
+/// Reads the vault.
 pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let asked = Target::here(&bench.asks).request_typed::<call::Vault>(NoParams {});
     cx.spawn_in(window, async move |bench, cx| {
         let Ok(shown) = asked.await else { return };
         let _ = bench.update_in(cx, |bench, window, cx| {
-            let projects = project_names(bench);
             let recovery = (shown.status == ShownStatus::Waiting).then(|| {
                 cx.new(|cx| {
                     InputState::new(window, cx)
@@ -89,16 +56,8 @@ pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
                         .placeholder(t!("Recovery key"))
                 })
             });
-            let mut scopes = HashMap::new();
-            for sign_in in &shown.sign_ins {
-                for host in sign_in.hosts.iter().filter(|host| host.allowed) {
-                    let scope = scope_choice(sign_in, host, &projects, window, cx);
-                    scopes.insert((sign_in.id.clone(), host.key.clone()), scope);
-                }
-            }
             change(bench, cx, |fields, _| {
                 fields.shown = Some(shown);
-                fields.scopes = scopes;
                 match recovery {
                     Some(made) if fields.recovery.is_none() => fields.recovery = Some(made),
                     Some(_) => {}
@@ -108,58 +67,6 @@ pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         });
     })
     .detach();
-}
-
-fn scope_choice(
-    sign_in: &ShownSignIn,
-    host: &ShownHost,
-    projects: &[String],
-    window: &mut Window,
-    cx: &mut Context<Workbench>,
-) -> Choice {
-    let mut labels: Vec<String> = vec![crate::i18n::tr(EVERY_PROJECT).to_owned()];
-    let chosen_label = match &host.projects {
-        None => crate::i18n::tr(EVERY_PROJECT).to_owned(),
-        Some(chosen) if chosen.len() == 1 => chosen[0].clone(),
-        Some(chosen) => chosen.join(", "),
-    };
-    labels.extend(projects.iter().cloned());
-    if !labels.contains(&chosen_label) {
-        labels.push(chosen_label.clone());
-    }
-    let chosen = labels
-        .iter()
-        .position(|label| *label == chosen_label)
-        .unwrap_or(0);
-    let entry = sign_in.id.clone();
-    let key = host.key.clone();
-    let offered = labels.clone();
-    Choice::new(
-        labels,
-        chosen,
-        move |bench, at, cx| {
-            let projects = match at {
-                0 => None,
-                at => match offered.get(at) {
-                    Some(label) if projects_of(label).len() > 1 => return,
-                    Some(label) => Some(vec![label.clone()]),
-                    None => return,
-                },
-            };
-            let asked = Target::here(&bench.asks).request_typed::<call::VaultAllow>(AllowParams {
-                entry: entry.clone(),
-                host: key.clone(),
-                projects,
-            });
-            report(asked, t!("Project access changed"), cx);
-        },
-        window,
-        cx,
-    )
-}
-
-fn projects_of(label: &str) -> Vec<&str> {
-    label.split(", ").collect()
 }
 
 /// Tells the person how a change went.
@@ -178,36 +85,29 @@ fn report(
     .detach();
 }
 
-fn allow(bench: &Workbench, entry: &str, host: &str, cx: &mut Context<Workbench>) {
-    let asked = Target::here(&bench.asks).request_typed::<call::VaultAllow>(AllowParams {
-        entry: entry.to_owned(),
-        host: host.to_owned(),
-        projects: None,
+fn keep(bench: &Workbench, plugin: &str, kept: bool, cx: &mut Context<Workbench>) {
+    let mut read = None;
+    change(bench, cx, |fields, _| {
+        fields.confirming = None;
+        read = fields.shown.clone();
     });
-    report(asked, t!("Allowed"), cx);
-}
-
-fn revoke(bench: &Workbench, entry: &str, host: &str, cx: &mut Context<Workbench>) {
-    let asked = Target::here(&bench.asks).request_typed::<call::VaultRevoke>(RevokeParams {
-        entry: entry.to_owned(),
-        host: host.to_owned(),
-    });
-    report(asked, t!("Revoked"), cx);
-}
-
-fn keep(bench: &Workbench, plugin: &str, identity: &str, kept: bool, cx: &mut Context<Workbench>) {
-    change(bench, cx, |fields, _| fields.confirming = None);
-    let asked = Target::here(&bench.asks).request_typed::<call::VaultKeep>(KeepParams {
-        plugin: plugin.to_owned(),
-        identity: identity.to_owned(),
-        kept,
-    });
-    let done = if kept {
-        t!("Kept on this host, out of the vault")
-    } else {
-        t!("Moved into the vault, allowed on this host")
+    let Some(shown) = read else {
+        return;
     };
-    report(asked, done, cx);
+    let held = if kept { &shown.sign_ins } else { &shown.kept };
+    for sign_in in held.iter().filter(|sign_in| sign_in.plugin == plugin) {
+        let asked = Target::here(&bench.asks).request_typed::<call::VaultKeep>(KeepParams {
+            plugin: sign_in.plugin.clone(),
+            identity: sign_in.identity.clone(),
+            kept,
+        });
+        let done = if kept {
+            t!("Kept on this host, out of the vault")
+        } else {
+            t!("Moved into the vault")
+        };
+        report(asked, done, cx);
+    }
 }
 
 fn keep_new(bench: &Workbench, on: bool, cx: &mut Context<Workbench>) {
@@ -220,48 +120,8 @@ fn keep_new(bench: &Workbench, on: bool, cx: &mut Context<Workbench>) {
     report(asked, done, cx);
 }
 
-fn confirm(bench: &Workbench, id: Option<String>, cx: &mut App) {
-    change(bench, cx, |fields, _| fields.confirming = id);
-}
-
-fn toggle_hosts(bench: &Workbench, id: &str, cx: &mut App) {
-    let id = id.to_owned();
-    change(bench, cx, |fields, _| {
-        if !fields.open.remove(&id) {
-            fields.open.insert(id);
-        }
-    });
-}
-
-fn toggle_log(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
-    let id = id.to_owned();
-    let mut opening = false;
-    change(bench, cx, |fields, _| {
-        if fields.log.as_ref().is_some_and(|(open, _)| *open == id) {
-            fields.log = None;
-        } else {
-            fields.log = Some((id.clone(), None));
-            opening = true;
-        }
-    });
-    if !opening {
-        return;
-    }
-    let asked = Target::here(&bench.asks)
-        .request_typed::<call::VaultUses>(UsesParams { entry: id.clone() });
-    cx.spawn(async move |bench, cx| {
-        let uses = asked.await.unwrap_or_default();
-        let _ = bench.update(cx, |bench, cx| {
-            change(bench, cx, |fields, _| {
-                if let Some((open, read)) = &mut fields.log {
-                    if *open == id {
-                        *read = Some(uses);
-                    }
-                }
-            });
-        });
-    })
-    .detach();
+fn confirm(bench: &Workbench, plugin: Option<String>, cx: &mut App) {
+    change(bench, cx, |fields, _| fields.confirming = plugin);
 }
 
 fn saved_recovery(bench: &Workbench, cx: &mut Context<Workbench>) {
@@ -372,7 +232,7 @@ pub(super) fn section(
             let switching = this.clone();
             div()
                 .child(rows::note(
-                    t!("Sign-ins on this host move into the account's vault, sealed so the accounts server cannot read them. Each one says which hosts and projects may use it."),
+                    t!("Sign-ins on this host move into the account's vault, sealed so the accounts server cannot read them, and every host on the account can use them."),
                     cx,
                 ))
                 .child(rows::row(
@@ -436,361 +296,124 @@ pub(super) fn section(
     ))
 }
 
-/// The sign-ins the vault holds for `plugin`, each under its connector's row.
-pub(super) fn sign_ins(
-    plugin: &str,
-    fields: &Fields,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> Vec<AnyElement> {
-    let Some(shown) = fields
+fn open_vault(fields: &Fields) -> Option<&ShownVault> {
+    fields
         .shown
         .as_ref()
         .filter(|shown| shown.status == ShownStatus::Open)
-    else {
-        return Vec::new();
-    };
-    let kept = shown
-        .kept
-        .iter()
-        .filter(|kept| kept.plugin == plugin)
-        .map(|kept| kept_row(kept, this, cx));
-    shown
-        .sign_ins
-        .iter()
-        .filter(|sign_in| sign_in.plugin == plugin)
-        .map(|sign_in| sign_in_row(sign_in, fields, this, cx))
-        .chain(kept)
-        .collect()
 }
 
-fn sign_in_line(summary: SharedString, action: impl IntoElement, cx: &App) -> Div {
+fn of_plugin<'a>(
+    held: &'a [ShownSignIn],
+    plugin: &'a str,
+) -> impl Iterator<Item = &'a ShownSignIn> {
+    held.iter().filter(move |sign_in| sign_in.plugin == plugin)
+}
+
+/// Keep here only, on a connector signed in from the vault.
+pub(super) fn keep_button(
+    plugin: &str,
+    fields: &Fields,
+    this: &Entity<Workbench>,
+) -> Option<ui::Button> {
+    let shown = open_vault(fields)?;
+    of_plugin(&shown.sign_ins, plugin).next()?;
+    let others = shown.holders > 1;
+    let acting = this.clone();
+    let id = plugin.to_owned();
+    Some(
+        ui::Button::new(
+            SharedString::from(format!("vault-keep-{plugin}")),
+            t!("Keep here only"),
+            ui::Variant::Ghost,
+        )
+        .on_click(move |_, _, cx| {
+            acting.update(cx, |bench, cx| match others {
+                true => confirm(bench, Some(id.clone()), cx),
+                false => keep(bench, &id, true, cx),
+            })
+        }),
+    )
+}
+
+fn under_row(cx: &App) -> Div {
     let t = Tokens::get(cx);
     div()
         .flex()
         .items_center()
-        .gap(SPACE_3)
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_size(theme::ui_text(TEXT_XS))
-                .text_color(t.text_secondary)
-                .child(summary),
-        )
-        .child(action)
-}
-
-fn sign_in_box(cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_1)
+        .gap(SPACE_2)
         .pl(px(60.))
         .pr(SPACE_4)
         .py(SPACE_2)
         .border_b_1()
         .border_color(t.line_soft)
+        .text_size(theme::ui_text(TEXT_XS))
 }
 
-/// A sign-in that stays on this host, with the way to move it into the vault.
-fn kept_row(kept: &ShownKept, this: &Entity<Workbench>, cx: &App) -> AnyElement {
-    let summary = t!(
-        "{label} · on this host only, out of the vault",
-        label = kept.label
-    );
-    let moving = this.clone();
-    let plugin = kept.plugin.clone();
-    let identity = kept.identity.clone();
-    let action = ui::Button::new(
-        SharedString::from(format!("vault-share-{}-{}", kept.plugin, kept.identity)),
-        t!("Move into vault"),
-        ui::Variant::Outline,
-    )
-    .on_click(move |_, _, cx| {
-        moving.update(cx, |bench, cx| keep(bench, &plugin, &identity, false, cx))
-    });
-    sign_in_box(cx)
-        .child(sign_in_line(summary.into(), action, cx))
-        .into_any_element()
-}
-
-fn sign_in_row(
-    sign_in: &ShownSignIn,
+/// Under a connector: the ask before its sign-ins leave the vault, and each one kept on this
+/// host with the way to move it back in.
+pub(super) fn under(
+    plugin: &str,
     fields: &Fields,
     this: &Entity<Workbench>,
     cx: &App,
-) -> AnyElement {
+) -> Vec<AnyElement> {
+    let Some(shown) = open_vault(fields) else {
+        return Vec::new();
+    };
     let t = Tokens::get(cx);
-    let open = fields.open.contains(&sign_in.id);
-    let allowed = sign_in.hosts.iter().filter(|host| host.allowed).count();
-    let summary = t!(
-        "{label} · from {origin} · allowed on {allowed} of {hosts} hosts",
-        label = sign_in.label,
-        origin = sign_in.origin,
-        allowed = allowed,
-        hosts = sign_in.hosts.len()
-    );
-    let toggling = this.clone();
-    let id = sign_in.id.clone();
-    let held_here = sign_in.hosts.iter().any(|host| host.this && host.allowed);
-    let losing: Vec<&str> = sign_in
-        .hosts
-        .iter()
-        .filter(|host| host.allowed && !host.this)
-        .map(|host| host.name.as_str())
-        .collect();
-    let keeping = held_here.then(|| {
-        let acting = this.clone();
-        let plugin = sign_in.plugin.clone();
-        let identity = sign_in.identity.clone();
-        let id = sign_in.id.clone();
-        let asks = !losing.is_empty();
-        ui::Button::new(
-            SharedString::from(format!("vault-keep-{}", sign_in.id)),
-            t!("Keep here only"),
-            ui::Variant::Outline,
-        )
-        .on_click(move |_, _, cx| {
-            acting.update(cx, |bench, cx| match asks {
-                true => confirm(bench, Some(id.clone()), cx),
-                false => keep(bench, &plugin, &identity, true, cx),
-            })
-        })
-    });
-    let confirming = fields.confirming.as_deref() == Some(sign_in.id.as_str());
-    let warning = (confirming && held_here).then(|| {
-        let hosts = losing.join(", ");
-        let said = match losing.len() {
-            1 => t!(
-                "{hosts} loses this sign-in. It leaves the vault and stays on this host alone.",
-                hosts = hosts
-            ),
-            _ => t!(
-                "{hosts} lose this sign-in. It leaves the vault and stays on this host alone.",
-                hosts = hosts
-            ),
-        };
+    let asking = (fields.confirming.as_deref() == Some(plugin)).then(|| {
         let acting = this.clone();
         let cancelling = this.clone();
-        let plugin = sign_in.plugin.clone();
-        let identity = sign_in.identity.clone();
-        div()
-            .flex()
-            .items_center()
-            .gap(SPACE_2)
+        let id = plugin.to_owned();
+        under_row(cx)
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(theme::ui_text(TEXT_XS))
                     .text_color(t.warn)
-                    .child(said),
+                    .child(t!("Every other host on the account loses this sign-in. It leaves the vault and stays on this host alone.")),
             )
             .child(
                 ui::Button::new(
-                    SharedString::from(format!("vault-keep-cancel-{}", sign_in.id)),
+                    SharedString::from(format!("vault-keep-cancel-{plugin}")),
                     t!("Cancel"),
                     ui::Variant::Ghost,
                 )
-                .on_click(move |_, _, cx| {
-                    cancelling.update(cx, |bench, cx| confirm(bench, None, cx))
-                }),
+                .on_click(move |_, _, cx| cancelling.update(cx, |bench, cx| confirm(bench, None, cx))),
             )
             .child(
                 ui::Button::new(
-                    SharedString::from(format!("vault-keep-sure-{}", sign_in.id)),
+                    SharedString::from(format!("vault-keep-sure-{plugin}")),
                     t!("Keep here only"),
                     ui::Variant::Primary,
                 )
+                .on_click(move |_, _, cx| acting.update(cx, |bench, cx| keep(bench, &id, true, cx))),
+            )
+            .into_any_element()
+    });
+    let kept = of_plugin(&shown.kept, plugin).take(1).map(|_| {
+        let moving = this.clone();
+        let id = plugin.to_owned();
+        under_row(cx)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_color(t.text_secondary)
+                    .child(t!("On this host only, out of the vault")),
+            )
+            .child(
+                ui::Button::new(
+                    SharedString::from(format!("vault-share-{plugin}")),
+                    t!("Move into vault"),
+                    ui::Variant::Outline,
+                )
                 .on_click(move |_, _, cx| {
-                    acting.update(cx, |bench, cx| keep(bench, &plugin, &identity, true, cx))
+                    moving.update(cx, |bench, cx| keep(bench, &id, false, cx))
                 }),
             )
+            .into_any_element()
     });
-    let hosts = ui::Button::new(
-        SharedString::from(format!("vault-hosts-{}", sign_in.id)),
-        if open { t!("Hide hosts") } else { t!("Hosts") },
-        ui::Variant::Outline,
-    )
-    .on_click(move |_, _, cx| toggling.update(cx, |bench, cx| toggle_hosts(bench, &id, cx)));
-    let actions = div().flex().gap(SPACE_2).children(keeping).child(hosts);
-    sign_in_box(cx)
-        .child(sign_in_line(summary.into(), actions, cx))
-        .children(warning)
-        .when(open, |rows| {
-            rows.children(
-                sign_in
-                    .hosts
-                    .iter()
-                    .map(|host| host_row(sign_in, host, fields, this, cx)),
-            )
-            .child(last_use(sign_in, fields, this, cx))
-        })
-        .into_any_element()
-}
-
-fn host_row(
-    sign_in: &ShownSignIn,
-    host: &ShownHost,
-    fields: &Fields,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> AnyElement {
-    let t = Tokens::get(cx);
-    let dot =
-        div()
-            .size(px(6.))
-            .rounded_full()
-            .bg(if host.online { t.live } else { t.text_tertiary });
-    let mut notes = Vec::new();
-    if host.this {
-        notes.push(t!("this host"));
-    }
-    if host.refreshes {
-        notes.push(t!("refreshes it"));
-    }
-    let name = div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .gap(SPACE_1)
-        .text_size(theme::ui_text(TEXT_XS))
-        .child(
-            div()
-                .text_color(if host.allowed {
-                    t.text_primary
-                } else {
-                    t.text_tertiary
-                })
-                .child(host.name.clone()),
-        )
-        .children((!notes.is_empty()).then(|| {
-            div()
-                .text_color(t.text_tertiary)
-                .child(format!("· {}", notes.join(" · ")))
-        }))
-        .children((!host.allowed).then(|| div().text_color(t.warn).child(t!("· waits for you"))));
-    let entry = sign_in.id.clone();
-    let key = host.key.clone();
-    let acting = this.clone();
-    let action = if host.allowed {
-        ui::Button::new(
-            SharedString::from(format!("vault-revoke-{}-{}", sign_in.id, host.key)),
-            t!("Revoke"),
-            ui::Variant::Outline,
-        )
-        .on_click(move |_, _, cx| acting.update(cx, |bench, cx| revoke(bench, &entry, &key, cx)))
-    } else {
-        ui::Button::new(
-            SharedString::from(format!("vault-allow-{}-{}", sign_in.id, host.key)),
-            t!("Allow"),
-            ui::Variant::Outline,
-        )
-        .on_click(move |_, _, cx| acting.update(cx, |bench, cx| allow(bench, &entry, &key, cx)))
-    };
-    let scope = fields
-        .scopes
-        .get(&(sign_in.id.clone(), host.key.clone()))
-        .filter(|_| host.allowed)
-        .map(Choice::view);
-    div()
-        .id(SharedString::from(format!(
-            "vault-host-{}-{}",
-            sign_in.id, host.key
-        )))
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .py(SPACE_0)
-        .child(dot)
-        .child(name)
-        .children(scope)
-        .child(action)
-        .into_any_element()
-}
-
-fn last_use(
-    sign_in: &ShownSignIn,
-    fields: &Fields,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> AnyElement {
-    let t = Tokens::get(cx);
-    let said = match &sign_in.last_use {
-        Some(used) => t!(
-            "Used {ago} by {actor} on {host}",
-            ago = ui::time::ago(used.at),
-            actor = used.actor,
-            host = used.host
-        ),
-        None => t!("Not used here lately").to_owned(),
-    };
-    let id = sign_in.id.clone();
-    let opening = this.clone();
-    let log = fields
-        .log
-        .as_ref()
-        .filter(|(open, _)| *open == sign_in.id)
-        .map(|(_, read)| match read {
-            None => vec![rows::note(t!("Reading the use log…"), cx)],
-            Some(uses) if uses.is_empty() => {
-                vec![rows::note(t!("No use in the last 30 days."), cx)]
-            }
-            Some(uses) => uses
-                .iter()
-                .map(|used| {
-                    div()
-                        .text_size(theme::ui_text(TEXT_2XS_H))
-                        .text_color(t.text_tertiary)
-                        .child(match used.count {
-                            1 => t!(
-                                "{ago} · {actor} on {host} · 1 use",
-                                ago = ui::time::ago(used.at),
-                                actor = used.actor,
-                                host = used.host
-                            ),
-                            count => t!(
-                                "{ago} · {actor} on {host} · {count} uses",
-                                ago = ui::time::ago(used.at),
-                                actor = used.actor,
-                                host = used.host,
-                                count = count
-                            ),
-                        })
-                        .into_any_element()
-                })
-                .collect(),
-        })
-        .unwrap_or_default();
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_1)
-        .mt(SPACE_1)
-        .pt(SPACE_1)
-        .border_t_1()
-        .border_color(t.line_soft)
-        .child(
-            div()
-                .flex()
-                .gap(SPACE_1)
-                .text_size(theme::ui_text(TEXT_2XS_H))
-                .text_color(t.text_tertiary)
-                .child(said)
-                .child("·")
-                .child(
-                    div()
-                        .id(SharedString::from(format!("vault-log-{}", sign_in.id)))
-                        .text_color(t.accent)
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(t!("Use log"))
-                        .clicks(move |_, _, cx| {
-                            opening.update(cx, |bench, cx| toggle_log(bench, &id, cx))
-                        }),
-                ),
-        )
-        .children(log)
-        .into_any_element()
+    asking.into_iter().chain(kept).collect()
 }

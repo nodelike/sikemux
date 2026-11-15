@@ -153,7 +153,6 @@ impl<S> From<sikemux_keychain::KeychainError> for ServiceError<S> {
         match error {
             sikemux_keychain::KeychainError::Invalid(message) => Self::BadArg(message),
             sikemux_keychain::KeychainError::Failed(message) => Self::Keychain(message),
-            sikemux_keychain::KeychainError::Refused(message) => Self::Forbidden(message),
         }
     }
 }

@@ -78,9 +78,7 @@ crate::calls! {
     "takeStep" TakeStep (crate::turn_state::TakeStepParams) -> ();
     "updateInstall" UpdateInstall (crate::updates::UpdateInstallParams) -> sikemux_view::updates::UpdateStatus;
     "setHostUpdates" SetHostUpdates (crate::updates::HostUpdatesParams) -> sikemux_view::updates::UpdateStatus;
-    "vaultRevoke" VaultRevoke (crate::vault::RevokeParams) -> ();
     "vaultRecover" VaultRecover (crate::vault::RecoverParams) -> ();
-    "vaultUses" VaultUses (crate::vault::UsesParams) -> Vec<crate::vault::ShownUse>;
     "vaultKeep" VaultKeep (crate::vault::KeepParams) -> ();
     "vaultKeepNew" VaultKeepNew (crate::vault::KeepNewParams) -> ();
     "themeFromPixels" ThemeFromPixels (crate::wallpaper::PixelsParams) -> sikemux_view::theme::Theme;
@@ -216,7 +214,6 @@ crate::calls! {
     "attachStash" AttachStash (crate::stash::AttachStashParams) -> crate::stash::AttachedStash;
     "removeStash" RemoveStash (crate::stash::StashItemParams) -> ();
     "vault" Vault (crate::params::NoParams) -> crate::vault::ShownVault;
-    "vaultAllow" VaultAllow (crate::vault::AllowParams) -> ();
     "vaultRecoverySaved" VaultRecoverySaved (crate::params::NoParams) -> ();
     "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> sikemux_view::prefs::Preferences;
     "newTerminal" NewTerminal (crate::spare::NewTerminal) -> String;

@@ -13,7 +13,6 @@ use sikemux_plugin_api::vault::{as_caller, Caller};
 
 use crate::cli::protocol::HarnessRequest;
 use crate::git_guard::identity;
-use crate::server::workspace_state::WorkspaceParts;
 use crate::server::Core;
 
 /// Has the stand-ins tell from the plugins, as they know without asking over the network,
@@ -33,23 +32,13 @@ pub fn provide(core: &Arc<Core>) {
     });
 }
 
-/// Who asks from `peer` on the tool endpoint's `port`, and the project it works in. None for
-/// a process this core did not start, nor an agent it started.
-pub(super) async fn asker(
-    core: &Arc<Core>,
-    request: &HarnessRequest,
-    peer: SocketAddr,
-    port: u16,
-) -> Option<(Asker, String)> {
-    let core = core.clone();
-    let cwd = request.project.clone();
-    tokio::task::spawn_blocking(move || {
-        let asker = callers::asker(peer, port)?;
-        Some((asker, core.workspaces().project_of(Path::new(&cwd))))
-    })
-    .await
-    .ok()
-    .flatten()
+/// Who asks from `peer` on the tool endpoint's `port`. None for a process this core did not
+/// start, nor an agent it started.
+pub(super) async fn asker(peer: SocketAddr, port: u16) -> Option<Asker> {
+    tokio::task::spawn_blocking(move || callers::asker(peer, port))
+        .await
+        .ok()
+        .flatten()
 }
 
 /// Answers the helper at `peer` with a username and password, or with nothing, which leaves
@@ -64,12 +53,12 @@ pub async fn call(
         .as_str()
         .ok_or("remote is missing")?
         .to_owned();
-    let Some((asker, project)) = asker(core, request, peer, port).await else {
+    let Some(asker) = asker(peer, port).await else {
         return Ok(json!({}));
     };
     let grant = request.params["grant"].as_str();
     let person = crate::server::plugged::acts_as(core, &remote) == Some(Acting::Person);
-    match answer(core, asker, &remote, grant, project).await {
+    match answer(core, asker, &remote, grant).await {
         Ok(Some(credential)) => Ok(json!({
             "username": credential.username,
             "password": credential.secret,
@@ -94,7 +83,6 @@ async fn answer(
     asker: Asker,
     remote: &str,
     grant: Option<&str>,
-    project: String,
 ) -> Result<Option<Credential>, sikemux_calls::plugins::PluginFailure> {
     let mut reach = Reach::Agent;
     let agent = match asker {
@@ -123,10 +111,7 @@ async fn answer(
         remote: remote.to_owned(),
         reach,
     };
-    let caller = Caller {
-        agent,
-        project: Some(project),
-    };
+    let caller = Caller { agent };
     as_caller(caller, crate::server::plugged::credential(core, ask)).await
 }
 
@@ -142,7 +127,7 @@ pub async fn merge(
     let text = |name: &str| params[name].as_str().map(str::to_owned);
     let remote = text("remote").ok_or("remote is missing")?;
     let number = params["number"].as_u64().ok_or("number is missing")?;
-    let Some((asker, project)) = asker(core, request, peer, port).await else {
+    let Some(asker) = asker(peer, port).await else {
         return Err("Sikemux merges only for its own agents".to_owned());
     };
     let (owner, name) =
@@ -161,7 +146,6 @@ pub async fn merge(
             Asker::Agent(agent) => Some(agent),
             Asker::Core => None,
         },
-        project: Some(project),
     };
     let merged = as_caller(
         caller,

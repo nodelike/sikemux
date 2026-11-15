@@ -75,10 +75,10 @@ pub type Status = SignInStatus<Signed>;
 impl SignedInAs for Signed {
     fn signed_in_as(&self) -> Option<String> {
         let account = self.account.as_ref()?;
-        Some(match account.email.is_empty() {
-            true => account.username.clone(),
-            false => account.email.clone(),
-        })
+        [&account.name, &account.username]
+            .into_iter()
+            .find(|named| !named.is_empty())
+            .cloned()
     }
 }
 

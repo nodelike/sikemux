@@ -32,7 +32,7 @@ use crate::workbench::Workbench;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[
-    section(Connectors, "Account vault", "vault recovery key sealed sign-ins hosts allow revoke use log"),
+    section(Connectors, "Account vault", "vault recovery key sealed sign-ins hosts"),
     section(Connectors, "Connectors", "aws bitbucket database postgres postgresql mysql sqlite sql github gitlab forgejo gitea codeberg jira linear rundeck signoz slack vercel sign in sign out login logout token account enable disable switch off turn on integrations plugins connectors"),
 ];
 
@@ -301,8 +301,7 @@ fn has_sign_in(plugin: &Listed) -> bool {
     plugin.id == AWS || plugin.token_form.is_some() || plugin.browser_sign_in
 }
 
-/// Who the connector is signed in as, with any email cut to its domain so the page never shows
-/// an address.
+/// Who the connector is signed in as.
 fn account(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
     if !plugin.enabled {
         return None;
@@ -314,15 +313,11 @@ fn account(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
             saved => Some(t!("{count} databases", count = saved).into()),
         };
     }
-    let who = plugin
+    plugin
         .signed_in_as
-        .as_deref()
-        .filter(|_| plugin.signed_in == Some(true))?;
-    let shown: Vec<&str> = who
-        .split_whitespace()
-        .map(|word| word.rsplit_once('@').map_or(word, |(_, domain)| domain))
-        .collect();
-    Some(shown.join(" ").into())
+        .clone()
+        .filter(|_| plugin.signed_in == Some(true))
+        .map(SharedString::from)
 }
 
 /// What the person should know about the connector, under its name: only what needs them.
@@ -414,12 +409,7 @@ pub fn render(
                     cx,
                 )
                 .into_any_element();
-                std::iter::once(row).chain(super::vault::sign_ins(
-                    &plugin.id,
-                    &fields.vault,
-                    this,
-                    cx,
-                ))
+                std::iter::once(row).chain(super::vault::under(&plugin.id, &fields.vault, this, cx))
             }))
             .into_any_element(),
     };
@@ -499,6 +489,7 @@ fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyEl
         .items_center()
         .gap(SPACE_2)
         .children(configure)
+        .children(super::vault::keep_button(&plugin.id, &fields.vault, this))
         .children(button)
         .child(toggle)
         .into_any_element()

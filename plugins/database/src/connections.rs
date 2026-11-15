@@ -29,12 +29,12 @@ pub struct Pool {
     lanes: std::sync::Mutex<HashMap<Key, Arc<Lane>>>,
 }
 
-/// A connection kept open is used only while its password still may be.
-async fn still_allowed(kept: Open) -> DatabaseResult<Open> {
-    if let Some(account) = kept.password.clone() {
-        profiles::blocking(move || profiles::check_password(&account)).await?;
+/// A connection kept open logs a use of its password each time it is taken up again.
+fn reused(kept: Open) -> Open {
+    if let Some(account) = &kept.password {
+        profiles::password_used(account);
     }
-    Ok(kept)
+    kept
 }
 
 impl Pool {
@@ -54,7 +54,7 @@ impl Pool {
     async fn open(&self, data_dir: &Path, id: &str) -> DatabaseResult<Open> {
         let key = id.to_string();
         if let Some(kept) = self.kept(&key).await {
-            return still_allowed(kept).await;
+            return Ok(reused(kept));
         }
         let opening = Arc::clone(
             self.opening
@@ -65,7 +65,7 @@ impl Pool {
         );
         let _one_at_a_time = opening.lock().await;
         if let Some(kept) = self.kept(&key).await {
-            return still_allowed(kept).await;
+            return Ok(reused(kept));
         }
         let dir = data_dir.to_path_buf();
         let wanted = id.to_string();

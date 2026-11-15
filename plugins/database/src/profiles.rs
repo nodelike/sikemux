@@ -375,8 +375,8 @@ pub fn saved_password(profile: &Profile) -> DatabaseResult<Option<String>> {
     }
 }
 
-pub fn check_password(id: &str) -> DatabaseResult<()> {
-    Ok(PASSWORDS.check(id)?)
+pub fn password_used(id: &str) {
+    PASSWORDS.used(id);
 }
 
 fn password_write(id: &str, password: &str) -> DatabaseResult<()> {

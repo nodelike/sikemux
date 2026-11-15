@@ -33,26 +33,22 @@ Once your computer is signed in to your Sikemux account, its connector sign-ins 
 
 The first computer on your account makes the vault and shows **Account vault** at the top of **Settings → Connectors**, with a recovery key. It's shown once. Save it somewhere only you can reach: if every computer that holds the vault is lost, it's the only way back in. **I saved it** hides it. A computer that joins later gets the vault's key from one that already holds it. Until then it says it's waiting and offers a box for the recovery key.
 
-When you sign a computer in, the sign-ins it already has move into the vault once. Each stays usable by every agent on that computer, as before. If two computers are signed in to the same account on the same service, the newer token is kept. Different accounts stay separate sign-ins.
+When you sign a computer in, the sign-ins it already has move into the vault once. If two computers are signed in to the same account on the same service, the newer token is kept. Different accounts stay separate sign-ins.
 
-Other computers can't use a sign-in until you allow them. Under each connector, a sign-in from the vault shows where it came from and how many computers may use it. **Hosts** lists your computers:
-
-- **Allow** lets every agent on that computer use it. The project picker beside it narrows that to one project's agents.
-- **Revoke** takes it away, and that computer forgets its copy. Revoking the last computer removes the sign-in from the vault.
-- The line under the list shows the sign-in's latest use here. **Use log** lists every use in the last 30 days, with the agent, the computer and the time. The same log is under **Sign-ins** at [app.sikemux.com](https://app.sikemux.com).
+Your account is the trust: a connector you sign in to on one computer is signed in on every computer on your account, for every agent there, with nothing to allow. Each connector shows who it's signed in as and **Sign out**, which signs it out on every computer and removes it from the vault. Every use is logged with the agent, the computer and the time, under **Sign-ins** at [app.sikemux.com](https://app.sikemux.com).
 
 ### Keeping a sign-in on one computer
 
 Some sign-ins should never leave the computer they were made on, such as a work account on a Mac you also use for your own projects. Sikemux can't tell which those are, so you mark them.
 
-- **Keep here only**, beside a sign-in from the vault, takes it out of the vault, and it keeps working on this computer. Other computers that could use it lose their copy, so Sikemux names them and asks first.
-- A kept sign-in says **on this host only, out of the vault**. **Move into vault** puts it back as a new sign-in, which only this computer may use until you allow others.
+- **Keep here only**, on a connector signed in from the vault, takes its sign-in out of the vault, and it keeps working on this computer. Every other computer on your account loses its copy, so Sikemux asks first.
+- A kept sign-in says **on this computer only, out of the vault**. **Move into vault** puts it back, and every computer on your account can use it again.
 - **Keep new sign-ins on this host**, under **Account vault**, keeps each sign-in this computer sees for the first time out of the vault. It's off unless you turn it on, and turning it on or off later doesn't move the sign-ins you already have.
 - Some sign-ins start out kept whatever the switch says, such as a GitHub App an organization owns.
 
 The marks belong to the computer, so they stay when it signs in to another account or the vault is made again.
 
-The inbox tells you when a computer can't use any of your sign-ins until you allow it, and when the recovery key hasn't been saved yet.
+The inbox tells you when the recovery key hasn't been saved yet.
 
 Some services, such as Atlassian, void a sign-in's old token each time they hand out a new one. Only the computer that made the sign-in, or last signed in to it again, renews it. It shares the fresh token with the others, so they never sign each other out. If that computer leaves your account, another one takes over. Removing a computer from your account also replaces the vault's key, so the removed computer can't open the vault again.
 

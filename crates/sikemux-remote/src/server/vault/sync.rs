@@ -27,7 +27,7 @@ use super::super::account::api::{as_host, host_request};
 use super::super::{connection::blocking, Core, CoreError, CoreResult};
 use super::local::{self, Applied, Local, Mark, Marks};
 use super::seal::{self, Key};
-use super::{announce, Body, Entry, Scope, State, Status, Tally};
+use super::{announce, Body, Entry, State, Status, Tally};
 
 /// How often the vault is read again with nothing to wake it, its uses sent and the access
 /// tokens this host hands on renewed.
@@ -300,7 +300,7 @@ fn wrap_for(key: &Key, account: &str, generation: i64, host: &str) -> Option<Wra
 }
 
 /// Every host the account adds gets the key: signing a host in to the account is the person
-/// letting it in (ADR 0018). It uses no entry until the person allows it.
+/// letting it in (ADR 0018), and it uses every entry from then on.
 async fn add_keys(core: &Arc<Core>, account: &str, vault: &Remote, key: &Key) -> CoreResult<()> {
     let keys: Vec<WrappedKey> = vault
         .waiting
@@ -347,7 +347,6 @@ async fn rotate(
     for entry in &vault.entries {
         let mut body = open_body(key, entry)
             .ok_or_else(|| CoreError::from(format!("vault entry {} does not open", entry.id)))?;
-        body.access.retain(|host, _| hosts.contains(host));
         if !hosts.contains(&body.refresher) {
             body.refresher = me.to_owned();
             body.shared = None;
@@ -440,7 +439,6 @@ fn owned_body(body: &Body, sign_in: SignIn, me: &str, written_at: u64) -> Body {
         body.refresher = me.to_owned();
         body.shared = None;
     }
-    body.access.entry(me.to_owned()).or_default();
     body.written_at = written_at;
     body
 }
@@ -483,9 +481,7 @@ fn plan(
                 local.applied.retain(|_, applied| {
                     applied.plugin != *plugin || applied.identity != sign_in.identity
                 });
-                if let Some((id, entry)) =
-                    found.filter(|(_, entry)| entry.body.access.contains_key(me))
-                {
+                if let Some((id, entry)) = found {
                     deletes.push((id.clone(), entry.revision));
                 }
                 continue;
@@ -493,7 +489,6 @@ fn plan(
             match found {
                 Some((id, entry)) => match local.applied.get(id) {
                     Some(applied) if applied.digest == digest => {}
-                    Some(_) if !entry.body.access.contains_key(me) => {}
                     Some(_) => writes.push(Write {
                         id: id.clone(),
                         body: owned_body(&entry.body, sign_in.clone(), me, now),
@@ -507,16 +502,6 @@ fn plan(
                             body: owned_body(&entry.body, sign_in.clone(), me, written_at),
                             revision: entry.revision,
                             holds: Some(digest),
-                        });
-                    }
-                    None if !entry.body.access.contains_key(me) => {
-                        let mut body = entry.body.clone();
-                        body.access.insert(me.to_owned(), Scope::default());
-                        writes.push(Write {
-                            id: id.clone(),
-                            body,
-                            revision: entry.revision,
-                            holds: None,
                         });
                     }
                     None => {}
@@ -537,7 +522,6 @@ fn plan(
                             sign_in: sign_in.clone(),
                             origin: me.to_owned(),
                             refresher: me.to_owned(),
-                            access: BTreeMap::from([(me.to_owned(), Scope::default())]),
                             shared: None,
                             written_at: if moving_in { made_at } else { now },
                         },
@@ -560,28 +544,9 @@ fn plan(
             .collect();
         for id in signed_out {
             local.applied.remove(&id);
-            let Some(entry) = entries.get(&id) else {
-                continue;
-            };
-            if !entry.body.access.contains_key(me) {
-                continue;
-            }
-            let mut body = entry.body.clone();
-            body.access.remove(me);
-            let Some(next) = body.access.keys().next().cloned() else {
+            if let Some(entry) = entries.get(&id) {
                 deletes.push((id, entry.revision));
-                continue;
-            };
-            if body.refresher == me {
-                body.refresher = next;
-                body.shared = None;
             }
-            writes.push(Write {
-                id,
-                body,
-                revision: entry.revision,
-                holds: None,
-            });
         }
     }
     let mut changed = Vec::new();
@@ -615,21 +580,19 @@ fn plan(
     })
 }
 
-/// Whether two bodies seal the same sign-in for the same hosts, whenever each was written.
+/// Whether two bodies seal the same sign-in, whenever each was written.
 fn same_contents(one: &Body, other: &Body) -> bool {
     let mut other = other.clone();
     other.written_at = one.written_at;
     *one == other
 }
 
-/// Takes in each entry allowed here that changed elsewhere, and lets go of each that is no
-/// longer allowed here.
+/// Takes in each entry that changed elsewhere, and lets go of each the vault no longer holds.
 fn apply(
     books: &[(String, PathBuf, &'static dyn Book)],
     entries: &BTreeMap<String, Entry>,
     local: &mut Local,
     marks: &Marks,
-    me: &str,
 ) {
     let book = |plugin: &str| {
         books
@@ -638,9 +601,7 @@ fn apply(
             .map(|(_, dir, book)| (dir, *book))
     };
     for (id, entry) in entries {
-        if !entry.body.access.contains_key(me)
-            || marks.kept(&entry.body.plugin, &entry.body.sign_in.identity)
-        {
+        if marks.kept(&entry.body.plugin, &entry.body.sign_in.identity) {
             continue;
         }
         if local
@@ -684,11 +645,7 @@ fn apply(
     let gone: Vec<(String, Applied)> = local
         .applied
         .iter()
-        .filter(|(id, _)| {
-            !entries
-                .get(*id)
-                .is_some_and(|entry| entry.body.access.contains_key(me))
-        })
+        .filter(|(id, _)| !entries.contains_key(*id))
         .map(|(id, applied)| (id.clone(), applied.clone()))
         .collect();
     for (id, applied) in gone {
@@ -882,7 +839,7 @@ async fn reconcile(
     let me = me.to_owned();
     let mut local = plan.local;
     blocking(move || {
-        apply(&books, &entries, &mut local, &marks, &me);
+        apply(&books, &entries, &mut local, &marks);
         local.rules = rules_of(&entries, &local);
         local.host = me;
         local::save(data_dir.as_deref(), &local).map_err(CoreError::from)
@@ -926,7 +883,6 @@ fn rules_of(entries: &BTreeMap<String, Entry>, local: &Local) -> BTreeMap<String
                     .map(|kept| (kept.service.clone(), kept.account.clone()))
                     .collect(),
                 refresher: body.refresher.clone(),
-                access: body.access.clone(),
             };
             Some((id.clone(), rule))
         })
@@ -1040,18 +996,23 @@ async fn send_uses(core: &Arc<Core>) {
     save_uses(core).await;
 }
 
-/// Renews the access token of each sign-in this host refreshes and another host may use,
-/// before it runs out, so those hosts never have to refresh it themselves.
+/// Renews the access token of each sign-in this host refreshes, before it runs out, while the
+/// account has another host to use it, so those hosts never have to refresh it themselves.
 async fn renew_due(core: &Arc<Core>, me: &str) {
     let now = epoch_ms();
     let due: Vec<(String, String, String)> = {
         let state = core.vault().state.locked();
+        let others = state
+            .holders
+            .iter()
+            .chain(&state.waiting)
+            .any(|host| host != me);
         state
             .entries
             .iter()
             .filter(|(id, entry)| {
-                entry.body.refresher == me
-                    && entry.body.access.keys().any(|host| host != me)
+                others
+                    && entry.body.refresher == me
                     && entry
                         .body
                         .shared
@@ -1115,41 +1076,6 @@ pub async fn recover(core: &Arc<Core>, typed: &str) -> CoreResult<()> {
         keys: vec![mine],
     };
     host_request(core, Method::PUT, "/v1/vault/keys", Some(json!(add))).await?;
-    core.vault().wake();
-    Ok(())
-}
-
-/// Writes one entry's new access list, as the person set it in Settings.
-pub async fn set_access(
-    core: &Arc<Core>,
-    id: &str,
-    change: impl FnOnce(&mut Body),
-) -> CoreResult<()> {
-    let (generation, key, entry) = {
-        let state = core.vault().state.locked();
-        (state.generation, state.key, state.entries.get(id).cloned())
-    };
-    let (Some(key), Some(mut entry)) = (key, entry) else {
-        return Err("the account vault is not open on this host".into());
-    };
-    let before = entry.body.clone();
-    change(&mut entry.body);
-    if same_contents(&before, &entry.body) {
-        return Ok(());
-    }
-    let path = format!("/v1/vault/entries/{id}");
-    if entry.body.access.is_empty() {
-        let path = format!("{path}?revision={}", entry.revision);
-        host_request(core, Method::DELETE, &path, None).await?;
-    } else {
-        let put = VaultEntryPut {
-            plugin: entry.body.plugin.clone(),
-            generation,
-            sealed: seal_body(&key, id, generation, entry.revision, &entry.body)?,
-            revision: entry.revision,
-        };
-        host_request(core, Method::PUT, &path, Some(json!(put))).await?;
-    }
     core.vault().wake();
     Ok(())
 }

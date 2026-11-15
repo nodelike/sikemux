@@ -1647,15 +1647,13 @@ fn host_alert_items(core: &Core) -> Vec<InboxItem> {
         .collect()
 }
 
-/// What the account vault waits on the person for: a host that may use none of the
-/// account's sign-ins until they allow it, and a recovery key not yet saved.
+/// What the account vault waits on the person for: a recovery key not yet saved.
 fn vault_items(core: &Core) -> Vec<InboxItem> {
     super::vault::waits(core)
         .into_iter()
         .map(|wait| {
             let mut item = item(wait.id, Case::Vault, wait.what, wait.since);
             item.title = Some(wait.title);
-            item.host = wait.host;
             item
         })
         .collect()

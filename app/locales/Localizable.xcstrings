@@ -9941,58 +9941,6 @@
       }
     },
     "Allow {name} to reach the internet?": {},
-    "Allowed": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitido"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已允许"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Erlaubt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Autorisé"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "許可済み"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "허용됨"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Разрешено"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Permitido"
-          }
-        }
-      }
-    },
     "Allowed apps": {
       "localizations": {
         "es": {
@@ -31801,6 +31749,58 @@
         }
       }
     },
+    "Every other host on the account loses this sign-in. It leaves the vault and stays on this host alone.": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todos los demás hosts de la cuenta pierden este inicio de sesión. Sale de la bóveda y se queda solo en este host."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "账户中的其他主机都会失去此登录。它将离开保险库，只保留在此主机上。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jeder andere Host des Accounts verliert diese Anmeldung. Sie verlässt den Tresor und bleibt nur auf diesem Host."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tous les autres hôtes du compte perdent cette connexion. Elle quitte le coffre et reste sur cet hôte seul."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アカウントの他のホストはすべてこのサインインを失います。保管庫から外れ、このホストだけに残ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계정의 다른 모든 호스트가 이 로그인을 잃습니다. 보관함에서 빠지고 이 호스트에만 남습니다."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Все остальные хосты учётной записи потеряют этот вход. Он покинет хранилище и останется только на этом хосте."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todos os outros hosts da conta perdem este login. Ele sai do cofre e fica só neste host."
+          }
+        }
+      }
+    },
     "Every pack": {
       "localizations": {
         "es": {
@@ -31901,58 +31901,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Todos os pacotes também misturam formas."
-          }
-        }
-      }
-    },
-    "Every project": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Todos los proyectos"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每个项目"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Jedes Projekt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tous les projets"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "すべてのプロジェクト"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "모든 프로젝트"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Все проекты"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Todos os projetos"
           }
         }
       }
@@ -39657,58 +39605,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ocultar escopo de arquivos"
-          }
-        }
-      }
-    },
-    "Hide hosts": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ocultar hosts"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "隐藏主机"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hosts ausblenden"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Masquer les hôtes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ホストを隠す"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "호스트 숨기기"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Скрыть хосты"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ocultar hosts"
           }
         }
       }
@@ -52049,7 +51945,58 @@
         }
       }
     },
-    "Moved into the vault, allowed on this host": {},
+    "Moved into the vault": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Movido a la bóveda"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已移入保险库"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In den Tresor verschoben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacé dans le coffre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "保管庫に移しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보관함으로 옮겼습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перенесено в хранилище"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Movido para o cofre"
+          }
+        }
+      }
+    },
     "Moved to": {
       "localizations": {
         "es": {
@@ -58606,58 +58553,6 @@
         }
       }
     },
-    "No use in the last 30 days.": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sin uso en los últimos 30 días."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "过去 30 天未使用。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Keine Nutzung in den letzten 30 Tagen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aucune utilisation ces 30 derniers jours."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "過去 30 日間の使用はありません。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "지난 30일 동안 사용 기록이 없습니다."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Не использовалось за последние 30 дней."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sem uso nos últimos 30 dias."
-          }
-        }
-      }
-    },
     "No way to {name} is known": {
       "localizations": {
         "es": {
@@ -60058,58 +59953,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ainda não confiável"
-          }
-        }
-      }
-    },
-    "Not used here lately": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se ha usado aquí últimamente"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "最近未在此使用"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hier zuletzt nicht genutzt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pas utilisé ici récemment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "最近ここでは未使用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "최근 여기서 사용하지 않음"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Здесь давно не использовался"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não usado aqui recentemente"
           }
         }
       }
@@ -61723,6 +61566,58 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "No celular: Depuração por Wi-Fi › Parear dispositivo com código de pareamento."
+          }
+        }
+      }
+    },
+    "On this host only, out of the vault": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Solo en este host, fuera de la bóveda"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "仅在此主机上，不在保险库中"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nur auf diesem Host, außerhalb des Tresors"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sur cet hôte seulement, hors du coffre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このホストのみ、保管庫の外"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 호스트에만, 보관함 밖"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Только на этом хосте, вне хранилища"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Só neste host, fora do cofre"
           }
         }
       }
@@ -69999,58 +69894,6 @@
         }
       }
     },
-    "Project access changed": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Acceso al proyecto cambiado"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "项目访问权限已更改"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Projektzugriff geändert"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Accès au projet modifié"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "プロジェクトのアクセス権が変更されました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "프로젝트 접근 권한 변경됨"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Доступ к проекту изменён"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Acesso ao projeto alterado"
-          }
-        }
-      }
-    },
     "Project config needs attention": {
       "localizations": {
         "es": {
@@ -72860,58 +72703,6 @@
       }
     },
     "Reading the project's setup…": {},
-    "Reading the use log…": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Leyendo el registro de uso…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在读取使用日志…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nutzungsprotokoll wird gelesen …"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lecture du journal d'utilisation…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用ログを読み込み中…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사용 기록 읽는 중…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чтение журнала использования…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lendo o registro de uso…"
-          }
-        }
-      }
-    },
     "Reading the worktree…": {
       "localizations": {
         "es": {
@@ -79461,110 +79252,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ver as notas da versão mais recente do Sikemux"
-          }
-        }
-      }
-    },
-    "Revoke": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Revocar"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "撤销"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Widerrufen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Révoquer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "取り消す"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "철회"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отозвать"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Revogar"
-          }
-        }
-      }
-    },
-    "Revoked": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Revocado"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已撤销"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Widerrufen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Révoqué"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "取り消し済み"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "철회됨"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отозвано"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Revogado"
           }
         }
       }
@@ -88935,54 +88622,54 @@
         }
       }
     },
-    "Sign-ins on this host move into the account's vault, sealed so the accounts server cannot read them. Each one says which hosts and projects may use it.": {
+    "Sign-ins on this host move into the account's vault, sealed so the accounts server cannot read them, and every host on the account can use them.": {
       "localizations": {
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Los inicios de sesión de este host pasan a la bóveda de la cuenta, sellados para que el servidor de cuentas no pueda leerlos. Cada uno indica qué hosts y proyectos pueden usarlo."
+            "value": "Los inicios de sesión de este host pasan a la bóveda de la cuenta, sellados para que el servidor de cuentas no pueda leerlos, y todos los hosts de la cuenta pueden usarlos."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此主机上的登录信息会移入账户保险库并加密密封，账户服务器无法读取。每项都注明了可使用它的主机和项目。"
+            "value": "此主机上的登录信息会移入账户保险库并加密密封，账户服务器无法读取，账户中的每台主机都可以使用。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Anmeldungen auf diesem Host wandern in den Tresor des Accounts, versiegelt, sodass der Account-Server sie nicht lesen kann. Jede sagt, welche Hosts und Projekte sie nutzen dürfen."
+            "value": "Anmeldungen auf diesem Host wandern in den Tresor des Accounts, versiegelt, sodass der Account-Server sie nicht lesen kann, und jeder Host des Accounts kann sie nutzen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les connexions de cet hôte vont dans le coffre du compte, scellées pour que le serveur de comptes ne puisse pas les lire. Chacune indique quels hôtes et projets peuvent l'utiliser."
+            "value": "Les connexions de cet hôte vont dans le coffre du compte, scellées pour que le serveur de comptes ne puisse pas les lire, et chaque hôte du compte peut les utiliser."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "このホストのサインインはアカウントの保管庫に移され、アカウントサーバが読めないよう封印されます。それぞれ、使用できるホストとプロジェクトが示されます。"
+            "value": "このホストのサインインはアカウントの保管庫に移され、アカウントサーバが読めないよう封印されます。アカウントのどのホストでも使えます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 호스트의 로그인 정보는 계정 보관함으로 옮겨지며, 계정 서버가 읽을 수 없도록 봉인됩니다. 각 항목에는 사용할 수 있는 호스트와 프로젝트가 표시됩니다."
+            "value": "이 호스트의 로그인 정보는 계정 보관함으로 옮겨지며, 계정 서버가 읽을 수 없도록 봉인됩니다. 계정의 모든 호스트가 사용할 수 있습니다."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Входы на этом хосте переносятся в хранилище учётной записи и запечатываются так, что сервер учётных записей не может их прочитать. Для каждого указано, какие хосты и проекты могут его использовать."
+            "value": "Входы на этом хосте переносятся в хранилище учётной записи и запечатываются так, что сервер учётных записей не может их прочитать, и ими может пользоваться любой хост учётной записи."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Os logins deste host vão para o cofre da conta, selados para que o servidor de contas não consiga lê-los. Cada um diz quais hosts e projetos podem usá-lo."
+            "value": "Os logins deste host vão para o cofre da conta, selados para que o servidor de contas não consiga lê-los, e todos os hosts da conta podem usá-los."
           }
         }
       }
@@ -110006,58 +109693,6 @@
         }
       }
     },
-    "Use log": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usar registro"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "使用日志"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nutzungslog"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Journal d'utilisation"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ログを使用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "로그 사용"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Журнал использования"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Log de uso"
-          }
-        }
-      }
-    },
     "Use published price": {
       "localizations": {
         "es": {
@@ -110158,58 +109793,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Usar o comportamento normal de aprovação e sandbox do agente."
-          }
-        }
-      }
-    },
-    "Used {ago} by {actor} on {host}": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usado hace {ago} por {actor} en {host}"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago}由 {actor} 在 {host} 上使用"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vor {ago} von {actor} auf {host} genutzt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utilisé {ago} par {actor} sur {host}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago}、{host} で {actor} が使用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} {host}에서 {actor}이(가) 사용함"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Использовано {ago}, {actor} на {host}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usado {ago} por {actor} em {host}"
           }
         }
       }
@@ -136440,58 +136023,6 @@
         }
       }
     },
-    "refreshes it": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "lo actualiza"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "会刷新它"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "aktualisiert es"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "l'actualise"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "更新します"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "새로 고침"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "обновляет его"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "atualiza"
-          }
-        }
-      }
-    },
     "regular merge": {
       "localizations": {
         "es": {
@@ -142162,58 +141693,6 @@
         }
       }
     },
-    "this host": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "este host"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此主机"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "dieser Host"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cet hôte"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "このホスト"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 호스트"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "этот хост"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "este host"
-          }
-        }
-      }
-    },
     "timer": {
       "localizations": {
         "es": {
@@ -146533,110 +146012,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "há {age}"
-          }
-        }
-      }
-    },
-    "{ago} · {actor} on {host} · 1 use": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} en {host} · 1 uso"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} 在 {host} 上 · 1 次使用"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} auf {host} · 1 Nutzung"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} sur {host} · 1 utilisation"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {host} の {actor} · 1 回使用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {host}의 {actor} · 1회 사용"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} на {host} · 1 использование"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} em {host} · 1 uso"
-          }
-        }
-      }
-    },
-    "{ago} · {actor} on {host} · {count} uses": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} en {host} · {count} usos"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} 在 {host} 上 · {count} 次使用"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} auf {host} · {count} Nutzungen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} sur {host} · {count} utilisations"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {host} の {actor} · {count} 回使用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {host}의 {actor} · {count}회 사용"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} на {host} · использований: {count}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{ago} · {actor} em {host} · {count} usos"
           }
         }
       }
@@ -152420,8 +151795,6 @@
         }
       }
     },
-    "{hosts} lose this sign-in. It leaves the vault and stays on this host alone.": {},
-    "{hosts} loses this sign-in. It leaves the vault and stays on this host alone.": {},
     "{host} has room.": {
       "localizations": {
         "es": {
@@ -153724,59 +153097,6 @@
         }
       }
     },
-    "{label} · from {origin} · allowed on {allowed} of {hosts} hosts": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{label} · de {origin} · permitido en {allowed} de {hosts} hosts"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{label} · 来自 {origin} · 在 {hosts} 台主机中的 {allowed} 台上允许"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{label} · von {origin} · erlaubt auf {allowed} von {hosts} Hosts"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{label} · de {origin} · autorisé sur {allowed} hôtes sur {hosts}"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{label} · {origin} から · {hosts} 台中 {allowed} 台のホストで許可"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{label} · {origin}에서 · 호스트 {hosts}개 중 {allowed}개에서 허용됨"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{label} · из {origin} · разрешено на {allowed} из {hosts} хостов"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{label} · de {origin} · permitido em {allowed} de {hosts} hosts"
-          }
-        }
-      }
-    },
-    "{label} · on this host only, out of the vault": {},
     "{label}: not checked": {
       "localizations": {
         "es": {
@@ -160796,58 +160116,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "· 1 chamada de ferramenta"
-          }
-        }
-      }
-    },
-    "· waits for you": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· te espera"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· 等你处理"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· wartet auf dich"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· vous attend"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· あなたを待っています"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· 확인을 기다림"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· ждёт вас"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "· aguarda você"
           }
         }
       }

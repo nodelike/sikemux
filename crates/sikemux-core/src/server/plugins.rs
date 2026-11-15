@@ -310,17 +310,7 @@ pub(crate) fn caller_of(
                 .as_ref()
                 .map_or_else(|| "an agent".to_owned(), |named| format!("@{}", named.name)),
         ),
-        project: Some(project_name(&super::caller::project_of(core, request))),
     }
-}
-
-/// A project as the vault's scopes name it: by its folder's name, which its copy on every host
-/// shares.
-pub(crate) fn project_name(project: &str) -> String {
-    Path::new(project).file_name().map_or_else(
-        || project.to_owned(),
-        |name| name.to_string_lossy().into_owned(),
-    )
 }
 
 /// A code host's tool names its repository by `owner` and `name`; one left out is taken from

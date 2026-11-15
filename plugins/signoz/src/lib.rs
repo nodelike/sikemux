@@ -41,10 +41,12 @@ sikemux_plugin_api::plugin!(Signoz);
 
 impl SignedInAs for Where {
     fn signed_in_as(&self) -> Option<String> {
-        Some(match self.email.is_empty() {
-            true => self.url.clone(),
-            false => self.email.clone(),
-        })
+        let server = self
+            .url
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .trim_end_matches('/');
+        (!server.is_empty()).then(|| server.to_owned())
     }
 }
 

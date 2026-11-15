@@ -288,7 +288,7 @@ async fn token(
     if keep {
         let held = MINTED.locked().get(&held_as).cloned();
         if let Some(held) = held.filter(|held| held.expires_at > epoch_ms() + RENEW_BEFORE_MS) {
-            KEYS.check(&app.key_account())?;
+            KEYS.used(&app.key_account());
             return Ok(Some(held));
         }
     }

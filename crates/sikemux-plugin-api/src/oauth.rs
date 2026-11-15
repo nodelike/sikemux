@@ -313,15 +313,12 @@ impl<S: Service> Refreshing<S> {
         match vault::refresh(service, &entry) {
             Refresh::Here => {}
             Refresh::Use(shared) => {
-                let secrets = self.secrets;
-                blocking(move || Ok(secrets.check(&entry)?)).await?;
+                self.secrets.used(&entry);
                 return Ok(Access::shared(&shared));
             }
             Refresh::Wait(why) => return Err(ServiceError::Auth(why)),
         }
-        let secrets = self.secrets;
-        let checking = entry.clone();
-        blocking(move || Ok(secrets.check(&checking)?)).await?;
+        self.secrets.used(&entry);
         let mut held = self.held.lock().await;
         if let Some(access) = held
             .get(account)

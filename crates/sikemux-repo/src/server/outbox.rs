@@ -60,10 +60,7 @@ pub async fn call(
 ) -> Result<Value, String> {
     let params = &request.params;
     let text = |name: &str| params[name].as_str().map(str::to_owned);
-    if super::credential::asker(core, request, peer, port)
-        .await
-        .is_none()
-    {
+    if super::credential::asker(peer, port).await.is_none() {
         return Err("Sikemux pushes to this remote only for its own agents".to_owned());
     }
     match params["step"].as_str() {

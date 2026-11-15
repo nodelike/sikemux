@@ -1,7 +1,8 @@
 //! The account vault (ADR 0016): the account's connector sign-ins and database logins, sealed
 //! under a key the accounts server never sees. This host's secret store keeps the local copy
-//! the plugins read; this module keeps it in step with the vault, decides who may use each
-//! entry, logs every use, and hands on the access tokens of the sign-ins this host refreshes.
+//! the plugins read; this module keeps it in step with the vault, logs every use, and hands on
+//! the access tokens of the sign-ins this host refreshes. Every host on the account uses every
+//! entry: the account is the trust.
 
 use crate::server::changed::ChangedCore;
 use crate::server::remote_state::RemoteParts;
@@ -34,20 +35,10 @@ struct Body {
     origin: String,
     /// The one host that refreshes it and writes the new tokens back.
     refresher: String,
-    /// The hosts that may use it, by key.
-    access: BTreeMap<String, Scope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     shared: Option<SharedAccess>,
     /// When its token was last written, in milliseconds since the Unix epoch.
     written_at: u64,
-}
-
-/// Which agents on a host may use an entry: all of them, or those in the projects listed.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Scope {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub projects: Option<Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -90,13 +81,11 @@ pub struct State {
     entries: BTreeMap<String, Entry>,
     /// Each secret's entry, by service and account.
     index: HashMap<(String, String), String>,
-    /// Who may use each entry this host held when it last reached the account, until it reaches
-    /// it again in this run.
+    /// Who refreshes each entry this host held when it last reached the account, until it
+    /// reaches it again in this run.
     rules: BTreeMap<String, local::Rule>,
     /// Uses not yet sent to the account, by entry and who used it.
     uses: BTreeMap<(String, String), Tally>,
-    /// The latest use of each entry here, for Settings.
-    latest: BTreeMap<String, (String, u64)>,
     /// Entries whose body changed here and wait to be written to the vault.
     pending: BTreeSet<String>,
     /// Rounds that failed in a row since the last that synced.
@@ -139,13 +128,12 @@ impl State {
         Some((id, self.entries.get(id)?))
     }
 
-    fn allowed(&self, service: &str, account: &str) -> Option<Allowed<'_>> {
+    fn known(&self, service: &str, account: &str) -> Option<Known<'_>> {
         if let Some((id, entry)) = self.entry_of(service, account) {
-            return Some(Allowed {
+            return Some(Known {
                 id,
                 label: &entry.body.sign_in.label,
                 refresher: &entry.body.refresher,
-                access: &entry.body.access,
                 shared: entry.body.shared.as_ref(),
             });
         }
@@ -154,22 +142,20 @@ impl State {
                 .iter()
                 .any(|(kept, named)| kept == service && named == account)
         })?;
-        Some(Allowed {
+        Some(Known {
             id,
             label: &rule.label,
             refresher: &rule.refresher,
-            access: &rule.access,
             shared: None,
         })
     }
 }
 
-/// What the keeper needs of an entry to decide a use.
-struct Allowed<'a> {
+/// What the keeper needs of an entry to log a use and refresh it.
+struct Known<'a> {
     id: &'a String,
     label: &'a String,
     refresher: &'a String,
-    access: &'a BTreeMap<String, Scope>,
     shared: Option<&'a SharedAccess>,
 }
 
@@ -215,47 +201,29 @@ impl HostKeeper {
     }
 }
 
-fn not_allowed(label: &str) -> String {
-    format!(
-        "the account vault does not let this host use {label}; allow it in Settings → Connectors"
-    )
-}
-
 impl Keeper for HostKeeper {
-    fn using(&self, service: &str, account: &str, caller: Option<&Caller>) -> Result<(), String> {
-        self.with(Ok(()), |core, state| {
-            let Some(me) = state.me.clone() else {
-                return Ok(());
-            };
-            let Some(entry) = state.allowed(service, account) else {
-                return Ok(());
+    fn using(&self, service: &str, account: &str, caller: Option<&Caller>) {
+        self.with((), |core, state| {
+            if state.me.is_none() {
+                return;
+            }
+            let Some(entry) = state.known(service, account) else {
+                return;
             };
             let id = entry.id.clone();
-            let label = entry.label.clone();
-            let Some(scope) = entry.access.get(&me).cloned() else {
-                return Err(not_allowed(&label));
-            };
-            let agent = caller.and_then(|caller| caller.agent.as_deref());
-            if let (Some(projects), Some(_)) = (&scope.projects, agent) {
-                let project = caller.and_then(|caller| caller.project.as_deref());
-                if !project.is_some_and(|project| projects.iter().any(|kept| kept == project)) {
-                    return Err(format!(
-                        "the account vault lets agents use {label} only in other projects; allow this one in Settings → Connectors"
-                    ));
-                }
-            }
-            let actor = agent.unwrap_or("Sikemux").to_owned();
+            let actor = caller
+                .and_then(|caller| caller.agent.as_deref())
+                .unwrap_or("Sikemux")
+                .to_owned();
             let now = epoch_ms();
-            let tally = state.uses.entry((id.clone(), actor.clone())).or_default();
+            let tally = state.uses.entry((id, actor)).or_default();
             if tally.count == 0 {
                 tally.first = now;
             }
             tally.count += 1;
             tally.last = now;
-            state.latest.insert(id, (actor, now));
             core.vault().used.notify_one();
-            Ok(())
-        })
+        });
     }
 
     fn changed(&self, _service: &str, _account: &str) {
@@ -270,7 +238,7 @@ impl Keeper for HostKeeper {
             let Some(me) = state.me.as_deref() else {
                 return Refresh::Here;
             };
-            let Some(entry) = state.allowed(service, account) else {
+            let Some(entry) = state.known(service, account) else {
                 return Refresh::Here;
             };
             if entry.refresher == me {
@@ -332,58 +300,18 @@ pub struct Wait {
     pub id: String,
     pub title: String,
     pub what: String,
-    pub host: Option<String>,
     pub since: u64,
 }
 
 pub fn waits(core: &Core) -> Vec<Wait> {
-    let (recovery, idle_hosts, count, since) = {
-        let state = core.vault().state.locked();
-        if state.status != Status::Open {
-            return Vec::new();
-        }
-        let me = state.me.clone().unwrap_or_default();
-        let hosts: BTreeSet<&String> = state.holders.iter().chain(&state.waiting).collect();
-        let idle: Vec<String> = hosts
-            .into_iter()
-            .filter(|host| **host != me)
-            .filter(|host| {
-                !state
-                    .entries
-                    .values()
-                    .any(|entry| entry.body.access.contains_key(*host))
-            })
-            .cloned()
-            .collect();
-        (
-            state.recovery_text.is_some(),
-            idle,
-            state.entries.len(),
-            state.opened_at,
-        )
-    };
-    let mut waits = Vec::new();
-    if recovery {
-        waits.push(Wait {
-            id: "vault:recovery".into(),
-            title: "Account vault".into(),
-            what: "Save the vault's recovery key".into(),
-            host: None,
-            since,
-        });
+    let state = core.vault().state.locked();
+    if state.status != Status::Open || state.recovery_text.is_none() {
+        return Vec::new();
     }
-    if count == 0 {
-        return waits;
-    }
-    let plural = if count == 1 { "" } else { "s" };
-    for host in idle_hosts {
-        waits.push(Wait {
-            id: format!("vault:host:{host}"),
-            title: shown::host_name(core, &host),
-            what: format!("Can't use your {count} sign-in{plural} until you allow it"),
-            host: Some(host),
-            since,
-        });
-    }
-    waits
+    vec![Wait {
+        id: "vault:recovery".into(),
+        title: "Account vault".into(),
+        what: "Save the vault's recovery key".into(),
+        since: state.opened_at,
+    }]
 }

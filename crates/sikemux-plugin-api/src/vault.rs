@@ -17,11 +17,10 @@ use sikemux_process::sync::Locked;
 use crate::store::{self, Secrets};
 use crate::PluginFuture;
 
-/// Who a plugin call is made for: an agent in a project, or the host itself when neither is set.
+/// Who a plugin call is made for: an agent, or the host itself when none is set.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Caller {
     pub agent: Option<String>,
-    pub project: Option<String>,
 }
 
 tokio::task_local! {
@@ -76,9 +75,8 @@ pub enum Refresh {
 }
 
 pub trait Keeper: Send + Sync {
-    /// Whether `caller` may use the secret kept under `service` and `account`. A use that is
-    /// allowed is logged.
-    fn using(&self, service: &str, account: &str, caller: Option<&Caller>) -> Result<(), String>;
+    /// `caller` uses the secret kept under `service` and `account`, which is logged.
+    fn using(&self, service: &str, account: &str, caller: Option<&Caller>);
     /// A plugin wrote or deleted the secret.
     fn changed(&self, service: &str, account: &str);
     fn refresh(&self, service: &str, account: &str) -> Refresh;
@@ -96,10 +94,9 @@ pub(crate) fn keeper() -> Option<&'static dyn Keeper> {
     KEEPER.get().copied()
 }
 
-pub(crate) fn using(service: &str, account: &str) -> Result<(), String> {
-    match keeper() {
-        Some(keeper) => keeper.using(service, account, caller().as_ref()),
-        None => Ok(()),
+pub(crate) fn using(service: &str, account: &str) {
+    if let Some(keeper) = keeper() {
+        keeper.using(service, account, caller().as_ref());
     }
 }
 

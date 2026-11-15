@@ -9,8 +9,6 @@ use sha2::{Digest, Sha256};
 use sikemux_plugin_api::vault::SignIn;
 use sikemux_process::sync::Locked;
 
-use super::Scope;
-
 const RECOVERY_SERVICE: &str = if cfg!(debug_assertions) {
     "sikemux-vault-recovery-dev"
 } else {
@@ -28,13 +26,13 @@ pub struct Local {
     /// This host's sign-ins went into the vault once, as it made or joined it.
     pub moved_in: bool,
     pub applied: BTreeMap<String, Applied>,
-    /// This host's key on the account, and who may use each entry it holds, so a core that
-    /// has not reached the account since it started still keeps to them.
+    /// This host's key on the account, and who refreshes each entry it holds, so a core that
+    /// has not reached the account since it started still knows.
     pub host: String,
     pub rules: BTreeMap<String, Rule>,
 }
 
-/// Who may use an entry and who refreshes it, without its secrets.
+/// What an entry holds and who refreshes it, without its secrets.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Rule {
@@ -42,7 +40,6 @@ pub struct Rule {
     /// The secrets it holds, by service and account.
     pub secrets: Vec<(String, String)>,
     pub refresher: String,
-    pub access: BTreeMap<String, Scope>,
 }
 
 /// An entry as this host's secret store holds it.

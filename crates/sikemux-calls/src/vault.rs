@@ -1,31 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShownUse {
-    /// The agent, such as `@Otter`, or `Sikemux` for the host itself.
-    pub actor: String,
-    pub host: String,
-    pub count: i64,
-    /// Milliseconds since the Unix epoch.
-    pub at: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RevokeParams {
-    pub entry: String,
-    pub host: String,
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct RecoverParams {
     pub key: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct UsesParams {
-    pub entry: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,56 +28,20 @@ pub struct ShownVault {
     /// The recovery key of the vault this host made, until the person says they saved it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery: Option<String>,
+    /// The vault's sign-ins, which every host on the account uses.
     pub sign_ins: Vec<ShownSignIn>,
     /// The sign-ins that stay on this host, out of the vault.
-    pub kept: Vec<ShownKept>,
+    pub kept: Vec<ShownSignIn>,
     /// New sign-ins on this host stay here.
     pub keep_new: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ShownKept {
-    pub plugin: String,
-    pub identity: String,
-    pub label: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ShownSignIn {
-    pub id: String,
     pub plugin: String,
     pub identity: String,
     pub label: String,
-    /// The host it was made on.
-    pub origin: String,
-    pub hosts: Vec<ShownHost>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_use: Option<ShownUse>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShownHost {
-    pub key: String,
-    pub name: String,
-    pub this: bool,
-    pub online: bool,
-    pub allowed: bool,
-    /// The projects its agents may use the sign-in in; none for every project.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub projects: Option<Vec<String>>,
-    pub refreshes: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AllowParams {
-    pub entry: String,
-    pub host: String,
-    #[serde(default)]
-    pub projects: Option<Vec<String>>,
 }
 
 /// Keeps a sign-in on this host and out of the vault, or puts it back in.

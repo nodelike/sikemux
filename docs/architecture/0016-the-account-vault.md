@@ -6,7 +6,8 @@
   within the vendors' terms, and that agents from a linked host use none of them until allowed;
   2026-11-11, to say how sign-ins a host already has move in, and what the server sees, how a
   host gets the key and how a shared sign-in is refreshed, and what holds against a server
-  that turns hostile
+  that turns hostile; 2026-11-15, to say every host on the account uses every entry, with no
+  step to allow a host or narrow an entry to projects
 
 ## Context
 
@@ -34,10 +35,10 @@ when its home goes away.
 - **A new host gets the vault when it is allowed in.** When a device that acts as the person
   approves a host joining the account, a host that already holds the vault key wraps it for the
   new one. Removing a host from the account makes a new vault key and wraps it for those left.
-- **Each entry says who may use it.** Which hosts, and which agents or projects. Nothing is
-  allowed by default. An agent another host's agent started or messaged uses none of them on
-  this host until the person allows that host
-  ([ADR 0013](./0013-hosts-link-to-run-agents-for-each-other.md)).
+- **Every host on the account uses every entry.** The account is the trust
+  ([ADR 0018](./0018-the-account-is-the-trust.md)): a sign-in made on one host is taken in by
+  each of the others, for every agent on it, with no step to allow a host. Signing out of a
+  connector on any host removes its entry from the vault, and every host lets go of its copy.
 - **Agents never hold a secret.** The core makes plugin calls itself, as it does now, and adds
   tokens to a sandboxed agent's traffic on its way out, so an agent can use a service but never
   read or leak its token. A secret the person types goes through a masked question that never
@@ -63,8 +64,7 @@ when its home goes away.
   `claude setup-token` is the person's to set on a machine themselves; Sikemux does not hold it.
 - **Sign-ins a host already has move in when it joins.** The host that makes the vault, and each
   host that joins later, puts its connector sign-ins and database logins into the vault once.
-  Each stays allowed for every agent on the host it came from, as before, and that host refreshes
-  it; other hosts use it only once the person allows them. When two hosts hold the same identity
+  The host it came from refreshes it, and the others take it in. When two hosts hold the same identity
   on the same service, the newest token is kept and its host refreshes it; different identities
   become separate entries. AWS profiles stay in the AWS CLI's own files on each host.
 - **A host with no account keeps its sign-ins in its own secret store**, as before the vault.
@@ -74,8 +74,8 @@ when its home goes away.
   use log keeps the entry, its plugin, the host, the agent and the time, so the web app can show
   "GitHub, used by @Otter on mini" without the key.
 - **A host signed in to the account gets the key from any host that holds it.** Signing in is
-  the person letting it in ([ADR 0018](./0018-the-account-is-the-trust.md)); it still uses no
-  entry until they allow it. The vault key is wrapped with each host's Ed25519 key taken as its
+  the person letting it in ([ADR 0018](./0018-the-account-is-the-trust.md)), and it uses every
+  entry from then on. The vault key is wrapped with each host's Ed25519 key taken as its
   X25519 key, and the recovery key is an X25519 key the hosts know only the public half of, so a
   host that replaces the vault key wraps the new one for it as well.
 - **What holds against a server that turns hostile.** Someone who reads the server's data, or
@@ -115,13 +115,12 @@ when its home goes away.
 - **The host that refreshes a shared sign-in renews it ahead of time.** It seals each new access
   token into the entry before the old one runs out, and the other hosts use that token rather than
   refreshing. Whichever host writes a newer token for the same identity becomes the one that
-  refreshes it. An entry allowed only for some projects is matched by the project folder's name,
-  which each host's copy of the project shares.
+  refreshes it.
 
 ## Consequences
 
-- A host joined to the account can use the person's keys and plugin sign-ins at once, within what
-  each entry allows, with nothing to set up again.
+- A host joined to the account can use the person's keys and plugin sign-ins at once, with
+  nothing to set up again.
 - Losing every host that holds the vault key loses the vault. Recovery needs a key the
   person keeps, shown once when the vault is made.
 - A stolen device can ask a host to act with the vault's entries but never reads them, since it
