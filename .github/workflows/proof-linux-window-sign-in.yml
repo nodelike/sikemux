@@ -8,9 +8,9 @@ permissions:
   contents: read
 
 env:
-  NIGHTLY: v0.6.1-nightly.22
+  NIGHTLY: v0.6.1-nightly.2688
   APP_ONLY: "only Sikemux's own window or notch can do that"
-  GROUP_STRICT: "no"
+  GROUP_STRICT: "yes"
 
 jobs:
   client:
@@ -217,6 +217,9 @@ jobs:
             namcap PKGBUILD "$pkg" | tee /out/namcap.txt
             if grep -q " E: " /out/namcap.txt; then exit 1; fi
             cp PKGBUILD .SRCINFO sikemux.sysusers sikemux.tmpfiles /out/
+            curl -fsSLo /tmp/nightly.pkg.tar.zst "https://github.com/nodelike/sikemux/releases/download/$NIGHTLY/sikemux-nightly-bin-${version/-/}-1-x86_64.pkg.tar.zst"
+            pacman -U --noconfirm /tmp/nightly.pkg.tar.zst
+            pacman -Qi sikemux-nightly-bin | grep -E "^(Name|Version)"
             useradd -m person
             id person
             if id -nG person | grep -qw sikemux; then exit 1; fi
