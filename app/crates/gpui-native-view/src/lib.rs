@@ -34,14 +34,14 @@ use gpui::{
 
 #[cfg(target_os = "linux")]
 pub use linux::window_x11;
-#[cfg(windows)]
-pub use windows::window_hwnd;
 #[cfg(target_os = "macos")]
 pub use macos::{stand_in_for_offscreen, window_view, OwnedView};
 #[cfg(target_os = "macos")]
 pub use objc2::rc::Retained;
 #[cfg(target_os = "macos")]
 pub use objc2_app_kit::NSView;
+#[cfg(windows)]
+pub use windows::window_hwnd;
 
 /// Something native shown in an element's place.
 pub trait Surface: 'static {
