@@ -980,15 +980,9 @@ mod tests {
     }
 
     #[test]
-    fn every_provider_has_its_own_id_and_key_names() {
+    fn every_provider_has_its_own_id() {
         let ids: BTreeSet<_> = catalogue().iter().map(|provider| &provider.id).collect();
         assert_eq!(ids.len(), catalogue().len());
-        let envs: Vec<_> = catalogue()
-            .iter()
-            .filter_map(|provider| provider.key.as_ref())
-            .flat_map(|spec| &spec.env)
-            .collect();
-        assert_eq!(envs.iter().collect::<BTreeSet<_>>().len(), envs.len());
         for provider in catalogue() {
             assert_eq!(
                 provider.key.is_none(),

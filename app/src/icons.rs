@@ -205,12 +205,14 @@ icons!(
     Omp => "omp",
     OpenCode => "opencode",
     Pi => "pi",
+    Alibaba => "bailian",
     Anthropic => "anthropic",
     Baseten => "baseten",
     Cerebras => "cerebras",
     DeepSeek => "deepseek",
     Fireworks => "fireworks",
     Groq => "groq",
+    Hunyuan => "hunyuan",
     Kimi => "kimi",
     LmStudio => "lmstudio",
     Meta => "meta",
@@ -221,9 +223,12 @@ icons!(
     Ollama => "ollama",
     OpenAi => "openai",
     OpenRouter => "openrouter",
+    StepFun => "stepfun",
     Synthetic => "synthetic",
     Together => "together",
+    Volcengine => "volcengine",
     XAi => "xai",
+    Xiaomi => "xiaomimimo",
     Zhipu => "zhipu",
     Postgresql => "postgresql",
     Mysql => "mysql",
@@ -357,7 +362,8 @@ pub fn agent(provider: &str) -> Icon {
 /// The logo of who serves a model: a provider from `model-providers.json`, or an agent's maker
 /// by name, such as "Anthropic". A provider the person added has none, so it takes the agent glyph.
 pub fn model_provider(provider: &str) -> Icon {
-    match provider.to_ascii_lowercase().as_str() {
+    let provider = provider.to_ascii_lowercase();
+    match provider.strip_suffix("-cn").unwrap_or(&provider) {
         "anthropic" => Icon::Anthropic,
         "openai" => Icon::OpenAi,
         "xai" => Icon::XAi,
@@ -367,6 +373,11 @@ pub fn model_provider(provider: &str) -> Icon {
         "minimax" => Icon::MiniMax,
         "kimi-code" => Icon::Kimi,
         "moonshot" => Icon::Moonshot,
+        "alibaba" | "alibaba-coding-plan" | "alibaba-token-plan" => Icon::Alibaba,
+        "volcengine" | "volcengine-coding-plan" => Icon::Volcengine,
+        "xiaomi" | "xiaomi-token-plan" | "xiaomi-token-plan-eu" => Icon::Xiaomi,
+        "stepfun" | "stepfun-step-plan" => Icon::StepFun,
+        "tencent-tokenhub" | "tencent-coding-plan" => Icon::Hunyuan,
         "opencode-go" => Icon::OpenCode,
         "synthetic" => Icon::Synthetic,
         "ollama" | "ollama-cloud" => Icon::Ollama,

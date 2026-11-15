@@ -11,6 +11,17 @@
         "model": "glm-5.3"
     },
     {
+        "id": "zai-cn",
+        "modelsDev": "zhipuai-coding-plan",
+        "label": "Zhipu GLM Coding Plan (China)",
+        "kind": "plan",
+        "signUpUrl": "https://bigmodel.cn/usercenter/proj-mgmt/apikeys",
+        "key": { "env": ["ZHIPU_API_KEY", "ZAI_API_KEY"], "check": "https://open.bigmodel.cn/api/coding/paas/v4/models" },
+        "openai": "https://open.bigmodel.cn/api/coding/paas/v4",
+        "anthropic": { "url": "https://open.bigmodel.cn/api/anthropic", "auth": "bearer" },
+        "model": "glm-5.3"
+    },
+    {
         "id": "minimax",
         "modelsDev": "minimax-coding-plan",
         "label": "MiniMax M Plan",
@@ -22,6 +33,17 @@
         "model": "MiniMax-M3.1-Flash-Preview"
     },
     {
+        "id": "minimax-cn",
+        "modelsDev": "minimax-cn-coding-plan",
+        "label": "MiniMax M Plan (China)",
+        "kind": "plan",
+        "signUpUrl": "https://platform.minimax.cn/console/plan",
+        "key": { "env": ["MINIMAX_API_KEY"], "check": "https://api.minimax.cn/v1/models" },
+        "openai": "https://api.minimax.cn/v1",
+        "anthropic": { "url": "https://api.minimax.cn/anthropic", "auth": "bearer" },
+        "model": "MiniMax-M3.1-Flash"
+    },
+    {
         "id": "kimi-code",
         "modelsDev": "kimi-code-plan-global",
         "label": "Kimi Code",
@@ -31,6 +53,136 @@
         "openai": "https://api.kimi.ai/coding/v1",
         "anthropic": { "url": "https://api.kimi.ai/coding", "auth": "x-api-key" },
         "model": "k3-256k"
+    },
+    {
+        "id": "kimi-code-cn",
+        "modelsDev": "kimi-code-plan-cn",
+        "label": "Kimi Code (China)",
+        "kind": "plan",
+        "signUpUrl": "https://www.kimi.com/code/console",
+        "key": { "env": ["KIMI_API_KEY"], "check": "https://api.kimi.com/coding/v1/models" },
+        "openai": "https://api.kimi.com/coding/v1",
+        "anthropic": { "url": "https://api.kimi.com/coding", "auth": "x-api-key" },
+        "model": "k3-256k"
+    },
+    {
+        "id": "alibaba-coding-plan",
+        "modelsDev": "alibaba-coding-plan",
+        "label": "Alibaba Coding Plan",
+        "kind": "plan",
+        "signUpUrl": "https://modelstudio.console.alibabacloud.com/ap-southeast-1/subscription/coding-plan",
+        "key": { "env": ["ALIBABA_CODING_PLAN_API_KEY"], "check": "https://coding-intl.dashscope.aliyuncs.com/v1/models" },
+        "openai": "https://coding-intl.dashscope.aliyuncs.com/v1",
+        "anthropic": { "url": "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic", "auth": "bearer" },
+        "model": "qwen3.7-plus"
+    },
+    {
+        "id": "alibaba-coding-plan-cn",
+        "modelsDev": "alibaba-coding-plan-cn",
+        "label": "Alibaba Coding Plan (China)",
+        "kind": "plan",
+        "signUpUrl": "https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan",
+        "key": { "env": ["ALIBABA_CODING_PLAN_API_KEY"], "check": "https://coding.dashscope.aliyuncs.com/v1/models" },
+        "openai": "https://coding.dashscope.aliyuncs.com/v1",
+        "anthropic": { "url": "https://coding.dashscope.aliyuncs.com/apps/anthropic", "auth": "bearer" },
+        "model": "qwen3.7-plus"
+    },
+    {
+        "id": "alibaba-token-plan",
+        "modelsDev": "alibaba-token-plan",
+        "label": "Alibaba Token Plan",
+        "kind": "plan",
+        "signUpUrl": "https://modelstudio.console.alibabacloud.com/subscription/token-plan/personal",
+        "key": { "env": ["ALIBABA_TOKEN_PLAN_API_KEY"], "check": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1/models" },
+        "openai": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+        "anthropic": { "url": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic", "auth": "bearer" },
+        "model": "qwen3.8-flash"
+    },
+    {
+        "id": "alibaba-token-plan-cn",
+        "modelsDev": "alibaba-token-plan-cn",
+        "label": "Alibaba Token Plan (China)",
+        "kind": "plan",
+        "signUpUrl": "https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal",
+        "key": { "env": ["ALIBABA_TOKEN_PLAN_API_KEY"], "check": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/models" },
+        "openai": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        "anthropic": { "url": "https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic", "auth": "bearer" },
+        "model": "qwen3.8-flash"
+    },
+    {
+        "id": "volcengine-coding-plan",
+        "modelsDev": "volcengine-coding-plan",
+        "label": "Volcengine Ark Coding Plan",
+        "kind": "plan",
+        "signUpUrl": "https://ark.volcengine.com/region:cn-beijing/apikey",
+        "key": { "env": ["ARK_CODING_PLAN_API_KEY"], "check": "https://ark.cn-beijing.volces.com/api/coding/v3/models" },
+        "openai": "https://ark.cn-beijing.volces.com/api/coding/v3",
+        "anthropic": { "url": "https://ark.cn-beijing.volces.com/api/coding", "auth": "bearer" }
+    },
+    {
+        "id": "xiaomi-token-plan",
+        "modelsDev": "xiaomi-token-plan-sgp",
+        "label": "Xiaomi MiMo Token Plan (Singapore)",
+        "kind": "plan",
+        "signUpUrl": "https://platform.xiaomimimo.com/#/console/plan-manage",
+        "key": { "env": ["XIAOMI_API_KEY", "MIMO_API_KEY"], "check": "https://token-plan-sgp.xiaomimimo.com/v1/models" },
+        "openai": "https://token-plan-sgp.xiaomimimo.com/v1",
+        "anthropic": { "url": "https://token-plan-sgp.xiaomimimo.com/anthropic", "auth": "bearer" },
+        "model": "mimo-v2.6-pro"
+    },
+    {
+        "id": "xiaomi-token-plan-eu",
+        "modelsDev": "xiaomi-token-plan-ams",
+        "label": "Xiaomi MiMo Token Plan (Europe)",
+        "kind": "plan",
+        "signUpUrl": "https://platform.xiaomimimo.com/#/console/plan-manage",
+        "key": { "env": ["XIAOMI_API_KEY", "MIMO_API_KEY"], "check": "https://token-plan-ams.xiaomimimo.com/v1/models" },
+        "openai": "https://token-plan-ams.xiaomimimo.com/v1",
+        "anthropic": { "url": "https://token-plan-ams.xiaomimimo.com/anthropic", "auth": "bearer" },
+        "model": "mimo-v2.6-pro"
+    },
+    {
+        "id": "xiaomi-token-plan-cn",
+        "modelsDev": "xiaomi-token-plan-cn",
+        "label": "Xiaomi MiMo Token Plan (China)",
+        "kind": "plan",
+        "signUpUrl": "https://platform.xiaomimimo.com/#/console/plan-manage",
+        "key": { "env": ["XIAOMI_API_KEY", "MIMO_API_KEY"], "check": "https://token-plan-cn.xiaomimimo.com/v1/models" },
+        "openai": "https://token-plan-cn.xiaomimimo.com/v1",
+        "anthropic": { "url": "https://token-plan-cn.xiaomimimo.com/anthropic", "auth": "bearer" },
+        "model": "mimo-v2.6-pro"
+    },
+    {
+        "id": "stepfun-step-plan",
+        "modelsDev": "stepfun-ai-step-plan",
+        "label": "StepFun Step Plan",
+        "kind": "plan",
+        "signUpUrl": "https://platform.stepfun.ai/step-plan",
+        "key": { "env": ["STEPFUN_API_KEY"], "check": "https://api.stepfun.ai/step_plan/v1/models" },
+        "openai": "https://api.stepfun.ai/step_plan/v1",
+        "anthropic": { "url": "https://api.stepfun.ai/step_plan", "auth": "bearer" },
+        "model": "step-5-preview"
+    },
+    {
+        "id": "stepfun-step-plan-cn",
+        "modelsDev": "stepfun-step-plan",
+        "label": "StepFun Step Plan (China)",
+        "kind": "plan",
+        "signUpUrl": "https://platform.stepfun.com/step-plan",
+        "key": { "env": ["STEPFUN_API_KEY"], "check": "https://api.stepfun.com/step_plan/v1/models" },
+        "openai": "https://api.stepfun.com/step_plan/v1",
+        "anthropic": { "url": "https://api.stepfun.com/step_plan", "auth": "bearer" },
+        "model": "step-5-preview"
+    },
+    {
+        "id": "tencent-coding-plan",
+        "modelsDev": "tencent-coding-plan",
+        "label": "Tencent Coding Plan (China)",
+        "kind": "plan",
+        "signUpUrl": "https://console.cloud.tencent.com/tokenhub/codingplan",
+        "key": { "env": ["TENCENT_CODING_PLAN_API_KEY"], "check": "https://api.lkeap.cloud.tencent.com/coding/v3/models" },
+        "openai": "https://api.lkeap.cloud.tencent.com/coding/v3",
+        "anthropic": { "url": "https://api.lkeap.cloud.tencent.com/coding/anthropic", "auth": "bearer" }
     },
     {
         "id": "opencode-go",
@@ -136,6 +288,81 @@
         "model": "deepseek-flash"
     },
     {
+        "id": "alibaba",
+        "modelsDev": "alibaba",
+        "label": "Alibaba Model Studio",
+        "kind": "api",
+        "signUpUrl": "https://modelstudio.console.alibabacloud.com/ap-southeast-1/settings/api-key",
+        "key": { "env": ["DASHSCOPE_API_KEY"], "check": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models" },
+        "openai": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "anthropic": { "url": "https://dashscope-intl.aliyuncs.com/apps/anthropic", "auth": "bearer" },
+        "model": "qwen3.7-max"
+    },
+    {
+        "id": "alibaba-cn",
+        "modelsDev": "alibaba-cn",
+        "label": "Alibaba Model Studio (China)",
+        "kind": "api",
+        "signUpUrl": "https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key",
+        "key": { "env": ["DASHSCOPE_API_KEY"], "check": "https://dashscope.aliyuncs.com/compatible-mode/v1/models" },
+        "openai": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "anthropic": { "url": "https://dashscope.aliyuncs.com/apps/anthropic", "auth": "bearer" },
+        "model": "qwen3.7-max"
+    },
+    {
+        "id": "volcengine",
+        "modelsDev": "volcengine",
+        "label": "Volcengine Ark",
+        "kind": "api",
+        "signUpUrl": "https://ark.volcengine.com/region:cn-beijing/apikey",
+        "key": { "env": ["ARK_API_KEY"], "check": "https://ark.cn-beijing.volces.com/api/v3/models" },
+        "openai": "https://ark.cn-beijing.volces.com/api/v3",
+        "anthropic": { "url": "https://ark.cn-beijing.volces.com/api/compatible", "auth": "bearer" }
+    },
+    {
+        "id": "xiaomi",
+        "modelsDev": "xiaomi",
+        "label": "Xiaomi MiMo",
+        "kind": "api",
+        "signUpUrl": "https://platform.xiaomimimo.com/#/console/api-keys",
+        "key": { "env": ["XIAOMI_API_KEY", "MIMO_API_KEY"], "check": "https://api.xiaomimimo.com/v1/models" },
+        "openai": "https://api.xiaomimimo.com/v1",
+        "anthropic": { "url": "https://api.xiaomimimo.com/anthropic", "auth": "bearer" },
+        "model": "mimo-v2.6-pro"
+    },
+    {
+        "id": "stepfun",
+        "modelsDev": "stepfun-ai",
+        "label": "StepFun",
+        "kind": "api",
+        "signUpUrl": "https://platform.stepfun.ai/interface-key",
+        "key": { "env": ["STEPFUN_API_KEY"], "check": "https://api.stepfun.ai/v1/models" },
+        "openai": "https://api.stepfun.ai/v1",
+        "anthropic": { "url": "https://api.stepfun.ai", "auth": "bearer" },
+        "model": "step-5-preview"
+    },
+    {
+        "id": "stepfun-cn",
+        "modelsDev": "stepfun",
+        "label": "StepFun (China)",
+        "kind": "api",
+        "signUpUrl": "https://platform.stepfun.com/interface-key",
+        "key": { "env": ["STEPFUN_API_KEY"], "check": "https://api.stepfun.com/v1/models" },
+        "openai": "https://api.stepfun.com/v1",
+        "anthropic": { "url": "https://api.stepfun.com", "auth": "bearer" },
+        "model": "step-5-preview"
+    },
+    {
+        "id": "tencent-tokenhub",
+        "modelsDev": "tencent-tokenhub",
+        "label": "Tencent TokenHub",
+        "kind": "api",
+        "signUpUrl": "https://console.cloud.tencent.com/tokenhub/apikey",
+        "key": { "env": ["TENCENT_TOKENHUB_API_KEY"], "check": "https://tokenhub.tencentmaas.com/v1/models" },
+        "openai": "https://tokenhub.tencentmaas.com/v1",
+        "anthropic": { "url": "https://tokenhub.tencentmaas.com", "auth": "bearer" }
+    },
+    {
         "id": "moonshot",
         "modelsDev": "moonshotai",
         "label": "Moonshot AI",
@@ -144,6 +371,16 @@
         "key": { "env": ["MOONSHOT_API_KEY"], "check": "https://api.moonshot.ai/v1/models" },
         "openai": "https://api.moonshot.ai/v1",
         "model": "kimi-k3"
+    },
+    {
+        "id": "moonshot-cn",
+        "modelsDev": "moonshotai-cn",
+        "label": "Moonshot AI (China)",
+        "kind": "api",
+        "signUpUrl": "https://platform.kimi.com/console/api-keys",
+        "key": { "env": ["MOONSHOT_API_KEY"], "check": "https://api.moonshot.cn/v1/models" },
+        "openai": "https://api.moonshot.cn/v1",
+        "model": "kimi-k3.1-pro"
     },
     {
         "id": "mistral",

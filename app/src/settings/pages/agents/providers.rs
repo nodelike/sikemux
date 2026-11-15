@@ -50,8 +50,8 @@ pub(in crate::settings) const HELPERS: &[crate::settings::index::Entry] = &[
 
 /// What a search finds on this page.
 pub(in crate::settings) const MODELS: &[crate::settings::index::Entry] = &[
-    crate::settings::index::section(crate::settings::index::Page::Plans, "Coding plans", "zai glm minimax kimi code opencode go synthetic ollama subscription plan key claude codex"),
-    crate::settings::index::section(crate::settings::index::Page::Providers, "API providers", "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi mistral vercel api key hosted open models opencode pi omp claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Plans, "Coding plans", "zai glm zhipu minimax kimi code alibaba qwen volcengine ark xiaomi mimo stepfun tencent china opencode go synthetic ollama subscription plan key claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Providers, "API providers", "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi alibaba qwen dashscope volcengine ark doubao xiaomi mimo stepfun tencent hunyuan china mistral vercel api key hosted open models opencode pi omp claude codex"),
     crate::settings::index::section(crate::settings::index::Page::LocalModels, "Local models", "ollama lm studio lmstudio local offline runner claude codex"),
 ];
 
