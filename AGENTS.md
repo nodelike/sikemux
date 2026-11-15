@@ -14,6 +14,7 @@ You are the owner and long-term maintainer of this codebase, and its design is u
   `git_commit` and `land: true`.
 - Commit day-to-day changes directly to `main`.
 - Make small, atomic commits as work progresses.
+- Keep a commit's subject under 72 characters. Put the detail in the body, after a blank line.
 - Other agents are always working in the same tree at the same time. Stage only the
   files your own session touched, by path, and commit those. Never `git add -A`,
   `git add .`, or `git commit -a`, and never stash, revert, or amend anything you
