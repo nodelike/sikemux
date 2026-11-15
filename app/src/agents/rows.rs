@@ -4,7 +4,7 @@ use gpui_kit::{AnyElement, App};
 use sikemux_calls::call;
 use sikemux_calls::workspace::PinnedParams;
 use sikemux_view::device::{DeviceView, RecentInfo};
-use sikemux_view::inbox::{AgentShown, RemoteAgent, TeamLink};
+use sikemux_view::inbox::{AgentShown, RemoteAgent};
 use sikemux_view::layout::PaneKind;
 use sikemux_view::workspace::{AgentFace, PinnedChat, ProjectInfo};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
@@ -44,8 +44,8 @@ pub struct AgentRow {
     pub line: Option<sikemux_view::inbox::InLine>,
     /// When it was last named with `@` or messaged by another agent, in Unix milliseconds.
     pub called_at: Option<u64>,
-    /// Its place on its lead's team, which the rows after a lead belong to.
-    pub team: Option<TeamLink>,
+    /// The agent it hangs under, by id: the one that spawned it, or the nearest above that.
+    pub lead: Option<String>,
     /// The host it runs on.
     pub place: Place,
     /// That host answers now. One that does not leaves the row as it last said.
@@ -272,8 +272,11 @@ fn merged(lists: Vec<Vec<AgentRow>>) -> Vec<AgentRow> {
         .map(|list| {
             let mut teams: std::collections::VecDeque<Vec<AgentRow>> = Default::default();
             for row in list {
-                match (row.team, teams.back_mut()) {
-                    (Some(TeamLink::Member | TeamLink::Last), Some(team)) => team.push(row),
+                let lead = row.lead.as_deref();
+                match teams.back_mut() {
+                    Some(team) if team.iter().any(|mate| Some(mate.id.as_str()) == lead) => {
+                        team.push(row)
+                    }
                     _ => teams.push_back(vec![row]),
                 }
             }
@@ -319,7 +322,7 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         triggers: row.triggers,
         line: row.line.clone(),
         called_at: row.called_at,
-        team: row.team,
+        lead: row.lead.clone(),
         place: place.clone(),
         reachable: true,
         snoozed_until: row.snoozed_until,

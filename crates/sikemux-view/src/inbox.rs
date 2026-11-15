@@ -429,10 +429,10 @@ pub struct AgentShown {
     /// The face it wears, as the workspace's agent does; none while it shows
     /// its CLI's logo.
     pub face: Option<AgentFace>,
-    /// Its place on its lead's team, which the agents listed after a lead
-    /// belong to; none for an agent on its own.
+    /// The agent it hangs under: the one that spawned it, or the nearest one above that while
+    /// that one is gone. None for an agent the person started.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<TeamLink>,
+    pub lead: Option<String>,
     /// The workspace project it is in, by id; none for one outside every project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
@@ -473,15 +473,6 @@ pub struct InLine {
     pub by: Option<String>,
 }
 
-/// Where an agent sits on its team: the lead heads it, the last worker ends it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum TeamLink {
-    Head,
-    Member,
-    Last,
-}
-
 /// Several agents shown as one: the group of the one that wants the person
 /// most, with every subagent and shell they still have running.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -498,15 +489,13 @@ pub struct AgentRollup {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAgent {
     /// Its row as the host it runs on lists it among its own agents, so it shows all an
-    /// agent here does. Its project is the one here its team works in, and its `team` its
-    /// place after the last of that team's agents here.
+    /// agent here does. Its project is the one here its team works in, and its `lead` the
+    /// agent here that started it.
     #[serde(flatten)]
     pub shown: AgentShown,
     /// What this host calls the host it runs on.
     pub host: String,
     pub host_id: String,
-    /// The agent here that started it, for a worker.
-    pub lead: Option<String>,
     /// Its host answers now.
     pub reachable: bool,
 }

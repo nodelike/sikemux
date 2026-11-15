@@ -1251,7 +1251,7 @@ pub(super) fn pass_on_here(
 #[cfg(test)]
 mod tests {
     use serde_json::{json, Value};
-    use sikemux_view::inbox::{AgentShown, RemoteAgent, TeamLink};
+    use sikemux_view::inbox::{AgentShown, RemoteAgent};
     use sikemux_view::workspace::AgentFace;
     use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
@@ -1260,7 +1260,7 @@ mod tests {
 
     /// What a row says only of the host that made it, so the host showing a teammate's row
     /// says its own.
-    const HOST_OWN: [&str; 4] = ["project", "projectName", "session", "team"];
+    const HOST_OWN: [&str; 4] = ["project", "projectName", "session", "lead"];
 
     /// A row with every field set to something a client would draw. A field added to
     /// `AgentShown` has to be given here, and then has to cross hosts below.
@@ -1302,7 +1302,7 @@ mod tests {
                 color: 1,
                 view_box: "0 0 24 24".into(),
             }),
-            team: Some(TeamLink::Head),
+            lead: Some("lead-there".into()),
             project: Some("/there/widget".into()),
             project_name: Some("widget there".into()),
             reconnecting: Some(2),
@@ -1354,7 +1354,6 @@ mod tests {
             shown: shown_here(foreign, Some("widget".into()), || "Claude".into()),
             host: "studio".into(),
             host_id: foreign.host.clone(),
-            lead: foreign.parent.clone(),
             reachable: true,
         })
     }
@@ -1415,7 +1414,7 @@ mod tests {
         assert_eq!(shown.project.as_deref(), Some("widget"));
         assert_eq!(shown.project_name.as_deref(), Some("widget"));
         assert_eq!(shown.session, None);
-        assert_eq!(shown.team, None);
+        assert_eq!(shown.lead.as_deref(), Some("lead"));
     }
 
     #[test]

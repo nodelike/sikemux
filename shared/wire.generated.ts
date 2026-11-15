@@ -1248,10 +1248,10 @@ export interface RemoteAgent {
      */
     face: AgentFace | null;
     /**
-     * Its place on its lead's team, which the agents listed after a lead
-     * belong to; none for an agent on its own.
+     * The agent it hangs under: the one that spawned it, or the nearest one above that while
+     * that one is gone. None for an agent the person started.
      */
-    team?: TeamLink;
+    lead?: string;
     /** The workspace project it is in, by id; none for one outside every project. */
     project?: string;
     /** What to call where it works: its project, else its folder. */
@@ -1272,8 +1272,6 @@ export interface RemoteAgent {
     /** What this host calls the host it runs on. */
     host: string;
     hostId: string;
-    /** The agent here that started it, for a worker. */
-    lead: string | null;
     /** Its host answers now. */
     reachable: boolean;
 }
@@ -1388,9 +1386,6 @@ export interface InLine {
     by?: string;
 }
 
-/** Where an agent sits on its team: the lead heads it, the last worker ends it. */
-export type TeamLink = "head" | "member" | "last";
-
 /** How devices show an open agent here. */
 export interface AgentShown {
     agentId: string;
@@ -1442,10 +1437,10 @@ export interface AgentShown {
      */
     face: AgentFace | null;
     /**
-     * Its place on its lead's team, which the agents listed after a lead
-     * belong to; none for an agent on its own.
+     * The agent it hangs under: the one that spawned it, or the nearest one above that while
+     * that one is gone. None for an agent the person started.
      */
-    team?: TeamLink;
+    lead?: string;
     /** The workspace project it is in, by id; none for one outside every project. */
     project?: string;
     /** What to call where it works: its project, else its folder. */

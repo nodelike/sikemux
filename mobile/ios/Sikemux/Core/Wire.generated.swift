@@ -2084,9 +2084,9 @@ struct RemoteAgent: Codable, Hashable, Sendable {
     /// The face it wears, as the workspace's agent does; none while it shows
     /// its CLI's logo.
     var face: AgentFace?
-    /// Its place on its lead's team, which the agents listed after a lead
-    /// belong to; none for an agent on its own.
-    var team: TeamLink?
+    /// The agent it hangs under: the one that spawned it, or the nearest one above that while
+    /// that one is gone. None for an agent the person started.
+    var lead: String?
     /// The workspace project it is in, by id; none for one outside every project.
     var project: String?
     /// What to call where it works: its project, else its folder.
@@ -2105,8 +2105,6 @@ struct RemoteAgent: Codable, Hashable, Sendable {
     /// What this host calls the host it runs on.
     var host: String
     var hostId: String
-    /// The agent here that started it, for a worker.
-    var lead: String?
     /// Its host answers now.
     var reachable: Bool
 }
@@ -2319,19 +2317,6 @@ struct InLine: Codable, Hashable, Sendable {
     var by: String?
 }
 
-/// Where an agent sits on its team: the lead heads it, the last worker ends it.
-enum TeamLink: String, Codable, Hashable, Sendable {
-    case head
-    case member
-    case last
-    /// One added after this build.
-    case unknown
-
-    init(from decoder: any Decoder) throws {
-        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
-    }
-}
-
 /// How devices show an open agent here.
 struct AgentShown: Codable, Hashable, Sendable {
     var agentId: String
@@ -2376,9 +2361,9 @@ struct AgentShown: Codable, Hashable, Sendable {
     /// The face it wears, as the workspace's agent does; none while it shows
     /// its CLI's logo.
     var face: AgentFace?
-    /// Its place on its lead's team, which the agents listed after a lead
-    /// belong to; none for an agent on its own.
-    var team: TeamLink?
+    /// The agent it hangs under: the one that spawned it, or the nearest one above that while
+    /// that one is gone. None for an agent the person started.
+    var lead: String?
     /// The workspace project it is in, by id; none for one outside every project.
     var project: String?
     /// What to call where it works: its project, else its folder.

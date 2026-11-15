@@ -154,38 +154,26 @@ impl ActivityGlance {
 
     /// The glance of the inbox's agents, in the order the rail ranks them, with each lead's team after it.
     pub fn of(inbox: &crate::inbox::Inbox) -> Self {
-        use crate::inbox::TeamLink;
         use sikemux_wire::protocol::AgentGroup;
         let shown: Vec<_> = (inbox.agents.iter())
             .filter(|agent| agent.settled_at.is_none())
             .collect();
-        let mut units: Vec<Vec<&crate::inbox::AgentShown>> = Vec::new();
-        let mut in_team = false;
-        for agent in &shown {
-            match agent.team {
-                Some(TeamLink::Member | TeamLink::Last) if in_team => {
-                    if let Some(team) = units.last_mut() {
-                        team.push(agent);
-                    }
-                    in_team = agent.team == Some(TeamLink::Member);
-                }
-                link => {
-                    units.push(vec![agent]);
-                    in_team = link == Some(TeamLink::Head);
-                }
-            }
-        }
         let remote: Vec<_> = (inbox.remote_agents.iter())
             .filter(|remote| remote.reachable)
             .collect();
-        for worker in &remote {
-            let team = worker.lead.as_ref().and_then(|lead| {
-                (units.iter_mut()).find(|unit| unit.iter().any(|agent| &agent.agent_id == lead))
-            });
-            match team {
-                Some(team) => team.push(&worker.shown),
-                None => units.push(vec![&worker.shown]),
-            }
+        let mut units: Vec<Vec<&crate::inbox::AgentShown>> = Vec::new();
+        let mut unit_of: std::collections::HashMap<&str, usize> = Default::default();
+        let agents = (shown.iter().copied()).chain(remote.iter().map(|worker| &worker.shown));
+        for agent in agents {
+            let at = match agent.lead.as_deref().and_then(|lead| unit_of.get(lead)) {
+                Some(&at) => at,
+                None => {
+                    units.push(Vec::new());
+                    units.len() - 1
+                }
+            };
+            units[at].push(agent);
+            unit_of.insert(&agent.agent_id, at);
         }
         let shown: Vec<_> = (shown.into_iter())
             .chain(remote.iter().map(|worker| &worker.shown))

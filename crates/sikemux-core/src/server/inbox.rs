@@ -24,7 +24,7 @@ use crate::git::Git;
 use crate::text::{clipped, clipped_line};
 use sikemux_view::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandoff, InboxItem, InboxKind,
-    InboxNeed, InboxRecording, InboxTier, RemoteAgent, ShipHold, ShipKind, TeamLink,
+    InboxNeed, InboxRecording, InboxTier, RemoteAgent, ShipHold, ShipKind,
 };
 use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{
@@ -183,7 +183,7 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         line: None,
         called_at: None,
         face: None,
-        team: None,
+        lead: None,
         project: None,
         project_name: None,
         reconnecting: None,
@@ -243,7 +243,7 @@ pub(crate) fn shown_here(
     shown.project = Some(foreign.project.clone());
     shown.project_name = project;
     shown.session = None;
-    shown.team = None;
+    shown.lead = foreign.parent.clone();
     shown
 }
 
@@ -259,7 +259,6 @@ fn remote_agents(core: &Core) -> Vec<RemoteAgent> {
             host: super::hosts::name_of(core, &foreign.host),
             reachable: core.hosts().reachable(&foreign.host),
             host_id: foreign.host,
-            lead: foreign.parent,
         })
         .collect()
 }
@@ -1226,7 +1225,12 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
             super::settling::show(agent, place, now);
         }
     }
-    let leads = core.workspaces().agent_parents();
+    let leads = {
+        let known: HashSet<&str> = (shown.iter().map(|agent| agent.agent_id.as_str()))
+            .chain(workspace_agents.iter().map(|agent| agent.id.as_str()))
+            .collect();
+        nearest_leads(&core.workspaces().agent_parents(), &known)
+    };
     let turns: Turned = (shown.iter())
         .filter_map(|agent| Some((agent.agent_id.clone(), agent.turn.clone()?)))
         .collect();
@@ -1251,6 +1255,9 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         }
     }
     let mut kept = kept_agents(core, &workspace_agents, &listed, called);
+    for agent in listed.iter_mut().chain(kept.iter_mut()) {
+        agent.lead = leads.get(&agent.agent_id).cloned();
+    }
     for agent in kept
         .iter_mut()
         .filter(|agent| !chiefs.contains(&agent.agent_id))
@@ -1282,7 +1289,6 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         .filter_map(|(project, agents)| Some((project, rollup(agents)?)))
         .collect();
     let mut view = view_of(core, &agents(core, chats, sessions), sessions, &turns);
-    with_remote_workers(&mut listed, &mut view.remote_agents);
     view.items.retain(|item| {
         let Some(agent) =
             (listed.iter()).find(|agent| item.agent_id.as_ref() == Some(&agent.agent_id))
@@ -1365,61 +1371,6 @@ fn kept_agents(
         .collect()
 }
 
-/// Adds the workers agents here started on linked hosts to their leads' teams: each team
-/// with such workers ends with them, in the order they come, so the team's last agent here
-/// no longer ends it. Workers whose lead is not listed stand on their own.
-fn with_remote_workers(listed: &mut [AgentShown], remote: &mut Vec<RemoteAgent>) {
-    let mut teams: Vec<(usize, usize)> = Vec::new();
-    let mut at = 0;
-    while at < listed.len() {
-        let mut end = at;
-        if listed[at].team == Some(TeamLink::Head) {
-            while end + 1 < listed.len() && listed[end].team != Some(TeamLink::Last) {
-                end += 1;
-            }
-        }
-        teams.push((at, end));
-        at = end + 1;
-    }
-    let mut placed = vec![false; remote.len()];
-    let mut order = Vec::with_capacity(remote.len());
-    for (start, end) in teams {
-        let ids: Vec<&str> = listed[start..=end]
-            .iter()
-            .map(|agent| agent.agent_id.as_str())
-            .collect();
-        let workers: Vec<usize> = (0..remote.len())
-            .filter(|&ix| {
-                !placed[ix]
-                    && remote[ix]
-                        .lead
-                        .as_deref()
-                        .is_some_and(|lead| ids.contains(&lead))
-            })
-            .collect();
-        let Some(&last) = workers.last() else {
-            continue;
-        };
-        listed[end].team = Some(if start == end {
-            TeamLink::Head
-        } else {
-            TeamLink::Member
-        });
-        for &worker in &workers {
-            placed[worker] = true;
-            remote[worker].shown.team = Some(if worker == last {
-                TeamLink::Last
-            } else {
-                TeamLink::Member
-            });
-            order.push(worker);
-        }
-    }
-    order.extend((0..remote.len()).filter(|&ix| !placed[ix]));
-    let mut taken: Vec<Option<RemoteAgent>> = remote.drain(..).map(Some).collect();
-    remote.extend(order.into_iter().filter_map(|ix| taken[ix].take()));
-}
-
 /// The agents in the order given, but each lead's workers right after it, in the same
 /// order, and theirs after them. A worker whose lead is not listed stands on its own.
 fn in_teams(agents: Vec<AgentShown>, leads: &HashMap<String, String>) -> Vec<AgentShown> {
@@ -1459,31 +1410,36 @@ fn in_teams(agents: Vec<AgentShown>, leads: &HashMap<String, String>) -> Vec<Age
         if placed[ix] || lead_of[ix].is_some() {
             continue;
         }
-        let mut team = Vec::new();
-        gather(ix, &workers, &mut placed, &mut team);
-        let last = team.len() - 1;
-        order.extend(team.into_iter().enumerate().map(|(at, member)| {
-            let link = match at {
-                _ if last == 0 => None,
-                0 => Some(TeamLink::Head),
-                at if at == last => Some(TeamLink::Last),
-                _ => Some(TeamLink::Member),
-            };
-            (member, link)
-        }));
+        gather(ix, &workers, &mut placed, &mut order);
     }
-    order.extend(
-        (0..agents.len())
-            .filter(|&ix| !placed[ix])
-            .map(|ix| (ix, None)),
-    );
+    order.extend((0..agents.len()).filter(|&ix| !placed[ix]));
     let mut agents: Vec<Option<AgentShown>> = agents.into_iter().map(Some).collect();
     order
         .into_iter()
-        .filter_map(|(ix, link)| {
-            let mut agent = agents[ix].take()?;
-            agent.team = link;
-            Some(agent)
+        .filter_map(|ix| agents[ix].take())
+        .collect()
+}
+
+/// Each agent's lead among `known`: the agent that spawned it, or while that one is gone, the
+/// nearest agent above it that is still known.
+fn nearest_leads(
+    parents: &HashMap<String, String>,
+    known: &HashSet<&str>,
+) -> HashMap<String, String> {
+    parents
+        .keys()
+        .filter_map(|agent| {
+            let mut lead = parents.get(agent)?;
+            for _ in 0..parents.len() {
+                if lead == agent {
+                    return None;
+                }
+                if known.contains(lead.as_str()) {
+                    return Some((agent.clone(), lead.clone()));
+                }
+                lead = parents.get(lead)?;
+            }
+            None
         })
         .collect()
 }

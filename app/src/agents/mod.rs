@@ -13,7 +13,7 @@ use sikemux_calls::saved_sessions::RecentChat;
 use sikemux_calls::saved_sessions::RecentRenamed;
 use sikemux_calls::workspace::PinChatParams;
 use sikemux_wire::protocol::SessionId;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
@@ -40,7 +40,6 @@ use crate::theme::{
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
 use crate::workbench::Workbench;
 use sikemux_view::inbox::RemoteAgent;
-use sikemux_view::inbox::TeamLink;
 use sikemux_view::prefs::TabRailPage;
 
 pub const TAB_RAIL: RailWidth = RailWidth {
@@ -58,6 +57,7 @@ pub(crate) mod retitle;
 pub mod review;
 pub mod rows;
 pub mod settled;
+pub(crate) mod tree;
 pub mod setup;
 pub(crate) mod tags;
 mod terminal_pages;
@@ -121,18 +121,35 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         .filter(|_| !bench.rails.all_projects)
         .map(|project| bench.pinned_of(&project.id))
         .unwrap_or_default();
-    let (held, agents): (Vec<_>, Vec<_>) = bench.listed_agents().into_iter().partition(|agent| {
-        pins.iter()
-            .any(|pin| pin.agent_id.as_deref() == Some(agent.id.as_str()))
-    });
-    let (away, agents): (Vec<_>, Vec<_>) = (agents.into_iter())
-        .partition(|agent| agent.snoozed_until.is_some() || agent.settled_at.is_some());
-    let (settled, snoozed): (Vec<_>, Vec<_>) = away
-        .into_iter()
-        .partition(|agent| agent.settled_at.is_some());
+    let mut listed = bench.listed_agents();
+    let chiefs: HashSet<String> = (listed.iter())
+        .filter(|agent| agent.chief)
+        .map(|agent| agent.id.clone())
+        .collect();
+    for agent in &mut listed {
+        if (agent.lead.as_ref()).is_some_and(|lead| chiefs.contains(lead)) {
+            agent.lead = None;
+        }
+    }
+    let pinned_ids: HashSet<&str> = (pins.iter())
+        .filter_map(|pin| pin.agent_id.as_deref())
+        .collect();
+    let held_ids = tree::under(&listed, &pinned_ids);
+    let (held, agents): (Vec<_>, Vec<_>) =
+        (listed.into_iter()).partition(|agent| held_ids.contains(&agent.id));
+    let away = |agent: &AgentRow| agent.snoozed_until.is_some() || agent.settled_at.is_some();
+    let working: HashSet<&str> = (agents.iter())
+        .filter(|agent| !away(agent))
+        .map(|agent| agent.id.as_str())
+        .collect();
+    let leading = tree::above(&agents, &working);
+    let (gone, agents): (Vec<_>, Vec<_>) =
+        (agents.into_iter()).partition(|agent| away(agent) && !leading.contains(&agent.id));
+    let (settled, snoozed): (Vec<_>, Vec<_>) =
+        (gone.into_iter()).partition(|agent| agent.settled_at.is_some());
     let away_rows = |agents: &[AgentRow], cx: &mut Context<Workbench>| -> Vec<AnyElement> {
-        (agents.iter())
-            .map(|agent| agent_row(bench, agent, agent.team, None, false, cx).into_any_element())
+        (tree::tree(agents, 0, &HashSet::new()).into_iter())
+            .map(|placed| agent_row(bench, &placed.row, &placed.hang, None, false, cx))
             .collect()
     };
     let snoozed = away_rows(&snoozed, cx);
@@ -173,15 +190,30 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                     .iter()
                     .any(|agent| pin.agent_id.as_deref() == Some(agent.id.as_str()))
         })
-        .map(|(index, pin)| {
-            let row = match held
-                .iter()
-                .find(|agent| pin.agent_id.as_deref() == Some(agent.id.as_str()))
-            {
-                Some(agent) => agent_row(bench, agent, None, None, false, cx).into_any_element(),
-                None => recent_row(bench, pin, cx),
+        .filter_map(|(index, pin)| {
+            let row = match pin.agent_id.as_deref() {
+                Some(id) if held.iter().any(|agent| agent.id == id) => {
+                    let mine = tree::under(&held, &HashSet::from([id]));
+                    let team: Vec<AgentRow> = (held.iter())
+                        .filter(|agent| mine.contains(&agent.id))
+                        .cloned()
+                        .collect();
+                    let placed = tree::tree(&team, 0, &bench.rails.folded_teams);
+                    if placed.first().is_none_or(|top| top.row.id != id) {
+                        return None;
+                    }
+                    let rows = (placed.into_iter()).map(|placed| {
+                        let fold = (placed.below > 0).then(|| Fold {
+                            open: !bench.rails.folded_teams.contains(&placed.row.id),
+                            count: placed.below,
+                        });
+                        agent_row(bench, &placed.row, &placed.hang, fold, false, cx)
+                    });
+                    div().flex().flex_col().children(rows).into_any_element()
+                }
+                _ => recent_row(bench, pin, cx),
             };
-            crate::drag::pinned(row, &pin.id, index, moving, &cx.entity()).into_any_element()
+            Some(crate::drag::pinned(row, &pin.id, index, moving, &cx.entity()).into_any_element())
         })
         .collect();
     let mut recent: Vec<_> = project
@@ -799,7 +831,7 @@ fn team_rows(
     bench: &Workbench,
     agents: &[AgentRow],
     homes: &HashMap<(Place, String), String>,
-    mut heads: Vec<(String, AnyElement)>,
+    heads: Vec<(String, AnyElement)>,
     cx: &mut Context<Workbench>,
 ) -> (Option<AnyElement>, Vec<AnyElement>) {
     let chosen = bench.agent().map(|agent| agent.id);
@@ -809,134 +841,85 @@ fn team_rows(
         .borrow_mut()
         .choose(chosen, cx.reduce_motion());
     let teams = bench.filter_text().is_empty();
-    let remote = if teams {
-        remote_workers(bench, agents)
-    } else {
-        Vec::new()
-    };
-    let listed_elsewhere =
-        |worker: &RemoteAgent| (agents.iter()).find(|agent| agent.id == worker.shown.agent_id);
-    let under_lead = |agent: &AgentRow| {
-        remote.iter().any(|worker| {
-            worker.shown.agent_id == agent.id
-                && (agents.iter()).any(|lead| worker.lead.as_deref() == Some(lead.id.as_str()))
-        })
-    };
-    let remote_of = |members: &[&AgentRow]| -> Vec<&RemoteAgent> {
-        remote
-            .iter()
-            .copied()
-            .filter(|worker| {
-                members
-                    .iter()
-                    .any(|member| worker.lead.as_deref() == Some(member.id.as_str()))
+    let mut rows: Vec<AgentRow> = agents.to_vec();
+    match teams {
+        true => {
+            let workers: Vec<AgentRow> = (remote_workers(bench, agents).into_iter())
+                .filter_map(|worker| {
+                    let mut row = (agents.iter())
+                        .find(|agent| agent.id == worker.shown.agent_id)
+                        .cloned()
+                        .or_else(|| crate::agents::rows::worker(worker))?;
+                    row.lead = worker.shown.lead.clone();
+                    Some(row)
+                })
+                .collect();
+            rows.retain(|row| !workers.iter().any(|worker| worker.id == row.id));
+            rows.extend(workers);
+        }
+        false => rows.iter_mut().for_each(|row| row.lead = None),
+    }
+    let home: Vec<String> = {
+        let at: HashMap<&str, &AgentRow> = rows.iter().map(|row| (row.id.as_str(), row)).collect();
+        (rows.iter())
+            .map(|row| {
+                let mut top = row;
+                for _ in 0..rows.len() {
+                    match top.lead.as_deref().and_then(|lead| at.get(lead)) {
+                        Some(lead) => top = lead,
+                        None => break,
+                    }
+                }
+                home_of(homes, top).to_owned()
             })
             .collect()
     };
-    let mut folded = false;
-    let mut in_team = false;
-    let mut team_members: Vec<&AgentRow> = Vec::new();
-    let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(agents.len());
-    // For each row drawn, the project of the chief it reports to and whether it reports to the
-    // chief itself rather than to a lead under it.
-    let mut reports: Vec<Option<(String, bool)>> = Vec::with_capacity(agents.len());
-    let chiefs: Vec<String> = heads.iter().map(|(project, _)| project.clone()).collect();
-    let under_chief = |agent: &AgentRow, direct: bool| {
-        let home = home_of(homes, agent);
-        (!agent.chief && chiefs.iter().any(|chief| chief == home))
-            .then(|| (home.to_owned(), direct))
-    };
+    let folded = &bench.rails.folded_teams;
+    let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(rows.len() + heads.len());
     let mut shown = Vec::new();
-    for (ix, agent) in agents.iter().enumerate() {
-        let home = home_of(homes, agent);
-        if let Some(at) = heads.iter().position(|(project, _)| project == home) {
-            for (project, head) in heads.drain(..=at) {
-                drawn.push((format!("chief:{project}"), head));
-                reports.push(None);
-            }
+    let mut place = |placed: Vec<tree::Placed>,
+                     drawn: &mut Vec<(String, AnyElement)>,
+                     cx: &mut Context<Workbench>| {
+        for placed in placed {
+            let fold = (teams && placed.below > 0).then(|| Fold {
+                open: !folded.contains(&placed.row.id),
+                count: placed.below,
+            });
+            let row = agent_row(bench, &placed.row, &placed.hang, fold, glided, cx);
+            drawn.push((placed.row.id.clone(), row));
+            shown.push((placed.row.id.clone(), placed.row));
         }
-        if teams && under_lead(agent) {
-            continue;
-        }
-        // A lead's workers follow its row; workers with no lead listed are the chief's own.
-        let team = match agent.team.filter(|_| teams) {
-            Some(TeamLink::Head) => {
-                in_team = true;
-                Some(TeamLink::Head)
-            }
-            Some(link) if in_team => {
-                in_team = link != TeamLink::Last;
-                Some(link)
-            }
-            _ => {
-                in_team = false;
-                None
-            }
+    };
+    let mut headed = HashSet::new();
+    for (project, head) in heads {
+        let team: Vec<AgentRow> = (rows.iter().zip(&home))
+            .filter(|(_, home)| **home == project)
+            .map(|(row, _)| row.clone())
+            .collect();
+        let placed = tree::tree(&team, 1, folded);
+        let head = match placed.is_empty() {
+            true => head,
+            false => div()
+                .relative()
+                .child(head)
+                .children(hang_lines(
+                    &tree::Hang {
+                        open: true,
+                        ..Default::default()
+                    },
+                    cx,
+                ))
+                .into_any_element(),
         };
-        let continues = |at: usize| {
-            in_team
-                && agents.get(at).is_some_and(|next| {
-                    matches!(next.team, Some(TeamLink::Member | TeamLink::Last))
-                })
-        };
-        let fold = match team {
-            Some(TeamLink::Head) => {
-                let members: Vec<&AgentRow> = std::iter::once(agent)
-                    .chain(agents[ix + 1..].iter().take_while(|worker| {
-                        matches!(worker.team, Some(TeamLink::Member | TeamLink::Last))
-                    }))
-                    .collect();
-                let count = members.len() - 1 + remote_of(&members).len();
-                folded = bench.rails.folded_teams.contains(&agent.id);
-                team_members = members;
-                Some(Fold {
-                    open: !folded,
-                    count,
-                })
-            }
-            Some(_) if folded => continue,
-            Some(_) => None,
-            None => {
-                folded = false;
-                None
-            }
-        };
-        shown.push((agent.id.clone(), agent.clone()));
-        let row = agent_row(bench, agent, team, fold, glided, cx);
-        drawn.push((agent.id.clone(), row.into_any_element()));
-        reports.push(under_chief(
-            agent,
-            !matches!(team, Some(TeamLink::Member | TeamLink::Last)),
-        ));
-        if team.is_some() && !folded && !continues(ix + 1) {
-            let workers = remote_of(&team_members);
-            let last = workers.len().saturating_sub(1);
-            for (at, worker) in workers.into_iter().enumerate() {
-                let link = if at == last {
-                    TeamLink::Last
-                } else {
-                    TeamLink::Member
-                };
-                let Some(row) = (listed_elsewhere(worker).cloned())
-                    .or_else(|| crate::agents::rows::worker(worker))
-                else {
-                    continue;
-                };
-                drawn.push((
-                    row.id.clone(),
-                    agent_row(bench, &row, Some(link), None, glided, cx),
-                ));
-                reports.push(under_chief(agent, false));
-                shown.push((row.id.clone(), row));
-            }
-        }
+        drawn.push((format!("chief:{project}"), head));
+        place(placed, &mut drawn, cx);
+        headed.insert(project);
     }
-    drawn.extend(
-        heads
-            .into_iter()
-            .map(|(project, head)| (format!("chief:{project}"), head)),
-    );
-    let drawn = under_chiefs(drawn, &reports, cx);
+    let loose: Vec<AgentRow> = (rows.iter().zip(&home))
+        .filter(|(_, home)| !headed.contains(*home))
+        .map(|(row, _)| row.clone())
+        .collect();
+    place(tree::tree(&loose, 0, folded), &mut drawn, cx);
     let view = format!(
         "{}:{}:{}",
         bench.rails.all_projects,
@@ -961,7 +944,7 @@ fn team_rows(
         })
         .collect();
     for gone in left {
-        let row = agent_row(bench, &gone.item, None, None, false, cx);
+        let row = agent_row(bench, &gone.item, &tree::Hang::default(), None, false, cx);
         let key = SharedString::from(format!("depart:{}", gone.id));
         let row = crate::motion::departing(key, gone.since, crate::motion::ROW_DEPARTURE, row);
         rows.insert(gone.at.min(rows.len()), row.into_any_element());
@@ -974,102 +957,55 @@ fn team_rows(
     (copy, rows)
 }
 
-/// Hangs the rows that report to a project's chief under its row, as a team hangs under its
-/// lead: a spine down from the chief, a tick to each agent it runs, and the spine carried past
-/// the workers of a lead between them.
-fn under_chiefs(
-    drawn: Vec<(String, AnyElement)>,
-    reports: &[Option<(String, bool)>],
-    cx: &App,
-) -> Vec<(String, AnyElement)> {
-    let last_direct = |project: &str| {
-        reports.iter().rposition(|report| {
-            report
-                .as_ref()
-                .is_some_and(|(of, direct)| of == project && *direct)
-        })
-    };
-    drawn
-        .into_iter()
-        .enumerate()
-        .map(|(at, (id, row))| {
-            let (lines, indent) = match (
-                id.strip_prefix("chief:"),
-                reports.get(at).cloned().flatten(),
-            ) {
-                (Some(project), _) if last_direct(project).is_some() => {
-                    (team_lines(Some(TeamLink::Head), true, cx), false)
-                }
-                (_, Some((project, direct))) => {
-                    let last = last_direct(&project);
-                    let lines = match (direct, last) {
-                        (true, Some(last)) if last == at => {
-                            team_lines(Some(TeamLink::Last), false, cx)
-                        }
-                        (true, _) => team_lines(Some(TeamLink::Member), false, cx),
-                        (false, Some(last)) if at < last => chief_spine(cx),
-                        (false, _) => Vec::new(),
-                    };
-                    (lines, true)
-                }
-                _ => return (id, row),
-            };
-            let row = div()
-                .relative()
-                .children(lines)
-                .child(div().when(indent, |row| row.pl(px(18.))).child(row))
-                .into_any_element();
-            (id, row)
-        })
-        .collect()
-}
-
-/// The chief's spine running past a lead's worker that sits between two of the chief's agents.
-fn chief_spine(cx: &App) -> Vec<AnyElement> {
-    let t = Tokens::get(cx);
-    vec![div()
-        .absolute()
-        .left(px(14.))
-        .w(px(1.))
-        .top(px(-2.))
-        .bottom(px(-2.))
-        .bg(t.tree_spine)
-        .into_any_element()]
-}
-
-/// The spine and tick that hang a team's rows under its lead.
-fn team_lines(team: Option<TeamLink>, open_head: bool, cx: &App) -> Vec<AnyElement> {
+/// The spines, ticks and corners that hang a row under its lead, level by level, and the line
+/// dropping from its mark to the rows under it.
+fn hang_lines(hang: &tree::Hang, cx: &App) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let spine = |line: gpui_kit::Div| line.absolute().left(px(14.)).w(px(1.)).bg(t.tree_spine);
-    match (team, open_head) {
-        (Some(TeamLink::Head), true) => {
-            vec![spine(div()).top(px(26.)).bottom(px(-2.)).into_any_element()]
+    let at = |level: usize| px(14. + INDENT * level as f32);
+    let spine = |level: usize| div().absolute().left(at(level)).w(px(1.)).bg(t.tree_spine);
+    let mut lines: Vec<AnyElement> = Vec::new();
+    for (level, line) in hang.lines.iter().enumerate() {
+        match line {
+            tree::Line::Blank => {}
+            tree::Line::Through => {
+                lines.push(spine(level).top(px(-2.)).bottom(px(-2.)).into_any_element())
+            }
+            tree::Line::Tick => {
+                lines.push(spine(level).top(px(-2.)).bottom(px(-2.)).into_any_element());
+                lines.push(
+                    div()
+                        .absolute()
+                        .top(px(14.))
+                        .left(at(level))
+                        .w(px(7.))
+                        .h(px(1.))
+                        .bg(t.tree_tick)
+                        .into_any_element(),
+                );
+            }
+            tree::Line::Corner => lines.push(
+                div()
+                    .absolute()
+                    .top(px(-2.))
+                    .left(at(level))
+                    .w(px(8.))
+                    .h(px(17.))
+                    .border_l_1()
+                    .border_b_1()
+                    .border_color(t.tree_spine)
+                    .rounded_bl(px(4.))
+                    .into_any_element(),
+            ),
         }
-        (Some(TeamLink::Member), _) => vec![
-            spine(div()).top(px(-2.)).bottom(px(-2.)).into_any_element(),
-            div()
-                .absolute()
-                .top(px(14.))
-                .left(px(14.))
-                .w(px(7.))
-                .h(px(1.))
-                .bg(t.tree_tick)
-                .into_any_element(),
-        ],
-        (Some(TeamLink::Last), _) => vec![div()
-            .absolute()
-            .top(px(-2.))
-            .left(px(14.))
-            .w(px(8.))
-            .h(px(17.))
-            .border_l_1()
-            .border_b_1()
-            .border_color(t.tree_spine)
-            .rounded_bl(px(4.))
-            .into_any_element()],
-        _ => Vec::new(),
     }
+    if hang.open {
+        lines.push(spine(hang.depth).top(px(26.)).bottom(px(-2.)).into_any_element());
+    }
+    lines
 }
+
+/// How far each level of a tree sits to the right of the one above.
+const INDENT: f32 = 18.;
 
 /// The workers the agents listed started on linked hosts, as each lead's core lists them in team
 /// order.
@@ -1083,7 +1019,7 @@ fn remote_workers<'a>(bench: &'a Workbench, agents: &[AgentRow]) -> Vec<&'a Remo
     (places.into_iter())
         .filter_map(|place| bench.view_at(place))
         .flat_map(|view| &view.inbox.remote_agents)
-        .filter(|worker| worker.shown.team.is_some())
+        .filter(|worker| worker.shown.lead.is_some())
         .collect()
 }
 
@@ -1105,7 +1041,7 @@ struct Fold {
 fn agent_row(
     bench: &Workbench,
     agent: &AgentRow,
-    team: Option<TeamLink>,
+    hang: &tree::Hang,
     fold: Option<Fold>,
     glided: bool,
     cx: &mut Context<Workbench>,
@@ -1217,6 +1153,12 @@ fn agent_row(
         }
     }))
     .children(host_tag(bench, agent, cx))
+    .children(
+        (hang.lead_apart.as_deref())
+            .and_then(|lead| bench.agent_by_id(lead))
+            .and_then(|lead| lead.name)
+            .map(|lead| ui::meta(format!("@{lead} ›"), cx).pl(SPACE_2)),
+    )
     .children(agent.handle().map(|name| {
         let name = ui::meta(format!("@{name}"), cx).pl(SPACE_2).pr(SPACE_1);
         match fades {
@@ -1242,7 +1184,7 @@ fn agent_row(
         true => ui::gives_way(AGENT_ROW, counts).into_any_element(),
         false => counts.into_any_element(),
     }));
-    let lines = team_lines(team, matches!(fold, Some(Fold { open: true, .. })), cx);
+    let lines = hang_lines(hang, cx);
     let card = (!elsewhere)
         .then(|| crate::agents::card::view(bench, agent, project.as_deref(), cx))
         .flatten();
@@ -1295,10 +1237,7 @@ fn agent_row(
     };
     let keyed_id = format!("agent-{}", agent.id);
     let row = crate::drag::chat(wrap, dragged, cx.weak_entity())
-        .when(
-            matches!(team, Some(TeamLink::Member | TeamLink::Last)),
-            |wrap| wrap.pl(px(18.)),
-        )
+        .pl(px(INDENT * hang.depth as f32))
         .on_hover({
             let id = id.clone();
             cx.listener(move |bench, inside: &bool, _, cx| bench.rest_on_agent(&id, *inside, cx))
