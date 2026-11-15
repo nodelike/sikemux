@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Decision date: 2026-11-15
+- Amended: 2026-11-15, to cover repositories where no App can be used, more than one App, and
+  keys that stay on one computer
 - Builds on: [ADR 0010](./0010-phone-links-only-the-wire-and-client.md), [ADR 0016](./0016-the-account-vault.md)
 
 ## Context
@@ -25,6 +27,12 @@ Agents run as the person's Unix user, so a file the person can read, an agent ca
 places hold a secret against that: the core's keychain store, a service that issues short
 tokens from a key kept there, and something the person physically does.
 
+The first decision tied the core's push to an App. A repository with no App fell back to agents
+holding the person's token. Two kinds of repository were left there. One belongs to an
+organization, which needs an App of its own. The other can have no App at all, because the
+organization refuses Apps or the host is not GitHub. A key for work also must not ride the
+person's own account vault to the computers they keep at home.
+
 ## Decision
 
 - **A GitHub App is the agents' identity.** Each person creates their own from Sikemux through
@@ -36,7 +44,7 @@ tokens from a key kept there, and something the person physically does.
   store, carried to linked hosts by the account vault. Each host mints for itself. A token
   never travels through a plugin call, which mods, clients and agent tools can reach by name.
   The plugin contract has four methods only the core calls. They mint a credential, revoke
-  one, merge a pull request as the App, and say whether a remote has an identity.
+  one, merge a pull request as the App, and say who the core pushes as on a remote.
 - **No token an agent can reach writes a repository's contents.** The stand-ins for `git` and
   `gh` ask the core, and the core answers only a caller whose process tree leads to an agent
   it started. That caller gets a one-hour token for the one repository that reads contents
@@ -50,6 +58,24 @@ tokens from a key kept there, and something the person physically does.
   revoked when it ends. The core never forces a ref the agent's own push did not force.
   `git_commit` and the merge queue push the same way. `gh pr merge` is handed to the core,
   which merges inside the plugin as the App.
+- **One App for each owner.** A private App installs only on the account that owns it. So a
+  person who also works in an organization has their own App and one the organization owns,
+  made by one of its owners through the same flow. The core keeps every App it was given and
+  uses the one installed on the repository.
+- **Without an App the core still pushes, with the person's sign-in.** When the person has
+  signed in to the host's connector and that sign-in can push, an agent's `git push` takes the
+  same path into the core, and the core's own `git` sends it with that sign-in. Only that push
+  and the fetch that fills the core's repository for it get the sign-in. Nothing else the core
+  runs does. On Bitbucket that is an OAuth token that lasts two hours, or a repository access
+  token when the person signed in with one. Bitbucket shows such a token as a bot of the
+  repository's own.
+- **There, agents hold no token at all.** Bitbucket's scope for writing pull requests includes
+  pushing, so no token can be handed to an agent's commands. Pull requests go through the
+  connector's tools, which the core runs. Fetching stays on the person's own git setup.
+- **A key can stay on one computer.** A sign-in marked as kept on this computer never enters
+  the account vault, and one already in it leaves. A computer can make that the rule for every
+  new sign-in. An App an organization owns starts out kept. The mark is the person's to set,
+  since Sikemux cannot tell which sign-ins are for work.
 - **The person stays the author.** The App's bot is the committer and the pusher. Rules look
   at the pusher, so they apply to agents.
 - **The core alone pushes workflow changes, and asks only about ones that can reach
@@ -73,7 +99,7 @@ tokens from a key kept there, and something the person physically does.
 ## Consequences
 
 - Landing and pushing `main`, nightlies, deploys and pull request triage stay the agents' own.
-  A project with no App behaves as before.
+  A repository the core holds no credential for behaves as before.
 - `gh release` and every other write to contents by an agent fails at GitHub. Releases come
   only from the Release run. A workflow's own token is covered by the plain rule, since a file
   that lets it write contents waits for the person.
@@ -95,5 +121,19 @@ tokens from a key kept there, and something the person physically does.
   contained closes that. It is separate work.
 - The pinned scripts are not on `main` yet. They wait for the person's yes, and until then an
   agent can change a script a signing job runs.
+- Where the core pushes with the person's sign-in, commits and pushes still show the person,
+  so a rule that names the owner does not tell agents apart there. A repository access token
+  gives Bitbucket a pusher of the agents' own, which its branch restrictions can name.
+- On such a repository an agent still fetches with the person's own key, and that key can
+  push. Sending pushes through the core keeps the core's credential from agents. It does not
+  take the person's key from them. To move that key, fetching has to go through the core too,
+  or use a token that only reads. Neither is built.
+- A pushed change to `bitbucket-pipelines.yml` runs with the repository's secured variables.
+  The core's pass over workflow files reads GitHub's only.
+- A GitHub organization that refuses Apps is not covered. Agents keep the person's token
+  there, because `gh` needs one and GitHub cannot narrow it.
+- An organization whose owner does not use Sikemux cannot hand over an App made by hand yet.
+- Sign-ins that went into the vault before they could be marked stay there until the person
+  marks them.
 - AWS, Google Cloud and citadel can take the same shape, a stand-in that gets a short
   credential from the core. They are not built.
