@@ -10,6 +10,8 @@ pub mod checkout;
 mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(windows)]
+mod windows;
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
@@ -39,6 +41,8 @@ use super::{Core, CoreResult};
 use darwin as system;
 #[cfg(target_os = "linux")]
 use linux as system;
+#[cfg(windows)]
+use windows as system;
 
 const MAX_ANCESTRY: usize = 64;
 const LOOK_AGAIN_MS: u64 = 5_000;
@@ -220,7 +224,7 @@ fn describe(
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub fn listening_now(core: &Core) -> Vec<ListeningPort> {
     let core_pid = std::process::id();
     let mut owners = HashMap::new();
@@ -257,7 +261,7 @@ pub fn listening_now(core: &Core) -> Vec<ListeningPort> {
     .collect()
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub fn listening_now(_core: &Core) -> Vec<ListeningPort> {
     Vec::new()
 }

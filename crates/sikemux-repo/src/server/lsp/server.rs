@@ -117,10 +117,72 @@ mod tests {
     use std::time::Duration;
 
     #[cfg(unix)]
+    mod pipe {
+        use std::os::fd::AsRawFd;
+        use std::process::ChildStdin;
+
+        pub fn idle_child() -> std::process::Command {
+            let mut command = sikemux_process::user_environment::command("/bin/sleep");
+            command.arg("60");
+            command
+        }
+
+        /// Fills the pipe without blocking, then restores blocking mode, so the one
+        /// byte returned waits until the child closes its reader.
+        pub fn fill(stdin: &ChildStdin) -> Vec<u8> {
+            let fd = stdin.as_raw_fd();
+            // SAFETY: `fd` is a live ChildStdin descriptor owned by this test.
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            assert!(flags >= 0, "read pipe flags");
+            assert!(
+                // SAFETY: the descriptor remains live and the flag combination keeps
+                // its existing access mode while temporarily adding O_NONBLOCK.
+                unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } >= 0,
+                "set nonblocking pipe"
+            );
+            let chunk = [0_u8; 4_096];
+            loop {
+                // SAFETY: `chunk` remains valid for the full write call and `fd`
+                // still belongs to `stdin` in this scope.
+                let written = unsafe { libc::write(fd, chunk.as_ptr().cast(), chunk.len()) };
+                if written > 0 {
+                    continue;
+                }
+                assert_eq!(
+                    std::io::Error::last_os_error().kind(),
+                    std::io::ErrorKind::WouldBlock,
+                    "pipe should become full"
+                );
+                break;
+            }
+            assert!(
+                // SAFETY: `fd` is unchanged and live; restore the exact original flags.
+                unsafe { libc::fcntl(fd, libc::F_SETFL, flags) } >= 0,
+                "restore blocking pipe"
+            );
+            vec![1]
+        }
+    }
+
+    #[cfg(windows)]
+    mod pipe {
+        use std::process::ChildStdin;
+
+        pub fn idle_child() -> std::process::Command {
+            let mut command = sikemux_process::user_environment::command("ping");
+            command.args(["-n", "60", "127.0.0.1"]);
+            command
+        }
+
+        /// Windows pipes cannot be filled without blocking, so the writer gets more
+        /// than any pipe holds and blocks partway until the child closes its reader.
+        pub fn fill(_stdin: &ChildStdin) -> Vec<u8> {
+            vec![0; 1 << 20]
+        }
+    }
+
     #[test]
     fn shutdown_kills_before_waiting_for_a_blocked_document_writer() {
-        use std::os::fd::AsRawFd;
-
         struct ChildCleanup(Arc<Mutex<Option<Child>>>);
 
         impl Drop for ChildCleanup {
@@ -129,47 +191,14 @@ mod tests {
             }
         }
 
-        let mut child = sikemux_process::user_environment::command("/bin/sleep")
-            .arg("60")
+        let mut child = pipe::idle_child()
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn non-reading child");
         let stdin = child.stdin.take().expect("child stdin");
-
-        // Fill the pipe without blocking, then restore blocking mode. The next
-        // byte written is guaranteed to wait until the child closes its reader.
-        let fd = stdin.as_raw_fd();
-        // SAFETY: `fd` is a live ChildStdin descriptor owned by this test.
-        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        assert!(flags >= 0, "read pipe flags");
-        assert!(
-            // SAFETY: the descriptor remains live and the flag combination keeps
-            // its existing access mode while temporarily adding O_NONBLOCK.
-            unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } >= 0,
-            "set nonblocking pipe"
-        );
-        let chunk = [0_u8; 4_096];
-        loop {
-            // SAFETY: `chunk` remains valid for the full write call and `fd`
-            // still belongs to `stdin` in this scope.
-            let written = unsafe { libc::write(fd, chunk.as_ptr().cast(), chunk.len()) };
-            if written > 0 {
-                continue;
-            }
-            assert_eq!(
-                std::io::Error::last_os_error().kind(),
-                std::io::ErrorKind::WouldBlock,
-                "pipe should become full"
-            );
-            break;
-        }
-        assert!(
-            // SAFETY: `fd` is unchanged and live; restore the exact original flags.
-            unsafe { libc::fcntl(fd, libc::F_SETFL, flags) } >= 0,
-            "restore blocking pipe"
-        );
+        let blocked_write = pipe::fill(&stdin);
 
         let child = Arc::new(Mutex::new(Some(child)));
         let _cleanup = ChildCleanup(child.clone());
@@ -186,7 +215,7 @@ mod tests {
             let result = stdin
                 .as_mut()
                 .expect("live stdin")
-                .write_all(&[1_u8])
+                .write_all(&blocked_write)
                 .map_err(|error| error.kind());
             writer_done_tx.send(result).expect("writer result");
         });
