@@ -180,6 +180,11 @@ export interface ProjectInfo {
     savedChats?: Record<string, number>;
     /** Its chief, @Chief, by agent id. The core keeps it; clients only read it. */
     chief?: string;
+    /**
+     * Where its chief lives when that is another host of the account, because this
+     * copy has none of its own. The core fills it in; clients open that chief.
+     */
+    chiefHome?: ChiefHome;
     /** How many agents are open in it, the chief's whole team. The core fills it in. */
     agents?: number;
     /** How it stands for the person, which clients order projects by. The core fills it in. */
@@ -304,6 +309,18 @@ export interface CiAbilities {
     deleteRuns: boolean;
     /** A run's logs can go while the run stays. */
     deleteLogs: boolean;
+}
+
+/** The host a project's chief lives on, and the chief there. */
+export interface ChiefHome {
+    /** The host's key. */
+    host: string;
+    /** What the person named the host. */
+    hostName: string;
+    /** The chief, by its agent id there. */
+    agentId: string;
+    /** When this host lost reach of it, in Unix milliseconds, while it is out of reach. */
+    awaySince?: number;
 }
 
 /** How a project stands for the person: needs them first, then at work, then the rest. */

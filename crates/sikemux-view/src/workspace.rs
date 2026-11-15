@@ -62,6 +62,10 @@ pub struct ProjectInfo {
     /// Its chief, @Chief, by agent id. The core keeps it; clients only read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chief: Option<String>,
+    /// Where its chief lives when that is another host of the account, because this
+    /// copy has none of its own. The core fills it in; clients open that chief.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chief_home: Option<ChiefHome>,
     /// How many agents are open in it, the chief's whole team. The core fills it in.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub agents: u32,
@@ -114,6 +118,21 @@ impl ProjectStanding {
 
 fn is_zero(count: &u32) -> bool {
     *count == 0
+}
+
+/// The host a project's chief lives on, and the chief there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChiefHome {
+    /// The host's key.
+    pub host: String,
+    /// What the person named the host.
+    pub host_name: String,
+    /// The chief, by its agent id there.
+    pub agent_id: String,
+    /// When this host lost reach of it, in Unix milliseconds, while it is out of reach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub away_since: Option<u64>,
 }
 
 /// A project's copy on another host of the account (ADR 0023), as that host

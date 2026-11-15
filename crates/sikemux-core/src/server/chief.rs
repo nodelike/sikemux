@@ -263,6 +263,13 @@ pub(crate) async fn open(core: &Arc<Core>, params: OpenChiefParams) -> CoreResul
     let project = (core.workspace_view().projects.into_iter())
         .find(|project| project.id == params.project)
         .ok_or("that project is not on this host")?;
+    if let Some(home) = &project.chief_home {
+        return Err(format!(
+            "@Chief of this project lives on {}; open it there",
+            home.host_name
+        )
+        .into());
+    }
     let agent_id = seat(core, &project).await?;
     if let Some(text) = greeting(core, &project, &agent_id) {
         let ask = ChatCommand::Prompt {

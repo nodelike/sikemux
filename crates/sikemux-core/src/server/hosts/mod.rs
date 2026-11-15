@@ -231,6 +231,23 @@ impl Hosts {
         state.connections.contains_key(host) || !state.down.contains_key(host)
     }
 
+    /// Since when `host` has been out of reach, while it has failed to answer.
+    pub(crate) fn away_since(&self, host: &str) -> Option<u64> {
+        let state = self.state.locked();
+        if state.connections.contains_key(host) {
+            return None;
+        }
+        (state.down.get(host))
+            .filter(|down| down.failures > 0)
+            .map(|down| down.since)
+    }
+
+    /// Whether `host` has been out of reach long enough that its agents' teammates here hear of it.
+    pub(crate) fn long_away(&self, host: &str) -> bool {
+        self.away_since(host)
+            .is_some_and(|since| epoch_ms().saturating_sub(since) >= OUT_OF_REACH_MS)
+    }
+
     /// The linked hosts that failed to answer for `for_ms` or longer, each with since when.
     pub(crate) fn out_of_reach(&self, for_ms: u64) -> Vec<(String, u64)> {
         let now = epoch_ms();
@@ -1062,24 +1079,29 @@ pub(crate) fn settle(core: &Arc<Core>) {
         let core = core.clone();
         tokio::spawn(async move {
             let dialed = dial(&core, &link.id, &link.addresses).await;
-            {
+            let first_failure = {
                 let mut state = core.hosts().state.locked();
                 state.dialing.remove(&link.id);
-                if let Err(error) = &dialed {
-                    if let Some(down) = state.down.get_mut(&link.id) {
+                match (&dialed, state.down.get_mut(&link.id)) {
+                    (Err(error), Some(down)) => {
                         down.last = Some(error.failure);
                         down.failures = down.failures.saturating_add(1);
                         down.retry_at =
                             epoch_ms() + backoff.after(down.failures).as_millis() as u64;
+                        down.failures == 1
                     }
+                    _ => false,
                 }
-            }
+            };
             match dialed {
                 Ok(connection) => {
                     adopt(&core, &link.id, connection);
                 }
                 Err(_) => {
                     core.changed(What::Read(Topic::Hosts));
+                    if first_failure {
+                        core.changed(What::View);
+                    }
                     core.hosts().wake.now();
                 }
             }

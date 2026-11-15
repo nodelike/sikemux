@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
-use sikemux_view::workspace::{ProjectCopy, ProjectElsewhere, ProjectGit, Workspace};
+use sikemux_view::workspace::{ChiefHome, ProjectCopy, ProjectElsewhere, ProjectGit, Workspace};
 
 use super::super::changed::What;
 use super::super::kept::Kept;
@@ -36,6 +36,9 @@ pub(crate) struct Held {
     identity: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     git: Option<ProjectGit>,
+    /// The project's chief on that host, by agent id, once it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    chief: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -92,7 +95,8 @@ impl Copies {
     }
 
     /// Adds the copies the linked hosts hold to `workspace`: each under this host's project of
-    /// the same repository, else in a project of its own among those only elsewhere.
+    /// the same repository, else in a project of its own among those only elsewhere. A project
+    /// here with no chief of its own takes the first linked host's that has one as its home.
     pub(crate) fn fold(&self, core: &Core, workspace: &mut Workspace) {
         let heard = self.heard.locked().clone();
         for link in core.remote().links() {
@@ -100,6 +104,7 @@ impl Copies {
                 continue;
             };
             let away = core.hosts().connected(&link.id).is_none();
+            let away_since = core.hosts().away_since(&link.id);
             for project in held {
                 let copy = ProjectCopy {
                     host: link.id.clone(),
@@ -122,6 +127,18 @@ impl Copies {
                 if let Some(here) =
                     (workspace.projects.iter_mut()).find(|here| same(&here.identity))
                 {
+                    if let Some(chief) = project
+                        .chief
+                        .clone()
+                        .filter(|_| here.chief.is_none() && here.chief_home.is_none())
+                    {
+                        here.chief_home = Some(ChiefHome {
+                            host: link.id.clone(),
+                            host_name: link.name.clone(),
+                            agent_id: chief,
+                            away_since,
+                        });
+                    }
                     here.copies.push(copy);
                 } else if let Some(there) =
                     (workspace.elsewhere.iter_mut()).find(|there| same(&there.identity))
@@ -148,6 +165,7 @@ fn held_here(core: &Core) -> Vec<Held> {
             name: project.name,
             path: project.path,
             identity: project.identity,
+            chief: project.chief,
         })
         .collect()
 }
