@@ -33,8 +33,10 @@ pub(crate) struct Finishing {
     started: u64,
     reading: AtomicBool,
     again: AtomicBool,
-    /// Per agent, the end of the idle turn its unlanded commits were last told about.
+    /// Per agent, the end of the idle turn its left work was last told about.
     told_left: Mutex<HashMap<String, u64>>,
+    /// Per ask of the person's, since when nobody had it as its chief was last told.
+    told_asks: Mutex<HashMap<u64, u64>>,
 }
 
 impl Default for Finishing {
@@ -45,6 +47,7 @@ impl Default for Finishing {
             reading: AtomicBool::new(false),
             again: AtomicBool::new(false),
             told_left: Mutex::default(),
+            told_asks: Mutex::default(),
         }
     }
 }
@@ -89,7 +92,12 @@ fn settle(core: &Arc<Core>) {
             super::left_behind::read(&core, &turns, &mut told, epoch_ms())
         };
         super::left_behind::tell(&core, left);
-        if let Some(next) = [next, due].into_iter().flatten().min() {
+        let (asks, asks_due) = {
+            let mut told = core.finishing().told_asks.locked();
+            super::left_behind::asks(&core, &mut told, epoch_ms())
+        };
+        super::left_behind::tell_chiefs(&core, asks);
+        if let Some(next) = [next, due, asks_due].into_iter().flatten().min() {
             core.finishing().wake.at(next);
         }
         let finishing = core.finishing();

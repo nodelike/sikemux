@@ -369,3 +369,14 @@ fn rank(stand: &AskStand) -> u8 {
         AskStand::Unknown => 4,
     }
 }
+
+/// The asks nobody has, each with its id, project, title and since when nobody has it.
+pub(crate) fn with_nobody(core: &Core) -> Vec<(u64, String, String, u64)> {
+    (core.now().state.locked().asks.iter())
+        .filter(|ask| ask.commit.is_none() && ask.in_build_at.is_none())
+        .filter_map(|ask| {
+            let since = ask.nobody_since?;
+            Some((ask.id, ask.project.clone(), ask.title.clone(), since))
+        })
+        .collect()
+}
