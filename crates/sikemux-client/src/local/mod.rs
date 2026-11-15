@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
+mod peer;
 #[cfg(unix)]
 #[path = "unix.rs"]
 mod platform;
@@ -14,6 +15,7 @@ mod platform;
 #[path = "windows.rs"]
 mod platform;
 
+pub use peer::{peer, Peer};
 /// What the core holds of a client's connection.
 pub use platform::Connection;
 pub use platform::Listener;
