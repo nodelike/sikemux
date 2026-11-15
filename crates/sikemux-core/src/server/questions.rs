@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
@@ -38,6 +38,7 @@ use sikemux_view::inbox::{InboxRaised, RaisedFor};
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::WindowCall;
 
+use super::Core;
 use super::activity::Activity;
 use super::approvals::{Approval, Keeper};
 use super::changed::Topic;
@@ -47,8 +48,7 @@ use super::kept::Kept;
 use super::messages;
 use super::notify::Signal;
 use super::person_calls;
-use super::wake::{sooner, Wake};
-use super::Core;
+use super::wake::{Wake, sooner};
 
 mod relay;
 mod reply;
@@ -1828,6 +1828,11 @@ pub(crate) fn offers_in_reply(core: &Arc<Core>, agent_id: &str) {
     let project = (named.map(|named| named.project))
         .unwrap_or_else(|| core.workspaces().project_of(&chat.launch.cwd));
     follow_rule(core, agent_id, &project, offers);
+}
+
+/// Whether an agent's reply asks the person anything, in its own words.
+pub(crate) fn asks_in(reply: &str) -> bool {
+    !asked_in(reply).is_empty()
 }
 
 /// The first offer of more work in an agent's reply, which a yes or a no answers.

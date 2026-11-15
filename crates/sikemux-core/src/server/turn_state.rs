@@ -25,7 +25,7 @@ use sikemux_view::turn::{
     TurnStep, TurnStopped, TurnWait, TurnWaitKind, WorkAt,
 };
 use sikemux_view::workspace::AgentWorktree;
-use sikemux_wire::protocol::{AgentStatus, ChatContext, ChatInfo, SessionInfo, FOR_AGENT_URI};
+use sikemux_wire::protocol::{AgentStatus, ChatContext, ChatInfo, FOR_AGENT_URI, SessionInfo};
 
 use super::changed::What;
 use super::inbox::{self, Fault};
@@ -747,6 +747,23 @@ pub(crate) fn line(turn: &TurnState) -> Option<String> {
     })
 }
 
+/// A turn's line in `agent_list`: its `line`, saying too when a turn that ended on an answer to
+/// the person asks them something there. That question stays in the chat and raises no call.
+pub(crate) fn listed_line(
+    turn: &TurnState,
+    last_answer: Option<&str>,
+    has_lead: bool,
+) -> Option<String> {
+    let line = line(turn)?;
+    let asks = turn.state == TurnPhase::Done
+        && !has_lead
+        && last_answer.is_some_and(super::questions::asks_in);
+    Some(match asks {
+        true => format!("{line}, asks the person something"),
+        false => line,
+    })
+}
+
 /// The agent's own line, sent with the person's next message so it knows where its work stands
 /// as the person sees it.
 pub(crate) fn told(turn: &TurnState) -> Option<ChatContext> {
@@ -873,7 +890,8 @@ fn undo_words(core: &Core, agent_id: &str) -> Result<String, String> {
         .ok_or("Sikemux has not read where this agent's work is yet")?;
     if work.own.is_empty() {
         return Err(match work.shared {
-            0 => "Sikemux found no commits of this agent's own on the project's branch to take out".to_owned(),
+            0 => "Sikemux found no commits of this agent's own on the project's branch to take out"
+                .to_owned(),
             shared => format!(
                 "Its {shared} landed commits name other agents too, so none is this agent's alone to take out"
             ),
@@ -888,10 +906,10 @@ fn undo_words(core: &Core, agent_id: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::ServerCore;
     use crate::server::activity::{Activity, ActivityCore};
     use crate::server::workspace::AddProjectParamsExt;
-    use crate::server::ServerCore;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[tokio::test]
     async fn a_finished_turn_is_seen_once_a_focused_client_shows_it() {

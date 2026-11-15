@@ -2,6 +2,7 @@
 //! those on linked hosts. What the agents' tools list, read and close comes from here.
 
 use crate::server::agent_now::AgentNowCore;
+use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -239,7 +240,11 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                 "cli": agent.cli,
                 "title": agent.title,
                 "status": status,
-                "turn": turns.get(&agent.agent_id).and_then(super::turn_state::line),
+                "turn": turns.get(&agent.agent_id).and_then(|turn| {
+                    let answer = (core.chats().get(&agent.agent_id))
+                        .and_then(|chat| chat.feed.last_answer());
+                    super::turn_state::listed_line(turn, answer.as_deref(), agent.parent.is_some())
+                }),
                 "lastActive": since(agent.active_at, now),
                 "canMessage": agent.reach != Reach::Stopped
                     && agent.agent_id != caller
@@ -295,11 +300,12 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         let (core, caller) = (here, caller_id);
         let project = super::caller::project_of(&core, &request);
         let agents = listed(&core);
+        let waited_on = waited_on(&core, &caller);
         let mut closing = Vec::new();
         let mut remote = Vec::new();
         let mut refused = Vec::new();
         for to in &wanted {
-            match closable(&core, &agents, to, &project, &caller) {
+            match closable(&core, &agents, &waited_on, to, &project, &caller) {
                 Ok(target) if target.reach == Reach::Remote => remote.push(target.agent_id),
                 Ok(target) => {
                     let name = target.name.unwrap_or_else(|| target.agent_id.clone());
@@ -330,10 +336,19 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
     Ok(result)
 }
 
+/// The open agents other than `caller` that wait on another agent, by the agent each waits on.
+fn waited_on(core: &Core, caller: &str) -> HashMap<String, String> {
+    (super::turn_state::all(core).into_iter())
+        .filter(|(waiter, _)| waiter != caller)
+        .filter_map(|(waiter, turn)| Some((turn.wait?.agent?, core.names().name_or_id(&waiter))))
+        .collect()
+}
+
 /// The agent `to` names, when the caller may close it, else why not.
 fn closable(
     core: &Core,
     agents: &[Listed],
+    waited_on: &HashMap<String, String>,
     to: &str,
     project: &str,
     caller: &str,
@@ -341,6 +356,12 @@ fn closable(
     let target = resolve(core, agents, to, project, caller)?;
     if target.reach == Reach::Remote {
         return Ok(target);
+    }
+    if let Some(waiter) = waited_on.get(&target.agent_id) {
+        let name = target.name.clone().unwrap_or(target.agent_id.clone());
+        return Err(format!(
+            "@{waiter} is waiting on {name}, so closing it is not yours to do yet"
+        ));
     }
     let led = core.names().leads_of(&target.agent_id);
     if led.iter().any(|lead| lead == caller) {
