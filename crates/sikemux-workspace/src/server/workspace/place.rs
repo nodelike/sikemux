@@ -1,5 +1,5 @@
-//! Where each agent sits in the lists: when the person last wrote to it, which orders the
-//! idle ones, and whether it is snoozed or settled out of the main list.
+//! Where each agent sits in the lists: when it started, which orders them, and whether it is
+//! snoozed or settled out of the main list.
 
 use super::*;
 
@@ -58,14 +58,12 @@ impl Workspaces {
             .collect()
     }
 
-    /// When the person last wrote to each agent, else when it was made.
-    pub fn said_at(&self) -> HashMap<String, u64> {
+    /// When each kept agent was started, for those that say.
+    pub fn started_at(&self) -> HashMap<String, u64> {
         let published = self.published.locked();
         (published.saved.agents.iter())
-            .filter_map(|kept| {
-                let made = Some(kept.agent.created_at).filter(|&at| at > 0);
-                Some((kept.agent.id.clone(), kept.place.said_at.or(made)?))
-            })
+            .filter(|kept| kept.agent.created_at > 0)
+            .map(|kept| (kept.agent.id.clone(), kept.agent.created_at))
             .collect()
     }
 

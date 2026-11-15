@@ -12,7 +12,7 @@ use sikemux_calls::call;
 use sikemux_calls::saved_sessions::RecentChat;
 use sikemux_calls::saved_sessions::RecentRenamed;
 use sikemux_calls::workspace::PinChatParams;
-use sikemux_wire::protocol::SessionId;
+use sikemux_wire::protocol::{AgentGroup, SessionId};
 use std::collections::{HashMap, HashSet};
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
@@ -21,8 +21,8 @@ use gpui_kit::base::Button as BaseButton;
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, px, radians, relative, Anchor, AnyElement, App, ClickEvent, Context, Entity,
-    FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, SharedString,
+    canvas, div, px, radians, relative, Anchor, AnyElement, App, Bounds, ClickEvent, Context,
+    Entity, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, SharedString,
     StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use sikemux_view::device::RecentInfo;
@@ -152,6 +152,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
             .map(|placed| agent_row(bench, &placed.row, &placed.hang, None, false, cx))
             .collect()
     };
+    let unseen = out_of_sight(bench, &agents);
     let snoozed = away_rows(&snoozed, cx);
     let settled = away_rows(&settled, cx);
     let projects: Vec<ProjectInfo> = match bench.rails.all_projects {
@@ -328,57 +329,62 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 )
                 .child(div().mt(SPACE_2).child(scope_switch(bench, cx))),
         )
-        .child(faded(
-            div()
-                .id("tab-rail-scroll")
-                .track_scroll(&bench.rails.scroll)
-                .on_scroll(cx.listener(|bench, _, _, cx| bench.hold_card(cx)))
-                .size_full()
-                .pt(px(EDGE_FADE))
-                .px(SPACE_2H)
-                .pb(px(EDGE_FADE))
-                .overflow_y_scroll()
-                .children(empty)
-                .child({
-                    let glide = bench.rails.glide.borrow();
-                    let skip = usize::from(copy.is_some());
-                    div().on_children_prepainted(glide.keep_origin()).child(
-                        div()
-                            .relative()
-                            .flex()
-                            .flex_col()
-                            .gap(SPACE_0)
-                            .children(copy)
-                            .children(rows)
-                            .on_children_prepainted(glide.keep_items(skip)),
-                    )
-                })
-                .when(!snoozed.is_empty(), |scroll| {
-                    scroll.child(
-                        folding(Group::new(t!("Snoozed"), ""), SNOOZED, bench, cx)
-                            .children(snoozed),
-                    )
-                })
-                .when(!settled.is_empty(), |scroll| {
-                    scroll.child(
-                        folding(Group::new(t!("Settled"), ""), SETTLED, bench, cx)
-                            .children(settled),
-                    )
-                })
-                .when(!pinned.is_empty(), |scroll| {
-                    scroll.child(
-                        folding(Group::new(t!("Pinned"), ""), PINNED, bench, cx).children(pinned),
-                    )
-                })
-                .when(!recent.is_empty(), |scroll| {
-                    scroll.child(
-                        folding(Group::new(t!("Recent"), ""), RECENT, bench, cx)
-                            .total(project.and_then(|project| bench.recent_total(project)))
-                            .children(recent),
-                    )
-                }),
-            cx,
-        ))
+        .child(
+            faded(
+                div()
+                    .id("tab-rail-scroll")
+                    .track_scroll(&bench.rails.scroll)
+                    .on_scroll(cx.listener(|bench, _, _, cx| bench.hold_card(cx)))
+                    .size_full()
+                    .pt(px(EDGE_FADE))
+                    .px(SPACE_2H)
+                    .pb(px(EDGE_FADE))
+                    .overflow_y_scroll()
+                    .children(empty)
+                    .child({
+                        let glide = bench.rails.glide.borrow();
+                        let skip = usize::from(copy.is_some());
+                        div().on_children_prepainted(glide.keep_origin()).child(
+                            div()
+                                .relative()
+                                .flex()
+                                .flex_col()
+                                .gap(SPACE_0)
+                                .children(copy)
+                                .children(rows)
+                                .on_children_prepainted(glide.keep_items(skip)),
+                        )
+                    })
+                    .when(!snoozed.is_empty(), |scroll| {
+                        scroll.child(
+                            folding(Group::new(t!("Snoozed"), ""), SNOOZED, bench, cx)
+                                .children(snoozed),
+                        )
+                    })
+                    .when(!settled.is_empty(), |scroll| {
+                        scroll.child(
+                            folding(Group::new(t!("Settled"), ""), SETTLED, bench, cx)
+                                .children(settled),
+                        )
+                    })
+                    .when(!pinned.is_empty(), |scroll| {
+                        scroll.child(
+                            folding(Group::new(t!("Pinned"), ""), PINNED, bench, cx)
+                                .children(pinned),
+                        )
+                    })
+                    .when(!recent.is_empty(), |scroll| {
+                        scroll.child(
+                            folding(Group::new(t!("Recent"), ""), RECENT, bench, cx)
+                                .total(project.and_then(|project| bench.recent_total(project)))
+                                .children(recent),
+                        )
+                    }),
+                cx,
+            )
+            .children(unseen.chip(true, cx))
+            .children(unseen.chip(false, cx)),
+        )
         .children(limits(bench, cx))
         .into_any_element()
 }
@@ -1638,6 +1644,109 @@ pub(crate) fn rail_empty(
         .child(ui::text(title, TEXT_SM, FontWeight::MEDIUM).text_color(t.text_secondary))
         .children(press)
         .into_any_element()
+}
+
+/// The rows that need the person but are scrolled out of the rail, where each was drawn last.
+#[derive(Default)]
+struct OutOfSight {
+    above: Vec<Bounds<Pixels>>,
+    below: Vec<Bounds<Pixels>>,
+}
+
+/// Reads where the rows were drawn last, so it comes before the rows are laid out again.
+fn out_of_sight(bench: &Workbench, agents: &[AgentRow]) -> OutOfSight {
+    let view = bench.rails.scroll.bounds();
+    let mut unseen = OutOfSight::default();
+    if view.size.height <= px(0.) {
+        return unseen;
+    }
+    let glide = bench.rails.glide.borrow();
+    for agent in agents
+        .iter()
+        .filter(|agent| agent.group == AgentGroup::Blocked)
+    {
+        let id = match agent.chief {
+            true => format!("chief:{}", agent.project),
+            false => agent.id.clone(),
+        };
+        let Some(row) = glide.drawn_at(&id) else {
+            continue;
+        };
+        if row.bottom() <= view.top() + px(EDGE_FADE) {
+            unseen.above.push(row);
+        } else if row.top() >= view.bottom() - px(EDGE_FADE) {
+            unseen.below.push(row);
+        }
+    }
+    unseen
+}
+
+impl OutOfSight {
+    /// A chip at the rail's top edge, or its bottom one, counting the rows past it that need
+    /// the person, which scrolls the nearest of them into sight.
+    fn chip(&self, above: bool, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+        let (rows, glyph) = match above {
+            true => (&self.above, Icon::ArrowUp),
+            false => (&self.below, Icon::ArrowDown),
+        };
+        let nearest = match above {
+            true => rows
+                .iter()
+                .max_by(|a, b| f32::from(a.top()).total_cmp(&f32::from(b.top()))),
+            false => rows
+                .iter()
+                .min_by(|a, b| f32::from(a.top()).total_cmp(&f32::from(b.top()))),
+        }
+        .copied()?;
+        let t = Tokens::get(cx).clone();
+        let pill = div()
+            .id(match above {
+                true => "needs-you-above",
+                false => "needs-you-below",
+            })
+            .rounded(px(10.))
+            .bg(t.surface)
+            .shadow_sm()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_1)
+                    .h(px(20.))
+                    .px(SPACE_2)
+                    .rounded(px(10.))
+                    .bg(t.warn.opacity(0.2))
+                    .text_color(t.warn)
+                    .child(ui::icon(glyph, 11.).text_color(t.warn))
+                    .child(ui::text(t!("Needs you"), TEXT_3XS, FontWeight::MEDIUM))
+                    .when(rows.len() > 1, |pill| {
+                        pill.child(
+                            ui::text(rows.len().to_string(), TEXT_3XS, FontWeight::MEDIUM)
+                                .font_features(theme::tabular()),
+                        )
+                    }),
+            )
+            .clicks(cx.listener(move |bench, _, _, cx| {
+                let scroll = &bench.rails.scroll;
+                let view = scroll.bounds();
+                let by = match above {
+                    true => view.top() + px(EDGE_FADE) - nearest.top(),
+                    false => view.bottom() - px(EDGE_FADE) - nearest.bottom(),
+                };
+                let offset = scroll.offset();
+                scroll.set_offset(gpui_kit::point(offset.x, offset.y + by));
+                cx.notify();
+            }));
+        let at = div().absolute().left_0().right_0().flex().justify_center();
+        Some(
+            match above {
+                true => at.top(px(4.)),
+                false => at.bottom(px(4.)),
+            }
+            .child(pill)
+            .into_any_element(),
+        )
+    }
 }
 
 /// How deep a rail list's ends fade; the list is padded as deep, so rows at rest sit clear of it.

@@ -1331,8 +1331,8 @@ struct ChatInfo: Codable, Hashable, Sendable {
     /// When the agent was last named with `@` or sent a message by another agent, in Unix
     /// milliseconds, so a list can greet it.
     var calledAt: Int?
-    /// Its place among the open agents, chats and agent terminals together,
-    /// in the order they want the person: 0 first.
+    /// Its place among the open agents, chats and agent terminals together, in the order
+    /// they started: 0 first.
     var attentionRank: Int?
 }
 
@@ -2073,6 +2073,8 @@ struct RemoteAgent: Codable, Hashable, Sendable {
     /// It still has subagents or shells running.
     var background: Bool
     var activeAt: Int?
+    /// When it started, in Unix milliseconds, which orders the list.
+    var startedAt: Int?
     /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
     var nextTrigger: Int?
     /// How many triggers it set on its own chat, which pause when it closes.
@@ -2352,6 +2354,8 @@ struct AgentShown: Codable, Hashable, Sendable {
     /// It still has subagents or shells running.
     var background: Bool
     var activeAt: Int?
+    /// When it started, in Unix milliseconds, which orders the list.
+    var startedAt: Int?
     /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
     var nextTrigger: Int?
     /// How many triggers it set on its own chat, which pause when it closes.

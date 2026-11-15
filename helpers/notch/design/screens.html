@@ -674,7 +674,7 @@ const DISPLAYS = {
 const RADII = { closed: [6, 14], peek: [14, 22], open: [19, 24] };
 const SPRING = { open: [0.42, 0.8], close: [0.45, 1.0], hover: [0.38, 0.8] };
 
-/** Every open agent, in the order the app's rail lists them: what wants you first. An idle one has no tier. */
+/** Every open agent, in the order the app's rail lists them: the order they started. An idle one has no tier. */
 /** An agent asking for a secret, which the island takes no words for. */
 function asksSecret() {
     return { id: "a15", name: "Rowan", type: "claude", title: "Publish the package", project: "server", tier: "needs", state: "blocked", clock: "1m",
@@ -1487,7 +1487,7 @@ const SECTIONS = [
         lede: "Opened by resting the pointer for 0.3 s. The header sits in the menu-bar band, split around the camera: tabs on the left, Sikemux on the right.",
         states: [
             { id: "O1", name: "Agents", when: "Opened on the Agents tab: by a click or a swipe, or by resting the pointer while no call waits.",
-              shows: "First, each call waiting on the person as a row, as the Mac's popover folds them: the asker's face, the question, who asks and how long it has waited. The newest is open, its row the asker's (what it works on, the project, who and how long), with its card under it, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, what wants you first, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
+              shows: "First, each call waiting on the person as a row, as the Mac's popover folds them: the asker's face, the question, who asks and how long it has waited. The newest is open, its row the asker's (what it works on, the project, who and how long), with its card under it, at the list's width, in a raised box; clicking another row opens that one instead. Then every open agent once, in the order the app's rail lists them, the order they started, with no labels between them. Each row reads as the rail does: what the agent works on with how long ago, its project, then the name Sikemux gave it with its counts and state together at the end. Idle agents are listed too, with no mark at the end. A permission can be answered in place. Clicking a row opens that agent in Sikemux.",
               leaves: "The pointer leaves, and 0.1 s later it closes.", opts: { agents: () => freshAgents(), mode: "open" } },
             { id: "O1b", name: "A tall call in the list", when: "Opened on the agents while a call with pictures is the one open.",
               shows: "The list grows to hold the open card whole, its pictures, its options and its footer, up to the screen's height. A card taller than that scrolls the list so its footer, with Go with this, stays in view.",

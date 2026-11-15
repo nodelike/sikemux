@@ -202,13 +202,10 @@ impl DeviceViewCore for Core {
     ) {
         let mut sessions = self.session_infos();
         let mut chats = self.chat_infos();
-        let said_at = self.workspaces().said_at();
-        display::rank(
-            &mut chats,
-            &mut sessions,
-            |agent_id| self.seen().started_at(agent_id),
-            |agent_id| said_at.get(agent_id).copied(),
-        );
+        let started_at = self.workspaces().started_at();
+        display::rank(&mut chats, &mut sessions, |agent_id| {
+            started_at.get(agent_id).copied()
+        });
         (chats, sessions)
     }
 

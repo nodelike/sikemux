@@ -659,6 +659,13 @@ impl GlideTrack {
         self.glide.is_some()
     }
 
+    /// Where the item `id` was drawn last, in the window; read it before `set_order` takes this
+    /// frame's order.
+    pub fn drawn_at(&self, id: &str) -> Option<Bounds<Pixels>> {
+        let ix = self.ids.iter().position(|each| each == id)?;
+        self.drawn.borrow().get(ix).copied()
+    }
+
     /// Takes the list's items in the order they are drawn, after `choose`.
     pub fn set_order(&mut self, ids: Vec<String>) {
         self.ids = ids;

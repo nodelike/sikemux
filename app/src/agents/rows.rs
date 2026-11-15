@@ -36,6 +36,8 @@ pub struct AgentRow {
     pub background: bool,
     /// When it last worked, in Unix milliseconds; 0 when the core does not know.
     pub active_at: u64,
+    /// When it started, which orders the rows, in Unix milliseconds.
+    pub started_at: Option<u64>,
     /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
     pub next_trigger: Option<u64>,
     /// How many triggers it set on its own chat, which pause when it closes.
@@ -112,12 +114,12 @@ impl Workbench {
             .and_then(|row| agent_row(row, &place))
     }
 
-    /// The project's agents on the host in front, those running first as the core ranks them.
+    /// The project's agents on the host in front, in the order the core lists them.
     pub fn agents_of(&self, project: &str) -> Vec<AgentRow> {
         self.agents_at(&self.place(), project)
     }
 
-    /// The agents of the project `project` of the host at `place`, as its core ranks them.
+    /// The agents of the project `project` of the host at `place`, as its core orders them.
     pub fn agents_at(&self, place: &Place, project: &str) -> Vec<AgentRow> {
         let Some(view) = self.view_at(place) else {
             return Vec::new();
@@ -266,7 +268,7 @@ fn rows_of(view: &DeviceView) -> impl Iterator<Item = &AgentShown> {
 }
 
 /// Each host's ranked rows as one list: a lead keeps its workers after it, and the lists are
-/// taken by whose next row stands highest, as each core ranks its own.
+/// taken by whose next row started first, as each core orders its own.
 fn merged(lists: Vec<Vec<AgentRow>>) -> Vec<AgentRow> {
     let mut teams: Vec<std::collections::VecDeque<Vec<AgentRow>>> = (lists.into_iter())
         .map(|list| {
@@ -287,7 +289,7 @@ fn merged(lists: Vec<Vec<AgentRow>>) -> Vec<AgentRow> {
     loop {
         let next = (teams.iter().enumerate())
             .filter_map(|(at, list)| Some((at, &list.front()?[0])))
-            .min_by_key(|(at, head)| (head.group, std::cmp::Reverse(head.active_at), *at))
+            .min_by_key(|(at, head)| (head.started_at.unwrap_or(u64::MAX), *at))
             .map(|(at, _)| at);
         let Some(at) = next else {
             return rows;
@@ -318,6 +320,7 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         busy: row.busy,
         background: row.background,
         active_at: row.active_at.unwrap_or(0),
+        started_at: row.started_at,
         next_trigger: row.next_trigger,
         triggers: row.triggers,
         line: row.line.clone(),

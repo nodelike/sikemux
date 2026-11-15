@@ -1287,6 +1287,7 @@ mod tests {
             failed: true,
             background: true,
             active_at: Some(11),
+            started_at: Some(17),
             next_trigger: Some(12),
             triggers: 4,
             line: Some(sikemux_view::inbox::InLine {

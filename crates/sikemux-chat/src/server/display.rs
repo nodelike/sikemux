@@ -1,8 +1,6 @@
 //! How devices show the open agents: the group each is in, the word beside
 //! it, and where it sits in the list.
 
-use std::cmp::Reverse;
-
 use sikemux_wire::protocol::{
     AgentGroup, AgentState, AgentStatus, ChatInfo, ChatState, SessionInfo, SessionKind,
 };
@@ -67,50 +65,39 @@ pub fn show_session(session: &mut SessionInfo, asking: bool) {
     session.group = Some(status.group());
 }
 
-/// Numbers the open agents in the order they want the person. Within a
-/// group of busy agents each keeps its place while it works, the newest
-/// begun first; the rest go most recently written to by the person first,
-/// so what agents do on their own never reshuffles them.
+/// Numbers the open agents by when each started, the first started first, so a row keeps its
+/// place while its agent works, waits or is read; one with no start time known goes last.
 pub fn rank(
     chats: &mut [ChatInfo],
     sessions: &mut [SessionInfo],
     started_at: impl Fn(&str) -> Option<u64>,
-    said_at: impl Fn(&str) -> Option<u64>,
 ) {
     enum Slot {
         Chat(usize),
         Session(usize),
     }
-    let key = |agent_id: &str, group: AgentGroup, active_at: Option<u64>| {
-        let busy = matches!(group, AgentGroup::Blocked | AgentGroup::Working);
-        let at = if busy {
-            started_at(agent_id).or(active_at)
-        } else {
-            said_at(agent_id).or(active_at)
-        };
-        (group, Reverse(at.unwrap_or(0)), agent_id.to_owned())
+    let key = |agent_id: &str| {
+        (
+            started_at(agent_id).unwrap_or(u64::MAX),
+            agent_id.to_owned(),
+        )
     };
     let mut listed: Vec<_> = chats
         .iter()
         .enumerate()
-        .map(|(index, chat)| {
-            (
-                key(&chat.agent_id, chat.group, chat.active_at),
-                Slot::Chat(index),
-            )
-        })
+        .map(|(index, chat)| (key(&chat.agent_id), Slot::Chat(index)))
         .collect();
     for (index, session) in sessions.iter().enumerate() {
-        let (Some(agent_id), Some(group)) = (&session.agent_id, session.group) else {
+        let Some(agent_id) = &session.agent_id else {
             continue;
         };
-        if !session.running || chats.iter().any(|chat| &chat.agent_id == agent_id) {
+        if session.group.is_none()
+            || !session.running
+            || chats.iter().any(|chat| &chat.agent_id == agent_id)
+        {
             continue;
         }
-        listed.push((
-            key(agent_id, group, session.active_at),
-            Slot::Session(index),
-        ));
+        listed.push((key(agent_id), Slot::Session(index)));
     }
     listed.sort_by(|a, b| a.0.cmp(&b.0));
     for (place, (_, slot)) in listed.into_iter().enumerate() {

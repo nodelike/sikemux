@@ -197,8 +197,8 @@ pub struct ChatInfo {
     /// milliseconds, so a list can greet it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub called_at: Option<u64>,
-    /// Its place among the open agents, chats and agent terminals together,
-    /// in the order they want the person: 0 first.
+    /// Its place among the open agents, chats and agent terminals together, in the order
+    /// they started: 0 first.
     #[serde(default)]
     pub attention_rank: u32,
 }

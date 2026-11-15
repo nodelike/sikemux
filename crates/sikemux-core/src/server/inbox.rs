@@ -178,6 +178,7 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         failed: false,
         background: false,
         active_at: None,
+        started_at: None,
         next_trigger: None,
         triggers: 0,
         line: None,
@@ -1252,6 +1253,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         if let Some(record) = records.get(agent.agent_id.as_str()) {
             agent.face = record.face.clone();
             agent.tags = record.tags.clone();
+            agent.started_at = Some(record.created_at).filter(|&at| at > 0);
         }
     }
     let mut kept = kept_agents(core, &workspace_agents, &listed, called);

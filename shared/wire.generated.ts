@@ -718,8 +718,8 @@ export interface ChatInfo {
      */
     calledAt?: number;
     /**
-     * Its place among the open agents, chats and agent terminals together,
-     * in the order they want the person: 0 first.
+     * Its place among the open agents, chats and agent terminals together, in the order
+     * they started: 0 first.
      */
     attentionRank?: number;
 }
@@ -1234,6 +1234,8 @@ export interface RemoteAgent {
     /** It still has subagents or shells running. */
     background: boolean;
     activeAt: number | null;
+    /** When it started, in Unix milliseconds, which orders the list. */
+    startedAt?: number;
     /** When the soonest trigger set on it sends it a prompt, in Unix milliseconds. */
     nextTrigger?: number;
     /** How many triggers it set on its own chat, which pause when it closes. */
@@ -1423,6 +1425,8 @@ export interface AgentShown {
     /** It still has subagents or shells running. */
     background: boolean;
     activeAt: number | null;
+    /** When it started, in Unix milliseconds, which orders the list. */
+    startedAt?: number;
     /** When the soonest trigger set on it sends it a prompt, in Unix milliseconds. */
     nextTrigger?: number;
     /** How many triggers it set on its own chat, which pause when it closes. */

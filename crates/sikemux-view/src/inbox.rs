@@ -414,6 +414,9 @@ pub struct AgentShown {
     /// It still has subagents or shells running.
     pub background: bool,
     pub active_at: Option<u64>,
+    /// When it started, in Unix milliseconds, which orders the list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
     /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_trigger: Option<u64>,
