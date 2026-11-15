@@ -54,7 +54,7 @@ impl Check {
 async fn run(command: &str, dir: &str) -> Result<String, String> {
     let (command, dir) = (command.to_owned(), dir.to_owned());
     tokio::task::spawn_blocking(move || {
-        let mut shell = sikemux_process::user_environment::background_shell();
+        let mut shell = sikemux_process::user_environment::background_shell()?;
         shell.args(["-c", &command]).current_dir(Path::new(&dir));
         let output = sikemux_process::run(&mut shell, None, CHECK_LIMIT, CHECK_OUTPUT, None)
             .map_err(|error| format!("the check did not run: {error}"))?;

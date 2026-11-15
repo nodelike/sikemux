@@ -1308,7 +1308,7 @@ fn run_check(
     limit: Duration,
     env: Vec<(String, String)>,
 ) -> Result<Ran, String> {
-    let mut shell = sikemux_process::user_environment::background_shell();
+    let mut shell = sikemux_process::user_environment::background_shell()?;
     shell
         .args(["-c", &format!("exec 2>&1\n{command}")])
         .env(SEED_VARIABLE, seed.to_string())
@@ -1433,7 +1433,7 @@ pub async fn first_failing_in_queue(
 /// Runs a check or gate's command in the worktree. Whether it passed, and the
 /// end of what it wrote.
 pub fn run_command(cwd: &Path, command: &str) -> Result<(bool, String), String> {
-    let mut shell = sikemux_process::user_environment::background_shell();
+    let mut shell = sikemux_process::user_environment::background_shell()?;
     shell.args(["-c", command]).current_dir(cwd);
     let output = sikemux_process::run(&mut shell, None, RUN_LIMIT, OUTPUT_LIMIT, None)
         .map_err(|error| format!("it did not run: {error}"))?;

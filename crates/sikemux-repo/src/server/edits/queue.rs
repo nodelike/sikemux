@@ -1026,7 +1026,7 @@ fn shell(
     args: &[String],
     limit: std::time::Duration,
 ) -> Result<String, String> {
-    let mut shell = sikemux_process::user_environment::background_shell();
+    let mut shell = sikemux_process::user_environment::background_shell()?;
     shell
         .args(["-c", script, name])
         .args(args)
@@ -1113,7 +1113,7 @@ struct Member {
 
 /// The workspace's crates, as cargo reads them in `checkout`.
 fn members(checkout: &Path) -> Result<Vec<Member>, String> {
-    let mut shell = sikemux_process::user_environment::background_shell();
+    let mut shell = sikemux_process::user_environment::background_shell()?;
     shell
         .args(["-c", "cargo metadata --no-deps --format-version 1"])
         .envs(crate::git_guard::shim::environment(None))

@@ -117,7 +117,7 @@ pub fn refresh(core: &Core, project: &Path, checkout: &Path) -> Result<(), Strin
 }
 
 fn run_generate(checkout: &Path, generate: &GenerateConfig) -> Result<(), String> {
-    let mut shell = sikemux_process::user_environment::background_shell();
+    let mut shell = sikemux_process::user_environment::background_shell()?;
     shell.args(["-c", &generate.command]).current_dir(checkout);
     let ran = sikemux_process::run(&mut shell, None, GENERATE_WAIT, GENERATE_OUTPUT_LIMIT, None)
         .map_err(|error| format!("generate did not run: {error}"))?;
