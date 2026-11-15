@@ -61,11 +61,13 @@ struct DeviceAgents: View {
                         ForEach(strays, id: \.agentId) { WorkerRow(worker: $0, now: now) }
                     }
                     .animation(still ? nil : .snappy(duration: 0.28), value: teams.map(\.id))
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { _ in if held == nil { held = teams.map(\.id) } }
-                            .onEnded { _ in held = nil }
-                    )
+                    .onTouch { touching in
+                        if !touching {
+                            held = nil
+                        } else if held == nil {
+                            held = teams.map(\.id)
+                        }
+                    }
                     .padding(.top, 10)
                 }
                 AwayGroup(label: String(localized: "Snoozed"), fold: .snoozed, agents: snoozed) { row($0, now: now) }
