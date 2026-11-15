@@ -19,8 +19,11 @@ pub mod names;
 pub mod paths;
 pub mod procs;
 pub mod sync;
+mod tree;
 pub mod user_environment;
 pub mod vars;
+
+pub use tree::{own_tree, terminate_tree};
 
 #[derive(Debug)]
 pub enum ProcessRunError {
@@ -70,37 +73,6 @@ impl ProcessCancellation {
 
     fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Acquire)
-    }
-}
-
-/// Asks the process `pid` and everything it started to stop, or makes them when `force`.
-/// The process must lead its own group, as children started with `process_group(0)` and
-/// terminals do, and must not be reaped yet, so its pid and group still belong to it.
-pub fn terminate_tree(pid: u32, force: bool) {
-    #[cfg(unix)]
-    {
-        let Ok(pid) = i32::try_from(pid) else {
-            return;
-        };
-        if pid == 0 {
-            return;
-        }
-        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
-        // SAFETY: `kill` takes only integers. pid is non-zero, so this never becomes
-        // kill(0), which would signal our own process group.
-        unsafe {
-            libc::kill(-pid, signal);
-            libc::kill(pid, signal);
-        }
-    }
-    #[cfg(windows)]
-    {
-        let mut command = crate::user_environment::command("taskkill");
-        command.args(["/PID", &pid.to_string(), "/T"]);
-        if force {
-            command.arg("/F");
-        }
-        let _ = command.status();
     }
 }
 
@@ -228,6 +200,7 @@ fn run_counting(
         command.process_group(0);
     }
     let mut child = command.spawn().map_err(ProcessRunError::Spawn)?;
+    own_tree(child.id());
     started(child.id());
     let stdout = child.stdout.take().ok_or_else(|| {
         kill_and_reap(&mut child);
@@ -384,10 +357,33 @@ pub fn single_quoted(text: &str) -> String {
 mod tests {
     use super::*;
 
+    /// `script` run by the platform's own shell.
+    fn shell(script: &str) -> Command {
+        #[cfg(unix)]
+        let (program, flags) = ("sh", ["-c"].as_slice());
+        #[cfg(windows)]
+        let (program, flags) = ("cmd", ["/D", "/C"].as_slice());
+        let mut command = crate::user_environment::command(program);
+        command.args(flags).arg(script);
+        command
+    }
+
+    /// A script that waits about `seconds`, through a program the shell starts, so the
+    /// waiting process is the shell's child rather than the shell itself.
+    fn waiting(seconds: u32) -> String {
+        if cfg!(windows) {
+            format!("ping -n {} 127.0.0.1 >NUL", seconds + 1)
+        } else {
+            format!("sleep {seconds}")
+        }
+    }
+
     #[test]
     fn a_slow_child_is_waited_for_and_its_output_kept() {
-        let mut command = crate::user_environment::command("sh");
-        command.args(["-c", "sleep 0.3; echo done"]);
+        #[cfg(unix)]
+        let mut command = shell("sleep 0.3; echo done");
+        #[cfg(windows)]
+        let mut command = shell("ping -n 2 127.0.0.1 >NUL & echo done");
         let out = run(
             &mut command,
             None,
@@ -403,8 +399,8 @@ mod tests {
 
     #[test]
     fn a_child_that_outlives_its_deadline_is_killed() {
-        let mut command = crate::user_environment::command("sh");
-        command.args(["-c", "sleep 30"]);
+        let mut command = shell(&waiting(30));
+        let started = Instant::now();
         let error = run(
             &mut command,
             None,
@@ -415,6 +411,8 @@ mod tests {
         .expect_err("the deadline must be enforced");
 
         assert!(matches!(error, ProcessRunError::Timeout(_)), "{error}");
+        // The waiting grandchild holds the output pipes, so the run ends only once it is gone too.
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 
     #[test]
@@ -426,8 +424,7 @@ mod tests {
             trigger.cancel();
         });
 
-        let mut command = crate::user_environment::command("sh");
-        command.args(["-c", "sleep 30"]);
+        let mut command = shell(&waiting(30));
         let started = Instant::now();
         let error = run(
             &mut command,
@@ -440,5 +437,26 @@ mod tests {
 
         assert!(matches!(error, ProcessRunError::Cancelled), "{error}");
         assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_tree_asked_to_stop_stops_without_force() {
+        let mut child = shell(&waiting(60))
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("spawn the tree");
+        own_tree(child.id());
+        std::thread::sleep(Duration::from_millis(500));
+
+        terminate_tree(child.id(), false);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut status = None;
+        while status.is_none() && Instant::now() < deadline {
+            status = child.try_wait().expect("wait for the tree");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        kill_and_reap(&mut child);
+        assert!(status.is_some(), "the tree ignored being asked to stop");
     }
 }

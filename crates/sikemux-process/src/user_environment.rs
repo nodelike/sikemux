@@ -72,6 +72,12 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
     };
     command.envs(&environment().variables);
     command.envs(crate::jobs::variable());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // A console of its own, without a window, keeps the child's Ctrl-C apart from ours.
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
     command
 }
 

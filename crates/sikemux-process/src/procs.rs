@@ -498,7 +498,12 @@ mod system {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+use windows as system;
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 mod system {
     pub(super) fn footprint(_pid: u32) -> Option<u64> {
         None
