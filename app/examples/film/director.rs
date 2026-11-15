@@ -885,10 +885,9 @@ impl Director {
             }
             "mark" => self.mark(step.text(0)?, None),
             "staff" => {
-                let account = self
-                    .signed_in
-                    .as_mut()
-                    .ok_or_else(|| anyhow!("line {}: staff needs a signed-in account", step.line))?;
+                let account = self.signed_in.as_mut().ok_or_else(|| {
+                    anyhow!("line {}: staff needs a signed-in account", step.line)
+                })?;
                 account.staff = true;
                 account.flags = vec![sikemux_view::device::Flag::StaffFeed];
             }
