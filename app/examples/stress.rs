@@ -15,7 +15,9 @@
 //! open chats), `soak` (`agents` for `minutes`, ten by default, watching memory), and
 //! `windowed` (a chat filled to `STRESS_WINDOWED_ROWS` rows, its memory once settled, its
 //! first message found by the core and then by the find bar, asleep with
-//! `STRESS_WINDOWED_SLEEP`).
+//! `STRESS_WINDOWED_SLEEP`), and `ademark` (ADEMark's speed tests against its replay server,
+//! with `STRESS_PROVIDER=claude`, `STRESS_AGENT` a real Claude Code, and `ANTHROPIC_BASE_URL`
+//! and `ADEMARK_REPLAY_LOG` naming the server and its request log).
 //! Each ends by typing in the front chat's composer while its load runs. `make-repo <folder> [files]` writes a
 //! generated repository to stress `repo` with.
 
@@ -120,6 +122,12 @@ fn core_pid(socket: &str) -> Option<u32> {
         .ok()
 }
 
+/// The agent the chats run: the fake ACP agent, or with `STRESS_PROVIDER=claude` and
+/// `STRESS_AGENT` naming a real Claude Code, that one.
+fn provider() -> String {
+    std::env::var("STRESS_PROVIDER").unwrap_or_else(|_| "omp".into())
+}
+
 /// What the core and its fake agents are asked to do, from a thread of their own.
 struct Driver {
     runtime: tokio::runtime::Runtime,
@@ -136,7 +144,7 @@ impl Driver {
     }
 
     fn setup(&self, project_folder: &Path) {
-        let profile = json!({ "id": "fake", "name": "Fake", "provider": "omp", "accent": "#a277ff", "executablePath": self.agent });
+        let profile = json!({ "id": "fake", "name": "Fake", "provider": provider(), "accent": "#a277ff", "executablePath": self.agent });
         self.call("setAgentAccounts", json!({ "profiles": [profile] }));
         self.call(
             "setPreference",
@@ -153,7 +161,7 @@ impl Driver {
             .runtime
             .block_on(
                 self.client
-                    .start_chat("omp:fake".into(), PROJECT.into(), None),
+                    .start_chat(format!("{}:fake", provider()), PROJECT.into(), None),
             )
             .expect("a chat starts");
         self.front(&chat, "agent");
@@ -703,11 +711,11 @@ fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
             } else {
                 driver
                     .runtime
-                    .block_on(
-                        driver
-                            .client
-                            .start_chat("opencode:fake".into(), PROJECT.into(), None),
-                    )
+                    .block_on(driver.client.start_chat(
+                        "opencode:fake".into(),
+                        PROJECT.into(),
+                        None,
+                    ))
                     .map(|(chat, _)| chat)
                     .map_err(|error| error.to_string())
             };
@@ -752,11 +760,14 @@ fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
         let loaded = run.measure(10., |_, _| {});
         let loaded_typing = run.typing(60).unwrap_or_default();
         let (app, core) = run.memory();
-        let shown = run
-            .bench
-            .read_with(&run.cx, |bench, _| bench.strip().map_or(0, |strip| bench.tabs(&strip).len()));
+        let shown = run.bench.read_with(&run.cx, |bench, _| {
+            bench.strip().map_or(0, |strip| bench.tabs(&strip).len())
+        });
         let loaded_fps = loaded.frames.len() as f64 / loaded.wall;
-        run.shot(&format!("scale-{}-{count}", if terminals { "terminals" } else { "chats" }));
+        run.shot(&format!(
+            "scale-{}-{count}",
+            if terminals { "terminals" } else { "chats" }
+        ));
         println!(
             "scale {}",
             json!({
@@ -776,6 +787,211 @@ fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
         }
     }
     stop.store(true, Ordering::Relaxed);
+}
+
+/// The clock ADEMark's replay server stamps its request log with.
+fn uptime_ns() -> u64 {
+    const CLOCK_UPTIME_RAW: libc::clockid_t = 8;
+    extern "C" {
+        fn clock_gettime_nsec_np(clock: libc::clockid_t) -> u64;
+    }
+    // SAFETY: reads a clock, with no pointer passed.
+    unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+}
+
+/// When ADEMark's replay server first heard the session `session` after `after`, from its log.
+fn replay_heard(log: &Path, session: &str, after: u64) -> Option<u64> {
+    std::fs::read_to_string(log)
+        .ok()?
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .filter(|line| line["session"] == session)
+        .filter_map(|line| line["t_ns"].as_f64().map(|t| t as u64))
+        .find(|t| *t > after)
+}
+
+impl Run {
+    /// How many times `text` shows in `chat`'s rows, looking for it from now on.
+    fn found(&mut self, chat: &str, text: &str) -> usize {
+        let (chat, text) = (chat.to_owned(), text.to_owned());
+        self.bench.update(&mut self.cx, |bench, cx| {
+            let Some(chat) = bench.chats.open.get(&chat) else {
+                return 0;
+            };
+            chat.transcript.update(cx, |transcript, cx| {
+                transcript.find(
+                    Some(gpui_transcript::Query {
+                        text,
+                        match_case: true,
+                        whole_word: false,
+                    }),
+                    cx,
+                );
+                transcript.found().1
+            })
+        })
+    }
+
+    fn type_text(&mut self, text: &str) {
+        for letter in text.chars() {
+            self.key(&letter.to_string());
+            self.frames(2);
+        }
+    }
+}
+
+fn ms_since(began: Instant) -> f64 {
+    began.elapsed().as_secs_f64() * 1e3
+}
+
+/// A3 and A4: ⌘N until the new chat's composer holds the keys, then, `ADEMARK_GAP_S` later as
+/// ADEMark waits 1.5 s before it types, Enter until the answer's first word shows.
+fn ademark_a4(run: &mut Run, log: &Path) {
+    let reps: usize = std::env::var("ADEMARK_REPS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(10);
+    let gap = std::env::var("ADEMARK_GAP_S")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1.5);
+    let (mut opens, mut words, mut requests) = (Vec::new(), Vec::new(), Vec::new());
+    for _ in 0..reps {
+        let before = run.front_chat();
+        let began = Instant::now();
+        run.act(actions::NewChat::ID);
+        if !run.until(15, |run| run.front_chat() != before && run.draft_focused()) {
+            println!("A3: no new chat held the keys in 15 s");
+            break;
+        }
+        opens.push(ms_since(began));
+        let chat = run.front_chat().unwrap_or_default();
+        run.measure(gap, |_, _| {});
+        run.type_text("replay:hi");
+        run.found(&chat, "LEDGERMARK");
+        run.frames(4);
+        let (sent, began) = (uptime_ns(), Instant::now());
+        run.key("enter");
+        if !run.until(30, |run| run.found(&chat, "LEDGERMARK") > 0) {
+            println!("A4: the first word never showed");
+            continue;
+        }
+        words.push(ms_since(began));
+        if let Some(heard) = replay_heard(log, "hi", sent) {
+            requests.push((heard - sent) as f64 / 1e6);
+        }
+        run.frames(60);
+    }
+    println!(
+        "A3 new chat to its composer holding the keys: {} [headless, in-app]",
+        spread(opens)
+    );
+    println!(
+        "A4 Enter to the request reaching the replay server: {}",
+        spread(requests)
+    );
+    println!(
+        "A4 Enter to LEDGERMARK in the transcript: {} [headless, in-app]",
+        spread(words)
+    );
+}
+
+/// ADEMark's speed tests against its replay server, with `STRESS_PROVIDER=claude` and the
+/// server's request log at `ADEMARK_REPLAY_LOG`: A3 and A4, A8 typing while five chats stream,
+/// and A11 a chat of 2,000 items opened, scrolled and switched to. `ADEMARK_ONLY_A4` stops
+/// after A4.
+fn ademark(run: &mut Run, driver: &Arc<Driver>) {
+    let log = PathBuf::from(std::env::var("ADEMARK_REPLAY_LOG").expect("ADEMARK_REPLAY_LOG"));
+    let first = driver.chat();
+    run.until(30, |run| run.front_chat().is_some());
+    driver.prompt(&first, "replay:seed".into());
+    run.settle(&first);
+    ademark_a4(run, &log);
+    if std::env::var_os("ADEMARK_ONLY_A4").is_some() {
+        return;
+    }
+
+    for n in 1..=5 {
+        let chat = driver.chat();
+        driver.prompt(&chat, format!("replay:stream-{n}"));
+    }
+    run.measure(8., |_, _| {});
+    println!(
+        "{}",
+        run.measure(20., |_, _| {})
+            .line("A7 five chats streaming, one in front")
+    );
+    let (app, core) = run.memory();
+    println!("A7 five chats streaming: app {app:.0} MB, core {core:.0} MB (resident)");
+    run.shot("ademark-streams");
+    run.type_while("five chats stream (A8)");
+
+    let long = driver.chat();
+    let built = Instant::now();
+    driver.prompt(&long, "replay:long-2000".into());
+    if !run.until(1_200, |run| run.found(&long, "LONGTHREAD-END") > 0) {
+        println!("A11: the long chat never ended in 20 min");
+        return;
+    }
+    println!(
+        "A11 the long chat built in {:.0} s, {} rows held",
+        built.elapsed().as_secs_f64(),
+        run.rows(&long)
+    );
+    let short = driver.chat();
+    driver.prompt(&short, "replay:seed".into());
+    run.settle(&short);
+    run.measure(65., |_, _| {});
+    let transcript = (WINDOW_SIZE.0 / 2., WINDOW_SIZE.1 / 2.);
+    let (mut cold, mut scroll, mut switch) = (Vec::new(), Vec::new(), Vec::new());
+    for rep in 0..5 {
+        let began = Instant::now();
+        driver.front(&long, "agent");
+        if !run.until(15, |run| {
+            run.front_chat().as_deref() == Some(long.as_str())
+                && run.found(&long, "LONGTHREAD-END") > 0
+        }) {
+            println!("A11: the long chat did not show its end in 15 s");
+            return;
+        }
+        match rep {
+            0 => cold.push(ms_since(began)),
+            _ => switch.push(ms_since(began)),
+        }
+        run.frames(30);
+        let wheel = run.steps(40, move |run, index| {
+            if index % 2 == 0 {
+                run.wheel(transcript, 3.);
+            }
+        });
+        scroll.push(wheel.frames.iter().filter(|ms| **ms > 33.).count() as f64);
+        if rep == 0 {
+            println!(
+                "{}",
+                wheel.line("A11 scrolling the long chat up, 20 wheel events")
+            );
+        }
+        run.steps(40, move |run, index| {
+            if index % 2 == 0 {
+                run.wheel(transcript, -30.);
+            }
+        });
+        let began = Instant::now();
+        driver.front(&short, "agent");
+        run.until(15, |run| {
+            run.front_chat().as_deref() == Some(short.as_str())
+        });
+        switch.push(ms_since(began));
+        run.frames(30);
+    }
+    println!(
+        "A11 open, after a minute away: {} [headless, in-app]",
+        spread(cold)
+    );
+    println!("A11 switch: {} [headless, in-app]", spread(switch));
+    println!("A11 scroll frames over 33 ms: {}", spread(scroll));
+    let (app, core) = run.memory();
+    println!("end of A11: app {app:.0} MB, core {core:.0} MB (resident)");
 }
 
 /// Keeps drawing for `minutes`, printing the app's and the core's memory each
@@ -1264,6 +1480,7 @@ fn window_size() -> gpui::Size<Pixels> {
 }
 
 fn main() -> anyhow::Result<()> {
+    let launched = Instant::now();
     core::search_path_only_for_own_core();
     let mut args = std::env::args().skip(1);
     let scenario = args.next().unwrap_or_else(|| "agents".into());
@@ -1367,7 +1584,19 @@ fn main() -> anyhow::Result<()> {
         shots: base.join("shots"),
     };
     std::fs::create_dir_all(&run.shots)?;
-    run.frames(120);
+    let mut chat_shown = None;
+    for _ in 0..120 {
+        run.frame();
+        if chat_shown.is_none() && run.front_chat().is_some() {
+            chat_shown = Some(launched.elapsed());
+        }
+    }
+    if let Some(shown) = chat_shown {
+        println!(
+            "start: a chat in front {:.0} ms after launch",
+            shown.as_secs_f64() * 1e3
+        );
+    }
     let (app, core) = run.memory();
     println!("start: app {app:.0} MB, core {core:.0} MB");
 
@@ -1376,6 +1605,7 @@ fn main() -> anyhow::Result<()> {
         "soak" => agents(&mut run, &driver, Some(minutes.unwrap_or(10.))),
         "long" => long(&mut run, &driver),
         "newchat" => new_chats(&mut run, &driver),
+        "ademark" => ademark(&mut run, &driver),
         "windowed" => windowed(&mut run, &driver),
         "flood" => {
             let log = base.join("flood.log");
