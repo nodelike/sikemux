@@ -1803,6 +1803,14 @@ fn shown_address(tab: &sikemux_browser::BrowserTab) -> String {
     }
 }
 
+/// The page's address for the person's default browser: a local file as a file URL.
+fn external_address(tab: &sikemux_browser::BrowserTab) -> Option<String> {
+    match &tab.local_file {
+        Some(path) => url::Url::from_file_path(path).ok().map(String::from),
+        None => (tab.url != sikemux_browser::BLANK_URL).then(|| tab.url.clone()),
+    }
+}
+
 /// WebKit paints a blank page white, so the desk leaves it off and shows its own ground.
 fn idle_blank(tab: &sikemux_browser::BrowserTab) -> bool {
     tab.url == sikemux_browser::BLANK_URL && !tab.loading
@@ -2147,7 +2155,16 @@ pub fn pane(
                 })
         }))
         .children(front.map(|tab| width::chip(bench, agent, &tab.id, cx)))
-        .child(snip_toggle(bench, agent, cx));
+        .child(snip_toggle(bench, agent, cx))
+        .children(front.and_then(external_address).map(|address| {
+            IconButton::new(
+                "desk-open-external",
+                Icon::ExternalLink,
+                t!("Open in default browser"),
+            )
+            .glyph(13.)
+            .on_click(move |_, _, cx| cx.open_url(&address))
+        }));
     if let Some(item) = front_item {
         let shown = match item {
             DeskItem::File(path) => {

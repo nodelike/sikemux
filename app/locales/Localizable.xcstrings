@@ -1294,6 +1294,7 @@
     "Open in Editor": {},
     "Open in browser": {},
     "Open in default app": {},
+    "Open in default browser": {},
     "Open in its own app": {},
     "Open in tab": {},
     "Open localhost:{port}": {},
