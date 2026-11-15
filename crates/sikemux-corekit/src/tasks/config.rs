@@ -62,7 +62,7 @@ const MAX_SHIP: usize = 50;
 const HEAVY_FIELDS: &[&str] = &["command", "final", "light", "needs"];
 const MAX_HEAVY: usize = 50;
 const CHECK_FIELDS: &[&str] = &["ci"];
-const LAND_CHECK_FIELDS: &[&str] = &["label", "command", "when"];
+const LAND_CHECK_FIELDS: &[&str] = &["label", "command", "fix", "when"];
 const MAX_LAND_CHECKS: usize = 20;
 const MAX_WORKFLOWS: usize = 20;
 const MAX_CONFIG_BYTES: usize = 256 * 1024;
@@ -385,6 +385,10 @@ pub struct ProjectRole {
 pub struct LandCheck {
     pub label: String,
     pub command: String,
+    /// Run in its place to bring the files it checks up to date; the land queue commits what it
+    /// changes on top of the land rather than sending the land back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fix: Option<String>,
     pub when: PathGlobs,
 }
 
@@ -1780,6 +1784,8 @@ fn parse_land_checks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Ve
                 errors,
             );
             let command = parse_command(record.get("command"), &format!("{at}.command"), errors);
+            let fix = (record.get("fix"))
+                .and_then(|fix| parse_command(Some(fix), &format!("{at}.fix"), errors));
             let when = match record.get("when") {
                 Some(when) => {
                     parse_globs(when, &format!("{at}.when"), "when", MAX_PLAN_FIRST, errors)
@@ -1796,6 +1802,7 @@ fn parse_land_checks(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Ve
             Some(LandCheck {
                 label: label?,
                 command: command?,
+                fix,
                 when: when?,
             })
         })

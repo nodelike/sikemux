@@ -138,7 +138,7 @@ When a check fails, Sikemux tests the commits since the last sound one to find t
 }
 ```
 
-Each runs from the project's root in a checkout at the land, with the land's changed files that match `when` as its arguments. One that fails sends the land back to its agent with the end of its output, unless it fails on the branch without the land as well. Keep them to a few seconds: lands wait on them in turn.
+Each runs from the project's root in a checkout at the land, with the land's changed files that match `when` as its arguments. A check can name a `fix`, such as the generator its `--check` runs: the queue runs it first and commits what it changes on top of the land, as it does with rustfmt on the Rust a land changed. One that still fails sends the land back to its agent with the end of its output, unless it fails on the branch without the land as well. Keep them to a few seconds: lands wait on them in turn.
 
 ### The changed page
 

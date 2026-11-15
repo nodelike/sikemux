@@ -5,6 +5,7 @@
     {
       "label": "pnpm agent-catalog:check",
       "command": "node scripts/generate-agent-catalog.mjs --check",
+      "fix": "node scripts/generate-agent-catalog.mjs",
       "when": [
         "crates/sikemux-core/src/assets/agent-catalog.json",
         "crates/sikemux-agents/src/agent_catalog.rs",
@@ -19,6 +20,7 @@
     {
       "label": "pnpm notch-sources:check",
       "command": "node scripts/generate-notch-sources.mjs --check",
+      "fix": "node scripts/generate-notch-sources.mjs",
       "when": [
         "helpers/notch/settings.json",
         "crates/sikemux-view/src/notch.rs",

@@ -3,7 +3,10 @@
 //! returns. One base at a time, the core stacks the waiting lands on the
 //! branch's tip in order, checks the stack once, and on a pass moves the branch
 //! to it, so the branch stays a straight line of commits. Lands that change no
-//! Rust are not built; the others are checked with the crates they change. A
+//! Rust are not built; the others are checked with the crates they change.
+//! Before the check, the queue formats the Rust a land changed and runs the
+//! fix of each land check it is due, committing what they change on top of
+//! that land rather than sending it back. A
 //! failed check is traced to the land that broke it, which is sent back while
 //! the rest stay in line. Every land ends in a message to its agent naming its
 //! commits, landed or sent back; a newer land of the same agent queues behind
@@ -430,22 +433,164 @@ fn stack(signing: &Signing, (repo, base): &Key, batch: &[Waiting]) -> Result<Sta
     };
     for waiting in batch {
         let on = stacked.top().to_owned();
-        match land::lay(signing, repo, &waiting.head, &on, base) {
-            Ok(Some(laid)) => {
-                let range = format!("{on}..{}", laid.tip);
-                let commits = git(repo, &["rev-list", "--reverse", &range])?;
-                stacked.laid.push(Laid {
-                    waiting: waiting.clone(),
-                    commits: commits.lines().map(str::to_owned).collect(),
-                    tip: laid.tip,
-                });
-            }
+        match lay(signing, repo, base, waiting, &on) {
+            Ok(Some(laid)) => stacked.laid.push(laid),
             Ok(None) => stacked.done.push(waiting.clone()),
             Err(why) if on == tip => stacked.refused.push((waiting.clone(), why)),
             Err(_) => {}
         }
     }
     Ok(stacked)
+}
+
+fn lay(
+    signing: &Signing,
+    repo: &Path,
+    base: &str,
+    waiting: &Waiting,
+    on: &str,
+) -> Result<Option<Laid>, String> {
+    let Some(laid) = land::lay(signing, repo, &waiting.head, on, base)? else {
+        return Ok(None);
+    };
+    let commits = git(
+        repo,
+        &["rev-list", "--reverse", &format!("{on}..{}", laid.tip)],
+    )?;
+    Ok(Some(Laid {
+        waiting: waiting.clone(),
+        commits: commits.lines().map(str::to_owned).collect(),
+        tip: laid.tip,
+    }))
+}
+
+/// Formats the Rust each land of `stacked` changed and runs the fix of each land check it is
+/// due, in the merge-queue checkout at the land, committing what they changed on top of it. A
+/// land after one that gained a commit is laid again on it, or waits for the next pass when it
+/// no longer lays cleanly.
+async fn tidy(core: &Arc<Core>, key: &Key, stacked: Stack) -> Stack {
+    let Stack {
+        tip,
+        laid,
+        refused,
+        done,
+    } = stacked;
+    let mut was = tip.clone();
+    let mut tidied = Stack {
+        tip,
+        laid: Vec::new(),
+        refused,
+        done,
+    };
+    let signing = Arc::new(Signing::of(core));
+    for laid in laid {
+        let on = tidied.top().to_owned();
+        let from = std::mem::replace(&mut was, laid.tip.clone());
+        let laid = match on == from {
+            true => laid,
+            false => {
+                let (signing, key, on) = (signing.clone(), key.clone(), on.clone());
+                let again = blocking(move || {
+                    lay(&signing, &key.0, &key.1, &laid.waiting, &on).map_err(Into::into)
+                })
+                .await;
+                match again {
+                    Ok(Some(laid)) => laid,
+                    _ => continue,
+                }
+            }
+        };
+        tidied.laid.push(match fixed(core, key, &on, &laid).await {
+            Some(commit) => Laid {
+                commits: [laid.commits, vec![commit.clone()]].concat(),
+                tip: commit,
+                waiting: laid.waiting,
+            },
+            None => laid,
+        });
+    }
+    tidied
+}
+
+/// The commit made on top of `laid` with its Rust formatted and its land checks' fixes run, when
+/// they changed anything.
+async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<String> {
+    let (repo, from, to) = (key.0.clone(), from.to_owned(), laid.tip.clone());
+    let (rust, fixes) = blocking(move || {
+        let fixes: Vec<_> = (land_checks_due(&repo, &from, &to).into_iter())
+            .filter(|(check, _)| check.fix.is_some())
+            .collect();
+        Ok((unformatted(&repo, &from, &to), fixes))
+    })
+    .await
+    .ok()?;
+    if rust.files.is_empty() && fixes.is_empty() {
+        return None;
+    }
+    let checkout = crate::server::worktree::agent::merge_queue(core, &key.0, &laid.tip)
+        .await
+        .ok()?;
+    let signers: Vec<_> = super::footer::known(core, &key.0, &laid.waiting.agent)
+        .into_iter()
+        .collect();
+    let (owner, project, tip) = (core.clone(), key.0.clone(), laid.tip.clone());
+    let host_key = Signing::of(core).key;
+    blocking(move || {
+        let mut ran = Vec::new();
+        if !rust.files.is_empty() {
+            let mut args = vec!["--edition".to_owned(), rust.edition];
+            args.extend(rust.files.iter().cloned());
+            if shell(
+                &checkout,
+                "rustfmt \"$@\"",
+                "rustfmt",
+                &args,
+                LAND_CHECK_LIMIT,
+            )
+            .is_ok()
+            {
+                ran.push(format!("rustfmt on {}", rust.files.join(", ")));
+            }
+        }
+        let trusted = super::generate::trust_needed_for(&owner, &project, &checkout, |config| {
+            !config.land_checks.is_empty()
+        })
+        .is_none();
+        for (check, files) in fixes.iter().filter(|_| trusted) {
+            let fix = check.fix.as_deref().unwrap_or_default();
+            if shell(&checkout, fix, &check.label, files, LAND_CHECK_LIMIT).is_ok() {
+                ran.push(format!("the fix of {}", check.label));
+            }
+        }
+        git(&checkout, &["add", "-u"])?;
+        let tree = line(git(&checkout, &["write-tree"])?);
+        if ran.is_empty()
+            || tree == line(git(&checkout, &["rev-parse", &format!("{tip}^{{tree}}")])?)
+        {
+            return Ok(None);
+        }
+        let parents = vec![tip.clone()];
+        let footer = crate::trailers::footer(
+            &signers,
+            &crate::trailers::Commit {
+                tree: &tree,
+                parents: &parents,
+            },
+            host_key.as_ref(),
+        );
+        let subject = format!("chore(land): {}", ran.join(" and "));
+        let message = crate::trailers::append(&subject, &footer);
+        let made = super::owners::run(
+            &checkout,
+            &["commit-tree", &tree, "-p", &tip, "-F", "-"],
+            None,
+            Some(message.as_bytes()),
+        )?;
+        Ok(Some(line(String::from_utf8_lossy(&made).into_owned())))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Stacks the lands in `batch`, checks them together and lands them on a pass.
@@ -478,34 +623,16 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     if stacked.laid.is_empty() {
         return;
     }
+    let _turn = merge_queue::checkout_turn().await;
+    let stacked = tidy(core, key, stacked).await;
+    if stacked.laid.is_empty() {
+        return;
+    }
     let ranges: Vec<(String, String)> = (stacked.laid.iter())
         .scan(stacked.tip.clone(), |from, laid| {
             Some((std::mem::replace(from, laid.tip.clone()), laid.tip.clone()))
         })
         .collect();
-    let repo = key.0.clone();
-    let land_ranges = ranges.clone();
-    let unformatted = blocking(move || {
-        Ok((ranges.iter())
-            .map(|(from, to)| unformatted(&repo, from, to))
-            .collect::<Vec<_>>())
-    })
-    .await
-    .unwrap_or_default();
-    let mut sent_back = false;
-    for (laid, files) in stacked.laid.iter().zip(unformatted) {
-        if !files.is_empty() {
-            let why = format!(
-                "rustfmt --check fails on {}. Run cargo fmt on them and land again.",
-                files.join(", ")
-            );
-            send_back(core, key, &laid.waiting, &why);
-            sent_back = true;
-        }
-    }
-    if sent_back {
-        return;
-    }
     let tip = stacked.tip.clone();
     let red = with_line(core, key, |line| {
         let red = line.lane.red_tip().map(str::to_owned);
@@ -516,8 +643,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     })
     .flatten();
     let repairing = red.as_deref() == Some(tip.as_str());
-    let _turn = merge_queue::checkout_turn().await;
-    if let Some((laid, why)) = failing_land_check(core, key, &stacked, &land_ranges).await {
+    if let Some((laid, why)) = failing_land_check(core, key, &stacked, &ranges).await {
         send_back(core, key, &laid.waiting, &why);
         return;
     }
@@ -892,43 +1018,60 @@ fn land_checks_due(repo: &Path, from: &str, to: &str) -> Vec<(LandCheck, Vec<Str
 
 /// Why `check` fails in `checkout` on `files`, or none when it passes.
 fn run_land_check(checkout: &Path, check: &LandCheck, files: &[String]) -> Option<String> {
+    let output = shell(
+        checkout,
+        &check.command,
+        &check.label,
+        files,
+        LAND_CHECK_LIMIT,
+    )
+    .err()?;
+    Some(format!(
+        "{} fails on it:\n\n{}\nFix that and land again.",
+        check.label,
+        crate::git::tail(&output)
+    ))
+}
+
+/// Runs `script` in `dir` with `args`, its standard output on success and all it wrote when it
+/// fails.
+fn shell(
+    dir: &Path,
+    script: &str,
+    name: &str,
+    args: &[String],
+    limit: std::time::Duration,
+) -> Result<String, String> {
     let mut shell = sikemux_process::user_environment::background_shell();
     shell
-        .args(["-c", &check.command, &check.label])
-        .args(files)
+        .args(["-c", script, name])
+        .args(args)
         .envs(crate::git_guard::shim::environment(None))
-        .current_dir(checkout);
-    let failed = |output: &str| {
-        format!(
-            "{} fails on it:\n\n{}\nFix that and land again.",
-            check.label,
-            crate::git::tail(output)
-        )
-    };
-    match sikemux_process::run(
-        &mut shell,
-        None,
-        LAND_CHECK_LIMIT,
-        METADATA_OUTPUT_LIMIT,
-        None,
-    ) {
-        Ok(ran) if ran.status.success() => None,
-        Ok(ran) => Some(failed(&format!(
+        .current_dir(dir);
+    match sikemux_process::run(&mut shell, None, limit, METADATA_OUTPUT_LIMIT, None) {
+        Ok(ran) if ran.status.success() => Ok(String::from_utf8_lossy(&ran.stdout).into_owned()),
+        Ok(ran) => Err(format!(
             "{}{}",
             String::from_utf8_lossy(&ran.stdout),
             String::from_utf8_lossy(&ran.stderr)
-        ))),
-        Err(error) => Some(failed(&error.to_string())),
+        )),
+        Err(error) => Err(error.to_string()),
     }
 }
 
 const LAND_CHECK_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
+#[derive(Default)]
+struct Unformatted {
+    edition: String,
+    files: Vec<String>,
+}
+
 /// The Rust files changed from `from` to `to` that rustfmt would change, as
 /// they stand at `to`. A tree with no Cargo.toml at its root has none.
-fn unformatted(repo: &Path, from: &str, to: &str) -> Vec<String> {
+fn unformatted(repo: &Path, from: &str, to: &str) -> Unformatted {
     let Ok(manifest) = git(repo, &["show", &format!("{to}:Cargo.toml")]) else {
-        return Vec::new();
+        return Unformatted::default();
     };
     let edition = (manifest.lines())
         .find_map(|row| row.trim().strip_prefix("edition"))
@@ -948,39 +1091,22 @@ fn unformatted(repo: &Path, from: &str, to: &str) -> Vec<String> {
             "*.rs",
         ],
     ) else {
-        return Vec::new();
+        return Unformatted::default();
     };
-    let files: Vec<&str> = changed
-        .split('\0')
-        .filter(|path| !path.is_empty())
-        .collect();
-    if files.is_empty() {
-        return Vec::new();
+    let mut args = vec![to.to_owned(), edition.clone()];
+    args.extend(
+        (changed.split('\0'))
+            .filter(|path| !path.is_empty())
+            .map(str::to_owned),
+    );
+    if args.len() == 2 {
+        return Unformatted::default();
     }
-    let mut shell = sikemux_process::user_environment::background_shell();
-    shell
-        .args([
-            "-c",
-            r#"to=$1 edition=$2; shift 2; for f; do [ -z "$(git show "$to:$f" | rustfmt --edition "$edition" --check 2>/dev/null)" ] || printf '%s\n' "$f"; done"#,
-            "unformatted",
-            to,
-            &edition,
-        ])
-        .args(&files)
-        .envs(crate::git_guard::shim::environment(None))
-        .current_dir(repo);
-    match sikemux_process::run(
-        &mut shell,
-        None,
-        METADATA_LIMIT,
-        METADATA_OUTPUT_LIMIT,
-        None,
-    ) {
-        Ok(output) => String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::to_owned)
-            .collect(),
-        Err(_) => Vec::new(),
+    let script = r#"to=$1 edition=$2; shift 2; for f; do [ -z "$(git show "$to:$f" | rustfmt --edition "$edition" --check 2>/dev/null)" ] || printf '%s\n' "$f"; done"#;
+    let files = shell(repo, script, "unformatted", &args, METADATA_LIMIT).unwrap_or_default();
+    Unformatted {
+        edition,
+        files: files.lines().map(str::to_owned).collect(),
     }
 }
 
