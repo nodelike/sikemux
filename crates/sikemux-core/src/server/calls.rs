@@ -230,7 +230,7 @@ calls! { core, client, method, params;
     "snoozeAgents" = SnoozeAgents: Full, counted => super::settling::snooze(&core, params)?,
     "snoozePresets" = SnoozePresets: Full => super::settling::presets(),
     "settleAgents" = SettleAgents: Full, counted => super::settling::settle(&core, params)?,
-    "recentChats" = RecentChats: Watch => workspace::recent_chats(&core, params).await?,
+    "recentChats" = RecentChats: Watch => super::chat_search::recent_chats(&core, params).await?,
     "setAgentDefaults" = SetAgentDefaults: Owner => workspace::set_defaults(&core, params).await?,
     "createAgent": Owner, counted => answer(workspace::create_agent(&core, parse(params)?)?),
     "updateAgent" = UpdateAgent: Owner => workspace::update_agent(&core, params)?,

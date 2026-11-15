@@ -7,6 +7,7 @@ use std::rc::Rc;
 use gpui_kit::{Context, SharedString, Window};
 use sikemux_calls::agent_sign_in::LauncherParams;
 use sikemux_calls::call;
+use sikemux_view::device::FoundBy;
 use sikemux_view::workspace::LauncherInfo;
 use sikemux_wire::protocol::{AgentStatus, PermissionMode};
 
@@ -24,6 +25,9 @@ const MODES: [PermissionMode; 3] = [
     PermissionMode::Bypass,
 ];
 const RESUME: &str = "resume:";
+/// The group of the chats found by what was said in them and all after, ruled off below
+/// those found by name or title.
+const SAID: &str = "said:";
 pub const AGENT_PALETTE: &str = "agent.choose";
 
 impl Workbench {
@@ -204,22 +208,34 @@ impl Workbench {
         for agent in self.agents_of(project) {
             let handle = agent.beside();
             let pinned = self.chat_of(&agent.id).is_some_and(|chat| chat.pinned);
+            let chat = self.chat_of(&agent.id).map(|chat| chat.id.as_str());
+            let Some((place, by)) = self.found_place(query, Some(&agent.id), chat, &agent.title)
+            else {
+                continue;
+            };
             let row = Row::new(format!("{OPEN}{}", agent.id), agent.title.clone())
                 .handle(handle.clone().map(SharedString::from))
                 .state(agent.turn.clone())
                 .unarmed(unarmed(&agent.provider, self.in_terminal(&agent.id)))
                 .mark(Mark::Open(Box::new(agent.clone())))
-                .group(RESUME)
                 .also(handle.as_deref().unwrap_or_default())
                 .also(&agent.provider);
-            let row = said(self.chat_of(&agent.id).map(|chat| chat.id.as_str()), row);
-            taken_up.push((pinned, agent.active_at, row));
+            let row = said(chat, row);
+            taken_up.push((
+                (place, !pinned, std::cmp::Reverse(agent.active_at)),
+                by,
+                row,
+            ));
         }
         let saved = self
             .saved_chats(project)
             .into_iter()
             .filter(|recent| recent.agent_id.is_none());
         for chat in saved {
+            let Some((place, by)) = self.found_place(query, None, Some(&chat.id), &chat.title)
+            else {
+                continue;
+            };
             let row = Row::new(format!("{RESUME}{}", chat.id), chat.title.clone())
                 .meta(if chat.active_at == 0 {
                     String::new()
@@ -228,15 +244,20 @@ impl Workbench {
                 })
                 .unarmed(unarmed(&chat.provider, false))
                 .mark(Mark::Agent(chat.provider.clone()))
-                .group(RESUME)
                 .also(&chat.provider);
             let row = said(Some(&chat.id), row);
-            taken_up.push((chat.pinned, chat.active_at, row));
+            taken_up.push((
+                (place, !chat.pinned, std::cmp::Reverse(chat.active_at)),
+                by,
+                row,
+            ));
         }
-        taken_up.sort_by_key(|(pinned, active_at, _)| {
-            (std::cmp::Reverse(*pinned), std::cmp::Reverse(*active_at))
-        });
-        rows.extend(taken_up.into_iter().map(|(_, _, row)| row));
+        taken_up.sort_by_key(|(key, _, _)| *key);
+        let mut said_yet = false;
+        rows.extend(taken_up.into_iter().map(|(_, by, row)| {
+            said_yet |= by == FoundBy::Said;
+            row.group(if said_yet { SAID } else { RESUME })
+        }));
         rows
     }
 }

@@ -191,6 +191,28 @@ pub struct RecentInfo {
     pub triggers: Vec<crate::chat::ChatTrigger>,
 }
 
+/// An open agent or a saved chat a search found, and where the search found it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundChat {
+    /// The agent that holds it, open or asleep; none for a closed chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Its saved chat, by its id in Recent, once it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chat: Option<String>,
+    pub by: FoundBy,
+}
+
+/// Where a search found a chat: its agent's @name, its title, or what was said in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FoundBy {
+    Name,
+    Title,
+    Said,
+}
+
 /// The computer a core runs on, as a person would recognise it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

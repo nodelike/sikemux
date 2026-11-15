@@ -174,13 +174,20 @@ pub struct RecentChatsParams {
     pub query: Option<String>,
     pub cursor: Option<sikemux_agents::sessions::recent::RecentCursor>,
     pub limit: Option<usize>,
+    /// Answers at once from what the core holds, by names and titles only, without
+    /// reading what the saved chats said.
+    #[serde(default)]
+    pub quick: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct RecentChats {
     pub chats: Vec<RecentInfo>,
     pub next: Option<sikemux_agents::sessions::recent::RecentCursor>,
     /// Where each chat found by its words said them, by the chat's id.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub said: HashMap<String, FoundLine>,
+    /// What the query found, open agents and saved chats together, in the order to show them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub found: Vec<sikemux_view::device::FoundChat>,
 }

@@ -1,18 +1,18 @@
 //! The front project's saved chats beyond the core's recent ones: paged further back, or
 //! searched by the rail's filter, for the rail and ⌘⇧N to take up again.
 
-use gpui_kit::component::input::InputEvent;
 use gpui_kit::AppContext as _;
 use gpui_kit::Window;
+use gpui_kit::component::input::InputEvent;
 use std::time::Duration;
 
 use gpui_kit::component::input::InputState;
 use gpui_kit::{
-    div, App, Context, Div, Entity, FontWeight, HighlightStyle, ParentElement, Styled, StyledText,
-    Subscription,
+    App, Context, Div, Entity, FontWeight, HighlightStyle, ParentElement, Styled, StyledText,
+    Subscription, div,
 };
 use sikemux_agents::sessions::said::FoundLine;
-use sikemux_view::device::RecentInfo;
+use sikemux_view::device::{FoundBy, FoundChat, RecentInfo};
 use std::collections::HashMap;
 
 use crate::workbench::Workbench;
@@ -43,6 +43,10 @@ pub struct OlderChats {
     pub next: Option<RecentCursor>,
     /// Where each chat found by its words said them, by the chat's id.
     pub said: HashMap<String, FoundLine>,
+    /// The open agents and saved chats `query` finds, in the order the core ranks them.
+    pub found: Vec<FoundChat>,
+    /// `found` still holds the last query's rows, until the core answers this one.
+    stale: bool,
     loading: bool,
 }
 
@@ -69,47 +73,92 @@ impl Workbench {
             (false, _, _) => None,
         };
         if !same {
+            let shown = (self.older.take())
+                .filter(|older| older.project == project)
+                .map(|older| older.found)
+                .unwrap_or_default();
             self.older = Some(OlderChats {
                 project: project.clone(),
                 query: query.clone(),
                 chats: Vec::new(),
                 next: None,
                 said: HashMap::new(),
+                found: shown,
+                stale: true,
                 loading: true,
             });
         }
-        let params = RecentChatsParams {
+        let params = |quick| RecentChatsParams {
             project: Some(project.clone()),
             query: Some(query.clone()),
-            cursor,
+            cursor: cursor.clone(),
             limit: Some(limit),
+            quick,
         };
+        let quick = (!same && !query.is_empty()).then(|| params(true));
+        let full = (!query.starts_with('@')).then(|| params(false));
         let target = self.target();
-        let settle = !same && !query.is_empty();
+        let (project, query) = (project.clone(), query.clone());
         self._older = Some(cx.spawn(async move |this, cx| {
-            if settle {
+            if let Some(quick) = quick {
+                let page = target.request_typed::<call::RecentChats>(quick).await.ok();
+                let _ = this.update(cx, |bench, cx| {
+                    bench.take_page(&project, &query, page, full.is_none(), cx)
+                });
                 cx.background_executor().timer(SETTLE).await;
             }
-            let page = target.request_typed::<call::RecentChats>(params).await.ok();
+            let Some(full) = full else {
+                return;
+            };
+            let page = target.request_typed::<call::RecentChats>(full).await.ok();
             let _ = this.update(cx, |bench, cx| {
-                let Some(older) = bench
-                    .older
-                    .as_mut()
-                    .filter(|older| older.project == project && older.query == query)
-                else {
-                    return;
-                };
-                older.loading = false;
-                older.next = None;
-                if let Some(page) = page {
-                    older.chats.extend(page.chats);
-                    older.next = page.next;
-                    older.said.extend(page.said);
-                }
-                bench.refill_agent_palette(cx);
-                cx.notify();
+                bench.take_page(&project, &query, page, true, cx)
             });
         }));
+    }
+
+    /// Takes in a page the core answered for `query`: its saved chats and where each said the
+    /// words, and the rows it found under those already found, so none of those moves.
+    fn take_page(
+        &mut self,
+        project: &str,
+        query: &str,
+        page: Option<sikemux_calls::workspace::RecentChats>,
+        last: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(older) =
+            (self.older.as_mut()).filter(|older| older.project == project && older.query == query)
+        else {
+            return;
+        };
+        older.loading &= !last;
+        if let Some(page) = page {
+            let here: std::collections::HashSet<String> =
+                older.chats.iter().map(|chat| chat.id.clone()).collect();
+            older.chats.extend(
+                page.chats
+                    .into_iter()
+                    .filter(|chat| !here.contains(&chat.id)),
+            );
+            if last {
+                older.next = page.next;
+            }
+            older.said.extend(page.said);
+            if std::mem::take(&mut older.stale) {
+                older.found.clear();
+            }
+            let found = page.found.into_iter().filter(|found| {
+                !(older.found.iter()).any(|here| {
+                    (here.agent_id.is_some() && here.agent_id == found.agent_id)
+                        || (here.agent_id.is_none() && here.chat == found.chat)
+                })
+            });
+            let found: Vec<FoundChat> = found.collect();
+            older.found.extend(found);
+        }
+        self.refill_agent_palette(cx);
+        cx.notify();
     }
 
     /// Whether the rail can bring older chats of the front project than it shows.
@@ -187,10 +236,44 @@ impl Workbench {
         self.said_for(self.filter_text(), id)
     }
 
-    /// Whether the chat `id` is one the rail's filter finds, by its title or its words.
-    pub fn filter_finds(&self, id: Option<&str>, title: &str) -> bool {
-        title.to_lowercase().contains(self.filter_text())
-            || id.is_some_and(|id| self.said_in(id).is_some())
+    /// Where the rail's filter puts the agent `agent`, or the saved chat `chat` no agent holds,
+    /// in the order the core ranks what it finds; none when it does not find it.
+    pub fn filter_place(
+        &self,
+        agent: Option<&str>,
+        chat: Option<&str>,
+        title: &str,
+    ) -> Option<usize> {
+        (self.found_place(self.filter_text(), agent, chat, title)).map(|(place, _)| place)
+    }
+
+    /// Where the core ranks the agent `agent`, or the saved chat `chat` no agent holds, among
+    /// what `query` finds, and by what it found it; until the core answers `query`, a title
+    /// holding it is found by that. With no query, everything is found in one place.
+    pub fn found_place(
+        &self,
+        query: &str,
+        agent: Option<&str>,
+        chat: Option<&str>,
+        title: &str,
+    ) -> Option<(usize, FoundBy)> {
+        if query.is_empty() {
+            return Some((0, FoundBy::Title));
+        }
+        let Some(older) = self
+            .older
+            .as_ref()
+            .filter(|older| older.query == query && !older.stale)
+        else {
+            return (title.to_lowercase().contains(query)).then_some((0, FoundBy::Title));
+        };
+        older.found.iter().enumerate().find_map(|(place, found)| {
+            let this = match agent {
+                Some(agent) => found.agent_id.as_deref() == Some(agent),
+                None => found.agent_id.is_none() && found.chat.as_deref() == chat,
+            };
+            this.then_some((place, found.by))
+        })
     }
 
     /// The words to find in the chat `id`, when the last search found it by them.

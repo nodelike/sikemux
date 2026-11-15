@@ -141,7 +141,7 @@ impl Workbench {
 
     /// The rows the agent rail lists: this project's, or every project's.
     pub fn listed_agents(&self) -> Vec<AgentRow> {
-        let mut rows: Vec<AgentRow> = if self.rails.all_projects {
+        let rows: Vec<AgentRow> = if self.rails.all_projects {
             self.folded()
                 .iter()
                 .flat_map(|folded| self.agents_of_folded(folded))
@@ -151,10 +151,11 @@ impl Workbench {
                 .map(|folded| self.agents_of_folded(&folded))
                 .unwrap_or_default()
         };
-        rows.retain(|row| {
-            let chat = self.chat_of(&row.id).map(|chat| chat.id.as_str());
-            self.filter_finds(chat, &row.title)
-        });
+        let mut rows: Vec<(usize, AgentRow)> = (rows.into_iter())
+            .filter_map(|row| Some((self.filter_place(Some(&row.id), None, &row.title)?, row)))
+            .collect();
+        rows.sort_by_key(|(place, _)| *place);
+        let mut rows: Vec<AgentRow> = rows.into_iter().map(|(_, row)| row).collect();
         if let Some(tag) = &self.rails.tag {
             rows.retain(|row| row.tags.contains(tag));
         }
@@ -254,11 +255,16 @@ impl Workbench {
 
     pub(crate) fn chats_of(&self, project: &str) -> Vec<&RecentInfo> {
         let provider = self.launcher().map(|launcher| launcher.provider.as_str());
-        self.saved_chats(project)
-            .into_iter()
+        let mut chats: Vec<(usize, &RecentInfo)> = (self.saved_chats(project).into_iter())
             .filter(|recent| self.rails.all_harnesses || provider == Some(recent.provider.as_str()))
-            .filter(|recent| self.filter_finds(Some(&recent.id), &recent.title))
-            .collect()
+            .filter_map(|recent| {
+                let agent = recent.agent_id.as_deref();
+                let place = self.filter_place(agent, Some(&recent.id), &recent.title)?;
+                Some((place, recent))
+            })
+            .collect();
+        chats.sort_by_key(|(place, _)| *place);
+        chats.into_iter().map(|(_, chat)| chat).collect()
     }
 }
 

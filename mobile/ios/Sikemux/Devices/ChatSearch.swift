@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The host's chats searched by their titles and by what was said in them: the open agents narrowed here, and the
-/// saved chats the host finds, each found by its words with the line that holds them.
+/// The host's chats searched by their agents' names, their titles and what was said in them, in the order the host
+/// ranks them, each found by its words with the line that holds them.
 struct ChatSearch: View {
     @Environment(\.palette) private var palette
     let core: String
@@ -12,7 +12,7 @@ struct ChatSearch: View {
     let onClose: () -> Void
 
     @State private var query = ""
-    @State private var found: RecentChats?
+    @State private var found: Found?
     @State private var resuming: String?
     @State private var note: (text: String, failed: Bool)?
     @FocusState private var typing: Bool
@@ -22,19 +22,20 @@ struct ChatSearch: View {
 
     var body: some View {
         let words = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let said = found?.said ?? [:]
-        let chatOf = Dictionary(
-            view.recent.compactMap { chat in chat.agentId.map { ($0, chat.id) } },
+        let shown = found?.words == words ? found : nil
+        let said = shown?.said ?? [:]
+        let agentOf = Dictionary(
+            (view.inbox.agents + (view.inbox.kept ?? [])).map { ($0.agentId, $0) },
             uniquingKeysWith: { first, _ in first })
-        let agents =
-            words.isEmpty
-            ? []
-            : view.inbox.agents.filter { agent in
-                (scope == nil || agent.project == scope?.id) && agent.session == nil
-                    && (agent.title.lowercased().contains(words)
-                        || chatOf[agent.agentId].map { said[$0] != nil } == true)
+        let rows: [Hit] = (shown?.found ?? []).compactMap { found in
+            if let agentId = found.agentId {
+                guard let agent = agentOf[agentId], agent.session == nil else { return nil }
+                return .agent(agent, found)
             }
-        let saved = (found?.chats ?? []).filter { $0.agentId == nil }
+            return found.chat.flatMap { shown?.chats[$0] }.map { .saved($0, found) }
+        }
+        let named = rows.prefix { $0.found.by != .said }
+        let byWords = rows.dropFirst(named.count)
 
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -64,37 +65,35 @@ struct ChatSearch: View {
             .padding(.bottom, 10)
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    if !agents.isEmpty {
+                    ForEach([Array(named), Array(byWords)].filter { !$0.isEmpty }, id: \.first?.id) { group in
                         Rows {
-                            ForEach(agents, id: \.agentId) { agent in
-                                let line = chatOf[agent.agentId].flatMap { said[$0] }
-                                Row(
-                                    title: agent.title, name: agent.name,
-                                    underText: line.map { FoundLineText.of($0, palette) },
-                                    onPress: { open(agent.agentId, line) },
-                                    mark: { AgentMark(provider: agent.cli, size: 20) }, end: { EmptyView() })
+                            ForEach(group, id: \.id) { hit in
+                                let line = hit.found.chat.flatMap { said[$0] }
+                                switch hit {
+                                case .agent(let agent, _):
+                                    Row(
+                                        title: agent.title, name: agent.name,
+                                        underText: line.map { FoundLineText.of($0, palette) },
+                                        onPress: { open(agent.agentId, line) },
+                                        mark: { AgentMark(provider: agent.cli, size: 20) }, end: { EmptyView() })
+                                case .saved(let chat, _):
+                                    Row(
+                                        title: chat.title, underText: line.map { FoundLineText.of($0, palette) },
+                                        onPress: { resume(chat, line) },
+                                        mark: { AgentMark(provider: chat.provider, size: 20) },
+                                        end: {
+                                            if resuming == chat.id {
+                                                Working()
+                                            } else {
+                                                Text(Format.age(Format.date(millis: chat.activeAt), now: .now))
+                                                    .font(Theme.ui(12)).monospacedDigit().foregroundStyle(
+                                                        palette.tertiary)
+                                            }
+                                        })
+                                }
                             }
                         }
-                    }
-                    if !saved.isEmpty {
-                        SectionLabel("Recent")
-                        Rows {
-                            ForEach(saved, id: \.id) { chat in
-                                let line = said[chat.id]
-                                Row(
-                                    title: chat.title, underText: line.map { FoundLineText.of($0, palette) },
-                                    onPress: { resume(chat, line) },
-                                    mark: { AgentMark(provider: chat.provider, size: 20) },
-                                    end: {
-                                        if resuming == chat.id {
-                                            Working()
-                                        } else {
-                                            Text(Format.age(Format.date(millis: chat.activeAt), now: .now))
-                                                .font(Theme.ui(12)).monospacedDigit().foregroundStyle(palette.tertiary)
-                                        }
-                                    })
-                            }
-                        }
+                        .padding(.bottom, 14)
                     }
                     if let note {
                         Text(note.text)
@@ -104,7 +103,7 @@ struct ChatSearch: View {
                             .padding(.horizontal, 8)
                             .padding(.top, 8)
                     }
-                    if !words.isEmpty && found != nil && agents.isEmpty && saved.isEmpty {
+                    if !words.isEmpty && shown?.complete == true && rows.isEmpty {
                         EmptyState(icon: Icons.search, text: String(localized: "No chats match."))
                     }
                 }
@@ -117,17 +116,25 @@ struct ChatSearch: View {
         .task(id: words) { await look(for: words) }
     }
 
+    /// Asks the host at once for what its names and titles find, then once typing rests for what was said too,
+    /// whose rows go under those already shown.
     private func look(for words: String) async {
         guard !words.isEmpty else {
             found = nil
             return
         }
+        guard let connection = Hub.shared.live(core).connection else { return }
+        let quick = RecentChatsParams(project: scope?.id, query: words, cursor: nil, limit: Self.most, quick: true)
+        if let answer = try? await connection.call(PhoneCall.RecentChats.self, quick), !Task.isCancelled {
+            found = Found(words: words, answer: answer, complete: words.hasPrefix("@"))
+        }
+        guard !words.hasPrefix("@") else { return }
         try? await Task.sleep(for: Self.typingRest)
-        guard !Task.isCancelled, let connection = Hub.shared.live(core).connection else { return }
-        let params = RecentChatsParams(project: scope?.id, query: words, cursor: nil, limit: Self.most)
-        let answer = try? await connection.call(PhoneCall.RecentChats.self, params)
         guard !Task.isCancelled else { return }
-        found = answer
+        let full = RecentChatsParams(project: scope?.id, query: words, cursor: nil, limit: Self.most, quick: false)
+        let answer = try? await connection.call(PhoneCall.RecentChats.self, full)
+        guard !Task.isCancelled, let answer else { return }
+        found = (found?.words == words ? found : nil).map { $0.adding(answer) } ?? Found(words: words, answer: answer)
     }
 
     private func open(_ agentId: String, _ line: FoundLine?) {
@@ -164,6 +171,54 @@ struct ChatSearch: View {
             }
         }
     }
+}
+
+/// What the host found for the words typed: its rows in the order it sent them, the saved chats they name, and where
+/// each chat said the words.
+private struct Found {
+    let words: String
+    var found: [FoundChat]
+    var chats: [String: RecentInfo]
+    var said: [String: FoundLine]
+    /// Every answer has come, so finding nothing means nothing matches.
+    var complete = true
+
+    init(words: String, answer: RecentChats, complete: Bool = true) {
+        self.words = words
+        found = answer.found ?? []
+        chats = Dictionary(answer.chats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        said = answer.said ?? [:]
+        self.complete = complete
+    }
+
+    /// The later answer's rows go under these, leaving every row already here where it is.
+    func adding(_ answer: RecentChats) -> Found {
+        var more = self
+        let here = Set(found.map(\.key))
+        more.found += (answer.found ?? []).filter { !here.contains($0.key) }
+        more.chats.merge(answer.chats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        more.said.merge(answer.said ?? [:], uniquingKeysWith: { _, later in later })
+        more.complete = true
+        return more
+    }
+}
+
+extension FoundChat {
+    fileprivate var key: String { agentId ?? chat ?? "" }
+}
+
+/// A row the search found: an open agent, or a saved chat to take up again.
+private enum Hit {
+    case agent(AgentShown, FoundChat)
+    case saved(RecentInfo, FoundChat)
+
+    var found: FoundChat {
+        switch self {
+        case .agent(_, let found), .saved(_, let found): found
+        }
+    }
+
+    var id: String { found.key }
 }
 
 /// The line a chat said the words in: the quiet ink, the words themselves in full ink, as the host cut it.

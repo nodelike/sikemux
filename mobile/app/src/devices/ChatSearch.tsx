@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { router } from 'expo-router';
 
 import { formatAge } from '@shared/lib/format';
-import type { FoundLine, ProjectInfo, RecentChats, RecentInfo } from '@shared/wire.generated';
+import type { AgentShown, FoundChat, FoundLine, ProjectInfo, RecentChats, RecentInfo } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
 import type { Snapshot } from '@/core/protocol';
@@ -14,7 +14,7 @@ import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { useMinute } from '@/ui/motion';
 import { AgentIcon, Icon } from '@/ui/Icon';
-import { Row, Rows, SectionLabel } from '@/ui/list';
+import { Row, Rows } from '@/ui/list';
 import { EmptyState } from '@/ui/prompt';
 import { fonts, keyboardFor, type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
 
@@ -22,9 +22,34 @@ import { fonts, keyboardFor, type Palette, typeFor, useColors, useStyles, useTyp
 const TYPING_REST_MS = 150;
 const MOST = 50;
 
+/** What the host found for the words typed, its rows in the order it sent them; `complete` once every answer came. */
+type Found = { words: string; found: FoundChat[]; chats: Map<string, RecentInfo>; said: Record<string, FoundLine>; complete: boolean };
+
+const keyOf = (found: FoundChat) => found.agentId ?? found.chat ?? '';
+
+const foundOf = (words: string, answer: RecentChats, complete: boolean): Found => ({
+  words,
+  found: answer.found ?? [],
+  chats: new Map(answer.chats.map((chat) => [chat.id, chat])),
+  said: answer.said ?? {},
+  complete,
+});
+
+/** The later answer's rows go under those already shown, leaving every one of them where it is. */
+const adding = (shown: Found, answer: RecentChats): Found => {
+  const here = new Set(shown.found.map(keyOf));
+  return {
+    words: shown.words,
+    found: [...shown.found, ...(answer.found ?? []).filter((found) => !here.has(keyOf(found)))],
+    chats: new Map([...answer.chats.map((chat) => [chat.id, chat] as const), ...shown.chats]),
+    said: { ...shown.said, ...answer.said },
+    complete: true,
+  };
+};
+
 /**
- * The host's chats searched by their titles and by what was said in them: the open agents narrowed here, and the
- * saved chats the host finds, each found by its words with the line that holds them.
+ * The host's chats searched by their agents' names, their titles and what was said in them, in the order the host
+ * ranks them, each found by its words with the line that holds them.
  */
 export function ChatSearch({
   core,
@@ -49,7 +74,7 @@ export function ChatSearch({
   const t = useT();
   const live = useLive(core);
   const [query, setQuery] = useState('');
-  const [answered, setAnswered] = useState<{ words: string; answer: RecentChats }>();
+  const [answered, setAnswered] = useState<Found>();
   const minute = useMinute();
   const [resuming, setResuming] = useState<string>();
   const [note, setNote] = useState<{ text: string; failed: boolean }>();
@@ -59,33 +84,45 @@ export function ChatSearch({
   useEffect(() => {
     if (!words || !connection) return;
     let current = true;
-    const timer = setTimeout(() => {
-      callHost(connection, 'recentChats', { project: scope?.id ?? null, query: words, cursor: null, limit: MOST })
-        .then((answer) => current && setAnswered({ words, answer }))
-        .catch(() => undefined);
-    }, TYPING_REST_MS);
+    const ask = (quick: boolean) =>
+      callHost(connection, 'recentChats', { project: scope?.id ?? null, query: words, cursor: null, limit: MOST, quick });
+    const namesOnly = words.startsWith('@');
+    ask(true)
+      .then(
+        (answer) =>
+          current && setAnswered((shown) => (shown?.words === words && shown.complete ? shown : foundOf(words, answer, namesOnly))),
+      )
+      .catch(() => undefined);
+    const timer = namesOnly
+      ? undefined
+      : setTimeout(() => {
+          ask(false)
+            .then(
+              (answer) =>
+                current && setAnswered((shown) => (shown?.words === words ? adding(shown, answer) : foundOf(words, answer, true))),
+            )
+            .catch(() => undefined);
+        }, TYPING_REST_MS);
     return () => {
       current = false;
       clearTimeout(timer);
     };
   }, [words, connection, scope?.id]);
 
-  const found = answered?.words === words ? answered.answer : undefined;
+  const found = answered?.words === words ? answered : undefined;
   const said = found?.said ?? {};
-  const chatOf = new Map(snapshot.recent.filter((chat) => chat.agentId).map((chat) => [chat.agentId as string, chat.id]));
-  const lineOf = (agentId: string) => {
-    const chat = chatOf.get(agentId);
-    return chat ? said[chat] : undefined;
-  };
-  const agents = words
-    ? snapshot.inbox.agents.filter(
-        (agent) =>
-          (!scope || agent.project === scope.id) &&
-          !agent.session &&
-          (agent.title.toLowerCase().includes(words) || lineOf(agent.agentId) !== undefined),
-      )
-    : [];
-  const saved = (found?.chats ?? []).filter((chat) => !chat.agentId);
+  const agentOf = new Map([...snapshot.inbox.agents, ...(snapshot.inbox.kept ?? [])].map((agent) => [agent.agentId, agent]));
+  type Hit = { found: FoundChat; agent?: AgentShown; chat?: RecentInfo };
+  const hits: Hit[] = (found?.found ?? []).flatMap((hit): Hit[] => {
+    if (hit.agentId) {
+      const agent = agentOf.get(hit.agentId);
+      return agent && !agent.session ? [{ found: hit, agent }] : [];
+    }
+    const chat = hit.chat ? found?.chats.get(hit.chat) : undefined;
+    return chat ? [{ found: hit, chat }] : [];
+  });
+  const firstSaid = hits.findIndex((hit) => hit.found.by === 'said');
+  const groups = (firstSaid < 0 ? [hits] : [hits.slice(0, firstSaid), hits.slice(firstSaid)]).filter((group) => group.length);
 
   const open = (agentId: string, line: FoundLine | undefined) => {
     haptics.tap();
@@ -146,30 +183,21 @@ export function ChatSearch({
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.body, { paddingBottom: bottom + 24 }]}>
-        {agents.length ? (
-          <Rows>
-            {agents.map((agent) => {
-              const line = lineOf(agent.agentId);
-              return (
-                <Row
-                  key={agent.agentId}
-                  mark={<AgentIcon provider={agent.cli} size={20} />}
-                  title={agent.title}
-                  name={agent.name}
-                  under={line ? <FoundLineText line={line} /> : undefined}
-                  onPress={() => open(agent.agentId, line)}
-                />
-              );
-            })}
-          </Rows>
-        ) : null}
-        {saved.length ? (
-          <>
-            <SectionLabel>Recent</SectionLabel>
+        {groups.map((group) => (
+          <View key={keyOf(group[0].found)} style={styles.group}>
             <Rows>
-              {saved.map((chat) => {
-                const line = said[chat.id];
-                return (
+              {group.map(({ found: hit, agent, chat }) => {
+                const line = hit.chat ? said[hit.chat] : undefined;
+                return agent ? (
+                  <Row
+                    key={agent.agentId}
+                    mark={<AgentIcon provider={agent.cli} size={20} />}
+                    title={agent.title}
+                    name={agent.name}
+                    under={line ? <FoundLineText line={line} /> : undefined}
+                    onPress={() => open(agent.agentId, line)}
+                  />
+                ) : chat ? (
                   <Row
                     key={chat.id}
                     mark={<AgentIcon provider={chat.provider} size={20} />}
@@ -184,13 +212,13 @@ export function ChatSearch({
                     }
                     onPress={() => void resume(chat)}
                   />
-                );
+                ) : null;
               })}
             </Rows>
-          </>
-        ) : null}
+          </View>
+        ))}
         {note ? <Text style={[styles.note, note.failed && styles.noteFailed]}>{note.text}</Text> : null}
-        {words && found && !agents.length && !saved.length ? <EmptyState icon="IconSearch" text={t('No chats match.')} /> : null}
+        {words && found?.complete && !hits.length ? <EmptyState icon="IconSearch" text={t('No chats match.')} /> : null}
       </ScrollView>
     </View>
   );
@@ -230,6 +258,7 @@ const makeStyles = (colors: Palette) => {
     searchInput: { flex: 1, fontFamily: fonts.ui, fontSize: 15.5, color: colors.ink },
     cancel: { fontFamily: fonts.ui, fontSize: 15.5, color: colors.accent },
     body: { paddingHorizontal: 16 },
+    group: { marginBottom: 14 },
     found: { fontFamily: fonts.uiMedium, color: colors.ink },
     age: { fontSize: 12, fontVariant: ['tabular-nums'] },
     note: { ...type.meta, fontSize: 12.5, paddingHorizontal: 8, paddingTop: 8 },

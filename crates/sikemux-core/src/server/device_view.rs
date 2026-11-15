@@ -46,6 +46,14 @@ pub(crate) struct DeviceViews {
     sent: Mutex<HashMap<Option<String>, Vec<u8>>>,
     /// What the rows showed of this host's load in the view that last went out.
     shown_load: Mutex<Option<sikemux_view::device::HostLoad>>,
+    /// The agents and saved chats the view last showed, as a search of chats ranks them.
+    searched: Mutex<Option<Arc<super::chat_search::Searched>>>,
+}
+
+impl DeviceViews {
+    pub(super) fn searched(&self) -> Option<Arc<super::chat_search::Searched>> {
+        self.searched.locked().clone()
+    }
 }
 
 /// Building and sending the view of this host that devices show.
@@ -281,6 +289,9 @@ impl DeviceViewCore for Core {
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
         let recent = self.workspaces().recent(&chats, &self.triggers().held());
         let inbox = inbox::view(self, &chats, &sessions);
+        let searched =
+            super::chat_search::Searched::of(&inbox, &recent, self.workspaces().holders());
+        *self.device_view().searched.locked() = Some(Arc::new(searched));
         let mut workers: HashMap<&String, Vec<&String>> = HashMap::new();
         let leads = self.workspaces().agent_leads();
         for (worker, lead) in &leads {

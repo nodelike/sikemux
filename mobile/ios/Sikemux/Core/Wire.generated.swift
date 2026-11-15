@@ -8620,6 +8620,9 @@ struct RecentChatsParams: Codable, Hashable, Sendable {
     var query: String?
     var cursor: RecentCursor?
     var limit: Int?
+    /// Answers at once from what the core holds, by names and titles only, without
+    /// reading what the saved chats said.
+    var quick: Bool?
 }
 
 /// Where the last page ended. Sessions are ordered newest first, then by
@@ -8636,6 +8639,8 @@ struct RecentChats: Codable, Hashable, Sendable {
     var next: RecentCursor?
     /// Where each chat found by its words said them, by the chat's id.
     var said: [String: FoundLine]?
+    /// What the query found, open agents and saved chats together, in the order to show them.
+    var found: [FoundChat]?
 }
 
 /// A line of a session that holds the words looked for, in runs that alternate between
@@ -8648,6 +8653,28 @@ struct FoundRun: Codable, Hashable, Sendable {
     var text: String
     /// Whether these are words looked for.
     var found: Bool?
+}
+
+/// An open agent or a saved chat a search found, and where the search found it.
+struct FoundChat: Codable, Hashable, Sendable {
+    /// The agent that holds it, open or asleep; none for a closed chat.
+    var agentId: String?
+    /// Its saved chat, by its id in Recent, once it has one.
+    var chat: String?
+    var by: FoundBy
+}
+
+/// Where a search found a chat: its agent's @name, its title, or what was said in it.
+enum FoundBy: String, Codable, Hashable, Sendable {
+    case name
+    case title
+    case said
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 struct StashItemParams: Codable, Hashable, Sendable {

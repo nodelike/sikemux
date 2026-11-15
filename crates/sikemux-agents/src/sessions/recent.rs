@@ -184,7 +184,8 @@ impl<'a> PageScan<'a> {
             return false;
         }
         self.query.is_none_or(|needle| {
-            found.session.title.to_lowercase().contains(needle)
+            let title = found.session.title.to_lowercase();
+            needle.split_whitespace().all(|word| title.contains(word))
                 || self
                     .said
                     .is_some_and(|said| said.contains(&(self.agent, found.session.id.clone())))

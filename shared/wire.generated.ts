@@ -5761,6 +5761,11 @@ export interface RecentChatsParams {
     query: string | null;
     cursor: RecentCursor | null;
     limit: number | null;
+    /**
+     * Answers at once from what the core holds, by names and titles only, without
+     * reading what the saved chats said.
+     */
+    quick?: boolean;
 }
 
 /**
@@ -5779,6 +5784,8 @@ export interface RecentChats {
     next: RecentCursor | null;
     /** Where each chat found by its words said them, by the chat's id. */
     said?: Record<string, FoundLine>;
+    /** What the query found, open agents and saved chats together, in the order to show them. */
+    found?: FoundChat[];
 }
 
 /**
@@ -5794,6 +5801,18 @@ export interface FoundRun {
     /** Whether these are words looked for. */
     found?: boolean;
 }
+
+/** An open agent or a saved chat a search found, and where the search found it. */
+export interface FoundChat {
+    /** The agent that holds it, open or asleep; none for a closed chat. */
+    agentId?: string;
+    /** Its saved chat, by its id in Recent, once it has one. */
+    chat?: string;
+    by: FoundBy;
+}
+
+/** Where a search found a chat: its agent's @name, its title, or what was said in it. */
+export type FoundBy = "name" | "title" | "said";
 
 export interface StashItemParams {
     id: string;
