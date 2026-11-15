@@ -1421,6 +1421,12 @@ impl Fold {
                 if self.head.placed.take().is_some() {
                     self.set_head("placed");
                 }
+                if self.head.error.is_some() || self.head.failure.is_some() {
+                    self.head.error = None;
+                    self.head.failure = None;
+                    self.set_head("error");
+                    self.set_head("failure");
+                }
                 self.append_part(index, &None, |id| ChatPart::Account { id, moved }, false);
             }
             UpdateKind::SessionRotated => {
