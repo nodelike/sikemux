@@ -78,6 +78,7 @@ mod math;
 mod mention;
 mod mermaid;
 mod moving;
+mod now;
 mod rotation;
 pub(crate) use attach::{
     agent_pill, named, named_agents, pill, site_icon, Made, Mention, SNIP_NAME,
@@ -669,6 +670,8 @@ pub struct Chat {
     /// When the person sent the first message of this new chat, so its welcome leaves rather
     /// than vanishing; a chat filled by its own history never has one.
     first_sent: Cell<Option<std::time::Instant>>,
+    /// A chief's Now card is folded to its counts.
+    now_folded: bool,
 }
 
 impl Chat {
@@ -813,6 +816,7 @@ impl Chat {
             finding: None,
             plan_open: false,
             first_sent: Cell::new(None),
+            now_folded: false,
             activity_line,
             announcer: cx.new(|_| announce::Announcer::default()),
             calls,
@@ -1622,6 +1626,7 @@ pub fn pane(
             .bottom_0()
             .child(Scrollbar::vertical(&list))
     });
+    let now_card = now::card(bench, agent, chat, cx);
     let rows = div()
         .flex_1()
         .min_h_0()
@@ -1690,7 +1695,8 @@ pub fn pane(
         })
         .children(welcome.map(|welcome| crate::home::over_composer(welcome).absolute().inset_0()))
         .children(app::expanded(&agent.id, cx))
-        .children(app::scrolls(cx));
+        .children(app::scrolls(cx))
+        .children(now_card);
     let open: Vec<&Question> = bench
         .feeds
         .questions_outside_calls()
