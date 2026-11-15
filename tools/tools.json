@@ -1920,7 +1920,7 @@
       "name": "agent_close",
       "row": {"verb": "close", "kind": "edit", "icon": "close", "target": ["{agents}"]},
       "method": "agent.close",
-      "description": "Close agents.",
+      "description": "Close agents. Closes every one it may and lists the rest under refused, each with its reason.",
       "properties": {
         "agents": {
           "type": "array",

@@ -747,8 +747,10 @@ what came after. For a terminal agent of another CLI it gives only `screen`.
 ### Closing agents
 
 `agent_close` closes the agents you started, or theirs, once their work is
-committed or handed on. Their chats stay in Recent, and `agent_send` or
-`agent_spawn` with `resume` reopens one. Close each teammate once its work
+committed or handed on, and a worker whose lead has closed. It closes every
+agent it may and lists the rest under `refused` with each one's reason, so
+don't retry the ones it closed. Their chats stay in Recent, and `agent_send`
+or `agent_spawn` with `resume` reopens one. Close each teammate once its work
 has landed.
 
 ### When an agent started you

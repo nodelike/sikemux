@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::turn::{TurnPhase, WorkAt};
 use sikemux_view::workspace::WorkspaceAgent;
@@ -18,9 +18,9 @@ use sikemux_wire::protocol::{AgentStatus, ChatInfo, ChatState, SessionInfo};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
 
+use super::Core;
 use super::connection::blocking;
 use super::workspace::project_of;
-use super::Core;
 
 /// The terminals of agents that have no chat here, the agent's id with each.
 pub(crate) fn terminals<'a>(
@@ -273,10 +273,10 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
         .collect()
 }
 
-/// Closes agents the caller started, or that one of its workers started, or,
-/// by id, one that no open agent leads, as the person closing their tabs would, on whichever host
-/// each runs. A project's chief may also close any finished agent of its project. Their chats stay
-/// in Recent.
+/// Closes agents the caller started, or that one of its workers started, or one that no open agent
+/// leads, as the person closing their tabs would, on whichever host each runs. A project's chief may
+/// also close any finished agent of its project. Their chats stay in Recent. Each agent it may not
+/// close is refused with its reason, and the rest still close.
 pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let caller = request
         .agent_id
@@ -291,60 +291,77 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         _ => return Err("agents must list the agents to close".into()),
     };
     let (here, request, caller_id) = (core.clone(), request.clone(), caller.clone());
-    let (mut closed, remote) = blocking(move || {
+    let (mut closed, remote, mut refused) = blocking(move || {
         let (core, caller) = (here, caller_id);
         let project = super::caller::project_of(&core, &request);
         let agents = listed(&core);
         let mut closing = Vec::new();
         let mut remote = Vec::new();
+        let mut refused = Vec::new();
         for to in &wanted {
-            let target = resolve(&core, &agents, to, &project, &caller)?;
-            let name = target.name.clone().unwrap_or(target.agent_id.clone());
-            if target.reach == Reach::Remote {
-                remote.push(target.agent_id);
-                continue;
-            }
-            let led = core.names().leads_of(&target.agent_id);
-            let orphan =
-                !led.is_empty() && !led.iter().any(|lead| core.agent_now(lead).open());
-            let by_id = to.trim().trim_start_matches('@') == target.agent_id;
-            if !led.contains(&caller) {
-                if orphan && !by_id {
-                    return Err(format!(
-                        "No open agent leads {name} ({}); close it by that id if you mean it",
-                        target.agent_id
-                    )
-                    .into());
+            match closable(&core, &agents, to, &project, &caller) {
+                Ok(target) if target.reach == Reach::Remote => remote.push(target.agent_id),
+                Ok(target) => {
+                    let name = target.name.unwrap_or_else(|| target.agent_id.clone());
+                    closing.push((target.agent_id, name));
                 }
-                if !orphan {
-                    let chief_here =
-                        super::chief::is_chief(&core, &caller) && target.project == project;
-                    if !chief_here {
-                        return Err(format!(
-                            "{name} is the person's, or its lead or Auto still runs, so closing it is theirs to do"
-                        )
-                        .into());
-                    }
-                    if let Some(why) = kept_from_chief(&core, &target.agent_id) {
-                        return Err(
-                            format!("{name} {why}, so closing it is not yours to do yet").into()
-                        );
-                    }
-                }
+                Err(why) => refused.push(json!({ "agent": to, "reason": why })),
             }
-            closing.push((target.agent_id, name));
         }
         let ids: Vec<String> = closing.iter().map(|(id, _)| id.clone()).collect();
-        super::workspace::close(&core, &ids)?;
+        if !ids.is_empty() {
+            super::workspace::close(&core, &ids)?;
+        }
         let closed: Vec<String> = closing.into_iter().map(|(_, name)| name).collect();
-        Ok((closed, remote))
+        Ok((closed, remote, refused))
     })
     .await
     .map_err(|error| error.to_string())?;
     for agent_id in remote {
-        closed.push(super::hosts::route::close(core, &caller, &agent_id).await?);
+        match super::hosts::route::close(core, &caller, &agent_id).await {
+            Ok(name) => closed.push(name),
+            Err(why) => refused.push(json!({ "agent": agent_id, "reason": why })),
+        }
     }
-    Ok(json!({ "closed": closed }))
+    let mut result = json!({ "closed": closed });
+    if !refused.is_empty() {
+        result["refused"] = refused.into();
+    }
+    Ok(result)
+}
+
+/// The agent `to` names, when the caller may close it, else why not.
+fn closable(
+    core: &Core,
+    agents: &[Listed],
+    to: &str,
+    project: &str,
+    caller: &str,
+) -> Result<Listed, String> {
+    let target = resolve(core, agents, to, project, caller)?;
+    if target.reach == Reach::Remote {
+        return Ok(target);
+    }
+    let led = core.names().leads_of(&target.agent_id);
+    if led.iter().any(|lead| lead == caller) {
+        return Ok(target);
+    }
+    let orphan = !led.is_empty() && !led.iter().any(|lead| core.agent_now(lead).open());
+    if orphan {
+        return Ok(target);
+    }
+    let name = target.name.clone().unwrap_or(target.agent_id.clone());
+    if !(super::chief::is_chief(core, caller) && target.project == project) {
+        return Err(format!(
+            "{name} is the person's, or its lead or Auto still runs, so closing it is theirs to do"
+        ));
+    }
+    if let Some(why) = kept_from_chief(core, &target.agent_id) {
+        return Err(format!(
+            "{name} {why}, so closing it is not yours to do yet"
+        ));
+    }
+    Ok(target)
 }
 
 /// Why a project's chief may not close `agent_id`, an agent of its project it does not lead: it is
