@@ -82,16 +82,18 @@ jobs:
           core=
           for _ in $(seq 1 90); do
             for pid in $(pgrep -u person || true); do
-              [ "$(sudo readlink "/proc/$pid/exe" || true)" = /usr/lib/sikemux/sikemux-host ] && grep -q core "/proc/$pid/cmdline" && core=$pid
+              [ "$(sudo readlink "/proc/$pid/exe" || true)" = /usr/lib/sikemux/sikemux-host ] && ! sudo grep -q 'crash reporter' "/proc/$pid/cmdline" && core=$pid
             done
             [ -n "$core" ] && break
             sleep 1
           done
           test -n "$core"
           echo "CORE=$core" >>"$GITHUB_ENV"
-          sudo cat "/proc/$core/cmdline" | tr '\0' ' '; echo
-          sudo grep -E '^(Uid|Gid)' "/proc/$core/status"
-          for task in /proc/$core/task/*; do echo "$(sudo cat "$task/comm"): $(sudo grep ^Gid "$task/status")"; done | sort | uniq -c
+          for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host || true) $core; do
+            echo "== $pid: $(sudo cat "/proc/$pid/cmdline" | tr '\0' ' ')"
+            sudo grep -E '^(Uid|Gid)' "/proc/$pid/status"
+            for task in /proc/$pid/task/*; do echo "$(sudo cat "$task/comm"): $(sudo grep ^Gid "$task/status")"; done | sort | uniq -c
+          done
           echo "Every process the person runs, with its groups:"
           for pid in $(pgrep -u person); do echo "$pid $(sudo readlink /proc/$pid/exe) $(sudo grep ^Gid /proc/$pid/status)"; done
           sleep 20
@@ -101,11 +103,11 @@ jobs:
       - name: A call only the window may make, from the window's installed path, is accepted
         run: |
           set -euxo pipefail
-          socket=$(sudo find /home/person -name 'core.sock' | head -1)
-          test -n "$socket"
+          socket=/home/person/.config/sikemux/core.sock
+          sudo test -S "$socket"
           echo "SOCKET=$socket" >>"$GITHUB_ENV"
-          log=$(sudo find /home/person -name core.log | head -1)
-          echo "Refusals of the real window while it started: $(sudo grep -c "$APP_ONLY" "$log" || true)"
+          log=$( { sudo find /home/person -xdev -name core.log 2>/dev/null || true; } | head -1)
+          echo "Core log: $log; refusals of the real window while it started: $(sudo grep -c "$APP_ONLY" "$log" || true)"
           sudo mv /usr/lib/sikemux/sikemux /usr/lib/sikemux/sikemux.window
           sudo install -m 755 client/call /usr/lib/sikemux/sikemux
           sudo -u person /usr/lib/sikemux/sikemux "$socket" accountSignIn '{}' | tee "$RUNNER_TEMP/accepted.json"
@@ -125,7 +127,7 @@ jobs:
           sudo ls -la /var/lib/sikemux
       - if: always()
         run: |
-          sudo find /home/person -name core.log -exec tail -n 80 {} \; || true
+          sudo find /home/person -xdev -name core.log -exec tail -n 80 {} \; || true
           tail -n 40 "$RUNNER_TEMP/window.log" || true
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
