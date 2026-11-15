@@ -29,6 +29,7 @@ use super::{upgrade, Core, CoreError, CoreResult};
 use crate::host_update::{self, HostAction, HostRequest, HostUpdate, UpdateStep, INSTALLED_CORE};
 use crate::release_feed::{self, Newest};
 use crate::releases::bundled_credits;
+use sikemux_view::device::Flag;
 use sikemux_view::prefs::UpdateChannel;
 use sikemux_view::updates::{
     UpdateBlocker, UpdateCheck, UpdateOutcome, UpdateOutcomeState, UpdateRelease, UpdateState,
@@ -41,6 +42,8 @@ const CHECK_EVERY: Duration = Duration::from_secs(30 * 60);
 /// Nightlies are tagged several times a day, and the feed is a small file, so their
 /// channel looks far more often and a fix reaches the person within minutes of its tag.
 const NIGHTLY_CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
+/// Staff take each build the moment it is published, so a push reaches them in about a minute.
+const STAFF_CHECK_EVERY: Duration = Duration::from_secs(60);
 const BLOCKERS_EVERY: Duration = Duration::from_secs(2);
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 /// How long a host's core waits after `sikemux update` hears what root put in
@@ -189,9 +192,10 @@ fn is_host() -> bool {
 
 /// The channel to update on: the person's, or nightly on a nightly build a
 /// host or a pacman package put in place, which the person installed on
-/// purpose and a stable release would not pass.
+/// purpose and a stable release would not pass. Nightly is staff for a staff
+/// account, while the accounts server leaves the staff feed on.
 fn channel(core: &Core) -> UpdateChannel {
-    match (
+    let chosen = match (
         core.preferences().get().update_channel,
         BuildChannel::of_release(&core.config().build.version),
     ) {
@@ -201,6 +205,15 @@ fn channel(core: &Core) -> UpdateChannel {
             UpdateChannel::Nightly
         }
         (channel, _) => channel,
+    };
+    let staff_feed = core
+        .account()
+        .shown()
+        .is_some_and(|account| account.flags.contains(&Flag::StaffFeed));
+    match chosen {
+        UpdateChannel::Stable => UpdateChannel::Stable,
+        UpdateChannel::Nightly | UpdateChannel::Staff if staff_feed => UpdateChannel::Staff,
+        UpdateChannel::Nightly | UpdateChannel::Staff => UpdateChannel::Nightly,
     }
 }
 
@@ -226,7 +239,7 @@ fn installer_command(channel: UpdateChannel) -> Option<String> {
     }
     let channel = match channel {
         UpdateChannel::Stable => "",
-        UpdateChannel::Nightly => "SIKEMUX_CHANNEL=nightly ",
+        UpdateChannel::Nightly | UpdateChannel::Staff => "SIKEMUX_CHANNEL=nightly ",
     };
     Some(format!(
         "curl -fsSL https://sikemux.com/install | {channel}sh -s -- --app"
@@ -265,13 +278,15 @@ impl Updates {
 
 fn check_every(core: &Core) -> Duration {
     match channel(core) {
+        UpdateChannel::Staff => STAFF_CHECK_EVERY,
         UpdateChannel::Nightly => NIGHTLY_CHECK_EVERY,
         UpdateChannel::Stable => CHECK_EVERY,
     }
 }
 
-/// Checks a little after the core starts and then every five minutes on nightly
-/// or half hour on stable, while the core runs in an app that can update.
+/// Checks a little after the core starts and then every minute on staff, five
+/// minutes on nightly or half hour on stable, while the core runs in an app that
+/// can update.
 pub(crate) async fn serve(core: Arc<Core>) {
     let running_since = epoch_ms();
     let asking = core.clone();

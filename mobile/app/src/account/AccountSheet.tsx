@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth, useUser } from '@clerk/expo';
 import { nativeApplicationVersion, nativeBuildVersion } from 'expo-application';
 import * as Updates from 'expo-updates';
 
-import { ApiProblem, removePhone } from '@/account/api';
+import { accountIsStaff, ApiProblem, removePhone } from '@/account/api';
 import { Avatar } from '@/account/Avatar';
 import { providerName } from '@/account/providers';
 import { signOutHere } from '@/account/leave';
@@ -41,6 +41,13 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
   const updateWaiting = useUpdateWaiting();
   const [leaving, setLeaving] = useState(false);
   const [unconfirmed, setUnconfirmed] = useState<string>();
+  const [staff, setStaff] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    accountIsStaff(() => getToken())
+      .then(setStaff)
+      .catch(() => {});
+  }, [visible, getToken]);
   const provider = providerName(user?.externalAccounts[0]?.provider);
   const name = user?.fullName?.trim() || undefined;
   const email = user?.primaryEmailAddress?.emailAddress;
@@ -154,7 +161,10 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
           <Text style={[styles.linkText, styles.update]}>{t('Restart to update')}</Text>
         </Pressable>
       ) : null}
-      <Text style={styles.version}>Sikemux {version}</Text>
+      <Text style={styles.version}>
+        Sikemux {version}
+        {staff ? ' · staff' : ''}
+      </Text>
     </Sheet>
   );
 }

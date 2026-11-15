@@ -7,6 +7,7 @@ use gpui_kit::{
 };
 use sikemux_calls::call;
 use sikemux_calls::params::NoParams;
+use sikemux_view::device::Flag;
 use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::UpdateChannel;
 use sikemux_view::updates::UpdateState;
@@ -53,6 +54,10 @@ pub fn render(
     cx: &App,
 ) -> Vec<AnyElement> {
     let preferences = bench.preferences();
+    let staff_feed = bench
+        .this_view()
+        .and_then(|view| view.account.as_deref())
+        .is_some_and(|account| account.flags.contains(&Flag::StaffFeed));
     let channel = {
         let this = this.clone();
         let chosen = match preferences.update_channel {
@@ -63,7 +68,10 @@ pub fn render(
             "update-channel",
             vec![
                 (Icon::Shield, SharedString::from(t!("Stable"))),
-                (Icon::Flask, SharedString::from(t!("Nightly"))),
+                match staff_feed {
+                    true => (Icon::Rocket, SharedString::from(t!("Staff"))),
+                    false => (Icon::Flask, SharedString::from(t!("Nightly"))),
+                },
             ],
             chosen,
         )
@@ -145,7 +153,10 @@ pub fn render(
             div()
                 .child(rows::row(
                     t!("Channel"),
-                    Some(t!("Stable follows the latest signed release; nightly the newest build, prerelease or stable.")),
+                    Some(match staff_feed {
+                        true => t!("Stable follows the latest signed release; staff takes each build of main the moment it is published, before nightly."),
+                        false => t!("Stable follows the latest signed release; nightly the newest build, prerelease or stable."),
+                    }),
                     channel,
                     cx,
                 ))
@@ -269,6 +280,7 @@ fn check_now(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             Ok(status) => {
                 let channel = match status.checked.as_ref().map(|checked| checked.channel) {
                     Some(UpdateChannel::Nightly) => t!("nightly"),
+                    Some(UpdateChannel::Staff) => t!("staff"),
                     _ => t!("stable"),
                 };
                 match status.available.as_ref().map(|release| &release.version) {

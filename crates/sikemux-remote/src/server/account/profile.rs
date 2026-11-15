@@ -29,6 +29,7 @@ pub struct Profile {
     pub name: Option<String>,
     pub email: Option<String>,
     pub picture: Option<String>,
+    pub staff: bool,
     pub checked_at: u64,
 }
 
@@ -47,6 +48,7 @@ pub fn from_account(account: AccountProfile, user_id: String, now: u64) -> Profi
             .filter(|name| !name.is_empty()),
         email: account.email,
         picture: account.image_url.filter(|url| picture_url(url).is_some()),
+        staff: account.staff,
         checked_at: now,
     }
 }

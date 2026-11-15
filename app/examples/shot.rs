@@ -143,6 +143,8 @@ fn main() -> anyhow::Result<()> {
             name: Some(name.into()),
             email: Some(email.into()),
             picture_hash: None,
+            staff: false,
+            flags: Vec::new(),
         };
         cx.update(|cx| {
             bench.update(cx, |bench, cx| {

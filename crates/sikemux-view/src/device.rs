@@ -140,6 +140,19 @@ pub struct AccountInfo {
     pub email: Option<String>,
     /// Names the picture `accountPicture` answers, which changes with it.
     pub picture_hash: Option<String>,
+    /// Someone who makes Sikemux, whose hosts take each build of main before nightly does.
+    pub staff: bool,
+    /// The features still being tried that are on for this account.
+    pub flags: Vec<Flag>,
+}
+
+/// A feature still being tried, on for staff before anyone else. Each is a risky change
+/// to how Sikemux runs, and goes once it has proved itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Flag {
+    /// Updates come from the staff feed, which takes each build of main the moment it is published.
+    StaffFeed,
 }
 
 /// How agents' faces look, as the person picked.

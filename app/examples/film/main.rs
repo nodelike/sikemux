@@ -315,6 +315,8 @@ fn main() -> anyhow::Result<()> {
                 name: Some(name.into()),
                 email: args.world["signedIn"]["email"].as_str().map(Into::into),
                 picture_hash: None,
+                staff: false,
+                flags: Vec::new(),
             }
         }),
         compositor,

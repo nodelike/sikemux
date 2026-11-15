@@ -360,7 +360,7 @@ fn reported_channel(
     Some(match (install, preferences.update_channel) {
         (Install::Host, _) => host_channel,
         (Install::App, UpdateChannel::Stable) => BuildChannel::Stable,
-        (Install::App, UpdateChannel::Nightly) => BuildChannel::Nightly,
+        (Install::App, UpdateChannel::Nightly | UpdateChannel::Staff) => BuildChannel::Nightly,
     })
 }
 

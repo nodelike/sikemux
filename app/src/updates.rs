@@ -75,6 +75,7 @@ pub fn channel_name(channel: UpdateChannel) -> &'static str {
     match channel {
         UpdateChannel::Stable => "stable",
         UpdateChannel::Nightly => "nightly",
+        UpdateChannel::Staff => "staff",
     }
 }
 

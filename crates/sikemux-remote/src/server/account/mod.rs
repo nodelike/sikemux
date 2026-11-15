@@ -9,6 +9,7 @@
 
 pub mod api;
 pub mod devices;
+mod flags;
 mod profile;
 
 use crate::server::changed::ChangedCore;
@@ -195,20 +196,24 @@ pub async fn show(core: &Core) {
             let saved_email = saved
                 .filter(|saved| saved.user_id == owner)
                 .and_then(|saved| saved.email);
-            let (name, email) = match profile {
-                Some(profile) => (profile.name, profile.email.or(saved_email)),
-                None => (None, saved_email),
+            let (name, email, staff) = match profile {
+                Some(profile) => (profile.name, profile.email.or(saved_email), profile.staff),
+                None => (None, saved_email, false),
             };
             Some(AccountInfo {
                 name,
                 email,
                 picture_hash,
+                staff,
+                flags: flags::resolve(staff, &core.remote().flags_off()),
             })
         }
         (Some(_), None) => Some(AccountInfo {
             name: None,
             email: None,
             picture_hash: None,
+            staff: false,
+            flags: Vec::new(),
         }),
     };
     let changed = {
@@ -219,6 +224,7 @@ pub async fn show(core: &Core) {
     };
     if changed {
         core.changed(What::Read(Topic::Account));
+        (core.remote_above().check_updates_soon)(core);
     }
 }
 

@@ -92810,6 +92810,8 @@
         }
       }
     },
+    "Stable follows the latest signed release; staff takes each build of main the moment it is published, before nightly.": {},
+    "Staff": {},
     "Stage all": {
       "localizations": {
         "es": {
@@ -139239,6 +139241,7 @@
         }
       }
     },
+    "staff": {},
     "stage / unstage selected (or range)": {
       "localizations": {
         "es": {

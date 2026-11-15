@@ -399,6 +399,8 @@ pub enum UpdateChannel {
     #[default]
     Stable,
     Nightly,
+    /// Nightly for a staff account: each build of main the moment it is published.
+    Staff,
 }
 
 impl Default for Preferences {

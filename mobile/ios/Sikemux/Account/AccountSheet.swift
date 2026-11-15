@@ -55,6 +55,7 @@ struct AccountSheet: View {
     @Binding var shown: Bool
     @State private var leaving = false
     @State private var unconfirmed: String?
+    @State private var staff = false
     private let account = Account.shared
     private let session = AccountSession.shared
 
@@ -103,9 +104,13 @@ struct AccountSheet: View {
             .buttonStyle(PressFade())
             .disabled(leaving)
             .padding(.top, 4)
-            Text("Sikemux \(Self.version)")
+            Text(verbatim: staff ? "Sikemux \(Self.version) · staff" : "Sikemux \(Self.version)")
                 .font(Theme.ui(12)).foregroundStyle(palette.tertiary)
                 .padding(.top, 14)
+        }
+        .task(id: shown) {
+            guard shown, let account = try? await AccountCalls.standing() else { return }
+            staff = account.staff
         }
         .onChange(of: shown) { _, now in if !now { unconfirmed = nil } }
     }

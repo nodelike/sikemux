@@ -1918,7 +1918,17 @@ export interface AccountInfo {
     email: string | null;
     /** Names the picture `accountPicture` answers, which changes with it. */
     pictureHash: string | null;
+    /** Someone who makes Sikemux, whose hosts take each build of main before nightly does. */
+    staff: boolean;
+    /** The features still being tried that are on for this account. */
+    flags: Flag[];
 }
+
+/**
+ * A feature still being tried, on for staff before anyone else. Each is a risky change
+ * to how Sikemux runs, and goes once it has proved itself.
+ */
+export type Flag = "staffFeed";
 
 /** How agents' faces look, as the person picked. */
 export interface FaceStyle {
@@ -2037,7 +2047,7 @@ export interface UpdateCheck {
     error: string | null;
 }
 
-export type UpdateChannel = "stable" | "nightly";
+export type UpdateChannel = "stable" | "nightly" | "staff";
 
 /** The newest release on the person's channel. */
 export interface UpdateRelease {

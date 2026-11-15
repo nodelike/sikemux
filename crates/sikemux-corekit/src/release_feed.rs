@@ -20,6 +20,7 @@ const STABLE_FEED: &str =
     "https://github.com/nodelike/sikemux/releases/latest/download/latest.json";
 const NIGHTLY_FEED: &str =
     "https://github.com/nodelike/sikemux/releases/download/nightly/latest.json";
+const STAFF_FEED: &str = "https://github.com/nodelike/sikemux/releases/download/staff/latest.json";
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 /// The release scripts check updates against the key the app's Cargo.toml
 /// names, so the core reads the same one.
@@ -66,6 +67,8 @@ fn feeds(channel: UpdateChannel) -> &'static [&'static str] {
         UpdateChannel::Stable => &[STABLE_FEED],
         // A stable release can overtake the newest nightly, so nightly follows both.
         UpdateChannel::Nightly => &[NIGHTLY_FEED, STABLE_FEED],
+        // Staff read nightly too, so a staff feed that falls behind never holds them back.
+        UpdateChannel::Staff => &[STAFF_FEED, NIGHTLY_FEED, STABLE_FEED],
     }
 }
 

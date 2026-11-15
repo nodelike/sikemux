@@ -3117,6 +3117,23 @@ struct AccountInfo: Codable, Hashable, Sendable {
     var email: String?
     /// Names the picture `accountPicture` answers, which changes with it.
     var pictureHash: String?
+    /// Someone who makes Sikemux, whose hosts take each build of main before nightly does.
+    var staff: Bool
+    /// The features still being tried that are on for this account.
+    var flags: [Flag]
+}
+
+/// A feature still being tried, on for staff before anyone else. Each is a risky change
+/// to how Sikemux runs, and goes once it has proved itself.
+enum Flag: String, Codable, Hashable, Sendable {
+    /// Updates come from the staff feed, which takes each build of main the moment it is published.
+    case staffFeed
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// How agents' faces look, as the person picked.
@@ -3231,6 +3248,8 @@ struct UpdateCheck: Codable, Hashable, Sendable {
 enum UpdateChannel: String, Codable, Hashable, Sendable {
     case stable
     case nightly
+    /// Nightly for a staff account: each build of main the moment it is published.
+    case staff
     /// One added after this build.
     case unknown
 

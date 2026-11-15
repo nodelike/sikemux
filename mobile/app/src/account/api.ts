@@ -115,3 +115,8 @@ export async function joinTicket(token: TokenSource, host: string): Promise<Join
 export async function deleteAccount(token: TokenSource) {
   return api(token).deleteAccount();
 }
+
+/** Whether the account belongs to someone who makes Sikemux, which the account sheet says. */
+export async function accountIsStaff(token: TokenSource): Promise<boolean> {
+  return (await api(token).getAccount()).staff;
+}

@@ -62,7 +62,8 @@ pub const LINK_ALPN: &[u8] = b"sikemux/link/1";
 const LEAVE_WAIT: Duration = Duration::from_secs(5);
 #[cfg(any(test, feature = "testing"))]
 const LEAVE_WAIT: Duration = Duration::from_millis(300);
-const NETWORK_REFRESH: Duration = Duration::from_secs(4 * 60 * 60);
+/// Often enough that a feature the server switches off stops within the half hour.
+const NETWORK_REFRESH: Duration = Duration::from_secs(30 * 60);
 const NETWORK_RETRY: Duration = Duration::from_secs(5 * 60);
 pub const SIGNED_OUT: &str = "sign in to use Sikemux on your phone";
 const BOUND: &str = "this host belongs to another Sikemux account; to move it, sign in from Sikemux's app or run `sudo sikemux login`";
@@ -510,6 +511,17 @@ impl Remote {
 
     pub fn owner(&self) -> Option<String> {
         self.inner.locked().stored.owner.clone()
+    }
+
+    /// The features the accounts server last said it switched off.
+    pub fn flags_off(&self) -> Vec<String> {
+        let inner = self.inner.locked();
+        inner
+            .stored
+            .network
+            .as_ref()
+            .map(|network| network.flags.off.clone())
+            .unwrap_or_default()
     }
 
     /// This build is older than the accounts server works with.

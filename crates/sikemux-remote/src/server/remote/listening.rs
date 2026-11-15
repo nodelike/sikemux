@@ -160,6 +160,8 @@ pub async fn apply_network(core: &Arc<Core>, fetched: Network) {
         (moved, endpoint, required, was_required)
     };
     if relays.is_some() {
+        let flags_off_before = core.remote().flags_off();
+        let flags_moved = flags_off_before != fetched.flags.off;
         let saved = core.remote().change(|stored| {
             if stored.network.as_ref() != Some(&fetched) {
                 stored.network = Some(fetched);
@@ -168,6 +170,9 @@ pub async fn apply_network(core: &Arc<Core>, fetched: Network) {
         });
         if let Err(error) = saved {
             eprintln!("sikemux core: could not save the network: {error}");
+        }
+        if flags_moved {
+            crate::server::account::show(core).await;
         }
     }
     if let (Some((removed, added)), Some(endpoint)) = (moved, endpoint) {
