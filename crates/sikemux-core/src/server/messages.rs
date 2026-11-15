@@ -1883,6 +1883,9 @@ async fn report_noted(
             let (target, text) = match find(&lead) {
                 Some(target) => (Some(target), text),
                 None => match roster::hears_of(&core, &worker) {
+                    roster::Hears::Chief(chief) if calm => {
+                        (find(&chief), format!("{text} (its lead has closed)"))
+                    }
                     roster::Hears::Chief(chief) => (
                         find(&chief),
                         format!("Its lead has closed, so this comes to you as the project's chief.\n\n{text}"),
@@ -1890,12 +1893,15 @@ async fn report_noted(
                     _ => (None, text),
                 },
             };
+            let Some(target) = target else {
+                return Ok(None);
+            };
             let name = name.unwrap_or_else(|| worker.clone());
             let note = note(&called(&name, &worker));
             let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;
-            letter.calm = calm.then(|| calm_due(&agents, &letter.from_id, &lead, letter.at));
-            Ok(target.map(|target| (target, letter)))
+            letter.calm = calm.then(|| calm_due(&agents, &letter.from_id, &target.agent_id, letter.at));
+            Ok(Some((target, letter)))
         })
         .await
     };
