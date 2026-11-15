@@ -609,7 +609,8 @@ impl Segmented {
         let slot = self.slot;
         let marked = self.marked;
         let t = Tokens::get(cx).clone();
-        let on_select = self.on_select.filter(|_| self.disabled.is_none());
+        let locked = self.disabled.is_some();
+        let on_select = self.on_select.filter(|_| !locked);
         let thumb_id = ElementId::NamedChild(Arc::new(self.id.clone()), "thumb".into());
         let at = motion::follow(
             thumb_id,
@@ -629,7 +630,7 @@ impl Segmented {
             .border(crate::theme::border())
             .border_color(t.border)
             .when_some(self.disabled, |track, reason| {
-                track.opacity(0.5).tooltip(super::tooltip(reason))
+                track.tooltip(super::tooltip(reason))
             })
             .child(
                 div()
@@ -647,10 +648,10 @@ impl Segmented {
                     .enumerate()
                     .map(|(index, (glyph, label, _))| {
                         let chosen = index == self.selected;
-                        let ink = if chosen {
-                            t.text_primary
-                        } else {
-                            t.text_tertiary
+                        let ink = match (chosen, locked) {
+                            (true, _) => t.text_primary,
+                            (false, true) => t.text_disabled,
+                            (false, false) => t.text_tertiary,
                         };
                         let on_select = on_select.clone();
                         let why = (marked.as_ref())
@@ -667,18 +668,20 @@ impl Segmented {
                             .justify_center()
                             .gap(px(5.))
                             .text_color(ink)
-                            .when(!chosen, |segment| {
+                            .when(!chosen && !locked, |segment| {
                                 segment.hover(move |style| style.text_color(t.text_secondary))
                             })
                             .when_some(on_select, |segment, handler| {
                                 segment.on_click(move |_, window, cx| handler(&index, window, cx))
                             })
                             .children(glyph.map(|glyph| {
-                                icon(glyph, 12.).text_color(ink).when(!chosen, |glyph| {
-                                    glyph.group_hover(GROUP, move |style| {
-                                        style.text_color(t.text_secondary)
+                                icon(glyph, 12.)
+                                    .text_color(ink)
+                                    .when(!chosen && !locked, |glyph| {
+                                        glyph.group_hover(GROUP, move |style| {
+                                            style.text_color(t.text_secondary)
+                                        })
                                     })
-                                })
                             }))
                             .child(text(label, TEXT_2XS, FontWeight::NORMAL))
                             .when_some(why, |segment, why| {
@@ -697,7 +700,14 @@ impl RenderOnce for Segmented {
             return self.sliding(window, cx).into_any_element();
         }
         let t = Tokens::get(cx).clone();
-        let on_select = self.on_select.filter(|_| self.disabled.is_none());
+        let locked = self.disabled.is_some();
+        let on_select = self.on_select.filter(|_| !locked);
+        let (primary, faded, quiet) = (t.text_primary, t.text_disabled, t.text_tertiary);
+        let ink = move |chosen: bool| match (chosen, locked) {
+            (true, _) => primary,
+            (false, true) => faded,
+            (false, false) => quiet,
+        };
         let waiting = self.waiting;
         let (marked, tooltips) = (self.marked, self.tooltips);
         let icons_only = self.icons_only;
@@ -705,7 +715,7 @@ impl RenderOnce for Segmented {
             .id(self.id)
             .flex()
             .when_some(self.disabled, |track, reason| {
-                track.opacity(0.5).tooltip(super::tooltip(reason))
+                track.tooltip(super::tooltip(reason))
             })
             .h(px(TOOLBAR_HEIGHT))
             .p(px(2.))
@@ -743,13 +753,11 @@ impl RenderOnce for Segmented {
                             .justify_center()
                             .gap(px(7.))
                             .rounded(px(3.))
-                            .text_color(if chosen {
-                                t.text_primary
-                            } else {
-                                t.text_tertiary
-                            })
+                            .text_color(ink(chosen))
                             .when(chosen, |segment| segment.bg(t.surface_active))
-                            .hover(move |style| style.text_color(t.text_primary))
+                            .when(!locked, |segment| {
+                                segment.hover(move |style| style.text_color(t.text_primary))
+                            })
                             .when_some(on_select, |segment, handler| {
                                 segment.on_click(move |_, window, cx| handler(&index, window, cx))
                             })
@@ -758,13 +766,11 @@ impl RenderOnce for Segmented {
                             })
                             .children(glyph.map(|glyph| {
                                 icon(glyph, 13.)
-                                    .text_color(if chosen {
-                                        t.text_primary
-                                    } else {
-                                        t.text_tertiary
-                                    })
-                                    .group_hover(GROUP, move |style| {
-                                        style.text_color(t.text_primary)
+                                    .text_color(ink(chosen))
+                                    .when(!locked, |glyph| {
+                                        glyph.group_hover(GROUP, move |style| {
+                                            style.text_color(t.text_primary)
+                                        })
                                     })
                             }))
                             .when(!icons_only, |segment| {
