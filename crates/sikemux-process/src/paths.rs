@@ -47,13 +47,73 @@ pub fn env_path(name: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// `~/.config/sikemux`, where Sikemux keeps its own files, or the folder `SIKEMUX_CONFIG_DIR`
-/// names for a Sikemux kept apart from the person's own.
+/// The folder each program keeps its settings in, within the home folder.
+#[cfg(not(windows))]
+const CONFIG_HOME: &str = ".config";
+#[cfg(windows)]
+const CONFIG_HOME: &str = r"AppData\Roaming";
+
+/// `~/.config/sikemux`, or `%APPDATA%\sikemux` on Windows, where Sikemux keeps its own files,
+/// or the folder `SIKEMUX_CONFIG_DIR` names for a Sikemux kept apart from the person's own.
 pub fn config_dir() -> Option<PathBuf> {
     if let Some(dir) = env_path(crate::vars::CONFIG_DIR) {
         return Some(dir);
     }
-    Some(home()?.join(".config").join("sikemux"))
+    #[cfg(windows)]
+    let config_home = env_path("APPDATA").or_else(|| Some(home()?.join(CONFIG_HOME)));
+    #[cfg(not(windows))]
+    let config_home = Some(home()?.join(CONFIG_HOME));
+    Some(config_home?.join("sikemux"))
+}
+
+/// Where the app keeps its data: `~/Library/Application Support/<app id>` on macOS,
+/// `$XDG_DATA_HOME/<app id>` elsewhere on Unix, and `%LOCALAPPDATA%\sikemux` on Windows, with
+/// `.dev` after it in debug builds there.
+pub fn data_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    return Some(local_app_data()?.join(windows_folder()));
+    #[cfg(not(windows))]
+    unix_folder(
+        "XDG_DATA_HOME",
+        "Library/Application Support",
+        ".local/share",
+    )
+}
+
+/// Where the app keeps what it can make again: `~/Library/Caches/<app id>` on macOS,
+/// `$XDG_CACHE_HOME/<app id>` elsewhere on Unix, and `cache` in the data folder on Windows.
+pub fn cache_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    return Some(data_dir()?.join("cache"));
+    #[cfg(not(windows))]
+    unix_folder("XDG_CACHE_HOME", "Library/Caches", ".cache")
+}
+
+#[cfg(not(windows))]
+fn unix_folder(variable: &str, macos: &str, fallback: &str) -> Option<PathBuf> {
+    let home = home()?;
+    let root = if cfg!(target_os = "macos") {
+        home.join(macos)
+    } else {
+        env_path(variable)
+            .filter(|dir| dir.is_absolute())
+            .unwrap_or_else(|| home.join(fallback))
+    };
+    Some(root.join(crate::names::APP_IDENTIFIER))
+}
+
+#[cfg(windows)]
+fn local_app_data() -> Option<PathBuf> {
+    env_path("LOCALAPPDATA").or_else(|| Some(home()?.join(r"AppData\Local")))
+}
+
+#[cfg(windows)]
+fn windows_folder() -> &'static str {
+    if cfg!(debug_assertions) {
+        "sikemux.dev"
+    } else {
+        "sikemux"
+    }
 }
 
 /// The endpoint file of the core that started this program, when one handed it over. A
@@ -64,7 +124,7 @@ pub fn handed_cli_endpoint() -> Option<PathBuf> {
     let folder = handed.parent()?;
     let in_a_config = folder
         .parent()
-        .is_some_and(|parent| parent.ends_with(".config"));
+        .is_some_and(|parent| parent.ends_with(CONFIG_HOME));
     match env_path(crate::vars::CONFIG_DIR) {
         Some(own) if !handed.starts_with(&own) => None,
         None if in_a_config && config_dir().as_deref() != Some(folder) => None,
@@ -72,7 +132,7 @@ pub fn handed_cli_endpoint() -> Option<PathBuf> {
     }
 }
 
-/// A file in `~/.config/sikemux`, named `<stem>.dev.<extension>` in debug builds so a
+/// A file in the config folder, named `<stem>.dev.<extension>` in debug builds so a
 /// development run never touches an installed build's file.
 pub fn config_file(stem: &str, extension: &str) -> Option<PathBuf> {
     let mut name = stem.to_owned();

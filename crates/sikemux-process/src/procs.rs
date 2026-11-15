@@ -670,10 +670,11 @@ pub fn descendants(root: u32) -> HashMap<u32, u32> {
     found
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(all(test, any(target_os = "macos", windows)))]
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn procargs_environment_skips_the_arguments() {
         let mut bytes = 2i32.to_ne_bytes().to_vec();
@@ -687,6 +688,7 @@ mod tests {
         assert_eq!(system::environment_from_procargs(&bytes[..3], "HOME"), None);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn the_kernel_reports_a_child_process() {
         let mut child = crate::user_environment::command("/bin/sleep")
@@ -699,6 +701,31 @@ mod tests {
         let _ = child.wait();
         assert_eq!(parents.get(&child.id()), Some(&std::process::id()));
         assert_eq!(name.as_deref(), Some("sleep"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_system_reports_a_child_process_with_its_command_and_use() {
+        let mut child = crate::user_environment::command("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn ping");
+        let parents = descendants(std::process::id());
+        let name = name(child.id());
+        let line = command_line(child.id());
+        let usage = usages().into_iter().find(|usage| usage.pid == child.id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert_eq!(parents.get(&child.id()), Some(&std::process::id()));
+        assert!(name.is_some_and(|name| name.eq_ignore_ascii_case("ping")));
+        assert_eq!(
+            line.as_deref().and_then(|line| line.get(1..)),
+            Some(&["-n".to_string(), "30".into(), "127.0.0.1".into()][..])
+        );
+        let usage = usage.expect("ping is among the usages");
+        assert_eq!(usage.parent, std::process::id());
+        assert!(usage.memory > 0 && usage.started_ms > 0);
     }
 }
 
