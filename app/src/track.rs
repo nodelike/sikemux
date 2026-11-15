@@ -62,8 +62,9 @@ struct Motion<K> {
     spring: Option<f32>,
 }
 
-/// What a landing does: what it shows and where from, its speed, and what is in front after.
-type Landing<K> = (Vec<(K, i32)>, f32, f32, Option<K>);
+/// What a landing does: what it shows and where from, its speed, the step it took (-1, 0
+/// or 1), and what is in front after when the row holds it.
+type Landing<K> = (Vec<(K, i32)>, f32, f32, i32, Option<K>);
 
 /// What a row draws: each thing and its place, where the row is, and the motion moving it
 /// with its spring.
@@ -78,10 +79,42 @@ pub(crate) enum Scrolled<K> {
     Landed(Landing<K>),
 }
 
-fn beside<K: Clone>(order: &[K], slot: usize, way: i32) -> Option<K> {
-    slot.checked_add_signed(way as isize)
-        .and_then(|at| order.get(at))
-        .cloned()
+/// What lies on either side of the thing in front. An end can be open with nothing to draw
+/// there, when the step leads somewhere the row does not hold.
+pub(crate) struct Around<K> {
+    pub previous: Option<K>,
+    pub next: Option<K>,
+    pub ends: Ends,
+}
+
+impl<K: Clone + PartialEq> Around<K> {
+    /// Around `front` in `order`.
+    pub(crate) fn in_order(order: &[K], front: &K) -> Self {
+        let slot = order.iter().position(|item| item == front).unwrap_or(0);
+        let at = |way: isize| {
+            slot.checked_add_signed(way)
+                .and_then(|at| order.get(at))
+                .cloned()
+        };
+        let (previous, next) = (at(-1), at(1));
+        let ends = Ends {
+            previous: previous.is_some(),
+            next: next.is_some(),
+        };
+        Self {
+            previous,
+            next,
+            ends,
+        }
+    }
+
+    fn beside(&self, way: i32) -> Option<K> {
+        match way {
+            -1 => self.previous.clone(),
+            1 => self.next.clone(),
+            _ => None,
+        }
+    }
 }
 
 impl<K: Clone + PartialEq> Slide<K> {
@@ -89,11 +122,9 @@ impl<K: Clone + PartialEq> Slide<K> {
         self.width.clone()
     }
 
-    /// What the row shows with `front` in front of `order`: each thing and its place,
-    /// where the row is, and how it moves.
-    pub(crate) fn shown(&self, front: K, order: &[K]) -> Shown<K> {
-        let slot = order.iter().position(|item| *item == front).unwrap_or(0);
-        let beside = |way: i32| beside(order, slot, way);
+    /// What the row shows with `front` in front and `around` beside it: each thing and its
+    /// place, where the row is, and how it moves.
+    pub(crate) fn shown(&self, front: K, around: impl FnOnce() -> Around<K>) -> Shown<K> {
         if let Some(motion) = &self.motion {
             return (
                 motion.shown.clone(),
@@ -104,21 +135,21 @@ impl<K: Clone + PartialEq> Slide<K> {
         if self.swipe.held() && self.swipe.offset != 0. {
             let way = self.swipe.offset.signum() as i32;
             let mut shown = vec![(front, 0)];
-            shown.extend(beside(way).map(|next| (next, way)));
+            shown.extend(around().beside(way).map(|next| (next, way)));
             return (shown, self.swipe.offset, None);
         }
         (vec![(front, 0)], 0., None)
     }
 
-    /// Follows a scroll over the row, where `front` is one of `order`.
-    pub(crate) fn scroll(&mut self, event: &ScrollEvent, order: &[K], front: &K) -> Scrolled<K> {
-        let slot = order.iter().position(|item| item == front).unwrap_or(0);
-        let ends = Ends {
-            previous: slot > 0,
-            next: slot + 1 < order.len(),
-        };
-        let beside = |way: i32| beside(order, slot, way);
-        match self.swipe.scroll(event, self.width.get(), ends) {
+    /// Follows a scroll over the row, with `front` in front and `around` beside it.
+    pub(crate) fn scroll(
+        &mut self,
+        event: &ScrollEvent,
+        front: &K,
+        around: &Around<K>,
+    ) -> Scrolled<K> {
+        let beside = |way: i32| around.beside(way);
+        match self.swipe.scroll(event, self.width.get(), around.ends) {
             Swiped::Ignored => Scrolled::Ignored,
             Swiped::Gliding => Scrolled::Glided,
             Swiped::Moved => {
@@ -130,14 +161,14 @@ impl<K: Clone + PartialEq> Slide<K> {
                     let way = from.signum() as i32;
                     let mut shown = vec![(front.clone(), 0)];
                     shown.extend(beside(way).map(|next| (next, way)));
-                    return Scrolled::Landed((shown, from, speed, None));
+                    return Scrolled::Landed((shown, from, speed, 0, None));
                 }
                 let Some(target) = beside(step) else {
-                    return Scrolled::Glided;
+                    return Scrolled::Landed((vec![(front.clone(), 0)], 0., speed, step, None));
                 };
                 self.front = Some(target.clone());
                 let shown = vec![(front.clone(), -step), (target.clone(), 0)];
-                Scrolled::Landed((shown, from, speed, Some(target)))
+                Scrolled::Landed((shown, from, speed, step, Some(target)))
             }
         }
     }
@@ -189,10 +220,6 @@ impl<K: Clone + PartialEq> Slide<K> {
 impl Workbench {
     /// Follows a scroll over the stage; true when the stage took it as a swipe between tabs.
     fn swipe_stage(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
-        let Some(strip) = self.strip() else {
-            return false;
-        };
-        let order: Vec<String> = self.tabs(&strip).iter().map(|tab| tab.id.clone()).collect();
         let Some(front) = self.tab() else {
             return false;
         };
@@ -201,16 +228,19 @@ impl Workbench {
             return false;
         }
         let front = front.id.clone();
-        match self.track.scroll(event, &order, &front) {
+        let around = self.around_visit();
+        match self.track.scroll(event, &front, &around) {
             Scrolled::Ignored => return false,
             Scrolled::Glided => return true,
             Scrolled::Moved => {}
-            Scrolled::Landed((shown, from, speed, target)) => {
-                if let Some(target) = target {
-                    self.activate_tab(&strip, &target);
+            Scrolled::Landed((shown, from, speed, step, target)) => {
+                if step != 0 {
+                    self.step_visit(step as isize, cx);
                 }
-                let moved = self.track.travel(shown, from, Some(speed));
-                settle(self, moved, |bench: &mut Self| &mut bench.track, cx);
+                if step == 0 || target.is_some() {
+                    let moved = self.track.travel(shown, from, Some(speed));
+                    settle(self, moved, |bench: &mut Self| &mut bench.track, cx);
+                }
             }
         }
         self.parts.redraw_stage(cx);
@@ -220,15 +250,12 @@ impl Workbench {
     /// Follows a scroll over the tab rail; true when it took it as a swipe between pages.
     fn swipe_rail(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
         let front = self.rails.page;
-        match self
-            .rails
-            .slide
-            .scroll(event, &crate::pane_kind::PAGES, &front)
-        {
+        let around = Around::in_order(&crate::pane_kind::PAGES, &front);
+        match self.rails.slide.scroll(event, &front, &around) {
             Scrolled::Ignored => return false,
             Scrolled::Glided => return true,
             Scrolled::Moved => {}
-            Scrolled::Landed((shown, from, speed, target)) => {
+            Scrolled::Landed((shown, from, speed, _, target)) => {
                 if let Some(target) = target {
                     self.rails.page = target;
                 }
@@ -312,8 +339,7 @@ pub fn stage(
 ) -> AnyElement {
     let strip = bench.strip();
     let tabs = strip.as_ref().map_or(&[][..], |strip| bench.tabs(strip));
-    let order: Vec<String> = tabs.iter().map(|tab| tab.id.clone()).collect();
-    let (shown, start, motion) = bench.track.shown(front.id.clone(), &order);
+    let (shown, start, motion) = bench.track.shown(front.id.clone(), || bench.around_visit());
     let cards = shown
         .into_iter()
         .filter_map(|(id, place)| {
@@ -346,10 +372,9 @@ pub fn rail(
     page: impl Fn(TabRailPage, &mut Context<Workbench>) -> AnyElement,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let (shown, start, motion) = bench
-        .rails
-        .slide
-        .shown(bench.rails.page, &crate::pane_kind::PAGES);
+    let front = bench.rails.page;
+    let around = Around::in_order(&crate::pane_kind::PAGES, &front);
+    let (shown, start, motion) = bench.rails.slide.shown(front, || around);
     let cards = shown
         .into_iter()
         .map(|(shown, place)| (page(shown, cx), place))

@@ -9,8 +9,8 @@ pub(crate) fn side(
     window: &mut Window,
     cx: &mut Context<GitPane>,
 ) -> impl IntoElement {
-    let order = pane.page_order();
-    let (shown, start, motion) = pane.slide.shown(pane.page, &order);
+    let around = track::Around::in_order(&pane.page_order(), &pane.page);
+    let (shown, start, motion) = pane.slide.shown(pane.page, || around);
     let cards = shown
         .into_iter()
         .map(|(page, place)| (side_page(pane, page, window, cx), place))

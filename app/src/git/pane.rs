@@ -679,12 +679,12 @@ impl GitPane {
 
     /// Follows a scroll over the side column's pages; true when it took it as a swipe.
     fn swipe(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
-        let order = self.page_order();
-        match self.slide.scroll(event, &order, &self.page) {
+        let around = track::Around::in_order(&self.page_order(), &self.page);
+        match self.slide.scroll(event, &self.page, &around) {
             Scrolled::Ignored => return false,
             Scrolled::Glided => return true,
             Scrolled::Moved => {}
-            Scrolled::Landed((shown, from, speed, target)) => {
+            Scrolled::Landed((shown, from, speed, _, target)) => {
                 if let Some(target) = target {
                     self.show_page(target, cx);
                 }

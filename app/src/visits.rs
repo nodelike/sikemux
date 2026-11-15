@@ -12,8 +12,10 @@ use sikemux_calls::layout::TabParams;
 use crate::core::Target;
 use crate::hosts::{HostChoice, Place};
 use crate::icons::Icon;
+use crate::swipe::Ends;
 use crate::tabs::strip_layout;
 use crate::theme::{SPACE_0, SPACE_2H};
+use crate::track::Around;
 use crate::ui::IconButton;
 use crate::workbench::{actions, Strip, Workbench};
 
@@ -47,10 +49,38 @@ impl Workbench {
     /// Notes the tab in front as visited, and whether the arrows still lead anywhere.
     pub(crate) fn note_visit(&mut self) {
         self.arrive();
-        let open = |visits: &[Visit]| visits.iter().rev().any(|visit| self.leads_to(visit));
-        let (back, forward) = (open(&self.visits.back), open(&self.visits.forward));
-        self.visits.can_go_back = back;
-        self.visits.can_go_forward = forward;
+        self.visits.can_go_back = self.next_visit(-1).is_some();
+        self.visits.can_go_forward = self.next_visit(1).is_some();
+    }
+
+    /// The visit a step back, or forward for `by` of 1, would bring forward.
+    fn next_visit(&self, by: isize) -> Option<&Visit> {
+        let from = match by < 0 {
+            true => &self.visits.back,
+            false => &self.visits.forward,
+        };
+        from.iter().rev().find(|visit| self.leads_to(visit))
+    }
+
+    /// What a swipe over the stage goes through: the visits a step back and forward would
+    /// bring forward, with their tabs when they are in the strip in front.
+    pub(crate) fn around_visit(&self) -> Around<String> {
+        let place = self.place();
+        let strip = self.strip_ref();
+        let [previous, next] = [-1, 1].map(|by| self.next_visit(by));
+        let here = |visit: Option<&Visit>| {
+            visit
+                .filter(|visit| visit.place == place && strip == Some(visit.strip.borrowed()))
+                .map(|visit| visit.tab.clone())
+        };
+        Around {
+            ends: Ends {
+                previous: previous.is_some(),
+                next: next.is_some(),
+            },
+            previous: here(previous),
+            next: here(next),
+        }
     }
 
     fn arrive(&mut self) {
