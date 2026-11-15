@@ -148,7 +148,7 @@ pub(crate) fn running() -> Vec<Running> {
             else {
                 continue;
             };
-            if !alive(pid) {
+            if !crate::claims::alive(pid) {
                 continue;
             }
             let Ok(text) = std::fs::read_to_string(&file) else {
@@ -170,16 +170,4 @@ pub(crate) fn running() -> Vec<Running> {
         }
     }
     found
-}
-
-#[cfg(unix)]
-fn alive(pid: u32) -> bool {
-    // SAFETY: signal 0 only asks whether the process exists.
-    let answer = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    answer == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
-#[cfg(not(unix))]
-fn alive(_: u32) -> bool {
-    true
 }

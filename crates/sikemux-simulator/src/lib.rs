@@ -1286,5 +1286,6 @@ pub(crate) fn simctl(developer_dir: &Path, args: &[&str]) -> Option<String> {
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-#[cfg(test)]
+// The tests stand shell scripts in for the device helper.
+#[cfg(all(test, unix))]
 mod tests;
