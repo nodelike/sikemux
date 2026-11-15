@@ -44,6 +44,7 @@ sentry = { version = "0.49", default-features = false, features = ["contexts", "
 log = "0.4"
 sha2 = "0.11"
 sikemux-buildinfo = { path = "../sikemux-buildinfo" }
+sikemux-client = { path = "../sikemux-client" }
 sikemux-core = { path = "../sikemux-core" }
 sikemux-hostkit = { path = "../sikemux-hostkit" }
 sikemux-view = { path = "../sikemux-view" }
@@ -68,7 +69,6 @@ sikemux-plugin-slack = { path = "../../plugins/slack", optional = true }
 sikemux-plugin-vercel = { path = "../../plugins/vercel", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-sikemux-client = { path = "../sikemux-client" }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
