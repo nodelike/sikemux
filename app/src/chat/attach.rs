@@ -846,9 +846,8 @@ pub(crate) fn agent_pill(
     cx: &App,
 ) -> gpui_kit::Stateful<Div> {
     let label = match (agent.chief, agent.name.as_ref()) {
-        (true, _) => "@Chief".to_owned(),
         (false, Some(name)) => format!("@{name}"),
-        (false, None) => agent.title.clone(),
+        _ => agent.title.clone(),
     };
     let (key, title) = chip_words(&format!("{AGENT}{}", agent.id), &label.into());
     let face = chip_face(key, title, false, agent.mark(size + 1., cx), cx)

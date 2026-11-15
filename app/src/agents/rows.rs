@@ -300,11 +300,12 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         id: row.agent_id.clone(),
         provider: row.cli.clone(),
         title: match &row.name {
+            _ if row.chief => CHIEF.to_owned(),
             Some(name) if !row.titled => format!("@{name}"),
             _ => row.title.clone(),
         },
         name: row.name.clone(),
-        titled: row.titled,
+        titled: row.titled && !row.chief,
         status: row.status,
         subagents: row.subagents,
         tasks: row.tasks,
@@ -342,4 +343,20 @@ impl AgentRow {
     pub fn handle(&self) -> Option<&str> {
         self.name.as_deref().filter(|_| self.titled)
     }
+
+    /// The quiet words after its title: the chief's role, else its `@name` when titled.
+    pub fn beside(&self) -> Option<String> {
+        match self.chief {
+            true => Some(chief_role()),
+            false => self.handle().map(|name| format!("@{name}")),
+        }
+    }
+}
+
+/// What every list titles a project's chief.
+pub const CHIEF: &str = "@Chief";
+
+/// The chief's role, drawn after its title.
+pub fn chief_role() -> String {
+    t!("Chief of staff").into()
 }

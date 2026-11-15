@@ -421,11 +421,7 @@ fn strip_tab(
         {
             Some(agent) => base
                 .mark(agent.mark(19., cx))
-                .note(
-                    agent
-                        .handle()
-                        .map(|name| SharedString::from(format!("@{name}"))),
-                )
+                .note(agent.beside().map(SharedString::from))
                 .counts(crate::agents::counts(&agent, cx))
                 .tail(ui::turn_mark(&agent.id, agent.turn.as_ref())),
             None => base,

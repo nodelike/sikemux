@@ -456,51 +456,50 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         .then(|| chain_to(bench, agent, &weak, cx))
         .flatten();
     let side = side_of(bench, agent, cx);
-    PaneHeader::new(match agent.chief {
-        true => "@Chief".to_owned(),
-        false => agent.title.clone(),
-    })
-    .when_some(chain, PaneHeader::back)
-    .when_some(chief, PaneHeader::fact)
-    .title_view(editing)
-    .on_title_double_click(
-        cx.listener(move |bench, _, window, cx| bench.retitle(&id, false, window, cx)),
-    )
-    .mark(match agent.face.is_some() {
-        true => {
-            let picked = agent.id.clone();
-            div()
-                .id("agent-buddy")
-                .tooltip(ui::tooltip(t!("Change buddy")))
-                .child(agent.mark(16., cx))
-                .clicks(cx.listener(move |bench, _, _, cx| bench.open_buddy_picker(&picked, cx)))
-                .into_any_element()
-        }
-        false => ui::mark(&agent.provider, 16.).into_any_element(),
-    })
-    .name(
-        (agent.handle().is_some())
-            .then(|| crate::chat::agent_pill(agent, TEXT_XS, &weak, cx).into_any_element()),
-    )
-    .when_some(side, PaneHeader::fact)
-    .when_some(
-        agent.turn.as_ref().filter(|_| in_terminal),
-        |header, turn| {
-            header.fact(crate::turn_line::header(
-                turn,
-                &agent.provider,
-                SharedString::from(format!("turn-head:{}", agent.id)),
-            ))
-        },
-    )
-    .when_some(
-        in_terminal
-            .then(|| crate::worktrees::head::badges(bench, &agent.id, cx))
-            .flatten(),
-        |header, badges| header.action(badges),
-    )
-    .when(has_chat, |header| header.action(share))
-    .action(more)
+    PaneHeader::new(agent.title.clone())
+        .when_some(chain, PaneHeader::back)
+        .when_some(chief, PaneHeader::fact)
+        .title_view(editing)
+        .on_title_double_click(
+            cx.listener(move |bench, _, window, cx| bench.retitle(&id, false, window, cx)),
+        )
+        .mark(match agent.face.is_some() {
+            true => {
+                let picked = agent.id.clone();
+                div()
+                    .id("agent-buddy")
+                    .tooltip(ui::tooltip(t!("Change buddy")))
+                    .child(agent.mark(16., cx))
+                    .clicks(
+                        cx.listener(move |bench, _, _, cx| bench.open_buddy_picker(&picked, cx)),
+                    )
+                    .into_any_element()
+            }
+            false => ui::mark(&agent.provider, 16.).into_any_element(),
+        })
+        .name(
+            (agent.handle().is_some())
+                .then(|| crate::chat::agent_pill(agent, TEXT_XS, &weak, cx).into_any_element()),
+        )
+        .when_some(side, PaneHeader::fact)
+        .when_some(
+            agent.turn.as_ref().filter(|_| in_terminal),
+            |header, turn| {
+                header.fact(crate::turn_line::header(
+                    turn,
+                    &agent.provider,
+                    SharedString::from(format!("turn-head:{}", agent.id)),
+                ))
+            },
+        )
+        .when_some(
+            in_terminal
+                .then(|| crate::worktrees::head::badges(bench, &agent.id, cx))
+                .flatten(),
+            |header, badges| header.action(badges),
+        )
+        .when(has_chat, |header| header.action(share))
+        .action(more)
 }
 
 /// A side chat's tag naming the chat it was opened beside, which brings that chat to the front.

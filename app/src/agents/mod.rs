@@ -1389,13 +1389,13 @@ fn chief_row(
     });
     Row::new(
         SharedString::from(format!("chief-{}", project.id)),
-        "@Chief".to_owned(),
+        rows::CHIEF.to_owned(),
     )
     .mark(22., ui::chief_mark(20.))
     .chosen(chosen)
     .compact(bench.rail_compact())
     .status(chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())))
-    .detail(t!("Chief of staff"))
+    .detail(rows::chief_role())
     .children(place)
     .children(home)
     .on_click(
