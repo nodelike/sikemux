@@ -436,6 +436,12 @@ fn claude_account_name(config: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// A team account goes by its organisation. A personal one's organisation is named after its email.
+fn team_name(status: &AccountStatus) -> Option<String> {
+    let team = matches!(status.plan.as_deref(), Some("team" | "enterprise"));
+    (status.organization.clone()).filter(|organization| team && !organization.contains('@'))
+}
+
 fn parse_codex_status(result: &Value) -> AccountStatus {
     let account = result.get("account").filter(|account| !account.is_null());
     let text_of = |key: &str| {
@@ -478,10 +484,11 @@ pub(crate) async fn claude_account(
     let mut status = parse_claude_status(&String::from_utf8_lossy(&output.stdout))
         .ok_or_else(|| "Claude did not say who is signed in".to_string())?;
     if status.signed_in {
-        status.name = std::fs::read(claude_config_file(config_path, &BTreeMap::new()))
+        let person = std::fs::read(claude_config_file(config_path, &BTreeMap::new()))
             .ok()
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
             .and_then(|config| claude_account_name(&config));
+        status.name = team_name(&status).or(person);
     }
     Ok(status)
 }

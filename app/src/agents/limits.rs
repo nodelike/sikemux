@@ -171,12 +171,10 @@ impl Shown<'_> {
         }
     }
 
-    /// The core's own explanation of an account that reports no limits, too long for the row.
+    /// The core's own explanation of why there are no limits to draw, too long for the row.
     fn no_limits_reason(&self) -> Option<String> {
         let usage = self.usage?;
-        (usage.problem.is_none())
-            .then(|| usage.usage.as_ref()?.unavailable_reason.clone())
-            .flatten()
+        (usage.problem.clone()).or_else(|| usage.usage.as_ref()?.unavailable_reason.clone())
     }
 }
 

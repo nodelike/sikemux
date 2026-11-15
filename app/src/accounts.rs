@@ -628,6 +628,7 @@ fn forget(bench: &mut Workbench, profile: &Profile, cx: &mut Context<Workbench>)
         let _ = forgot.await;
         let _ = bench.update(cx, |bench, cx| {
             ask_statuses(bench, cx);
+            bench.read_usage();
             redraw(bench, cx);
         });
     })
