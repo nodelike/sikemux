@@ -166,10 +166,7 @@ pub(crate) fn watch(watch: Watch) -> i32 {
 }
 
 fn put_back(watch: &Watch, mut outcome: UpdateOutcome, after: Duration) -> i32 {
-    let reason = format!(
-        "it stopped {}s after taking over",
-        after.as_secs()
-    );
+    let reason = format!("it stopped {}s after taking over", after.as_secs());
     let Some(previous) = previous_bundle(&watch.bundle) else {
         return 1;
     };
