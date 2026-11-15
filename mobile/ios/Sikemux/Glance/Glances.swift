@@ -164,11 +164,13 @@ enum Glances {
         }
     }
 
-    /// Tells each host it can reach the token of the Live Activity it keeps current, or that it ended.
+    /// Tells each host it can reach the token of the Live Activity it keeps current, or that it ended. A host this
+    /// phone holds no working key for gets no token, since nothing it seals would open here.
     private static func hand() async {
         for activity in Activity<AgentsActivity>.activities { follow(activity) }
+        let keys = Keys()
         for (core, connection) in Hub.shared.openConnections {
-            let token = tokens[core]
+            let token = keys.get(host: core) == nil ? nil : tokens[core]
             let told = (connection: ObjectIdentifier(connection), token: token ?? "")
             if let last = handed[core], last == told { continue }
             handed[core] = told

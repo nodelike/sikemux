@@ -56,11 +56,16 @@ struct AgentsActivity: ActivityAttributes {
         func opened(host: String) -> ActivityGlance? {
             if let glance { return glance }
             let keys = Keys()
-            guard let sealed, let phone = keys.phone,
-                case .read(let from, let plaintext) = Envelope.open(sealed, phone: phone, keys: keys.all()),
-                from == host
-            else { return nil }
-            return try? JSONDecoder().decode(ActivityGlance.self, from: Data(plaintext.utf8))
+            guard let sealed, let phone = keys.phone else { return nil }
+            switch Envelope.open(sealed, phone: phone, keys: keys.all()) {
+            case .read(let from, let plaintext) where from == host:
+                return try? JSONDecoder().decode(ActivityGlance.self, from: Data(plaintext.utf8))
+            case .unreadable(let from) where from == host:
+                keys.unreadable(host: host)
+                return nil
+            default:
+                return nil
+            }
         }
     }
 
