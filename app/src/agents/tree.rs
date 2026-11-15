@@ -77,10 +77,8 @@ pub(crate) fn tree(rows: &[AgentRow], root: usize, folded: &HashSet<String>) -> 
         below[ix] = count;
         count
     }
-    for ix in 0..rows.len() {
-        if parent[ix].is_none() {
-            walk(ix, 0, &children, &mut placed, &mut below, &mut order);
-        }
+    for (ix, _) in parent.iter().enumerate().filter(|(_, lead)| lead.is_none()) {
+        walk(ix, 0, &children, &mut placed, &mut below, &mut order);
     }
     for ix in 0..rows.len() {
         if !placed[ix] {
