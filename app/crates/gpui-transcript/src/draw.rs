@@ -1556,6 +1556,7 @@ impl Draw<'_> {
                 div()
                     .flex_1()
                     .when(wrapped, |text| text.min_w_0())
+                    .debug_selector(|| "code text".into())
                     .child(text),
             );
         div()
