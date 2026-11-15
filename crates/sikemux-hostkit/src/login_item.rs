@@ -84,7 +84,7 @@ pub fn headless_launch() -> Option<CoreLaunch> {
         data.join("logs")
     };
     Some(CoreLaunch {
-        binary: std::env::current_exe().ok()?.canonicalize().ok()?,
+        binary: real_exe()?,
         socket: sikemux_corekit::default_socket_path()?,
         log: logs.join("core.log"),
         args: core_args(Some(data)),
@@ -92,6 +92,16 @@ pub fn headless_launch() -> Option<CoreLaunch> {
 }
 
 pub use sikemux_process::paths::data_dir;
+
+/// This program, its links followed. Windows has none to follow, and its canonical form
+/// starts `\\?\`, which the sign-in entry and the app's own launch do not.
+fn real_exe() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    match cfg!(windows) {
+        true => Some(exe),
+        false => exe.canonicalize().ok(),
+    }
+}
 
 /// True when the file was written.
 fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<bool> {

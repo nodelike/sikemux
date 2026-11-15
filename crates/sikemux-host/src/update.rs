@@ -22,6 +22,9 @@ use crate::style;
 const HAND_OVER_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub fn run(args: &[String]) -> Result<(), String> {
+    if cfg!(windows) {
+        return Err("on Windows, Sikemux and its core update through the installer".into());
+    }
     if !cfg!(target_os = "linux") {
         style::note("On a Mac, the app updates itself and its core with it.");
         return Ok(());
