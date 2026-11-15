@@ -1,5 +1,9 @@
 //! What every code host works out the same way from what it fetched.
 
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
+
 use serde_json::Value;
 
 use crate::account::as_account;
@@ -247,24 +251,46 @@ pub fn split_remote(remote: &str) -> Option<(String, &str)> {
     })
 }
 
-/// The first of `accounts` that can read `path`, default first, so a project
-/// opens as the account that can see it by itself.
+/// Which account reaches a repository, as last found, so finding it again asks nothing.
+static SEES: LazyLock<Mutex<HashMap<String, (String, Instant)>>> = LazyLock::new(Default::default);
+const SEEN_FOR: Duration = Duration::from_secs(60 * 60);
+
+/// The first of `accounts` that can read `path`. Only an answer that the repository is not
+/// there for it rules an account out: a spent rate limit or a dropped connection is an error,
+/// not a sign that nobody can reach it.
 pub async fn first_that_sees<A: Api>(
     calls: &Calls<A>,
     data_dir: &std::path::Path,
     accounts: Vec<String>,
     path: &str,
 ) -> Result<Option<String>, ServiceError<A>> {
+    let key = format!("{}:{path}", A::ID);
+    let known = (SEES.lock().ok())
+        .and_then(|sees| sees.get(&key).cloned())
+        .filter(|(id, at)| at.elapsed() < SEEN_FOR && accounts.contains(id));
+    if let Some((id, _)) = known {
+        return Ok(Some(id));
+    }
+    let mut failed = None;
     for id in accounts {
         let seen: Result<Value, _> =
             as_account(Some(id.clone()), calls.get(data_dir, path, &[])).await;
         match seen {
-            Ok(_) => return Ok(Some(id)),
+            Ok(_) => {
+                if let Ok(mut sees) = SEES.lock() {
+                    sees.insert(key, (id.clone(), Instant::now()));
+                }
+                return Ok(Some(id));
+            }
             Err(ServiceError::Unconfigured) => return Ok(None),
-            Err(_) => continue,
+            Err(ServiceError::NotFound(_) | ServiceError::Forbidden(_) | ServiceError::Auth(_)) => {
+            }
+            Err(error) => {
+                failed.get_or_insert(error);
+            }
         }
     }
-    Ok(None)
+    failed.map_or(Ok(None), Err)
 }
 
 /// Every account, default first, by id.

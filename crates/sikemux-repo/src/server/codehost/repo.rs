@@ -202,8 +202,14 @@ pub async fn find(
             json!({ "owner": owner, "name": name }),
         )
         .await
-        .ok()
-        .and_then(|account| account.as_str().map(str::to_owned)),
+        .map_err(|failure| {
+            format!(
+                "could not tell which {} account reaches {owner}/{name}: {}",
+                host.spec.label, failure.message
+            )
+        })?
+        .as_str()
+        .map(str::to_owned),
     };
     if account.is_none() {
         return Err(format!(
