@@ -19,46 +19,30 @@ struct DeviceAgents: View {
     @State private var held: [String]?
 
     var body: some View {
-        // The open agents in the order the host lists them on every device: the main list, what wants the person
-        // first, then the snoozed ones. Settled ones stay out of the list.
-        let agents = view.inbox.agents.filter {
-            $0.settledAt == nil && listed(scope, provider, project: $0.project, type: $0.cli)
-        }
-        let open = agents.filter { agent in
-            agent.snoozedUntil == nil && (provider != nil || agent.chief != true)
-        }
+        let (open, snoozed) = items()
         let teams = keptStill(teams(open))
-        let snoozed = agents.filter { $0.snoozedUntil != nil && (provider != nil || $0.chief != true) }
-        let workers = view.inbox.remoteAgents
-        let leads = Set(open.map(\.agentId))
-        let strays =
-            scope != nil
-            ? []
-            : workers.filter { worker in
-                !(worker.lead.map(leads.contains) ?? false) && listed(nil, provider, project: nil, type: worker.cli)
-            }
+        let folded = Folded.shared.teams
+        let away = AgentTree.tree(snoozed, id: \.id, lead: \.lead, root: 0, folded: [])
         let recent = view.recent.contains { scope == nil || $0.project == scope?.id }
 
         MinuteClock { now in
             VStack(spacing: 0) {
                 AwayNoteView()
-                if teams.contains(where: { $0.project != nil || !$0.agents.isEmpty }) || !strays.isEmpty {
+                if teams.contains(where: { $0.project != nil || !$0.items.isEmpty }) {
                     Rows {
                         ForEach(teams, id: \.id) { team in
+                            let placed = AgentTree.tree(
+                                team.items, id: \.id, lead: \.lead, root: team.project == nil ? 0 : 1, folded: folded)
                             if let project = team.project {
                                 ChiefRow(
                                     core: core, project: project,
                                     shown: view.inbox.agents.first { $0.chief == true && $0.project == project.id },
-                                    mixed: scope == nil, now: now)
+                                    mixed: scope == nil, now: now
+                                )
+                                .modifier(TreeLines(open: !placed.isEmpty))
                             }
-                            ForEach(team.agents, id: \.agentId) { agent in
-                                row(agent, now: now)
-                                ForEach(workers.filter { $0.lead == agent.agentId }, id: \.agentId) {
-                                    WorkerRow(worker: $0, now: now, nested: true)
-                                }
-                            }
+                            ForEach(placed, id: \.item.id) { row($0, folds: true, now: now) }
                         }
-                        ForEach(strays, id: \.agentId) { WorkerRow(worker: $0, now: now) }
                     }
                     .animation(still ? nil : .snappy(duration: 0.28), value: teams.map(\.id))
                     .onTouch { touching in
@@ -70,10 +54,12 @@ struct DeviceAgents: View {
                     }
                     .padding(.top, 10)
                 }
-                AwayGroup(label: String(localized: "Snoozed"), fold: .snoozed, agents: snoozed) { row($0, now: now) }
+                AwayGroup(label: String(localized: "Snoozed"), fold: .snoozed, count: away.count) {
+                    ForEach(away, id: \.item.id) { row($0, folds: false, now: now) }
+                }
                 Recent(
                     core: core, view: view, scope: scope, provider: provider, full: full, hostName: hostName, now: now)
-                if open.isEmpty && strays.isEmpty && snoozed.isEmpty && !recent {
+                if open.isEmpty && snoozed.isEmpty && !recent {
                     EmptyState(
                         icon: Icons.agentLine,
                         text: scope.map { String(localized: "No agents in \($0.name).") }
@@ -83,28 +69,86 @@ struct DeviceAgents: View {
         }
     }
 
+    /// An agent the list draws: one here, or a worker an agent here started on a linked host.
+    private struct Item {
+        let id: String
+        let lead: String?
+        let project: String?
+        let snoozed: Bool
+        let away: Bool
+        var agent: AgentShown?
+        var worker: RemoteAgent?
+    }
+
+    /// The agents the list draws, each hung under its lead: every open agent and worker shown, a chief only where a
+    /// list filtered to one kind has no @Chief row, and a settled one only while its team still works. A filtered list
+    /// is flat, as it may have left a lead out; an agent whose lead is a chief hangs under that chief's row.
+    private func items() -> (main: [Item], snoozed: [Item]) {
+        let flat = provider != nil
+        let chiefs = Set(view.inbox.agents.filter { $0.chief == true }.map(\.agentId))
+        let leadOf = { (lead: String?) in flat ? nil : lead.flatMap { chiefs.contains($0) ? nil : $0 } }
+        let here = view.inbox.agents
+            .filter { listed(scope, provider, project: $0.project, type: $0.cli) && (flat || $0.chief != true) }
+            .map {
+                Item(
+                    id: $0.agentId, lead: leadOf($0.lead), project: $0.project, snoozed: $0.snoozedUntil != nil,
+                    away: $0.snoozedUntil != nil || $0.settledAt != nil, agent: $0)
+            }
+        let seen = Set(here.map(\.id))
+        let workers = view.inbox.remoteAgents
+            .filter { !seen.contains($0.agentId) && listed(nil, provider, project: nil, type: $0.cli) }
+            .map {
+                Item(
+                    id: $0.agentId, lead: leadOf($0.lead), project: $0.project, snoozed: $0.snoozedUntil != nil,
+                    away: $0.snoozedUntil != nil || $0.settledAt != nil, worker: $0)
+            }
+        var items = here + workers
+        if let scope {
+            let lead = leadsOf(items)
+            let ids = Set(items.map(\.id))
+            items = items.filter {
+                $0.worker == nil || $0.project == scope.id
+                    || seen.contains(AgentTree.top(of: $0.id, lead, among: ids))
+            }
+        }
+        let leading = AgentTree.above(leadsOf(items), from: items.filter { !$0.away }.map(\.id))
+        return (
+            items.filter { !$0.away || leading.contains($0.id) },
+            items.filter { $0.snoozed && !leading.contains($0.id) }
+        )
+    }
+
+    private func leadsOf(_ items: [Item]) -> [String: String] {
+        Dictionary(
+            items.compactMap { item in item.lead.map { (item.id, $0) } }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// One project's chief and the agents under it; agents of no project shown go last with no chief.
     private struct Team {
         let project: ProjectInfo?
-        let agents: [AgentShown]
+        let items: [Item]
         var id: String { project?.id ?? "" }
     }
 
     /// The list as teams. In one project, its chief leads it. With every project shown, each project with a chief or
     /// agents is a team, ordered by how the core says each stands: needs you, then at work, then the rest, ties in the
-    /// host's order of projects. A list filtered to one kind of agent has no
-    /// chiefs.
-    private func teams(_ open: [AgentShown]) -> [Team] {
-        if provider != nil { return [Team(project: nil, agents: open)] }
-        if let scope { return [Team(project: scope, agents: open)] }
+    /// host's order of projects; an agent goes with the project of the agent at the top of its tree. A list filtered
+    /// to one kind of agent has no chiefs.
+    private func teams(_ open: [Item]) -> [Team] {
+        if provider != nil { return [Team(project: nil, items: open)] }
+        if let scope { return [Team(project: scope, items: open)] }
         let shown = view.workspace.projects.filter { $0.chief != nil || $0.chiefHome != nil || ($0.agents ?? 0) > 0 }
         let ranked = shown.enumerated().sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+        let lead = leadsOf(open)
+        let ids = Set(open.map(\.id))
+        let projectOf = Dictionary(open.map { ($0.id, $0.project) }, uniquingKeysWith: { first, _ in first })
+        let home = { (item: Item) in projectOf[AgentTree.top(of: item.id, lead, among: ids)] ?? nil }
         var teams = ranked.map { project in
-            Team(project: project.element, agents: open.filter { $0.project == project.element.id })
+            Team(project: project.element, items: open.filter { home($0) == project.element.id })
         }
         let placed = Set(shown.map(\.id))
-        let loose = open.filter { agent in agent.project.map { !placed.contains($0) } ?? true }
-        if !loose.isEmpty { teams.append(Team(project: nil, agents: loose)) }
+        let loose = open.filter { item in home(item).map { !placed.contains($0) } ?? true }
+        if !loose.isEmpty { teams.append(Team(project: nil, items: loose)) }
         return teams
     }
 
@@ -126,19 +170,31 @@ struct DeviceAgents: View {
         }
     }
 
+    private func name(_ id: String?) -> String? {
+        guard let id else { return nil }
+        return view.inbox.agents.first { $0.agentId == id }?.name
+            ?? view.inbox.remoteAgents.first { $0.agentId == id }?.name
+    }
+
     @ViewBuilder
-    private func row(_ agent: AgentShown, now: Date) -> some View {
-        let onHold = onHold.map { hold in { hold(agent.agentId) } }
-        // A filtered list may have left a teammate's lead out, so it hangs from nothing.
-        let team = provider == nil && agent.snoozedUntil == nil ? agent.team : nil
+    private func row(_ placed: AgentTree.Placed<Item>, folds: Bool, now: Date) -> some View {
+        let item = placed.item
+        let lead = name(placed.leadApart)
+        let fold = folds && placed.below > 0 ? placed.below : nil
         Group {
-            if agent.session == nil {
-                ChatRow(core: core, shown: agent, now: now, onHold: onHold)
-            } else {
-                TerminalAgentRow(shown: agent, now: now, onOpen: { onTab(.terminals) }, onHold: onHold)
+            if let worker = item.worker {
+                WorkerRow(worker: worker, now: now, lead: lead, fold: fold)
+            } else if let agent = item.agent {
+                let onHold = onHold.map { hold in { hold(agent.agentId) } }
+                if agent.session == nil {
+                    ChatRow(core: core, shown: agent, now: now, onHold: onHold, lead: lead, fold: fold)
+                } else {
+                    TerminalAgentRow(
+                        shown: agent, now: now, onOpen: { onTab(.terminals) }, onHold: onHold, lead: lead, fold: fold)
+                }
             }
         }
-        .modifier(TeamLines(team: team))
+        .modifier(TreeLines(depth: placed.depth, lines: placed.lines, open: placed.open))
     }
 }
 
@@ -148,18 +204,30 @@ private struct ChatRow: View {
     let shown: AgentShown
     let now: Date
     let onHold: (() -> Void)?
+    var lead: String?
+    /// How many hang below it, when it has a team to fold.
+    var fold: Int?
 
     var body: some View {
+        if let fold {
+            row { TreeFold(agentId: shown.agentId, count: fold) }
+        } else {
+            row { EmptyView() }
+        }
+    }
+
+    private func row<After: View>(@ViewBuilder after: () -> After) -> some View {
         let away = shown.snoozedUntil != nil
-        Row(
-            title: shown.title, name: away ? nil : shown.name, dim: away,
+        let dim = away || shown.settledAt != nil
+        return Row(
+            title: shown.title, name: away ? nil : shown.name, lead: lead, dim: dim,
             onPress: { Router.shared.push(.chat(core: core, agent: shown.agentId)) },
             onLongPress: onHold,
             mark: {
                 AskerMark(
                     agentId: shown.agentId, provider: shown.cli, chief: shown.chief == true, turn: shown.turn
                 )
-                .opacity(away ? 0.55 : 1)
+                .opacity(dim ? 0.55 : 1)
             },
             end: {
                 if let until = shown.snoozedUntil.map(Format.date(millis:)) {
@@ -170,7 +238,8 @@ private struct ChatRow: View {
                     if let line = shown.line { LinePlace(line: line) }
                     TurnMark(turn: shown.turn, now: now)
                 }
-            })
+            },
+            after: after)
     }
 }
 
@@ -180,17 +249,28 @@ private struct TerminalAgentRow: View {
     let now: Date
     let onOpen: () -> Void
     let onHold: (() -> Void)?
+    var lead: String?
+    var fold: Int?
 
     var body: some View {
+        if let fold {
+            row { TreeFold(agentId: shown.agentId, count: fold) }
+        } else {
+            row { EmptyView() }
+        }
+    }
+
+    private func row<After: View>(@ViewBuilder after: () -> After) -> some View {
         let away = shown.snoozedUntil != nil
-        Row(
-            title: shown.title, name: away ? nil : shown.name, dim: away,
+        let dim = away || shown.settledAt != nil
+        return Row(
+            title: shown.title, name: away ? nil : shown.name, lead: lead, dim: dim,
             onPress: onOpen, onLongPress: onHold,
             mark: {
                 AskerMark(
                     agentId: shown.agentId, provider: shown.cli, chief: shown.chief == true, turn: shown.turn
                 )
-                .opacity(away ? 0.55 : 1)
+                .opacity(dim ? 0.55 : 1)
             },
             end: {
                 if let until = shown.snoozedUntil.map(Format.date(millis:)) {
@@ -198,53 +278,8 @@ private struct TerminalAgentRow: View {
                 } else {
                     TurnMark(turn: shown.turn, now: now)
                 }
-            })
-    }
-}
-
-/// The spine and tick that hang a teammate's row under its lead, as the Mac's rail draws them.
-private struct TeamLines: ViewModifier {
-    @Environment(\.palette) private var palette
-    let team: TeamLink?
-
-    func body(content: Content) -> some View {
-        let member = team == .member || team == .last
-        content
-            .padding(.leading, member ? 22 : 0)
-            .background(alignment: .topLeading) {
-                if let team { TeamPath(team: team).stroke(palette.treeSpine, lineWidth: 1) }
-            }
-    }
-}
-
-private struct TeamPath: Shape {
-    let team: TeamLink
-    /// Down the middle of the lead's mark, which sits 8pt into its row.
-    private let spine: CGFloat = 18.5
-    /// Half a row, where a teammate's mark is centred, and the gap between rows.
-    private let middle: CGFloat = 24
-    private let gap: CGFloat = 2
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        switch team {
-        case .head:
-            path.move(to: CGPoint(x: spine, y: middle + 12))
-            path.addLine(to: CGPoint(x: spine, y: rect.maxY + gap))
-        case .member:
-            path.move(to: CGPoint(x: spine, y: -gap))
-            path.addLine(to: CGPoint(x: spine, y: rect.maxY + gap))
-            path.move(to: CGPoint(x: spine, y: middle))
-            path.addLine(to: CGPoint(x: spine + 8, y: middle))
-        case .last:
-            path.move(to: CGPoint(x: spine, y: -gap))
-            path.addLine(to: CGPoint(x: spine, y: middle - 4))
-            path.addQuadCurve(to: CGPoint(x: spine + 4, y: middle), control: CGPoint(x: spine, y: middle))
-            path.addLine(to: CGPoint(x: spine + 8, y: middle))
-        case .unknown:
-            break
-        }
-        return path
+            },
+            after: after)
     }
 }
 
@@ -253,16 +288,16 @@ private struct AwayGroup<Content: View>: View {
     @Environment(\.palette) private var palette
     let label: String
     let fold: Folded.Group
-    let agents: [AgentShown]
-    @ViewBuilder var row: (AgentShown) -> Content
+    let count: Int
+    @ViewBuilder var rows: Content
 
     var body: some View {
         let folded = Folded.shared.shut.contains(fold)
-        if !agents.isEmpty {
+        if count > 0 {
             Button {
                 Folded.shared.toggle(fold)
             } label: {
-                SectionLabel(text: label, count: agents.count) {
+                SectionLabel(text: label, count: count) {
                     IconView(icon: Icons.chevron, size: 12)
                         .foregroundStyle(palette.tertiary)
                         .rotationEffect(.degrees(folded ? 0 : 90))
@@ -270,10 +305,10 @@ private struct AwayGroup<Content: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(Text(verbatim: "\(label), \(agents.count)"))
+            .accessibilityLabel(Text(verbatim: "\(label), \(count)"))
             .accessibilityValue(folded ? "Folded" : "Open")
             if !folded {
-                Rows { ForEach(agents, id: \.agentId) { row($0) } }
+                Rows { rows }
             }
         }
     }
@@ -286,37 +321,19 @@ struct WorkerRow: View {
     @Environment(\.palette) private var palette
     let worker: RemoteAgent
     let now: Date
-    var nested = false
+    var lead: String?
+    /// How many hang below it, when it has a team to fold.
+    var fold: Int?
     @State private var told = false
 
     var body: some View {
-        let reachable = worker.reachable
         let paired = Hub.shared.device(worker.hostId) != nil
         VStack(alignment: .leading, spacing: 0) {
-            Row(
-                title: worker.titled == true ? worker.title : nil, name: worker.name,
-                host: reachable ? worker.host : "\(worker.host) · \(String(localized: "Out of reach").lowercased())",
-                dim: !reachable,
-                onPress: {
-                    if paired {
-                        Router.shared.push(.chat(core: worker.hostId, agent: worker.agentId))
-                    } else {
-                        told.toggle()
-                    }
-                },
-                mark: {
-                    AskerMark(agentId: worker.agentId, provider: worker.cli, turn: worker.turn)
-                        .opacity(reachable ? 1 : 0.55)
-                },
-                end: {
-                    if reachable {
-                        if worker.subagents > 0 { SubagentCount(count: worker.subagents) }
-                        if worker.tasks > 0 { ShellCount(count: worker.tasks) }
-                        if let line = worker.line { LinePlace(line: line) }
-                        TurnMark(turn: worker.turn, now: now)
-                    }
-                }
-            )
+            if let fold {
+                row(paired: paired) { TreeFold(agentId: worker.agentId, count: fold) }
+            } else {
+                row(paired: paired) { EmptyView() }
+            }
             if told && !paired {
                 let who = worker.name.map { "@\($0)" } ?? worker.title
                 Text("\(who) runs on \(worker.host). Pair this phone with \(worker.host) to open its chat.")
@@ -328,7 +345,34 @@ struct WorkerRow: View {
                     .padding(.bottom, 8)
             }
         }
-        .modifier(TeamLines(team: nested ? (worker.team == .last ? .last : .member) : nil))
+    }
+
+    private func row<After: View>(paired: Bool, @ViewBuilder after: () -> After) -> some View {
+        let reachable = worker.reachable
+        return Row(
+            title: worker.titled == true ? worker.title : nil, name: worker.name, lead: lead,
+            host: reachable ? worker.host : "\(worker.host) · \(String(localized: "Out of reach").lowercased())",
+            dim: !reachable,
+            onPress: {
+                if paired {
+                    Router.shared.push(.chat(core: worker.hostId, agent: worker.agentId))
+                } else {
+                    told.toggle()
+                }
+            },
+            mark: {
+                AskerMark(agentId: worker.agentId, provider: worker.cli, turn: worker.turn)
+                    .opacity(reachable ? 1 : 0.55)
+            },
+            end: {
+                if reachable {
+                    if worker.subagents > 0 { SubagentCount(count: worker.subagents) }
+                    if worker.tasks > 0 { ShellCount(count: worker.tasks) }
+                    if let line = worker.line { LinePlace(line: line) }
+                    TurnMark(turn: worker.turn, now: now)
+                }
+            },
+            after: after)
     }
 }
 

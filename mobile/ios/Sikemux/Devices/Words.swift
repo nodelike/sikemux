@@ -49,6 +49,15 @@ final class Folded {
         if shut.contains(group) { shut.remove(group) } else { shut.insert(group) }
         UserDefaults.standard.set(shut.map(\.rawValue), forKey: Self.key)
     }
+
+    /// The agents whose teams are folded shut, by id.
+    private(set) var teams = Set(UserDefaults.standard.stringArray(forKey: teamsKey) ?? [])
+    private static let teamsKey = "sikemux.folded-agent-teams"
+
+    func toggleTeam(_ agentId: String) {
+        if teams.contains(agentId) { teams.remove(agentId) } else { teams.insert(agentId) }
+        UserDefaults.standard.set(Array(teams), forKey: Self.teamsKey)
+    }
 }
 
 extension PairedDevice.Kind {

@@ -25,6 +25,7 @@ export function Rows({ children, style }: { children: ReactNode; style?: StylePr
 export function Row({
   mark,
   name,
+  lead,
   host,
   title,
   aside,
@@ -41,6 +42,8 @@ export function Row({
   mark?: ReactNode;
   /** The agent's name, small and dim with the row's counts and state at its end, as the Mac's rail sets it. */
   name?: string | null;
+  /** The agent it works under, named before its own name when the row does not hang under that agent's row. */
+  lead?: string;
   /** The linked host the agent runs on, marked before its name as the Mac's rail marks it and said to TalkBack. */
   host?: string;
   title?: string;
@@ -106,12 +109,17 @@ export function Row({
           </Text>
         ) : null}
       </View>
-      {named || host || end ? (
+      {named || lead || host || end ? (
         <View style={styles.rowEnd}>
           {host ? (
             <View style={dim && styles.rowHostDim} accessible accessibilityLabel={host}>
               <Icon name="IconRemoteHost" size={11} color={colors.live} />
             </View>
+          ) : null}
+          {lead ? (
+            <Text style={styles.rowName} numberOfLines={1}>
+              {`@${lead} ›`}
+            </Text>
           ) : null}
           {named ? (
             <Text style={styles.rowName} numberOfLines={1}>

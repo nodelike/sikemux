@@ -25,9 +25,19 @@ export function toggleFolded(key: string) {
   );
 }
 
-export function useFolded(key: string): boolean {
+function useLoaded() {
   useEffect(() => {
     load().catch((error: unknown) => console.warn('sikemux: could not read the folded groups', error));
   }, []);
+}
+
+export function useFolded(key: string): boolean {
+  useLoaded();
   return useExternalValue(folded, (shut) => shut.includes(key));
+}
+
+/** Every group folded shut, by key. */
+export function useFoldedKeys(): readonly string[] {
+  useLoaded();
+  return useExternalValue(folded);
 }

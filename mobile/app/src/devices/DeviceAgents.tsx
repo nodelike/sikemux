@@ -2,41 +2,73 @@ import { Fragment, memo, useState, type ReactNode } from 'react';
 import { LayoutAnimation, Pressable, StyleSheet, View } from 'react-native';
 import { router } from 'expo-router';
 
-import type { AgentShown, ProjectInfo, TeamLink } from '@shared/wire.generated';
+import type { AgentShown, ProjectInfo, RemoteAgent } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
-import { WorkerRow, workersOf } from '@/devices/RemoteWorker';
+import { WorkerRow } from '@/devices/RemoteWorker';
+import { TreeFold, TreeLines, teamFold } from '@/devices/AgentTree';
+import { above, topOf, tree, type Placed } from '@/devices/tree';
 import { useAnimating, useMinute } from '@/ui/motion';
 import { AgentFace } from '@/devices/Buddy';
 import { AwayNote, AwaySheet } from '@/devices/AwaySheet';
-import { toggleFolded, useFolded } from '@/devices/folded';
+import { toggleFolded, useFolded, useFoldedKeys } from '@/devices/folded';
 import { useT } from '@/i18n';
 import { Icon } from '@/ui/Icon';
 import { Row, Rows, SectionLabel } from '@/ui/list';
 import { EmptyState } from '@/ui/prompt';
 import { LinePlace, ShellCount, SubagentCount, TurnMark, WakeTime } from '@/devices/AgentMarks';
 import { ChiefRow } from '@/calls/ChiefRow';
-import { type Palette, useColors, useStyles } from '@/ui/theme';
+import { useColors, useStyles } from '@/ui/theme';
 import { listed, Recent } from '@/devices/DeviceRecent';
 
 export type Tab = 'agents' | 'terminals' | 'calls';
 
+/** An agent the list draws: one here, or a worker an agent here started on a linked host. */
+type Item = { id: string; lead?: string; project?: string; snoozed: boolean; away: boolean; agent?: AgentShown; worker?: RemoteAgent };
+
+const leafOf = (item: Item) => item;
+
 /**
- * The open agents in the order the host lists them on every device: the main list, what wants the person first, then
- * the snoozed ones. Settled ones stay out of the list.
+ * The agents the list draws, each hung under its lead: every open agent and worker shown, a chief only where a list
+ * filtered to one kind has no @Chief row, and a settled one only while its team still works. A filtered list is flat,
+ * as it may have left a lead out; an agent whose lead is a chief hangs under that chief's row.
  */
-function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: string) {
-  // A chief shows as its project's @Chief row, never among the agents; a list filtered to one kind has no chiefs.
-  const agents = snapshot.inbox.agents.filter(
-    (agent) => agent.settledAt == null && listed(scope, provider, agent.project, agent.cli) && (provider !== 'all' || !agent.chief),
+function itemsOf(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: string) {
+  const flat = provider !== 'all';
+  const chiefs = new Set(snapshot.inbox.agents.filter((agent) => agent.chief).map((agent) => agent.agentId));
+  const leadOf = (lead: string | undefined) => (flat || !lead || chiefs.has(lead) ? undefined : lead);
+  const item = (shown: AgentShown | RemoteAgent, worker?: RemoteAgent): Item => ({
+    id: shown.agentId,
+    lead: leadOf(shown.lead),
+    project: shown.project,
+    snoozed: shown.snoozedUntil != null,
+    away: shown.snoozedUntil != null || shown.settledAt != null,
+    agent: worker ? undefined : shown,
+    worker,
+  });
+  const here = snapshot.inbox.agents
+    .filter((agent) => listed(scope, provider, agent.project, agent.cli) && (flat || !agent.chief))
+    .map((agent) => item(agent));
+  const seen = new Set(here.map((agent) => agent.id));
+  const workers = snapshot.inbox.remoteAgents
+    .filter((worker) => !seen.has(worker.agentId) && listed(undefined, provider, undefined, worker.cli))
+    .map((worker) => item(worker, worker));
+  let items = [...here, ...workers];
+  if (scope) {
+    const top = topOf(items);
+    items = items.filter((item) => !item.worker || item.project === scope.id || seen.has(top.get(item.id) ?? ''));
+  }
+  const leading = above(
+    items,
+    items.filter((item) => !item.away).map((item) => item.id),
   );
   return {
-    main: agents.filter((agent) => agent.snoozedUntil == null),
-    snoozed: agents.filter((agent) => agent.snoozedUntil != null),
+    main: items.filter((item) => !item.away || leading.has(item.id)),
+    snoozed: items.filter((item) => item.snoozed && !leading.has(item.id)),
   };
 }
 
 /** One project's chief and the agents under it; agents of no project shown go last with no chief. */
-type Team = { id: string; project?: ProjectInfo; agents: AgentShown[] };
+type Team = { id: string; project?: ProjectInfo; items: Item[] };
 
 /** Where a project goes in the list by how the core says it stands, as the Mac and the notch order it. */
 const RANK: Record<string, number> = { needsYou: 0, atWork: 1 };
@@ -44,12 +76,12 @@ const rankOf = (project: ProjectInfo) => RANK[project.standing ?? 'atRest'] ?? 2
 
 /**
  * The list as teams. In one project, its chief leads it. With every project shown, each project with a chief or agents
- * is a team, ordered by how the core says each stands, ties in the host's order of projects. A list filtered to one kind
- * of agent has no chiefs.
+ * is a team, ordered by how the core says each stands, ties in the host's order of projects; an agent goes with the
+ * project of the agent at the top of its tree. A list filtered to one kind of agent has no chiefs.
  */
-function teamsOf(snapshot: Snapshot, open: AgentShown[], scope: ProjectInfo | undefined, provider: string): Team[] {
-  if (provider !== 'all') return [{ id: '', agents: open }];
-  if (scope) return [{ id: scope.id, project: scope, agents: open }];
+function teamsOf(snapshot: Snapshot, open: Item[], scope: ProjectInfo | undefined, provider: string): Team[] {
+  if (provider !== 'all') return [{ id: '', items: open }];
+  if (scope) return [{ id: scope.id, project: scope, items: open }];
   const shown = snapshot.workspace.projects.filter(
     (project) => project.chief != null || project.chiefHome != null || (project.agents ?? 0) > 0,
   );
@@ -57,14 +89,20 @@ function teamsOf(snapshot: Snapshot, open: AgentShown[], scope: ProjectInfo | un
     .map((project, index) => ({ project, index, rank: rankOf(project) }))
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map(({ project }) => project);
+  const byId = new Map(open.map((item) => [item.id, item]));
+  const top = topOf(open);
+  const home = (item: Item) => byId.get(top.get(item.id) ?? '')?.project;
   const teams: Team[] = ranked.map((project) => ({
     id: project.id,
     project,
-    agents: open.filter((agent) => agent.project === project.id),
+    items: open.filter((item) => home(item) === project.id),
   }));
   const placed = new Set(shown.map((project) => project.id));
-  const loose = open.filter((agent) => !agent.project || !placed.has(agent.project));
-  if (loose.length) teams.push({ id: '', agents: loose });
+  const loose = open.filter((item) => {
+    const project = home(item);
+    return !project || !placed.has(project);
+  });
+  if (loose.length) teams.push({ id: '', items: loose });
   return teams;
 }
 
@@ -99,7 +137,9 @@ export function Agents({
   const styles = useStyles(makeStyles);
   const t = useT();
   const minute = useMinute();
-  const { main: open, snoozed } = openAgents(snapshot, scope, provider);
+  const { main: open, snoozed } = itemsOf(snapshot, scope, provider);
+  const foldedKeys = useFoldedKeys();
+  const folded = new Set(foldedKeys.flatMap((key) => (key.startsWith(teamFold('')) ? [key.slice(teamFold('').length)] : [])));
   const animating = useAnimating();
   // The projects' order while a finger is on the list, so a tap never lands on a row that moved under it.
   const [touchOrder, setTouchOrder] = useState<string[]>();
@@ -115,96 +155,90 @@ export function Agents({
   const hold = (shown: AgentShown) => setSnoozing(shown.agentId);
   const onHold = full ? hold : undefined;
   const snoozingShown = snoozing ? snapshot.inbox.agents.find((agent) => agent.agentId === snoozing) : undefined;
-  const awayRow = (agent: AgentShown) =>
-    agent.session == null ? (
-      <ChatRow key={agent.agentId} core={core} shown={agent} minute={minute} onHold={onHold} />
-    ) : (
-      <TerminalAgentRow key={agent.agentId} shown={agent} minute={minute} onOpen={() => onTab('terminals')} onHold={onHold} />
+  const nameOf = (id: string | undefined) =>
+    id === undefined
+      ? undefined
+      : ((snapshot.inbox.agents.find((agent) => agent.agentId === id) ?? snapshot.inbox.remoteAgents.find((agent) => agent.agentId === id))
+          ?.name ?? undefined);
+  const row = (placed: Placed<Item>, folds: boolean) => {
+    const { item } = placed;
+    const fold = folds && placed.below > 0 ? { count: placed.below, open: !folded.has(item.id) } : undefined;
+    const lead = nameOf(placed.leadApart);
+    return (
+      <TreeLines key={item.id} depth={placed.depth} lines={placed.lines} open={placed.open}>
+        {item.worker ? (
+          <WorkerRow worker={item.worker} lead={lead} foldCount={fold?.count} foldOpen={fold?.open} />
+        ) : !item.agent ? null : item.agent.session == null ? (
+          <ChatRow
+            core={core}
+            shown={item.agent}
+            minute={minute}
+            onHold={onHold}
+            lead={lead}
+            foldCount={fold?.count}
+            foldOpen={fold?.open}
+          />
+        ) : (
+          <TerminalAgentRow
+            shown={item.agent}
+            minute={minute}
+            onOpen={() => onTab('terminals')}
+            onHold={onHold}
+            lead={lead}
+            foldCount={fold?.count}
+            foldOpen={fold?.open}
+          />
+        )}
+      </TreeLines>
     );
-  const workers = snapshot.inbox.remoteAgents;
-  const leads = new Set(open.map((agent) => agent.agentId));
-  const strays = scope
-    ? []
-    : workers.filter((worker) => !(worker.lead && leads.has(worker.lead)) && listed(undefined, provider, undefined, worker.cli));
-  // A filtered list may have left a teammate's lead out, so it would hang from nothing.
-  const teamOf = (agent: AgentShown) => (provider === 'all' ? agent.team : undefined);
+  };
+  const away = tree(snoozed, leafOf, 0, new Set());
 
   return (
     <>
       <AwayNote />
-      {teams.some((team) => team.project || team.agents.length) || strays.length ? (
+      {teams.some((team) => team.project || team.items.length) ? (
         <View
           onTouchStart={() => setTouchOrder((now) => now ?? teams.map((team) => team.id))}
           onTouchEnd={() => setTouchOrder(undefined)}
           onTouchCancel={() => setTouchOrder(undefined)}>
           <Rows style={styles.open}>
-            {teams.map((team) => (
-              <Fragment key={team.id}>
-                {team.project ? (
-                  <ChiefRow
-                    core={core}
-                    project={team.project}
-                    shown={snapshot.inbox.agents.find((agent) => agent.chief && agent.project === team.project?.id)}
-                    mixed={!scope}
-                    now={minute * 60_000}
-                  />
-                ) : null}
-                {team.agents.map((agent) => (
-                  <Fragment key={agent.agentId}>
-                    <TeamLines team={teamOf(agent)}>
-                      {agent.session == null ? (
-                        <ChatRow core={core} shown={agent} minute={minute} onHold={onHold} />
-                      ) : (
-                        <TerminalAgentRow shown={agent} minute={minute} onOpen={() => onTab('terminals')} onHold={onHold} />
-                      )}
-                    </TeamLines>
-                    {workersOf(workers, agent.agentId).map((worker) => (
-                      <TeamLines key={worker.agentId} team={worker.team === 'last' ? 'last' : 'member'}>
-                        <WorkerRow worker={worker} />
-                      </TeamLines>
-                    ))}
-                  </Fragment>
-                ))}
-              </Fragment>
-            ))}
-            {strays.map((worker) => (
-              <WorkerRow key={worker.agentId} worker={worker} />
-            ))}
+            {teams.map((team) => {
+              const placed = tree(team.items, leafOf, team.project ? 1 : 0, folded);
+              return (
+                <Fragment key={team.id}>
+                  {team.project ? (
+                    <TreeLines open={placed.length > 0}>
+                      <ChiefRow
+                        core={core}
+                        project={team.project}
+                        shown={snapshot.inbox.agents.find((agent) => agent.chief && agent.project === team.project?.id)}
+                        mixed={!scope}
+                        now={minute * 60_000}
+                      />
+                    </TreeLines>
+                  ) : null}
+                  {placed.map((placed) => row(placed, true))}
+                </Fragment>
+              );
+            })}
           </Rows>
         </View>
       ) : null}
-      <AwayGroup label={t('Snoozed')} fold="snoozed" agents={snoozed} row={awayRow} />
+      <AwayGroup label={t('Snoozed')} fold="snoozed" count={away.length}>
+        {away.map((placed) => row(placed, false))}
+      </AwayGroup>
       <Recent core={core} snapshot={snapshot} scope={scope} provider={provider} full={full} hostName={hostName} />
       <AwaySheet core={core} shown={snoozingShown} onClose={() => setSnoozing(undefined)} />
-      {!open.length && !strays.length && !snoozed.length && !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
+      {!open.length && !snoozed.length && !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
         <EmptyState icon="IconAgent" text={scope ? t('No agents in {project}.', { project: scope.name }) : t('No agents running.')} />
       ) : null}
     </>
   );
 }
 
-/** Down the middle of a lead's mark, which sits 8 into its row, and half a row, where a teammate's mark is centred. */
-const SPINE = 18;
-const MIDDLE = 24;
-
-/** The spine and tick that hang a teammate's row under its lead, as the Mac's rail draws them. */
-function TeamLines({ team, children }: { team?: TeamLink; children: ReactNode }) {
-  const styles = useStyles(makeStyles);
-  const member = team === 'member' || team === 'last';
-  return (
-    <View style={member ? styles.member : undefined}>
-      {team === 'head' ? <View style={[styles.spine, { top: MIDDLE + 12, bottom: -2 }]} /> : null}
-      {team === 'member' ? (
-        <>
-          <View style={[styles.spine, { top: -2, bottom: -2 }]} />
-          <View style={styles.tick} />
-        </>
-      ) : null}
-      {team === 'last' ? <View style={styles.corner} /> : null}
-      {children}
-    </View>
-  );
-}
+/** What a row of the tree carries besides its agent: the lead it names, and the fold of the team under it. */
+type Hung = { lead?: string; foldCount?: number; foldOpen?: boolean };
 
 /* A host sends its whole view several times a second while an agent works; each row redraws only when its own
    item changed, which the hub keeps as the same object otherwise. */
@@ -213,7 +247,10 @@ const ChatRow = memo(function ChatRow({
   shown,
   minute,
   onHold,
-}: {
+  lead,
+  foldCount,
+  foldOpen = true,
+}: Hung & {
   core: string;
   shown: AgentShown;
   /** Counts down a trigger's time once a minute; 0 for a row without one, so the others keep still. */
@@ -222,16 +259,19 @@ const ChatRow = memo(function ChatRow({
   onHold?: (shown: AgentShown) => void;
 }) {
   const away = shown.snoozedUntil != null;
+  const settled = shown.settledAt != null;
   return (
     <Row
       mark={
-        <Faded away={away}>
+        <Faded away={away || settled}>
           <AgentFace agentId={shown.agentId} provider={shown.cli} turn={shown.turn} size={20} />
         </Faded>
       }
       name={away ? undefined : shown.name}
+      lead={lead}
       title={shown.title}
-      dim={away}
+      dim={away || settled}
+      after={foldCount ? <TreeFold agentId={shown.agentId} count={foldCount} open={foldOpen} /> : undefined}
       end={
         away ? (
           <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} />
@@ -256,29 +296,19 @@ function Faded({ away, children }: { away: boolean; children: ReactNode }) {
 }
 
 /** Snoozed under the main list, folding on a tap of its label as the Mac's rail does. */
-function AwayGroup({
-  label,
-  fold,
-  agents,
-  row,
-}: {
-  label: string;
-  fold: string;
-  agents: AgentShown[];
-  row: (agent: AgentShown) => ReactNode;
-}) {
+function AwayGroup({ label, fold, count, children }: { label: string; fold: string; count: number; children: ReactNode }) {
   const colors = useColors();
   const folded = useFolded(fold);
-  if (!agents.length) return null;
+  if (!count) return null;
   return (
     <>
       <Pressable
         onPress={() => toggleFolded(fold)}
         accessibilityRole="button"
         accessibilityState={{ expanded: !folded }}
-        accessibilityLabel={`${label}, ${agents.length}`}>
+        accessibilityLabel={`${label}, ${count}`}>
         <SectionLabel
-          count={agents.length}
+          count={count}
           action={
             <View style={{ transform: [{ rotate: folded ? '0deg' : '90deg' }] }}>
               <Icon name="IconChevron" size={12} color={colors.tertiary} />
@@ -287,7 +317,7 @@ function AwayGroup({
           {label}
         </SectionLabel>
       </Pressable>
-      {folded ? null : <Rows>{agents.map(row)}</Rows>}
+      {folded ? null : <Rows>{children}</Rows>}
     </>
   );
 }
@@ -298,23 +328,29 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
   minute,
   onOpen,
   onHold,
-}: {
+  lead,
+  foldCount,
+  foldOpen = true,
+}: Hung & {
   shown: AgentShown;
   minute: number;
   onOpen: () => void;
   onHold?: (shown: AgentShown) => void;
 }) {
   const away = shown.snoozedUntil != null;
+  const settled = shown.settledAt != null;
   return (
     <Row
       mark={
-        <Faded away={away}>
+        <Faded away={away || settled}>
           <AgentFace agentId={shown.agentId} provider={shown.cli} turn={shown.turn} size={20} />
         </Faded>
       }
       name={away ? undefined : shown.name}
+      lead={lead}
       title={shown.title}
-      dim={away}
+      dim={away || settled}
+      after={foldCount ? <TreeFold agentId={shown.agentId} count={foldCount} open={foldOpen} /> : undefined}
       end={away ? <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} /> : <TurnMark turn={shown.turn} now={minute * 60_000} />}
       onPress={onOpen}
       onLongPress={onHold && (() => onHold(shown))}
@@ -322,22 +358,4 @@ const TerminalAgentRow = memo(function TerminalAgentRow({
   );
 });
 
-const makeStyles = (colors: Palette) => {
-  return StyleSheet.create({
-    open: { marginTop: 10 },
-    member: { paddingLeft: 22 },
-    spine: { position: 'absolute', left: SPINE, width: 1, backgroundColor: colors.treeSpine },
-    tick: { position: 'absolute', top: MIDDLE, left: SPINE, width: 8, height: 1, backgroundColor: colors.treeSpine },
-    corner: {
-      position: 'absolute',
-      top: -2,
-      left: SPINE,
-      width: 8,
-      height: MIDDLE + 3,
-      borderLeftWidth: 1,
-      borderBottomWidth: 1,
-      borderColor: colors.treeSpine,
-      borderBottomLeftRadius: 4,
-    },
-  });
-};
+const makeStyles = () => StyleSheet.create({ open: { marginTop: 10 } });

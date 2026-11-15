@@ -52,6 +52,8 @@ struct Row<Mark: View, End: View, After: View>: View {
     var title: String?
     /// The agent's name, small and dim at the row's end.
     var name: String?
+    /// The agent it works under, named before its own name when the row does not hang under that agent's row.
+    var lead: String?
     /// The linked host the agent runs on, marked before its name as the Mac's rail marks it and said to VoiceOver.
     var host: String?
     /// Quiet words after the title on its line, such as what a chief's chat is on.
@@ -150,13 +152,19 @@ struct Row<Mark: View, End: View, After: View>: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if named != nil || host != nil || End.self != EmptyView.self {
+            if named != nil || lead != nil || host != nil || End.self != EmptyView.self {
                 HStack(spacing: 6) {
                     if let host {
                         IconView(icon: Icons.remoteHost, size: 11)
                             .foregroundStyle(palette.live)
                             .opacity(dim ? 0.55 : 1)
                             .accessibilityLabel(host)
+                    }
+                    if let lead {
+                        Text(verbatim: "@\(lead) ›")
+                            .font(Theme.ui(11.5))
+                            .foregroundStyle(palette.tertiary)
+                            .lineLimit(1)
                     }
                     if let named {
                         Text(named)
@@ -179,13 +187,15 @@ struct Row<Mark: View, End: View, After: View>: View {
 
 extension Row where After == EmptyView {
     init(
-        title: String? = nil, name: String? = nil, host: String? = nil, aside: String? = nil, detail: String? = nil,
+        title: String? = nil, name: String? = nil, lead: String? = nil, host: String? = nil, aside: String? = nil,
+        detail: String? = nil,
         detailText: Text? = nil, place: String? = nil, under: String? = nil, underText: Text? = nil, dim: Bool = false,
         detailLines: Int = 1, onPress: (() -> Void)? = nil, onLongPress: (() -> Void)? = nil,
         @ViewBuilder mark: () -> Mark, @ViewBuilder end: () -> End
     ) {
         self.init(
-            title: title, name: name, host: host, aside: aside, detail: detail, detailText: detailText, place: place,
+            title: title, name: name, lead: lead, host: host, aside: aside, detail: detail, detailText: detailText,
+            place: place,
             under: under,
             underText: underText, dim: dim,
             detailLines: detailLines, onPress: onPress, onLongPress: onLongPress, mark: mark, end: end,

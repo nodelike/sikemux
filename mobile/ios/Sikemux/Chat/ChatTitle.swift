@@ -62,20 +62,14 @@ struct ChatTitle: View {
 }
 
 extension Crew {
-    /// The agents `agentId` works under, as the Mac's header names them: its project's chief, then the lead heading the
-    /// team it is on.
+    /// The agents `agentId` works under, as the Mac's header names them: its project's chief, then the agent it works
+    /// under.
     @MainActor static func crumbs(of agentId: String?, project: String?, in view: DeviceView?) -> [Named] {
         guard let view, let crew = Crew(view), let project,
             let chief = view.workspace.projects.first(where: { $0.id == project })?.chief, chief != agentId,
             let head = crew.agent(chief)
         else { return [] }
-        let agents = view.inbox.agents
-        guard let at = agents.firstIndex(where: { $0.agentId == agentId }) else { return [head] }
-        let lead: AgentShown? =
-            switch agents[at].team {
-            case .member, .last: agents[..<at].last { $0.team == .head }
-            default: nil
-            }
-        return [head] + [crew.agent(lead?.agentId)].compactMap { $0 }.filter { $0.id != chief }
+        let lead = view.inbox.agents.first { $0.agentId == agentId }?.lead
+        return [head] + [crew.agent(lead)].compactMap { $0 }.filter { $0.id != chief }
     }
 }
