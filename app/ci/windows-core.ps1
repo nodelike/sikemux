@@ -11,6 +11,9 @@ $env:LOCALAPPDATA = (New-Item -ItemType Directory -Force -Path (Join-Path $Out '
 $env:XDG_DATA_HOME = (New-Item -ItemType Directory -Force -Path (Join-Path $Out 'data')).FullName
 $project = (New-Item -ItemType Directory -Force -Path (Join-Path $Out 'project')).FullName
 Set-Content -Path (Join-Path $project 'README.md') -Value '# A project opened by the window run'
+# Past the first-run welcome, which would cover the workspace.
+$data = New-Item -ItemType Directory -Force -Path (Join-Path $env:XDG_DATA_HOME 'com.nodelike.sikemux.dev')
+Set-Content -Path (Join-Path $data 'preferences.json') -Value '{"onboardingComplete":true}'
 $cli = Join-Path (Split-Path $App) 'sikemux-host.exe'
 if (-not (Test-Path $cli)) { throw "$cli is not built beside the app" }
 
@@ -55,31 +58,37 @@ function Picture([string] $name) {
 }
 
 $failed = @()
-function Cli([string] $step, [string[]] $words) {
+# Windows PowerShell drops the double quotes inside an argument to a program, so JSON goes with
+# each one escaped.
+function Cli {
+    param([string] $Step, [string[]] $Words)
+    # A program's own error lines are part of its answer, not a failure of the script.
+    $ErrorActionPreference = 'Continue'
+    $quoted = $Words | ForEach-Object { $_.Replace('"', '\"') }
     Push-Location $project
     try {
-        $answer = & $cli @words 2>&1 | Out-String
+        $answer = (& $cli @quoted 2>&1 | Out-String)
         $code = $LASTEXITCODE
     } finally { Pop-Location }
-    "$step (exit $code)`n$answer" | Out-File -Append (Join-Path $Out 'steps.txt')
-    "$step (exit $code): $answer"
-    if ($code -ne 0) { $script:failed += $step }
-    return $answer
+    "$Step (exit $code)`n$answer" | Out-File -Append (Join-Path $Out 'steps.txt')
+    Write-Host "$Step (exit $code): $answer"
+    if ($code -ne 0) { $script:failed += $Step }
+    $answer
 }
 
 Start-Sleep -Seconds $Settle
 Picture 'connected'
 
-Cli 'open the project' @('open', $project) | Out-Null
+Cli -Step 'open the project' -Words 'open', $project | Out-Null
 Start-Sleep -Seconds 10
-$started = Cli 'start a terminal' @('tool', 'process.start', '{"command":"ping -n 900 127.0.0.1","label":"ping","idempotencyKey":"window-run"}')
+$started = Cli -Step 'start a terminal' -Words 'tool', 'process.start', '{"command":"ping -n 900 127.0.0.1","label":"ping","idempotencyKey":"window-run"}'
 $execution = ''
 try { $execution = ($started | ConvertFrom-Json).executionId } catch {}
 if ($execution) {
-    Cli 'show the terminal' @('tool', 'ui.open', (@{ kind = 'terminal'; executionId = $execution } | ConvertTo-Json -Compress)) | Out-Null
+    Cli -Step 'show the terminal' -Words 'tool', 'ui.open', (@{ kind = 'terminal'; executionId = $execution } | ConvertTo-Json -Compress) | Out-Null
 } else { $failed += 'no executionId' }
 $env:SIKEMUX_AGENT_ID = 'window-run'
-Cli 'open a browser tab' @('tool', 'browser.navigate', '{"url":"https://example.com"}') | Out-Null
+Cli -Step 'open a browser tab' -Words 'tool', 'browser.navigate', '{"url":"https://example.com"}' | Out-Null
 Remove-Item Env:SIKEMUX_AGENT_ID
 Start-Sleep -Seconds 15
 Picture 'window'
