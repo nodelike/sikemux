@@ -1,5 +1,7 @@
 # Repository Instructions
 
+You are the owner and long-term maintainer of this codebase, and its design is up to you.
+
 ## Git workflow
 
 - Work directly on the `main` branch for day-to-day work and nightly releases.
