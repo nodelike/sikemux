@@ -342,7 +342,10 @@ fn strip_tabs(
         if let Some(at) = order.iter().position(|id| Some(id) == front.as_ref()) {
             bench.strip.scroll.scroll_to_item(at);
         }
-        *scrolled_to = front.clone();
+        // A tab that is still growing in has not reached its width, so it is scrolled to again.
+        if !front.as_ref().is_some_and(|front| arriving.contains(front)) {
+            *scrolled_to = front.clone();
+        }
     }
     let mut glide = bench.strip.glide.borrow_mut();
     let glided = glide.choose(front.clone(), cx.reduce_motion());

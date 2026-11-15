@@ -33,7 +33,6 @@ use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};
 
 const FILE: &str = "layout.json";
-const MAX_TABS: usize = 64;
 
 pub(crate) struct Layouts {
     layout: Mutex<Layout>,
@@ -210,10 +209,7 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
             })
             .collect();
         created.sort_by_key(|agent| agent.created_at);
-        for agent in created
-            .into_iter()
-            .take(MAX_TABS.saturating_sub(strip.tabs.len()))
-        {
+        for agent in created {
             strip.tabs.push(tab(
                 format!("agent:{}", agent.id),
                 PaneKind::Agent,
@@ -676,9 +672,6 @@ pub(crate) fn open_tab(core: &Core, params: OpenTab) -> CoreResult<String> {
                 tab.id.clone()
             }
             (None, _) => {
-                if strip.tabs.len() >= MAX_TABS {
-                    return Err("that strip already has as many tabs as the core keeps".into());
-                }
                 let mut opened = tab(
                     format!("tab-{}", uuid::Uuid::new_v4().simple()),
                     params.kind,
@@ -759,9 +752,6 @@ fn tab_in<'a>(
 pub(crate) fn show_ssh_terminal(core: &Core, host: String, id: SessionId) -> CoreResult<String> {
     edit(core, |layout| {
         let strip = layout.hosts.entry(host.clone()).or_default();
-        if strip.tabs.len() >= MAX_TABS {
-            return Err("that host already has as many tabs as the core keeps".into());
-        }
         let opened = tab(
             format!("tab-{}", uuid::Uuid::new_v4().simple()),
             PaneKind::Terminal,
@@ -934,9 +924,6 @@ pub(crate) async fn duplicate_tab(core: &Arc<Core>, params: TabParams) -> CoreRe
     };
     edit(core, |layout| {
         let strip = strip(layout, project)?;
-        if strip.tabs.len() >= MAX_TABS {
-            return Err("that project already has as many tabs as the core keeps".into());
-        }
         let at = strip
             .tabs
             .iter()
@@ -953,15 +940,14 @@ pub(crate) async fn duplicate_tab(core: &Arc<Core>, params: TabParams) -> CoreRe
 /// Lays out at the end of `project`'s strip the tabs another host's project at `from` had,
 /// carried to this one: its agents swapped for the ones made here from theirs, paths moved
 /// under this project's folder, terminals opened afresh, and what holds nothing here left out.
-/// The tabs the new agents got of their own give way to these. Answers how many it laid out,
-/// and how many still held something here to lay out.
+/// The tabs the new agents got of their own give way to these. Answers how many it laid out.
 pub(crate) async fn lay_out_carried(
     core: &Arc<Core>,
     project: &str,
     from: &str,
     tabs: Vec<Tab>,
     agents: &HashMap<String, String>,
-) -> CoreResult<(usize, usize)> {
+) -> CoreResult<usize> {
     let to = core
         .workspaces()
         .project_info(project)
@@ -999,7 +985,7 @@ pub(crate) async fn lay_out_carried(
         shells.push(super::spare::project_shell(core, project).await?);
     }
     let mut shells = shells.into_iter();
-    let wanted = carried.len();
+    let laid = carried.len();
     let carried: Vec<Tab> = carried
         .into_iter()
         .map(|tab| Tab {
@@ -1014,10 +1000,8 @@ pub(crate) async fn lay_out_carried(
         strip.tabs.retain(|tab| {
             !matches!(&tab.pane, Pane::View { kind: PaneKind::Agent, target, .. } if made.contains(target.as_str()))
         });
-        let room = MAX_TABS.saturating_sub(strip.tabs.len());
-        let laid = wanted.min(room);
-        strip.tabs.extend(carried.into_iter().take(room));
-        Ok((laid, wanted))
+        strip.tabs.extend(carried);
+        Ok(laid)
     })
 }
 
@@ -1369,9 +1353,6 @@ pub(crate) fn close_pane(core: &Arc<Core>, params: PaneParams) -> CoreResult<()>
 pub(crate) fn separate_pane(core: &Core, params: PaneParams) -> CoreResult<String> {
     edit(core, |layout| {
         let strip = strip_at(layout, &params.at)?;
-        if strip.tabs.len() >= MAX_TABS {
-            return Err("that strip already has as many tabs as the core keeps".into());
-        }
         let at = strip
             .tabs
             .iter()

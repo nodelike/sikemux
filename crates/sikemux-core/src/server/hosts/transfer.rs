@@ -565,8 +565,8 @@ pub(super) async fn take_here(core: &Arc<Core>, params: Take, body: Option<Recei
         }
     }
     core.changed(What::View);
-    let (laid, wanted) = layout::lay_out_carried(core, &project.id, &take.from, take.tabs, &agents)
+    let laid = layout::lay_out_carried(core, &project.id, &take.from, take.tabs, &agents)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(json!({ "agents": agents, "tabs": laid, "wanted": wanted }))
+    Ok(json!({ "agents": agents, "tabs": laid }))
 }
