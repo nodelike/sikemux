@@ -110,7 +110,8 @@ function moveTo(rev) {
     );
   }
   run("git", ["checkout", "--quiet", "--force", "--detach", rev], checkout);
-  run("git", ["clean", "-fdq"], checkout);
+  if (git(checkout, "status", "--porcelain", "--untracked-files=all"))
+    run("git", ["clean", "-fdq"], checkout);
   if (
     platform === "iphone" &&
     !existsSync(join(checkout, "mobile/ios/Sikemux/Core/Showcase.swift"))
