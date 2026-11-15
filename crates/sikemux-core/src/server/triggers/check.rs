@@ -25,17 +25,29 @@ pub(super) struct Check {
     dir: String,
     /// The end of what it said the last time it ran.
     said: String,
+    /// Whether it has fired, after which its agent no longer waits on it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    fired: bool,
 }
 
 impl Check {
     /// Runs `command` in `dir` once, for what later runs are compared with.
     pub(super) async fn first(command: String, dir: String) -> Result<Self, String> {
         let said = run(&command, &dir).await?;
-        Ok(Self { command, dir, said })
+        Ok(Self {
+            command,
+            dir,
+            said,
+            fired: false,
+        })
     }
 
     pub(super) fn said(&self) -> &str {
         &self.said
+    }
+
+    pub(super) fn fired(&self) -> bool {
+        self.fired
     }
 }
 
@@ -70,8 +82,10 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
     }
     let trigger = core.triggers().change(|state| {
         let trigger = state.triggers.iter_mut().find(|trigger| trigger.id == id)?;
+        let check = trigger.check.as_mut()?;
+        check.fired = true;
         if let Ok(said) = &ran {
-            trigger.check.as_mut()?.said = said.clone();
+            check.said = said.clone();
         }
         Some(trigger.clone())
     });

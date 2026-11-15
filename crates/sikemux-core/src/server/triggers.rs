@@ -257,8 +257,9 @@ impl Triggers {
 
     /// What the agent's chat waits on of the wakes it set itself to carry its work on: CI first,
     /// else its soonest one-time timer, which it has waited on since `rested_at`, else a
-    /// repeating trigger with a check. A repeating trigger without one is automation and a
-    /// paused one waits on nothing, so neither is a wait.
+    /// repeating trigger with a check that has not fired yet. A repeating trigger without one,
+    /// or whose check has fired, is automation and a paused one waits on nothing, so neither is
+    /// a wait.
     pub(crate) fn wait_of(
         &self,
         agent_id: &str,
@@ -303,7 +304,7 @@ impl Triggers {
             .min_by_key(|(_, at)| *at);
         let Some((trigger, at)) = soonest else {
             let trigger = mine()
-                .filter(|trigger| trigger.check.is_some())
+                .filter(|trigger| trigger.check.as_ref().is_some_and(|check| !check.fired()))
                 .min_by_key(|trigger| trigger.set.as_ref().map(|set| set.at))?;
             return Some(TurnWait {
                 kind: TurnWaitKind::Watch,
