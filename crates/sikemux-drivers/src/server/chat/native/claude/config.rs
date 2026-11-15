@@ -245,21 +245,39 @@ fn model_option(models: &[Value], current: &str) -> Value {
                 let named = models.iter().find(|other| twin(other)).unwrap_or(model);
                 let name = text(named, "displayName").unwrap_or(value);
                 let choice = pickers::choice(value, name, text(named, "description"));
-                return Some(pickers::as_default(choice));
+                return Some(pickers::as_default(with_efforts(models, value, choice)));
             }
             if is_twin && !twin_picked {
                 return None;
             }
             let name = text(model, "displayName").unwrap_or(value);
             let choice = pickers::choice(value, name, text(model, "description"));
+            let choice = with_efforts(models, value, choice);
             Some(match is_twin {
                 true => pickers::as_default(choice),
                 false => choice,
             })
         })
         .collect();
-    pickers::model_select(Some("AI model to use"), current, choices)
+    let select = pickers::model_select(Some("AI model to use"), current, choices);
+    pickers::with_effort_row(select, "effort", "Effort", EFFORT_ABOUT)
 }
+
+/// `choice` with the efforts `model` takes, as `effort_option` would offer them.
+fn with_efforts(models: &[Value], model: &str, choice: Value) -> Value {
+    let levels = effort_levels(models, model);
+    if levels.is_empty() {
+        return pickers::with_efforts(choice, &[], None);
+    }
+    let own = own_effort(models, model).filter(|own| levels.iter().any(|level| level == own));
+    let mut offered: Vec<&str> = levels.iter().map(String::as_str).collect();
+    if own.is_none() {
+        offered.insert(0, DEFAULT);
+    }
+    pickers::with_efforts(choice, &offered, Some(own.unwrap_or(DEFAULT)))
+}
+
+const EFFORT_ABOUT: &str = "Available effort levels for this model";
 
 /// The effort `model` runs at when none is set, when it is one this knows.
 fn own_effort(models: &[Value], model: &str) -> Option<&'static str> {
@@ -302,13 +320,7 @@ fn effort_option(levels: &[String], current: &str, own: Option<&str>) -> Value {
     } else {
         own.unwrap_or(DEFAULT)
     };
-    pickers::effort_select(
-        "effort",
-        "Effort",
-        "Available effort levels for this model",
-        current,
-        choices,
-    )
+    pickers::effort_select("effort", "Effort", EFFORT_ABOUT, current, choices)
 }
 
 /// The chat's options for `model` at `effort`, in fast mode or not. A model that takes no

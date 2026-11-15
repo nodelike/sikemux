@@ -60,6 +60,155 @@ pub fn effort_select(
     })
 }
 
+/// `choice` with the efforts its model takes, `default` the one it runs at when none is
+/// picked, so the effort row can be built for it before a session is on it.
+pub fn with_efforts(mut choice: Value, efforts: &[&str], default: Option<&str>) -> Value {
+    choice["efforts"] = json!(efforts);
+    if let Some(default) = default {
+        choice["defaultEffort"] = json!(default);
+    }
+    choice
+}
+
+/// Names the effort row a model select's choices build, by the `id` the agent changes it by.
+pub fn with_effort_row(mut select: Value, id: &str, name: &str, about: &str) -> Value {
+    select["effortRow"] = json!({ "id": id, "name": name, "description": about });
+    select
+}
+
+/// Builds the effort row again for the model `options` are on, from the efforts that model's
+/// choice names, keeping the effort picked when the model takes it. A model with no efforts
+/// gets no row; one whose choice names none leaves the row as it is.
+pub fn fit_effort(options: &mut Value) {
+    let Some(rows) = options.as_array_mut() else {
+        return;
+    };
+    let Some(model) = rows.iter().find(|row| row["id"] == "model") else {
+        return;
+    };
+    let Some(choice) = model["currentValue"]
+        .as_str()
+        .and_then(|current| find_choice(&model["options"], current))
+    else {
+        return;
+    };
+    let Some(levels) = choice["efforts"].as_array() else {
+        return;
+    };
+    let levels: Vec<String> = levels
+        .iter()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect();
+    let default = choice["defaultEffort"].as_str().map(str::to_owned);
+    let template = model["effortRow"].clone();
+    let at = rows.iter().position(sikemux_fold::pickers::is_effort);
+    let old = at.map(|at| rows.remove(at));
+    if levels.is_empty() {
+        return;
+    }
+    let meta = old.as_ref().unwrap_or(&template);
+    let text = |key: &str, fallback: &str| meta[key].as_str().unwrap_or(fallback).to_owned();
+    let named = |level: &str| {
+        old.as_ref()
+            .and_then(|row| find_choice(&row["options"], level))
+            .and_then(|choice| choice["name"].as_str())
+            .map_or_else(|| level_name(level), str::to_owned)
+    };
+    let choices = levels
+        .iter()
+        .map(|level| {
+            let choice = self::choice(level, &named(level), None);
+            match default.as_ref() == Some(level) {
+                true => as_default(choice),
+                false => choice,
+            }
+        })
+        .collect();
+    let picked = old.as_ref().and_then(|row| row["currentValue"].as_str());
+    let current = [picked, default.as_deref()]
+        .into_iter()
+        .flatten()
+        .find(|level| levels.iter().any(|offered| offered == level))
+        .unwrap_or(&levels[0]);
+    let row = effort_select(
+        &text("id", "effort"),
+        &text("name", "Effort"),
+        &text("description", "Available effort levels for this model"),
+        current,
+        choices,
+    );
+    let model_at = rows
+        .iter()
+        .position(|row| row["id"] == "model")
+        .unwrap_or(0);
+    rows.insert(at.unwrap_or(model_at + 1), row);
+}
+
+/// Marks `value` current on the row `matches` finds, when that row offers it.
+pub fn pick(options: &mut Value, matches: impl Fn(&Value) -> bool, value: &str) {
+    let row = options
+        .as_array_mut()
+        .and_then(|rows| rows.iter_mut().find(|row| matches(row)));
+    if let Some(row) = row.filter(|row| choices_offer(&row["options"], value)) {
+        row["currentValue"] = json!(value);
+    }
+}
+
+/// Copies onto the model choices of `options` the efforts `before` named for the same models
+/// where `options` name none, as an agent's session names only its current model's.
+pub fn carry_efforts(options: &mut Value, before: &Value) {
+    let Some(old) = before
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["id"] == "model"))
+    else {
+        return;
+    };
+    let Some(model) = options
+        .as_array_mut()
+        .and_then(|rows| rows.iter_mut().find(|row| row["id"] == "model"))
+    else {
+        return;
+    };
+    if model.get("effortRow").is_none() && old.get("effortRow").is_some() {
+        model["effortRow"] = old["effortRow"].clone();
+    }
+    carry_choice_efforts(&mut model["options"], &old["options"]);
+}
+
+fn carry_choice_efforts(choices: &mut Value, before: &Value) {
+    for choice in choices.as_array_mut().into_iter().flatten() {
+        if choice["options"].is_array() {
+            carry_choice_efforts(&mut choice["options"], before);
+            continue;
+        }
+        if choice.get("efforts").is_some() {
+            continue;
+        }
+        let Some(old) = choice["value"]
+            .as_str()
+            .and_then(|value| find_choice(before, value))
+        else {
+            continue;
+        };
+        for key in ["efforts", "defaultEffort"] {
+            if let Some(kept) = old.get(key) {
+                choice[key] = kept.clone();
+            }
+        }
+    }
+}
+
+/// The choice of `value` among choices that can arrive flat or in named groups.
+fn find_choice<'a>(choices: &'a Value, value: &str) -> Option<&'a Value> {
+    choices.as_array()?.iter().find_map(|choice| {
+        if choice["value"] == value {
+            return Some(choice);
+        }
+        find_choice(&choice["options"], value)
+    })
+}
+
 /// The choice of the speed select that runs the model at its usual speed.
 pub const STANDARD: &str = "standard";
 

@@ -469,6 +469,9 @@ impl Workspaces {
         let mut options = options.clone();
         let kind = LauncherId::parse(launcher).kind;
         let published = self.published.locked();
+        if let Some(before) = published.saved.launcher_options.get(launcher) {
+            pickers::carry_efforts(&mut options, before);
+        }
         if let Some(pick) = published.saved.model_picks.get(kind) {
             pick.mark(&mut options);
         }

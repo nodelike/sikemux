@@ -64,6 +64,10 @@ pub(super) fn read_listing<Listed: serde::de::DeserializeOwned>(
         .collect()
 }
 
+const EFFORT_ID: &str = "reasoning_effort";
+const EFFORT_NAME: &str = "Reasoning effort";
+const EFFORT_ABOUT: &str = "How much reasoning effort the model should use";
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Models {
@@ -143,12 +147,24 @@ impl Models {
         let models = self
             .listed
             .iter()
-            .map(|entry| pickers::choice(&entry.id, &entry.name, entry.description.as_deref()))
+            .map(|entry| {
+                let efforts: Vec<&str> = entry.efforts.iter().map(|e| e.value.as_str()).collect();
+                pickers::with_efforts(
+                    pickers::choice(&entry.id, &entry.name, entry.description.as_deref()),
+                    &efforts,
+                    entry.default_effort.as_deref(),
+                )
+            })
             .collect();
-        let mut options = vec![pickers::model_select(
-            Some(&format!("Model {agent} uses for the session")),
-            model,
-            models,
+        let mut options = vec![pickers::with_effort_row(
+            pickers::model_select(
+                Some(&format!("Model {agent} uses for the session")),
+                model,
+                models,
+            ),
+            EFFORT_ID,
+            EFFORT_NAME,
+            EFFORT_ABOUT,
         )];
         if let Some(effort) = effort.filter(|_| self.reasons(model)) {
             let efforts = self
@@ -163,9 +179,9 @@ impl Models {
                 })
                 .collect();
             options.push(pickers::effort_select(
-                "reasoning_effort",
-                "Reasoning effort",
-                "How much reasoning effort the model should use",
+                EFFORT_ID,
+                EFFORT_NAME,
+                EFFORT_ABOUT,
                 effort,
                 efforts,
             ));

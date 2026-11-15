@@ -9,9 +9,9 @@ use sikemux_view::workspace::ConfigPicker;
 use super::*;
 
 /// The options a chat that waits for the person offers: those its launcher's last session
-/// offered, on the model and effort it will start with, but not its speed, which only a
-/// running session takes. The model it starts with is
-/// always among them, as one a provider serves is not among its agent's own.
+/// offered, on the model it will start with and that model's efforts, but not its speed,
+/// which only a running session takes. The model it starts with is always among them, as one
+/// a provider serves is not among its agent's own.
 pub fn waiting_options(core: &Core, chat: &Chat) -> Option<Value> {
     let launch = chat.current_launch();
     let mut options = core
@@ -28,17 +28,12 @@ pub fn waiting_options(core: &Core, chat: &Chat) -> Option<Value> {
     if options.as_array().is_none_or(Vec::is_empty) {
         return None;
     }
-    for row in options.as_array_mut().into_iter().flatten() {
-        let chosen = if row["id"] == "model" {
-            launch.model.clone()
-        } else if sikemux_fold::pickers::is_effort(row) {
-            launch.effort.clone()
-        } else {
-            None
-        };
-        if let Some(chosen) = chosen {
-            row["currentValue"] = Value::String(chosen);
-        }
+    if let Some(model) = &launch.model {
+        pickers::pick(&mut options, |row| row["id"] == "model", model);
+    }
+    pickers::fit_effort(&mut options);
+    if let Some(effort) = &launch.effort {
+        pickers::pick(&mut options, sikemux_fold::pickers::is_effort, effort);
     }
     Some(options)
 }
@@ -264,7 +259,8 @@ pub fn choose_while_asleep(
 }
 
 /// Keeps the model and effort a chat now runs on with its agent, so its next
-/// session starts on them, and with its kind of agent, so its new chats do too. An effort its CLI does not take is left out.
+/// session starts on them, and with its kind of agent, so its new chats do too. An effort its
+/// effort row does not offer is left out.
 pub fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
     let Some(agent) = core.workspaces().agent(agent_id) else {
         return;
@@ -273,13 +269,9 @@ pub fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
     let model = model
         .map(|model| model.current)
         .filter(|model| !model.is_empty());
-    let takes = |effort: &str| {
-        crate::agent_catalog::agent(&agent.provider)
-            .is_some_and(|entry| entry.efforts.contains(&effort))
-    };
     let effort = effort
-        .map(|effort| effort.current)
-        .filter(|effort| takes(effort));
+        .filter(|effort| (effort.choices.iter()).any(|choice| choice.value == effort.current))
+        .map(|effort| effort.current);
     if model.is_none() && effort.is_none() {
         return;
     }

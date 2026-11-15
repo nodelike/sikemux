@@ -180,22 +180,12 @@ impl ModelPick {
     /// Marks the picked model and effort as current in a session's `configOptions`, where
     /// they are among its choices.
     fn mark(&self, options: &mut Value) {
-        for row in options.as_array_mut().into_iter().flatten() {
-            let picked = if row["id"] == "model" {
-                &self.model
-            } else if sikemux_fold::pickers::is_effort(row) {
-                &self.effort
-            } else {
-                continue;
-            };
-            let Some(picked) = picked else { continue };
-            let (model, effort) = pickers::pickers(&Value::Array(vec![row.clone()]));
-            let offered = model
-                .or(effort)
-                .is_some_and(|picker| picker.choices.iter().any(|choice| &choice.value == picked));
-            if offered {
-                row["currentValue"] = Value::String(picked.clone());
-            }
+        if let Some(model) = &self.model {
+            pickers::pick(options, |row| row["id"] == "model", model);
+        }
+        pickers::fit_effort(options);
+        if let Some(effort) = &self.effort {
+            pickers::pick(options, sikemux_fold::pickers::is_effort, effort);
         }
     }
 }
