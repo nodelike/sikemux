@@ -53,8 +53,9 @@ fn keyboard_back() {
 #[cfg(not(target_os = "linux"))]
 fn keyboard_back() {}
 
-/// The decoded pictures a long chat full of screenshots keeps loaded: about a dozen at full size.
-const PICTURE_BUDGET: usize = 256 * 1024 * 1024;
+/// The decoded pictures, with their textures, kept loaded once off screen: about twenty
+/// transcript thumbnails, a few screens of a chat full of screenshots.
+const PICTURE_BUDGET: usize = 64 * 1024 * 1024;
 
 /// The longest a space's name may be, as on the Mac.
 pub(crate) const MAX_SPACE_NAME: usize = 40;
