@@ -713,7 +713,8 @@ impl Workbench {
     }
 
     /// Closes the pages and lets go of the device of each agent that left the view, and lets go
-    /// of the device of each agent that went to sleep, so another agent can take it up.
+    /// of the device of each agent that went to sleep or ended its turn, so another agent can
+    /// take it up.
     pub(crate) fn forget_departed(&mut self, cx: &mut Context<Self>) {
         let Some(view) = self.this_view() else {
             return;
@@ -729,7 +730,7 @@ impl Workbench {
             .filter(|row| matches!(row.status, AgentStatus::Working | AgentStatus::Blocked))
             .map(|row| row.agent_id.clone())
             .collect();
-        let departed = self.desks.update(cx, |desks, cx| {
+        let (departed, ended) = self.desks.update(cx, |desks, cx| {
             let departed: Vec<String> = desks.present.difference(&present).cloned().collect();
             let ended: Vec<String> = (desks.working.difference(&working))
                 .filter(|agent| present.contains(*agent))
@@ -752,10 +753,13 @@ impl Workbench {
             if !departed.is_empty() {
                 cx.notify();
             }
-            departed
+            (departed, ended)
         });
         for agent in departed.iter().chain(&asleep) {
             self.sims.update(cx, |sims, _| sims.let_go_device(agent));
+        }
+        for agent in &ended {
+            self.sims.update(cx, |sims, _| sims.turn_ended(agent));
         }
     }
 

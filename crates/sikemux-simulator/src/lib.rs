@@ -490,6 +490,14 @@ impl SimulatorManager {
         Some(attachment.device)
     }
 
+    /// The agent's turn ended, so the device it attached is free for another agent. It keeps
+    /// running for a while, and the agent's next `sim attach` takes it again if it is still free.
+    pub fn end_turn(&self, agent_id: &str) {
+        self.cancel(agent_id);
+        self.leave_line(agent_id);
+        self.release(agent_id);
+    }
+
     /// The agent is gone: it stopped, crashed or was closed.
     pub fn forget_agent(&self, agent_id: &str) {
         self.cancel(agent_id);

@@ -543,7 +543,7 @@ fn holder_text(claim: &Claim) -> String {
 
 pub(super) fn in_use(device: &Device, claim: &Claim) -> String {
     format!(
-        "{} is in use by {}; pick another from sim devices or ask the person",
+        "{} is in use by {} until its turn ends; leave out device for a free one, or pick another from sim devices",
         device.name,
         holder_text(claim)
     )

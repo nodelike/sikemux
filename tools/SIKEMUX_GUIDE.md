@@ -424,8 +424,13 @@ Leave out `device` unless you need a model or iOS version; a device never
 booted needs `fresh: true`. A cold boot can outlast the call; when `sim attach`
 says it is still booting, or that it is waiting in line for room, call it again
 within a minute to keep your place. Never boot one with `simctl` or Xcode to
-skip the line. A device idle for ten minutes goes to a waiting agent; `sim
-detach` one you are done with.
+skip the line. You hold a device until your turn ends: then it goes to the
+next agent, and your next `sim attach` takes it again, or another free one, or
+waits its turn. Nothing on it is lost (the app installed and its data), but it
+shuts down three minutes after nobody holds it, and element numbers and log
+cursors start over. Inside a turn, a device idle for ten minutes goes to an
+agent waiting for room; `sim detach` one you are done with. A device the person
+picked on your desk stays there when your turn ends.
 
 `sim state` reads the screen: the frontmost `app` (`Home Screen`, or `System`
 for alerts, Control Center or the lock screen) and numbered `elements` with

@@ -375,6 +375,14 @@ impl Simulators {
         cx.notify();
     }
 
+    /// The agent's turn ended: the device it attached goes back for the next agent, and its
+    /// next `sim attach` takes it again or waits its turn. One the person picked stays.
+    pub(crate) fn turn_ended(&mut self, agent: &str) {
+        if self.attached_by(agent) {
+            self.engine.end_turn(agent);
+        }
+    }
+
     /// Lets go of the agent's device: the one it attached, or the one the person picked for it.
     pub(crate) fn let_go_device(&mut self, agent: &str) {
         self.engine.forget_agent(agent);
