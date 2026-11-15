@@ -364,12 +364,14 @@ fn kept(core: &Core, agent_id: &str) -> bool {
 }
 
 /// A chat waking from sleep reads as idle while it starts, since it keeps the feed it slept with,
-/// so only a ready one counts.
+/// so only a ready one counts. One with a background task still running is not idle, as sleep
+/// would end the task with the agent.
 fn idle(core: &Core, agent_id: &str) -> bool {
     core.chats().get(agent_id).is_some_and(|chat| {
         chat.is_ready()
             && !chat.offline_failed.load(Ordering::Acquire)
             && chat.state_now() == AgentState::Idle
+            && chat.feed.running_tasks() == 0
     })
 }
 
