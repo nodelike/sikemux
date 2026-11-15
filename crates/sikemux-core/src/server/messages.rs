@@ -2084,7 +2084,7 @@ pub(crate) fn from_person(core: &Arc<Core>, agent_id: &str, text: String) -> Cor
     let text = session::typable(&text).ok_or("there is nothing to send")?;
     worked(core, agent_id);
     person_wrote(core, agent_id);
-    super::now::asks::asked(core, agent_id, &text);
+    super::now::asks::asked(core, agent_id, &text, &[]);
     let mailbox = &core.harness().mailbox;
     mailbox.wait(
         agent_id,

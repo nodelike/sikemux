@@ -1102,7 +1102,7 @@ impl Chat {
     ) {
         self.feed.prompted(message_id, text, paths, context, whose);
         if let (true, Some(core)) = (whose.person, self.core.upgrade()) {
-            (core.chat_above().now_person_asked)(&core, self.agent_id(), text);
+            (core.chat_above().now_person_asked)(&core, self.agent_id(), text, paths);
         }
     }
 

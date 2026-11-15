@@ -7,6 +7,7 @@
 use super::*;
 use crate::server::chief;
 use crate::text::clipped_line;
+use sikemux_markdown::paths::is_image_path;
 
 /// Kept per core; the oldest go first.
 const MOST: usize = 300;
@@ -23,6 +24,8 @@ pub(super) struct Ask {
     /// The workspace project, by id.
     project: String,
     title: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    images: Vec<String>,
     at: u64,
     /// The agent the person sent it to.
     to: String,
@@ -101,10 +104,14 @@ fn change(core: &Core, change: impl FnOnce(&mut Vec<Ask>, &mut u64) -> bool) {
     }
 }
 
-/// The person sent `text` to `agent`.
-pub(crate) fn asked(core: &Core, agent: &str, text: &str) {
+/// The person sent `text` to `agent`, with the files at `paths`.
+pub(crate) fn asked(core: &Core, agent: &str, text: &str, paths: &[String]) {
     let title = clipped_line(text, TITLE_CHARS);
-    let Some(project) = (!title.is_empty())
+    let images: Vec<String> = (paths.iter())
+        .filter(|path| is_image_path(path))
+        .cloned()
+        .collect();
+    let Some(project) = (!title.is_empty() || !images.is_empty())
         .then(|| core.workspaces().agent(agent))
         .flatten()
         .map(|agent| agent.project)
@@ -115,7 +122,10 @@ pub(crate) fn asked(core: &Core, agent: &str, text: &str) {
     let before = stood(core, agent);
     change(core, |asks, next| {
         let again = asks.iter().any(|ask| {
-            ask.to == agent && ask.title == title && at.saturating_sub(ask.at) < SAME_ASK_MS
+            ask.to == agent
+                && ask.title == title
+                && ask.images == images
+                && at.saturating_sub(ask.at) < SAME_ASK_MS
         });
         if again {
             return false;
@@ -125,6 +135,7 @@ pub(crate) fn asked(core: &Core, agent: &str, text: &str) {
             id: *next,
             project,
             title,
+            images,
             at,
             to: agent.to_owned(),
             to_before: before,
@@ -341,6 +352,7 @@ pub(super) fn of_project(asks: &[Ask], project: &str, at: u64) -> Vec<NowAsk> {
                 title: ask.title.clone(),
                 stand,
                 since,
+                images: ask.images.clone(),
             }
         })
         .collect();

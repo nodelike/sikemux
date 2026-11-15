@@ -39,6 +39,9 @@ pub struct NowAsk {
     pub stand: AskStand,
     /// When it came to stand so, in Unix milliseconds.
     pub since: u64,
+    /// The images the person sent with it, by path on the core's computer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 /// How far an ask has gone, in the order the card lists them.
