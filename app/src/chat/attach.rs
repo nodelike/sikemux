@@ -770,7 +770,7 @@ const CHIP_FRAME: f32 = 4. + CHIP_MARK + 5. + 6.;
 const CHIP_TITLE_GAP: f32 = 5.;
 
 /// A chip as the draft and a sent message both draw it: its mark, its handle, and the title
-/// after it a step quieter, on a slightly rounded grey lift.
+/// after it a step quieter, on a slightly rounded opaque lift, so a backdrop never shows through.
 fn chip_face(
     key: SharedString,
     title: Option<SharedString>,
@@ -787,12 +787,15 @@ fn chip_face(
         .gap(px(5.))
         .rounded(theme::RADIUS_2)
         .bg(if selected {
-            Hsla {
-                a: 0.2,
-                ..t.text_primary
-            }
+            theme::over(
+                Hsla {
+                    a: 0.2,
+                    ..t.text_primary
+                },
+                t.surface_raised,
+            )
         } else {
-            t.surface_chosen
+            t.surface_raised
         })
         .text_color(t.text_primary)
         .whitespace_nowrap()
@@ -862,7 +865,8 @@ fn opens_agent(
     cx: &App,
 ) -> gpui_kit::Stateful<Div> {
     let (agent, bench) = (agent.to_owned(), bench.clone());
-    let hover = Tokens::get(cx).surface_active;
+    let t = Tokens::get(cx);
+    let hover = theme::over(t.surface_active, t.surface_raised);
     face.id(SharedString::from(format!("mention:{agent}")))
         .hover(move |chip| chip.bg(hover))
         .clicks(move |_, _, cx| {

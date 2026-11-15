@@ -105,9 +105,6 @@ pub struct Chip {
     pub draw: DrawChip,
 }
 
-/// The space kept on each side of a chip in the text.
-const CHIP_SPACE: Pixels = px(2.);
-
 /// A file's icon beside its name, in ems of the text it sits in, and the space after it.
 const FILE_ICON_EMS: f32 = 0.95;
 const FILE_ICON_SPACE_EMS: f32 = 0.3;
@@ -1154,11 +1151,7 @@ impl Draw<'_> {
                 .iter()
                 .map(|(at, _)| (*at, icon_size + style.text_size * FILE_ICON_SPACE_EMS)),
         );
-        gaps.extend(
-            chips
-                .iter()
-                .map(|(range, chip)| (range.start, chip.width + CHIP_SPACE * 2.)),
-        );
+        gaps.extend(chips.iter().map(|(range, chip)| (range.start, chip.width)));
         gaps.sort_by_key(|(at, _)| *at);
         gaps.dedup_by_key(|(at, _)| *at);
         #[cfg(feature = "counts")]
@@ -1267,7 +1260,7 @@ impl Draw<'_> {
                                     let at = layout.gap_origin(range.start)?;
                                     let mut drawn = (chip.draw)(window, cx);
                                     drawn.prepaint_as_root(
-                                        point(at.x + CHIP_SPACE, at.y),
+                                        point(at.x, at.y),
                                         size(
                                             AvailableSpace::Definite(chip.width),
                                             AvailableSpace::Definite(line),
@@ -1943,10 +1936,18 @@ fn chips_in(
     for chip in longest {
         for (at, _) in rich.text.match_indices(chip.written.as_ref()) {
             let range = at..at + chip.written.len();
-            let before = rich.text[..at].chars().next_back();
-            let after = rich.text[range.end..].chars().next();
-            let apart = before.is_none_or(|letter| !letter.is_alphanumeric() && letter != '/')
-                && after.is_none_or(|letter| !letter.is_alphanumeric() && letter != '/');
+            let (before, after) = (&rich.text[..at], &rich.text[range.end..]);
+            let apart = before
+                .chars()
+                .next_back()
+                .is_none_or(|letter| match letter {
+                    '/' => mention_before_slash(before),
+                    letter => !letter.is_alphanumeric(),
+                })
+                && after.chars().next().is_none_or(|letter| match letter {
+                    '/' => after[1..].starts_with('@'),
+                    letter => !letter.is_alphanumeric(),
+                });
             let taken = code.iter().any(|code| overlap(code, &range))
                 || found.iter().any(|(held, _)| overlap(held, &range));
             if apart && !taken {
@@ -1956,6 +1957,14 @@ fn chips_in(
     }
     found.sort_by_key(|(range, _)| range.start);
     found
+}
+
+/// Whether the word `text` ends on, a slash, is a run of mentions such as `@Azuma/@Sweyn/`
+/// rather than a path such as `node_modules/`.
+fn mention_before_slash(text: &str) -> bool {
+    let word = text.rsplit(char::is_whitespace).next().unwrap_or(text);
+    word.trim_start_matches(|letter: char| !letter.is_alphanumeric() && letter != '@')
+        .starts_with('@')
 }
 
 fn overlap(a: &Range<usize>, b: &Range<usize>) -> bool {
