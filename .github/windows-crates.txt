@@ -36,3 +36,5 @@ gpui-terminal-grid
 gpui-clicks
 sikemux-hostkit
 sikemux-wire
+sikemux-process
+sikemux-pty
