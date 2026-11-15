@@ -216,7 +216,14 @@ pub fn pressed(
     };
     match press {
         FilePress::Open if kind == FileKind::File && on.here => {
-            open_on_desk(agent, &found, bench, cx)
+            let path = std::path::PathBuf::from(&found.path);
+            if super::link::is_page(&path) {
+                bench
+                    .update(cx, |bench, cx| bench.open_html_in_tab(agent, path, cx))
+                    .ok();
+            } else {
+                open_on_desk(agent, &found, bench, cx)
+            }
         }
         FilePress::Open | FilePress::OpenTwice => open(&found, kind, &on, bench, cx),
         FilePress::Menu(at) => {

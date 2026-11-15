@@ -222,6 +222,9 @@ when shown; remote `https` scripts load as they are. Pass absolute paths.
 3. `page_show` with `height` set to the last `contentHeight`. Your following
    text should add only what the page does not say.
 
+Never hand the person a page as a path, yours or one a teammate's report
+names: `page_show` it, with `tab: true` for a long report.
+
 A mockup of a whole screen, app or site takes `tab: true`. Charts, tables,
 diagrams and comparisons stay in the reply. A reply draws only the top 4,000 px
 (`tooTall`): split the page or use a tab.

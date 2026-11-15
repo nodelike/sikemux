@@ -1456,24 +1456,47 @@ impl Workbench {
     /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
     /// or opens one, as the person's.
     pub(crate) fn open_page_in_tab(&mut self, agent: &str, id: &str, cx: &mut Context<Self>) {
-        let Some(engine) = self.desks.read(cx).engine.clone() else {
-            return;
-        };
         let page = self
             .chat_target(agent)
             .request_typed::<sikemux_calls::call::ReadPage>(sikemux_calls::harness::PageParams {
                 id: id.to_owned(),
             });
-        let files = self.desks.read(cx).page_files.clone();
+        let (files, id) = (self.desks.read(cx).page_files.clone(), id.to_owned());
+        self.bring_page_forward(
+            agent,
+            cx,
+            |_| async move { files.url(&id, &page.await?.html) },
+        );
+    }
+
+    /// Brings forward the tab on `agent`'s desk that shows the HTML file at `path` as a page,
+    /// or opens one, as the person's.
+    pub(crate) fn open_html_in_tab(&mut self, agent: &str, path: PathBuf, cx: &mut Context<Self>) {
+        self.bring_page_forward(agent, cx, move |engine| {
+            let url = engine.local_file_url(&path);
+            async move { url }
+        });
+    }
+
+    fn bring_page_forward<Url>(
+        &mut self,
+        agent: &str,
+        cx: &mut Context<Self>,
+        url: impl FnOnce(&BrowserManager) -> Url,
+    ) where
+        Url: std::future::Future<Output = Result<String, String>> + Send + 'static,
+    {
+        let Some(engine) = self.desks.read(cx).engine.clone() else {
+            return;
+        };
         self.open_agent(agent, cx);
         if !self.desk_open_anywhere(agent) {
             self.reveal_desk(agent);
         }
-        let (agent, id) = (agent.to_owned(), id.to_owned());
+        let (agent, url) = (agent.to_owned(), url(&engine));
         runtime().spawn(async move {
             let shown = async {
-                let html = page.await?.html;
-                let url = files.url(&id, &html)?;
+                let url = url.await?;
                 let open = (engine.snapshot(&agent).ok())
                     .and_then(|strip| strip.tabs.into_iter().find(|tab| tab.url == url));
                 match open {

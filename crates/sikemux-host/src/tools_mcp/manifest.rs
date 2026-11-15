@@ -219,7 +219,7 @@ impl Manifest {
              - process_start for dev servers, builds and anything the person may watch, not your shell. To wait over a minute (build, CI, agent) set trigger_add process, ci or agent, then end your turn; never sleep or poll.\n\
              - Pages: browser_navigate on your desk (WebKit), never headless Chromium or curl. Load browser_navigate, _act, _state, _find, _click, _type, _wait and _screenshot together.\n\
              - Desk tabs are signed in as the person: read them before asking. Leave a tab they type or pay in; use newTab: true.\n\
-             - Visuals: an HTML page, page_preview, then page_show (pages topic of {guide}).\n\
+             - Visuals: an HTML page, page_preview, then page_show (pages topic of {guide}), never its path.\n\
              - Plugin tools (jira, slack, signoz, aws, rundeck…) use the person's sign-in: use them for those services, never another MCP, CLI or API.\n\
              - Skills: only through the skills tool.\n\
              - Other agents, named like Otter: agent_list, agent_sessions, agent_send, agent_spawn and agent_read, never your CLI's SendMessage; load them together. Uncommitted lines you didn't write belong to another agent: ask its owner with agent_send instead of editing.\n\

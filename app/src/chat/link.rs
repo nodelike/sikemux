@@ -1,9 +1,10 @@
-//! A link in a message: a file the agent named shows in Finder, or in the editor when the
-//! agent runs on another host; a web page opens on the agent's desk, a pull request there as
-//! the Git tab shows one, or with ⌘ held where the system opens it; Sikemux's own links are followed here. Any other link, or a web
+//! A link in a message: an HTML file the agent named opens as a page on its desk, another
+//! file shows in Finder, or in the editor when the agent runs on another host; a web page
+//! opens on the agent's desk, a pull request there as the Git tab shows one, or with ⌘ held
+//! where the system opens it; Sikemux's own links are followed here. Any other link, or a web
 //! address carrying a password, goes nowhere, so a link an agent wrote cannot start another app.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use gpui_kit::{App, WeakEntity, Window};
 use url::Url;
@@ -50,6 +51,12 @@ pub fn service_mark(href: &str) -> Option<Icon> {
     })
 }
 
+/// Whether the file is an HTML page, which opens in a desk tab rather than as source.
+pub fn is_page(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("html") || ext.eq_ignore_ascii_case("htm"))
+}
+
 /// The file a link names, when it names one on this host.
 pub fn local_path(href: &str) -> Option<PathBuf> {
     if href.starts_with('/') {
@@ -73,6 +80,10 @@ pub fn open(href: &str, agent: &str, bench: &WeakEntity<Workbench>, window: &Win
         if elsewhere {
             bench
                 .update(cx, |bench, cx| bench.open_file(&path, cx))
+                .ok();
+        } else if is_page(&path) {
+            bench
+                .update(cx, |bench, cx| bench.open_html_in_tab(agent, path, cx))
                 .ok();
         } else {
             cx.reveal_path(&path);
