@@ -643,7 +643,11 @@ impl Workbench {
     /// Opens the chief of the project `project` in front, making its chat the first time and
     /// bringing a closed one back as itself.
     pub fn open_chief(&self, project: &str, cx: &mut Context<Self>) {
-        let target = self.target();
+        self.open_chief_on(self.target(), project, cx);
+    }
+
+    /// Opens the chief of `project`, a project of the core `target`, as [`Self::open_chief`].
+    pub fn open_chief_on(&self, target: Target, project: &str, cx: &mut Context<Self>) {
         let opening =
             target.request_typed::<call::OpenChief>(sikemux_calls::chief::OpenChiefParams {
                 project: project.to_owned(),

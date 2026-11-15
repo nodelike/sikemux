@@ -1,6 +1,7 @@
 use crate::agents::limits::limits;
 use crate::agents::terminal_pages::ssh_page;
 use crate::agents::terminal_pages::terminals_page;
+use crate::core::Target;
 use crate::hosts::Place;
 use crate::ui::Clicks;
 use crate::workbench::actions;
@@ -1240,20 +1241,24 @@ fn ranked_projects(bench: &Workbench) -> Vec<ProjectInfo> {
         ProjectStanding::AtRest | ProjectStanding::Unknown => 2,
     };
     let mut projects: Vec<ProjectInfo> = (bench.projects().iter())
-        .filter(|project| project.chief.is_some() || project.agents > 0)
+        .filter(|project| {
+            project.chief.is_some() || project.chief_home.is_some() || project.agents > 0
+        })
         .cloned()
         .collect();
     projects.sort_by_key(rank);
     projects
 }
 
-/// The project's chief, while its chat is open.
+/// The project's chief, here or on its home host, while its chat is open.
 fn chief_of<'a>(project: &ProjectInfo, agents: &'a [AgentRow]) -> Option<&'a AgentRow> {
-    (project.chief.as_deref()).and_then(|id| agents.iter().find(|agent| agent.id == id))
+    let home = project.chief_home.as_ref().map(|home| home.agent_id.as_str());
+    (project.chief.as_deref().or(home)).and_then(|id| agents.iter().find(|agent| agent.id == id))
 }
 
 /// A project's @Chief row: Sikemux's mark, @Chief, "Chief of staff", the project's name where
-/// projects mix, and how its turn stands. Opening it opens the chief's chat, made the first time.
+/// projects mix, the host it lives on when that is another, and how its turn stands. Opening it
+/// opens the chief's chat, made the first time on the host it lives on.
 fn chief_row(
     bench: &Workbench,
     project: &ProjectInfo,
@@ -1274,7 +1279,23 @@ fn chief_row(
             .child(ui::icon(Icon::Folder, 11.))
             .child(ui::text(project.name.clone(), TEXT_2XS, FontWeight::MEDIUM))
     });
+    let home = project.chief_home.as_ref().map(|home| {
+        let label = match home.away_since {
+            Some(since) => t!(
+                "{host} · out of reach since {at}",
+                host = home.host_name,
+                at = ui::time::clock(since)
+            )
+            .to_string(),
+            None => home.host_name.clone(),
+        };
+        tag(label.into(), cx)
+    });
     let (id, project_id) = (chief.map(|chief| chief.id.clone()), project.id.clone());
+    let home_project = project.chief_home.as_ref().and_then(|home| {
+        let copy = (project.copies.iter()).find(|copy| copy.host == home.host)?;
+        Some((home.host.clone(), copy.project.clone()))
+    });
     Row::new(
         SharedString::from(format!("chief-{}", project.id)),
         "@Chief".to_owned(),
@@ -1285,9 +1306,14 @@ fn chief_row(
     .status(chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())))
     .detail(t!("Chief of staff"))
     .children(place)
-    .on_click(cx.listener(move |bench, _, _, cx| match &id {
-        Some(id) => bench.open_agent(id, cx),
-        None => bench.open_chief(&project_id, cx),
+    .children(home)
+    .on_click(cx.listener(move |bench, _, _, cx| match (&id, &home_project) {
+        (Some(id), _) => bench.open_agent(id, cx),
+        (None, Some((host, project))) => {
+            let on = Target::new(&bench.asks, bench.place_of(host));
+            bench.open_chief_on(on, project, cx);
+        }
+        (None, None) => bench.open_chief(&project_id, cx),
     }))
     .into_any_element()
 }
