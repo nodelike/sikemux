@@ -382,11 +382,15 @@ async fn send_switch(core: &Core, agent_id: &str, account: ChatAccount) -> CoreR
     };
     if chat.unstarted() {
         // A chat waiting for the person starts on the account chosen, as on a model chosen.
-        chat.set_current(rebind::on_account(
-            chat.provider(),
-            &chat.current_launch(),
-            &account,
-        ));
+        let launch = chat.current_launch();
+        if launch
+            .account
+            .as_ref()
+            .is_none_or(|current| current.id != account.id)
+        {
+            super::offers::tell_update(&chat, rebind::switch_notice(&launch, &account, "chosen"));
+        }
+        chat.set_current(rebind::on_account(chat.provider(), &launch, &account));
         return Ok(());
     }
     let (moved, answered) = tokio::sync::oneshot::channel();
