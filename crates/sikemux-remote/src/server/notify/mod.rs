@@ -21,7 +21,7 @@ use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sikemux_process::clock::epoch_ms;
@@ -161,7 +161,6 @@ pub struct Notifier {
     goals_moved: Notify,
     state: Mutex<State>,
     presence: Mutex<Option<Arc<dyn Presence>>>,
-    pub host_name: OnceLock<String>,
 }
 
 #[derive(Default)]
@@ -226,10 +225,7 @@ impl Notifier {
     }
 
     pub fn host_name(&self) -> String {
-        self.host_name
-            .get()
-            .cloned()
-            .unwrap_or_else(|| "your computer".into())
+        super::host::known_name().unwrap_or_else(|| "your computer".into())
     }
 }
 
@@ -237,10 +233,7 @@ impl Notifier {
 pub async fn run(core: Arc<Core>) {
     let (signals, mut received) = mpsc::unbounded_channel();
     *core.notify().signals.locked() = Some(signals);
-    let named = tokio::task::spawn_blocking(|| super::host::info().name).await;
-    if let Ok(name) = named {
-        let _ = core.notify().host_name.set(name);
-    }
+    let _ = tokio::task::spawn_blocking(super::host::name).await;
     let mut ticker = tokio::time::interval(TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut inbox_due: Option<tokio::time::Instant> = None;

@@ -8,23 +8,47 @@ use sikemux_view::device::HostInfo;
 use sikemux_wire::accounts::protocol::{ChannelVersions, MinimumVersions};
 use sikemux_wire::protocol::BuildChannel;
 
-/// Read once: asking System Information for the model takes a moment.
 pub fn info() -> HostInfo {
-    static HOST: OnceLock<HostInfo> = OnceLock::new();
-    HOST.get_or_init(|| HostInfo {
-        name: name(),
-        model: os::model().unwrap_or_else(|| "Host".into()),
+    static MODEL: OnceLock<String> = OnceLock::new();
+    HostInfo {
+        name: known_name().unwrap_or_else(name),
+        model: MODEL
+            .get_or_init(|| os::model().unwrap_or_else(|| "Host".into()))
+            .clone(),
         version: VERSION.into(),
         channel: channel(cfg!(debug_assertions), VERSION),
         home: sikemux_process::paths::home().unwrap_or_default(),
         access: None,
-    })
-    .clone()
+    }
+}
+
+static NAME: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// What the computer was called when [`name`] last read it.
+pub fn known_name() -> Option<String> {
+    (NAME.lock())
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
 }
 
 /// What the computer is called now, read afresh since the person may rename it while the core runs.
 pub fn name() -> String {
-    os::name().unwrap_or_else(|| "Host".into())
+    let name = os::name().unwrap_or_else(|| "Host".into());
+    *NAME.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(name.clone());
+    name
+}
+
+/// The computer's new name when the person renamed it since [`name`] last read it.
+pub fn renamed() -> Option<String> {
+    let Some(before) = known_name() else {
+        name();
+        return None;
+    };
+    if !os::may_be_renamed() {
+        return None;
+    }
+    let now = name();
+    (now != before).then_some(now)
 }
 
 /// What the account calls this host, once the core has heard it.
@@ -39,7 +63,7 @@ pub fn note_account_name(name: Option<String>) {
 }
 
 /// What this host is called where the person sees it: its name on the account, which the
-/// person may have chosen, else what the computer was called when the core started.
+/// person may have chosen, else what the computer is called.
 pub fn shown_name(core: &super::Core) -> String {
     let named = (ACCOUNT_NAME.lock())
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -74,6 +98,9 @@ fn non_empty(text: &str) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 mod os {
+    use std::sync::Mutex;
+    use std::time::SystemTime;
+
     use sikemux_process::user_environment;
 
     use super::{non_empty, Platform};
@@ -93,6 +120,22 @@ mod os {
 
     pub fn name() -> Option<String> {
         non_empty(&output("/usr/sbin/scutil", &["--get", "ComputerName"])?)
+    }
+
+    /// Whether the system preferences, which hold the computer's name, were written since last
+    /// asked, so the name is read again only then.
+    pub fn may_be_renamed() -> bool {
+        static WRITTEN: Mutex<Option<SystemTime>> = Mutex::new(None);
+        let written =
+            std::fs::metadata("/Library/Preferences/SystemConfiguration/preferences.plist")
+                .and_then(|meta| meta.modified())
+                .ok();
+        let mut seen = WRITTEN
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed = written.is_none() || *seen != written;
+        *seen = written;
+        changed
     }
 
     pub fn model() -> Option<String> {
@@ -126,6 +169,10 @@ mod os {
 
     pub fn name() -> Option<String> {
         read("/proc/sys/kernel/hostname")
+    }
+
+    pub fn may_be_renamed() -> bool {
+        true
     }
 
     /// The board's product name when the firmware fills it in, the board model on
@@ -167,6 +214,10 @@ mod os {
 
     pub fn name() -> Option<String> {
         None
+    }
+
+    pub fn may_be_renamed() -> bool {
+        false
     }
 
     pub fn model() -> Option<String> {

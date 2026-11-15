@@ -80,7 +80,6 @@ fn host(when: NotifyWhen) -> Host {
         .unwrap();
     let here = Arc::new(Here(AtomicBool::new(true)));
     core.notify().set_presence(here.clone());
-    let _ = core.notify().host_name.set("MacBook Pro".into());
     super::super::chat::idle(&core, "chat-1", "claude", "/work/sikemux");
     Host {
         core,
@@ -170,7 +169,10 @@ async fn a_permission_request_reaches_the_phone_sealed_with_what_it_needs_to_ans
     );
     assert_eq!(notification.collapse_id, push.collapse_id);
     assert_eq!(notification.title, "Claude needs permission");
-    assert_eq!(notification.body, "sikemux on MacBook Pro");
+    assert_eq!(
+        notification.body,
+        format!("sikemux on {}", host.core.notify().host_name())
+    );
     assert_eq!(
         notification.detail.as_deref(),
         Some("pnpm test src/settings")

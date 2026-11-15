@@ -57,6 +57,8 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// How often the name and picture are looked at, and how soon a failed
 /// fetch of them is tried again.
 const PROFILE_RETRY: Duration = Duration::from_secs(15 * 60);
+/// How often the core looks whether the person renamed this computer.
+const RENAME_CHECK: Duration = Duration::from_secs(30);
 const FOLDER: &str = "account";
 
 #[cfg(not(any(test, feature = "testing")))]
@@ -224,6 +226,7 @@ pub async fn show(core: &Core) {
 /// the name and picture again whenever the cached ones are a few hours old.
 pub fn start(core: &Arc<Core>) {
     let core = Arc::downgrade(core);
+    follow_renames(core.clone());
     tokio::spawn(async move {
         loop {
             let Some(alive) = core.upgrade() else {
@@ -233,6 +236,25 @@ pub fn start(core: &Arc<Core>) {
             devices::keep_name_current(&alive).await;
             drop(alive);
             tokio::time::sleep(PROFILE_RETRY).await;
+        }
+    });
+}
+
+/// Passes the computer's new name on soon after the person renames it: to the account, which
+/// tells the other devices and hosts, and to the devices paired here.
+fn follow_renames(core: std::sync::Weak<Core>) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(RENAME_CHECK);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            let Some(alive) = core.upgrade() else {
+                return;
+            };
+            if let Ok(Some(_)) = tokio::task::spawn_blocking(super::host::renamed).await {
+                devices::keep_name_current(&alive).await;
+                remote::announce(&alive);
+            }
         }
     });
 }
