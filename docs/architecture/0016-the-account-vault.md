@@ -7,7 +7,8 @@
   2026-11-11, to say how sign-ins a host already has move in, and what the server sees, how a
   host gets the key and how a shared sign-in is refreshed, and what holds against a server
   that turns hostile; 2026-11-15, to say every host on the account uses every entry, with no
-  step to allow a host or narrow an entry to projects
+  step to allow a host or narrow an entry to projects; a host an older entry's list left out
+  does not take it in, and the first host on the list to reach it writes it again without the list
 
 ## Context
 

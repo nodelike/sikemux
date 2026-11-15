@@ -39,6 +39,11 @@ struct Body {
     shared: Option<SharedAccess>,
     /// When its token was last written, in milliseconds since the Unix epoch.
     written_at: u64,
+    /// The hosts an entry made before every host took in every entry was limited to. A host
+    /// left out does not take it in; the first host on the list to reach it writes it again
+    /// without the list.
+    #[serde(default, rename = "access", skip_serializing_if = "Option::is_none")]
+    limited_to: Option<BTreeMap<String, serde_json::Value>>,
 }
 
 #[derive(Clone)]

@@ -433,6 +433,7 @@ fn newest_change(dir: &Path) -> u64 {
 /// refreshes it; a change to the plugin's settings alone does not.
 fn owned_body(body: &Body, sign_in: SignIn, me: &str, written_at: u64) -> Body {
     let mut body = body.clone();
+    body.limited_to = None;
     let new_token = body.sign_in.secrets != sign_in.secrets;
     body.sign_in = sign_in;
     if new_token && body.refresher != me {
@@ -524,6 +525,7 @@ fn plan(
                             refresher: me.to_owned(),
                             shared: None,
                             written_at: if moving_in { made_at } else { now },
+                            limited_to: None,
                         },
                         revision: 0,
                         holds: Some(digest),
@@ -548,6 +550,26 @@ fn plan(
                 deletes.push((id, entry.revision));
             }
         }
+    }
+    for (id, entry) in entries {
+        let touched = writes.iter().any(|write| write.id == *id)
+            || deletes.iter().any(|(deleted, _)| deleted == id);
+        if entry.body.limited_to.is_none() || touched {
+            continue;
+        }
+        writes.push(Write {
+            id: id.clone(),
+            body: Body {
+                limited_to: None,
+                ..entry.body.clone()
+            },
+            revision: entry.revision,
+            holds: local
+                .applied
+                .get(id)
+                .filter(|applied| applied.revision == entry.revision)
+                .map(|applied| applied.digest.clone()),
+        });
     }
     let mut changed = Vec::new();
     for write in writes {
@@ -676,6 +698,11 @@ async fn reconcile(
             continue;
         }
         match open_body(&key, entry) {
+            Some(body)
+                if body
+                    .limited_to
+                    .as_ref()
+                    .is_some_and(|hosts| !hosts.contains_key(me)) => {}
             Some(body) => {
                 entries.insert(
                     entry.id.clone(),
