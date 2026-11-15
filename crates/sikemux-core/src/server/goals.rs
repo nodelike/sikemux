@@ -51,13 +51,16 @@ pub(super) fn set_desks(core: &Core, client: ClientId, params: DesksParams) {
         desk.terminals.truncate(MAX_ON_DESK);
     }
     desks.retain(|_, desk| *desk != AgentDesk::default());
-    let held = Some((client, desks));
     let mut kept = core.goals().desks.locked();
-    if *kept != held {
-        *kept = held;
-        drop(kept);
-        core.changed(What::Read(Topic::Goals));
-    }
+    let before = match &*kept {
+        Some((held_by, held)) if *held_by == client && *held == desks => return,
+        Some((held_by, held)) if *held_by == client => held.clone(),
+        _ => BTreeMap::new(),
+    };
+    *kept = Some((client, desks.clone()));
+    drop(kept);
+    super::now::asks::desks_moved(core, &before, &desks);
+    core.changed(What::Read(Topic::Goals));
 }
 
 /// Tells clients to read the goals again once the device view shows their agents or needs moved.

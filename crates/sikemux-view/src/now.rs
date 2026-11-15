@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::chat::FailureKind;
+use crate::goals::DeskPage;
 use crate::turn::{ChecksStand, TurnWaitKind};
 
 /// One project's strip.
@@ -42,6 +43,17 @@ pub struct NowAsk {
     /// The images the person sent with it, by path on the core's computer.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub images: Vec<String>,
+    /// The agent the person sent it to, by id.
+    pub to: String,
+    /// When the person sent it, in Unix milliseconds.
+    pub at: u64,
+    /// The pages opened on that agent's desk while it was being answered or looked at, as the
+    /// desk last held them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pages: Vec<DeskPage>,
+    /// The files opened on that desk the same way, by path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
 }
 
 /// How far an ask has gone, in the order the card lists them.

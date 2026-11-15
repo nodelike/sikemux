@@ -575,6 +575,7 @@ impl Chats {
             rotation: Default::default(),
             wanted: tokio::sync::Notify::new(),
             person_came: tokio::sync::Notify::new(),
+            answering: Mutex::new(None),
             saved_shown: AtomicBool::new(history_shown),
             saved_reading: watch::channel(false).0,
             current: Mutex::new(launch.clone()),

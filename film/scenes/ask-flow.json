@@ -1,0 +1,20 @@
+[
+  {
+    "when": "Pay button on the invoice",
+    "steps": [
+      { "think": "The cart posts a plain form, the invoice uses the Payment Request API. Safari may not have it." },
+      { "say": "Opening the invoice page to see what the button is wired to.", "perSecond": 30 },
+      { "tool": "mcp__sikemux-tools__process_start", "call": "process.start", "input": { "processId": "run", "idempotencyKey": "site" }, "ms": 1500 },
+      { "tool": "mcp__sikemux-tools__browser_navigate", "call": "browser.navigate", "input": { "url": "http://localhost:5173/index.html" }, "ms": 1200 },
+      { "tool": "mcp__sikemux-tools__agent_send", "call": "agent.send", "input": { "to": "Jeice", "text": "The invoice's pay handler at site/index.html:20 needs a fallback for browsers without PaymentRequest." }, "ms": 600 },
+      { "say": "Safari has no PaymentRequest, so the pay handler at `site/index.html:20` is never wired. The cart works because it posts a plain form. @Jeice is on the fallback.", "perSecond": 40 }
+    ]
+  },
+  {
+    "when": "sold-out items",
+    "steps": [
+      { "tool": "mcp__sikemux-tools__browser_navigate", "call": "browser.navigate", "input": { "url": "http://localhost:5173/cart.html", "newTab": true }, "ms": 1200 },
+      { "say": "The ranking has no weight for stock, so sold-out items keep their score. I'll add one.", "perSecond": 40 }
+    ]
+  }
+]

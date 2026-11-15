@@ -30,7 +30,7 @@ pub(super) fn card(
     chat: &Chat,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    if !chief.chief {
+    if !chief.chief || chat.narrowed.is_some() {
         return None;
     }
     let now = (bench.view_at(chat.target.place())?.now.iter())

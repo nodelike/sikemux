@@ -222,4 +222,5 @@ named_fields!(row_field, ChatMessage {
     "chips" => chips,
     "leftOut" => left_out,
     "fromEvent" => from_event,
+    "ask" => ask,
 });

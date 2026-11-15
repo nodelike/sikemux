@@ -86,6 +86,7 @@ pub(crate) use attach::{
 pub use mention::Tray;
 mod meta;
 pub mod model_picker;
+pub(crate) mod narrowed;
 pub(crate) mod page;
 mod questions;
 mod rows;
@@ -677,6 +678,12 @@ pub struct Chat {
     pub(crate) said: bool,
     /// A chief's Now card is folded to its counts.
     now_folded: bool,
+    /// The person's ask the chat shows alone, while it shows one.
+    pub(crate) narrowed: Option<narrowed::Narrowed>,
+    /// Rows of other asks came while it showed one alone.
+    pub(crate) outside: bool,
+    /// The rows of the ask shown alone it has been given since it began showing it.
+    ask_rows: usize,
 }
 
 impl Chat {
@@ -859,6 +866,9 @@ impl Chat {
             file_menu: None,
             resting: false,
             said: false,
+            narrowed: None,
+            outside: false,
+            ask_rows: 0,
         }
     }
 
@@ -949,7 +959,7 @@ impl Chat {
         self.older_before = view.older_before;
         self.asked_earlier = false;
         (self.detached, self.newer_after, self.asked_later) = (false, None, false);
-        let rows = view.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(view.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Reset(rows), cx)
         });
@@ -1004,14 +1014,24 @@ impl Chat {
                     );
                 }
             }
-            ChatNews::Page(page) => self.page(page, cx),
+            ChatNews::Page(page) => {
+                self.page(page, cx);
+                if let Some(next) = self.more_of_ask(agent) {
+                    ask(self, next);
+                }
+            }
             ChatNews::Later(page) => {
                 if let Some(next) = self.later_page(agent, page, cx) {
                     ask(self, next);
                 }
             }
             ChatNews::Around(page) => self.around_page(page, cx),
-            ChatNews::Latest(page) => self.latest_page(page, cx),
+            ChatNews::Latest(page) => {
+                self.latest_page(page, cx);
+                if let Some(next) = self.more_of_ask(agent) {
+                    ask(self, next);
+                }
+            }
             ChatNews::Found { .. } => {}
             ChatNews::Detail { tool, detail } => self.detail(tool, detail, cx),
             ChatNews::Replied { request, error } => self.replied(&request, error),
@@ -1277,6 +1297,9 @@ impl Chat {
 
     /// Nothing has been said in it and no While you were away card stands in it.
     pub fn is_new(&self, cx: &App) -> bool {
+        if self.narrowed.is_some() {
+            return false;
+        }
         let Some(head) = self.state.as_ref() else {
             return !self.said && self.transcript.read(cx).rows().is_empty();
         };
@@ -1308,14 +1331,14 @@ impl Chat {
         let Some(page) = page else {
             return;
         };
-        self.older_before = page.older_before;
+        self.older_before = page.older_before.filter(|_| !self.before_ask(&page.rows));
         self.reader.update(cx, |reading, cx| {
             for (session, rows) in rows_by_session(page.subagents) {
                 reading.subagents.entry(session).or_insert(rows);
             }
             cx.notify();
         });
-        let rows = page.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(page.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Prepend(rows), cx)
         });
@@ -1360,7 +1383,7 @@ impl Chat {
         self.asked_later = false;
         let newer_after = page.newer_after;
         self.newer_after = newer_after;
-        let rows = page.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(page.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Append(rows), cx)
         });
@@ -1376,7 +1399,7 @@ impl Chat {
         self.older_before = page.older_before;
         self.newer_after = page.newer_after;
         (self.detached, self.asked_earlier, self.asked_later) = (true, false, false);
-        let rows = page.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(page.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Place(rows), cx)
         });
@@ -1384,10 +1407,10 @@ impl Chat {
 
     /// The chat's latest rows, which take the place of those held.
     fn latest_page(&mut self, page: ChatPage, cx: &mut App) {
-        self.older_before = page.older_before;
+        self.older_before = page.older_before.filter(|_| !self.before_ask(&page.rows));
         (self.detached, self.newer_after) = (false, None);
         (self.asked_earlier, self.asked_later) = (false, false);
-        let rows = page.rows.into_iter().map(ChatRow::new).collect();
+        let rows = self.of_ask(page.rows);
         self.transcript.update(cx, |transcript, cx| {
             transcript.push(Change::Reset(rows), cx);
             transcript.to_latest(cx);
@@ -1488,7 +1511,10 @@ impl Chat {
                         cx.notify();
                     });
                 }
-                Changed::Row { row, within: None } => rows.push(Change::Put(ChatRow::new(row))),
+                Changed::Row { row, within: None } => match self.shows(&row) {
+                    true => rows.extend(self.of_ask(vec![row]).into_iter().map(Change::Put)),
+                    false => self.outside = true,
+                },
                 Changed::Part { row, part, within } => {
                     self.wanted.extend(self.reader.read(cx).tools.stale(&part));
                     self.update(&mut rows, row, within, move |held| held.put_part(part), cx)

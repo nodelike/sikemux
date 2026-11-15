@@ -502,8 +502,10 @@ pub struct Segmented {
     disabled: Option<SharedString>,
     /// A choice that holds things waiting on the person, and how many.
     waiting: Option<(usize, usize)>,
-    /// The choice Sikemux suggests, marked with a dot, and why.
-    suggested: Option<(usize, SharedString)>,
+    /// A choice marked with a dot, and why.
+    marked: Option<(usize, SharedString)>,
+    /// How wide each choice of a sliding switch is.
+    slot: f32,
     /// What each choice does, in a line, shown over it.
     tooltips: Vec<SharedString>,
     icons_only: bool,
@@ -527,7 +529,8 @@ impl Segmented {
             on_select: None,
             disabled: None,
             waiting: None,
-            suggested: None,
+            marked: None,
+            slot: 50.,
             tooltips: Vec::new(),
             icons_only: false,
         }
@@ -551,7 +554,8 @@ impl Segmented {
             on_select: None,
             disabled: None,
             waiting: None,
-            suggested: None,
+            marked: None,
+            slot: 50.,
             tooltips: Vec::new(),
             icons_only: false,
         }
@@ -560,6 +564,18 @@ impl Segmented {
     /// The switch in a pane's header, as GUI and TUI: a grey thumb slides to the chosen one.
     pub fn slide(mut self) -> Self {
         self.slide = true;
+        self
+    }
+
+    /// How wide each choice of a sliding switch is, for labels longer than GUI and TUI.
+    pub fn slot(mut self, width: f32) -> Self {
+        self.slot = width;
+        self
+    }
+
+    /// Marks the choice at `index` with a dot, saying `why` over it.
+    pub fn marked(mut self, index: usize, why: Option<impl Into<SharedString>>) -> Self {
+        self.marked = why.map(|why| (index, why.into()));
         self
     }
 
@@ -590,7 +606,8 @@ impl Segmented {
 
 impl Segmented {
     fn sliding(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        const SLOT: f32 = 50.;
+        let slot = self.slot;
+        let marked = self.marked;
         let t = Tokens::get(cx).clone();
         let on_select = self.on_select.filter(|_| self.disabled.is_none());
         let thumb_id = ElementId::NamedChild(Arc::new(self.id.clone()), "thumb".into());
@@ -618,8 +635,8 @@ impl Segmented {
                 div()
                     .absolute()
                     .top(px(1.))
-                    .left(px(1. + at * SLOT))
-                    .w(px(SLOT))
+                    .left(px(1. + at * slot))
+                    .w(px(slot))
                     .h(px(20.))
                     .rounded(px(5.))
                     .bg(t.surface_active),
@@ -636,11 +653,14 @@ impl Segmented {
                             t.text_tertiary
                         };
                         let on_select = on_select.clone();
+                        let why = (marked.as_ref())
+                            .filter(|(at, _)| *at == index)
+                            .map(|(_, why)| why.clone());
                         BaseButton::new(("segment", index))
                             .group(GROUP)
                             .selected(chosen)
                             .accessibility_label(label.clone())
-                            .w(px(SLOT))
+                            .w(px(slot))
                             .h_full()
                             .flex()
                             .items_center()
@@ -661,6 +681,11 @@ impl Segmented {
                                 })
                             }))
                             .child(text(label, TEXT_2XS, FontWeight::NORMAL))
+                            .when_some(why, |segment, why| {
+                                segment.tooltip(super::tooltip(why)).child(
+                                    div().flex_none().size(px(5.)).rounded_full().bg(t.accent),
+                                )
+                            })
                     }),
             )
     }
@@ -674,7 +699,7 @@ impl RenderOnce for Segmented {
         let t = Tokens::get(cx).clone();
         let on_select = self.on_select.filter(|_| self.disabled.is_none());
         let waiting = self.waiting;
-        let (suggested, tooltips) = (self.suggested, self.tooltips);
+        let (marked, tooltips) = (self.marked, self.tooltips);
         let icons_only = self.icons_only;
         div()
             .id(self.id)
@@ -694,7 +719,7 @@ impl RenderOnce for Segmented {
                     .map(|(index, (glyph, label, count))| {
                         let chosen = index == self.selected;
                         let on_select = on_select.clone();
-                        let why = (suggested.as_ref())
+                        let why = (marked.as_ref())
                             .filter(|(at, _)| *at == index)
                             .map(|(_, why)| why.clone());
                         let tip = match (tooltips.get(index), &why) {

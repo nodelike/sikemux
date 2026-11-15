@@ -378,6 +378,8 @@ pub struct Chat {
     wanted: tokio::sync::Notify,
     /// The person sent a message or Stop, which a handoff note being written gives way to.
     pub person_came: tokio::sync::Notify,
+    /// The person's ask the latest message answers, by number, when the person sent it.
+    answering: Mutex<Option<u64>>,
     /// The saved history of the session it resumes is shown already, so the agent's own
     /// replay of it as it starts stays quiet.
     pub saved_shown: AtomicBool,
@@ -1110,10 +1112,21 @@ impl Chat {
         context: &[ChatContext],
         whose: Whose,
     ) {
-        self.feed.prompted(message_id, text, paths, context, whose);
-        if let (true, Some(core)) = (whose.person, self.core.upgrade()) {
-            (core.chat_above().now_person_asked)(&core, self.agent_id(), text, paths);
-        }
+        let ask = match (whose.person, self.core.upgrade()) {
+            (true, Some(core)) => {
+                let filed = context.iter().find_map(ChatContext::reply_on);
+                (core.chat_above().now_person_asked)(&core, self.agent_id(), text, paths, filed)
+            }
+            _ => None,
+        };
+        *self.answering.locked() = ask;
+        self.feed
+            .prompted(message_id, text, paths, context, whose, ask);
+    }
+
+    /// The person's ask the turn now running answers, by number.
+    pub fn answering(&self) -> Option<u64> {
+        self.answering.locked().filter(|_| self.working())
     }
 
     pub fn mark_ready(&self, start: ChatStart) {

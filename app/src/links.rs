@@ -4,6 +4,7 @@
 //! agrees. `sikemux://slice/<card>?repo=<owner/name>`, which a pull request's description
 //! holds, opens that slice in the project whose code host repository it names.
 //! `sikemux://hosts/<host>` opens the Hosts page on that host, as the notch's alerts do.
+//! `sikemux://ask/<number>` opens one of the person's asks, as its card on the board does.
 
 use std::path::PathBuf;
 
@@ -108,6 +109,9 @@ pub fn follow_opened(
 /// Follows a `sikemux://` link. A link this app does not understand goes nowhere, rather
 /// than to whichever app the system would pick, and the window says so.
 pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
+    if let Some(id) = crate::opened_ask::link(link) {
+        return bench.open_ask(id, cx);
+    }
     if let Some(host) = hosts_link(link) {
         return bench.open_hosts(Some(host).filter(|host| !host.is_empty()));
     }

@@ -353,27 +353,51 @@ fn pane_header(
     let working = agent.busy;
     let has_chat = bench.has_chat(&agent.provider);
     let switched = agent.id.clone();
+    let ask = bench.opened_on(&agent.id).map(|opened| {
+        let outside = (bench.chats.open.get(&agent.id)).is_some_and(|chat| chat.outside);
+        let words = vec![
+            (SharedString::from(t!("Ask #{id}", id = opened.id)), None),
+            (SharedString::from(t!("Whole chat")), None),
+        ];
+        Segmented::words("agent-ask", words, usize::from(!opened.narrowed))
+            .slide()
+            .slot(64.)
+            .marked(
+                1,
+                outside.then(|| t!("Something happened outside #{id}", id = opened.id)),
+            )
+            .on_select(
+                cx.listener(|bench, picked: &usize, _, cx| bench.narrow_ask(*picked == 0, cx)),
+            )
+    });
     agent_header(bench, agent, cx)
         .controls(
-            Segmented::new("agent-view", views, usize::from(in_terminal))
-                .slide()
-                .disabled_because(match (has_chat, working) {
-                    (false, _) => Some(t!("This agent has no built-in chat").to_owned()),
-                    (true, true) => {
-                        let other = if in_terminal { "GUI" } else { "TUI" };
-                        Some(t!(
-                            "Wait for the agent to finish before opening {other}",
-                            other = other
-                        ))
-                    }
-                    (true, false) => None,
-                })
-                .on_select(cx.listener(move |bench, picked: &usize, _, _| {
-                    let terminal = *picked == 1;
-                    if terminal != in_terminal {
-                        bench.switch_view(&switched, terminal);
-                    }
-                })),
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .children(ask)
+                .child(
+                    Segmented::new("agent-view", views, usize::from(in_terminal))
+                        .slide()
+                        .disabled_because(match (has_chat, working) {
+                            (false, _) => Some(t!("This agent has no built-in chat").to_owned()),
+                            (true, true) => {
+                                let other = if in_terminal { "GUI" } else { "TUI" };
+                                Some(t!(
+                                    "Wait for the agent to finish before opening {other}",
+                                    other = other
+                                ))
+                            }
+                            (true, false) => None,
+                        })
+                        .on_select(cx.listener(move |bench, picked: &usize, _, _| {
+                            let terminal = *picked == 1;
+                            if terminal != in_terminal {
+                                bench.switch_view(&switched, terminal);
+                            }
+                        })),
+                ),
         )
         .side(
             IconButton::new(

@@ -607,10 +607,14 @@ impl Feed {
         paths: &[String],
         context: &[ChatContext],
         whose: super::Whose,
+        ask: Option<u64>,
     ) {
         let mut payload = json!({ "text": text, "paths": paths });
         if whose.person {
             payload["person"] = json!(true);
+        }
+        if let Some(ask) = ask {
+            payload["ask"] = json!(ask);
         }
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);

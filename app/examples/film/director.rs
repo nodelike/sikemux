@@ -923,6 +923,19 @@ impl Director {
                     .map_err(|error| anyhow!("{error}"))?;
                 self.wait(0.3)?;
             }
+            "ask" => {
+                let word = step.text(0)?.to_owned();
+                let bench = self.bench.clone().ok_or_else(|| anyhow!("no workbench"))?;
+                self.cx
+                    .update_window(self.window, |_, _, cx| {
+                        bench.update(cx, |bench, cx| match word.parse() {
+                            Ok(id) => bench.open_ask(id, cx),
+                            Err(_) => bench.narrow_ask(false, cx),
+                        })
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
+                self.wait(0.3)?;
+            }
             "still" => {
                 self.still = Some(self.stills.join(format!("{}.png", step.text(0)?)));
                 self.frame()?;

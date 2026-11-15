@@ -1054,7 +1054,7 @@ impl Chat {
         &mut self,
         agent: &str,
         text: String,
-        (paths, context): (Vec<String>, Vec<ChatContext>),
+        (paths, mut context): (Vec<String>, Vec<ChatContext>),
         queue: bool,
         open: &[&Question],
     ) -> Option<Answering> {
@@ -1088,6 +1088,7 @@ impl Chat {
                 )
                 .map(Answering::Answers);
         }
+        context.extend(self.reply_context());
         if self.steers() && !queue {
             let message = QueuedMessage {
                 text,
@@ -1377,9 +1378,11 @@ impl Workbench {
         let chief_hears = (self.chats.open.get(&agent))
             .and_then(|chat| chat.state.as_ref())
             .is_some_and(|head| head.chief_hears.is_some());
-        let to = self.agent().and_then(|row| match row.chief {
-            true => Some((t!("Tell @Chief what you want").to_owned(), true)),
-            false => chief_hears
+        let narrowed = (self.chats.open.get(&agent)).and_then(Chat::narrowed_to);
+        let to = self.agent().and_then(|row| match (narrowed, row.chief) {
+            (Some(ask), _) => Some((t!("Reply on #{ask}", ask = ask).to_owned(), true)),
+            (None, true) => Some((t!("Tell @Chief what you want").to_owned(), true)),
+            (None, false) => chief_hears
                 .then_some(row.name)
                 .flatten()
                 .map(|name| (t!("Send to @{name} · @Chief is told", name = name), false)),

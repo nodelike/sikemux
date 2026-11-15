@@ -663,9 +663,15 @@ impl Workbench {
     }
 
     fn tell_desks(&mut self, cx: &App) {
-        let params = sikemux_view::goals::DesksParams {
+        let mut params = sikemux_view::goals::DesksParams {
             desks: self.desks.read(cx).held(self.sims.read(cx)),
         };
+        let opened = self.opened_ask.as_ref().filter(|ask| ask.narrowed);
+        if let Some(opened) = opened {
+            if let Some(desk) = params.desks.get_mut(&opened.agent) {
+                desk.ask = Some(opened.id);
+            }
+        }
         if self.desk_news.sent.as_ref() == Some(&params) {
             return;
         }
@@ -1636,7 +1642,7 @@ impl Workbench {
         });
     }
 
-    fn with_engine(
+    pub(crate) fn with_engine(
         &self,
         cx: &App,
         act: impl FnOnce(&BrowserManager) -> sikemux_browser::BrowserResult<()>,
@@ -1957,7 +1963,11 @@ pub fn pane(
         DeskKind::Pages => strip.map(|strip| strip.tabs.as_slice()).unwrap_or_default(),
         _ => &[],
     };
-    for page in pages {
+    let narrowed = bench.narrowed_on(agent);
+    let in_ask = |page: &sikemux_browser::BrowserTab| {
+        narrowed.is_none_or(|ask| page.active || ask.pages.iter().any(|it| it.id == page.id))
+    };
+    for page in pages.iter().filter(|page| in_ask(page)) {
         let label = if !page.title.is_empty() {
             page.title.clone()
         } else if page.url == sikemux_browser::BLANK_URL {
@@ -2019,10 +2029,17 @@ pub fn pane(
             ))),
         );
     }
+    let item_in_ask = |item: &DeskItem| match (item, narrowed) {
+        (DeskItem::File(path), Some(ask)) => {
+            front_item.is_some_and(|front| front.same(item))
+                || ask.files.iter().any(|file| Path::new(file) == path)
+        }
+        _ => true,
+    };
     for (index, item) in held
         .iter()
         .enumerate()
-        .filter(|(_, item)| item.kind() == kind)
+        .filter(|(_, item)| item.kind() == kind && item_in_ask(item))
     {
         let shown = front_item.is_some_and(|front| front.same(item));
         let (mark, label) = match item {

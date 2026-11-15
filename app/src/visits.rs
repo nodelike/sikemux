@@ -40,6 +40,8 @@ pub struct Visits {
     forward: Vec<Visit>,
     /// When a step back or forward asked for `now` to come to the front.
     stepping: Option<Instant>,
+    /// The ask Back closed, which Forward opens again while its agent's tab stays in front.
+    pub(crate) ask_forward: Option<u64>,
     /// Whether going back, and forward, would reach a tab still open.
     can_go_back: bool,
     can_go_forward: bool,
@@ -49,8 +51,9 @@ impl Workbench {
     /// Notes the tab in front as visited, and whether the arrows still lead anywhere.
     pub(crate) fn note_visit(&mut self) {
         self.arrive();
-        self.visits.can_go_back = self.next_visit(-1).is_some();
-        self.visits.can_go_forward = self.next_visit(1).is_some();
+        self.visits.can_go_back = self.opened_ask.is_some() || self.next_visit(-1).is_some();
+        self.visits.can_go_forward =
+            self.visits.ask_forward.is_some() || self.next_visit(1).is_some();
     }
 
     /// The visit a step back, or forward for `by` of 1, would bring forward.
@@ -103,6 +106,7 @@ impl Workbench {
             tab: tab.id.clone(),
         };
         let visits = &mut self.visits;
+        visits.ask_forward = None;
         if let Some(was) = visits.now.replace(visit) {
             visits.back.push(was);
             if visits.back.len() > KEPT {
@@ -143,6 +147,10 @@ impl Workbench {
     /// Brings forward the tab visited before the one in front, or after it for `by` of 1,
     /// passing over tabs closed since.
     pub(crate) fn step_visit(&mut self, by: isize, cx: &mut Context<Self>) {
+        if self.step_ask(by, cx) {
+            self.note_visit();
+            return;
+        }
         loop {
             let visits = &mut self.visits;
             let from = match by < 0 {

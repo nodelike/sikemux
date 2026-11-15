@@ -170,6 +170,7 @@ impl Row {
                 from_event: Some(index),
                 chips: Vec::new(),
                 left_out: Vec::new(),
+                ask: None,
             },
             index,
             v: 0,
@@ -229,6 +230,8 @@ struct Transcript {
     bytes: usize,
     /// The number of the change it takes in now.
     now: u64,
+    /// The person's ask the turn now running answers, which each row it opens carries.
+    ask: Option<u64>,
 }
 
 /// The event that opened the row `id`, as [`Transcript::next_id`] names rows.
@@ -270,7 +273,8 @@ impl Transcript {
         }
     }
 
-    fn push(&mut self, row: Row) -> usize {
+    fn push(&mut self, mut row: Row) -> usize {
+        row.msg.ask = self.ask;
         self.rows.push(row);
         let at = self.rows.len() - 1;
         self.touch(at);
@@ -1161,6 +1165,7 @@ impl Fold {
                     .collect()
             })
             .unwrap_or_default();
+        self.main.ask = payload.get("ask").and_then(Value::as_u64);
         let id = self.row_id(index, &None);
         let mut row = Row::new(id, ChatRole::User, index);
         row.local = true;

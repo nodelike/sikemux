@@ -192,6 +192,9 @@ pub struct AgentDesk {
     /// The device its simulator shows, once it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub simulator: Option<String>,
+    /// The person's ask open on it, by number, which what opens on it now goes under.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

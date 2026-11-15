@@ -46,6 +46,7 @@ mod mods;
 mod motion;
 mod new_tab;
 mod notifications;
+mod opened_ask;
 mod opening;
 mod overlays;
 mod overload;

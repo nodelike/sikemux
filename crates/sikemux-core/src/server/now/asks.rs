@@ -5,9 +5,12 @@
 //! work reached the project's branch, nobody has it.
 
 use super::*;
+use crate::server::chat_state::ChatParts;
 use crate::server::chief;
 use crate::text::clipped_line;
 use sikemux_markdown::paths::is_image_path;
+use sikemux_view::goals::{AgentDesk, DeskPage};
+use std::collections::BTreeMap;
 
 /// Kept per core; the oldest go first.
 const MOST: usize = 300;
@@ -16,6 +19,8 @@ const TITLE_CHARS: usize = 160;
 const SHOWN_IN_BUILD_MS: u64 = 24 * 60 * 60 * 1000;
 /// The same words to the same agent within this long are one ask, sent again.
 const SAME_ASK_MS: u64 = 10 * 60 * 1000;
+/// The most pages, and the most files, an ask keeps of what was opened while it was answered.
+const MOST_OPENED: usize = 24;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +51,11 @@ pub(super) struct Ask {
     landed_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     in_build_at: Option<u64>,
+    /// What opened on the desk of `to` while it answered this ask or the person had it open.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pages: Vec<DeskPage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    files: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -104,33 +114,43 @@ fn change(core: &Core, change: impl FnOnce(&mut Vec<Ask>, &mut u64) -> bool) {
     }
 }
 
-/// The person sent `text` to `agent`, with the files at `paths`.
-pub(crate) fn asked(core: &Core, agent: &str, text: &str, paths: &[String]) {
+/// The person sent `text` to `agent`, with the files at `paths`, as a reply on the ask `filed`
+/// when it names one. The ask it is, by number.
+pub(crate) fn asked(
+    core: &Core,
+    agent: &str,
+    text: &str,
+    paths: &[String],
+    filed: Option<u64>,
+) -> Option<u64> {
+    if filed.is_some() {
+        return filed;
+    }
     let title = clipped_line(text, TITLE_CHARS);
     let images: Vec<String> = (paths.iter())
         .filter(|path| is_image_path(path))
         .cloned()
         .collect();
-    let Some(project) = (!title.is_empty() || !images.is_empty())
+    let project = (!title.is_empty() || !images.is_empty())
         .then(|| core.workspaces().agent(agent))
         .flatten()
-        .map(|agent| agent.project)
-    else {
-        return;
-    };
+        .map(|agent| agent.project)?;
     let at = epoch_ms();
     let before = stood(core, agent);
+    let mut id = None;
     change(core, |asks, next| {
-        let again = asks.iter().any(|ask| {
+        let again = asks.iter().find(|ask| {
             ask.to == agent
                 && ask.title == title
                 && ask.images == images
                 && at.saturating_sub(ask.at) < SAME_ASK_MS
         });
-        if again {
+        if let Some(again) = again {
+            id = Some(again.id);
             return false;
         }
         *next += 1;
+        id = Some(*next);
         asks.push(Ask {
             id: *next,
             project,
@@ -145,8 +165,80 @@ pub(crate) fn asked(core: &Core, agent: &str, text: &str, paths: &[String]) {
             commit: None,
             landed_at: None,
             in_build_at: None,
+            pages: Vec::new(),
+            files: Vec::new(),
         });
         true
+    });
+    id
+}
+
+/// The window's desks moved from `before` to `after`. What opened on an agent's desk goes under
+/// the ask the person has open there, else the ask the agent is answering; pages already kept
+/// take their latest title and address.
+pub(crate) fn desks_moved(
+    core: &Core,
+    before: &BTreeMap<String, AgentDesk>,
+    after: &BTreeMap<String, AgentDesk>,
+) {
+    let opened: Vec<(u64, Vec<DeskPage>, Vec<String>)> = (after.iter())
+        .filter_map(|(agent, desk)| {
+            let held = before.get(agent);
+            let pages: Vec<DeskPage> = (desk.pages.iter())
+                .filter(|page| {
+                    held.is_none_or(|held| !held.pages.iter().any(|it| it.id == page.id))
+                })
+                .cloned()
+                .collect();
+            let files: Vec<String> = (desk.files.iter())
+                .filter(|file| held.is_none_or(|held| !held.files.contains(file)))
+                .cloned()
+                .collect();
+            if pages.is_empty() && files.is_empty() {
+                return None;
+            }
+            let ask = desk.ask.or_else(|| core.chats().get(agent)?.answering())?;
+            Some((ask, pages, files))
+        })
+        .collect();
+    let shown: Vec<&DeskPage> = after.values().flat_map(|desk| &desk.pages).collect();
+    let moved = |kept: &DeskPage| shown.iter().any(|page| page.id == kept.id && *page != kept);
+    let retitled = (core.now().state.locked().asks.iter()).any(|ask| ask.pages.iter().any(&moved));
+    if opened.is_empty() && !retitled {
+        return;
+    }
+    change(core, |asks, _| {
+        let mut changed = false;
+        for ask in asks.iter_mut() {
+            for (_, pages, files) in opened.iter().filter(|(id, ..)| *id == ask.id) {
+                for page in pages {
+                    if !ask.pages.iter().any(|kept| kept.id == page.id) {
+                        ask.pages.push(page.clone());
+                        changed = true;
+                    }
+                }
+                for file in files {
+                    if !ask.files.contains(file) {
+                        ask.files.push(file.clone());
+                        changed = true;
+                    }
+                }
+                let over = ask.pages.len().saturating_sub(MOST_OPENED);
+                ask.pages.drain(..over);
+                let over = ask.files.len().saturating_sub(MOST_OPENED);
+                ask.files.drain(..over);
+            }
+            for kept in ask.pages.iter_mut() {
+                if let Some(now) = shown
+                    .iter()
+                    .find(|page| page.id == kept.id && **page != kept)
+                {
+                    *kept = (*now).clone();
+                    changed = true;
+                }
+            }
+        }
+        changed
     });
 }
 
@@ -353,6 +445,10 @@ pub(super) fn of_project(asks: &[Ask], project: &str, at: u64) -> Vec<NowAsk> {
                 stand,
                 since,
                 images: ask.images.clone(),
+                to: ask.to.clone(),
+                at: ask.at,
+                pages: ask.pages.clone(),
+                files: ask.files.clone(),
             }
         })
         .collect();

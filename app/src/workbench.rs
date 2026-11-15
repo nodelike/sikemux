@@ -110,6 +110,8 @@ pub struct Workbench {
     pub place: Option<Strip>,
     pub last_place: Option<Strip>,
     pub(crate) visits: crate::visits::Visits,
+    /// The person's ask opened from its card, while it is open.
+    pub(crate) opened_ask: Option<crate::opened_ask::OpenedAsk>,
     pub rails: crate::rail::Rails,
     pub(crate) strip: crate::tabs::StripMotion,
     /// Tabs asked to close that the layout still lists, and when, so a second click or ⌘W
@@ -371,6 +373,7 @@ impl Workbench {
             place: None,
             last_place: None,
             visits: Default::default(),
+            opened_ask: None,
             rails,
             strip: Default::default(),
             closing_tabs: Default::default(),

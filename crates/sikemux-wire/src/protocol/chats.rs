@@ -89,9 +89,18 @@ pub struct ChatContext {
 /// client shows it among what the person sent.
 pub const FOR_AGENT_URI: &str = "sikemux://for-agent/";
 
+/// Starts the uri of the context item a reply on one of the person's asks carries, the ask's
+/// number after it.
+pub const ASK_REPLY_URI: &str = "sikemux://for-agent/ask/";
+
 impl ChatContext {
     pub fn for_agent_only(&self) -> bool {
         self.uri.starts_with(FOR_AGENT_URI)
+    }
+
+    /// The ask a message carrying this item replies on.
+    pub fn reply_on(&self) -> Option<u64> {
+        self.uri.strip_prefix(ASK_REPLY_URI)?.parse().ok()
     }
 }
 

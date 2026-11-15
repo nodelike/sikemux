@@ -102,6 +102,7 @@ async fn a_chat_waking_under_a_long_turn_keeps_the_rows_its_client_holds() {
         &[],
         &[],
         sikemux_chat::server::chat::Whose::PERSON,
+        None,
     );
     feed.emit(
         ChatEventKind::SessionUpdate,
@@ -121,6 +122,7 @@ async fn a_chat_waking_under_a_long_turn_keeps_the_rows_its_client_holds() {
         &[],
         &[],
         sikemux_chat::server::chat::Whose::PERSON,
+        None,
     );
     feed.let_out();
 
@@ -160,6 +162,7 @@ fn said_turn(feed: &Arc<Feed>, n: usize) {
         &[],
         &[],
         sikemux_chat::server::chat::Whose::PERSON,
+        None,
     );
     feed.emit(ChatEventKind::TurnStarted, json!({}));
     for piece in ["work", "ing"] {

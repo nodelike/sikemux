@@ -36,6 +36,9 @@ type AccountWithRoom = fn(&Core, &str, &ChatLaunch, &dyn Fn(&str) -> bool) -> Op
 /// An agent, a shell command, what its launch set in its environment, and where it runs.
 type ShipHeldFor = fn(Arc<Core>, String, String, BTreeMap<String, String>, PathBuf) -> ShipHeld;
 
+/// The agent, the person's words and files, and the ask they reply on, to the ask they are.
+pub type PersonAsked = fn(&Core, &str, &str, &[String], Option<u64>) -> Option<u64>;
+
 pub struct ChatAbove {
     /// Starts the agent's chat again on what it saved, waiting for the person or not.
     pub start_saved: for<'a> fn(&'a Arc<Core>, &'a str, bool) -> Doing<'a, CoreResult<()>>,
@@ -89,8 +92,9 @@ pub struct ChatAbove {
     /// The person wrote to the agent, so it may take turns of its own again, and what waited for
     /// them goes on.
     pub messages_person_wrote: fn(&Core, &str),
-    /// The person's `text` reached the agent: it is an ask until answered or in the app they run.
-    pub now_person_asked: fn(&Core, &str, &str, &[String]),
+    /// The person's `text` reached the agent: it is an ask until answered or in the app they run,
+    /// or a reply on the ask it names. Gives the ask's number.
+    pub now_person_asked: PersonAsked,
     /// The agent called a tool, by the name its CLI gives it.
     pub messages_used_tool: fn(&Core, &str, &str),
     /// The agent did something besides messaging other agents, which ends any
