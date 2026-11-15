@@ -46,9 +46,12 @@ pub use config::{saved_window, terminal_cache_env};
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
 
-/// Claude Code tells the model it writes to a terminal and offers its own Artifact tool, so
-/// charts went to claude.ai links the person never asked for.
-const SHOWING_PAGES: &str = "Your replies show in Sikemux's chat, not a terminal. Show a chart, diagram, mockup or comparison as an HTML page with page_preview then page_show; publish a claude.ai Artifact only when the person asks for a link to share.";
+/// Claude Code tells the model it writes to a terminal, so charts went to text the chat cannot draw.
+const SHOWING_PAGES: &str = "Your replies show in Sikemux's chat, not a terminal. Show a chart, diagram, mockup or comparison as an HTML page with page_preview then page_show.";
+
+/// Claude Code offers its claude.ai Artifact tools to any caller it does not know as the SDK,
+/// which `CLAUDE_ENTRYPOINT` must not be; they cost about 13K tokens on every new chat.
+const CLAUDE_AI_ARTIFACT_TOOLS: &str = "Artifact,ArtifactComments,ArtifactData,ArtifactCheck";
 
 enum Start<'a> {
     New(&'a str),
@@ -378,6 +381,8 @@ impl Claude {
             "--prompt-suggestions",
             "--thinking-display",
             "summarized",
+            "--disallowedTools",
+            CLAUDE_AI_ARTIFACT_TOOLS,
         ]
         .into_iter()
         .map(str::to_owned)
