@@ -11,9 +11,8 @@ use gpui_kit::{
 use serde_json::{json, Value};
 use sikemux_calls::call;
 use sikemux_calls::themes::ThemePaletteParams;
-use sikemux_calls::themes::ThemeParams;
+use sikemux_calls::themes::{ThemeIdParams, ThemeParams};
 use sikemux_calls::wallpaper::PixelsParams;
-use sikemux_view::prefs::PreferenceChange;
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -358,17 +357,22 @@ pub fn customize(bench: &Workbench, id: String, window: &mut Window, cx: &mut Co
 
 /// Edits one of the person's own themes.
 pub fn edit(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(theme) = bench
-        .preferences()
-        .custom_themes
-        .clone()
-        .into_iter()
-        .find(|theme| theme.id == id)
-    else {
-        return;
-    };
-    let theme = serde_json::to_value(theme).unwrap_or_default();
-    open(bench, theme.clone(), theme, false, window, cx);
+    let asks = bench.asks.clone();
+    let id = id.to_owned();
+    cx.spawn_in(window, async move |bench, cx| {
+        let asked =
+            Target::here(&asks).request_typed::<call::Theme>(Some(ThemeParams { id: Some(id) }));
+        let Ok(Ok(theme)) = asked
+            .await
+            .map(|palette| serde_json::to_value(palette.theme))
+        else {
+            return;
+        };
+        let _ = bench.update_in(cx, |bench, window, cx| {
+            open(bench, theme.clone(), theme, false, window, cx)
+        });
+    })
+    .detach();
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -440,18 +444,24 @@ pub fn from_picture(
 }
 
 /// Takes away one of the person's own themes, going back to the default one when it was worn.
-pub fn delete(bench: &Workbench, id: &str) {
-    let preferences = bench.preferences();
-    let kept: Vec<_> = preferences
-        .custom_themes
-        .clone()
-        .into_iter()
-        .filter(|theme| theme.id != id)
-        .collect();
-    crate::settings::set(bench, PreferenceChange::CustomThemes(kept));
-    if preferences.theme_id == id {
-        crate::settings::set(bench, PreferenceChange::ThemeId("aura-noir".to_owned()));
-    }
+pub fn delete(bench: &Workbench, id: &str, cx: &mut Context<Workbench>) {
+    let asked = Target::here(&bench.asks)
+        .request_typed::<call::DeleteTheme>(ThemeIdParams { id: id.to_owned() });
+    told(asked, cx);
+}
+
+/// Shows why the core refused a theme the person saved or deleted.
+fn told<E: std::fmt::Display + 'static>(
+    asked: impl std::future::Future<Output = Result<(), E>> + 'static,
+    cx: &mut Context<Workbench>,
+) {
+    cx.spawn(async move |bench, cx| {
+        if let Err(error) = asked.await {
+            let said = error.to_string();
+            let _ = bench.update(cx, |bench, cx| bench.notify(crate::toast::error(said), cx));
+        }
+    })
+    .detach();
 }
 
 fn close(bench: &mut Workbench, cx: &mut Context<Workbench>) {
@@ -471,16 +481,11 @@ fn save(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         .unwrap_or("custom theme")
         .to_owned();
     draft["name"] = json!(named);
-    let id = draft["id"].as_str().unwrap_or_default().to_owned();
-    let mut themes = bench.preferences().custom_themes.clone();
     match serde_json::from_value(draft) {
-        Ok(draft) => {
-            match themes.iter_mut().find(|theme| theme.id == id) {
-                Some(theme) => *theme = draft,
-                None => themes.push(draft),
-            }
-            crate::settings::set(bench, PreferenceChange::CustomThemes(themes));
-            crate::settings::set(bench, PreferenceChange::ThemeId(id));
+        Ok(theme) => {
+            let asked = Target::here(&bench.asks)
+                .request_typed::<call::SaveTheme>(ThemePaletteParams { theme });
+            told(asked, cx);
         }
         Err(error) => eprintln!("sikemux: the theme being edited is not a theme: {error}"),
     }

@@ -77,9 +77,8 @@ pub struct Preferences {
     /// How wide a chat's messages and composer grow on a wide window.
     pub chat_width: ChatWidth,
     pub editor_text_scale: f64,
-    /// The theme the person picked, one of the curated, Ghostty or their own.
+    /// The theme the person picked, one of the curated, Ghostty or their own theme files.
     pub theme_id: String,
-    pub custom_themes: Vec<crate::theme::Theme>,
     /// The agent a new chat starts as when none is picked: the last one picked.
     pub last_agent_type: Option<String>,
     /// The projects, by folder, whose new chats start in a worktree of their own.
@@ -244,7 +243,6 @@ preference_changes! {
     ChatWidth chat_width: ChatWidth,
     EditorTextScale editor_text_scale: f64,
     ThemeId theme_id: String,
-    CustomThemes custom_themes: Vec<crate::theme::Theme>,
     LastAgentType last_agent_type: Option<String>,
     AgentWorktreeDefaults agent_worktree_defaults: BTreeMap<String, bool>,
     RestoreAgentTabs restore_agent_tabs: bool,
@@ -461,7 +459,6 @@ impl Default for Preferences {
             chat_width: ChatWidth::default(),
             editor_text_scale: DEFAULT_TEXT_SCALE,
             theme_id: DEFAULT_THEME_ID.to_owned(),
-            custom_themes: Vec::new(),
             last_agent_type: None,
             agent_worktree_defaults: BTreeMap::new(),
             restore_agent_tabs: true,

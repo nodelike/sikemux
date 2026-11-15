@@ -6,12 +6,10 @@ use crate::server::changed::ChangedCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;
-use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use notify::{RecursiveMode, Watcher};
 use serde::Deserialize;
 use sikemux_view::theme::Theme;
 
@@ -138,7 +136,9 @@ pub(super) async fn follow(core: Arc<Core>) {
         return;
     };
     wear_background_off_thread(&core).await;
-    switches(current.clone(), || switched(core.clone(), current.clone())).await;
+    // Omarchy replaces its `theme` folder on a switch, so this watches the folder around it.
+    let on_switch = || switched(core.clone(), current.clone());
+    crate::server::watched_folder::watch(current.clone(), SETTLE, on_switch).await;
 }
 
 async fn switched(core: Arc<Core>, current: PathBuf) {
@@ -213,32 +213,6 @@ fn copy_background(current: &Path, copies: &Path) -> Option<String> {
         }
     }
     copy.to_str().map(str::to_owned)
-}
-
-/// Calls `switched` after each change to the folder settles.
-/// Omarchy replaces its `theme` folder on a switch, so this watches the folder around it.
-async fn switches<Done: Future<Output = ()>>(current: PathBuf, mut switched: impl FnMut() -> Done) {
-    let (changed, mut changes) = tokio::sync::mpsc::unbounded_channel();
-    let Ok(mut watcher) =
-        notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-            if event.is_ok() {
-                let _ = changed.send(());
-            }
-        })
-    else {
-        return;
-    };
-    if watcher
-        .watch(&current, RecursiveMode::NonRecursive)
-        .is_err()
-    {
-        return;
-    }
-    while changes.recv().await.is_some() {
-        tokio::time::sleep(SETTLE).await;
-        while changes.try_recv().is_ok() {}
-        switched().await;
-    }
 }
 
 #[cfg(test)]

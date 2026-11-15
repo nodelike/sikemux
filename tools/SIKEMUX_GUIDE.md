@@ -228,7 +228,7 @@ one you name with `theme`.
 - `save` — a new theme, worn at once: `base` (an id, the worn theme when left
   out), `name`, and only what changes, in the parts `theme_read` shows:
   `dark`, `chrome`, `editor`, `highlight`, `terminal` and `style`. Saving the
-  same name again replaces your earlier save.
+  same name again replaces your earlier save. It is written as a file.
   `{"base": "aura-noir", "name": "Square Noir", "style": {"corners": 0}}`
 - `adjust` — the person's own settings, which stay whatever theme is worn:
   `scrollbars` is `scrolling` (shown while a list moves), `hover` or `always`;
@@ -241,6 +241,14 @@ else is refused. `chrome.ink` must read at 4.5:1 on `chrome.bg`. Style:
 - `corners` — 0 is square, 1 the default, 2 twice as round.
 
 Out-of-range values are clamped and the answer lists each one in `clamped`.
+
+The person's own themes are files in `~/.config/sikemux/themes`, one per theme,
+its id the file's name: `square-noir.json` holds `save`'s shape (comments and
+trailing commas allowed). With no `base`, `terminal`'s background, foreground
+and 16 ANSI colours make the rest. A change takes effect as soon as the file is
+written; a file that fails keeps its last good version, and `theme_read`'s
+`problems` says why. Ghostty's theme files in `~/.config/ghostty/themes` are
+listed too.
 Fonts, spacing and layout cannot be changed; say so plainly when asked.
 
 The answer shows Sikemux's window as it now looks; look at it before saying

@@ -8,6 +8,7 @@ pub mod build;
 pub mod cli;
 pub mod client;
 pub mod flights;
+pub mod folder;
 pub mod frozen;
 pub mod fuzzy;
 pub mod host_update;

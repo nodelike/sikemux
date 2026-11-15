@@ -10,3 +10,8 @@ pub struct ThemeParams {
 pub struct ThemePaletteParams {
     pub theme: sikemux_view::theme::Theme,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct ThemeIdParams {
+    pub id: String,
+}

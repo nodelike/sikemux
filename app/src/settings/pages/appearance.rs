@@ -886,7 +886,9 @@ pub fn render(
                             .small()
                             .on_click(move |_, _, cx| {
                                 let id = id.clone();
-                                this.update(cx, |bench, _| super::theme_editor::delete(bench, &id))
+                                this.update(cx, |bench, cx| {
+                                    super::theme_editor::delete(bench, &id, cx)
+                                })
                             })
                         });
                         div()

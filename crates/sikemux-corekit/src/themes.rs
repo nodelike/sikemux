@@ -1,9 +1,12 @@
 //! The colour themes: the Sikemux themes and Ghostty's catalogue, with the app's colours worked
 //! out from each terminal palette.
 
+mod own;
+
 use std::sync::OnceLock;
 
 use base64::Engine;
+pub use own::{from_ghostty_file, made, Shelf};
 use sikemux_grid::TerminalColors;
 use sikemux_view::prefs::{Contrast, Preferences, DEFAULT_THEME_ID};
 use sikemux_view::theme::{
@@ -37,42 +40,28 @@ fn catalogue() -> &'static Catalogue {
     })
 }
 
-/// The theme the person picked, or the default when it is gone.
-pub fn resolve(preferences: &Preferences, omarchy: Option<&Theme>) -> Theme {
-    let catalogue = catalogue();
-    let find = |id: &str| {
-        preferences
-            .custom_themes
-            .iter()
-            .chain(omarchy)
-            .chain(&catalogue.sikemux)
-            .chain(&catalogue.ghostty)
-            .find(|theme| theme.id == id)
-    };
-    find(&preferences.theme_id)
-        .or_else(|| find(DEFAULT_THEME_ID))
-        .cloned()
+/// The theme with `theme_id`, or the default when it is gone.
+pub fn resolve(shelf: &Shelf, theme_id: &str) -> Theme {
+    find(shelf, theme_id)
+        .or_else(|| find(shelf, DEFAULT_THEME_ID))
         .expect("the default theme is in the catalogue")
 }
 
 /// The default theme's palette, for an app to draw with before its core answers.
 pub fn default_palette() -> Palette {
-    palette(&Preferences::default(), None)
+    palette(&Shelf::default(), &Preferences::default())
 }
 
-pub fn palette(preferences: &Preferences, omarchy: Option<&Theme>) -> Palette {
-    palette_of(resolve(preferences, omarchy), preferences.contrast)
+pub fn palette(shelf: &Shelf, preferences: &Preferences) -> Palette {
+    palette_of(resolve(shelf, &preferences.theme_id), preferences.contrast)
 }
 
-/// The theme with `id` among every theme to pick from.
-pub fn find(preferences: &Preferences, omarchy: Option<&Theme>, id: &str) -> Option<Theme> {
-    let catalogue = catalogue();
-    (preferences.custom_themes.iter())
-        .chain(omarchy)
-        .chain(&catalogue.sikemux)
-        .chain(&catalogue.ghostty)
-        .find(|theme| theme.id == id)
-        .cloned()
+/// The theme with `id` among every theme to pick from; the person's own files come first.
+pub fn find(shelf: &Shelf, id: &str) -> Option<Theme> {
+    (shelf.own.kept())
+        .find(|(_, theme)| theme.id == id)
+        .map(|(_, theme)| theme.clone())
+        .or_else(|| shelf.not_own(id))
 }
 
 /// DESIGN.md's corner radii at a theme's corners.
@@ -443,22 +432,25 @@ pub fn from_colours(name: &str, colours: &[String], accent: Option<&str>) -> Opt
     ghostty_theme(name, &colours, accent.and_then(hex))
 }
 
-/// Every theme to pick from: the person's own first, then Omarchy's, then
-/// Sikemux's, then Ghostty's.
-pub fn summaries(preferences: &Preferences, omarchy: Option<&Theme>) -> Vec<ThemeSummary> {
+/// Every theme to pick from: the person's own first, then Omarchy's, then Sikemux's, then
+/// Ghostty's. A theme sharing an id with one listed before it is hidden by it.
+pub fn summaries(shelf: &Shelf) -> Vec<ThemeSummary> {
     let catalogue = catalogue();
-    let sources = [
-        (ThemeSource::Custom, preferences.custom_themes.as_slice()),
-        (
-            ThemeSource::Omarchy,
-            omarchy.map(std::slice::from_ref).unwrap_or_default(),
-        ),
-        (ThemeSource::Sikemux, catalogue.sikemux.as_slice()),
-        (ThemeSource::Ghostty, catalogue.ghostty.as_slice()),
-    ];
-    sources
-        .into_iter()
-        .flat_map(|(source, themes)| themes.iter().map(move |theme| summary(theme, source)))
+    let own = shelf
+        .own
+        .kept()
+        .map(|(_, theme)| (ThemeSource::Custom, theme));
+    let omarchy = (shelf.omarchy.iter()).map(|theme| (ThemeSource::Omarchy, theme));
+    let sikemux = (catalogue.sikemux.iter()).map(|theme| (ThemeSource::Sikemux, theme));
+    let ghostty = (shelf.ghostty.kept().map(|(_, theme)| theme))
+        .chain(&catalogue.ghostty)
+        .map(|theme| (ThemeSource::Ghostty, theme));
+    let mut listed = std::collections::HashSet::new();
+    own.chain(omarchy)
+        .chain(sikemux)
+        .chain(ghostty)
+        .filter(|(_, theme)| listed.insert(theme.id.as_str()))
+        .map(|(source, theme)| summary(theme, source))
         .collect()
 }
 

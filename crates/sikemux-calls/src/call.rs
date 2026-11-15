@@ -73,6 +73,8 @@ crate::calls! {
     "streamCancel" StreamCancel (crate::streams::StreamParams) -> ();
     "theme" Theme (Option<crate::themes::ThemeParams>) -> sikemux_view::theme::Palette;
     "themePalette" ThemePalette (crate::themes::ThemePaletteParams) -> sikemux_view::theme::Palette;
+    "saveTheme" SaveTheme (crate::themes::ThemePaletteParams) -> ();
+    "deleteTheme" DeleteTheme (crate::themes::ThemeIdParams) -> ();
     "triage" Triage (crate::triage::TriageParams) -> sikemux_view::start::Triage;
     "removeTrigger" RemoveTrigger (crate::triggers::TriggerParams) -> bool;
     "holdTrigger" HoldTrigger (crate::triggers::HoldTriggerParams) -> bool;

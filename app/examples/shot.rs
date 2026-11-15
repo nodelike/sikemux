@@ -308,11 +308,9 @@ fn main() -> anyhow::Result<()> {
                 }
                 "theme" => {
                     let mut words = rest.split_whitespace();
-                    let preferences = sikemux_view::prefs::Preferences {
-                        theme_id: words.next().unwrap_or_default().to_owned(),
-                        ..Default::default()
-                    };
-                    let mut worn = sikemux_corekit::themes::resolve(&preferences, None);
+                    let shelf = sikemux_corekit::themes::Shelf::default();
+                    let theme_id = words.next().unwrap_or_default();
+                    let mut worn = sikemux_corekit::themes::resolve(&shelf, theme_id);
                     if let Some(corners) = words.next().and_then(|corners| corners.parse().ok()) {
                         worn.style.corners = corners;
                     }

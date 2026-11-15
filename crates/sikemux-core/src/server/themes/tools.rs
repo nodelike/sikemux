@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_corekit::cli::manifest::GUIDE;
-use sikemux_corekit::themes::{checked, custom_id, find, ink_reads, summaries, MOST_CUSTOM_THEMES};
-use sikemux_view::prefs::{Contrast, Motion, PreferenceChange, Preferences, Scrollbars};
+use sikemux_corekit::themes::{custom_id, find, made, summaries, Shelf, MOST_CUSTOM_THEMES};
+use sikemux_view::prefs::{Contrast, Motion, PreferenceChange, Scrollbars};
 use sikemux_view::theme::{Theme, ThemeChanges, ThemeSource};
 
 use crate::cli::protocol::HarnessRequest;
@@ -18,8 +18,8 @@ const TOPIC: &str = "## theme:";
 
 pub(crate) fn read(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let preferences = core.preferences().get();
-    let omarchy = core.look().omarchy();
-    let all = summaries(&preferences, omarchy.as_ref());
+    let shelf = core.look().shelf().clone();
+    let all = summaries(&shelf);
     let ghostty = all
         .iter()
         .filter(|theme| theme.source == ThemeSource::Ghostty)
@@ -36,7 +36,7 @@ pub(crate) fn read(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
         })
         .collect();
     let theme = match request.params.get("theme").and_then(Value::as_str) {
-        Some(id) => find(&preferences, omarchy.as_ref(), id)
+        Some(id) => find(&shelf, id)
             .ok_or_else(|| format!("there is no theme {id}; theme_read lists them"))?,
         None => core.look().palette().theme,
     };
@@ -52,6 +52,9 @@ pub(crate) fn read(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
             "{ghostty} more from Ghostty's catalogue, each with the id ghostty- and its name in kebab case"
         ),
         "theme": theme,
+        "problems": (shelf.own.problems())
+            .map(|(id, problem)| (format!("{id}.json"), json!(problem)))
+            .collect::<Map<_, _>>(),
         "guide": topic(),
     }))
 }
@@ -76,30 +79,27 @@ pub(crate) async fn set(core: &Arc<Core>, request: HarnessRequest) -> Result<Val
     let params: SetParams = serde_json::from_value(request.params.clone())
         .map_err(|error| format!("theme_set takes theme, save and adjust: {error}"))?;
     let before = core.preferences().get();
-    let omarchy = core.look().omarchy();
+    let shelf = core.look().shelf().clone();
     let mut changes = Vec::new();
     let mut clamped = Vec::new();
     let wear = match (params.theme, params.save) {
         (Some(_), Some(_)) => return Err("give theme or save, not both".into()),
         (Some(id), None) => {
-            find(&before, omarchy.as_ref(), &id)
+            find(&shelf, &id)
                 .ok_or_else(|| format!("there is no theme {id}; theme_read lists them"))?;
             Some(id)
         }
         (None, Some(save)) => {
-            let (theme, notes) = saved(&before, omarchy.as_ref(), save)?;
+            let (theme, notes) = saved(&shelf, &before.theme_id, save)?;
             clamped = notes;
-            let mut themes = before.custom_themes.clone();
-            themes.retain(|kept| kept.id != theme.id);
-            if themes.len() >= MOST_CUSTOM_THEMES {
+            let others = shelf.own.kept().filter(|(id, _)| *id != theme.id).count();
+            if others >= MOST_CUSTOM_THEMES {
                 return Err(format!(
                     "the person keeps {MOST_CUSTOM_THEMES} themes already; save over one of the agent-made ones by its name"
                 ));
             }
-            let id = theme.id.clone();
-            themes.push(theme);
-            changes.push(PreferenceChange::CustomThemes(themes));
-            Some(id)
+            super::files::keep(core, &theme)?;
+            Some(theme.id)
         }
         (None, None) => None,
     };
@@ -140,28 +140,16 @@ pub(crate) async fn set(core: &Arc<Core>, request: HarnessRequest) -> Result<Val
     Ok(Value::Object(answer))
 }
 
-/// A theme saved from `save`: a base theme with the changes laid over it, checked.
+/// A theme saved from `save`: a base theme, the one worn when it names none, with the changes
+/// laid over it, checked.
 fn saved(
-    preferences: &Preferences,
-    omarchy: Option<&Theme>,
+    shelf: &Shelf,
+    worn: &str,
     mut save: ThemeChanges,
 ) -> Result<(Theme, Vec<String>), String> {
-    let name = save
-        .name
-        .take()
-        .ok_or("save needs a name for the new theme")?;
-    let base_id = save
-        .base
-        .take()
-        .unwrap_or_else(|| preferences.theme_id.clone());
-    let mut theme = find(preferences, omarchy, &base_id)
-        .ok_or_else(|| format!("there is no theme {base_id} to start from"))?;
-    save.lay_over(&mut theme);
-    theme.id = custom_id(&name);
-    theme.name = name;
-    let (theme, clamped) = checked(theme)?;
-    ink_reads(&theme)?;
-    Ok((theme, clamped))
+    let name = (save.name.clone()).ok_or("save needs a name for the new theme")?;
+    save.base.get_or_insert_with(|| worn.to_owned());
+    made(&custom_id(&name), save, |base| find(shelf, base))
 }
 
 /// The guide's theme topic.

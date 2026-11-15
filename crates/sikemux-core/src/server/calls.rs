@@ -442,6 +442,8 @@ calls! { core, client, method, params;
     "takeSpareShell": NoDevice => answer(super::spare::take(&core, parse(params)?)),
     "themes" = Themes: Watch => super::themes::listed(&core),
     "themePalette" = ThemePalette: Watch => super::themes::palette_of(params.theme, core.preferences().get().contrast),
+    "saveTheme" = SaveTheme: Owner => super::themes::save(&core, params.theme)?,
+    "deleteTheme" = DeleteTheme: Owner => super::themes::delete(&core, &params.id)?,
     "themeFromColours": Watch => answer(super::themes::built_from_colours(parse(params)?)?),
     "themeFromPixels" = ThemeFromPixels: Watch, counted => super::wallpaper::theme_from_pixels(params)?,
     "codeHostPulls" = CodeHostPulls: Watch => super::codehost::pulls(&core, client.id, params).await,

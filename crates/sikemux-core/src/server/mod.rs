@@ -157,6 +157,7 @@ mod upgrade;
 pub mod usage;
 pub use sikemux_remote::server::vault;
 mod wait_for;
+mod watched_folder;
 pub(crate) use sikemux_serve::server::waits;
 pub(crate) use sikemux_serve::server::wake;
 pub mod wallpaper;
@@ -571,9 +572,8 @@ impl ServerCore for Core {
     }
 
     fn theme_changed(&self) {
-        let omarchy = self.look().omarchy();
-        self.look()
-            .set(themes::palette(&self.preferences().get(), omarchy.as_ref()));
+        let palette = themes::palette(&self.look().shelf(), &self.preferences().get());
+        self.look().set(palette);
         self.changed(What::View);
     }
 
