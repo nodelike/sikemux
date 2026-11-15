@@ -221,5 +221,7 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 
 - Follow `DESIGN.md`. It is short on purpose: keep it to principles and tokens,
   and change it in the same commit when the look moves on.
+- A UI change on the Mac that the iPhone or Android app also draws goes to the phones
+  too, with their design in `mobile/design/screens.src.html`, as part of the same work.
 - A page or mockup of the app takes its Figtree from `helpers/notch/Fonts` by local
   path; `page_show` inlines it.
