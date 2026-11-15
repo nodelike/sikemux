@@ -49,9 +49,12 @@ const LOOKS_AFTER_STOPPING: [Duration; 4] = [
     Duration::from_secs(30),
 ];
 /// What a build output is renamed to, in the worktrees folder, while it is deleted, so a build
-/// that starts meanwhile makes a fresh one. One left by a core that stopped mid-delete goes at
-/// the next start.
+/// that starts meanwhile makes a fresh one. One whose delete failed, or that a core stopped
+/// mid-delete left, goes on a later sweep.
 pub const SET_ASIDE: &str = ".build-output-removing-";
+/// How long a set-aside build output stays before a sweep deletes it, so a sweep never races
+/// the delete that set it aside.
+const SET_ASIDE_SWEPT_AFTER: Duration = Duration::from_secs(10 * 60);
 
 #[derive(Default)]
 pub struct BuildOutputs {
@@ -64,6 +67,8 @@ pub struct BuildOutputs {
     /// Free space is under the floor and the last pass could remove nothing, which is said once
     /// until free space is back above the floor or a pass removes something.
     stuck: AtomicBool,
+    /// A sweep of set-aside build outputs is running.
+    sweeping: AtomicBool,
 }
 
 impl BuildOutputs {
@@ -268,22 +273,53 @@ fn pass_at_making_room(core: &Core) {
     }
 }
 
-/// Deletes the build outputs a core that stopped mid-delete left set aside.
+/// Deletes the build outputs a core that stopped mid-delete left set aside, at its start.
 pub fn remove_set_aside(core: &Core) {
+    sweep(core, Duration::ZERO);
+}
+
+/// Deletes set-aside build outputs whose delete failed, as something still wrote into them then.
+pub fn sweep_set_aside(core: &Core) {
+    sweep(core, SET_ASIDE_SWEPT_AFTER);
+}
+
+fn sweep(core: &Core, older_than: Duration) {
     let mut folders: Vec<PathBuf> = (core.workspaces().project_paths().iter())
         .map(|path| worktrees_folder(path))
         .collect();
     folders.sort();
     folders.dedup();
-    in_background(core, move |_| {
-        let left = folders
-            .iter()
-            .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
-            .filter(|entry| entry.file_name().to_string_lossy().starts_with(SET_ASIDE));
-        for entry in left {
-            delete(&entry.path());
+    let before = epoch_ms().saturating_sub(older_than.as_millis() as u64);
+    let left: Vec<PathBuf> = (folders.iter())
+        .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
+        .filter(|entry| {
+            set_aside_at(&entry.file_name().to_string_lossy()).is_some_and(|at| at <= before)
+        })
+        .map(|entry| entry.path())
+        .collect();
+    let sweeping = &core.build_outputs().sweeping;
+    if left.is_empty() || sweeping.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let started = in_background(core, move |core| {
+        for folder in left {
+            delete(&folder);
         }
+        core.build_outputs()
+            .sweeping
+            .store(false, Ordering::Release);
     });
+    if !started {
+        sweeping.store(false, Ordering::Release);
+    }
+}
+
+/// When the build output named `name` was set aside, in Unix milliseconds, if it was.
+fn set_aside_at(name: &str) -> Option<u64> {
+    let rest = name.strip_prefix(SET_ASIDE)?;
+    let mut parts = rest.rsplitn(3, '-');
+    parts.next()?;
+    parts.next()?.parse().ok()
 }
 
 #[cfg(unix)]

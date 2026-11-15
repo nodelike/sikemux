@@ -417,6 +417,7 @@ async fn run(core: Arc<Core>) {
                 if let Some((free, total)) = core.host_watch().disk_free() {
                     super::worktree::build_output::make_room(&core, free, total);
                 }
+                super::worktree::build_output::sweep_set_aside(&core);
                 if now >= next_shown {
                     next_shown = now + LOAD_SHOWN_EVERY;
                     if core.shows_load() && core.load_moved(&load(&core)) {
