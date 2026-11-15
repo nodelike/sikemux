@@ -1105,7 +1105,8 @@ impl Workbench {
     }
 
     /// Slides the desk back to the window's edge, then closes it unless it was opened again.
-    /// A desk filling its tab, or on its way to, slides its agent back out as it goes.
+    /// A desk filling its tab, or on its way to, slides its agent back out as it goes. A desk
+    /// out of sight closes at once, since only the tab being drawn keeps its slide.
     fn shut_desk(
         &mut self,
         to: Target,
@@ -1121,7 +1122,8 @@ impl Workbench {
         if self.panes.widening.as_ref() == Some(&desk) {
             self.panes.widening = None;
         }
-        if cx.reduce_motion() {
+        let in_sight = self.tab().is_some_and(|front| front.id == tab);
+        if cx.reduce_motion() || !in_sight {
             return self.close_pane(&to, &strip, &tab, &desk);
         }
         let mut lasts = self.panes.slide_view(&desk, false);
