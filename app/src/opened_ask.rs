@@ -39,6 +39,15 @@ impl Workbench {
             .find(|ask| ask.id == id)
     }
 
+    /// The latest ask whose title starts with `title`.
+    pub fn ask_titled(&self, title: &str) -> Option<u64> {
+        (self.this_view()?.now.iter())
+            .flat_map(|now| &now.asks)
+            .filter(|ask| ask.title.starts_with(title))
+            .max_by_key(|ask| ask.at)
+            .map(|ask| ask.id)
+    }
+
     /// The ask open on `agent`'s pane, shown alone or not.
     pub(crate) fn opened_on(&self, agent: &str) -> Option<&OpenedAsk> {
         self.opened_ask.as_ref().filter(|ask| ask.agent == agent)
@@ -55,7 +64,11 @@ impl Workbench {
             return self.notify(toast::error(t!("Ask #{id} is no longer open", id = id)), cx);
         };
         let (agent, ask) = (ask.to.clone(), ask.clone());
-        if self.opened_ask.as_ref().is_some_and(|open| open.agent != agent) {
+        if self
+            .opened_ask
+            .as_ref()
+            .is_some_and(|open| open.agent != agent)
+        {
             self.close_ask(cx);
         }
         self.opened_ask = Some(OpenedAsk {

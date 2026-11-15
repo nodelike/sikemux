@@ -14,9 +14,10 @@ say "Pay button on the invoice does nothing in Safari. No spinner, nothing in th
 hold 14
 say "Search puts sold-out items first"
 hold 8
+front Kai
 settle 3
 snap whole-before
-ask 1
+ask "Pay button on the invoice"
 settle 4
 snap ask
 ask whole

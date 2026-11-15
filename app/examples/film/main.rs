@@ -45,8 +45,8 @@
 //!   pan DX,DY [S] / scroll DY [S]          two-finger scrolls at the cursor
 //!   shape arrow|hand|beam|auto  which pointer is drawn
 //!   settings PAGE               opens settings at the page of that name
-//!   ask N / ask whole           opens the person's ask N as its card does, or widens it to the
-//!                               whole chat
+//!   ask TITLE / ask whole       opens the person's ask whose title starts with TITLE as its card
+//!                               does, or widens it to the whole chat
 //!   wait S / mark KIND / still NAME / end [HOLD]
 //!   snap NAME                   saves the window alone as drawn, without the stage or cursor
 //!   toast "TEXT"                shows a toast saying TEXT, as a finished download does
