@@ -85,6 +85,8 @@ pub enum TurnWaitKind {
     Timer,
     Process,
     Check,
+    /// A repeating trigger's check it set, which fires once what the check says changes.
+    Watch,
     /// Its heavy command waits its turn on the host.
     Line,
     /// Something used one at a time is in use by another.

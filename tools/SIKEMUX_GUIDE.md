@@ -1010,7 +1010,7 @@ closed, and a pass is only a notice. Set no `ci` trigger for your own push.
 Each firing is a turn in the person's chat, so never repeat only to answer "no
 change". Give `every` or `daily` a `check`: a shell command that fires the
 trigger only when the end of its output changes, so keep that output free of
-times or counters.
+times or counters. Your row shows a trigger with a `check` as what you wait on.
 
 Write the prompt for yourself later, since the conversation may have moved on.
 A chat holds up to 20 triggers, paused ones included; `trigger_list` lists

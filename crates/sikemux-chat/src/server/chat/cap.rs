@@ -265,6 +265,7 @@ pub fn waited(wait: &TurnWait, now: u64) -> String {
         TurnWaitKind::Timer => "a timer",
         TurnWaitKind::Process => "a process",
         TurnWaitKind::Check => "a check",
+        TurnWaitKind::Watch => "a repeating check",
         TurnWaitKind::Line => "its turn on the host",
         TurnWaitKind::InUse => "something in use",
         TurnWaitKind::Land => "a land",

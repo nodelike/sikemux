@@ -256,8 +256,9 @@ impl Triggers {
     }
 
     /// What the agent's chat waits on of the wakes it set itself to carry its work on: CI first,
-    /// else its soonest one-time timer, which it has waited on since `rested_at`. A repeating
-    /// trigger is automation and a paused one waits on nothing, so neither is a wait.
+    /// else its soonest one-time timer, which it has waited on since `rested_at`, else a
+    /// repeating trigger with a check. A repeating trigger without one is automation and a
+    /// paused one waits on nothing, so neither is a wait.
     pub(crate) fn wait_of(
         &self,
         agent_id: &str,
@@ -299,8 +300,23 @@ impl Triggers {
         let soonest = mine()
             .filter(|trigger| matches!(trigger.when, TriggerWhen::Once { .. }))
             .filter_map(|trigger| Some((trigger, trigger.next_at?)))
-            .min_by_key(|(_, at)| *at)?;
-        let (trigger, at) = soonest;
+            .min_by_key(|(_, at)| *at);
+        let Some((trigger, at)) = soonest else {
+            let trigger = mine()
+                .filter(|trigger| trigger.check.is_some())
+                .min_by_key(|trigger| trigger.set.as_ref().map(|set| set.at))?;
+            return Some(TurnWait {
+                kind: TurnWaitKind::Watch,
+                what: trigger.title.clone(),
+                started_at: trigger.set.as_ref().map_or(rested_at, |set| set.at),
+                expected_ms: None,
+                until: None,
+                place: None,
+                by: None,
+                agent: None,
+                agents: Vec::new(),
+            });
+        };
         Some(TurnWait {
             kind: TurnWaitKind::Timer,
             what: trigger.title.clone(),

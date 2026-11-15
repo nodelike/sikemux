@@ -202,6 +202,7 @@ pub fn brief(turn: &TurnState, now: u64) -> Option<String> {
             Some(TurnWaitKind::Deploy) => with(t!("deploy")),
             Some(TurnWaitKind::Check) => with(t!("checks")),
             Some(TurnWaitKind::Timer) => with(t!("timer")),
+            Some(TurnWaitKind::Watch) => with(t!("watching")),
             Some(TurnWaitKind::Line | TurnWaitKind::Land) => {
                 match turn.wait.as_ref().and_then(|wait| wait.place) {
                     Some(place) => in_line(place),
@@ -259,7 +260,7 @@ fn waiting_on(wait: &TurnWait) -> String {
         TurnWaitKind::Line => wait.what.clone(),
         TurnWaitKind::InUse => t!("Waiting for {what}", what = wait.what),
         TurnWaitKind::Land => t!("Waiting to land on {branch}", branch = wait.what),
-        TurnWaitKind::Process | TurnWaitKind::Unknown => {
+        TurnWaitKind::Watch | TurnWaitKind::Process | TurnWaitKind::Unknown => {
             t!("Waiting on {what}", what = wait.what)
         }
     }

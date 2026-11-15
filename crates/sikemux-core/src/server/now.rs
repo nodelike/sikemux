@@ -374,6 +374,7 @@ fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
                 TurnWaitKind::Ci => "waiting on CI",
                 TurnWaitKind::Deploy => "waiting on a deploy",
                 TurnWaitKind::Timer => "waiting on a timer",
+                TurnWaitKind::Watch => "watching",
                 TurnWaitKind::Process => "waiting on a process",
                 TurnWaitKind::Check | TurnWaitKind::Unknown => "waiting on the project's check",
             };

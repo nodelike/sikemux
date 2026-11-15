@@ -803,6 +803,7 @@ pub(crate) fn line(turn: &TurnState) -> Option<String> {
                     })
                 }
                 TurnWaitKind::Timer => "a timer",
+                TurnWaitKind::Watch => "a repeating check",
                 TurnWaitKind::Process => "a process",
                 TurnWaitKind::Line => "its turn on the host",
                 TurnWaitKind::InUse => "something in use",
@@ -1004,6 +1005,52 @@ mod tests {
         let turn = now(&core, "agent").expect("the turn ended");
         assert_eq!(turn.state, TurnPhase::Done);
         assert!(turn.seen);
+    }
+
+    async fn trigger(core: &Arc<Core>, dir: &std::path::Path, params: Value) {
+        let request = crate::cli::protocol::HarnessRequest {
+            id: "1".to_owned(),
+            project: dir.to_string_lossy().into_owned(),
+            agent_id: Some("agent".to_owned()),
+            method: "trigger_add".to_owned(),
+            params,
+        };
+        crate::server::triggers::add(core, &request)
+            .await
+            .expect("the trigger");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_turn_ended_on_a_repeating_check_waits_on_it() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let every = json!({ "title": "Every hour", "prompt": "Tidy up.", "every": 3600 });
+        trigger(&core, dir.path(), every).await;
+        core.note_activity("agent", Activity::Started);
+        core.note_activity("agent", Activity::Finished { cancelled: false });
+        assert_eq!(
+            now(&core, "agent").map(|turn| turn.state),
+            Some(TurnPhase::Done)
+        );
+        assert!(!set_a_wake(&core, "agent"));
+
+        let check = json!({
+            "title": "sanctum after Track A done",
+            "prompt": "Track A is done; run the sanctum.",
+            "every": 300,
+            "check": "test -f track-a-done && echo done",
+        });
+        trigger(&core, dir.path(), check).await;
+        let turn = now(&core, "agent").expect("the turn ended");
+        assert_eq!(turn.state, TurnPhase::Waiting);
+        let wait = turn.wait.as_ref().expect("what it waits on");
+        assert_eq!(wait.kind, TurnWaitKind::Watch);
+        assert_eq!(wait.what, "sanctum after Track A done");
+        assert_eq!(
+            line(&turn).as_deref(),
+            Some("waiting on a repeating check: sanctum after Track A done")
+        );
+        assert!(set_a_wake(&core, "agent"));
     }
 
     fn work(changes: WorkAt) -> Work {
