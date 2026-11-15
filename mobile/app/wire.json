@@ -56,6 +56,7 @@
     "startSideChat",
     "stashPrompt",
     "steerQueued",
+    "takeOverChief",
     "takeStep",
     "undoOverrule"
   ]

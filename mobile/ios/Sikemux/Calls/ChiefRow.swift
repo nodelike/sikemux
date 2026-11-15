@@ -3,7 +3,8 @@ import SwiftUI
 
 /// A project's chief, @Chief, first among its agents: drawn from the project itself, whether or not its chat exists
 /// yet. A tap opens its chat, or asks the host for it, which makes it the first time and brings a closed one back.
-/// A chief that lives on another host is tagged with that host and opens there.
+/// A chief that lives on another host is tagged with that host and opens there, and while that host is out of reach
+/// the row offers to take the chief over on this one.
 struct ChiefRow: View {
     @Environment(\.palette) private var palette
     let core: String
@@ -19,9 +20,11 @@ struct ChiefRow: View {
     @State private var here = false
 
     var body: some View {
+        let away = project.chiefHome?.awaySince
         Row(
             title: CallWords.chief, host: homeTag, aside: shown?.titled == true ? shown?.title : nil,
-            detail: refused, onPress: open,
+            detail: refused ?? away.map { CallWords.outOfReach(ChatWords.clock($0, now: now)) },
+            onPress: open,
             mark: { AskerMark(agentId: shown?.agentId ?? "", provider: shown?.cli ?? "", chief: true) },
             end: {
                 HStack(spacing: 8) {
@@ -33,6 +36,14 @@ struct ChiefRow: View {
                     }
                     if opening {
                         Working()
+                    } else if away != nil && Hub.shared.device(core)?.access == .full {
+                        Button(CallWords.takeOver, action: takeOver)
+                            .buttonStyle(.plain)
+                            .font(Theme.ui(12.5, .medium))
+                            .foregroundStyle(palette.ink)
+                            .padding(.horizontal, 10)
+                            .frame(height: 28)
+                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.borderStrong))
                     } else if let shown {
                         TurnMark(turn: shown.turn, now: now)
                     }
@@ -63,6 +74,15 @@ struct ChiefRow: View {
             }
             return
         }
+        ask(PhoneCall.OpenChief.self)
+    }
+
+    private func takeOver() {
+        ask(PhoneCall.TakeOverChief.self)
+    }
+
+    private func ask<C: PhoneCallable>(_ call: C.Type)
+    where C.Params == OpenChiefParams, C.Answer == OpenedChief {
         guard !opening else { return }
         guard let connection = Hub.shared.live(core).connection else {
             Haptics.failure()
@@ -74,7 +94,7 @@ struct ChiefRow: View {
         Task {
             defer { opening = false }
             do {
-                let opened = try await connection.call(PhoneCall.OpenChief.self, OpenChiefParams(project: project.id))
+                let opened = try await connection.call(call, OpenChiefParams(project: project.id))
                 if here { Router.shared.push(.chat(core: core, agent: opened.agentId)) }
             } catch {
                 Haptics.failure()

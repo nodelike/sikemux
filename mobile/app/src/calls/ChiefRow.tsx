@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { clockLabel } from '@shared/chat/messageMeta';
-import { CHIEF, CHIEF_OFFLINE } from '@shared/calls/words';
+import { CHIEF, CHIEF_OFFLINE, TAKE_OVER, chiefAway } from '@shared/calls/words';
 import type { AgentShown, ProjectInfo } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
@@ -17,7 +17,8 @@ import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 /**
  * A project's chief, @Chief, first among its agents: drawn from the project itself, whether or not its chat exists
  * yet. A tap opens its chat, or asks the host for it, which makes it the first time and brings a closed one back.
- * A chief that lives on another host is tagged with that host and opens there.
+ * A chief that lives on another host is tagged with that host and opens there, and while that host is out of reach
+ * the row offers to take the chief over on this one.
  */
 export function ChiefRow({
   core,
@@ -39,6 +40,8 @@ export function ChiefRow({
   const t = useT();
   const { devices } = useDevices();
   const home = project.chiefHome;
+  const away = home?.awaySince ?? undefined;
+  const full = (devices.find((paired) => paired.core === core)?.access ?? 'full') === 'full';
   const homeTag =
     home &&
     (home.awaySince == null
@@ -55,7 +58,7 @@ export function ChiefRow({
     [],
   );
 
-  const open = async () => {
+  const open = () => {
     if (shown) {
       router.push(`/device/${core}/chat/${shown.agentId}`);
       return;
@@ -68,6 +71,10 @@ export function ChiefRow({
       }
       return;
     }
+    void ask('openChief');
+  };
+
+  const ask = async (method: 'openChief' | 'takeOverChief') => {
     if (opening) return;
     const connection = connectionOf(liveOf(core));
     if (!connection) {
@@ -77,7 +84,7 @@ export function ChiefRow({
     setOpening(true);
     setRefused(undefined);
     try {
-      const opened = await callHost(connection, 'openChief', { project: project.id });
+      const opened = await callHost(connection, method, { project: project.id });
       if (here.current) router.push(`/device/${core}/chat/${opened.agentId}`);
     } catch (error) {
       setRefused(problem(error));
@@ -92,7 +99,7 @@ export function ChiefRow({
       title={CHIEF}
       host={homeTag}
       aside={shown?.titled ? shown.title : undefined}
-      detail={refused}
+      detail={refused ?? (away != null ? chiefAway(away, now, t) : undefined)}
       end={
         <View style={styles.end}>
           {mixed ? (
@@ -103,10 +110,18 @@ export function ChiefRow({
               </Text>
             </View>
           ) : null}
-          {opening ? <Working /> : shown ? <TurnMark turn={shown.turn} now={now} /> : null}
+          {opening ? (
+            <Working />
+          ) : away != null && full ? (
+            <Pressable onPress={() => void ask('takeOverChief')} style={styles.takeOver} accessibilityRole="button">
+              <Text style={styles.takeOverText}>{t(TAKE_OVER)}</Text>
+            </Pressable>
+          ) : shown ? (
+            <TurnMark turn={shown.turn} now={now} />
+          ) : null}
         </View>
       }
-      onPress={() => void open()}
+      onPress={open}
     />
   );
 }
@@ -116,5 +131,14 @@ const makeStyles = (colors: Palette) => {
     end: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     project: { flexDirection: 'row', alignItems: 'center', gap: 4, maxWidth: 120 },
     projectText: { fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
+    takeOver: {
+      height: 28,
+      paddingHorizontal: 10,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      justifyContent: 'center',
+    },
+    takeOverText: { fontFamily: fonts.uiMedium, fontSize: 12.5, color: colors.ink },
   });
 };

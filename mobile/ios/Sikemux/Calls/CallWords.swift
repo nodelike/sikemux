@@ -297,6 +297,9 @@ enum CallWords {
         String(localized: "@Chief lives on \(host). Pair this phone with \(host) to open its chat.")
     }
     static let chiefOffline = String(localized: "Not connected to this host yet, so its chief can't open.")
+    /// On the chief's row while the host it lives on is out of reach.
+    static let takeOver = String(localized: "Take over here")
+    static func outOfReach(_ time: String) -> String { String(localized: "Out of reach since \(time)") }
     /// The composer's words in a worker's chat whose project's chief hears what is typed there.
     static func sendToTold(_ name: String) -> String { String(localized: "Send to @\(name) · @Chief is told") }
 

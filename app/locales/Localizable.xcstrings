@@ -3077,6 +3077,7 @@
     "{host} has room.": {},
     "{host} is out of reach, so this waits until it is back.": {},
     "{host} is out of reach. Showing what it last said; changes wait until it is back.": {},
+    "{host}, out of reach since {at}": {},
     "{hours} h": {},
     "{hours} h {minutes} min": {},
     "{hours}h": {},

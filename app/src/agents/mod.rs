@@ -1364,10 +1364,15 @@ fn chief_row(
                 bench.take_over_chief(&project_id, cx);
             }))
         });
-    let status = match take_over {
-        Some(button) => Some(button.into_any_element()),
-        None => chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())),
-    };
+    let away = (project.chief_home.as_ref()).and_then(|home| {
+        let since = home.away_since?;
+        let said = t!(
+            "{host}, out of reach since {at}",
+            host = home.host_name,
+            at = ui::time::clock(since)
+        );
+        Some(ui::text(said, TEXT_2XS, FontWeight::NORMAL).text_color(t.text_tertiary))
+    });
     let (id, project_id) = (chief.map(|chief| chief.id.clone()), project.id.clone());
     let home_project = project.chief_home.as_ref().and_then(|home| {
         let copy = (project.copies.iter()).find(|copy| copy.host == home.host)?;
@@ -1380,10 +1385,12 @@ fn chief_row(
     .mark(22., ui::chief_mark(20.))
     .chosen(chosen)
     .compact(bench.rail_compact())
-    .status(status)
+    .status(chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())))
     .detail(rows::chief_role())
     .children(place)
     .children(home)
+    .children(take_over)
+    .when_some(away, |row, away| row.subtitle(away))
     .on_click(
         cx.listener(move |bench, _, _, cx| match (&id, &home_project) {
             (Some(id), _) => bench.open_agent(id, cx),
