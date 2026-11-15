@@ -916,7 +916,10 @@ pub(crate) async fn run_core(
                 }
             },
             _ = frozen.changed() => {}
-            _ = shutdown.changed() => break,
+            _ = shutdown.changed() => {
+                eprintln!("sikemux core: stopping, as it was asked to");
+                break;
+            }
             asked = stopping.asked() => {
                 eprintln!("sikemux core: stopping, as something sent it {asked}");
                 break;
@@ -954,6 +957,7 @@ pub(crate) async fn run_core(
     runtime_file::remove(&remote::file_path(&config.socket));
     drop(lock);
     crate::waiting::wake(&config.socket);
+    eprintln!("sikemux core: stopped");
     Ok(())
 }
 

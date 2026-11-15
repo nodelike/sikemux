@@ -110,11 +110,16 @@ fn a_killed_core_comes_back_and_a_stopped_one_stays_down() {
     );
     assert!(
         gone(&watching),
-        "the watcher outlived its core, which is {}\n{}",
+        "the watcher outlived its core, which is {} and {}\n{}",
         if alive(second) {
             "still running"
         } else {
             "gone"
+        },
+        if answering(&launch.socket).is_some() {
+            "answering"
+        } else {
+            "not answering"
         },
         log()
     );
