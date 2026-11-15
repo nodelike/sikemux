@@ -80452,6 +80452,9 @@
         }
       }
     },
+    "Runs on {host}": {},
+    "Runs on {host}, out of reach": {},
+    "Runs on {host}, out of reach since {at}": {},
     "Runs unsandboxed in the active session's directory, with SIKEMUX_SESSION_* and SIKEMUX_PROJECT set.": {
       "localizations": {
         "es": {
@@ -151951,7 +151954,6 @@
         }
       }
     },
-    "{host} · out of reach since {at}": {},
     "{hours} h": {
       "localizations": {
         "es": {

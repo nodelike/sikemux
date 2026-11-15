@@ -247,6 +247,13 @@ extension Icons {
         IconShape(d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M8 16H3v5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
+    static let remoteHost = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "M3.5 12h17a1.5 1.5 0 0 1 1.5 1.5v2a1.5 1.5 0 0 1 -1.5 1.5h-17a1.5 1.5 0 0 1 -1.5 -1.5v-2a1.5 1.5 0 0 1 1.5 -1.5z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M3.25 19h17.5a1.25 1.25 0 0 1 1.25 1.25v1a1.25 1.25 0 0 1 -1.25 1.25h-17.5a1.25 1.25 0 0 1 -1.25 -1.25v-1a1.25 1.25 0 0 1 1.25 -1.25z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M6 14.5h.01", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M5 8.5a7.5 7.5 0 0 1 13.5-3", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M19.5 1.5l-.8 4.3-4.2-.9", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+    ])
     static let reply = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M20 18v-2a4 4 0 0 0-4-4H4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "m9 17-5-5 5-5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
@@ -533,6 +540,7 @@ extension Icons {
         case "IconPush": return push
         case "IconRecord": return record
         case "IconRefresh": return refresh
+        case "IconRemoteHost": return remoteHost
         case "IconReply": return reply
         case "IconResize": return resize
         case "IconRocket": return rocket

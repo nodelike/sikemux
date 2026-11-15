@@ -1394,16 +1394,15 @@ fn chief_row(
             .child(ui::text(project.name.clone(), TEXT_2XS, FontWeight::MEDIUM))
     });
     let home = project.chief_home.as_ref().map(|home| {
-        let label = match home.away_since {
+        let said = match home.away_since {
             Some(since) => t!(
-                "{host} · out of reach since {at}",
+                "Runs on {host}, out of reach since {at}",
                 host = home.host_name,
                 at = ui::time::clock(since)
-            )
-            .to_string(),
-            None => home.host_name.clone(),
+            ),
+            None => t!("Runs on {host}", host = home.host_name),
         };
-        tag(label.into(), cx)
+        host_mark(format!("chief-home-{}", project.id), said.into(), cx)
     });
     let (id, project_id) = (chief.map(|chief| chief.id.clone()), project.id.clone());
     let home_project = project.chief_home.as_ref().and_then(|home| {
@@ -1440,23 +1439,20 @@ fn host_tag(bench: &Workbench, agent: &AgentRow, cx: &App) -> Option<AnyElement>
         return None;
     };
     let host = bench.host_name(key);
-    Some(match agent.reachable {
-        true => tag(host, cx),
-        false => tag(format!("{host} · out of reach").into(), cx),
-    })
+    let said = match agent.reachable {
+        true => t!("Runs on {host}", host = host),
+        false => t!("Runs on {host}, out of reach", host = host),
+    };
+    Some(host_mark(format!("host-of-{}", agent.id), said.into(), cx))
 }
 
-fn tag(host: SharedString, cx: &App) -> AnyElement {
-    let t = Tokens::get(cx);
+fn host_mark(id: String, said: SharedString, cx: &App) -> AnyElement {
     div()
-        .flex()
+        .id(SharedString::from(id))
         .flex_none()
-        .items_center()
-        .gap(px(3.))
         .pl(SPACE_2)
-        .text_color(t.host)
-        .child(ui::icon(Icon::Server, 11.).text_color(t.host))
-        .child(ui::text(host, TEXT_2XS, FontWeight::MEDIUM))
+        .tooltip(ui::tooltip(said))
+        .child(ui::icon(Icon::RemoteHost, 11.).text_color(Tokens::get(cx).host))
         .into_any_element()
 }
 

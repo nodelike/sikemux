@@ -52,7 +52,7 @@ struct Row<Mark: View, End: View, After: View>: View {
     var title: String?
     /// The agent's name, small and dim at the row's end.
     var name: String?
-    /// The linked host the agent runs on, tagged before its name as the Mac's rail tags it.
+    /// The linked host the agent runs on, marked before its name as the Mac's rail marks it and said to VoiceOver.
     var host: String?
     /// Quiet words after the title on its line, such as what a chief's chat is on.
     var aside: String?
@@ -153,13 +153,10 @@ struct Row<Mark: View, End: View, After: View>: View {
             if named != nil || host != nil || End.self != EmptyView.self {
                 HStack(spacing: 6) {
                     if let host {
-                        HStack(spacing: 4) {
-                            IconView(icon: Icons.server, size: 11)
-                            Text(host).font(Theme.ui(11, .medium)).lineLimit(1)
-                        }
-                        .foregroundStyle(palette.live)
-                        .opacity(dim ? 0.55 : 1)
-                        .frame(maxWidth: 150, alignment: .trailing)
+                        IconView(icon: Icons.remoteHost, size: 11)
+                            .foregroundStyle(palette.live)
+                            .opacity(dim ? 0.55 : 1)
+                            .accessibilityLabel(host)
                     }
                     if let named {
                         Text(named)

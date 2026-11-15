@@ -41,7 +41,7 @@ export function Row({
   mark?: ReactNode;
   /** The agent's name, small and dim with the row's counts and state at its end, as the Mac's rail sets it. */
   name?: string | null;
-  /** The linked host the agent runs on, tagged before its name as the Mac's rail tags it. */
+  /** The linked host the agent runs on, marked before its name as the Mac's rail marks it and said to TalkBack. */
   host?: string;
   title?: string;
   /** Quiet words after the title on its line, such as what a chief's chat is on. */
@@ -109,11 +109,8 @@ export function Row({
       {named || host || end ? (
         <View style={styles.rowEnd}>
           {host ? (
-            <View style={[styles.rowHost, dim && styles.rowHostDim]}>
-              <Icon name="IconServer" size={11} color={colors.live} />
-              <Text style={styles.rowHostName} numberOfLines={1}>
-                {host}
-              </Text>
+            <View style={dim && styles.rowHostDim} accessible accessibilityLabel={host}>
+              <Icon name="IconRemoteHost" size={11} color={colors.live} />
             </View>
           ) : null}
           {named ? (
@@ -164,9 +161,7 @@ const makeStyles = (colors: Palette) => {
     rowBody: { flex: 1, minWidth: 0 },
     rowLabel: { flexDirection: 'row', alignItems: 'baseline' },
     rowTitle: { ...type.row, fontSize: 14.5, flexShrink: 1 },
-    rowHost: { maxWidth: 150, flexDirection: 'row', alignItems: 'center', gap: 4 },
     rowHostDim: { opacity: 0.55 },
-    rowHostName: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 11, color: colors.live },
     rowAside: { flexShrink: 1, marginLeft: 6, fontFamily: fonts.ui, fontSize: 14.5, color: colors.tertiary },
     rowName: { maxWidth: 110, fontFamily: fonts.ui, fontSize: 11.5, color: colors.tertiary },
     rowDetail: { ...type.meta, fontSize: 12, marginTop: 1 },
