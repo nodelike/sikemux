@@ -517,6 +517,7 @@ fn window_pointer(window: &Window) -> Option<usize> {
 
 #[cfg(windows)]
 fn window_pointer(window: &Window) -> Option<usize> {
+    sikemux_browser::run_pages_on_this_thread();
     gpui_native_view::window_hwnd(window).map(|window| window as usize)
 }
 

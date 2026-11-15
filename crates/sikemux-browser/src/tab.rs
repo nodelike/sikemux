@@ -281,5 +281,7 @@ impl Tab {
 #[cfg(target_os = "linux")]
 pub use crate::linux::Tab;
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub use crate::no_engine::Tab;
+#[cfg(windows)]
+pub use crate::windows::Tab;
