@@ -169,6 +169,7 @@ enum PhoneCall {
     enum HandOff {}
     enum KeepHistory {}
     enum LiveActivity {}
+    enum ModelRoutes {}
     enum MoveChatAccount {}
     enum OnScreen {}
     enum OpenChief {}
@@ -369,6 +370,12 @@ extension PhoneCall.LiveActivity: PhoneCallable {
     static let method = "liveActivity"
     typealias Params = ActivityParams
     typealias Answer = WireNull
+}
+
+extension PhoneCall.ModelRoutes: PhoneCallable {
+    static let method = "modelRoutes"
+    typealias Params = RoutesParams
+    typealias Answer = [ModelRoute]
 }
 
 extension PhoneCall.MoveChatAccount: PhoneCallable {
@@ -8214,6 +8221,34 @@ struct KeepHistoryParams: Codable, Hashable, Sendable {
 /// The push token of the Live Activity the calling phone shows this host's agents in; none once it ended.
 struct ActivityParams: Codable, Hashable, Sendable {
     var token: String?
+}
+
+/// The agent whose model menu asks, and the provider its chat runs on, if one.
+struct RoutesParams: Codable, Hashable, Sendable {
+    var agent: String
+    var current: String?
+}
+
+/// A connected provider the agent can run on, with the models it serves.
+struct ModelRoute: Codable, Hashable, Sendable {
+    var id: String
+    var label: String
+    /// A runner on this host rather than an API.
+    var local: Bool
+    var models: [String]
+    /// What models.dev says of these models, by API name.
+    var facts: [String: ModelFacts]
+    /// Whether each model checked so far calls tools the way agents need.
+    var works: [String: Bool]
+}
+
+struct ModelFacts: Codable, Hashable, Sendable {
+    var context: Int
+    /// USD per million tokens; a plan's models cost nothing more.
+    var input: Double?
+    var output: Double?
+    /// Only a hint: a check is the final word.
+    var toolCall: Bool
 }
 
 struct MoveChatParams: Codable, Hashable, Sendable {

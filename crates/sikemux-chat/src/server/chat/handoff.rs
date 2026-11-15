@@ -294,7 +294,7 @@ fn tell(core: &Core, agent_id: &str) {
 }
 
 /// Hands the chat to another agent, or forks it, and has the chat that carries on wait for the
-/// person with the handoff shown.
+/// person with the handoff shown. A chat that has said nothing yet just moves.
 pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<ChatHandedOff> {
     let source = core.workspaces().agent_or_gone(&params.agent_id)?;
     if !params.fork && core.chats().at_work(&params.agent_id) {
@@ -302,9 +302,10 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
     }
     let said = said(core, &source)
         .ok_or_else(|| CoreError::from("Sikemux no longer has what this chat said"))?;
-    let pending = build(said, &source.provider, &source.id, params.fork)
-        .ok_or_else(|| CoreError::from("This chat has nothing to hand over yet"))?;
+    let pending = build(said, &source.provider, &source.id, params.fork);
     if params.fork {
+        let pending =
+            pending.ok_or_else(|| CoreError::from("This chat has nothing to hand over yet"))?;
         let launcher = match &params.profile_id {
             Some(profile) => format!("{}:{profile}", params.provider),
             None => params.provider.clone(),
@@ -353,7 +354,9 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
             patch,
         },
     )?;
-    core.chats().handoffs.set(&agent_id, pending);
+    if let Some(pending) = pending {
+        core.chats().handoffs.set(&agent_id, pending);
+    }
     (core.chat_above().start_saved)(core, &agent_id, true).await?;
     tell(core, &agent_id);
     Ok(ChatHandedOff {

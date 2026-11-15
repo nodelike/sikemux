@@ -5471,6 +5471,34 @@ export interface ActivityParams {
     token: string | null;
 }
 
+/** The agent whose model menu asks, and the provider its chat runs on, if one. */
+export interface RoutesParams {
+    agent: string;
+    current?: string | null;
+}
+
+/** A connected provider the agent can run on, with the models it serves. */
+export interface ModelRoute {
+    id: string;
+    label: string;
+    /** A runner on this host rather than an API. */
+    local: boolean;
+    models: string[];
+    /** What models.dev says of these models, by API name. */
+    facts: Record<string, ModelFacts>;
+    /** Whether each model checked so far calls tools the way agents need. */
+    works: Record<string, boolean>;
+}
+
+export interface ModelFacts {
+    context: number;
+    /** USD per million tokens; a plan's models cost nothing more. */
+    input?: number;
+    output?: number;
+    /** Only a hint: a check is the final word. */
+    toolCall: boolean;
+}
+
 export interface MoveChatParams {
     agentId: string;
     accountId: string;
@@ -5672,6 +5700,7 @@ export interface CoreCalls {
     handOff: { params: HandOffParams; answer: ChatHandedOff };
     keepHistory: { params: KeepHistoryParams; answer: null };
     liveActivity: { params: ActivityParams; answer: null };
+    modelRoutes: { params: RoutesParams; answer: ModelRoute[] };
     moveChatAccount: { params: MoveChatParams; answer: null };
     onScreen: { params: OnScreenParams; answer: null };
     openChief: { params: OpenChiefParams; answer: OpenedChief };

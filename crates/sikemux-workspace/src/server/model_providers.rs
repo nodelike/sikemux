@@ -7,7 +7,8 @@
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::model_providers::ModelProvider;
 pub use sikemux_calls::model_providers::{
-    CheckParams, Choices, ConnectParams, HelperParams, ModelFacts, ProviderParams, ServedModels,
+    CheckParams, Choices, ConnectParams, HelperParams, ModelFacts, ModelRoute, ProviderParams,
+    RoutesParams, ServedModels,
 };
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
@@ -279,6 +280,56 @@ pub async fn models(core: &Arc<Core>, params: ProviderParams) -> CoreResult<Serv
         choices: choices(&provider, &feed, Some(&models)),
         models,
     })
+}
+
+/// The connected providers `agent` can run on, each with the models it serves. A provider
+/// that lists none is left out, unless the chat already runs on it.
+pub async fn routes(core: &Arc<Core>, params: RoutesParams) -> CoreResult<Vec<ModelRoute>> {
+    let listed = list(core).await?;
+    let asking: Vec<_> = listed
+        .into_iter()
+        .filter(|provider| provider.connected && provider.agents.contains(&params.agent))
+        .map(|provider| {
+            let core = core.clone();
+            tokio::spawn(async move {
+                match provider.models.clone() {
+                    Some(models) => (provider, models),
+                    None => {
+                        let served = models(&core, ProviderParams { id: provider.id.clone() })
+                            .await
+                            .ok();
+                        let mut provider = provider;
+                        let models = match served {
+                            Some(served) => {
+                                provider.choices = served.choices;
+                                served.models
+                            }
+                            None => Vec::new(),
+                        };
+                        (provider, models)
+                    }
+                }
+            })
+        })
+        .collect();
+    let mut routes = Vec::with_capacity(asking.len());
+    for asked in asking {
+        let Ok((provider, models)) = asked.await else { continue };
+        if models.is_empty() && params.current.as_deref() != Some(provider.id.as_str()) {
+            continue;
+        }
+        routes.push(ModelRoute {
+            local: provider.kind == Kind::Local,
+            facts: provider.choices.facts,
+            works: (provider.checks.into_iter())
+                .map(|(model, check)| (model, check.works))
+                .collect(),
+            id: provider.id,
+            label: provider.label,
+            models,
+        });
+    }
+    Ok(routes)
 }
 
 /// Asks the provider whether `model` calls tools the way agents need, now.

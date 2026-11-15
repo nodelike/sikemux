@@ -17,6 +17,11 @@ struct ConfigSheet: View {
     var expiredCache: ExpiredCache?
     var onSummarise: (Bool) -> Void = { _ in }
     let onPick: (ConfigPicker, String) -> Void
+    /// The connected providers the agent can run on, which a chat can move to before it starts.
+    var routes: [ModelRoute] = []
+    /// The provider and model picked from `routes`.
+    var routed: RoutePick?
+    var onRoute: (RoutePick) -> Void = { _ in }
     @State private var query = ""
     /// The older releases of the agent's models show, which start folded away.
     @State private var older = false
@@ -60,7 +65,12 @@ struct ConfigSheet: View {
                 Field(
                     placeholder: String(localized: "Search \(name)'s models…"), text: $query, icon: Icons.search,
                     font: Theme.ui(15))
-                models(model, typed: typed, heading: Catalog.entry(provider, core: core)?.maker ?? name)
+                let heading = Catalog.entry(provider, core: core)?.maker ?? name
+                let routed = routes.map { ($0, Self.matching($0, typed: typed)) }.filter { !$0.1.isEmpty }
+                models(model, typed: typed, heading: heading, others: !routed.isEmpty)
+                ForEach(routed, id: \.0.id) { route, shown in
+                    section(route, shown: shown)
+                }
             }
             if typed.isEmpty {
                 if let effort, !effort.choices.isEmpty {
@@ -153,7 +163,7 @@ struct ConfigSheet: View {
     }
 
     /// The agent's models under its maker, matched to the search, its older releases folded away until asked.
-    private func models(_ model: ConfigPicker, typed: String, heading: String) -> some View {
+    private func models(_ model: ConfigPicker, typed: String, heading: String, others: Bool) -> some View {
         let unfolded = older || !typed.isEmpty
         let folds = model.choices.contains { $0.superseded == true && $0.value != model.current }
         let shown = model.choices.filter { choice in
@@ -162,9 +172,9 @@ struct ConfigSheet: View {
                     || "\(choice.label) \(choice.description ?? "") \(heading)".lowercased().contains(typed))
         }
         return VStack(alignment: .leading, spacing: 2) {
-            SectionLabel(heading)
+            if !shown.isEmpty || !others { SectionLabel(heading) }
             ForEach(shown, id: \.value) { choice in
-                let on = choice.value == model.current
+                let on = routed == nil && choice.value == model.current
                 Button {
                     onPick(model, choice.value)
                 } label: {
@@ -208,12 +218,76 @@ struct ConfigSheet: View {
                 }
                 .buttonStyle(PressFade())
             }
-            if shown.isEmpty {
+            if shown.isEmpty && !others {
                 Text("No model matches").font(Theme.ui(14)).foregroundStyle(palette.tertiary)
                     .padding(.horizontal, 10).padding(.vertical, 12)
             }
         }
     }
+
+    /// The route's models matched to the search, by their name, what is known of them and the provider's.
+    private static func matching(_ route: ModelRoute, typed: String) -> [String] {
+        guard !typed.isEmpty else { return route.models }
+        return route.models.filter { "\($0) \(facts(route, $0)) \(route.label)".lowercased().contains(typed) }
+    }
+
+    /// Context and price per million tokens, as the Mac's menu words them.
+    private static func facts(_ route: ModelRoute, _ model: String) -> String {
+        guard let facts = route.facts[model] else { return "" }
+        var words = [String(localized: "\(Format.tokens(facts.context)) context")]
+        if let input = facts.input, let output = facts.output {
+            let price = { (usd: Double) in usd.formatted(.number.precision(.fractionLength(0...2))) }
+            words.append(String(localized: "$\(price(input))/$\(price(output)) per 1M"))
+        }
+        return words.joined(separator: " · ")
+    }
+
+    private func section(_ route: ModelRoute, shown: [String]) -> some View {
+        let heading =
+            route.local && !route.label.hasPrefix("Local")
+            ? String(localized: "\(route.label) · local") : route.label
+        return VStack(alignment: .leading, spacing: 2) {
+            SectionLabel(heading)
+            ForEach(shown, id: \.self) { model in
+                let pick = RoutePick(provider: route.id, model: model)
+                let on = routed == pick
+                let facts = Self.facts(route, model)
+                Button {
+                    onRoute(pick)
+                } label: {
+                    HStack(spacing: 11) {
+                        AgentMark(provider: provider, size: 17)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(model)
+                                .font(Theme.ui(15))
+                                .foregroundStyle(on ? palette.ink : palette.secondary)
+                                .lineLimit(1)
+                            if !facts.isEmpty {
+                                Text(facts).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        if on { IconView(icon: Icons.check, size: 15).foregroundStyle(palette.accent) }
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 42)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous).fill(on ? palette.active : .clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressFade())
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(.top, 10)
+    }
+}
+
+/// A connected provider's model a chat moves to before it starts.
+struct RoutePick: Equatable {
+    let provider: String
+    let model: String
 }
 
 /// The efforts a model thinks at, side by side, each led by the Mac's strength bars.

@@ -267,6 +267,7 @@ calls! { core, client, method, params;
     "agentSignOut" = AgentSignOut: Owner => agent_sign_in::sign_out(params).await?,
     "modelProviders" = ModelProviders: Full, any_program => model_providers::list(&core).await?,
     "modelProviderModels" = ModelProviderModels: Full, any_program => model_providers::models(&core, params).await?,
+    "modelRoutes" = ModelRoutes: Full, any_program => model_providers::routes(&core, params).await?,
     "modelHelper" = ModelHelper: Full, any_program => model_providers::helper(&core).await?,
     "modelProviderCheck" = ModelProviderCheck: Owner => model_providers::check(&core, params).await?,
     "modelProviderConnect" = ModelProviderConnect: Owner, counted => model_providers::connect(&core, params).await?,

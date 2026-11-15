@@ -13,7 +13,7 @@ import { newChatDraft, type NewChatDraft } from '@/chat/kept';
 import { Message } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
 import { startChat } from '@/chat/start';
-import { ConfigSheet } from '@/chat/ConfigSheet';
+import { ConfigSheet, type RoutePick } from '@/chat/ConfigSheet';
 import { ModelChip } from '@/chat/ModelChip';
 import { currentLabel, useAgents } from '@/chat/sessionConfig';
 import { AttachSheet } from '@/chat/AttachSheet';
@@ -153,6 +153,8 @@ export default function NewChat() {
   const [chosenMode, setChosenMode] = useState<string>();
   /** The model and effort picked for the chat before it starts, by their config ids. */
   const [chosenConfig, setChosenConfig] = useState<Record<string, string>>({});
+  /** A connected provider's model picked in place of the agent's own. */
+  const [routed, setRouted] = useState<RoutePick>();
   const [projectId, setProjectId] = useState<string | undefined>(linkedProject);
   const kept = useMemo(() => newChatDraft(core), [core]);
   const [held] = useState(() => kept.load());
@@ -293,6 +295,13 @@ export default function NewChat() {
     '',
   ).data;
 
+  const routes = useHostCall(
+    launcher && live.status === 'open' ? live.connection : undefined,
+    'modelRoutes',
+    { agent: launcher?.provider ?? '' },
+    '',
+  ).data;
+
   const start = async () => {
     const text = withContext(draft.trim(), chips.map(contextChip));
     if (busy.current || (!text && !attachments.length) || !launcher || !project || live.status !== 'open') return;
@@ -313,6 +322,12 @@ export default function NewChat() {
         config: [launcher.model?.id, launcher.effort?.id].flatMap((id) =>
           id && chosenConfig[id] !== undefined ? [{ id, value: chosenConfig[id] }] : [],
         ),
+        route: routed && {
+          provider: launcher.provider,
+          profileId: launcher.id.split(':')[1],
+          model: routed.model,
+          modelProvider: routed.provider,
+        },
         text,
         attachments: shown.attachments,
         worktree,
@@ -450,7 +465,7 @@ export default function NewChat() {
               {launcher ? (
                 <ModelChip
                   provider={launcher.provider}
-                  model={currentLabel(picked(launcher.model))}
+                  model={routed?.model ?? currentLabel(picked(launcher.model))}
                   effort={currentLabel(picked(launcher.effort))}
                   disabled={Boolean(started)}
                   onPress={() => setSheet('model')}
@@ -522,13 +537,23 @@ export default function NewChat() {
             setLauncherId(workspace?.launchers.find((known) => known.provider === agent)?.id);
             setChosenMode(undefined);
             setChosenConfig({});
+            setRouted(undefined);
           }}
           model={picked(launcher.model)}
           effort={picked(launcher.effort)}
           speed={undefined}
           onPick={(picker, value) => {
             setChosenConfig((chosen) => ({ ...chosen, [picker.id]: value }));
-            if (picker.id === launcher.model?.id) setSheet(undefined);
+            if (picker.id === launcher.model?.id) {
+              setRouted(undefined);
+              setSheet(undefined);
+            }
+          }}
+          routes={routes ?? []}
+          routed={routed}
+          onRoute={(pick) => {
+            setRouted(pick);
+            setSheet(undefined);
           }}
         />
       ) : null}

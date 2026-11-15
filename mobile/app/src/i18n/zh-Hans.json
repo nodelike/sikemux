@@ -810,5 +810,8 @@
   "Show more": "显示更多",
   "No model matches": "没有匹配的模型",
   "Default": "默认",
-  "Speed": "速度"
+  "Speed": "速度",
+  "{size} context": "{size} 上下文",
+  "${input}/${output} per 1M": "每 100 万 ${input}/${output}",
+  "{route} · local": "{route} · 本地"
 }

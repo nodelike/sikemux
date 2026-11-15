@@ -141,6 +141,7 @@ crate::calls! {
     "adoptSkill" AdoptSkill (crate::skill_library::Located) -> sikemux_agents::skills::Skill;
     "agentSignIns" AgentSignIns (crate::params::NoParams) -> Vec<crate::agent_sign_in::Page>;
     "modelProviderModels" ModelProviderModels (crate::model_providers::ProviderParams) -> crate::model_providers::ServedModels;
+    "modelRoutes" ModelRoutes (crate::model_providers::RoutesParams) -> Vec<crate::model_providers::ModelRoute>;
     "modelHelper" ModelHelper (crate::params::NoParams) -> Option<sikemux_agents::launch::providers::Helper>;
     "modelProviderCheck" ModelProviderCheck (crate::model_providers::CheckParams) -> crate::model_providers::Check;
     "modelProviderConnect" ModelProviderConnect (crate::model_providers::ConnectParams) -> ();

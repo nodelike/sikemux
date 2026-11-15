@@ -810,5 +810,8 @@
   "Show more": "さらに表示",
   "No model matches": "一致するモデルはありません",
   "Default": "デフォルト",
-  "Speed": "速度"
+  "Speed": "速度",
+  "{size} context": "{size} コンテキスト",
+  "${input}/${output} per 1M": "100万あたり ${input}/${output}",
+  "{route} · local": "{route} · ローカル"
 }

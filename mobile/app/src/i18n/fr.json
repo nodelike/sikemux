@@ -810,5 +810,8 @@
   "Show more": "Afficher plus",
   "No model matches": "Aucun modèle ne correspond",
   "Default": "Par défaut",
-  "Speed": "Vitesse"
+  "Speed": "Vitesse",
+  "{size} context": "contexte de {size}",
+  "${input}/${output} per 1M": "${input}/${output} par 1M",
+  "{route} · local": "{route} · local"
 }

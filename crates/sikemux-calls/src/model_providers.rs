@@ -24,7 +24,7 @@ pub struct Choices {
     pub facts: BTreeMap<String, ModelFacts>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelFacts {
     pub context: u64,
@@ -40,6 +40,30 @@ pub struct ModelFacts {
 #[derive(Serialize, Deserialize)]
 pub struct ProviderParams {
     pub id: String,
+}
+
+/// The agent whose model menu asks, and the provider its chat runs on, if one.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutesParams {
+    pub agent: String,
+    #[serde(default)]
+    pub current: Option<String>,
+}
+
+/// A connected provider the agent can run on, with the models it serves.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelRoute {
+    pub id: String,
+    pub label: String,
+    /// A runner on this host rather than an API.
+    pub local: bool,
+    pub models: Vec<String>,
+    /// What models.dev says of these models, by API name.
+    pub facts: BTreeMap<String, ModelFacts>,
+    /// Whether each model checked so far calls tools the way agents need.
+    pub works: BTreeMap<String, bool>,
 }
 
 #[derive(Serialize, Deserialize)]

@@ -722,6 +722,7 @@
   .ps-rows .it > span:first-child svg { width: 17px; height: 17px; flex: none; }
   .ps-rows .it .k { margin-left: auto; color: var(--acc); }
   .ps-rows .it.more { color: var(--text-tertiary); }
+  .ps-rows .it .two { display: flex; flex-direction: column; gap: 1px; line-height: 1.2; }
   .ps-effort { display: flex; align-items: center; gap: 6px; padding: 14px 6px 8px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); }
   .ps-effort .r { margin-left: auto; font-size: 12px; font-weight: 400; }
   .effort-steps { display: flex; gap: 3px; padding: 3px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-raised); }
@@ -3591,13 +3592,13 @@ expected 1 write, got 2</div>
           <div class="grabber"></div>
           <div class="harness-strip"><span><span class="claude">{{IconClaude:20}}</span></span><span class="on"><span class="codex">{{IconCodex:20}}</span></span><span><span class="hermes">{{IconHermes:20}}</span></span><span><span class="opencode">{{IconOpenCode:20}}</span></span><span><span class="grok">{{IconGrok:20}}</span></span><span><span class="pi">{{IconPi:20}}</span></span></div>
           <div class="search">{{IconSearch:18}}Search Codex's models…</div>
-          <div class="ps-rows"><div class="sec">OpenAI</div><div class="it on"><span class="codex">{{IconCodex:17}}</span>GPT-5.5<span class="k">{{IconCheck:15}}</span></div><div class="it"><span class="codex">{{IconCodex:17}}</span>GPT-5.5 mini</div><div class="it"><span class="codex">{{IconCodex:17}}</span>GPT-5.4</div></div>
+          <div class="ps-rows"><div class="sec">OpenAI</div><div class="it on"><span class="codex">{{IconCodex:17}}</span>GPT-5.5<span class="k">{{IconCheck:15}}</span></div><div class="it"><span class="codex">{{IconCodex:17}}</span>GPT-5.5 mini</div><div class="it"><span class="codex">{{IconCodex:17}}</span>GPT-5.4</div><div class="sec">Ollama · local</div><div class="it"><span class="codex">{{IconCodex:17}}</span><span class="two">qwen3-coder:30b<span class="dm">256K context</span></span></div><div class="it"><span class="codex">{{IconCodex:17}}</span><span class="two">gpt-oss:20b<span class="dm">128K context</span></span></div></div>
           <div class="ps-effort">{{IconGauge:13}}Effort<span class="r">GPT-5.5</span></div>
           <div class="effort-steps"><span><span class="bars l2"><i></i><i></i><i></i><i></i><i></i></span>Low</span><span class="on"><span class="bars l4"><i></i><i></i><i></i><i></i><i></i></span>Medium</span><span><span class="bars l5"><i></i><i></i><i></i><i></i><i></i></span>High</span></div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Model and effort, new chat</b><div class="note">Before the first message the new chat's chip opens the same sheet: a tap in the strip switches the agent and the models follow it, and the model and effort picked are set on the chat as it starts. Context is left out: there is none yet.</div></figcaption>
+      <figcaption><b>Model and effort, new chat</b><div class="note">Before the first message the new chat's chip opens the same sheet: a tap in the strip switches the agent and the models follow it, and the model and effort picked are set on the chat as it starts. Under the agent's own models come the connected providers it can run on, each under its name (with "· local" for a runner on the host), each model with its context and price per million tokens as the host knows them; picking one starts the chat on that provider. The host works out which providers and models these are; the phone only draws them. Adding a provider stays on the Mac. Context is left out: there is none yet.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

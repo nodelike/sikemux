@@ -48,6 +48,9 @@ private struct NewChatContent: View {
     @State private var chosenMode: PermissionMode?
     /// The model, effort and speed picked for the chat before it starts, by their config ids.
     @State private var chosenConfig: [String: String] = [:]
+    /// The connected providers the launcher's agent can run on, and the model picked from one.
+    @State private var routes: [ModelRoute] = []
+    @State private var routed: RoutePick?
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
     @State private var chips: [StashItem] = []
@@ -157,12 +160,22 @@ private struct NewChatContent: View {
                         launcherId = workspace?.launchers.first { $0.provider == agent }?.id
                         chosenMode = nil
                         chosenConfig = [:]
+                        routed = nil
                     },
-                    model: picked(launcher.model), effort: picked(launcher.effort), speed: nil
-                ) { picker, value in
-                    chosenConfig[picker.id] = value
-                    if picker.id == launcher.model?.id { sheet = nil }
-                }
+                    model: picked(launcher.model), effort: picked(launcher.effort), speed: nil,
+                    onPick: { picker, value in
+                        chosenConfig[picker.id] = value
+                        if picker.id == launcher.model?.id {
+                            routed = nil
+                            sheet = nil
+                        }
+                    },
+                    routes: routes, routed: routed,
+                    onRoute: {
+                        routed = $0
+                        sheet = nil
+                    }
+                )
             }
         }
         .sheet(shown: Binding(get: { sheet == .settings }, set: { if !$0 { sheet = nil } })) {
@@ -182,6 +195,15 @@ private struct NewChatContent: View {
                     PhoneCall.SmartPick.self, SmartPickParams(launcher: launcher.id, project: project.id))
             } catch {
                 print("sikemux: could not read the smart pick: \(Sikemux.problem(error))")
+            }
+        }
+        .task(id: [launcher?.provider, live.isOpen ? "open" : nil]) {
+            routes = []
+            guard let launcher, let connection = live.connection else { return }
+            do {
+                routes = try await connection.call(PhoneCall.ModelRoutes.self, RoutesParams(agent: launcher.provider))
+            } catch {
+                print("sikemux: could not read the model providers: \(Sikemux.problem(error))")
             }
         }
         .task(id: keptPrint) {
@@ -265,7 +287,7 @@ private struct NewChatContent: View {
                             locked: starting || started != nil
                         ) { chosenMode = $0 }
                         ModelChip(
-                            provider: launcher.provider, model: Composer.label(picked(launcher.model)),
+                            provider: launcher.provider, model: routed?.model ?? Composer.label(picked(launcher.model)),
                             effort: Composer.label(picked(launcher.effort))
                         ) { sheet = .model }
                         .disabled(started != nil)
@@ -501,10 +523,19 @@ private struct NewChatContent: View {
                         launcher: launcher.id, project: project.id, permissionMode: chosenMode?.rawValue)
                     agentId = made
                     started = made
-                    // The model goes first, since the efforts on offer depend on it.
-                    for configId in [launcher.model?.id, launcher.effort?.id].compactMap({ $0 }) {
-                        if let value = chosenConfig[configId] {
-                            _ = try await connection.setChatConfig(agentId: made, configId: configId, value: value)
+                    if let routed {
+                        let profile = launcher.id.split(separator: ":", maxSplits: 1).dropFirst().first.map(String.init)
+                        _ = try await connection.call(
+                            PhoneCall.HandOff.self,
+                            HandOffParams(
+                                agentId: made, provider: launcher.provider, profileId: profile, model: routed.model,
+                                modelProvider: routed.provider))
+                    } else {
+                        // The model goes first, since the efforts on offer depend on it.
+                        for configId in [launcher.model?.id, launcher.effort?.id].compactMap({ $0 }) {
+                            if let value = chosenConfig[configId] {
+                                _ = try await connection.setChatConfig(agentId: made, configId: configId, value: value)
+                            }
                         }
                     }
                 }

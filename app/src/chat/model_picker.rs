@@ -25,11 +25,8 @@ use crate::theme::{
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::workbench::Workbench;
-use sikemux_agents::launch::providers::Kind;
 use sikemux_calls::call;
-use sikemux_calls::model_providers::ModelProvider;
-use sikemux_calls::model_providers::ProviderParams;
-use sikemux_calls::params::NoParams;
+use sikemux_calls::model_providers::{ModelRoute, RoutesParams};
 
 const CONTEXT: &str = "ModelPicker";
 
@@ -114,23 +111,14 @@ pub struct Picked {
     pub target: core::Target,
 }
 
-/// A connected provider, with the models it serves and the agents that can run it.
-#[derive(Clone)]
-struct Route {
-    id: String,
-    label: String,
-    local: bool,
-    models: Vec<String>,
-    agents: Vec<String>,
-    provider: Rc<ModelProvider>,
+type Route = ModelRoute;
+
+trait Named {
+    /// `model` as the agent names it once a chat runs on this provider.
+    fn named(&self, model: &str, current: &str) -> bool;
 }
 
-impl Route {
-    fn runs(&self, agent: &str) -> bool {
-        self.agents.iter().any(|each| each == agent)
-    }
-
-    /// `model` as the agent names it once a chat runs on this provider.
+impl Named for Route {
     fn named(&self, model: &str, current: &str) -> bool {
         current == model || current == format!("sikemux-{}/{model}", self.id)
     }
@@ -175,6 +163,8 @@ pub struct Menu {
     query: Entity<InputState>,
     chosen: usize,
     routes: Vec<Route>,
+    /// The agent `routes` were read for.
+    routes_of: Option<String>,
     close: Dismiss,
     scroll: ScrollHandle,
     /// The keys moved the chosen row, so the list scrolls it into view when it next draws.
@@ -192,7 +182,7 @@ pub struct Menu {
 /// Context, price per million tokens and tool calls, in a few words, as Settings words them.
 fn facts(route: &Route, model: &str) -> Vec<String> {
     let name = model.strip_suffix("[1m]").unwrap_or(model);
-    let facts = route.provider.choices.facts.get(name);
+    let facts = route.facts.get(name);
     let mut words = Vec::new();
     if let Some(facts) = facts {
         let context = facts.context as f64;
@@ -208,9 +198,9 @@ fn facts(route: &Route, model: &str) -> Vec<String> {
             ));
         }
     }
-    if let Some(check) = route.provider.checks.get(name) {
+    if let Some(works) = route.works.get(name) {
         words.push(
-            if check.works {
+            if *works {
                 t!("works with agents")
             } else {
                 t!("tool calls failed")
@@ -247,7 +237,6 @@ impl Menu {
                 cx.notify();
             }
         });
-        Self::read_routes(picked.target.clone(), picked.model_provider.clone(), cx);
         if !bench.read(cx).agent_setup.knows(picked.target.place()) {
             bench.update(cx, |bench, cx| crate::agents::setup::read(bench, cx));
         }
@@ -257,6 +246,7 @@ impl Menu {
             query,
             chosen: 0,
             routes: Vec::new(),
+            routes_of: None,
             close,
             scroll: ScrollHandle::new(),
             follow: false,
@@ -268,43 +258,21 @@ impl Menu {
         }
     }
 
-    /// Reads the connected providers, asking each that does not list its models for them.
-    fn read_routes(target: core::Target, current: Option<String>, cx: &mut Context<Self>) {
+    /// Reads the connected providers the chat's agent runs on, when that agent changed.
+    fn read_routes(&mut self, cx: &mut Context<Self>) {
+        if self.routes_of.as_deref() == Some(self.picked.provider.as_str()) {
+            return;
+        }
+        self.routes_of = Some(self.picked.provider.clone());
+        let target = self.picked.target.clone();
+        let params = RoutesParams {
+            agent: self.picked.provider.clone(),
+            current: self.picked.model_provider.clone(),
+        };
         cx.spawn(async move |menu, cx| {
-            let Ok(providers) = target
-                .request_typed::<call::ModelProviders>(NoParams {})
-                .await
-            else {
+            let Ok(routes) = target.request_typed::<call::ModelRoutes>(params).await else {
                 return;
             };
-            let mut routes = Vec::new();
-            for provider in providers {
-                if !provider.connected {
-                    continue;
-                }
-                let id = provider.id.clone();
-                let models = match &provider.models {
-                    Some(models) => models.clone(),
-                    None => target
-                        .request_typed::<call::ModelProviderModels>(ProviderParams {
-                            id: id.clone(),
-                        })
-                        .await
-                        .map(|served| served.models)
-                        .unwrap_or_default(),
-                };
-                if models.is_empty() && current.as_deref() != Some(id.as_str()) {
-                    continue;
-                }
-                routes.push(Route {
-                    label: provider.label.clone(),
-                    local: provider.kind == Kind::Local,
-                    models,
-                    agents: provider.agents.clone(),
-                    provider: Rc::new(provider),
-                    id,
-                });
-            }
             let _ = menu.update(cx, |menu, cx| {
                 menu.routes = routes;
                 cx.notify();
@@ -433,7 +401,7 @@ impl Menu {
             });
         }
         if !self.picked.locked {
-            for route in self.routes.iter().filter(|route| route.runs(own)) {
+            for route in &self.routes {
                 let here = self.picked.model_provider.as_deref() == Some(route.id.as_str());
                 groups.push(match route.local && !route.label.starts_with("Local") {
                     true => t!("{route} · local", route = route.label),
@@ -1249,6 +1217,7 @@ pub fn around(
             });
             menu.update(cx, |menu, cx| {
                 menu.picked = shown;
+                menu.read_routes(cx);
                 menu.name_search(&agent, window, cx);
             });
             menu

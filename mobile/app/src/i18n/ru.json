@@ -810,5 +810,8 @@
   "Show more": "Показать ещё",
   "No model matches": "Нет подходящих моделей",
   "Default": "По умолчанию",
-  "Speed": "Скорость"
+  "Speed": "Скорость",
+  "{size} context": "контекст {size}",
+  "${input}/${output} per 1M": "${input}/${output} за 1M",
+  "{route} · local": "{route} · локально"
 }

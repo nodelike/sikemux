@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-nat
 import { contextShare, money, tokenCount } from '@shared/chat/contextUsage';
 import type { ChatRows } from '@shared/chat/rows';
 import { formatAgo } from '@shared/lib/format';
-import type { ExpiredCache } from '@shared/wire.generated';
+import type { ExpiredCache, ModelRoute } from '@shared/wire.generated';
 import { agentLabel, agentMaker, useAgentBrand } from '@shared/agents/catalog';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Field, Track } from '@/ui/controls';
@@ -25,6 +25,20 @@ function expiredLine(cache: ExpiredCache, t: Translate): string {
 type Picker = NonNullable<ChatRows['model']>;
 
 /** Five bars rising left to right, `lit` of them in the accent, as each step of effort shows on the Mac. */
+/** A connected provider's model a chat moves to before it starts. */
+export type RoutePick = { provider: string; model: string };
+
+/** Context and price per million tokens, as the Mac's menu words them. */
+function routeFacts(route: ModelRoute, model: string, t: Translate): string {
+  const facts = route.facts[model];
+  if (!facts) return '';
+  const words = [t('{size} context', { size: tokenCount(facts.context) })];
+  if (facts.input !== undefined && facts.output !== undefined) {
+    words.push(t('${input}/${output} per 1M', { input: facts.input, output: facts.output }));
+  }
+  return words.join(' · ');
+}
+
 function Strength({ lit }: { lit: number }) {
   const colors = useColors();
   return (
@@ -56,6 +70,9 @@ export function ConfigSheet({
   expiredCache,
   onSummarise,
   onPick,
+  routes = [],
+  routed,
+  onRoute,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -70,6 +87,11 @@ export function ConfigSheet({
   expiredCache?: ExpiredCache | null;
   onSummarise?: (summarise: boolean) => void;
   onPick: (picker: Picker, value: string) => void;
+  /** The connected providers the agent can run on, which a chat can move to before it starts. */
+  routes?: ModelRoute[];
+  /** The provider and model picked from `routes`. */
+  routed?: RoutePick;
+  onRoute?: (pick: RoutePick) => void;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -88,6 +110,12 @@ export function ConfigSheet({
         (unfolded || !choice.superseded || choice.value === model.current) &&
         (!typed || `${choice.label} ${choice.description ?? ''} ${heading}`.toLowerCase().includes(typed)),
     ) ?? [];
+  const routedShown = routes
+    .map((route) => ({
+      route,
+      models: route.models.filter((one) => !typed || `${one} ${routeFacts(route, one, t)} ${route.label}`.toLowerCase().includes(typed)),
+    }))
+    .filter(({ models }) => models.length > 0);
   const steps = effort?.choices.length ?? 0;
   return (
     <Sheet visible={visible} onClose={onClose}>
@@ -128,9 +156,9 @@ export function ConfigSheet({
             autoCorrect={false}
             autoCapitalize="none"
           />
-          <SectionLabel>{heading}</SectionLabel>
+          {shown.length || !routedShown.length ? <SectionLabel>{heading}</SectionLabel> : null}
           {shown.map((option) => {
-            const on = option.value === model.current;
+            const on = !routed && option.value === model.current;
             return (
               <Pressable
                 key={option.value}
@@ -156,7 +184,40 @@ export function ConfigSheet({
               <Text style={[styles.optionText, { color: colors.tertiary }]}>{older ? t('Show less') : t('Show more')}</Text>
             </Pressable>
           ) : null}
-          {!shown.length ? <Text style={styles.none}>{t('No model matches')}</Text> : null}
+          {routedShown.map(({ route, models }) => (
+            <View key={route.id} style={{ paddingTop: 10 }}>
+              <SectionLabel>
+                {route.local && !route.label.startsWith('Local') ? t('{route} · local', { route: route.label }) : route.label}
+              </SectionLabel>
+              {models.map((one) => {
+                const on = routed?.provider === route.id && routed.model === one;
+                const facts = routeFacts(route, one, t);
+                return (
+                  <Pressable
+                    key={one}
+                    onPress={() => onRoute?.({ provider: route.id, model: one })}
+                    style={[styles.option, on && { backgroundColor: colors.active }]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}>
+                    <AgentIcon provider={provider} size={17} />
+                    <View style={{ flexShrink: 1 }}>
+                      <Text style={[styles.optionText, on && { color: colors.ink }]} numberOfLines={1}>
+                        {one}
+                      </Text>
+                      {facts ? (
+                        <Text style={styles.meta} numberOfLines={1}>
+                          {facts}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={{ flex: 1 }} />
+                    {on ? <Icon name="IconCheck" size={15} color={colors.accent} /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
+          {!shown.length && !routedShown.length ? <Text style={styles.none}>{t('No model matches')}</Text> : null}
         </>
       ) : null}
       {typed ? null : (

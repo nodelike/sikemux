@@ -15,6 +15,8 @@ type FirstMessage = {
   mode: string | undefined;
   /** The model and effort picked before the chat started, model first, since the efforts on offer depend on it. */
   config: { id: string; value: string }[];
+  /** A connected provider's model picked in place of the agent's own, which the chat moves onto as it starts. */
+  route?: { provider: string; profileId?: string; model: string; modelProvider: string };
   text: string;
   attachments: Attachment[];
   worktree: boolean;
@@ -46,7 +48,8 @@ export async function startChat(connection: ConnectionLike, first: FirstMessage,
     if (!agentId) {
       agentId = await connection.startChat(first.launcherId, first.projectId, first.mode);
       progress.started(agentId);
-      for (const { id, value } of first.config) await connection.setChatConfig(agentId, id, value);
+      if (first.route) await callHost(connection, 'handOff', { agentId, ...first.route });
+      else for (const { id, value } of first.config) await connection.setChatConfig(agentId, id, value);
     }
     if (first.worktree && !inWorktree) {
       progress.step(translate('Creating worktree'));
