@@ -73,6 +73,7 @@ pub mod layout;
 mod left_behind;
 mod lifecycle;
 mod line;
+mod long_watch;
 pub use sikemux_chat::server::mcp_apps;
 pub(crate) use sikemux_repo::server::listed;
 pub use sikemux_repo::server::lsp;

@@ -37,6 +37,8 @@ pub(crate) struct Finishing {
     told_left: Mutex<HashMap<String, u64>>,
     /// Per ask of the person's, since when nobody had it as its chief was last told.
     told_asks: Mutex<HashMap<u64, u64>>,
+    /// Per agent, the start of the long watch it was last told about.
+    told_long_watch: Mutex<HashMap<String, u64>>,
 }
 
 impl Default for Finishing {
@@ -48,6 +50,7 @@ impl Default for Finishing {
             again: AtomicBool::new(false),
             told_left: Mutex::default(),
             told_asks: Mutex::default(),
+            told_long_watch: Mutex::default(),
         }
     }
 }
@@ -97,7 +100,12 @@ fn settle(core: &Arc<Core>) {
             super::left_behind::asks(&core, &mut told, epoch_ms())
         };
         super::left_behind::tell_chiefs(&core, asks);
-        if let Some(next) = [next, due, asks_due].into_iter().flatten().min() {
+        let (long, watch_due) = {
+            let mut told = core.finishing().told_long_watch.locked();
+            super::long_watch::read(&core, &turns, &mut told, epoch_ms())
+        };
+        super::long_watch::tell(&core, long);
+        if let Some(next) = [next, due, asks_due, watch_due].into_iter().flatten().min() {
             core.finishing().wake.at(next);
         }
         let finishing = core.finishing();
