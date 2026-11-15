@@ -10293,6 +10293,7 @@ dependencies = [
  "libc",
  "security-framework",
  "sikemux-process",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 
