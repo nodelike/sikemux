@@ -319,6 +319,7 @@ pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
 pub(crate) fn chief_rested(core: &Core, agent_id: &str) {
     if crate::server::chief::is_chief(core, agent_id) {
         stand_down(core);
+        super::chief_copy::send(core, agent_id);
     }
 }
 

@@ -13,7 +13,7 @@ use serde_json::Value;
 use sikemux_view::workspace::ProjectInfo;
 use sikemux_wire::protocol::AgentStatus;
 
-use super::super::chief::{self, OpenChiefParams};
+use super::super::chief;
 use super::super::messages::{self, Carried};
 use super::super::Core;
 use super::calls::{self as asks, params_of, HostAsk};
@@ -58,22 +58,31 @@ fn take_up(core: &Core, project: &ProjectInfo, lead: &str, count: u32, removed_n
     let Some(core) = core.arc() else {
         return;
     };
-    let (project_id, project_name, lead) =
-        (project.id.clone(), project.name.clone(), lead.to_owned());
-    let text = format!("{removed_name}, where you ran as this project's chief, was removed from the account, so you run on this host now under the same name. Your chat before the move, the board and the rules you kept stayed on {removed_name}. Your workers on other hosts report here from now on, and their reports that waited for {removed_name} come here too.");
+    let identity = project.identity.clone().unwrap_or_default();
+    let (mut standing, at) = super::chief_copy::kept(&core, &identity, lead).unwrap_or_default();
+    let stood = match at {
+        0 => format!("Nothing of where you stood reached this host before {removed_name} went, so ask the person what they need."),
+        at => format!("What follows is where you stood when {removed_name} last sent it, {} minutes ago.", sikemux_process::clock::epoch_ms().saturating_sub(at) / 60_000),
+    };
+    let moved = format!("{removed_name}, where you ran as this project's chief, was removed from the account, so you run on this host now under the same name, in a fresh session. Your chat before the move and the board stayed on {removed_name}. Your workers on other hosts report here from now on, and their reports that waited for {removed_name} come here too. {stood}");
+    standing.insert(
+        0,
+        crate::sessions::for_agent::sikemux_context(
+            "chief-moved",
+            "Your home host was removed",
+            &moved,
+        ),
+    );
+    let mut project = project.clone();
+    project.chief = Some(lead.to_owned());
     tokio::spawn(async move {
-        if let Err(error) = chief::open(
-            &core,
-            OpenChiefParams {
-                project: project_id,
-            },
-        )
-        .await
-        {
-            eprintln!("sikemux core: @Chief of {project_name} did not open here: {error}");
-            return;
+        match chief::take_over(&core, &project, standing).await {
+            Ok(_) => super::chief_copy::forget(&core, &identity),
+            Err(error) => eprintln!(
+                "sikemux core: @Chief of {} did not open here: {error}",
+                project.name
+            ),
         }
-        route::notice(&core, lead, text);
     });
 }
 

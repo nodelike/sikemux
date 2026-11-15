@@ -313,6 +313,34 @@ pub(crate) async fn open(core: &Arc<Core>, params: OpenChiefParams) -> CoreResul
     Ok(OpenedChief { agent_id })
 }
 
+/// Opens the project's chief here after its home host was lost, with `standing`, what its home
+/// last sent of where it stood, as its first message in place of the greeting.
+pub(crate) async fn take_over(
+    core: &Arc<Core>,
+    project: &ProjectInfo,
+    standing: Vec<ChatContext>,
+) -> CoreResult<String> {
+    let chief = project
+        .chief
+        .clone()
+        .ok_or("the project has no chief here")?;
+    ensure_seat(core, &chief, &project.id);
+    core.chiefs().seat(&chief, |seat| seat.greeted = true);
+    let agent_id = seat(core, project).await?;
+    let ask = ChatCommand::Prompt {
+        message_id: None,
+        text: String::new(),
+        paths: Vec::new(),
+        context: standing,
+        shown: true,
+        whose: Whose::NOT_PERSON,
+    };
+    core.chats()
+        .running(&agent_id)
+        .and_then(|chat| chat.send(ask))?;
+    Ok(agent_id)
+}
+
 /// The project's chief, open: itself while it is, taken up again as itself after a close,
 /// else made, waiting for the person.
 async fn seat(core: &Arc<Core>, project: &ProjectInfo) -> CoreResult<String> {
