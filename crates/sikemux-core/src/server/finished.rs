@@ -11,9 +11,10 @@ use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use sikemux_process::clock::epoch_ms;
+use sikemux_process::sync::Locked;
 use sikemux_view::now::{ClosedWhy, FixAt, NowClosed};
 use sikemux_view::turn::{TurnPhase, TurnState, WorkAt};
 use sikemux_view::workspace::WorkspaceAgent;
@@ -32,6 +33,8 @@ pub(crate) struct Finishing {
     started: u64,
     reading: AtomicBool,
     again: AtomicBool,
+    /// Per agent, the end of the idle turn its unlanded commits were last told about.
+    told_unlanded: Mutex<HashMap<String, u64>>,
 }
 
 impl Default for Finishing {
@@ -41,6 +44,7 @@ impl Default for Finishing {
             started: epoch_ms(),
             reading: AtomicBool::new(false),
             again: AtomicBool::new(false),
+            told_unlanded: Mutex::default(),
         }
     }
 }
@@ -75,11 +79,17 @@ fn settle(core: &Arc<Core>) {
     }
     let core = core.clone();
     tokio::task::spawn_blocking(move || {
-        let (finished, next) = read(&core);
+        let turns = super::turn_state::all(&core);
+        let (finished, next) = read(&core, &turns);
         if !finished.is_empty() {
             close(&core, finished);
         }
-        if let Some(next) = next {
+        let (unlanded, due) = {
+            let mut told = core.finishing().told_unlanded.locked();
+            super::unlanded::read(&core, &turns, &mut told, epoch_ms())
+        };
+        super::unlanded::tell(&core, unlanded);
+        if let Some(next) = [next, due].into_iter().flatten().min() {
             core.finishing().wake.at(next);
         }
         let finishing = core.finishing();
@@ -91,9 +101,11 @@ fn settle(core: &Arc<Core>) {
 }
 
 /// The agents finished now, and when the soonest of those the person wrote to lately would be.
-fn read(core: &Core) -> (Vec<(WorkspaceAgent, Left)>, Option<u64>) {
-    let turns = super::turn_state::all(core);
-    let waited = waited_on(core, &turns);
+fn read(
+    core: &Core,
+    turns: &HashMap<String, TurnState>,
+) -> (Vec<(WorkspaceAgent, Left)>, Option<u64>) {
+    let waited = waited_on(core, turns);
     let now = epoch_ms();
     let mut finished = Vec::new();
     let mut next: Option<u64> = None;

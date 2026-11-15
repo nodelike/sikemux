@@ -1705,6 +1705,18 @@ pub(crate) fn report_land(core: &Arc<Core>, worker: &str, text: String) {
     });
 }
 
+/// Hands `to` the commits an idle `worker` left off the project's branch.
+pub(crate) fn report_unlanded(core: &Arc<Core>, worker: String, to: String, text: String) {
+    let name = core.names().name(&worker);
+    let core = core.clone();
+    tokio::spawn(async move {
+        let note = |called: &str| {
+            format!("{called} has commits that never landed, and this is a note from Sikemux, sent once while it stays idle.")
+        };
+        report_noted(&core, worker, name, to, text, note).await;
+    });
+}
+
 /// [`report`] for a worker that may be gone, under the name it had.
 pub(crate) async fn report_as(
     core: &Arc<Core>,
