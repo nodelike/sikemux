@@ -27,6 +27,7 @@ use gpui::{
 };
 use gpui_transcript::{Change, Markdown, Pen, Row, Style, Transcript};
 use serde_json::{json, Value};
+use usage::{cpu_seconds, peak_resident_mb, thread_cpu_ms};
 
 const ROWS: usize = 2_000;
 const PAGE: usize = 200;
@@ -287,36 +288,55 @@ fn grown(path: &[usize], old: &Value, new: &Value, ops: &mut Vec<Value>) -> bool
     }
 }
 
-fn cpu_seconds() -> f64 {
-    // SAFETY: getrusage only writes the struct it is handed.
-    let usage = unsafe {
-        let mut usage = std::mem::zeroed::<libc::rusage>();
-        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
-        usage
-    };
-    let seconds = |time: libc::timeval| time.tv_sec as f64 + time.tv_usec as f64 / 1e6;
-    seconds(usage.ru_utime) + seconds(usage.ru_stime)
+#[cfg(unix)]
+mod usage {
+    pub fn cpu_seconds() -> f64 {
+        // SAFETY: getrusage only writes the struct it is handed.
+        let usage = unsafe {
+            let mut usage = std::mem::zeroed::<libc::rusage>();
+            libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+            usage
+        };
+        let seconds = |time: libc::timeval| time.tv_sec as f64 + time.tv_usec as f64 / 1e6;
+        seconds(usage.ru_utime) + seconds(usage.ru_stime)
+    }
+
+    /// The time this thread has run, which other processes busy on the machine do not inflate.
+    pub fn thread_cpu_ms() -> f64 {
+        let mut time = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: clock_gettime only writes the struct it is handed.
+        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
+        time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
+    }
+
+    pub fn peak_resident_mb() -> f64 {
+        // SAFETY: getrusage only writes the struct it is handed.
+        let usage = unsafe {
+            let mut usage = std::mem::zeroed::<libc::rusage>();
+            libc::getrusage(libc::RUSAGE_SELF, &mut usage);
+            usage
+        };
+        usage.ru_maxrss as f64 / 1024. / 1024.
+    }
 }
 
-/// The time this thread has run, which other processes busy on the machine do not inflate.
-fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime only writes the struct it is handed.
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
-}
+/// Windows counts none of these yet, so its runs print them as NaN.
+#[cfg(windows)]
+mod usage {
+    pub fn cpu_seconds() -> f64 {
+        f64::NAN
+    }
 
-fn peak_resident_mb() -> f64 {
-    // SAFETY: getrusage only writes the struct it is handed.
-    let usage = unsafe {
-        let mut usage = std::mem::zeroed::<libc::rusage>();
-        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
-        usage
-    };
-    usage.ru_maxrss as f64 / 1024. / 1024.
+    pub fn thread_cpu_ms() -> f64 {
+        f64::NAN
+    }
+
+    pub fn peak_resident_mb() -> f64 {
+        f64::NAN
+    }
 }
 
 fn draw_row(

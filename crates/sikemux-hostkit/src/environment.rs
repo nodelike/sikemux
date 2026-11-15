@@ -2,7 +2,6 @@
 //! locale and SSH agent of the person's login shell.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use sikemux_process::user_environment::UserEnvironment;
 use sikemux_pty::user_shell::login_shell_environment;
@@ -50,7 +49,7 @@ fn user_path() -> Option<String> {
     if sikemux_process::user_environment::search_path_only() {
         return Some(inherited);
     }
-    let cli = crate::cli_paths::cli_link_directory().and_then(Path::to_str);
+    let cli = crate::cli_paths::cli_link_directory().and_then(std::path::Path::to_str);
     Some(join_user_path(
         cli,
         login_shell_path().unwrap_or_default(),
@@ -122,7 +121,7 @@ fn user_path() -> Option<String> {
 /// only in a shell that loaded it, so the newest stands in for it.
 #[cfg(unix)]
 fn newest_nvm_bin(home: &str) -> Option<String> {
-    let versions = std::fs::read_dir(Path::new(home).join(".nvm/versions/node")).ok()?;
+    let versions = std::fs::read_dir(std::path::Path::new(home).join(".nvm/versions/node")).ok()?;
     let parse = |name: &str| -> Option<(u64, u64, u64)> {
         let mut parts = name
             .strip_prefix('v')?
@@ -149,11 +148,10 @@ pub fn child_path() -> Option<String> {
         .map(|path| path.to_string_lossy().into_owned())
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn the_system_folders_stay_on_path_when_the_login_shell_cannot_be_read() {
         let path = join_user_path(Some("/Users/me/.config/sikemux/bin"), "", "/Users/me", "");
@@ -164,7 +162,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn the_login_shell_path_leads_and_nothing_repeats() {
         let path = join_user_path(

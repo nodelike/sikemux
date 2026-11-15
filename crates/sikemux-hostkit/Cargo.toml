@@ -15,12 +15,12 @@ sikemux-base = { path = "../sikemux-base" }
 sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-process = { path = "../sikemux-process" }
 sikemux-pty = { path = "../sikemux-pty" }
+sikemux-client = { path = "../sikemux-client" }
 log = "0.4"
 sha2 = "0.11"
 sikemux-wire = { path = "../sikemux-wire" }
 
 [target.'cfg(unix)'.dependencies]
-sikemux-client = { path = "../sikemux-client" }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
