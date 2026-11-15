@@ -2,13 +2,14 @@ name: Release
 run-name: Release ${{ github.event_name == 'workflow_run' && format('nightly from {0}', github.event.workflow_run.head_sha) || github.ref_name }}
 
 # A stable release starts from a v* tag, which only the owner may push. A nightly is built from
-# every push to main that CI passes, and goes to the staff feed at once and to nightly after a soak.
+# each push to main as CI starts checking it, and once CI passes goes to the staff feed at once
+# and to nightly after a soak.
 on:
   push:
     tags: ["v*"]
   workflow_run:
     workflows: [CI]
-    types: [completed]
+    types: [in_progress]
     branches: [main]
 
 permissions:
@@ -81,7 +82,6 @@ jobs:
     # Only pushes to main of this repository, while nightlies are not held by `scripts/nightly.sh hold`.
     if: >-
       github.event_name == 'push' || (github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_repository.full_name == github.repository && vars.NIGHTLY_HOLD == '')
     runs-on: ubuntu-latest
     timeout-minutes: 5
