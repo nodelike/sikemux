@@ -1081,10 +1081,7 @@ fn tree_footprint(root: u32) -> u64 {
 /// Ends what `root` started, leaving `root` to say why its command ended.
 fn stop_below(root: u32) {
     for target in sikemux_process::procs::descendants(root).into_keys() {
-        if let Ok(target) = libc::pid_t::try_from(target) {
-            // SAFETY: kill only sends a signal; the pids come from the command's own tree.
-            unsafe { libc::kill(target, libc::SIGTERM) };
-        }
+        ask_to_stop(target);
     }
 }
 
@@ -1092,11 +1089,21 @@ fn stop_below(root: u32) {
 fn stop_tree(root: u32) {
     let below = sikemux_process::procs::descendants(root);
     for target in below.keys().copied().chain([root]) {
-        if let Ok(target) = libc::pid_t::try_from(target) {
-            // SAFETY: kill only sends a signal; the pids come from the command's own tree.
-            unsafe { libc::kill(target, libc::SIGTERM) };
-        }
+        ask_to_stop(target);
     }
+}
+
+#[cfg(unix)]
+fn ask_to_stop(pid: u32) {
+    if let Ok(pid) = libc::pid_t::try_from(pid) {
+        // SAFETY: kill only sends a signal; the pids come from the command's own tree.
+        unsafe { libc::kill(pid, libc::SIGTERM) };
+    }
+}
+
+#[cfg(windows)]
+fn ask_to_stop(pid: u32) {
+    sikemux_process::terminate_tree(pid, false);
 }
 
 /// One caller's place in line, its turn, or the run it follows, until it is dropped.

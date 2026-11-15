@@ -57,6 +57,7 @@ mod from_app;
 pub mod git;
 mod goal_summary;
 mod goals;
+#[cfg(unix)]
 mod handover;
 pub mod harness;
 mod hooks;
@@ -114,6 +115,7 @@ pub(crate) use sikemux_repo::server::repo_above;
 #[cfg(test)]
 pub(crate) use sikemux_repo::server::repo_events;
 pub(crate) use sikemux_repo::server::repo_state;
+#[cfg(unix)]
 pub(crate) use sikemux_serve::server::reaper;
 mod requests;
 #[cfg(target_os = "macos")]
@@ -132,6 +134,7 @@ pub mod setup_check;
 pub use sikemux_remote::server::share;
 pub use sikemux_repo::server::ship;
 pub use sikemux_repo::server::skill_library;
+mod socket;
 pub mod spare;
 mod spawn;
 pub mod ssh;
@@ -178,9 +181,8 @@ use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_corekit::lock::lock_holder;
 use sikemux_corekit::lock::lock_path;
 use std::collections::HashMap;
-use std::fs::{DirBuilder, File, OpenOptions};
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt, PermissionsExt};
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -399,11 +401,7 @@ impl ServerCore for Core {
             data_dir: data_dir.map(Path::to_owned),
             ..ServerConfig::new(PathBuf::new())
         };
-        let listening = Listening {
-            listener_fd: -1,
-            lock_fd: -1,
-        };
-        Self::built(config, listening, 0)
+        Self::built(config, socket::not_listening(), 0)
     }
 
     fn open(
@@ -717,25 +715,23 @@ async fn within_stop_limit<T>(step: &str, stopping: impl std::future::Future<Out
 
 /// Takes the single-instance lock and binds the socket. The lock is held for
 /// the life of the core and released by the kernel when it exits.
-fn claim_socket(socket: &Path) -> Result<(std::os::unix::net::UnixListener, File), ServerError> {
+fn claim_socket(socket: &Path) -> Result<(socket::Bound, File), ServerError> {
     if let Some(parent) = socket
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
     {
         if !parent.exists() {
-            DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(parent)?;
+            socket::private_folder(parent)?;
         }
     }
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(lock_path(socket))?;
+    let lock = socket::private_to_owner(
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false),
+    )
+    .open(lock_path(socket))?;
     if !sikemux_corekit::lock::hold(&lock) {
         let path = socket.to_path_buf();
         return Err(match probe(socket, PROBE_TIMEOUT) {
@@ -772,10 +768,9 @@ fn claim_socket(socket: &Path) -> Result<(std::os::unix::net::UnixListener, File
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    let listener = std::os::unix::net::UnixListener::bind(socket)?;
-    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
+    let listener = socket::bind(socket)?;
     lock.set_len(0)?;
-    lock.write_all_at(std::process::id().to_string().as_bytes(), 0)?;
+    (&lock).write_all(std::process::id().to_string().as_bytes())?;
     Ok((listener, lock))
 }
 
@@ -829,11 +824,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
         .await
         .map_err(std::io::Error::other)??;
     data_format::upgrade(&config);
-    let listening = Listening {
-        listener_fd: listener.as_raw_fd(),
-        lock_fd: lock.as_raw_fd(),
-    };
-    let core = Core::open(config, listening, 0)?;
+    let core = Core::open(config, socket::listening(&listener, &lock), 0)?;
     *core.tools().locked() = start_tools(&core).await;
     chat::restore(&core);
     // Only a core started afresh: one that took over keeps the tabs that were open.
@@ -853,13 +844,13 @@ pub(crate) async fn start_tools(core: &Arc<Core>) -> Option<tools::ToolEndpoint>
 /// earlier one.
 pub(crate) async fn run_core(
     core: Arc<Core>,
-    listener: std::os::unix::net::UnixListener,
+    listener: socket::Bound,
     lock: File,
 ) -> Result<(), ServerError> {
     let config = core.config().clone();
     core.chats().clear_history();
     local_peer::settle();
-    let mut listener = sikemux_client::local::Listener::from_std(listener)?;
+    let mut listener = socket::accepting(listener)?;
     remote::start(
         &core,
         &config.socket,
@@ -892,8 +883,7 @@ pub(crate) async fn run_core(
         account::start(&core);
         tokio::spawn(usage::serve(core.clone(), data_dir.to_owned()));
     }
-    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    let mut stopping = socket::Stopping::new()?;
     let mut background = core.start_parts();
     background.extend([
         tokio::spawn(poll_sessions(core.clone())),
@@ -924,12 +914,8 @@ pub(crate) async fn run_core(
             },
             _ = frozen.changed() => {}
             _ = shutdown.changed() => break,
-            _ = terminate.recv() => {
-                eprintln!("sikemux core: stopping, as something sent it SIGTERM");
-                break;
-            }
-            _ = interrupt.recv() => {
-                eprintln!("sikemux core: stopping, as something sent it SIGINT");
+            asked = stopping.asked() => {
+                eprintln!("sikemux core: stopping, as something sent it {asked}");
                 break;
             }
             _ = ticker.tick() => {
