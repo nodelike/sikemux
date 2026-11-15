@@ -1,9 +1,7 @@
-//! Agents that speak the Agent Client Protocol themselves, such as OpenCode,
-//! OMP, Grok and Hermes: JSON-RPC, one message per line, on the agent's
+//! Agents that speak the Agent Client Protocol themselves, such as OMP, Grok
+//! and Hermes: JSON-RPC, one message per line, on the agent's
 //! standard input and output. Their session updates already have the shape
 //! the chat reads, so they pass through as they come.
-
-pub(super) mod mcp_calls;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -29,6 +27,7 @@ use crate::server::chat::prompt::{command_parts, prompt_blocks};
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::Respond;
+use super::mcp_calls;
 use super::parts::inline_picture;
 use super::pending::{Answered, Purpose};
 use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};

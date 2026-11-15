@@ -3,6 +3,7 @@ pub mod claude;
 pub mod codex;
 mod commands;
 mod json;
+mod mcp_calls;
 mod models;
 pub mod muse;
 pub mod opencode;
