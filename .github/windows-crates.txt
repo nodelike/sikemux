@@ -29,3 +29,5 @@ sikemux-plugin-signoz
 sikemux-plugin-slack
 sikemux-plugin-vercel
 sikemux-fold
+sikemux-process
+sikemux-pty
