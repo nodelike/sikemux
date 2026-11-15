@@ -10,6 +10,7 @@ permissions:
 env:
   NIGHTLY: v0.6.1-nightly.22
   APP_ONLY: "only Sikemux's own window or notch can do that"
+  GROUP_STRICT: "no"
 
 jobs:
   client:
@@ -94,6 +95,16 @@ jobs:
             sudo grep -E '^(Uid|Gid)' "/proc/$pid/status"
             for task in /proc/$pid/task/*; do echo "$(sudo cat "$task/comm"): $(sudo grep ^Gid "$task/status")"; done | sort | uniq -c
           done
+          sleep 10
+          echo "Only the core's keeper thread may hold the sikemux group:"
+          held=$(for task in /proc/$core/task/*; do sudo grep -E '^Gid' "$task/status" | grep -qw "$(getent group sikemux | cut -d: -f3)" && sudo cat "$task/comm"; done || true)
+          echo "$held"
+          [ "$held" = sikemux-secrets ] || [ "$GROUP_STRICT" = no ]
+          for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host || true); do
+            [ "$pid" = "$core" ] && continue
+            echo "other sikemux-host $pid: $(sudo cat "/proc/$pid/cmdline" | tr '\0' ' ')"
+            for task in /proc/$pid/task/*; do if sudo grep -E '^Gid' "$task/status" | grep -qw "$(getent group sikemux | cut -d: -f3)"; then echo "$(sudo cat "$task/comm") holds the group"; [ "$GROUP_STRICT" = no ] || exit 1; fi; done
+          done
           echo "Every process the person runs, with its groups:"
           for pid in $(pgrep -u person); do echo "$pid $(sudo readlink /proc/$pid/exe) $(sudo grep ^Gid /proc/$pid/status)"; done
           sleep 20
@@ -171,3 +182,92 @@ jobs:
             cat /tmp/refused.txt
             grep -qF "$APP_ONLY" /tmp/refused.txt
           '
+
+  arch:
+    needs: client
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.NIGHTLY }}
+          sparse-checkout: packaging/arch
+          path: src
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: call
+          path: client
+      - name: makepkg builds the AUR recipe, namcap passes it, and the window signs in
+        run: |
+          mkdir -p out
+          docker run --rm -e APP_ONLY -e NIGHTLY -e GROUP_STRICT -v "$PWD/src/packaging/arch:/arch:ro" -v "$PWD/client:/client:ro" -v "$PWD/out:/out" archlinux:latest bash -euxc '
+            pacman -Syu --noconfirm --needed -q base-devel namcap sudo curl xorg-server-xvfb xorg-xdpyinfo vulkan-swrast dbus imagemagick ttf-dejavu >/dev/null
+            useradd -m builder
+            echo "builder ALL=(ALL) NOPASSWD: /usr/bin/pacman" >/etc/sudoers.d/builder
+            version=${NIGHTLY#v}
+            curl -fsSLo /tmp/Sikemux_${version}_amd64.tar.gz "https://github.com/nodelike/sikemux/releases/download/$NIGHTLY/Sikemux_${version}_amd64.tar.gz"
+            install -d -o builder /home/builder/aur
+            runuser -u builder -- /arch/prepare.sh "$version" /tmp/Sikemux_${version}_amd64.tar.gz /home/builder/aur
+            rm /home/builder/aur/Sikemux_*.tar.gz
+            cd /home/builder/aur
+            cat PKGBUILD .SRCINFO
+            runuser -u builder -- makepkg -s --noconfirm
+            pkg=$(ls /home/builder/aur/*.pkg.tar.zst)
+            pacman -U --noconfirm "$pkg"
+            namcap PKGBUILD "$pkg" | tee /out/namcap.txt
+            if grep -q " E: " /out/namcap.txt; then exit 1; fi
+            cp PKGBUILD .SRCINFO sikemux.sysusers sikemux.tmpfiles /out/
+            useradd -m person
+            id person
+            if id -nG person | grep -qw sikemux; then exit 1; fi
+            gid=$(getent group sikemux | cut -d: -f3)
+            stat -c "%A %U:%G %n" /usr/lib/sikemux/sikemux-host /usr/lib/sikemux/sikemux /var/lib/sikemux
+            test -g /usr/lib/sikemux/sikemux-host
+            Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp >/dev/null 2>&1 &
+            for _ in $(seq 1 40); do xdpyinfo -display :99 >/dev/null 2>&1 && break; sleep 0.25; done
+            runuser -u person -- env -i HOME=/home/person USER=person LOGNAME=person PATH=/usr/bin DISPLAY=:99 dbus-run-session -- /usr/bin/sikemux >/out/window.log 2>&1 &
+            core=
+            for _ in $(seq 1 90); do
+              for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host || true); do
+                grep -q "crash reporter" /proc/$pid/cmdline || core=$pid
+              done
+              [ -n "$core" ] && break
+              sleep 1
+            done
+            test -n "$core"
+            sleep 15
+            for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host); do
+              echo "== $pid: $(tr "\0" " " </proc/$pid/cmdline)"
+              for task in /proc/$pid/task/*; do echo "$(cat $task/comm): $(grep ^Gid $task/status)"; done | sort | uniq -c
+            done
+            held=$(for task in /proc/$core/task/*; do grep ^Gid $task/status | grep -qw $gid && cat $task/comm; done || true)
+            echo "threads of the core holding the group: $held"
+            [ "$held" = sikemux-secrets ] || [ "$GROUP_STRICT" = no ]
+            for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host); do
+              [ $pid = $core ] && continue
+              for task in /proc/$pid/task/*; do if grep ^Gid $task/status | grep -qw $gid; then echo "$pid $(cat $task/comm) holds the group"; [ "$GROUP_STRICT" = no ] || exit 1; fi; done
+            done
+            readlink /proc/$(pgrep -u person -x sikemux | head -1)/exe
+            import -display :99 -window root /out/window.png
+            socket=/home/person/.config/sikemux/core.sock
+            test -S $socket
+            echo "refusals of the real window: $(grep -rc "$APP_ONLY" /home/person/.local/share/com.nodelike.sikemux/logs/core.log || true)"
+            mv /usr/lib/sikemux/sikemux /usr/lib/sikemux/sikemux.window
+            install -m 755 /client/call /usr/lib/sikemux/sikemux
+            install -m 755 /client/call /tmp/elsewhere
+            runuser -u person -- /usr/lib/sikemux/sikemux $socket accountSignIn "{}" | tee /out/accepted.json
+            grep -q "/oauth/authorize?" /out/accepted.json
+            runuser -u person -- /usr/lib/sikemux/sikemux $socket accountSignInCancel "{}"
+            if runuser -u person -- /tmp/elsewhere $socket accountSignIn "{}" 2>/out/refused.txt; then exit 1; fi
+            cat /out/refused.txt
+            grep -qF "$APP_ONLY" /out/refused.txt
+            if runuser -u person -- ls /var/lib/sikemux; then exit 1; fi
+          '
+      - if: always()
+        run: tail -n 40 out/window.log || true
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aur-proof
+          path: out
+          if-no-files-found: warn
