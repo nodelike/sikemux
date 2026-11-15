@@ -1,8 +1,10 @@
-# Opens the app in a real window on a Windows runner and keeps a picture of it.
+# Opens a program in a real window on a Windows runner and keeps a picture of it.
 # PrintWindow draws the window itself, so a first-run screen over the desktop does not hide it.
 param(
     [Parameter(Mandatory)] [string] $App,
     [Parameter(Mandatory)] [string] $Out,
+    [string[]] $Arguments = @(),
+    [string] $Expect = '',
     [int] $Settle = 20
 )
 $ErrorActionPreference = 'Stop'
@@ -26,7 +28,9 @@ public static class Grab {
 }
 "@
 
-$proc = Start-Process -FilePath $App -PassThru `
+$started = @{}
+if ($Arguments.Count -gt 0) { $started.ArgumentList = $Arguments }
+$proc = Start-Process -FilePath $App -PassThru @started `
     -RedirectStandardError (Join-Path $Out 'stderr.txt') -RedirectStandardOutput (Join-Path $Out 'stdout.txt')
 $deadline = (Get-Date).AddSeconds(60)
 while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
@@ -41,8 +45,13 @@ if ($proc.HasExited) {
 if ($proc.MainWindowHandle -eq [IntPtr]::Zero) { throw 'no window opened within a minute' }
 Start-Sleep -Seconds $Settle
 $proc.Refresh()
+if ($proc.HasExited) {
+    Get-Content (Join-Path $Out 'stdout.txt'), (Join-Path $Out 'stderr.txt')
+    throw "it exited with $($proc.ExitCode) while its window was settling"
+}
 if (-not [Grab]::Save($proc.MainWindowHandle, (Join-Path $Out 'window.png'))) { throw 'PrintWindow drew nothing' }
 "window: $($proc.MainWindowTitle)" | Out-File (Join-Path $Out 'state.txt')
+if ($Expect -and -not (Test-Path $Expect)) { Get-Content (Join-Path $Out 'stdout.txt'); throw "$Expect was not written" }
 Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion | Out-File -Append (Join-Path $Out 'state.txt')
 Stop-Process -Id $proc.Id
-Get-Content (Join-Path $Out 'stderr.txt')
+Get-Content (Join-Path $Out 'stdout.txt'), (Join-Path $Out 'stderr.txt')
