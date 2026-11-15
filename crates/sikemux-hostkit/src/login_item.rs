@@ -116,7 +116,7 @@ fn quiet(program: &str, args: &[&str]) {
 
 /// Installs or removes the login item to match `enabled`. Either takes effect
 /// at the next login; the core running now, with its terminals and agents,
-/// keeps running.
+/// keeps running. On Windows an installed one also keeps the core up from now on.
 pub fn sync(identifier: &str, launch: Option<&CoreLaunch>, enabled: bool) {
     if !enabled {
         if let Err(error) = forget(identifier) {
@@ -127,8 +127,12 @@ pub fn sync(identifier: &str, launch: Option<&CoreLaunch>, enabled: bool) {
     let Some(launch) = launch else {
         return;
     };
-    if let Err(error) = install(identifier, launch) {
-        eprintln!("Sikemux could not start its core at login: {error}");
+    match install(identifier, launch) {
+        Err(error) => eprintln!("Sikemux could not start its core at login: {error}"),
+        #[cfg(windows)]
+        Ok(_) => run_entry::keep_watching(&label(identifier)),
+        #[cfg(not(windows))]
+        Ok(_) => {}
     }
 }
 
@@ -575,6 +579,20 @@ mod run_entry {
     pub(super) fn stop_restarting(label: &str) {
         if let Some(path) = path(label) {
             end_watch(&path);
+        }
+    }
+
+    /// Starts the process that keeps the core up when none runs, such as after `stop`, an
+    /// update, or a core that kept failing to run.
+    pub(super) fn keep_watching(label: &str) {
+        let Some(path) = path(label) else {
+            return;
+        };
+        if watch_file(&path).exists() {
+            return;
+        }
+        if let Err(error) = start(label, &path) {
+            eprintln!("Sikemux could not keep its core up: {error}");
         }
     }
 
