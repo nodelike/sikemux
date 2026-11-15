@@ -1454,7 +1454,7 @@ export interface AgentRollup {
  * are: the counts, then what needs the person, else the projects most at work.
  */
 export interface ActivityGlance {
-    /** How many things wait on the person. */
+    /** How many agents, or teams under their lead, wait on the person: the rows listed plus `more`. */
     needed: number;
     /** How many agents work. */
     working: number;

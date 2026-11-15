@@ -2365,7 +2365,7 @@ struct AgentRollup: Codable, Hashable, Sendable {
 /// The agents on one host at a glance, as a phone's Live Activity and widgets show them however many there
 /// are: the counts, then what needs the person, else the projects most at work.
 struct ActivityGlance: Codable, Hashable, Sendable {
-    /// How many things wait on the person.
+    /// How many agents, or teams under their lead, wait on the person: the rows listed plus `more`.
     var needed: Int
     /// How many agents work.
     var working: Int
