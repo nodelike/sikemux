@@ -134,6 +134,7 @@ pub fn launch(
         }
         ending.end(result.err());
         if owner.chats().remove_if_current(&ending) {
+            owner.chats().rest(&ending);
             (owner.chat_above().note_agent_gone)(&owner, ending.agent_id());
         }
         ending.cancel_permissions();

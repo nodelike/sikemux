@@ -334,9 +334,7 @@ pub async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> CoreResult<Cha
     if let Some(chat) = core.chats().get(&agent_id) {
         core.workspaces()
             .note_stopping(chat.agent_id(), chat.current_now());
-        if core.chats().stop(&agent_id) {
-            core.chats().rest(&chat);
-        }
+        core.chats().stop(&agent_id);
     }
     let patch = AgentPatch {
         provider: Some(params.provider),

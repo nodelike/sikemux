@@ -445,12 +445,14 @@ impl Chats {
             .retain(|resting| resting.agent_id != agent_id);
     }
 
-    /// Whether the agent had a chat to stop.
+    /// Whether the agent had a chat to stop. Its feed rests, so the clients reading it hear the
+    /// chat when it starts again on its session.
     pub fn stop(&self, agent_id: &str) -> bool {
         let Some(chat) = self.take(agent_id) else {
             return false;
         };
         Self::halt(&chat);
+        self.rest(&chat);
         true
     }
 
