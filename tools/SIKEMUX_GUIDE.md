@@ -679,12 +679,12 @@ folder, pass its absolute path, a `~/` path or a `file://` url to
 `browser_navigate`: Sikemux serves its folder to the tab from a private
 address on this machine, so relative links and assets load too.
 
-Tabs you open start at desktop; fit follows the pane.
-A tab's viewport follows the pane, so it changes size when the person resizes
-the pane, and a tab the pane is not showing lays out at the size it last had.
+A tab you open is held at the `desktop` preset, whatever size its pane is, and
+a popup it opens keeps its size; a tab the person opens follows the pane.
 `browser_viewport` holds the current tab at `width` and `height` in CSS pixels
-(200 to 4000), one alone keeping the other side as it is, or a `preset`: `desktop` is 1280×800, `tablet` 820×1180 and
-`mobile` 390×844. `preset: "fit"` lets it follow the pane again. The size
+(200 to 4000), one alone keeping the other side as it is, or a `preset`: `desktop` is 1440×900, `tablet` 820×1180 and
+`mobile` 390×844. `preset: "fit"` lets it follow the pane, changing size when
+the person resizes it, and laying out at the pane's last size while not shown. The size
 stays through reloads and navigations in that tab. The page lays out at that
 size and is scaled down to fit the pane, never up, so screenshots and `x`,
 `y` stay in the viewport's CSS pixels. The `mobile` preset also sends
