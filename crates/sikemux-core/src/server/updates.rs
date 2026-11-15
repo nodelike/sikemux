@@ -59,14 +59,10 @@ const PACMAN_INSTALLED: &str = "/var/lib/pacman/local";
 /// The package repository files the .deb and .rpm write, each naming the
 /// suite it follows as `packages-stable` or `packages-nightly`, with the
 /// command that updates from it.
-const REPOSITORIES: [(&str, &str); 3] = [
+const REPOSITORIES: [(&str, &str); 2] = [
     (
         "/etc/apt/sources.list.d/sikemux.sources",
         "sudo apt update && sudo apt install --only-upgrade sikemux",
-    ),
-    (
-        "/etc/zypp/repos.d/sikemux.repo",
-        "sudo zypper refresh && sudo zypper update sikemux",
     ),
     (
         "/etc/yum.repos.d/sikemux.repo",
