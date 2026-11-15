@@ -1501,7 +1501,7 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_device_holding_a_mark_from_before_the_chat_restarted_is_sent_the_new_run_whole() {
+async fn a_device_holding_a_mark_from_before_the_chat_restarted_is_sent_only_what_came_after() {
     let core_key = SecretKey::generate();
     let phone = Device::new("Phone", DeviceAccess::Full);
     let core = start_core(&core_key, &[&phone]);
@@ -1549,7 +1549,7 @@ async fn a_device_holding_a_mark_from_before_the_chat_restarted_is_sent_the_new_
     app.acp_start(fake_launch("agent-again"))
         .await
         .expect("the app starts it again");
-    let ChatAttachment::Live { mark, view } = client
+    let ChatAttachment::Resumed { mark, changes } = client
         .ask(ask::AcpAttach {
             agent_id: "agent-again".into(),
             since: Some(seen),
@@ -1557,8 +1557,8 @@ async fn a_device_holding_a_mark_from_before_the_chat_restarted_is_sent_the_new_
         .await
         .expect("attach")
     else {
-        panic!("a mark from the run before is answered with the whole new run");
+        panic!("a chat started again goes on in its feed, from the device's mark");
     };
-    assert_ne!(mark.feed, before.feed);
-    assert!(!view.to_string().contains("first run"), "{view}");
+    assert_eq!(mark.feed, before.feed);
+    assert!(!changes.to_string().contains("first run"), "{changes}");
 }
