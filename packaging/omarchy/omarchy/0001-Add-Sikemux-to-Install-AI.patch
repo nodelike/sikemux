@@ -1,10 +1,9 @@
-From 487d9e713a7f2d92c397acbe4e987f8b8b42b382 Mon Sep 17 00:00:00 2001
-From: nodelike <kishore.sensei@gmail.com>
-Date: Sun, 8 Nov 2026 12:33:59 +0530
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: nodelike <nodelike@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 22:48:40 +0530
 Subject: [PATCH] Add Sikemux to Install > AI
 
-Agent: Haruhi (claude 2.1.319, opus[1m], sikemux 0.6.1-nightly.6, session 05ad21d7-ce0b-4157-b314-48172b10ff0f, chat agent-18168c423f14491fb7956df45aecf4fe, host 03c112f7c38a48c2)
-Agent-Signature: nZnlHMCqhQ430+0Pb5UmM/sVQIDPRNP9qOj2BwJJPcOxgXq3Ah8fu/AXNo68X1L9CjbiySrCNgCaOXGJTv1+Ag
+Sikemux runs Claude Code, Codex and other coding agents side by side in one native window. This adds it to Install > AI and Remove > AI with its mark in the Omarchy icon font, installing sikemux-bin from pkgs.omarchy.org on x86_64 and aarch64. omarchy-remove-ai-sikemux stops its core and user service before dropping the package, and asks, default no, before deleting the person's data and this account's saved sign-ins.
 ---
  bin/omarchy-remove-ai-sikemux      |  57 +++++++++++++++++++++++++++++
  default/fonts/omarchy/README.md    |   1 +
@@ -113,10 +112,10 @@ zC{T=T^F<~W#?4olS#`M?fntot#wt<0M<?eP`ZH=w-eb66a)MD12S@^lH8$@ude03M
 PUu73C`H$UWW}p}VvY9@P
 
 diff --git a/default/i18n/en/cli.json b/default/i18n/en/cli.json
-index 436982a..5bfd1f9 100644
+index dcadc10..0056d89 100644
 --- a/default/i18n/en/cli.json
 +++ b/default/i18n/en/cli.json
-@@ -294,6 +294,7 @@
+@@ -354,6 +354,7 @@
    "share.couldNot": "Could not share",
    "share.filesTitle": "Share files",
    "share.folderTitle": "Share folder",
@@ -125,10 +124,10 @@ index 436982a..5bfd1f9 100644
    "sshd.howToAddKey": "How would you like to add your SSH key?",
    "sshd.keyFromGithub": "Grab key from GitHub",
 diff --git a/default/i18n/en/menu.json b/default/i18n/en/menu.json
-index c8ddf63..1b686c6 100644
+index 1221efa..0887ad2 100644
 --- a/default/i18n/en/menu.json
 +++ b/default/i18n/en/menu.json
-@@ -893,6 +893,9 @@
+@@ -906,6 +906,9 @@
    "install.ai.perplexity": {
      "label": "Perplexity"
    },
@@ -138,7 +137,7 @@ index c8ddf63..1b686c6 100644
    "install.ai.t3-code": {
      "label": "T3 Code"
    },
-@@ -1118,6 +1121,9 @@
+@@ -1140,6 +1143,9 @@
    "remove.ai.perplexity": {
      "label": "Perplexity"
    },
@@ -149,18 +148,18 @@ index c8ddf63..1b686c6 100644
      "label": "T3 Code"
    },
 diff --git a/default/omarchy/omarchy-menu.jsonc b/default/omarchy/omarchy-menu.jsonc
-index 29f4038..ecdea57 100644
+index cbf2662..fea1a8b 100644
 --- a/default/omarchy/omarchy-menu.jsonc
 +++ b/default/omarchy/omarchy-menu.jsonc
-@@ -328,6 +328,7 @@
+@@ -340,6 +340,7 @@
    "install.ai.ollama": {"icon":"","iconFont":"omarchy","label":"Ollama","disabled":"omarchy-cmd-present ollama","action":"if omarchy-cmd-present nvidia-smi; then ollama_pkg=ollama-cuda; elif omarchy-cmd-present rocminfo; then ollama_pkg=ollama-rocm; else ollama_pkg=ollama; fi; omarchy-install-app Ollama \"$ollama_pkg\""},
    "install.ai.openclaw": {"icon":"","iconFont":"omarchy","label":"OpenClaw","disabled":"omarchy-pkg-present openclaw","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-ai-openclaw"},
    "install.ai.perplexity": {"icon":"","iconFont":"omarchy","label":"Perplexity","disabled":"omarchy-pkg-present perplexity","action":"omarchy-install-and-launch Perplexity perplexity perplexity"},
-+  "install.ai.sikemux": {"icon":"","iconFont":"omarchy","label":"Sikemux","when":"omarchy-hw-x86","disabled":"omarchy-pkg-present sikemux-bin","action":"omarchy-install-and-launch Sikemux sikemux-bin com.nodelike.sikemux"},
++  "install.ai.sikemux": {"icon":"","iconFont":"omarchy","label":"Sikemux","disabled":"omarchy-pkg-present sikemux-bin","action":"omarchy-install-and-launch Sikemux sikemux-bin com.nodelike.sikemux"},
    "install.ai.t3-code": {"icon":"","iconFont":"omarchy","label":"T3 Code","disabled":"[[ -f \"$HOME/.local/share/t3code/T3-Code.AppImage\" ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-ai-t3-code"},
    "install.gaming.steam": {"icon":"","label":"Steam","disabled":"omarchy-pkg-present steam","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-steam"},
    "install.gaming.retroarch": {"icon":"󰯉","label":"RetroArch","disabled":"omarchy-pkg-present retroarch","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-retroarch"},
-@@ -403,6 +404,7 @@
+@@ -418,6 +419,7 @@
    "remove.ai.ollama": {"icon":"","iconFont":"omarchy","label":"Ollama","when":"omarchy-pkg-present ollama","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-ollama"},
    "remove.ai.openclaw": {"icon":"","iconFont":"omarchy","label":"OpenClaw","when":"omarchy-pkg-present openclaw","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-openclaw"},
    "remove.ai.perplexity": {"icon":"","iconFont":"omarchy","label":"Perplexity","when":"omarchy-pkg-present perplexity","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-perplexity"},
@@ -169,15 +168,15 @@ index 29f4038..ecdea57 100644
    "remove.gaming.steam": {"icon":"","label":"Steam","when":"omarchy-pkg-present steam","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-gaming-steam"},
    "remove.gaming.retroarch": {"icon":"","label":"RetroArch","when":"omarchy-pkg-present retroarch","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-gaming-retroarch"},
 diff --git a/manual/17-ai.md b/manual/17-ai.md
-index d778058..c67784d 100644
+index 17f5e63..72b2de3 100644
 --- a/manual/17-ai.md
 +++ b/manual/17-ai.md
-@@ -84,7 +84,7 @@ Crashes can also be silenced one program at a time, which is what the diagnosis
+@@ -88,7 +88,7 @@ Crashes can also be silenced one program at a time, which is what the diagnosis
  
  ### Desktop apps
  
 -The _Install > AI_ menu also carries a few graphical AI apps: the ChatGPT desktop app, the Claude desktop app (Anthropic's Linux beta, with Chat, Cowork, and Claude Code tabs), Grok Bot for chatting with xAI's models, Herdr Desktop, Hermes Desktop, OpenClaw, the Perplexity desktop app, and T3 Code. Grok Bot is the desktop chat app. The coding agent is the `grok` command.
-+The _Install > AI_ menu also carries a few graphical AI apps: the ChatGPT desktop app, the Claude desktop app (Anthropic's Linux beta, with Chat, Cowork, and Claude Code tabs), Grok Bot for chatting with xAI's models, Herdr Desktop, Hermes Desktop, OpenClaw, the Perplexity desktop app, Sikemux (an IDE for you and your coding agents), and T3 Code. Grok Bot is the desktop chat app. The coding agent is the `grok` command.
++The _Install > AI_ menu also carries a few graphical AI apps: the ChatGPT desktop app, the Claude desktop app (Anthropic's Linux beta, with Chat, Cowork, and Claude Code tabs), Grok Bot for chatting with xAI's models, Herdr Desktop, Hermes Desktop, OpenClaw, the Perplexity desktop app, Sikemux (Claude Code, Codex and other coding agents side by side in one native window), and T3 Code. Grok Bot is the desktop chat app. The coding agent is the `grok` command.
  
  Hermes Desktop is the one to know about, because a machine has one Hermes, and it is the app's: Hermes is only ever installed through the app, and the `hermes` command the default agent runs is the app's. Choosing Hermes as the default agent installs the same thing the _Install > AI_ entry does: the package, and a Hermes runtime under `~/.hermes` set up by Hermes' own installer, which takes a few minutes the first time. That runtime is the one Hermes the terminal `hermes` command, the default agent and the app all use, and it updates itself with `hermes update` rather than waiting on an Omarchy release. Installing it also hands Hermes the Omarchy theme as a skin named `omarchy`, which every Hermes surface follows as you switch themes; pick another under Hermes' Appearance settings or with `/skin` if you'd rather it didn't, and Omarchy leaves that choice alone. Removing the app under _Remove > AI_ closes Hermes first, gateway included, takes that runtime with it, and keeps your chats, memories, and the skills Hermes wrote for itself unless you tell it otherwise: it asks, defaulting to no, whether that data and your connection settings should go too.
  
