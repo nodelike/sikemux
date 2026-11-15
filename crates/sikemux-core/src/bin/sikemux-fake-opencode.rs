@@ -8,7 +8,12 @@
 //! - `ask` asks to run a command and says which answer it got;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on an interrupt;
 //! - `fail` fails the turn as a provider that will not answer;
+//! - `todo` writes a todo list of two;
+//! - `subagent` starts an `explore` subagent, which says `found it` once the turn has ended;
+//! - `question` asks with a form and says what it was told in place of an answer;
 //! - anything else is echoed back.
+//!
+//! Compacting runs on its own, as OpenCode's `/compact` does.
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -138,7 +143,12 @@ impl Fake {
         if !request.authorized {
             return answer(&stream, 401, json!({ "message": "unauthorized" }));
         }
-        let path = request.path.split('?').next().unwrap_or_default().to_owned();
+        let path = request
+            .path
+            .split('?')
+            .next()
+            .unwrap_or_default()
+            .to_owned();
         let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
         match (request.method.as_str(), parts.as_slice()) {
             ("GET", ["api", "event"]) => {
@@ -217,7 +227,21 @@ impl Fake {
                 answer(&stream, 200, json!({}));
                 let fake = self.clone();
                 let session = (*id).to_owned();
-                std::thread::spawn(move || fake.turn(&session, "compacted"));
+                std::thread::spawn(move || fake.compact(&session));
+            }
+            ("DELETE", ["api", "session", _, "form", id]) => {
+                answer(&stream, 200, json!({}));
+                let message = url::Url::parse(&format!("http://fake{}", request.path))
+                    .ok()
+                    .and_then(|url| {
+                        url.query_pairs()
+                            .find(|(key, _)| key == "message")
+                            .map(|(_, message)| message.into_owned())
+                    })
+                    .unwrap_or_default();
+                if let Some(waiting) = self.answers.locked().remove(*id) {
+                    let _ = waiting.send(message);
+                }
             }
             ("POST", ["api", "session", id, "command"]) => {
                 answer(&stream, 200, json!({}));
@@ -229,8 +253,47 @@ impl Fake {
             ("GET", ["api", "experimental", "session", _, "log"]) => {
                 answer(&stream, 200, json!({ "data": [] }))
             }
-            _ => answer(&stream, 404, json!({ "message": format!("no route {path}") })),
+            _ => answer(
+                &stream,
+                404,
+                json!({ "message": format!("no route {path}") }),
+            ),
         }
+    }
+
+    fn compact(&self, session: &str) {
+        self.emit("session.execution.started", json!({ "sessionID": session }));
+        let reason = json!({ "sessionID": session, "reason": "manual" });
+        self.emit("session.compaction.started", reason.clone());
+        let mut ended = reason;
+        ended["text"] = json!("summary");
+        self.emit("session.compaction.ended", ended);
+        self.emit(
+            "session.execution.succeeded",
+            json!({ "sessionID": session }),
+        );
+    }
+
+    /// A subagent's own run, which says `found it`.
+    fn subagent(&self, child: &str) {
+        self.emit("session.execution.started", json!({ "sessionID": child }));
+        let data = json!({
+            "sessionID": child, "assistantMessageID": format!("msg_{}", uuid()), "ordinal": 0,
+        });
+        let mut delta = data.clone();
+        delta["delta"] = json!("found it");
+        self.emit("session.text.delta", delta);
+        let mut ended = data;
+        ended["text"] = json!("found it");
+        self.emit("session.text.ended", ended);
+        self.emit(
+            "session.step.ended",
+            json!({
+                "sessionID": child, "finish": "stop", "cost": 0.01,
+                "tokens": { "input": 300, "output": 20, "reasoning": 0, "cache": { "read": 0, "write": 0 } },
+            }),
+        );
+        self.emit("session.execution.succeeded", json!({ "sessionID": child }));
     }
 
     fn turn(&self, session: &str, text: &str) {
@@ -253,6 +316,7 @@ impl Fake {
         let (verb, rest) = text.split_once(' ').unwrap_or((text, ""));
         let mut ending = "session.execution.succeeded";
         let mut error = Value::Null;
+        let mut subagent = None;
         match verb {
             "stream" => (0..rest.parse().unwrap_or(1)).for_each(|n| say(&format!("w{n} "))),
             "ask" => {
@@ -288,7 +352,11 @@ impl Fake {
                         "content": [{ "type": "text", "text": "hi" }], "metadata": {},
                     }),
                 );
-                say(if decision == "reject" { "rejected" } else { "allowed" });
+                say(if decision == "reject" {
+                    "rejected"
+                } else {
+                    "allowed"
+                });
             }
             "hold" => {
                 say("holding");
@@ -300,6 +368,60 @@ impl Fake {
                     true => ending = "session.execution.interrupted",
                     false => say("held"),
                 }
+            }
+            "todo" => {
+                let call = format!("call_{}", uuid());
+                self.emit(
+                    "session.tool.input.started",
+                    json!({ "sessionID": session, "id": call, "name": "todowrite" }),
+                );
+                let input = json!({ "todos": [
+                    { "content": "look", "status": "completed" },
+                    { "content": "fix", "status": "in_progress" },
+                ] });
+                self.emit(
+                    "session.tool.called",
+                    json!({ "sessionID": session, "id": call, "input": input }),
+                );
+                self.emit(
+                    "session.tool.success",
+                    json!({
+                        "sessionID": session, "id": call,
+                        "content": [{ "type": "text", "text": "Todos updated" }], "metadata": {},
+                    }),
+                );
+                say("planned");
+            }
+            "subagent" => {
+                let child = format!("ses_{}", uuid());
+                self.emit(
+                    "session.created",
+                    json!({
+                        "sessionID": child, "parentID": session, "agent": "explore",
+                        "title": "Look around", "slug": "look", "version": "2",
+                    }),
+                );
+                say("started");
+                subagent = Some(child);
+            }
+            "question" => {
+                let form = format!("frm_{}", uuid());
+                let (answered, heard) = channel();
+                self.answers.locked().insert(form.clone(), answered);
+                self.emit(
+                    "form.created",
+                    json!({ "form": {
+                        "id": form, "sessionID": session, "title": "Questions",
+                        "metadata": { "kind": "question" },
+                        "fields": [{
+                            "key": "q0", "title": "Colour", "description": "Which colour?",
+                            "type": "string", "custom": true,
+                            "options": [{ "value": "Red", "label": "Red" }, { "value": "Blue", "label": "Blue" }],
+                        }],
+                    } }),
+                );
+                let told = heard.recv().unwrap_or_default();
+                say(&format!("told: {told}"));
             }
             "fail" => {
                 ending = "session.execution.failed";
@@ -316,6 +438,9 @@ impl Fake {
             }),
         );
         self.emit(ending, json!({ "sessionID": session, "error": error }));
+        if let Some(child) = subagent {
+            self.subagent(&child);
+        }
     }
 }
 
@@ -341,7 +466,10 @@ fn main() {
         }
     });
     let mut input = String::new();
-    while std::io::stdin().read_line(&mut input).is_ok_and(|read| read > 0) {
+    while std::io::stdin()
+        .read_line(&mut input)
+        .is_ok_and(|read| read > 0)
+    {
         input.clear();
     }
 }

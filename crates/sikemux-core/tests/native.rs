@@ -20,7 +20,8 @@ use sikemux_client::client::CoreClient;
 use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_view::chat::{
-    ChatPage, ChatRole, FailureKind, PermissionAsk, PermissionKind, StopReason,
+    ChatPage, ChatPart, ChatRole, FailureKind, PermissionAsk, PermissionKind, PlanStatus,
+    StopReason, SubagentState, ToolStatus,
 };
 use sikemux_wire::protocol::{
     ask, encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatLaunch,
@@ -1102,4 +1103,96 @@ async fn an_opencode_turn_that_cannot_sign_in_says_so() {
         failed.head().failure.as_ref().map(|failure| failure.kind),
         Some(FailureKind::SignIn)
     );
+}
+
+async fn opencode_chat(core: &TestCore, agent: &str, home: &Path) -> (CoreClient, Chat) {
+    let (client, chat) = core.connect(agent).await;
+    client
+        .acp_start(opencode_launch(agent, home))
+        .await
+        .expect("start");
+    (client, chat)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_todo_list_becomes_the_chats_plan() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-e", home.path()).await;
+    prompt(&client, "opencode-e", &message_id(), "todo").await;
+    chat.turn_ended().await;
+    let plan = chat
+        .until(|chat| chat.head().plan.is_some())
+        .await
+        .head()
+        .plan
+        .clone();
+    let plan: Vec<_> = plan
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| (entry.content, entry.status))
+        .collect();
+    assert_eq!(
+        plan,
+        [
+            ("look".to_owned(), PlanStatus::Completed),
+            ("fix".to_owned(), PlanStatus::InProgress)
+        ]
+    );
+    assert!(
+        !chat
+            .parts()
+            .any(|part| matches!(part, ChatPart::Tool { .. })),
+        "the todo list is no tool row"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_subagent_has_a_card_that_ends_after_the_turn_that_started_it() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-f", home.path()).await;
+    prompt(&client, "opencode-f", &message_id(), "subagent").await;
+    chat.turn_ended().await;
+    let card = |chat: &Folded| {
+        chat.parts().find_map(|part| match part {
+            ChatPart::Subagent { subagent, .. } => Some(subagent.clone()),
+            _ => None,
+        })
+    };
+    let ended = chat
+        .until(|chat| card(chat).is_some_and(|card| card.state == SubagentState::Completed))
+        .await;
+    let card = card(ended).expect("card");
+    assert_eq!(
+        (card.name.as_str(), card.task.as_str()),
+        ("explore", "Look around")
+    );
+    assert_eq!(card.tokens, Some(320));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_question_goes_to_the_person_and_opencode_hears_what_sikemux_said() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-g", home.path()).await;
+    prompt(&client, "opencode-g", &message_id(), "question").await;
+    chat.turn_ended().await;
+    let told = chat.text();
+    let told = told.strip_prefix("told: ").expect("told");
+    assert!(!told.trim().is_empty(), "OpenCode heard nothing");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_compaction_shows_as_a_row() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = opencode_chat(&core, "opencode-h", home.path()).await;
+    prompt(&client, "opencode-h", &message_id(), "/compact").await;
+    chat.turn_ended().await;
+    let row = chat.parts().find_map(|part| match part {
+        ChatPart::Tool { tool, .. } if tool.title == "Compact conversation" => tool.status,
+        _ => None,
+    });
+    assert_eq!(row, Some(ToolStatus::Completed));
 }

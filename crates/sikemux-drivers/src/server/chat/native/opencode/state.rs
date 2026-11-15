@@ -11,6 +11,7 @@ use sikemux_fold::UpdateKind;
 use sikemux_view::chat::StopReason;
 
 use crate::acp::failure::Failure;
+use crate::server::chat::states::{self, Subagent, UNNAMED_TASK};
 
 use super::super::session::TurnEnd;
 use super::tools::{self, Call};
@@ -18,18 +19,35 @@ use super::tools::{self, Call};
 /// What one event does to the chat.
 pub enum Effect {
     Update(Value),
+    /// What happens in a subagent's session, for its card.
+    In(String, Value),
     End(u64, TurnEnd),
     WorkStarted,
     WorkEnded(StopReason),
     /// OpenCode asks the person's leave: the request as the chat puts it, and OpenCode's id
     /// for it.
-    Ask { request: Value, id: String },
+    Ask {
+        session: String,
+        request: Value,
+        id: String,
+    },
     /// A permission was answered elsewhere, so the chat stops asking.
     Settled(String),
     /// The model was called with this many tokens of context.
     Called(u64),
     /// The session's model or mode changed, to be shown in its pickers.
     Selected,
+    /// OpenCode asks the person something with a form in `session`, put as the ask tool's
+    /// questions.
+    Question {
+        session: String,
+        form: String,
+        input: Value,
+    },
+    /// A compaction ended: the next call starts from its summary.
+    Compacted,
+    /// A compaction ended either way.
+    CompactionOver,
 }
 
 /// The turn at work, and whose it is.
@@ -42,6 +60,8 @@ enum Turn {
     Prompted(u64),
     /// One OpenCode began by itself, such as on a background subagent's report.
     Unprompted,
+    /// The core's own compaction while the chat is idle, which shows no turn.
+    Quiet,
 }
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -111,6 +131,18 @@ pub struct Session {
     pub cost: f64,
     /// The last of the session's own events read, by its number in the session's log.
     pub seq: u64,
+    /// The session whose feed holds this one's card, when this is a subagent's.
+    parent: Option<String>,
+    /// Every subagent below this session, however deep, by session.
+    children: HashMap<String, Session>,
+    /// Tokens a subagent's calls have taken, for its card.
+    spent: u64,
+    /// The compaction row open now.
+    compacting: Option<String>,
+    /// The next run is the core's compaction of an idle chat.
+    quiet: bool,
+    /// The forms already put to the person.
+    forms: HashSet<String>,
 }
 
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -157,19 +189,39 @@ impl Session {
         }
     }
 
+    /// The core compacts the idle session, so its run shows no turn.
+    pub fn compact_quietly(&mut self) {
+        self.quiet = !self.running();
+    }
+
+    fn holds(&self, session: &str) -> bool {
+        session == self.id || self.children.contains_key(session)
+    }
+
     /// The event `event`, from the stream or the session's log.
     pub fn handle(&mut self, event: &Value) -> Vec<Effect> {
         let data = &event["data"];
         let kind = text(event, "type");
-        if kind == "permission.replied" {
-            let id = text(data, "requestID");
-            return match self.asks.remove(id) {
-                true => vec![Effect::Settled(id.to_owned())],
-                false => Vec::new(),
-            };
+        match kind {
+            "permission.replied" => {
+                let id = text(data, "requestID");
+                let asked = self.asks.remove(id)
+                    | self
+                        .children
+                        .values_mut()
+                        .any(|child| child.asks.remove(id));
+                return match asked {
+                    true => vec![Effect::Settled(id.to_owned())],
+                    false => Vec::new(),
+                };
+            }
+            "form.created" => return self.form(&data["form"]),
+            "session.created" => return self.spawned(data),
+            _ => {}
         }
-        if text(data, "sessionID") != self.id {
-            return Vec::new();
+        let session = text(data, "sessionID");
+        if session != self.id {
+            return self.in_child(session, event);
         }
         if let Some(seq) = event.pointer("/durable/seq").and_then(Value::as_u64) {
             if seq <= self.seq {
@@ -199,17 +251,27 @@ impl Session {
                         ..Call::default()
                     },
                 );
+                if tools::is_todo(name) {
+                    return Vec::new();
+                }
                 vec![Effect::Update(tools::pending(&id, name, &self.cwd))]
             }
             "session.tool.called" => {
                 let id = text(data, "id");
                 let call = self.tools.entry(id.to_owned()).or_default();
                 call.input = data["input"].clone();
+                if tools::is_todo(&call.name) {
+                    return vec![Effect::Update(tools::todo_plan(&call.input))];
+                }
                 vec![Effect::Update(tools::running(id, call, &self.cwd))]
             }
             "session.tool.progress" => {
                 let id = text(data, "id");
-                let Some(call) = self.tools.get_mut(id) else {
+                let Some(call) = self
+                    .tools
+                    .get_mut(id)
+                    .filter(|call| !tools::is_todo(&call.name))
+                else {
                     return Vec::new();
                 };
                 call.metadata = data["metadata"].clone();
@@ -218,6 +280,9 @@ impl Session {
             "session.tool.success" => {
                 let id = text(data, "id");
                 let call = self.tools.remove(id).unwrap_or_default();
+                if tools::is_todo(&call.name) {
+                    return Vec::new();
+                }
                 vec![Effect::Update(tools::completed(
                     id,
                     &call,
@@ -229,6 +294,9 @@ impl Session {
             "session.tool.failed" => {
                 let id = text(data, "id");
                 let call = self.tools.remove(id).unwrap_or_default();
+                if tools::is_todo(&call.name) {
+                    return Vec::new();
+                }
                 let metadata = match &data["metadata"] {
                     Value::Null => &call.metadata,
                     metadata => metadata,
@@ -245,6 +313,7 @@ impl Session {
             "session.step.ended" => {
                 let tokens = Tokens::read(&data["tokens"]);
                 self.used.add(tokens);
+                self.spent += tokens.context() + tokens.output + tokens.reasoning;
                 self.finish = data["finish"].as_str().map(str::to_owned);
                 self.cost += data["cost"].as_f64().unwrap_or(0.0);
                 self.stepped(tokens)
@@ -281,10 +350,132 @@ impl Session {
                     .as_str()
                     .and_then(|call| self.tools.get(call));
                 let request = tools::permission(&self.id, data, call, &self.cwd);
-                vec![Effect::Ask { request, id }]
+                vec![Effect::Ask {
+                    session: self.id.clone(),
+                    request,
+                    id,
+                }]
+            }
+            "session.compaction.started" => self.compaction_started(),
+            "session.compaction.ended" => {
+                let mut effects = self.compaction_ended("completed", None);
+                effects.push(Effect::Compacted);
+                effects
+            }
+            "session.compaction.failed" => {
+                let said = text(&data["error"], "message");
+                let said = format!("Compaction failed: {said}");
+                self.compaction_ended("failed", Some(&said))
             }
             _ => Vec::new(),
         }
+    }
+
+    /// A subagent's session began: a card for it in the feed of the session that started it.
+    fn spawned(&mut self, data: &Value) -> Vec<Effect> {
+        let child = text(data, "sessionID");
+        let parent = text(data, "parentID");
+        if parent.is_empty() || !self.holds(parent) || self.holds(child) {
+            return Vec::new();
+        }
+        let mut session = Session::new(child.to_owned(), self.cwd.clone());
+        session.parent = Some(parent.to_owned());
+        self.children.insert(child.to_owned(), session);
+        let name = match text(data, "agent") {
+            "" => states::unnamed(child),
+            agent => agent.to_owned(),
+        };
+        let task = match text(data, "title") {
+            "" => UNNAMED_TASK,
+            title => title,
+        };
+        vec![Effect::In(
+            parent.to_owned(),
+            states::spawned(child, &name, task),
+        )]
+    }
+
+    /// An event of a subagent's session, onto its card.
+    fn in_child(&mut self, session: &str, event: &Value) -> Vec<Effect> {
+        let Some(child) = self.children.get_mut(session) else {
+            return Vec::new();
+        };
+        let parent = child.parent.clone().unwrap_or_default();
+        let spent = child.spent;
+        let effects = child.handle(event);
+        let failed = child.failure().is_some();
+        let mut out: Vec<Effect> = effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Update(update) => Some(Effect::In(session.to_owned(), update)),
+                Effect::WorkStarted => Some(Effect::In(
+                    parent.clone(),
+                    Subagent::Running.update(session),
+                )),
+                Effect::WorkEnded(reason) => {
+                    let state = match reason {
+                        StopReason::Cancelled => Subagent::Cancelled,
+                        _ if failed => Subagent::Failed,
+                        _ => Subagent::Completed,
+                    };
+                    Some(Effect::In(parent.clone(), state.update(session)))
+                }
+                Effect::In(..)
+                | Effect::Ask { .. }
+                | Effect::Settled(_)
+                | Effect::Question { .. } => Some(effect),
+                Effect::End(..)
+                | Effect::Called(_)
+                | Effect::Selected
+                | Effect::Compacted
+                | Effect::CompactionOver => None,
+            })
+            .collect();
+        let spent_now = self
+            .children
+            .get(session)
+            .map_or(spent, |child| child.spent);
+        if spent_now != spent {
+            out.push(Effect::In(
+                parent,
+                update::subagent_usage(session, spent_now),
+            ));
+        }
+        out
+    }
+
+    /// OpenCode asks the person something, such as with its question tool.
+    fn form(&mut self, form: &Value) -> Vec<Effect> {
+        let session = text(form, "sessionID");
+        let id = text(form, "id");
+        if !self.holds(session) || !self.forms.insert(id.to_owned()) {
+            return Vec::new();
+        }
+        vec![Effect::Question {
+            session: session.to_owned(),
+            form: id.to_owned(),
+            input: tools::form_questions(form),
+        }]
+    }
+
+    fn compaction_started(&mut self) -> Vec<Effect> {
+        if self.turn == Turn::Quiet {
+            return Vec::new();
+        }
+        let id = format!("opencode-compaction-{}", uuid::Uuid::now_v7());
+        let open = update::compaction(&id, true, "in_progress", None);
+        self.compacting = Some(id);
+        vec![Effect::Update(open)]
+    }
+
+    fn compaction_ended(&mut self, status: &str, error: Option<&str>) -> Vec<Effect> {
+        let mut effects = vec![Effect::CompactionOver];
+        if let Some(id) = self.compacting.take() {
+            effects.push(Effect::Update(update::compaction(
+                &id, false, status, error,
+            )));
+        }
+        effects
     }
 
     fn started(&mut self) -> Vec<Effect> {
@@ -296,11 +487,15 @@ impl Session {
                 self.turn = Turn::Prompted(number);
                 Vec::new()
             }
+            Turn::Idle if std::mem::take(&mut self.quiet) => {
+                self.turn = Turn::Quiet;
+                Vec::new()
+            }
             Turn::Idle => {
                 self.turn = Turn::Unprompted;
                 vec![Effect::WorkStarted]
             }
-            Turn::Prompted(_) | Turn::Unprompted => Vec::new(),
+            Turn::Prompted(_) | Turn::Unprompted | Turn::Quiet => Vec::new(),
         }
     }
 
@@ -325,6 +520,7 @@ impl Session {
                 effects.push(Effect::End(number, end.read_offline()));
             }
             Turn::Unprompted => effects.push(Effect::WorkEnded(reason)),
+            Turn::Quiet => effects.push(Effect::CompactionOver),
             Turn::Idle => {}
         }
         effects
@@ -335,6 +531,7 @@ impl Session {
         let cwd = self.cwd.clone();
         self.tools
             .drain()
+            .filter(|(_, call)| !tools::is_todo(&call.name))
             .map(|(id, call)| {
                 Effect::Update(tools::failed(
                     &id,

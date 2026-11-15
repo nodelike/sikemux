@@ -30,8 +30,8 @@ use super::parts::{parts, Part};
 use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered};
-pub use options::{read_options, Catalog};
 use options::{model_ref, read_ref, BUILD, EFFORT_ID, MODE_ID};
+pub use options::{read_options, Catalog};
 use state::{Effect, Session};
 
 /// What answers OpenCode on a permission it asked for.
@@ -85,21 +85,50 @@ impl Driver {
                     as_mcp_call(&mut update, &self.servers);
                     self.sink.update(&session, update);
                 }
+                Effect::In(child, mut update) => {
+                    as_mcp_call(&mut update, &self.servers);
+                    self.sink.update(&child, update);
+                }
                 Effect::End(turn, end) => self.sink.end_turn(turn, end),
                 Effect::WorkStarted => self.sink.work_started(),
                 Effect::WorkEnded(reason) => self.sink.work_ended(reason),
-                Effect::Ask { request, id } => {
-                    let reply = Asked {
-                        session: session.clone(),
-                        id,
-                    };
+                Effect::Ask {
+                    session,
+                    request,
+                    id,
+                } => {
+                    let reply = Asked { session, id };
                     self.sink.ask(request, reply, |reply| self.responder(reply));
                 }
+                Effect::Question {
+                    session,
+                    form,
+                    input,
+                } => self.put_question(session, form, &input),
+                Effect::Compacted => {
+                    self.sink.compacted(0);
+                    self.sink.compaction_over();
+                }
+                Effect::CompactionOver => self.sink.compaction_over(),
                 Effect::Settled(id) => self.sink.withdraw_permission(&id),
                 Effect::Called(context) => self.sink.called(context),
                 Effect::Selected => {}
             }
         }
+    }
+
+    /// Puts OpenCode's form to the person as the ask tool's questions, and tells OpenCode what
+    /// Sikemux said in place of the answer, which reaches it later as a message.
+    fn put_question(&self, session: String, form: String, input: &Value) {
+        let told = self.sink.question(input);
+        let message: String = url::form_urlencoded::byte_serialize(told.as_bytes()).collect();
+        let path = format!("/api/session/{session}/form/{form}?message={message}");
+        let client = self.client.clone();
+        tokio::spawn(async move {
+            if let Err(error) = client.delete(&path).await {
+                eprintln!("sikemux core: OpenCode did not take the note on its question: {error}");
+            }
+        });
     }
 
     fn responder(&self, reply: Asked) -> Respond {
@@ -144,7 +173,9 @@ impl Driver {
         match self.client.get(&path).await {
             Ok(Value::Array(events)) => events.iter().for_each(|event| self.handle(event)),
             Ok(_) => {}
-            Err(error) => eprintln!("sikemux core: OpenCode's session log could not be read: {error}"),
+            Err(error) => {
+                eprintln!("sikemux core: OpenCode's session log could not be read: {error}")
+            }
         }
     }
 }
@@ -224,7 +255,8 @@ const COMPACT: &str = "compact";
 /// The commands the chat offers: OpenCode's own, after `/compact`, which it runs by a route of
 /// its own rather than listing.
 fn offered_commands(commands: &[Value]) -> Value {
-    let compact = json!({ "name": COMPACT, "description": "Summarize the conversation to free up context." });
+    let compact =
+        json!({ "name": COMPACT, "description": "Summarize the conversation to free up context." });
     let own = commands.iter().filter_map(|command| {
         Some(json!({
             "name": command["name"].as_str()?,
@@ -270,7 +302,9 @@ impl Opencode {
             client
                 .put(&path, json!({ "config": config }))
                 .await
-                .map_err(|error| format!("OpenCode did not take the tool server {name}: {error}"))?;
+                .map_err(|error| {
+                    format!("OpenCode did not take the tool server {name}: {error}")
+                })?;
         }
         Ok(())
     }
@@ -291,7 +325,8 @@ impl Opencode {
                     replay(sink, launch, existing);
                     return Ok(session);
                 }
-                Err(error) if error.status == Some(404) && sink.reloading() && !sink.has_answered() => {}
+                Err(error)
+                    if error.status == Some(404) && sink.reloading() && !sink.has_answered() => {}
                 Err(error) => return Err(error.message),
             }
         }
@@ -355,7 +390,11 @@ fn replay(sink: &Sink, launch: &ChatLaunch, session: &str) {
 }
 
 /// Shows a saved session before OpenCode starts, as it would replay it.
-pub fn replay_saved(launch: &ChatLaunch, session: &str, sink: &super::session::Telling) -> Result<(), String> {
+pub fn replay_saved(
+    launch: &ChatLaunch,
+    session: &str,
+    sink: &super::session::Telling,
+) -> Result<(), String> {
     let names = server_names(launch);
     for mut update in crate::sessions::history(AgentKind::Opencode, session, &launch.cwd)? {
         if !crate::server::chat::prompt::drop_for_agent(&mut update) {
@@ -418,7 +457,9 @@ impl Backend for Opencode {
             let mut session = driver.session.locked();
             session.id = session_id.clone();
             session.cost = opened["cost"].as_f64().unwrap_or(0.0);
-            session.titled = opened["title"].as_str().is_some_and(|title| !title.is_empty());
+            session.titled = opened["title"]
+                .as_str()
+                .is_some_and(|title| !title.is_empty());
         }
         sink.loaded();
         sink.update(&session_id, offered_commands(&commands));
@@ -439,7 +480,9 @@ impl Backend for Opencode {
             events,
         };
         let on = opened.get("model").and_then(read_ref);
-        if on.as_ref().map(|(on, effort)| (on.as_str(), effort.as_deref()))
+        if on
+            .as_ref()
+            .map(|(on, effort)| (on.as_str(), effort.as_deref()))
             != Some((model.as_str(), opencode.effort.as_deref()))
         {
             if let Err(error) = opencode.select().await {
@@ -464,7 +507,11 @@ impl Backend for Opencode {
         let (route, body) = self.request(&prompt)?;
         let effects = self.driver.session.locked().send(turn);
         self.driver.apply(effects);
-        let sent = self.driver.client.post(&self.driver.path(route), body).await;
+        let sent = self
+            .driver
+            .client
+            .post(&self.driver.path(route), body)
+            .await;
         if let Err(said) = sent.map_err(refused) {
             let effects = self.driver.session.locked().refused(turn, said);
             self.driver.apply(effects);
@@ -503,6 +550,16 @@ impl Backend for Opencode {
         self.driver
             .client
             .post(&self.driver.path("/interrupt"), json!({}))
+            .await
+            .map(drop)
+            .map_err(refused)
+    }
+
+    async fn compact(&mut self) -> Result<(), String> {
+        self.driver.session.locked().compact_quietly();
+        self.driver
+            .client
+            .post(&self.driver.path("/compact"), json!({}))
             .await
             .map(drop)
             .map_err(refused)
@@ -602,7 +659,9 @@ impl Backend for Opencode {
                     follower.catch_up().await;
                     let _ = following.await;
                 }
-                Err(error) => eprintln!("sikemux core: OpenCode's events could not be followed again: {error}"),
+                Err(error) => eprintln!(
+                    "sikemux core: OpenCode's events could not be followed again: {error}"
+                ),
             }
         });
         Ok(Self {

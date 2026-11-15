@@ -62,7 +62,10 @@ pub fn locations(name: &str, input: &Value, cwd: &Path) -> Vec<Value> {
         "shell" => vec![named("workdir")
             .or_else(|| named("cwd"))
             .unwrap_or_else(|| cwd.to_string_lossy().into_owned())],
-        "read" | "edit" | "write" => named("path").or_else(|| named("filePath")).into_iter().collect(),
+        "read" | "edit" | "write" => named("path")
+            .or_else(|| named("filePath"))
+            .into_iter()
+            .collect(),
         "external_directory" => named("filepath").into_iter().collect(),
         "grep" | "glob" | "context" => named("path").into_iter().collect(),
         _ => Vec::new(),
@@ -74,13 +77,17 @@ pub fn locations(name: &str, input: &Value, cwd: &Path) -> Vec<Value> {
             seen.push(path);
         }
     }
-    seen.into_iter().map(|path| json!({ "path": path })).collect()
+    seen.into_iter()
+        .map(|path| json!({ "path": path }))
+        .collect()
 }
 
 /// What the call was given, with the folder a command runs in when it names none.
 fn raw_input(name: &str, input: &Value, cwd: &Path) -> Value {
     let mut input = input.clone();
-    if canonical(name) == "shell" && text(&input, "cwd").is_none() && text(&input, "workdir").is_none()
+    if canonical(name) == "shell"
+        && text(&input, "cwd").is_none()
+        && text(&input, "workdir").is_none()
     {
         if let Some(fields) = input.as_object_mut() {
             fields.insert("cwd".into(), json!(cwd));
@@ -196,15 +203,28 @@ pub fn failed(
 /// A permission OpenCode asks for, as the chat puts it to the person: the call it is for,
 /// with the choices OpenCode takes.
 pub fn permission(session: &str, asked: &Value, call: Option<&Call>, cwd: &Path) -> Value {
-    let name = call.map_or_else(|| text(asked, "action").unwrap_or("tool").to_owned(), |call| call.name.clone());
+    let name = call.map_or_else(
+        || text(asked, "action").unwrap_or("tool").to_owned(),
+        |call| call.name.clone(),
+    );
     let input = call.map_or_else(|| asked["metadata"].clone(), |call| call.input.clone());
     let id = asked["source"]["id"]
         .as_str()
         .or(asked["id"].as_str())
         .unwrap_or_default();
     let mut locations = locations(&name, &input, cwd);
-    if locations.is_empty() && matches!(text(asked, "action"), Some("read" | "edit" | "external_directory")) {
-        for resource in asked["resources"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+    if locations.is_empty()
+        && matches!(
+            text(asked, "action"),
+            Some("read" | "edit" | "external_directory")
+        )
+    {
+        for resource in asked["resources"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
             let path = resource.strip_suffix("/*").unwrap_or(resource);
             if !path.is_empty() && !path.contains(['*', '?']) {
                 locations.push(json!({ "path": absolute(path, cwd) }));
@@ -245,4 +265,56 @@ fn permission_title(name: &str, input: &Value) -> Option<String> {
         _ => None,
     };
     found.map(str::to_owned)
+}
+
+pub fn is_todo(name: &str) -> bool {
+    canonical(name) == "todowrite"
+}
+
+/// The chat's plan from OpenCode's todo list.
+pub fn todo_plan(input: &Value) -> Value {
+    let entries = input["todos"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|todo| {
+            sikemux_fold::update::plan_entry(
+                todo["content"].as_str().unwrap_or_default(),
+                todo["status"].as_str().unwrap_or_default(),
+            )
+        })
+        .collect();
+    sikemux_fold::update::plan(entries)
+}
+
+/// A form OpenCode puts to the person, as the ask tool's questions: each field the question
+/// in its description, its title the header, and its options the choices.
+pub fn form_questions(form: &Value) -> Value {
+    let questions: Vec<Value> = form["fields"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|field| field["hidden"] != true)
+        .map(|field| {
+            let title = text(field, "title");
+            let options: Vec<Value> = field["options"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|option| {
+                    json!({
+                        "label": text(option, "label").or(text(option, "value")).unwrap_or_default(),
+                        "description": option["description"],
+                    })
+                })
+                .collect();
+            json!({
+                "question": text(field, "description").or(title).or(text(form, "title")).unwrap_or_default(),
+                "header": title,
+                "options": options,
+                "multiSelect": field["type"] == "multiselect",
+            })
+        })
+        .collect();
+    json!({ "questions": questions })
 }

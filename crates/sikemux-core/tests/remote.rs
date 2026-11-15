@@ -1007,10 +1007,7 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
         .launchers
         .iter()
         .find(|launcher| launcher.id == "omp:fake");
-    assert_eq!(
-        fake.map(|launcher| launcher.label.as_str()),
-        Some("OMP")
-    );
+    assert_eq!(fake.map(|launcher| launcher.label.as_str()), Some("OMP"));
     assert!(!format!("{workspace:?}").contains(FAKE_AGENT));
 
     let (agent_id, start) = client
