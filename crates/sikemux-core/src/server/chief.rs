@@ -237,7 +237,7 @@ pub(crate) fn seated(core: &Core) -> HashMap<String, String> {
 }
 
 /// The chief over `agent_id`, when its project has one open other than the agent itself.
-fn chief_over(core: &Core, agent_id: &str) -> Option<String> {
+pub(crate) fn chief_over(core: &Core, agent_id: &str) -> Option<String> {
     let project = core.workspaces().agent(agent_id)?.project;
     seated(core)
         .remove(&project)

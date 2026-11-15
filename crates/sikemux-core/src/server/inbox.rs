@@ -1079,7 +1079,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         )
         .by(agent, find(agent));
         item.detail = Some(
-            "Triggers and other agents' messages wait until you write to it; anything you write lets it go on.".to_owned(),
+            "Triggers and other agents' messages wait until you, its lead or its chief write to it; anything written lets it go on.".to_owned(),
         );
         items.push(item);
     }

@@ -65,7 +65,7 @@ const SETTLE_MS: u64 = 1500;
 /// teammate's report, start another, so those that come close together are read in one turn.
 const AUTO_SETTLE_MS: u64 = 30_000;
 /// Turns in a row an agent may start on messages nobody waits on before the rest wait for the
-/// person to write to it.
+/// person, its lead or its chief to write to it.
 const MAX_AUTO_TURNS: u32 = 20;
 /// How long after waking an asleep chat failed before it is tried again.
 const WAKE_RETRY_MS: u64 = 60_000;
@@ -280,7 +280,8 @@ fn awaited<'a>(queued: impl IntoIterator<Item = &'a Queued>) -> bool {
 }
 
 /// Whether `queued` counts toward [`MAX_AUTO_TURNS`] and waits once the agent reaches it: nobody
-/// waits on it, and it is no report from one of the agent's own workers.
+/// waits on it, and it is no report from one of the agent's own workers nor anything from those
+/// in charge of it.
 fn capped(core: &Core, agent_id: &str, queued: &Queued) -> bool {
     let own_report = queued.origin.as_ref().is_some_and(|origin| {
         origin.kind == MessageKind::Report
@@ -291,7 +292,21 @@ fn capped(core: &Core, agent_id: &str, queued: &Queued) -> bool {
                 .as_deref()
                 == Some(agent_id)
     });
-    !own_report && !awaited([queued])
+    let from_above =
+        (queued.origin.as_ref()).is_some_and(|origin| in_charge(core, &origin.from, agent_id));
+    !own_report && !from_above && !awaited([queued])
+}
+
+/// Whether `from` is in charge of `agent_id`: the agent's lead, or its project's chief.
+fn in_charge(core: &Core, from: &str, agent_id: &str) -> bool {
+    from != agent_id
+        && (core
+            .names()
+            .get(agent_id)
+            .and_then(|named| named.parent)
+            .as_deref()
+            == Some(from)
+            || super::chief::chief_over(core, agent_id).as_deref() == Some(from))
 }
 
 fn settle_ms<'a>(queued: impl IntoIterator<Item = &'a Queued>) -> u64 {
@@ -1811,6 +1826,8 @@ async fn handed(
     }
     if Sender::of(&letter.from_id) == Some(Sender::Person) {
         person_wrote(core, &target.agent_id);
+    } else if in_charge(core, &letter.from_id, &target.agent_id) {
+        let_go(core, &target.agent_id);
     }
     let stopped = capped(core, &target.agent_id, queued) && mailbox.stopped(&target.agent_id);
     let mut woke = "";
@@ -2100,7 +2117,7 @@ pub(crate) fn from_person(core: &Arc<Core>, agent_id: &str, text: String) -> Cor
 }
 
 const STOPPED_NOTE: &str =
-    "has taken turn after turn with nobody writing to it and waits for the person";
+    "has taken turn after turn on triggers and other agents' messages, and waits for the person, its lead or its chief to write to it";
 
 /// The agent started a turn on `queued`. One nobody waits on counts toward [`MAX_AUTO_TURNS`].
 fn took_turn(core: &Core, agent_id: &str, queued: &[Queued]) {
@@ -2126,6 +2143,11 @@ fn took_turn(core: &Core, agent_id: &str, queued: &[Queued]) {
 /// them goes on.
 pub(crate) fn person_wrote(core: &Core, agent_id: &str) {
     core.seen().person_wrote(agent_id);
+    let_go(core, agent_id);
+}
+
+/// Someone wrote to the agent, so it may take turns of its own again, and what waited goes on.
+fn let_go(core: &Core, agent_id: &str) {
     let mailbox = &core.harness().mailbox;
     let turns = mailbox.state.locked().auto_turns.remove(agent_id);
     if turns.is_some_and(|turns| turns.stopped_at.is_some()) {
