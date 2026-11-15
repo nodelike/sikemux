@@ -86,19 +86,7 @@ pub fn headless_launch() -> Option<CoreLaunch> {
     })
 }
 
-/// Where the app keeps its data, and the core its preferences.
-pub fn data_dir() -> Option<PathBuf> {
-    let home = sikemux_process::paths::home()?;
-    Some(if cfg!(target_os = "macos") {
-        home.join("Library/Application Support").join(IDENTIFIER)
-    } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .filter(|dir| dir.is_absolute())
-            .unwrap_or_else(|| home.join(".local/share"))
-            .join(IDENTIFIER)
-    })
-}
+pub use sikemux_process::paths::data_dir;
 
 /// True when the file was written.
 fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<bool> {
