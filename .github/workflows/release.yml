@@ -10,7 +10,7 @@ on:
     tags: ["v*"]
   workflow_run:
     workflows: [CI]
-    types: [in_progress]
+    types: [requested]
     branches: [main]
 
 permissions:
@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
-      actions: read
+      actions: write
     outputs:
       passed: ${{ steps.wait.outputs.passed }}
     steps:
@@ -59,6 +59,15 @@ jobs:
           done
           echo "passed=$passed" >>"$GITHUB_OUTPUT"
           echo "CI from the push passed: $passed" >>"$GITHUB_STEP_SUMMARY"
+
+      # A nightly builds while CI checks its commit, so once CI fails the builds have nothing to ship.
+      - name: Stop a nightly whose commit failed CI
+        if: github.event_name == 'workflow_run' && steps.wait.outputs.passed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
+          sleep 60
 
   checks:
     name: Checks
@@ -83,7 +92,7 @@ jobs:
       version: ${{ steps.plan.outputs.version }}
       channel: ${{ steps.plan.outputs.channel }}
     steps:
-      # CI can report one run as started more than once, and each report queues a Release of the same commit.
+      # A re-run of CI asks for a Release of the same commit again; the earliest run keeps it.
       - name: Stop if this commit already has a nightly run
         if: github.event_name == 'workflow_run'
         env:
@@ -91,7 +100,7 @@ jobs:
         run: |
           earlier="$(gh run list -R "$GITHUB_REPOSITORY" --workflow release.yml --event workflow_run --limit 50 \
             --json databaseId,displayTitle,conclusion \
-            --jq "[.[] | select(.databaseId != $GITHUB_RUN_ID and .displayTitle == \"Release nightly from $RELEASE_SHA\" and .conclusion != \"cancelled\" and .conclusion != \"skipped\")] | length")"
+            --jq "[.[] | select(.databaseId < $GITHUB_RUN_ID and .displayTitle == \"Release nightly from $RELEASE_SHA\" and .conclusion != \"cancelled\" and .conclusion != \"skipped\")] | length")"
           if (( earlier > 0 )); then
             echo "Run for $RELEASE_SHA already started; stopping this one" >>"$GITHUB_STEP_SUMMARY"
             gh run cancel "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY"
