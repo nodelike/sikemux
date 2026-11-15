@@ -670,6 +670,9 @@ pub struct Chat {
     /// When the person sent the first message of this new chat, so its welcome leaves rather
     /// than vanishing; a chat filled by its own history never has one.
     first_sent: Cell<Option<std::time::Instant>>,
+    /// Its agent's record names the session a turn ran in, so until the core first answers
+    /// the chat is drawn as one with messages, never as a new one.
+    pub(crate) said: bool,
     /// A chief's Now card is folded to its counts.
     now_folded: bool,
 }
@@ -848,6 +851,7 @@ impl Chat {
             awaits_agent: false,
             file_menu: None,
             resting: false,
+            said: false,
         }
     }
 
@@ -1266,8 +1270,10 @@ impl Chat {
 
     /// Nothing has been said in it and no While you were away card stands in it.
     pub fn is_new(&self, cx: &App) -> bool {
-        self.transcript.read(cx).rows().is_empty()
-            && (self.state.as_ref()).is_none_or(|head| head.away.is_none())
+        let Some(head) = self.state.as_ref() else {
+            return !self.said && self.transcript.read(cx).rows().is_empty();
+        };
+        head.away.is_none() && self.transcript.read(cx).rows().is_empty()
     }
 
     /// The account smart accounts started the chat on, and why.
@@ -2057,6 +2063,10 @@ impl Workbench {
             cx,
         );
         chat.rescale(self.preferences().chat_text_scale as f32, cx);
+        chat.said = self.shown().is_some_and(|view| {
+            (view.workspace.agents.iter())
+                .any(|saved| saved.id == agent && saved.resume_id.is_some())
+        });
         self.chats.open.insert(agent.clone(), chat);
         self.ask_chat(ChatAsk::Attach { agent, since: None });
     }

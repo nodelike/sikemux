@@ -242,7 +242,8 @@ impl Feed {
     ) {
         self.viewed();
         let mut inner = self.inner.locked();
-        if inner.closed || (inner.start.is_none() && !inner.waits_for_person) {
+        let unopened = inner.start.is_none() && !inner.waits_for_person && !Self::said(&inner);
+        if inner.closed || unopened {
             client.answer::<ask::AcpAttach>(request_id, Ok(ChatAttachment::Missing));
             return;
         }

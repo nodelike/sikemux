@@ -90,10 +90,11 @@ pub async fn attach(
             }
         }
     };
-    // A chat still starting, such as one resumed after an update, is taken up
-    // once it is ready. One that never gets there is gone. A new chat waiting
-    // for the person is taken up at once, and its start follows as changes.
-    if !chat.unstarted() {
+    // A chat is taken up with its saved history once that is read, and its start follows as
+    // changes. Only one whose history comes with its agent, such as one resumed after an
+    // update, waits until it is ready; one that never gets there is gone.
+    chat.until_saved_read().await;
+    if !chat.unstarted() && !chat.feed.holds_said() {
         let ready = tokio::time::timeout(START_TIMEOUT, chat.until_ready()).await;
         if !matches!(ready, Ok(Ok(_))) {
             missing();

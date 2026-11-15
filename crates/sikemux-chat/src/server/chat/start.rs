@@ -145,13 +145,17 @@ pub fn launch(
 }
 
 /// Starts the chat's connection, and shows a chat that waits for the person what it can
-/// before its agent starts: its saved history and what it offers to pick.
+/// before its agent starts: its saved history and what it offers to pick. One starting on a
+/// saved session it doesn't show yet shows it at once too, rather than once its agent is up.
 fn bring_up(
     core: &Arc<Core>,
     chat: &Arc<Chat>,
     queue: mpsc::UnboundedReceiver<ChatCommand>,
     begin: Begin,
 ) {
+    if !chat.unstarted() && !chat.feed.holds_said() {
+        native::show_saved(chat);
+    }
     launch(core, chat, queue, begin);
     if chat.unstarted() {
         native::show_saved(chat);
@@ -437,6 +441,7 @@ pub fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -> CoreR
     if kept.unstarted {
         wait_for_person(&chat);
     }
+    chat.saved_reading.send_replace(true);
     let core = core.clone();
     tokio::spawn(async move {
         let reading = (core.clone(), chat.clone());
@@ -445,6 +450,7 @@ pub fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -> CoreR
             if let Some(history) = core.chats().history.as_deref() {
                 chat.feed.recover(history);
             }
+            chat.saved_reading.send_replace(false);
             kept.unsealed(&core).map(|launch| (launch, kept))
         })
         .await

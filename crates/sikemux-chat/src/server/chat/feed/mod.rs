@@ -975,7 +975,11 @@ impl Feed {
 
     /// Whether the chat holds anything said, as one read back from disk may.
     pub fn holds_said(&self) -> bool {
-        self.inner.locked().replay.entries.iter().any(|entry| {
+        Self::said(&self.inner.locked())
+    }
+
+    fn said(inner: &Inner) -> bool {
+        inner.replay.entries.iter().any(|entry| {
             entry.event.kind == ChatEventKind::SessionUpdate
                 && UpdateKind::within(&entry.event.payload).is_some_and(|kind| !kind.standing())
         })
