@@ -300,9 +300,19 @@ pub fn chat_account(profile: &Profile) -> ChatAccount {
     }
 }
 
-/// One account, as a call names it.
+/// One account, the same whether its folder is written as the person set it (`~/.claude-work`)
+/// or as a chat's launch spells it out.
 fn key(provider: &str, config_path: Option<&str>) -> String {
-    format!("{provider}\0{}", config_path.unwrap_or(""))
+    let folder = config_path
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(|path| {
+            sikemux_process::paths::account_dir(path)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .unwrap_or_default();
+    format!("{provider}\0{folder}")
 }
 
 /// `program` run as `provider` on the account in `config_path`, with the
