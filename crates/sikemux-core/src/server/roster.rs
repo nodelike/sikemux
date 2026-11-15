@@ -2,7 +2,6 @@
 //! those on linked hosts. What the agents' tools list, read and close comes from here.
 
 use crate::server::agent_now::AgentNowCore;
-use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -241,8 +240,9 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                 "title": agent.title,
                 "status": status,
                 "turn": turns.get(&agent.agent_id).and_then(|turn| {
-                    let answer = (core.chats().get(&agent.agent_id))
-                        .and_then(|chat| chat.feed.last_answer());
+                    let answer = (turn.state == TurnPhase::Done && agent.parent.is_none())
+                        .then(|| super::follow::last_answer(core, &agent.agent_id))
+                        .flatten();
                     super::turn_state::listed_line(turn, answer.as_deref(), agent.parent.is_some())
                 }),
                 "lastActive": since(agent.active_at, now),

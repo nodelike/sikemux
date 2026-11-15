@@ -738,7 +738,8 @@ says so. `guess` means a test was found by name only.
 
 `agent_read` gives an agent's last few turns: what it was `asked`, what it
 `said`, its tools in a line, its `answer` and `state`; pass back `cursor` for
-what came after. For a terminal agent of another CLI it gives only `screen`.
+what came after. An asleep or closed agent reads from what it kept, without
+waking it. For a terminal agent of another CLI it gives only `screen`.
 
 `agent_wait` waits up to 30 seconds on up to eight agents until one is `idle`,
 `done`, `needs_you` or does `any` thing; pass back its `cursor`. For longer,

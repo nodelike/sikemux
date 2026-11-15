@@ -17,13 +17,16 @@ use tokio::time::Instant;
 use crate::cli::protocol::HarnessRequest;
 use sikemux_wire::protocol::AgentStatus;
 
+use super::chat::feed::Feed;
 use super::connection::blocking;
 use super::messages;
 use super::roster::{self, Listed, Reach};
 use super::Core;
 use crate::acp::failure::{out_of_usage, PAUSED_FOR_AGENTS};
 use crate::agent_catalog::AgentKind;
+use crate::sessions::roots::account_root;
 use crate::sessions::transcript::{self, Said};
+use std::collections::BTreeMap;
 
 const MAX_WAIT_MS: u64 = 30_000;
 const MAX_AGENTS: usize = 8;
@@ -397,12 +400,9 @@ fn read_cursor(feed: &str, index: u64) -> String {
     format!("{feed}:{index}")
 }
 
-/// The agent's last turns, or what it said since `cursor`.
-fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value, String> {
-    let chat = core
-        .chats()
-        .get(&target.agent_id)
-        .ok_or("that agent is not running")?;
+/// The chat's last turns, or what it said since `cursor`, from the feed it runs on or the one
+/// it kept when it went to sleep or closed, which reads only the tail of its history on disk.
+fn read_chat(target: &Listed, feed: &Feed, cursor: Option<&str>) -> Result<Value, String> {
     let name = target.name.as_deref().unwrap_or(&target.agent_id);
     let from = cursor
         .map(|cursor| {
@@ -414,7 +414,7 @@ fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value
         .transpose()?;
     let mut notes = Vec::new();
     let index = match from {
-        Some((feed, index)) if feed == chat.feed.id() => Some(index),
+        Some((id, index)) if id == feed.id() => Some(index),
         Some(_) => {
             notes.push(format!(
                 "{name} started again since that cursor, so this begins at its last turns."
@@ -423,7 +423,7 @@ fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value
         }
         None => None,
     };
-    let excerpt = chat.feed.excerpt(index, RECENT_TURNS, MAX_READ_BYTES * 4);
+    let excerpt = feed.excerpt(index, RECENT_TURNS, MAX_READ_BYTES * 4);
     if excerpt.skipped {
         notes.push("Some of what it said after your cursor is no longer kept.".to_owned());
     }
@@ -460,13 +460,31 @@ fn screen_tail(core: &Core, agent_id: &str, lines: usize) -> Option<String> {
 }
 
 /// The session file a terminal agent's CLI writes, once the app has said
-/// which session it runs.
+/// which session it runs, or the one an asleep terminal agent resumes.
 fn session_file(core: &Core, agent_id: &str) -> Option<(AgentKind, String, std::path::PathBuf)> {
-    let terminal = core.agent_session(agent_id)?;
+    let Some(terminal) = core.agent_session(agent_id) else {
+        return asleep_session_file(core, agent_id);
+    };
     let owner = terminal.owner();
     let cli = AgentKind::from_name(owner.agent_type.as_deref()?)?;
     let session = core.names().session_of(agent_id)?;
     let path = transcript::locate(cli, owner.account_home.as_deref(), &session)?;
+    Some((cli, session, path))
+}
+
+fn asleep_session_file(
+    core: &Core,
+    agent_id: &str,
+) -> Option<(AgentKind, String, std::path::PathBuf)> {
+    let agent = core.workspaces().agent(agent_id)?;
+    let cli = AgentKind::from_name(&agent.provider)?;
+    let session = agent.resume_id?;
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let config_path = (agent.profile_id.as_deref())
+        .and_then(|id| book.profile(id))
+        .and_then(|profile| profile.config_path.clone());
+    let home = account_root(cli, config_path.as_deref(), &BTreeMap::new());
+    let path = transcript::locate(cli, home.as_deref(), &session)?;
     Some((cli, session, path))
 }
 
@@ -584,6 +602,29 @@ pub(crate) fn terminal_answer(core: &Core, agent_id: &str) -> TerminalTurn {
     }
 }
 
+/// What an agent at rest said last, when its last turn ended on words: from the feed its chat
+/// kept, else its CLI's session file. Reads only their tails and wakes nothing.
+pub(crate) fn last_answer(core: &Core, agent_id: &str) -> Option<String> {
+    if let Some(feed) = core.chats().heard(agent_id) {
+        return feed.last_answer();
+    }
+    let (cli, path) = match core.chats().shelf.get(agent_id) {
+        Some(shelved) => (
+            AgentKind::from_name(&shelved.provider)?,
+            shelved.transcript?,
+        ),
+        None => {
+            let (cli, _, path) = session_file(core, agent_id)?;
+            (cli, path)
+        }
+    };
+    let excerpt = transcript::read(cli, &path, None, 1).ok()?;
+    let mut turn = build(ended(excerpt.said, excerpt.next)).pop()?;
+    (turn.last == Last::Message)
+        .then(|| turn.said.pop())
+        .flatten()
+}
+
 pub(crate) struct TerminalTurn {
     /// Where the turn starts in the session file, when there is one.
     pub start: Option<u64>,
@@ -623,6 +664,7 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     if target.reach == Reach::Remote {
         return super::hosts::route::read(core, &caller, &target.agent_id, cursor).await;
     }
+    take_up_kept(core, &target).await;
     let core = core.clone();
     blocking(move || read_target(&core, &target, cursor.as_deref()).map_err(Into::into))
         .await
@@ -635,21 +677,36 @@ pub(crate) async fn read_here(
     agent_id: String,
     cursor: Option<String>,
 ) -> Result<Value, String> {
+    let target = {
+        let core = core.clone();
+        blocking(move || {
+            let target = roster::listed(&core)
+                .into_iter()
+                .find(|agent| agent.agent_id == agent_id && agent.reach != Reach::Remote)
+                .ok_or("that agent is not on this host")?;
+            if core.names().is_blind(&target.agent_id) {
+                return Err(
+                    "that agent reviews a card blind for Auto, so no agent may reach it".into(),
+                );
+            }
+            Ok(target)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
+    take_up_kept(core, &target).await;
     let core = core.clone();
-    blocking(move || {
-        let target = roster::listed(&core)
-            .into_iter()
-            .find(|agent| agent.agent_id == agent_id && agent.reach != Reach::Remote)
-            .ok_or("that agent is not on this host")?;
-        if core.names().is_blind(&target.agent_id) {
-            return Err(
-                "that agent reviews a card blind for Auto, so no agent may reach it".into(),
-            );
-        }
-        read_target(&core, &target, cursor.as_deref()).map_err(Into::into)
-    })
-    .await
-    .map_err(|error| error.to_string())
+    blocking(move || read_target(&core, &target, cursor.as_deref()).map_err(Into::into))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Takes up the history an earlier core kept of an asleep or closed chat, so it reads
+/// without waking anything.
+async fn take_up_kept(core: &Arc<Core>, target: &Listed) {
+    if matches!(target.reach, Reach::Asleep | Reach::Stopped) {
+        super::chat::unshelve(core, &target.agent_id, None).await;
+    }
 }
 
 pub(crate) fn read_target(
@@ -661,20 +718,18 @@ pub(crate) fn read_target(
         .name
         .clone()
         .unwrap_or_else(|| target.agent_id.clone());
-    let mut answer = if core.chats().get(&target.agent_id).is_some() {
-        read_chat(core, target, cursor)?
-    } else {
-        match target.reach {
-            Reach::Terminal => read_terminal(core, target, cursor)?,
-            Reach::Asleep => json!({
-                "turns": [],
-                "note": format!("{name} is asleep, so Sikemux has nothing of it to read until it runs again. A message with agent_send wakes it."),
-            }),
-            Reach::Chat | Reach::Stopped | Reach::Remote => json!({
-                "turns": [],
-                "note": format!("{name} has stopped, so Sikemux has nothing of it to read."),
-            }),
+    let mut answer = match core.chats().readable(&target.agent_id) {
+        Ok(feed) => read_chat(target, &feed, cursor)?,
+        Err(_)
+            if target.reach == Reach::Terminal
+                || session_file(core, &target.agent_id).is_some() =>
+        {
+            read_terminal(core, target, cursor)?
         }
+        Err(_) => json!({
+            "turns": [],
+            "note": format!("{name} kept no record Sikemux can read."),
+        }),
     };
     let fields = answer.as_object_mut().expect("an answer is an object");
     fields.insert("name".into(), name.into());
