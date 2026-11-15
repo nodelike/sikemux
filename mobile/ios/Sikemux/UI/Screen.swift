@@ -14,7 +14,7 @@ struct Screen<Content: View>: View {
                 ZStack(alignment: .top) {
                     palette.ground
                     if let backdrop, backdrop.texture {
-                        PaneBackdrop(image: backdrop.image, look: backdrop.look ?? .standard)
+                        PaneBackdropView(image: backdrop.image, look: backdrop.look ?? .standard)
                     }
                 }
                 .ignoresSafeArea()

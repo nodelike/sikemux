@@ -63,7 +63,7 @@ extension BackdropLook {
 /// The Mac's pane backdrop at the top of a host's screens: its moving dithered grain, or its picture dithered in
 /// place as the host's look says, faded out down the screen as on the Mac. It draws only when it changes: the grain
 /// ticks while the screen shows and nothing stills it, and the picture draws once.
-struct PaneBackdrop: View {
+struct PaneBackdropView: View {
     @Environment(\.palette) private var palette
     @Environment(\.accessibilityReduceMotion) private var still
     @Environment(\.scenePhase) private var phase
