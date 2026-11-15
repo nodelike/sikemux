@@ -1161,6 +1161,11 @@ fn gone(core: &Core, agent_id: &str) -> bool {
 /// Whether a message reaches the agent now: it runs, or it sleeps in an open
 /// window that wakes it. The window may not have said yet which chats it holds.
 fn reachable(core: &Core, agent_id: &str) -> bool {
+    let host_away = (core.hosts().team.get(agent_id))
+        .is_some_and(|foreign| core.hosts().long_away(&foreign.host));
+    if host_away {
+        return false;
+    }
     core.agent_now(agent_id).running()
         || (core.window().is_open()
             && !core.workspaces().closed(agent_id)

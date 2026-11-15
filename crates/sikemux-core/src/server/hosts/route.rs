@@ -586,11 +586,12 @@ pub(super) fn out_of_reach(core: &Core, host: &str) {
             }
             Role::Lead => {
                 for worker in workers_of(core, &foreign.agent_id) {
-                    notice(core, worker, format!("{name}, where your lead {} runs, has been out of reach for a few minutes. What you send it, and your report, wait and go once {name} is back; carry on with your task.", foreign.name));
+                    notice(core, worker, format!("{name}, where your lead {} runs, has been out of reach for a few minutes. What you send it, and your report, wait and go once {name} is back, and a question you ask goes to the person meanwhile; carry on with your task.", foreign.name));
                 }
             }
         }
     }
+    core.harness().questions.wake.now();
 }
 
 /// `host` came back after its teammates here heard it was out of reach.
