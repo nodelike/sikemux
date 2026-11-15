@@ -58,28 +58,34 @@ fn path(data_dir: &Path) -> PathBuf {
     data_dir.join(FILE)
 }
 
-fn known(data_dir: &Path) -> Pushers {
+fn known<T>(data_dir: &Path, read: impl FnOnce(&mut Pushers) -> T) -> T {
     let mut kept = KNOWN
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    kept.get_or_insert_with(|| {
+    read(kept.get_or_insert_with(|| {
         std::fs::read(path(data_dir))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
             .unwrap_or_default()
-    })
-    .clone()
+    }))
 }
 
 fn change(data_dir: &Path, edit: impl FnOnce(&mut Pushers)) {
-    let mut pushers = known(data_dir);
-    edit(&mut pushers);
-    if let Ok(bytes) = serde_json::to_vec(&pushers) {
-        let _ = std::fs::write(path(data_dir), bytes);
+    known(data_dir, |pushers| {
+        edit(pushers);
+        if let Ok(bytes) = serde_json::to_vec(pushers) {
+            let _ = std::fs::write(path(data_dir), bytes);
+        }
+    });
+}
+
+/// Lets the next ask start a look, however the one it marks ends.
+struct Looking;
+
+impl Drop for Looking {
+    fn drop(&mut self) {
+        LOOKING.store(false, Ordering::Release);
     }
-    *KNOWN
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(pushers);
 }
 
 fn key_of(remote: &str) -> Option<String> {
@@ -92,16 +98,20 @@ fn key_of(remote: &str) -> Option<String> {
 pub fn acts_as(ctx: &PluginContext, remote: &str) -> Option<Acting> {
     let key = key_of(remote)?;
     let data_dir = ctx.data_dir();
-    let pushers = known(data_dir);
-    if pushers.repos.contains_key(&key) {
+    let (pushes, looked) = known(data_dir, |pushers| {
+        let looked = pushers.looked.get(&key).copied().unwrap_or(0);
+        (pushers.repos.contains_key(&key), looked)
+    });
+    if pushes {
         return Some(Acting::Person);
     }
-    let looked = pushers.looked.get(&key).copied().unwrap_or(0);
     if now_ms().saturating_sub(looked) > RECHECK.as_millis() as u64
         && !LOOKING.swap(true, Ordering::AcqRel)
     {
         let data_dir = data_dir.to_path_buf();
+        let looking = Looking;
         ctx.spawn(async move {
+            let _looking = looking;
             let pusher = pusher(&data_dir, &key).await;
             change(&data_dir, |pushers| match pusher {
                 Some(account) => {
@@ -112,7 +122,6 @@ pub fn acts_as(ctx: &PluginContext, remote: &str) -> Option<Acting> {
                     pushers.looked.insert(key, now_ms());
                 }
             });
-            LOOKING.store(false, Ordering::Release);
         });
     }
     None
@@ -204,7 +213,7 @@ pub async fn credential(data_dir: &Path, ask: &Ask) -> BitbucketResult<Option<Cr
     let Some(key) = key_of(&ask.remote) else {
         return Ok(None);
     };
-    let Some(id) = known(data_dir).repos.get(&key).cloned() else {
+    let Some(id) = known(data_dir, |pushers| pushers.repos.get(&key).cloned()) else {
         return Ok(None);
     };
     let config = config::load(data_dir)?;
