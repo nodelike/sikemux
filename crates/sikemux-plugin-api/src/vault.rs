@@ -136,6 +136,9 @@ pub struct SignIn {
     pub label: String,
     pub secrets: Vec<Kept>,
     pub records: Value,
+    /// It stays on the host it was made on unless the person moves it into the vault.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub starts_kept: bool,
 }
 
 /// Renews a sign-in's access token now, for the host that refreshes it.
@@ -315,6 +318,7 @@ impl<A: Listing> Book for Listed<A> {
                 label,
                 secrets,
                 records: Value::Array(records),
+                starts_kept: false,
             });
         }
         Ok(found)
@@ -379,6 +383,11 @@ pub trait Whole: DeserializeOwned {
     fn label(&self) -> String;
     /// Every secret the sign-in keeps, by service and account.
     fn secrets(&self) -> Vec<(Secrets, String)>;
+    /// It stays on the host it was made on unless the person moves it into the vault, whatever
+    /// that host does with new sign-ins.
+    fn starts_kept(&self) -> bool {
+        false
+    }
 }
 
 /// A plugin whose settings file is one sign-in. A sign-in taken in from the vault replaces it.
@@ -428,6 +437,7 @@ impl<C: Whole> Book for Single<C> {
         Ok(vec![SignIn {
             identity,
             label: read.label(),
+            starts_kept: read.starts_kept(),
             secrets,
             records: settings,
         }])
