@@ -25,7 +25,7 @@ use sikemux_view::memory::Learned;
 use sikemux_view::places::{Level, Places, Recognise, Seen};
 
 pub use judge::{Goes, Judged};
-pub use place::{Passes, Place, GITHUB_RELEASES};
+pub use place::{Place, GITHUB_RELEASES};
 
 use super::access::Peer;
 use super::changed::{Topic, What};
@@ -298,15 +298,13 @@ pub fn of(core: &Core, project: &str) -> Places {
 
 /// What a place an agent proposed would mean, as the person reads it in Needs you.
 pub fn proposed_words(place: &Place) -> String {
-    match (place.shown.production, place.step) {
-        (true, _) => format!(
+    if place.shown.production {
+        format!(
             "{} is production, so a change there waits for you",
             place.name()
-        ),
-        (false, Some(place::StepPass::Check)) => {
-            format!("{} goes once the project's check passes", place.name())
-        }
-        (false, _) => format!("{} isn't production, so agents deploy there", place.name()),
+        )
+    } else {
+        format!("{} isn't production, so agents deploy there", place.name())
     }
 }
 

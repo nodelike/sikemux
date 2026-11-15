@@ -2,7 +2,7 @@
 //! landing there, its health address, and the step it gives a slice's ladder.
 
 use serde_json::Value;
-pub use sikemux_calls::places::{Passes, Place, StepPass};
+pub use sikemux_calls::places::{Place, StepPass};
 use sikemux_view::places::{Level, Place as Shown, PlaceKind, PlaceStats, Recognise};
 
 use crate::ship::{leads, Ship, Target};

@@ -56,19 +56,8 @@ pub struct Place {
 #[serde(rename_all = "camelCase")]
 pub enum StepPass {
     Deploy,
-    /// The project's check passes first. Only a place that isn't production has it.
+    /// Released settings still carry it; a place with it goes like any other.
     Check,
-}
-
-/// Who passes a place's step on a slice's ladder.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Passes {
-    /// The core, once a deploy there went well.
-    Nobody,
-    /// The core, once the project's check passed and a deploy there went well.
-    Check,
-    /// The person.
-    Person,
 }
 
 impl Place {
@@ -89,13 +78,5 @@ impl Place {
     /// Whether a change there waits for the person's yes.
     pub fn asks(&self, confirmed: bool) -> bool {
         self.shown.production && self.level(confirmed) == Level::Mine
-    }
-
-    pub fn passes(&self, confirmed: bool) -> Passes {
-        match (self.asks(confirmed), self.shown.production, self.step) {
-            (true, _, _) => Passes::Person,
-            (false, false, Some(StepPass::Check)) => Passes::Check,
-            _ => Passes::Nobody,
-        }
     }
 }

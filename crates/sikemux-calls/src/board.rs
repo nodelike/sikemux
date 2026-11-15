@@ -1,5 +1,4 @@
 use crate::params::given;
-use crate::places::Passes;
 use crate::places::Place;
 use serde::{Deserialize, Serialize};
 use sikemux_view::chat::TriggerWhen;
@@ -19,7 +18,6 @@ use sikemux_view::slice::SliceView;
 use sikemux_view::slice::Spot;
 use sikemux_view::turn::Landed;
 use sikemux_wire::protocol::PermissionMode;
-use std::collections::BTreeMap;
 
 /// The chat a goal's button acts on.
 #[derive(Serialize, Deserialize)]
@@ -405,7 +403,7 @@ pub struct BoardSettings {
     pub places: Vec<Place>,
     #[serde(skip)]
     pub places_confirmed: Option<u64>,
-    /// Whole dollars of Auto's spending in the project past which it starts no new cards.
+    /// Whole dollars a chat spends in the project between each notice to the person.
     pub spend_ceiling: Option<u32>,
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -415,42 +413,6 @@ pub struct BoardSettings {
 impl BoardSettings {
     pub fn place(&self, name: &str) -> Option<&Place> {
         self.places.iter().find(|known| known.shown.name == name)
-    }
-
-    pub fn passes(&self, name: &str) -> Option<Passes> {
-        let confirmed = self.places_confirmed.is_some();
-        self.place(name).map(|place| place.passes(confirmed))
-    }
-
-    /// What it means for the place called `name`, in the core's words.
-    pub fn passes_words(&self, name: &str) -> String {
-        match self.passes(name) {
-            Some(Passes::Nobody) => format!("{name} goes freely"),
-            Some(Passes::Check) => format!("{name} goes once the project's check passes"),
-            Some(Passes::Person) => format!("{name} waits for the person's yes"),
-            None => format!("{name} is no longer one of the project's, so it waits for a person"),
-        }
-    }
-
-    /// Who passes the place called `name`, under its step on a ladder.
-    pub fn step_words(&self, name: &str) -> &'static str {
-        match self.passes(name) {
-            Some(Passes::Nobody) => "Goes freely",
-            Some(Passes::Check) => "Once the check passes",
-            Some(Passes::Person) | None => "The person",
-        }
-    }
-
-    /// What a card's run record compares runs by.
-    pub fn switches(&self) -> BTreeMap<String, bool> {
-        BTreeMap::from([("coreLands".to_owned(), self.lands_itself())])
-    }
-
-    /// Whether Auto merges the project's changes itself, and so agrees a contract first, keeps
-    /// each card's commits on the remote and queues its merges. A person who lands the changes
-    /// merges them as they please, with nothing of Auto's pushed.
-    pub fn lands_itself(&self) -> bool {
-        self.landing == Landing::Core
     }
 
     /// Where a deploy's health is read after it, for the place called `name`.

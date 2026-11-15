@@ -5,7 +5,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::{Topic, What};
 use crate::server::connection::blocking;
 use crate::server::places::judge::{Goes, Judged};
-use crate::server::places::place::{Passes, Place, GITHUB_RELEASES};
+use crate::server::places::place::{Place, GITHUB_RELEASES};
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::{Core, CoreResult};
 use crate::ship::Ship;
