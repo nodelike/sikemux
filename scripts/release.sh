@@ -109,7 +109,10 @@ done
 if [[ "$NOTARIZED" == "1" ]]; then
   [[ -x /usr/sbin/spctl && -x /usr/bin/xcrun ]] || fail "Gatekeeper and Xcode tools are required for a notarized release"
 fi
-[[ -z "$(git status --porcelain --untracked-files=all)" ]] || fail "working tree must be clean"
+# A nightly's version and notes are stamped onto main's files by scripts/stamp-nightly.sh before it runs.
+STAMPED=()
+[[ "$CHANNEL" == "nightly" ]] && STAMPED=(':!package.json' ':!Cargo.toml' ':!Cargo.lock' ':!RELEASE_NOTES.md')
+[[ -z "$(git status --porcelain --untracked-files=all -- . ${STAMPED[@]+"${STAMPED[@]}"})" ]] || fail "working tree must be clean"
 # Stable ships from a release line so a hotfix can go out while main runs ahead.
 # A tag build checks out a detached commit, so the check is which branches hold it.
 HEAD_SHA="$(git rev-parse HEAD)"
