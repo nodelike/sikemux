@@ -97,7 +97,7 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
             Icon::Download,
             ui::Variant::Outline,
             Some(
-                t!("Some agents can't be carried over yet. Open to see them or update now.").into(),
+                t!("Some agents can't be carried over yet. Within two minutes the update goes on and starts them again on their sessions. Open to see them or update now.").into(),
             ),
         ),
         state @ (UpdateState::Downloading | UpdateState::Installing | UpdateState::Ready) => (

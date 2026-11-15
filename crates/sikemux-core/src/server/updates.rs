@@ -832,9 +832,11 @@ async fn put_in_place(
     Ok(())
 }
 
-/// Says the update is ready once no chat would lose work to the restart, or at
-/// once when the person chose to stop them.
+/// Says the update is ready once no chat would lose work to the restart, at once when the
+/// person chose to stop them, or once the chats have had the core's patience, which then
+/// stops the ones still busy and starts them again on their sessions.
 async fn wait_for_chats(core: &Core) {
+    let patience = tokio::time::Instant::now() + core.config().update_patience;
     loop {
         let status = core.updates().status();
         if !matches!(status.state, UpdateState::Installing | UpdateState::Waiting) {
@@ -851,8 +853,10 @@ async fn wait_for_chats(core: &Core) {
                 reason: blocker.reason,
             })
             .collect();
-        let ready = status.forced || blockers.is_empty();
+        let out_of_patience = tokio::time::Instant::now() >= patience;
+        let ready = status.forced || blockers.is_empty() || out_of_patience;
         core.updates().edit(core, |held| {
+            held.status.forced |= out_of_patience && !blockers.is_empty();
             held.status.blockers = blockers;
             held.status.state = if ready {
                 UpdateState::Ready

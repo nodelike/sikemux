@@ -91814,58 +91814,7 @@
         }
       }
     },
-    "Some agents can't be carried over yet. Open to see them or update now.": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Algunos agentes aún no se pueden trasladar. Abre para verlos o actualiza ahora."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "部分代理暂时无法迁移。打开查看或立即更新。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Einige Agents können noch nicht übernommen werden. Öffne, um sie zu sehen, oder aktualisiere jetzt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Certains agents ne peuvent pas encore être transférés. Ouvrez pour les voir ou mettez à jour maintenant."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "一部のエージェントはまだ引き継げません。開いて確認するか、今すぐアップデートしてください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "아직 옮길 수 없는 에이전트가 있습니다. 열어서 확인하거나 지금 업데이트하세요."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Некоторых агентов пока нельзя перенести. Откройте, чтобы увидеть их, или обновите сейчас."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Alguns agentes ainda não podem ser levados. Abra para vê-los ou atualize agora."
-          }
-        }
-      }
-    },
+    "Some agents can't be carried over yet. Within two minutes the update goes on and starts them again on their sessions. Open to see them or update now.": {},
     "Something missing? Tell any agent, or add it here.": {
       "localizations": {
         "es": {

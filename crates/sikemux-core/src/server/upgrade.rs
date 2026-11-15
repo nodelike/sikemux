@@ -37,9 +37,11 @@ const CLIENT_FLUSH: Duration = Duration::from_secs(1);
 const TOOL_SETTLE: Duration = Duration::from_secs(1);
 /// How long a forced update waits for chats still starting, or in the middle
 /// of a request, to be able to hand their agents over. One that still cannot
-/// after that is stopped and starts again on its session. An update that is
-/// not forced waits for them however long they take.
+/// after that is stopped and starts again on its session.
 pub(crate) const HANDOVER_SETTLE: Duration = Duration::from_secs(10);
+/// How long an update nobody forced waits for that. With dozens of agents at work some
+/// chat is nearly always busy, so after this it goes on as a forced one does.
+pub(crate) const UPDATE_PATIENCE: Duration = Duration::from_secs(120);
 const HANDOVER_POLL: Duration = Duration::from_millis(100);
 
 async fn reply(writer: &mut FrameWriter, answer: &FrozenReply) {
@@ -212,8 +214,12 @@ async fn begin(core: &Arc<Core>, binary: &Path, replacement: Replacement) -> Res
 }
 
 async fn settle_chats(core: &Arc<Core>, force: bool) {
-    let deadline = tokio::time::Instant::now() + core.config().handover_settle;
-    while !core.chats().all_handable() && (!force || tokio::time::Instant::now() < deadline) {
+    let wait = match force {
+        true => core.config().handover_settle,
+        false => core.config().update_patience,
+    };
+    let deadline = tokio::time::Instant::now() + wait;
+    while !core.chats().all_handable() && tokio::time::Instant::now() < deadline {
         tokio::time::sleep(HANDOVER_POLL).await;
     }
 }

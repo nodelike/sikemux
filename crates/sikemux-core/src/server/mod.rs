@@ -243,6 +243,9 @@ pub struct ServerConfig {
     /// How long a forced update waits for chats still starting before it stops
     /// them. Tests shorten it.
     pub handover_settle: Duration,
+    /// How long an update waits for every chat to be able to hand its agent over before it
+    /// goes on as if forced. Tests shorten it.
+    pub update_patience: Duration,
 }
 
 impl ServerConfig {
@@ -260,6 +263,7 @@ impl ServerConfig {
             plugins: None,
             restart_wait: chat::RESTART_WAIT,
             handover_settle: upgrade::HANDOVER_SETTLE,
+            update_patience: upgrade::UPDATE_PATIENCE,
         }
     }
 
@@ -285,6 +289,7 @@ impl ServerConfig {
             plugins,
             restart_wait: chat::RESTART_WAIT,
             handover_settle: upgrade::HANDOVER_SETTLE,
+            update_patience: upgrade::UPDATE_PATIENCE,
         }
     }
 }

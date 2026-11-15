@@ -19,6 +19,7 @@ struct CoreArgs {
     socket: Option<PathBuf>,
     idle_exit: Option<Duration>,
     handover_settle: Option<Duration>,
+    update_patience: Option<Duration>,
     cli_endpoint: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     upgrade_info: bool,
@@ -83,6 +84,12 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CoreArgs, String
                 parsed.handover_settle = Some(Duration::from_millis(number(
                     args.next(),
                     "--handover-settle-ms",
+                )?));
+            }
+            "--update-patience-ms" => {
+                parsed.update_patience = Some(Duration::from_millis(number(
+                    args.next(),
+                    "--update-patience-ms",
                 )?));
             }
             "--resume" => {
@@ -194,6 +201,7 @@ pub fn main(
     );
     let exit = exit_code(super::run(ServerConfig {
         handover_settle: args.handover_settle.unwrap_or(production.handover_settle),
+        update_patience: args.update_patience.unwrap_or(production.update_patience),
         ..production
     }));
     sikemux_process::jobs::leave();

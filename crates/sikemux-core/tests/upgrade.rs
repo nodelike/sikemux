@@ -42,6 +42,8 @@ const WAIT: Duration = Duration::from_secs(30);
 const UPDATE_WAIT: Duration = Duration::from_secs(120);
 /// How long a forced update waits for a starting chat, short so the tests need not wait out a released core's.
 const HANDOVER_SETTLE: Duration = Duration::from_millis(500);
+/// How long an update nobody forced waits for its chats, short for the same reason.
+const UPDATE_PATIENCE: Duration = Duration::from_secs(5);
 
 struct CoreProcess {
     child: Child,
@@ -90,6 +92,8 @@ impl CoreProcess {
             .arg("600")
             .arg("--handover-settle-ms")
             .arg(HANDOVER_SETTLE.as_millis().to_string())
+            .arg("--update-patience-ms")
+            .arg(UPDATE_PATIENCE.as_millis().to_string())
             .env(BUILD_ID_OVERRIDE_ENV, build)
             .env(sikemux_process::vars::AGENT_SEARCH, "path")
             .env("SHELL", "/bin/sh")
@@ -1422,6 +1426,49 @@ async fn an_update_waits_for_a_starting_chat_and_then_carries_it_over() {
     core.until_logged("1 of them still running").await;
 }
 
+/// Waits for the chat "slow" to say it was started again rather than carried over.
+async fn until_restarted(core: &CoreProcess) {
+    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let deadline = Instant::now() + WAIT;
+    loop {
+        let chat = attached(&client, "slow", None)
+            .await
+            .unwrap_or_else(|| panic!("the chat was not started again\n{}", core.log()));
+        if restarted(&chat) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the chat never said it was restarted\n{}",
+            core.log()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// On 15 Nov an update with 33 chats waited 44 minutes for a moment when none was busy.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_update_stops_waiting_on_a_busy_chat_after_a_while_and_restarts_it() {
+    let core = CoreProcess::start("first");
+    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let client = Arc::new(client);
+    let gate = core.dir.path().join("gate");
+    start_held_chat(&core, &client, &gate).await;
+
+    let binary = core.binary("second-build", "second", "");
+    let reply = core
+        .frozen(FrozenRequest::Upgrade {
+            binary,
+            force: false,
+        })
+        .await;
+    assert!(matches!(reply, FrozenReply::Deferred { .. }), "{reply:?}");
+    assert_eq!(after_deferred_update(&core).await.commit, "second");
+    std::fs::remove_file(&gate).expect("open the gate");
+
+    until_restarted(&core).await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_forced_update_restarts_a_starting_chat_and_says_so() {
     let core = CoreProcess::start("first");
@@ -1441,22 +1488,7 @@ async fn a_forced_update_restarts_a_starting_chat_and_says_so() {
     assert_eq!(after_deferred_update(&core).await.commit, "second");
     std::fs::remove_file(&gate).expect("open the gate");
 
-    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let deadline = Instant::now() + WAIT;
-    loop {
-        let chat = attached(&client, "slow", None)
-            .await
-            .unwrap_or_else(|| panic!("the chat was not started again\n{}", core.log()));
-        if restarted(&chat) {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the chat never said it was restarted\n{}",
-            core.log()
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    until_restarted(&core).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
