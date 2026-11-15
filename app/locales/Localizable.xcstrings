@@ -35916,8 +35916,7 @@
         }
       }
     },
-    "Forget here": {},
-    "Forgets this App on this computer. It stays on GitHub until you delete it there.": {},
+    "Forget": {},
     "Forked from a {agent} chat": {
       "localizations": {
         "es": {
@@ -89368,6 +89367,7 @@
         }
       }
     },
+    "Sikemux forgets this App on every computer that has it. It stays on GitHub until you delete it there.": {},
     "Sikemux here": {
       "localizations": {
         "es": {

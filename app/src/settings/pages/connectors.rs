@@ -584,7 +584,7 @@ fn settings(
 
 /// The agents' own GitHub Apps: a way to make one for the person or an organization, then a row
 /// for each, with where it is installed and the ways to install it on more repositories or
-/// forget it here.
+/// forget it.
 fn github_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyElement> {
     let Some(github) = &fields.github else {
         return Vec::new();
@@ -691,10 +691,10 @@ fn github_app(app: &GithubApp, this: &Entity<Workbench>, cx: &App) -> AnyElement
             .child(
                 ui::Button::new(
                     SharedString::from(format!("github-app-forget:{}", app.id)),
-                    t!("Forget here"),
+                    t!("Forget"),
                     ui::Variant::Ghost,
                 )
-                .tooltip(t!("Forgets this App on this computer. It stays on GitHub until you delete it there."))
+                .tooltip(t!("Sikemux forgets this App on every computer that has it. It stays on GitHub until you delete it there."))
                 .on_click(forget),
             ),
         cx,
