@@ -11,7 +11,7 @@ use crate::server::chat_state::ChatParts;
 use crate::server::parts::Parts;
 use crate::server::serving::ServeCore;
 use crate::server::serving::ServeParts;
-use crate::server::workspace_state::WorkspaceParts;
+use crate::server::workspace_state::{WorkspaceCore, WorkspaceParts};
 pub use sikemux_calls::messages::{AgentMessageRows, AgentMessagesParams, MessageKind};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -1113,6 +1113,22 @@ async fn reopen(
     name: &str,
     ran: super::names::RanSession,
 ) -> Result<Value, String> {
+    let agent_id =
+        (core.names()).returning_id(Some(&ran.provider), &ran.session_id, core.open_agents());
+    if core.workspaces().closed_agent(&agent_id).is_some() {
+        let taken = super::launching::reopen_agent(core, agent_id)
+            .await
+            .map_err(|why| format!("{name} had closed, and reopening it failed: {why}"))?;
+        let mut message = request.clone();
+        message.params = json!({ "to": taken.agent_id, "text": message_text(&request.params)? });
+        Box::pin(send(core, &message)).await?;
+        return Ok(json!({
+            "to": name,
+            "agentId": taken.agent_id,
+            "delivery": "reopened",
+            "note": format!("{name} had closed, so Sikemux reopened it as it was; it gets this once it is ready."),
+        }));
+    }
     let mut spawning = request.clone();
     spawning.params = json!({
         "prompt": message_text(&request.params)?,

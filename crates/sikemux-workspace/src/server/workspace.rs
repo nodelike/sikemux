@@ -158,6 +158,10 @@ pub struct Saved {
     /// chats start on.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     model_picks: BTreeMap<String, ModelPick>,
+    /// The agents closed lately as they stood when they closed, newest first, so reopening one
+    /// puts back what its session does not keep: its lead, checkout branch, mode and labels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    closed: Vec<WorkspaceAgent>,
 }
 
 /// How the last ask of a launcher's agent for what it offers went.
@@ -169,6 +173,9 @@ pub struct OfferRead {
     /// Why it could not say, as a chat failure; None when it said.
     pub unread: Option<Value>,
 }
+
+/// How many closed agents' records the workspace keeps for reopening them.
+const MOST_CLOSED: usize = 200;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ModelPick {
@@ -786,6 +793,24 @@ impl Workspaces {
             .ok_or_else(|| CoreError::from("that agent is no longer on this host"))
     }
 
+    /// The agent `agent_id` as it stood when it closed, while the workspace keeps it.
+    pub fn closed_agent(&self, agent_id: &str) -> Option<WorkspaceAgent> {
+        (self.published.locked().saved.closed.iter())
+            .find(|agent| agent.id == agent_id)
+            .cloned()
+    }
+
+    /// Lets go of the closed record of an agent that is open again.
+    pub fn reopened(&self, agent_id: &str) {
+        let kept = (self.published.locked().saved.closed.iter()).any(|agent| agent.id == agent_id);
+        if kept {
+            let _ = self.change(|saved| {
+                saved.closed.retain(|agent| agent.id != agent_id);
+                Ok(())
+            });
+        }
+    }
+
     pub fn agent(&self, agent_id: &str) -> Option<WorkspaceAgent> {
         self.published
             .locked()
@@ -944,9 +969,15 @@ impl Workspaces {
 
     fn close_agents(&self, agent_ids: &[String]) -> CoreResult<()> {
         self.change(|saved| {
-            saved
-                .agents
-                .retain(|kept| !agent_ids.contains(&kept.agent.id));
+            let (closing, open) = std::mem::take(&mut saved.agents)
+                .into_iter()
+                .partition(|kept: &Kept| agent_ids.contains(&kept.agent.id));
+            saved.agents = open;
+            for kept in closing {
+                saved.closed.retain(|agent| agent.id != kept.agent.id);
+                saved.closed.insert(0, kept.agent);
+            }
+            saved.closed.truncate(MOST_CLOSED);
             Ok(())
         })?;
         self.recent_stale();
@@ -961,6 +992,12 @@ impl Workspaces {
                 let agent = &kept.agent;
                 (agent.id.clone(), agent.profile_id.clone(), agent.terminal)
             })
+            .collect()
+    }
+
+    pub fn agents(&self) -> Vec<WorkspaceAgent> {
+        (self.published.locked().saved.agents.iter())
+            .map(|kept| kept.agent.clone())
             .collect()
     }
 

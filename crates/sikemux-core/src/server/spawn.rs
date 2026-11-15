@@ -352,8 +352,13 @@ fn start(
         return Ok(Opened::AlreadyOpen(agent_id, name));
     }
     let (lead, lead_cwd) = lead_of(core, &lead_id, &request.project)?;
+    let was = resume.and_then(|saved| {
+        let agent_id = (core.names()).returning_id(Some(&saved.cli), &saved.session_id, open(core));
+        core.workspaces().closed_agent(&agent_id)
+    });
+    let branch = (was.as_ref()).and_then(|was| Some(was.worktree.as_ref()?.branch.as_str()));
     let resumed = resume
-        .map(|saved| worktree::agent::resumed_in(&saved.project, None))
+        .map(|saved| worktree::agent::resumed_in(&saved.project, branch))
         .transpose()?;
     let cwd = resumed
         .as_ref()
@@ -397,6 +402,10 @@ fn start(
     let (mut launch, launcher) = core
         .workspaces()
         .worker_launch(&lead, &provider, &cwd, model, paid)?;
+    if let Some(was) = &was {
+        launch.effort = was.effort.clone();
+        launch.permission_mode = was.permission_mode;
+    }
     if let Some(effort) = effort_param(params, &provider)? {
         launch.effort = Some(effort);
     }
@@ -458,6 +467,9 @@ fn start(
         if let Err(error) = kept {
             eprintln!("sikemux core: a worker's own checkout was not kept on its record: {error}");
         }
+    }
+    if let Some(was) = was {
+        launching::put_back(core, was);
     }
     core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
     core.changed(What::View);

@@ -708,10 +708,22 @@ pub(crate) async fn start_new(
         None => crate::server::names::new_agent_id(),
     };
     let project = core.workspaces().project_path(&choice.project)?;
+    let was = (choice.resume_id.is_some())
+        .then(|| core.workspaces().closed_agent(&agent_id))
+        .flatten();
+    let mut choice = choice;
+    if let Some(was) = &was {
+        choice.permission_mode = choice.permission_mode.or(Some(was.permission_mode));
+        choice.effort = choice.effort.or(was.effort.clone());
+    }
+    let branch = (was.as_ref())
+        .and_then(|was| was.worktree.as_ref())
+        .map(|tree| tree.branch.clone());
     let resumed = match choice.cwd {
-        Some(cwd) => {
-            Some(blocking(move || Ok(super::worktree::agent::resumed_in(&cwd, None)?)).await?)
-        }
+        Some(cwd) => Some(
+            blocking(move || Ok(super::worktree::agent::resumed_in(&cwd, branch.as_deref())?))
+                .await?,
+        ),
         None => None,
     };
     let (cwd, worktree) = resumed.as_ref().map_or((project, None), |resumed| {
@@ -780,6 +792,9 @@ pub(crate) async fn start_new(
     if let Some(resumed) = &resumed {
         super::worktree::agent::set_up_made_again(core, &agent_id, resumed);
     }
+    if let Some(was) = was {
+        put_back(core, was);
+    }
     remember_kind(core, &kind);
     if started.unstarted() {
         return Ok((agent_id, not_started()));
@@ -791,6 +806,32 @@ pub(crate) async fn start_new(
             Err(error)
         }
     }
+}
+
+/// Gives an agent taken up again what it had when it closed and its session does not keep: its
+/// place under its lead or beside the chat it asked aside of, while that is open, and the
+/// person's name and labels for it.
+pub(crate) fn put_back(core: &Core, was: WorkspaceAgent) {
+    let open = |agent: &Option<String>| {
+        agent
+            .clone()
+            .filter(|agent| core.workspaces().agent(agent).is_some())
+    };
+    let (lead, side_of) = (open(&was.lead), open(&was.side_of));
+    let put = core.workspaces().edit_agent(&was.id, |agent| {
+        agent.lead = agent.lead.take().or(lead);
+        agent.side_of = agent.side_of.take().or(side_of);
+        agent.tags = was.tags.clone();
+        agent.keep_alive = was.keep_alive;
+        if was.renamed {
+            agent.title = was.title.clone();
+            agent.renamed = true;
+        }
+    });
+    if let Err(error) = put {
+        eprintln!("sikemux core: a reopened agent did not get back what it had: {error}");
+    }
+    core.workspaces().reopened(&was.id);
 }
 
 /// What a client starting an agent hears before its chat session has begun, or of an
