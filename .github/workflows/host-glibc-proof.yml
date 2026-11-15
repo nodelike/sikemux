@@ -1,0 +1,45 @@
+name: Host glibc proof
+on:
+  push:
+    branches: [proof/host-glibc]
+permissions:
+  contents: read
+jobs:
+  build-host:
+    name: Build the Linux host core (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: almalinux:9
+    timeout-minutes: 60
+    env:
+      CARGO_PROFILE_RELEASE_LTO: thin
+    steps:
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False gcc make binutils git-core pkgconf-pkg-config zlib-devel tar gzip findutils shadow-utils
+      - name: Install rustup
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal --no-modify-path
+          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+      - name: Leave the symbols in
+        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.release]\nstrip = "none"\ndebug = "line-tables-only"\n[profile.release.package."*"]\ndebug = false\n' >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
+      - name: Build the core
+        env:
+          SIKEMUX_USAGE_REPORTING: host
+        run: |
+          cargo build --locked --release -p sikemux-host --bin sikemux-host
+          scripts/keep-linux-symbols.sh target/release/sikemux-host "$RUNNER_TEMP/symbols/sikemux-host-host-${{ matrix.arch }}.debug"
+      - run: scripts/package-host.sh "${{ matrix.arch }}"
+      - run: scripts/smoke-host-install.sh "${{ matrix.arch }}"
+      - run: objdump -T target/release/sikemux-host | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -3
