@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
@@ -20,16 +20,16 @@ export const NeedsYouMarks = MarksContext.Provider;
 export function NeedsYouMark({ id, on, children }: { id: string; on: boolean; children: ReactNode }) {
   const marks = useContext(MarksContext);
   const row = useRef<View>(null);
-  const measure = () => {
+  const measure = useCallback(() => {
     const content = marks?.content.current;
     if (!on || !content || !row.current) return;
     row.current.measureLayout(content, (_x, y, _width, height) => marks.report(id, { y, height }));
-  };
+  }, [id, on, marks]);
   useEffect(() => {
     if (on) measure();
     else marks?.report(id);
     return () => marks?.report(id);
-  }, [id, on, marks]);
+  }, [id, on, marks, measure]);
   return (
     <View ref={row} onLayout={measure} collapsable={false}>
       {children}
@@ -41,27 +41,49 @@ export function NeedsYouMark({ id, on, children }: { id: string; on: boolean; ch
 type Unseen = { above: string[]; below: string[] };
 
 /**
- * The rows that need the person but are scrolled out of the list, with a chip at the list's top and bottom edges that
- * scrolls the nearest of them into sight, as the Mac's rail does.
+ * The rows that need the person but are scrolled out of `list`, with a chip at the list's top and bottom edges that
+ * scrolls the nearest of them into sight, as the Mac's rail does. `top` and `bottom` are where the list's visible part
+ * starts and ends on screen, `top` taken at no scroll.
  */
-export function useNeedsYou(scrollTo: (y: number) => void) {
-  const content = useRef<View>(null);
+export function useNeedsYou(
+  list: RefObject<ScrollView | null>,
+  content: RefObject<View | null>,
+  scrolled: Animated.Value,
+  top: (offset: number) => number,
+  bottom: number,
+) {
   const places = useRef(new Map<string, Place>());
-  const seen = useRef({ offset: 0, top: 0, bottom: 0 });
+  const offset = useRef(0);
+  const edges = useRef({ top, bottom });
   const [unseen, setUnseen] = useState<Unseen>({ above: [], below: [] });
 
   const sort = useCallback(() => {
-    const { offset, top, bottom } = seen.current;
-    if (bottom <= top) return;
+    const at = offset.current;
+    const start = edges.current.top(at);
+    const end = edges.current.bottom;
+    if (end <= start) return;
     const above: [string, number][] = [];
     const below: [string, number][] = [];
     for (const [id, place] of places.current) {
-      if (place.y + place.height <= offset + top) above.push([id, -place.y]);
-      else if (place.y >= offset + bottom) below.push([id, place.y]);
+      if (place.y + place.height <= at + start) above.push([id, -place.y]);
+      else if (place.y >= at + end) below.push([id, place.y]);
     }
     const next = { above: above.sort((a, b) => a[1] - b[1]).map(([id]) => id), below: below.sort((a, b) => a[1] - b[1]).map(([id]) => id) };
     setUnseen((now) => (now.above.join() === next.above.join() && now.below.join() === next.below.join() ? now : next));
   }, []);
+
+  useEffect(() => {
+    edges.current = { top, bottom };
+    sort();
+  }, [top, bottom, sort]);
+
+  useEffect(() => {
+    const id = scrolled.addListener(({ value }) => {
+      offset.current = value;
+      sort();
+    });
+    return () => scrolled.removeListener(id);
+  }, [scrolled, sort]);
 
   const marks = useMemo<Marks>(
     () => ({
@@ -72,27 +94,18 @@ export function useNeedsYou(scrollTo: (y: number) => void) {
         sort();
       },
     }),
-    [sort],
-  );
-
-  /** The scroll offset, and where the list's visible part starts and ends on screen. */
-  const view = useCallback(
-    (offset: number, top: number, bottom: number) => {
-      seen.current = { offset, top, bottom };
-      sort();
-    },
-    [sort],
+    [content, sort],
   );
 
   const bring = (id: string | undefined) => {
     const place = id ? places.current.get(id) : undefined;
     if (!place) return;
-    const { top, bottom } = seen.current;
+    const middle = (edges.current.top(offset.current) + edges.current.bottom) / 2;
     haptics.select();
-    scrollTo(Math.max(0, place.y + place.height / 2 - (top + bottom) / 2));
+    list.current?.scrollTo({ y: Math.max(0, place.y + place.height / 2 - middle), animated: true });
   };
 
-  return { content, marks, view, unseen, onAbove: () => bring(unseen.above[0]), onBelow: () => bring(unseen.below[0]) };
+  return { marks, unseen, onAbove: () => bring(unseen.above[0]), onBelow: () => bring(unseen.below[0]) };
 }
 
 /** The chip at an edge of the list, counting the rows past it that need the person. */

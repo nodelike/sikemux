@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import MaskedView from '@react-native-masked-view/masked-view';
@@ -322,14 +322,10 @@ export default function Device() {
   });
   const list = useRef<ScrollView>(null);
   const [listHeight, setListHeight] = useState(0);
-  const needs = useNeedsYou((y) => list.current?.scrollTo({ y, animated: true }));
+  const content = useRef<View>(null);
   // What of the list shows: from under the pinned tabs to above the home bar's fade.
-  const offset = useRef(0);
-  const seeing = (at: number) => {
-    offset.current = at;
-    needs.view(at, Math.max(0, headHeight - at) + barHeight, listHeight - bottom - 24);
-  };
-  useEffect(() => seeing(offset.current), [headHeight, barHeight, listHeight, bottom]);
+  const listTop = useCallback((at: number) => Math.max(0, headHeight - at) + barHeight, [headHeight, barHeight]);
+  const needs = useNeedsYou(list, content, scrolled, listTop, listHeight - bottom - 24);
   const hostName = device ? deviceName(device, t) : t('Host');
   const projectLabel = scope?.name ?? t('All projects');
   // The title opens the project picker when there is something to pick.
@@ -429,15 +425,12 @@ export default function Device() {
                 ref={list}
                 {...scrollPause}
                 showsVerticalScrollIndicator={false}
-                onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrolled } } }], {
-                  useNativeDriver: true,
-                  listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => seeing(event.nativeEvent.contentOffset.y),
-                })}
+                onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrolled } } }], { useNativeDriver: true })}
                 scrollEventThrottle={16}
                 style={status.online ? undefined : styles.stale}
                 accessibilityHint={status.online ? undefined : t('Out of date until the host answers again')}
                 contentContainerStyle={{ paddingBottom: bottom + 24 }}>
-                <View ref={needs.content} collapsable={false}>
+                <View ref={content} collapsable={false}>
                   <View onLayout={(event) => setHeadHeight(event.nativeEvent.layout.height)}>
                     <ProjectHead
                       title={projectLabel}
