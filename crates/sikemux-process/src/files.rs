@@ -16,6 +16,7 @@ pub fn write_atomic_unsynced(path: &Path, bytes: &[u8], private: bool) -> io::Re
     write_whole(path, bytes, private, false)
 }
 
+#[cfg_attr(not(unix), allow(unused_variables))]
 fn write_whole(path: &Path, bytes: &[u8], private: bool, synced: bool) -> io::Result<()> {
     let parent = path
         .parent()
