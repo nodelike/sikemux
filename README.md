@@ -6,7 +6,7 @@
 
 And see which agent needs you, on your Mac, the notch or your phone.
 
-A native app, not Electron, about 25 MB. Claude Code, Codex and more on the plans you already pay for, working as one team. Free and MIT, for Apple Silicon Macs and Linux.
+A native app, not Electron, about 30 MB. Claude Code, Codex and more on the plans you already pay for, working as one team. Free and MIT, for Apple Silicon Macs and Linux.
 
 ![Sikemux with a Claude Code agent and its browser tab](docs/screenshots/sikemux-hero.png)
 
