@@ -829,7 +829,8 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
         let Some(turn) = turns.get(agent).filter(|turn| turn.since >= since) else {
             continue;
         };
-        let reported = super::messages::reported_at(core, agent).is_some_and(|at| at >= turn.since);
+        let reported =
+            super::messages::reported_at(core, agent, chief).is_some_and(|at| at >= turn.since);
         if turn.state == TurnPhase::Working || reported {
             continue;
         }

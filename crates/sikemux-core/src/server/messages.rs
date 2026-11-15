@@ -398,8 +398,8 @@ struct State {
     auto_turns: HashMap<String, AutoTurns>,
     /// Messages held for each agent stopped at [`MAX_AUTO_TURNS`], until the person writes to it.
     capped: HashMap<String, Vec<Queued>>,
-    /// When each agent last reported to its lead.
-    reported: HashMap<String, u64>,
+    /// When each agent last reported, and to whom.
+    reported: HashMap<String, (String, u64)>,
 }
 
 #[derive(Default)]
@@ -680,13 +680,15 @@ impl Mailbox {
         })
     }
 
-    fn note_reported(&self, worker: &str) {
+    fn note_reported(&self, worker: &str, to: &str) {
         let now = epoch_ms();
         let mut state = self.state.locked();
         state
             .reported
-            .retain(|_, at| now.saturating_sub(*at) < REPORTED_MS);
-        state.reported.insert(worker.to_owned(), now);
+            .retain(|_, (_, at)| now.saturating_sub(*at) < REPORTED_MS);
+        state
+            .reported
+            .insert(worker.to_owned(), (to.to_owned(), now));
     }
 
     fn missed_pastes(&self, agent_id: &str) -> u8 {
@@ -1794,15 +1796,11 @@ pub(crate) fn calm_reports(core: &Core, agent_id: &str) -> Option<ChatContext> {
     ))
 }
 
-/// When `agent_id` last reported to its lead, within the last day.
-pub(crate) fn reported_at(core: &Core, agent_id: &str) -> Option<u64> {
-    core.harness()
-        .mailbox
-        .state
-        .locked()
-        .reported
-        .get(agent_id)
-        .copied()
+/// When `agent_id` last reported to `to`, within the last day.
+pub(crate) fn reported_at(core: &Core, agent_id: &str, to: &str) -> Option<u64> {
+    let state = core.harness().mailbox.state.locked();
+    let (reached, at) = state.reported.get(agent_id)?;
+    (reached == to).then_some(*at)
 }
 
 /// Hands the lead of `worker`, when it has one, a line on how a land of its went, which ends
@@ -1847,7 +1845,7 @@ pub(crate) fn report_ci(core: &Arc<Core>, worker: String, to: String, text: Stri
         let note = |called: &str| {
             format!("{called} has closed, and CI failed after its push. Sikemux watched it and sends this to you in its place: fix it or hand it on.")
         };
-        report_noted(&core, worker, name, to, text, note).await;
+        report_noted(&core, worker, name, to, text, false, note).await;
     });
 }
 
@@ -1982,7 +1980,7 @@ async fn handed(
         let_go(core, &target.agent_id);
     }
     if letter.kind == MessageKind::Report {
-        mailbox.note_reported(&letter.from_id);
+        mailbox.note_reported(&letter.from_id, &target.agent_id);
     }
     let stopped = capped(core, &target.agent_id, queued) && mailbox.stopped(&target.agent_id);
     let mut woke = "";
