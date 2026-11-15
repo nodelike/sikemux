@@ -752,6 +752,24 @@ fn commit_agents(pane: &GitPane, hash: &str, compact: bool, cx: &App) -> Option<
     });
     let marks_only = compact && owners.len() > 1;
     let chips = owners.iter().enumerate().map(|(index, owner)| {
+        if let Some(open) = owner.open.as_ref().filter(|_| !marks_only) {
+            let mark = ui::mark(&owner.cli, TEXT_2XS + 1.);
+            let pill = crate::chat::agent_pill_of(
+                open,
+                &owner.name,
+                mark,
+                TEXT_2XS,
+                pane.core.clone(),
+                &pane.bench,
+                cx,
+            );
+            return div()
+                .id(SharedString::from(format!("commit-agent:{hash}:{index}")))
+                .flex_none()
+                .tooltip(ui::tooltip(describe(owner)))
+                .child(pill)
+                .into_any_element();
+        }
         let shown = owner.open.as_ref().unwrap_or(&owner.chat);
         let mark = match rows.iter().find(|row| &row.id == shown) {
             Some(row) => row.mark(11., cx),
@@ -801,6 +819,7 @@ fn commit_agents(pane: &GitPane, hash: &str, compact: bool, cx: &App) -> Option<
             })
             .child(mark)
             .when(!marks_only, |chip| chip.child(label))
+            .into_any_element()
     });
     Some(
         div()

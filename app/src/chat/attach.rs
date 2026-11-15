@@ -891,6 +891,7 @@ fn opens_agent(
     face.id(SharedString::from(format!("mention:{agent}")))
         .hover(move |chip| chip.bg(hover))
         .clicks(move |_, _, cx| {
+            cx.stop_propagation();
             bench
                 .update(cx, |bench, cx| match from.clone() {
                     Some(from) => bench.open_agent_from(&agent, from, cx),

@@ -1434,7 +1434,7 @@ fn popover(
     let shown = card(&open, Seat::Popover(dismiss), through, window, cx);
     let rest: Vec<AnyElement> = (calls.iter())
         .filter(|call| call.id != open.id)
-        .map(|call| folded(bench.read(cx), cards, call, cx))
+        .map(|call| folded(cards, call, &target, &weak, cx))
         .collect();
     let head = div()
         .px(px(10.))
@@ -1474,9 +1474,17 @@ fn popover(
 
 /// A call waiting behind the one open: who asks, the question and how long it has waited. A
 /// click opens it in its place.
-fn folded(bench: &Workbench, cards: &Entity<Cards>, call: &PersonCall, cx: &App) -> AnyElement {
+fn folded(
+    cards: &Entity<Cards>,
+    call: &PersonCall,
+    target: &Target,
+    bench: &WeakEntity<Workbench>,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx);
-    let mark = asker_mark(bench, call, FACE, cx);
+    let asker = (bench.upgrade())
+        .map(|strong| asker_mark(strong.read(cx), call, 12., cx))
+        .unwrap_or_else(|| ui::mark(&call.asker.cli, 12.));
     let (cards, id) = (cards.clone(), call.id.clone());
     let hover = t.surface_hover;
     BaseButton::new(SharedString::from(format!("call-row-{}", call.id)))
@@ -1497,20 +1505,21 @@ fn folded(bench: &Workbench, cards: &Entity<Cards>, call: &PersonCall, cx: &App)
                 cx.notify();
             });
         })
-        .child(mark)
+        .child(crate::chat::agent_pill_of(
+            &call.asker.agent_id,
+            &call.asker.name,
+            asker,
+            11.5,
+            target.clone(),
+            bench,
+            cx,
+        ))
         .child(
             div()
                 .flex_1()
                 .min_w_0()
                 .truncate()
                 .child(call.question.clone()),
-        )
-        .child(
-            div()
-                .flex_none()
-                .text_size(theme::ui_text(11.5))
-                .text_color(t.text_tertiary)
-                .child(format!("@{}", call.asker.name)),
         )
         .child(
             div()

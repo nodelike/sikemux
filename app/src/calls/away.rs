@@ -60,7 +60,7 @@ pub(super) fn block(
             .collect();
         let rest: Vec<AnyElement> = (waiting.iter())
             .filter(|call| call.id != open.id)
-            .map(|call| folded(bench.read(cx), &cards, call, cx))
+            .map(|call| folded(&cards, call, &target, &bench.downgrade(), cx))
             .collect();
         div()
             .flex()
@@ -80,7 +80,7 @@ pub(super) fn block(
         .map(|decision| decided_row(decision, &bench, &target, &t))
         .collect::<Vec<_>>();
     let landed = (away.head.landed.iter())
-        .map(|landed| landed_row(landed, &bench, &t, cx))
+        .map(|landed| landed_row(landed, &bench, &target, &t, cx))
         .collect::<Vec<_>>();
     let gone = away.head.back.map(|back| {
         let gone = back.saturating_sub(away.head.since) / 60_000;
@@ -272,26 +272,27 @@ fn decided_row(
         .into_any_element()
 }
 
-fn landed_row(landed: &AwayLanded, bench: &Entity<Workbench>, t: &Tokens, cx: &App) -> AnyElement {
-    let mark = (bench.read(cx).agent_by_id(&landed.agent_id)).map(|agent| agent.mark(FACE, cx));
+fn landed_row(
+    landed: &AwayLanded,
+    bench: &Entity<Workbench>,
+    target: &Target,
+    t: &Tokens,
+    cx: &App,
+) -> AnyElement {
     let weak = bench.downgrade();
     let agent = landed.agent_id.clone();
+    let unknown = ui::icon(crate::icons::Icon::Agent, 13.).text_color(t.text_tertiary);
     line(t)
-        .child(
-            div()
-                .w(px(20.))
-                .flex_none()
-                .flex()
-                .justify_center()
-                .children(mark),
-        )
+        .child(crate::chat::agent_pill_of(
+            &landed.agent_id,
+            landed.name.as_deref().unwrap_or(&landed.title),
+            unknown.into_any_element(),
+            12.,
+            target.clone(),
+            &weak,
+            cx,
+        ))
         .child(div().min_w_0().truncate().child(landed.title.clone()))
-        .children(landed.name.as_ref().map(|name| {
-            div()
-                .flex_none()
-                .text_color(t.text_tertiary)
-                .child(format!("· @{name}"))
-        }))
         .children(landed.change.as_ref().map(|change| {
             div()
                 .min_w_0()

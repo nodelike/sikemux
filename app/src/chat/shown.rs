@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, img, px, AnyElement, App, FontWeight, Global, Image, InteractiveElement, IntoElement,
-    ObjectFit, ParentElement, SharedString, Styled, StyledImage, WeakEntity,
+    div, img, px, AnyElement, App, Global, Image, InteractiveElement, IntoElement, ObjectFit,
+    ParentElement, SharedString, Styled, StyledImage, WeakEntity,
 };
 use sikemux_calls::call;
 use sikemux_calls::pictures::TurnPictureParams;
@@ -223,10 +223,6 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
         .bench
         .upgrade()
         .and_then(|bench| bench.read(cx).agent_by_id(&row.agent_id));
-    let mark = match &worker {
-        Some(worker) => worker.mark(17., cx),
-        None => ui::mark(&looks.provider, 17.),
-    };
     let maker = crate::turn_line::maker(
         worker
             .as_ref()
@@ -258,10 +254,17 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
             .sized(22., 10., 12.)
             .on_click(move |_, _, cx| take(&bench, &agent, step, cx).detach())
     };
-    let name = row
-        .name
-        .as_ref()
-        .map_or_else(|| row.title.clone(), |name| format!("@{name}"));
+    let pill = (looks.bench.upgrade()).map(|bench| {
+        crate::chat::agent_pill_of(
+            &row.agent_id,
+            row.name.as_deref().unwrap_or(&row.title),
+            ui::mark(&looks.provider, TEXT_XS_H + 1.),
+            TEXT_XS_H,
+            bench.read(cx).chat_target(&looks.agent),
+            &looks.bench,
+            cx,
+        )
+    });
     let (bench, worker_id) = (looks.bench.clone(), row.agent_id.clone());
     let summary = div()
         .id(SharedString::from(key.clone()))
@@ -274,14 +277,7 @@ pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyEle
         .rounded(theme::radius_3())
         .bg(t.surface_raised)
         .text_size(theme::ui_text(TEXT_XS_H))
-        .child(div().flex_none().child(mark))
-        .child(
-            div()
-                .flex_none()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(looks.ink)
-                .child(name),
-        )
+        .children(pill)
         .when(row.name.is_some(), |summary| {
             summary.child(
                 div()
