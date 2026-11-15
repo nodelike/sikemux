@@ -262,6 +262,7 @@ impl Updates {
 /// Checks a little after the core starts and every half hour after, while the
 /// core runs in an app that can update.
 pub(crate) async fn serve(core: Arc<Core>) {
+    let running_since = epoch_ms();
     let asking = core.clone();
     let by_installer = blocking(move || Ok(installer_command(channel(&asking))))
         .await
@@ -281,6 +282,8 @@ pub(crate) async fn serve(core: Arc<Core>) {
     core.updates().edit(&core, |held| {
         held.status.updates = own_app().is_some();
         held.status.current = core.config().build.version.clone();
+        held.status.commit = core.config().build.commit.clone();
+        held.status.running_since = running_since;
         held.status.install_command = by_installer.clone();
         held.status.automatic = automatic;
         held.status.outcome = outcome;

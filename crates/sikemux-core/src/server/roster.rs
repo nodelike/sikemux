@@ -203,7 +203,17 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let caller = request.agent_id.clone().unwrap_or_default();
         let rows = rows(&core, (!all).then_some(project.as_str()), &caller);
         let now = super::now::text_of_path(&core, &project);
-        Ok(json!({ "project": project, "now": now, "agents": rows }))
+        let updates = core.updates().status();
+        Ok(json!({
+            "project": project,
+            "now": now,
+            "core": {
+                "version": updates.current,
+                "commit": updates.commit,
+                "tookOver": since(Some(updates.running_since).filter(|at| *at != 0), epoch_ms()),
+            },
+            "agents": rows,
+        }))
     })
     .await
     .map_err(|error| error.to_string())

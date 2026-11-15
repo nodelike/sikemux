@@ -31,7 +31,8 @@
 //!                                 "toast success|info|error|undo text" shows a toast saying the text;
 //!                                 "star" shows the ask for a GitHub star;
 //!                                 "settings <page>" opens settings at the page of that name;
-//!                                 "language es" draws the app in that language, as its picker does
+//!                                 "language es" draws the app in that language, as its picker does;
+//!                                 "update {json}" draws the window as if the core's update status were that
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -336,6 +337,15 @@ fn main() -> anyhow::Result<()> {
                 "open-tool" => {
                     if let Some(bench) = bench.borrow().clone() {
                         bench.update(cx, |bench, cx| bench.open_first_tool(cx));
+                    }
+                }
+                "update" => {
+                    let status = serde_json::from_str(rest)?;
+                    if let Some(bench) = bench.borrow().clone() {
+                        bench.update(cx, |bench, cx| {
+                            bench.reads.update = Some(status);
+                            cx.notify();
+                        });
                     }
                 }
                 "host" => {

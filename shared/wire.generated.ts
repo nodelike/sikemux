@@ -1994,6 +1994,13 @@ export interface UpdateStatus {
     /** This build updates itself: a release running inside its app. */
     updates: boolean;
     current: string;
+    /** The commit the running core was built from. */
+    commit?: string;
+    /**
+     * When the running core's build started here, by starting or by taking over from an
+     * earlier core, in milliseconds since the epoch.
+     */
+    runningSince?: number;
     checked: UpdateCheck | null;
     available: UpdateRelease | null;
     state: UpdateState;

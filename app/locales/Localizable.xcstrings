@@ -80050,6 +80050,8 @@
         }
       }
     },
+    "Running v{version} ({commit}), took over {ago}.": {},
+    "Running v{version} ({commit}).": {},
     "Running with {models}.": {
       "localizations": {
         "es": {

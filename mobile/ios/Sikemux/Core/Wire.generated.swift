@@ -3193,6 +3193,11 @@ struct UpdateStatus: Codable, Hashable, Sendable {
     /// This build updates itself: a release running inside its app.
     var updates: Bool
     var current: String
+    /// The commit the running core was built from.
+    var commit: String?
+    /// When the running core's build started here, by starting or by taking over from an
+    /// earlier core, in milliseconds since the epoch.
+    var runningSince: Int?
     var checked: UpdateCheck?
     var available: UpdateRelease?
     var state: UpdateState

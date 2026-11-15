@@ -47,6 +47,13 @@ pub struct UpdateStatus {
     /// This build updates itself: a release running inside its app.
     pub updates: bool,
     pub current: String,
+    /// The commit the running core was built from.
+    #[serde(default)]
+    pub commit: String,
+    /// When the running core's build started here, by starting or by taking over from an
+    /// earlier core, in milliseconds since the epoch.
+    #[serde(default)]
+    pub running_since: u64,
     pub checked: Option<UpdateCheck>,
     pub available: Option<UpdateRelease>,
     pub state: UpdateState,

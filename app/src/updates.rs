@@ -58,6 +58,24 @@ pub(crate) fn available_version(update: &UpdateStatus) -> &str {
         .map_or("", |release| release.version.as_str())
 }
 
+/// Which build the core runs and since when, so nobody reads its age off the process.
+pub(crate) fn running(update: &UpdateStatus) -> String {
+    let commit = update.commit.get(..7).unwrap_or(&update.commit);
+    match update.running_since {
+        0 => t!(
+            "Running v{version} ({commit}).",
+            version = update.current,
+            commit = commit
+        ),
+        since => t!(
+            "Running v{version} ({commit}), took over {ago}.",
+            version = update.current,
+            commit = commit,
+            ago = crate::ui::time::ago(since)
+        ),
+    }
+}
+
 /// The rail's note that an update is out, or how its install is going, which opens this
 /// screen; none while there is no update.
 pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
@@ -103,9 +121,13 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
             )),
         ),
     };
+    let tip = match tip {
+        Some(tip) => format!("{tip}\n{}", running(update)),
+        None => running(update),
+    };
     let chip = ui::Button::new("rail-update", label, variant)
         .icon(icon)
-        .when_some(tip, |chip, tip| chip.tooltip(tip))
+        .tooltip(tip)
         .on_click(cx.listener(|bench, _, _, cx| experience::open_whats_new(bench, cx)));
     Some(
         div()
