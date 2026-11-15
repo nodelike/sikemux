@@ -6,8 +6,8 @@ use std::fmt;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::sync::OnceLock;
-use std::time::Duration;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use reqwest::header::HeaderMap;
 use reqwest::{Client, ClientBuilder, Method, RequestBuilder, Response, StatusCode, Url};
@@ -31,6 +31,11 @@ const MAX_REDIRECTS: usize = 5;
 pub const MAX_ANSWER: usize = 16 * 1024 * 1024;
 /// Enough for who a token belongs to.
 pub const MAX_IDENTITY: usize = 1024 * 1024;
+
+fn clock(epoch_secs: u64) -> String {
+    let day = epoch_secs % 86_400;
+    format!("{:02}:{:02}", day / 3600, day % 3600 / 60)
+}
 
 fn reads(request: &RequestBuilder) -> bool {
     request
@@ -173,8 +178,24 @@ pub struct Http<S> {
     redirects: Redirects,
     permits: Semaphore,
     limits: Option<RateLimits>,
+    hourly: Mutex<Hour>,
     service: PhantomData<fn() -> S>,
 }
+
+/// The requests sent in one hour, counted from its first second since the Unix epoch.
+struct Hour {
+    start: u64,
+    requests: u64,
+}
+
+impl Hour {
+    const EMPTY: Self = Self {
+        start: 0,
+        requests: 0,
+    };
+}
+
+const HOUR_SECS: u64 = 3600;
 
 impl<S: Service> Http<S> {
     pub const fn new(redirects: Redirects, in_flight: usize) -> Self {
@@ -184,6 +205,7 @@ impl<S: Service> Http<S> {
             redirects,
             permits: Semaphore::const_new(in_flight),
             limits: None,
+            hourly: Mutex::new(Hour::EMPTY),
             service: PhantomData,
         }
     }
@@ -195,6 +217,7 @@ impl<S: Service> Http<S> {
             redirects,
             permits: Semaphore::const_new(in_flight),
             limits: Some(RateLimits::new(limit)),
+            hourly: Mutex::new(Hour::EMPTY),
             service: PhantomData,
         }
     }
@@ -222,7 +245,34 @@ impl<S: Service> Http<S> {
     /// Runs `work` once one of the request slots is free.
     pub async fn limited<T>(&self, work: impl Future<Output = T>) -> T {
         let _permit = self.permits.acquire().await;
+        if self.limits.is_some() {
+            self.count_request();
+        }
         work.await
+    }
+
+    /// Counts a request against the hour it is sent in, and logs the hour before once it is over,
+    /// so a spent rate limit can be traced to who spent it.
+    fn count_request(&self) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs());
+        let start = now - now % HOUR_SECS;
+        let Ok(mut hour) = self.hourly.lock() else {
+            return;
+        };
+        if hour.start != start {
+            if hour.requests > 0 {
+                eprintln!(
+                    "sikemux core: {} took {} requests in the hour from {} UTC",
+                    S::NAME,
+                    hour.requests,
+                    clock(hour.start)
+                );
+            }
+            *hour = Hour { start, requests: 0 };
+        }
+        hour.requests += 1;
     }
 
     /// Sends `request`, and a read once more when the connection failed or
