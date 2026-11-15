@@ -63,6 +63,10 @@ Filename: "{app}\{#Exe}"; Description: "Open {#Name}"; Flags: nowait postinstall
 Filename: "{app}\{#Exe}"; Flags: nowait; Check: Relaunching
 
 [UninstallRun]
+#ifexist AddBackslash(Stage) + Core
+Filename: "{app}\{#Core}"; Parameters: "disable"; Flags: runhidden waituntilterminated; RunOnceId: "ForgetSignIn"
+Filename: "{app}\{#Core}"; Parameters: "stop"; Flags: runhidden waituntilterminated; RunOnceId: "StopCore"
+#endif
 Filename: "powershell.exe"; Parameters: "-NoProfile -Command ""Get-Process | Where-Object {{ $_.Path -like '{app}\*' } | Stop-Process -Force"""; Flags: runhidden waituntilterminated; RunOnceId: "StopSikemux"
 
 [UninstallDelete]
@@ -149,15 +153,6 @@ begin
     exit;
   ForceDirectories(ExtractFileDir(Preferences()));
   SaveStringToFile(Preferences(), '{' + Fields + '}', False);
-end;
-
-{ The core's sign-in entry names the exe being removed, so it goes with it. }
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-begin
-  if CurUninstallStep = usPostUninstall then begin
-    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'com.nodelike.sikemux.core');
-    DeleteFile(ExpandConstant('{localappdata}\sikemux\com.nodelike.sikemux.core.json'));
-  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
