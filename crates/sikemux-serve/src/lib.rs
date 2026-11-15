@@ -2,8 +2,6 @@
 //! saying that something changed. It knows nothing of the features built over it; what it
 //! asks of them it asks through [`Above`](server::above::Above), which the core fills.
 
-#![cfg(unix)]
-
 pub mod server;
 
 use sikemux_agents::{agent_catalog, git_guard, launch};
