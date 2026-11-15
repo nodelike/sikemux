@@ -2834,6 +2834,7 @@
       "name": "theme_set",
       "row": {"verb": "restyle", "kind": "edit", "icon": "highlighter", "target": ["{theme}", "Sikemux"]},
       "method": "theme.set",
+      "answer": "image",
       "description": "Restyle Sikemux when the person asks.",
       "properties": {
         "theme": {

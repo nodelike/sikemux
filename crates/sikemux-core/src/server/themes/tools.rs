@@ -118,8 +118,18 @@ pub(crate) async fn set(core: &Arc<Core>, request: HarnessRequest) -> Result<Val
     let agent = (request.agent_id.as_deref()).map(|agent| core.names().name_or_id(agent));
     let mut notice = request;
     notice.params = json!({ "agent": agent, "theme": worn.name, "undo": undo });
-    let _ = crate::server::harness::forward(core, notice).await;
-    Ok(json!({ "wearing": worn.id, "clamped": clamped, "undo": undo }))
+    let mut answer = Map::new();
+    answer.insert("wearing".into(), json!(worn.id));
+    answer.insert("clamped".into(), json!(clamped));
+    answer.insert("undo".into(), undo);
+    match crate::server::harness::forward(core, notice).await {
+        Ok(Value::Object(shown)) => answer.extend(shown),
+        Ok(_) => {}
+        Err(error) => {
+            answer.insert("picture".into(), json!(format!("none: {error}")));
+        }
+    }
+    Ok(Value::Object(answer))
 }
 
 /// A theme saved from `save`: a base theme with the changes laid over it, checked.

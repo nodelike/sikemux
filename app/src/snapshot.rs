@@ -57,6 +57,17 @@ pub enum Missed {
     Failed(String),
 }
 
+/// Sikemux's own front window as a JPEG, at no more than `most` pixels a side.
+#[cfg(target_os = "macos")]
+pub fn own_window(most: f64) -> Result<Vec<u8>, Missed> {
+    macos::own_window(most)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn own_window(_most: f64) -> Result<Vec<u8>, Missed> {
+    Err(Missed::Unsupported)
+}
+
 #[cfg(target_os = "macos")]
 fn capture() -> Result<Shot, Missed> {
     macos::capture()

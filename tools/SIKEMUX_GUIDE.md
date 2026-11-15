@@ -240,7 +240,9 @@ else is refused. `chrome.ink` must read at 4.5:1 on `chrome.bg`. Style:
 Out-of-range values are clamped and the answer lists each one in `clamped`.
 Fonts, spacing and layout cannot be changed; say so plainly when asked.
 
-The person sees a note naming you, with Undo. The answer's `undo` is the
+The answer shows Sikemux's window as it now looks; look at it before saying
+the change worked. When no picture can be taken, `picture` says why. The
+person sees a note naming you, with Undo. The answer's `undo` is the
 `theme_set` call that puts back what was there before. Change a little at a
 time and check with the person before going further.
 
