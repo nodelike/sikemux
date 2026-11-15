@@ -10685,7 +10685,6 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest",
- "rustix",
  "semver",
  "serde",
  "serde_json",

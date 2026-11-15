@@ -26,7 +26,6 @@ pub use sikemux_calls::edits::CommitParams;
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex, Weak};
 use std::time::Duration;
@@ -523,13 +522,7 @@ impl Store {
         } else {
             file.parent()
                 .map_or(Ok(()), std::fs::create_dir_all)
-                .and_then(|()| {
-                    std::fs::OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .mode(0o600)
-                        .open(&file)
-                })
+                .and_then(|()| crate::os::open_private_append(&file))
                 .and_then(|mut opened| opened.write_all(lines.as_bytes()))
         };
         if let Err(error) = written {

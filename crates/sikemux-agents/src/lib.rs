@@ -15,10 +15,10 @@ pub mod harness;
 pub mod launch;
 #[cfg(unix)]
 #[path = "os/unix.rs"]
-mod os;
+pub mod os;
 #[cfg(windows)]
 #[path = "os/windows.rs"]
-mod os;
+pub mod os;
 pub mod sessions;
 pub mod ship;
 pub mod skills;
