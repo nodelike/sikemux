@@ -9,6 +9,7 @@ publish = false
 testing = []
 
 [dependencies]
+libc = "0.2"
 base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 globset = "0.4"
@@ -38,9 +39,6 @@ tokio-websockets = { version = "0.13", default-features = false, features = ["cl
 toml = "1"
 url = "2"
 uuid = { version = "1", features = ["v4", "v7"] }
-
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading"] }

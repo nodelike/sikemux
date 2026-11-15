@@ -25,7 +25,6 @@ pub mod timeout;
 pub mod trailers;
 pub mod usage;
 pub mod waiting;
-#[cfg(unix)]
 pub mod wall_clock;
 
 use sikemux_base::http;

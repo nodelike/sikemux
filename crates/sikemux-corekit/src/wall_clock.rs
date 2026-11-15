@@ -3,6 +3,13 @@
 
 use sikemux_process::clock::epoch_ms;
 
+#[cfg(unix)]
+#[path = "wall_clock/unix.rs"]
+mod platform;
+#[cfg(windows)]
+#[path = "wall_clock/windows.rs"]
+mod platform;
+
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
@@ -83,27 +90,12 @@ impl WallClock {
         }
         tm.tm_mday += days_later;
         (tm.tm_hour, tm.tm_min, tm.tm_sec, tm.tm_isdst) = (self.hour, self.minute, 0, -1);
-        // SAFETY: `tm` is a live value for the length of the call.
-        let at = unsafe {
-            match self.zone {
-                Zone::Host => libc::mktime(&mut tm),
-                Zone::Utc => libc::timegm(&mut tm),
-            }
-        };
-        u64::try_from(at).ok()?.checked_mul(1000)
+        u64::try_from(platform::seconds(&mut tm, self.zone))
+            .ok()?
+            .checked_mul(1000)
     }
 }
 
 pub fn calendar(at: u64, zone: Zone) -> Option<libc::tm> {
-    let seconds = (at / 1000) as libc::time_t;
-    // SAFETY: `tm` is plain data, for which all zeroes is a valid value.
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    // SAFETY: both pointers point at live values for the length of the call.
-    let filled = unsafe {
-        match zone {
-            Zone::Host => libc::localtime_r(&seconds, &mut tm),
-            Zone::Utc => libc::gmtime_r(&seconds, &mut tm),
-        }
-    };
-    (!filled.is_null()).then_some(tm)
+    platform::calendar((at / 1000) as libc::time_t, zone)
 }
