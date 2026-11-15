@@ -634,11 +634,15 @@ mod tests {
 
     #[test]
     fn an_acp_session_is_given_an_absolute_command_even_in_development() {
+        #[cfg(unix)]
+        let (absolute, bare) = ("/bin/sh", "sh");
+        #[cfg(windows)]
+        let (absolute, bare) = (r"C:\Windows\System32\cmd.exe", "cmd");
         assert_eq!(
-            absolute_command(Path::new("/bin/sh")).unwrap(),
-            PathBuf::from("/bin/sh")
+            absolute_command(Path::new(absolute)).unwrap(),
+            PathBuf::from(absolute)
         );
-        let found = absolute_command(Path::new("sh")).unwrap();
+        let found = absolute_command(Path::new(bare)).unwrap();
         assert!(found.is_absolute(), "{found:?} should be absolute");
         assert!(absolute_command(Path::new("sikemux-no-such-program")).is_err());
     }

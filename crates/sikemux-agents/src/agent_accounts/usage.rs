@@ -1151,14 +1151,47 @@ mod tests {
 
     const ERROR_DETAIL_LIMIT: usize = 240;
 
+    #[cfg(unix)]
+    mod shell {
+        pub const PROGRAM: &str = "/bin/sh";
+        pub const KEPT: &str = "HOME";
+        pub const READ_KEPT: &str = "printf '%s' \"${HOME-unset}\"";
+        pub const READ_ALL_THEN_DONE: &str = "cat >/dev/null; printf done";
+
+        pub fn args(script: &str) -> Vec<&str> {
+            vec!["-c", script]
+        }
+
+        pub fn fail_saying(detail: &str) -> String {
+            format!("printf 'first\\nsecond {detail}' >&2; exit 7")
+        }
+    }
+
+    #[cfg(windows)]
+    mod shell {
+        pub const PROGRAM: &str = "powershell";
+        pub const KEPT: &str = "COMPUTERNAME";
+        pub const READ_KEPT: &str = "if (Test-Path env:COMPUTERNAME) { [Console]::Out.Write($env:COMPUTERNAME) } else { [Console]::Out.Write('unset') }";
+        pub const READ_ALL_THEN_DONE: &str =
+            "$null = [Console]::In.ReadToEnd(); [Console]::Out.Write('done')";
+
+        pub fn args(script: &str) -> Vec<&str> {
+            vec!["-NoProfile", "-NonInteractive", "-Command", script]
+        }
+
+        pub fn fail_saying(detail: &str) -> String {
+            format!("[Console]::Error.Write('first' + [char]10 + 'second {detail}'); exit 7")
+        }
+    }
+
     #[tokio::test]
     async fn a_lookup_drops_the_removed_environment() {
-        const READ_HOME: &str = "printf '%s' \"${HOME-unset}\"";
-        let sh = Path::new("/bin/sh");
-        let kept = run("test-agent", sh, &["-c", READ_HOME], "", None, &[])
+        let program = Path::new(shell::PROGRAM);
+        let read = shell::args(shell::READ_KEPT);
+        let kept = run("test-agent", program, &read, "", None, &[])
             .await
             .unwrap();
-        let dropped = run("test-agent", sh, &["-c", READ_HOME], "", None, &["HOME"])
+        let dropped = run("test-agent", program, &read, "", None, &[shell::KEPT])
             .await
             .unwrap();
         assert_ne!(kept, "unset");
@@ -1169,8 +1202,8 @@ mod tests {
     async fn a_lookup_ends_its_input_so_a_cli_reading_to_the_end_answers() {
         let answer = run(
             "test-agent",
-            Path::new("/bin/sh"),
-            &["-c", "cat >/dev/null; printf done"],
+            Path::new(shell::PROGRAM),
+            &shell::args(shell::READ_ALL_THEN_DONE),
             "request\n",
             None,
             &[],
@@ -1183,11 +1216,11 @@ mod tests {
     #[tokio::test]
     async fn a_failed_lookup_says_why_in_bounded_words() {
         let long_detail = "x".repeat(ERROR_DETAIL_LIMIT * 2);
-        let script = format!("printf 'first\\nsecond {long_detail}' >&2; exit 7");
+        let script = shell::fail_saying(&long_detail);
         let error = run(
             "test-agent",
-            Path::new("/bin/sh"),
-            &["-c", &script],
+            Path::new(shell::PROGRAM),
+            &shell::args(&script),
             "",
             None,
             &[],
