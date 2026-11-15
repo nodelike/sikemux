@@ -121,9 +121,9 @@ You are the owner and long-term maintainer of this codebase, and its design is u
   their work, always through `sim attach`, never `simctl boot` or Xcode.
 - The bindings UniFFI and `uniffi-bindgen-react-native` generate are build output; do not
   commit or hand-edit them.
-- Phone screens are designed in `mobile/design/screens.src.html` before they are built, and
-  it must keep matching both apps. Change it in the same commit as the screen it draws; run
-  `pnpm design` in `mobile/` to view it.
+- A new phone screen is mocked up in `mobile/design/screens.src.html` before it is built; run
+  `pnpm design` in `mobile/` to view it. Once a screen is built, its showcase pictures are the
+  record, and the design file is not kept in step with it.
 
 ## Before and after pictures
 
@@ -193,14 +193,14 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 - The island over the MacBook notch is `sikemux-notch`, a SwiftUI helper in `helpers/notch`
   and a client of the core: it reads the device view phones get. The app starts it; it keeps
   running after the app quits.
-- It is designed in `helpers/notch/design/screens.html` before it is built, and must keep
-  matching it. Change the design in the same commit as the island; view it by serving the repo
-  root (`python3 -m http.server`) and opening `/helpers/notch/design/screens.html`.
+- A new island state is mocked up in `helpers/notch/design/screens.html` before it is built;
+  view it by serving the repo root (`python3 -m http.server`) and opening
+  `/helpers/notch/design/screens.html`.
 - Its icons come from `shared/ui/Icons.tsx`, the agent marks and `brand/`. After changing one it
   uses, run `node scripts/generate-notch-icons.mjs`; the release checks fail on a stale copy.
 - Its agent rows are laid out like the app's tab rail rows (`app/src/agents/mod.rs`):
   the task with how long ago, the project, then the name, counts and state together at the end.
-  When the rail's row changes, change the island's and its design to match.
+  When the rail's row changes, change the island's to match.
 - `swift run --package-path helpers/notch notch-snapshots <dir>` renders every state to PNGs,
   for comparing with the design.
 
@@ -243,7 +243,8 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 
 - Follow `DESIGN.md`. It is short on purpose: keep it to principles and tokens,
   and change it in the same commit when the look moves on.
-- A UI change on the Mac that the iPhone or Android app also draws goes to the phones
-  too, with their design in `mobile/design/screens.src.html`, as part of the same work.
+- A Mac UI change that the phones also draw lands on the Mac alone. A daily phone port, a board
+  card at 18:00, brings the day's Mac changes to both phone apps, so the phones trail the Mac by
+  up to a day.
 - A page or mockup of the app takes its Figtree from `helpers/notch/Fonts` by local
   path; `page_show` inlines it.
