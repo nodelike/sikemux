@@ -513,19 +513,17 @@ async fn tidy(core: &Arc<Core>, key: &Key, stacked: Stack) -> Stack {
     tidied
 }
 
-/// The commit made on top of `laid` with its Rust formatted and its land checks' fixes run, when
-/// they changed anything.
+/// The commit made on top of `laid` with its land checks' fixes run, when they changed anything.
 async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<String> {
     let (repo, from, to) = (key.0.clone(), from.to_owned(), laid.tip.clone());
-    let (rust, fixes) = blocking(move || {
-        let fixes: Vec<_> = (land_checks_due(&repo, &from, &to).into_iter())
+    let fixes = blocking(move || {
+        Ok((land_checks_due(&repo, &from, &to).into_iter())
             .filter(|(check, _)| check.fix.is_some())
-            .collect();
-        Ok((unformatted(&repo, &from, &to), fixes))
+            .collect::<Vec<_>>())
     })
     .await
     .ok()?;
-    if rust.files.is_empty() && fixes.is_empty() {
+    if fixes.is_empty() {
         return None;
     }
     let checkout = crate::server::worktree::agent::merge_queue(core, &key.0, &laid.tip)
@@ -538,21 +536,6 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
     let host_key = Signing::of(core).key;
     blocking(move || {
         let mut ran = Vec::new();
-        if !rust.files.is_empty() {
-            let mut args = vec!["--edition".to_owned(), rust.edition];
-            args.extend(rust.files.iter().cloned());
-            if shell(
-                &checkout,
-                "rustfmt \"$@\"",
-                "rustfmt",
-                &args,
-                LAND_CHECK_LIMIT,
-            )
-            .is_ok()
-            {
-                ran.push(format!("rustfmt on {}", rust.files.join(", ")));
-            }
-        }
         let trusted = super::generate::trust_needed_for(&owner, &project, &checkout, |config| {
             !config.land_checks.is_empty()
         })
@@ -1061,55 +1044,6 @@ fn shell(
 }
 
 const LAND_CHECK_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
-
-#[derive(Default)]
-struct Unformatted {
-    edition: String,
-    files: Vec<String>,
-}
-
-/// The Rust files changed from `from` to `to` that rustfmt would change, as
-/// they stand at `to`. A tree with no Cargo.toml at its root has none.
-fn unformatted(repo: &Path, from: &str, to: &str) -> Unformatted {
-    let Ok(manifest) = git(repo, &["show", &format!("{to}:Cargo.toml")]) else {
-        return Unformatted::default();
-    };
-    let edition = (manifest.lines())
-        .find_map(|row| row.trim().strip_prefix("edition"))
-        .and_then(|row| row.split('"').nth(1))
-        .unwrap_or("2021")
-        .to_owned();
-    let Ok(changed) = git(
-        repo,
-        &[
-            "diff",
-            "-z",
-            "--name-only",
-            "--diff-filter=AMR",
-            from,
-            to,
-            "--",
-            "*.rs",
-        ],
-    ) else {
-        return Unformatted::default();
-    };
-    let mut args = vec![to.to_owned(), edition.clone()];
-    args.extend(
-        (changed.split('\0'))
-            .filter(|path| !path.is_empty())
-            .map(str::to_owned),
-    );
-    if args.len() == 2 {
-        return Unformatted::default();
-    }
-    let script = r#"to=$1 edition=$2; shift 2; for f; do [ -z "$(git show "$to:$f" | rustfmt --edition "$edition" --check 2>/dev/null)" ] || printf '%s\n' "$f"; done"#;
-    let files = shell(repo, script, "unformatted", &args, METADATA_LIMIT).unwrap_or_default();
-    Unformatted {
-        edition,
-        files: files.lines().map(str::to_owned).collect(),
-    }
-}
 
 /// The check for what changed from `from` to `to`, read in `checkout` at `to`,
 /// with what to call it: Clippy on the crates it changes or whose files they

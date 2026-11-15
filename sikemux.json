@@ -3,6 +3,12 @@
   "check": { "ci": ["CI"] },
   "landChecks": [
     {
+      "label": "rustfmt",
+      "command": "scripts/check-rustfmt.sh --files \"$@\"",
+      "fix": "scripts/check-rustfmt.sh --files --write \"$@\"",
+      "when": ["**/*.rs"]
+    },
+    {
       "label": "pnpm agent-catalog:check",
       "command": "node scripts/generate-agent-catalog.mjs --check",
       "fix": "node scripts/generate-agent-catalog.mjs",
