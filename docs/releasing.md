@@ -72,6 +72,8 @@ Every push to `main` becomes a nightly, with no bump commit. Release starts as s
 
 Only one nightly builds at a time, and of the pushes CI starts on meanwhile only the newest gets the next run. A red CI run publishes nothing, so the next push that passes ships what that one held. The publish step makes the `v<version>` tag itself: the "Protect nightly tags" ruleset lets Release create `v*-nightly.*` tags, while only the owner can move or delete them, and only the owner can create any other `v*` tag. A tag made by the workflow starts no other workflow. The owner can still push a nightly tag by hand.
 
+A nightly links with thin LTO, and its Mac jobs compile through sccache, kept in the repository's Actions cache, so it builds in about half the time of a stable release, which keeps fat LTO and no cache, for a slightly larger DMG.
+
 A published nightly reaches the `staff` feed at once. Release then starts **Nightly soak**, which waits 30 minutes while it runs on staff machines and then moves the `nightly` feed to it, unless a newer build is already there or it was pulled. On the owner's Mac:
 
 - `scripts/nightly.sh why` says what each feed serves and whether nightlies are held.

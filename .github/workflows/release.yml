@@ -218,6 +218,7 @@ jobs:
       contents: read
     # What the core compiles in. The app starts a core rather than running one, and links no plugin.
     env: &compiled_into_core
+      CARGO_PROFILE_RELEASE_LTO: &lto ${{ needs.plan.outputs.channel == 'stable' && 'fat' || 'thin' }}
       BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
       JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
       VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
@@ -235,6 +236,17 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      # Stable keeps fat LTO and no cache; a nightly trades a little size for half the build.
+      - &cache_nightly
+        name: Cache compiled crates for a nightly
+        if: needs.plan.outputs.channel == 'nightly'
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
+      - &compile_through_cache
+        name: Compile through the cache
+        if: needs.plan.outputs.channel == 'nightly'
+        run: printf 'SCCACHE_GHA_ENABLED=true\nRUSTC_WRAPPER=sccache\n' >>"$GITHUB_ENV"
+
       # The core and the app are stripped here, once their symbols are in a debug file published
       # beside the release, with the line tables of Sikemux's own crates. Those add about a tenth to
       # the build; every crate's would need more memory than a runner has, and double it.
@@ -249,6 +261,11 @@ jobs:
           cargo build --locked --release -p sikemux-host --bin sikemux-host
           dsymutil target/release/sikemux-host -o target/release/sikemux-host.dSYM
           strip target/release/sikemux-host
+
+      - &cache_stats
+        name: Say what the cache saved
+        if: needs.plan.outputs.channel == 'nightly'
+        run: sccache --show-stats | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Keep the core
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -337,6 +354,8 @@ jobs:
     name: Build the app
     needs: [approve, plan]
     if: *approved_plan
+    env:
+      CARGO_PROFILE_RELEASE_LTO: *lto
     runs-on: macos-26
     timeout-minutes: 90
     permissions:
@@ -366,6 +385,10 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           components: clippy rustfmt
+
+      - *cache_nightly
+
+      - *compile_through_cache
 
       # release.sh refreshes Cargo.lock offline, which needs every crate
       # already on disk; a fresh runner has none.
@@ -399,6 +422,8 @@ jobs:
           strip target/release/sikemux
           mkdir -p "$RUNNER_TEMP/symbols"
           ditto -c -k --keepParent target/release/sikemux.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.app.dSYM.zip"
+
+      - *cache_stats
 
       - name: Keep the app's symbols
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -625,6 +650,8 @@ jobs:
       matrix:
         include: *linux_machines
     runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_PROFILE_RELEASE_LTO: *lto
     timeout-minutes: 90
     permissions:
       actions: read
