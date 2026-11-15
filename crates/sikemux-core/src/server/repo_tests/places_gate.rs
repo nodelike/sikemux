@@ -109,6 +109,21 @@ fn write(sql: &str) -> Ship {
     }
 }
 
+/// A release workflow run by pushed tags that tells its nightly tags apart from the rest.
+const TAG_RELEASES: &str = r#"name: Release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release create "$GITHUB_REF_NAME" --prerelease
+        if: ${{ contains(github.ref_name, '-nightly.') }}
+      - run: gh release create "$GITHUB_REF_NAME" --latest
+        if: ${{ !contains(github.ref_name, '-nightly.') }}
+"#;
+
 fn run(core: &Core, ship: Ship, cwd: &Path) -> Result<Option<Deploy>, String> {
     ship::check(core, "agent", ship, cwd)
 }
@@ -416,7 +431,7 @@ fn an_unread_workflow_is_listed_once_however_often_it_runs() {
 /// Nightly tags went to the release workflow with no way to stop being asked each night.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_nightly_asks_once_and_the_person_can_stop_it_asking() {
-    let release = include_str!("../../../../../.github/workflows/release.yml");
+    let release = TAG_RELEASES;
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
     std::fs::write(dir.path().join(".github/workflows/release.yml"), release).unwrap();
@@ -504,7 +519,7 @@ async fn a_deploys_yes_ends_with_the_last_turn_of_those_on_its_call() {
 /// "From now on just tell me" still asked while the list was unconfirmed.
 #[tokio::test(flavor = "multi_thread")]
 async fn from_now_on_counts_as_the_person_confirming_that_place() {
-    let release = include_str!("../../../../../.github/workflows/release.yml");
+    let release = TAG_RELEASES;
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
     std::fs::write(dir.path().join(".github/workflows/release.yml"), release).unwrap();
@@ -540,7 +555,7 @@ async fn a_tag_pushed_with_the_branch_still_meets_the_landing_rule() {
     let cwd = std::fs::canonicalize(cwd).unwrap();
     let project = cwd.to_string_lossy().into_owned();
     git(&cwd, &["tag", "marker"]);
-    let release = include_str!("../../../../../.github/workflows/release.yml");
+    let release = TAG_RELEASES;
     let found = {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join(".github/workflows")).unwrap();
@@ -577,7 +592,7 @@ async fn a_push_from_another_repository_reaches_none_of_the_projects_places() {
     let (cwd, _) = work_of(&ours);
     let project = std::fs::canonicalize(&cwd).unwrap();
     let project = project.to_string_lossy().into_owned();
-    let release = include_str!("../../../../../.github/workflows/release.yml");
+    let release = TAG_RELEASES;
     let found = {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join(".github/workflows")).unwrap();
