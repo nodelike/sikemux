@@ -102,6 +102,8 @@ struct Shown<'a> {
     avatar: Arc<Image>,
     usage: Option<&'a AccountUsage>,
     signed_out: bool,
+    /// Its agent has not yet said whether it is signed in.
+    checking: bool,
 }
 
 impl Shown<'_> {
@@ -156,6 +158,9 @@ impl Shown<'_> {
 
     /// Why there is nothing to draw for a signed-in account.
     fn nothing(&self) -> String {
+        if self.checking {
+            return t!("Checking sign-in…").into();
+        }
         let Some(usage) = self.usage else {
             return t!("Not read yet").into();
         };
@@ -195,18 +200,20 @@ impl<'a> Agent<'a> {
                 avatar: super::marble::avatar(provider, 0),
                 usage: bench.usage_of(&launcher.id),
                 signed_out: launcher.status.as_deref() == Some("signedOut"),
+                checking: launcher.status.is_none(),
             }]
         } else {
             (profiles.into_iter())
                 .map(|profile| {
-                    let status = crate::accounts::status(bench, profile)
-                        .and_then(|status| status.as_ref().ok());
+                    let asked = crate::accounts::status(bench, profile);
+                    let status = asked.and_then(|status| status.as_ref().ok());
                     Shown {
                         profile: Some(profile),
                         name: profile.shown_name(status),
                         avatar: bench.accounts.avatar(profile),
                         usage: crate::accounts::usage(bench, profile),
                         signed_out: status.is_some_and(|status| !status.signed_in),
+                        checking: asked.is_none(),
                     }
                 })
                 .collect()
