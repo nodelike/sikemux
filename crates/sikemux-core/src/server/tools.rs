@@ -30,7 +30,7 @@ use sikemux_wire::protocol::WindowCall;
 
 use super::{harness, Core};
 
-const MAX_CONNECTIONS: usize = 128;
+const MAX_CONNECTIONS: usize = 4096;
 /// One deadline for the whole request, so a client sending a byte every few
 /// seconds cannot hold its connection forever.
 const REQUEST_READ_DEADLINE: Duration = Duration::from_secs(10);

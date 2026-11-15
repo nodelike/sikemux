@@ -878,7 +878,6 @@ pub(crate) async fn wait(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             ))?,
     };
     let harness = core.harness();
-    let _slot = harness.wait_slot()?;
     let deadline = Instant::now() + Duration::from_millis(timeout);
     let first = {
         let (core, request) = (core.clone(), request.clone());

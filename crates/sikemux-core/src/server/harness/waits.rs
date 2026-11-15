@@ -3,14 +3,6 @@
 use super::*;
 use crate::server::parts::Parts;
 
-pub(crate) struct WaitSlot<'a>(pub(super) &'a AtomicUsize);
-
-impl Drop for WaitSlot<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
-    }
-}
-
 pub(super) async fn events_wait(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let params = &request.params;
     if params.get("until").is_some() {
@@ -42,7 +34,6 @@ pub(super) async fn events_wait(core: &Core, request: &HarnessRequest) -> Result
         true => 0,
         false => integer(params, "timeoutMs", MAX_WAIT_MS, MAX_WAIT_MS, 0)?,
     };
-    let _slot = harness.wait_slot()?;
     let deadline = Instant::now() + Duration::from_millis(timeout);
     loop {
         let mut changed = harness.changes.subscribe();
@@ -100,7 +91,6 @@ async fn run_until(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
         )?),
         text => Some(text.to_owned()),
     };
-    let _slot = harness.wait_slot()?;
     let met = match &pattern {
         Some(pattern) => output_appears(core, project, execution_id, pattern, deadline).await?,
         None => loop {
@@ -172,11 +162,6 @@ pub(crate) async fn run_printed(core: &Core, run: &Run, text: &str) -> bool {
 /// `seen` or the wait runs out.
 pub(super) async fn plugins_wait(harness: &Harness, params: &Value) -> Result<Value, String> {
     let seen = params.get("seen").and_then(Value::as_u64);
-    if harness.plugin_waits.fetch_add(1, Ordering::AcqRel) >= MAX_PLUGIN_WAITS {
-        harness.plugin_waits.fetch_sub(1, Ordering::AcqRel);
-        return Err("Too many plugin waits".into());
-    }
-    let _slot = WaitSlot(&harness.plugin_waits);
     let mut changes = harness.plugins.subscribe();
     if seen == Some(*changes.borrow_and_update()) {
         let changed = tokio::time::timeout(PLUGIN_WAIT, changes.changed()).await;

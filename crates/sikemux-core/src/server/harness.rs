@@ -9,7 +9,6 @@ use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -60,7 +59,7 @@ pub(crate) use processes::{
 use skills_tool::*;
 use tally::*;
 use waits::*;
-pub(crate) use waits::{run_printed, run_tail, WaitSlot};
+pub(crate) use waits::{run_printed, run_tail};
 
 /// MCP hosts give up on a tool call after about a minute, so a start answers
 /// well before that with whatever state it reached.
@@ -68,11 +67,8 @@ const START_BUDGET: Duration = Duration::from_secs(30);
 /// A chatty task adds at most one output event per this long.
 const OUTPUT_EVENT_GAP: Duration = Duration::from_millis(250);
 const READY_POLL: Duration = Duration::from_millis(250);
-const MAX_WAITS: usize = 32;
 const MAX_WAIT_MS: u64 = 50_000;
 const RUN_TAIL_LINES: usize = 20;
-/// Every running agent's tools server holds one of these open.
-const MAX_PLUGIN_WAITS: usize = 512;
 /// Shorter than the tools server waits for any answer.
 const PLUGIN_WAIT: Duration = Duration::from_secs(55);
 /// A pane that makes several calls in a row wakes each tools server once.
@@ -166,9 +162,7 @@ pub(crate) struct Harness {
     state: Mutex<State>,
     changes: watch::Sender<u64>,
     tool_calls: Option<PathBuf>,
-    waits: AtomicUsize,
     plugins: watch::Sender<u64>,
-    plugin_waits: AtomicUsize,
     /// Messages between agents waiting for their turn to end.
     pub(crate) mailbox: Mailbox,
     /// Questions agents asked that wait on an answer.
@@ -189,9 +183,7 @@ impl Harness {
             }),
             changes: watch::channel(0).0,
             tool_calls: data_dir.map(|dir| dir.join(TOOL_CALLS_FILE)),
-            waits: AtomicUsize::new(0),
             plugins: watch::channel(0).0,
-            plugin_waits: AtomicUsize::new(0),
             mailbox: Mailbox::new(data_dir, &known),
             questions: Questions::new(data_dir, &known),
             spawning: spawn::Spawning::default(),
@@ -306,16 +298,6 @@ impl Harness {
                 state.set_status(&execution_id, RunStatus::Failed);
             }
         });
-    }
-
-    /// One of the few waits the core holds open at once, or an error when
-    /// they are all taken.
-    pub(crate) fn wait_slot(&self) -> Result<WaitSlot<'_>, String> {
-        if self.waits.fetch_add(1, Ordering::AcqRel) >= MAX_WAITS {
-            self.waits.fetch_sub(1, Ordering::AcqRel);
-            return Err("Too many event waits".into());
-        }
-        Ok(WaitSlot(&self.waits))
     }
 
     /// Changes whenever a project's journal does.
@@ -591,7 +573,6 @@ async fn dispatch(
                 .map(|run| with_fields(&run, json!({})))
         }
         "events.wait" if super::wait_for::asked(&request.params) => {
-            let _slot = core.harness().wait_slot()?;
             super::wait_for::call(&request).await
         }
         "events.wait" => events_wait(core, &request).await,
@@ -904,7 +885,6 @@ mod tests {
             Ok(json!({ "version": 3 }))
         );
         assert_eq!(started.elapsed(), PLUGIN_WAIT);
-        assert_eq!(harness.plugin_waits.load(Ordering::Acquire), 0);
     }
 
     #[test]
