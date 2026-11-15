@@ -201,7 +201,7 @@ pub fn open_keyed(core: &Core, project: &str, prefix: &str) -> Vec<(String, Stri
 }
 
 /// The key the call `id` was raised with.
-fn key_of(core: &Core, id: &str) -> Option<String> {
+pub fn key_of(core: &Core, id: &str) -> Option<String> {
     kept(&core.person_calls().book.locked(), id).and_then(|kept| kept.key.clone())
 }
 

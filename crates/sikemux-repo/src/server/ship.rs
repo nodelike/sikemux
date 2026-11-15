@@ -49,6 +49,8 @@ const RUNDECK: &str = "sikemux.rundeck";
 const VERCEL: &str = "sikemux.vercel";
 /// Deploys let go whose end the core is still to hear of.
 const MAX_GOING: usize = 64;
+/// How long after the hook lets a command go its shim may still check that same run.
+const SAME_RUN_MS: u64 = 60_000;
 /// How long a deploy the shim follows may go unheard before its end counts as unseen.
 const GOING_AT_MOST: Duration = Duration::from_secs(60 * 60);
 /// How often a long deploy is looked at, and how long a look can take, before
@@ -84,6 +86,9 @@ struct State {
     /// Production yeses already used, by call: one that covers an action once, or a deploy's
     /// whose turn ended.
     used: HashSet<String>,
+    /// When a yes for one action was taken by a check that doesn't see the action end, such
+    /// as the hook before a shell command, by call. The shim that then runs it may take it too.
+    unfollowed: HashMap<String, u64>,
     /// A deploy's yes each agent heard, which covers that work's deploy until the end of the
     /// turn it heard it in: the agent, the call, and whether that turn began.
     covering: Vec<(String, String, bool)>,
@@ -255,16 +260,28 @@ impl Ships {
     }
 
     /// Takes the yes of `call` for one action: once only for an action it covers once, so two
-    /// tries at the same moment can't both pass.
-    fn claim(&self, call: &str, once: bool) -> bool {
+    /// tries at the same moment can't both pass. A check that `follows` the action to its end
+    /// shortly after one that doesn't is the same run checked twice, by the hook and the shim.
+    fn claim(&self, call: &str, once: bool, follows: bool) -> bool {
         let mut state = self.state.locked();
         if state.used.contains(call) {
-            return false;
+            let taken = state.unfollowed.remove(call);
+            return follows && taken.is_some_and(|at| epoch_ms() < at + SAME_RUN_MS);
         }
         if once {
             state.used.insert(call.to_owned());
+            if !follows {
+                state.unfollowed.insert(call.to_owned(), epoch_ms());
+            }
         }
         true
+    }
+
+    /// The action a yes covered once failed, so the yes stands for its retry.
+    fn unspend(&self, call: &str) {
+        let mut state = self.state.locked();
+        state.used.remove(call);
+        state.unfollowed.remove(call);
     }
 }
 
@@ -279,7 +296,7 @@ pub fn check(
     ship: Ship,
     cwd: &Path,
 ) -> Result<Option<Deploy>, String> {
-    check_call(core, agent_id, ship, cwd, None)
+    check_call(core, agent_id, ship, cwd, None, false)
 }
 
 /// [`check`] for a Sikemux tool call, which a hold keeps to run once the person allows it.
@@ -289,6 +306,7 @@ fn check_call(
     ship: Ship,
     cwd: &Path,
     call: Option<ToolCall>,
+    follows: bool,
 ) -> Result<Option<Deploy>, String> {
     let project = (core.names().get(agent_id).map(|named| named.project))
         .filter(|project| !project.is_empty())
@@ -371,11 +389,11 @@ fn check_call(
             let (key, once) = key_of(&gated, &ship, work.as_deref(), call.is_some());
             let yes = person_calls::find_key(core, &project, &key)
                 .filter(|call| passes(core, call, agent_id))
-                .filter(|call| core.ship().claim(&call.id, once));
+                .filter(|call| core.ship().claim(&call.id, once, follows));
             if let Some(yes) = yes {
                 if let Err(why) = person_calls::started(core, &yes.id) {
                     if once {
-                        core.ship().state.locked().used.remove(&yes.id);
+                        core.ship().unspend(&yes.id);
                     }
                     return Err(format!(
                         "Not yet: Sikemux couldn't record that `{}` started ({why}), so it doesn't run. Try again in a moment.",
@@ -406,7 +424,8 @@ fn check_call(
 
 /// What a yes at `place` is kept under for `ship`, and whether it covers the action once. A
 /// deploy of work with a fingerprint is covered with its retries, however spelled, at the same
-/// target; anything else, or work git can't fingerprint, only as the exact action.
+/// target; anything else, or work git can't fingerprint, only as the exact action, from any
+/// checkout of the project.
 pub fn key_of(
     place: &places::Place,
     ship: &Ship,
@@ -427,10 +446,9 @@ pub fn key_of(
             format!("place:{id}:work:{work}:to:{}", digest(&target)),
             false,
         ),
-        (_, work) => {
-            let work = work.unwrap_or_default();
+        _ => {
             let action = digest(&format!("{target}\n{}", ship.what));
-            (format!("place:{id}:work:{work}:action:{action}"), true)
+            (format!("place:{id}:work::action:{action}"), true)
         }
     }
 }
@@ -1032,9 +1050,11 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         return Ok(json!({ "allowed": true }));
     };
     let checking = core.clone();
-    let checked = tokio::task::spawn_blocking(move || check(&checking, &agent_id, ship, &cwd))
-        .await
-        .map_err(|error| error.to_string())?;
+    let checked = tokio::task::spawn_blocking(move || {
+        check_call(&checking, &agent_id, ship, &cwd, None, follows)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
     Ok(match checked {
         Ok(None) => json!({ "allowed": true }),
         Ok(Some(deploy)) if follows => {
@@ -1230,6 +1250,7 @@ pub async fn check_tool(
             Ship { kind, what, target },
             Path::new(&cwd),
             Some(call),
+            true,
         )
     })
     .await
@@ -1425,6 +1446,9 @@ pub async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>) {
         at: epoch_ms(),
     };
     if let Some(call) = &deploy.call {
+        if result == CallResult::Failed {
+            core.ship().unspend(call);
+        }
         person_calls::set_outcome(&core, call, outcome.clone());
     }
     if let Some(telling) = deploy.telling.clone() {
@@ -1447,6 +1471,7 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
         .answer
         .as_ref()
         .and_then(|answer| answer.option.clone());
+    let once = person_calls::key_of(core, &call.id).is_some_and(|key| key.contains(":action:"));
     {
         let mut state = core.ship().state.locked();
         let mut waiting: Vec<String> = (state.holds.iter())
@@ -1461,7 +1486,7 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
         waiting.sort();
         waiting.dedup();
         state.holds.retain(|hold| hold.token != call.id);
-        if said_yes(option.as_deref()) {
+        if said_yes(option.as_deref()) && !once {
             for agent_id in waiting {
                 state.covering.push((agent_id, call.id.clone(), false));
             }
@@ -1489,8 +1514,12 @@ pub async fn gate_answered(core: &Arc<Core>, call: &PersonCall, typed: Option<St
             "The person said yes on the call \"{}\", and to just tell them from now on. Run `{action}` again now.",
             call.question
         ),
+        _ if said_yes(option.as_deref()) && once => format!(
+            "The person said yes on the call \"{}\". Run exactly `{action}` again now. The yes lets it run once, and stands until it runs without failing.",
+            call.question
+        ),
         _ if said_yes(option.as_deref()) => format!(
-            "The person said yes on the call \"{}\". Run `{action}` again now; for a deploy the yes covers this work's deploy to {place} until the end of this turn.",
+            "The person said yes on the call \"{}\". Run `{action}` again now; the yes covers this work's deploy to {place} until the end of this turn.",
             call.question
         ),
         _ => format!(
