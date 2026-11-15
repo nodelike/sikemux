@@ -65,11 +65,12 @@ struct ConfigSheet: View {
                 .padding(.bottom, 12)
             }
             if let unread {
+                let signedOut = String(
+                    localized: "\(name) isn't signed in on \(hostName). Sign in there, then its models show here.")
+                let failed = unread.details.map { String(localized: "Couldn't ask \(name) for its models: \($0)") }
                 Text(
                     unread.kind == .signIn
-                        ? String(localized: "\(name) isn't signed in on \(hostName). Sign in there, then its models show here.")
-                        : unread.details.map { String(localized: "Couldn't ask \(name) for its models: \($0)") }
-                            ?? String(localized: "Couldn't ask \(name) for its models.")
+                        ? signedOut : failed ?? String(localized: "Couldn't ask \(name) for its models.")
                 )
                 .font(Theme.ui(13)).lineSpacing(3).foregroundStyle(palette.secondary)
                 .padding(.horizontal, 4).padding(.bottom, 12)

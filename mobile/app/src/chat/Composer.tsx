@@ -310,9 +310,7 @@ export const Composer = memo(function Composer({
           </Pressable>
           <StashButton onPress={() => setAdding('stash')} />
           <YoloToggle core={core} mode={permissionMode} provider={provider} locked={modeLocked} onToggle={session.setPermissionMode} />
-          {modelLabel || effortLabel ? (
-            <ModelChip provider={provider} model={modelLabel} effort={effortLabel} onPress={openSheet} />
-          ) : null}
+          {modelLabel || effortLabel ? <ModelChip provider={provider} model={modelLabel} effort={effortLabel} onPress={openSheet} /> : null}
           {usage ? (
             <ContextRing
               usage={usage}

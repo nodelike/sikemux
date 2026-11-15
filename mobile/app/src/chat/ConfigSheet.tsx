@@ -91,7 +91,7 @@ export function ConfigSheet({
   model: ChatRows['model'];
   /** Why the agent could not say its models, while the chat has not started. */
   unread?: ChatFailure;
-  hostName: string;
+  hostName?: string;
   effort: ChatRows['effort'];
   speed: ChatRows['speed'];
   usage?: ChatRows['usage'];
@@ -157,7 +157,7 @@ export function ConfigSheet({
           <Text style={styles.sheetTitle}>{name}</Text>
         </View>
       )}
-      {unread ? <Text style={styles.unread}>{unreadLine(unread, agentLabel(provider), hostName, t)}</Text> : null}
+      {unread ? <Text style={styles.unread}>{unreadLine(unread, agentLabel(provider), hostName ?? t('the host'), t)}</Text> : null}
       {model ? (
         <>
           <Field
