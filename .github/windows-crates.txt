@@ -1,1 +1,3 @@
 # Crates green on both Windows runners, one per line. Only ever add to it.
+sikemux-client
+sikemux-corekit
