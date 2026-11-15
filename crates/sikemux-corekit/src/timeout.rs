@@ -1,9 +1,9 @@
 //! `timeout` as GNU coreutils has it, which macOS lacks and agents reach for:
 //! runs a command, signals its process group once the time is up, and exits
-//! 124 when it did.
+//! 124 when it did. Windows has no signals, so there any signal ends the
+//! command and everything it started.
 
 use std::ffi::OsString;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +12,13 @@ const TIMED_OUT: i32 = 124;
 const FAILED: i32 = 125;
 const CANNOT_RUN: i32 = 126;
 const NOT_FOUND: i32 = 127;
+
+#[cfg(unix)]
+#[path = "timeout/unix.rs"]
+mod platform;
+#[cfg(windows)]
+#[path = "timeout/windows.rs"]
+mod platform;
 
 const USAGE: &str =
     "usage: timeout [-s SIGNAL] [-k DURATION] [--preserve-status] [--foreground] DURATION COMMAND [ARG]...";
@@ -38,7 +45,7 @@ struct Asked {
 fn parse(args: Vec<OsString>) -> Result<Asked, String> {
     let mut args = args.into_iter();
     let (mut signal, mut kill_after, mut preserve, mut foreground) =
-        (libc::SIGTERM, None, false, false);
+        (platform::TERMINATE, None, false, false);
     let limit = loop {
         let arg = args.next().ok_or("no duration given")?;
         let text = arg.to_string_lossy().into_owned();
@@ -109,16 +116,7 @@ fn signal_of(name: &str) -> Result<i32, String> {
         return Ok(number);
     }
     let name = name.trim_start_matches("SIG").to_ascii_uppercase();
-    Ok(match name.as_str() {
-        "TERM" => libc::SIGTERM,
-        "KILL" => libc::SIGKILL,
-        "INT" => libc::SIGINT,
-        "HUP" => libc::SIGHUP,
-        "QUIT" => libc::SIGQUIT,
-        "USR1" => libc::SIGUSR1,
-        "USR2" => libc::SIGUSR2,
-        _ => return Err(format!("{name:?} is not a signal")),
-    })
+    platform::signal_named(&name).ok_or(format!("{name:?} is not a signal"))
 }
 
 impl Asked {
@@ -126,7 +124,7 @@ impl Asked {
         let mut command = sikemux_process::user_environment::command(&self.command[0]);
         command.args(&self.command[1..]);
         if !self.foreground {
-            command.process_group(0);
+            platform::own_group(&mut command);
         }
         let mut child = match command.spawn() {
             Ok(child) => child,
@@ -142,8 +140,14 @@ impl Asked {
                 return CANNOT_RUN;
             }
         };
-        let pid = child.id() as i32;
-        let target = if self.foreground { pid } else { -pid };
+        let target = match platform::Target::of(&child, self.foreground) {
+            Ok(target) => target,
+            Err(error) => {
+                eprintln!("timeout: {error}");
+                let _ = child.kill();
+                return FAILED;
+            }
+        };
         let fired = Arc::new(AtomicBool::new(false));
         if !self.limit.is_zero() {
             let fired = fired.clone();
@@ -151,12 +155,10 @@ impl Asked {
             std::thread::spawn(move || {
                 std::thread::sleep(limit);
                 fired.store(true, Ordering::Release);
-                // SAFETY: kill only sends a signal to the child or its group.
-                unsafe { libc::kill(target, signal) };
+                target.signal(signal);
                 if let Some(after) = kill_after {
                     std::thread::sleep(after);
-                    // SAFETY: as above.
-                    unsafe { libc::kill(target, libc::SIGKILL) };
+                    target.signal(platform::KILL);
                 }
             });
         }
@@ -167,9 +169,7 @@ impl Asked {
                 return FAILED;
             }
         };
-        let code = status
-            .code()
-            .unwrap_or_else(|| 128 + status.signal().unwrap_or(0));
+        let code = platform::exit_code(status);
         match fired.load(Ordering::Acquire) && !self.preserve {
             true => TIMED_OUT,
             false => code,
