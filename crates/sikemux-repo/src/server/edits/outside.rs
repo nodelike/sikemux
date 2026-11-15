@@ -191,7 +191,7 @@ impl Outside {
             .and_then(|cwd| super::git(&cwd, &["rev-parse", "--show-toplevel"]).ok())
             .map(|top| PathBuf::from(top.trim()))
             .filter(|top| top.is_absolute())
-            .map(|top| std::fs::canonicalize(&top).unwrap_or(top));
+            .map(|top| crate::os::real_path(&top).unwrap_or(top));
         let mut tops = self.tops.locked();
         if tops.len() >= MAX_AGENTS {
             tops.clear();
@@ -336,7 +336,7 @@ impl Outside {
 
     /// The person saved `path` in Sikemux's editor: the change is theirs.
     pub fn saved(&self, core: &Core, store: &Store, path: &Path) {
-        let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+        let path = crate::os::real_path(path).unwrap_or_else(|_| path.to_owned());
         let Some((top, project)) = self.checkout_of(&path) else {
             return;
         };

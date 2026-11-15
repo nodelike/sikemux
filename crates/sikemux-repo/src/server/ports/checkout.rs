@@ -105,7 +105,7 @@ impl Here {
 /// The checkout `cwd` lies in: one the core cut, by the ports it gave it, or a project's own
 /// folder, named `main`. Reads the disk.
 pub fn here(core: &Core, cwd: &Path) -> Option<Here> {
-    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    let cwd = crate::os::real_path(cwd).unwrap_or_else(|_| cwd.to_owned());
     let held = core.ports().blocks.of(&cwd).or_else(|| {
         let (repo, path, branch) = cut_by_core(&cwd)?;
         reserve(core, &repo, &path, &branch).ok()
@@ -116,7 +116,7 @@ pub fn here(core: &Core, cwd: &Path) -> Option<Here> {
             let projects = core.workspaces().project_paths();
             let project = projects
                 .iter()
-                .map(|project| std::fs::canonicalize(project).unwrap_or_else(|_| project.clone()))
+                .map(|project| crate::os::real_path(project).unwrap_or_else(|_| project.clone()))
                 .filter(|project| cwd.starts_with(project))
                 .max_by_key(|project| project.as_os_str().len())?;
             (MAIN.to_owned(), project, None)
@@ -148,7 +148,7 @@ pub fn here(core: &Core, cwd: &Path) -> Option<Here> {
 
 /// The project's own copy of `file`, a file in a checkout the core cut.
 pub fn projects_own(core: &Core, file: &Path) -> Option<PathBuf> {
-    let file = std::fs::canonicalize(file).ok()?;
+    let file = crate::os::real_path(file).ok()?;
     let held = core.ports().blocks.of(&file)?;
     Some(held.repo.join(file.strip_prefix(&held.path).ok()?))
 }

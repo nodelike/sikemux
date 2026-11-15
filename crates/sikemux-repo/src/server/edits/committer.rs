@@ -94,7 +94,7 @@ mod tests {
     #[test]
     fn a_commit_without_a_footer_still_tells_who_made_it_after_being_made_again() {
         let root = tempfile::tempdir().unwrap();
-        let dir = std::fs::canonicalize(root.path()).unwrap();
+        let dir = crate::os::real_path(root.path()).unwrap();
         git_in(&dir, &["init", "-q", "-b", "main"]);
         git_in(&dir, &["config", "user.name", "t"]);
         git_in(&dir, &["config", "user.email", "t@t"]);

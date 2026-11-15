@@ -3,7 +3,7 @@ use std::fs::{File, Metadata, OpenOptions};
 use std::io;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A link's target in the bytes a commit holds it as.
 pub fn link_target_bytes(target: &Path) -> Vec<u8> {
@@ -37,4 +37,8 @@ pub fn open_private_append(path: &Path) -> io::Result<File> {
         .append(true)
         .mode(0o600)
         .open(path)
+}
+
+pub fn real_path(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    std::fs::canonicalize(path)
 }

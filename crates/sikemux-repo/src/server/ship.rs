@@ -844,7 +844,7 @@ fn same_repository(dir: &Path, project: &str) -> bool {
         let urls: HashSet<String> = (remotes.lines())
             .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
             .collect();
-        Some((PathBuf::from(common).canonicalize().ok()?, urls))
+        Some((crate::os::real_path(PathBuf::from(common)).ok()?, urls))
     };
     match (read(dir), read(Path::new(project))) {
         (Some((pushed, theirs)), Some((own, ours))) => pushed == own || !theirs.is_disjoint(&ours),

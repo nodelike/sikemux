@@ -24,7 +24,7 @@ use crate::server::ServerCore;
 #[tokio::test]
 async fn a_trusted_file_runs_from_the_integration_checkout_and_a_changed_one_does_not() {
     let root = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(root.path()).unwrap();
+    let root = sikemux_repo::real_path(root.path()).unwrap();
     let main = root.join("project");
     std::fs::create_dir(&main).unwrap();
     git_in(&main, &["init", "-q", "-b", "main"]);

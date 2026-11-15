@@ -14,6 +14,8 @@ mod os;
 mod os;
 pub mod server;
 
+pub use os::real_path;
+
 use sikemux_agents::{agent_catalog, git, git_guard, ship, skills};
 use sikemux_base::http;
 use sikemux_corekit::{backoff, cli, tasks, text, trailers};

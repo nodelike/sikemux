@@ -37,3 +37,9 @@ pub fn set_executable(_file: &Path, _meta: &Metadata, _executable: bool) -> io::
 pub fn open_private_append(path: &Path) -> io::Result<File> {
     OpenOptions::new().create(true).append(true).open(path)
 }
+
+/// The resolved path without the `\\?\` prefix canonicalize adds, which git and paths taken
+/// from anywhere else don't carry.
+pub fn real_path(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    dunce::canonicalize(path)
+}

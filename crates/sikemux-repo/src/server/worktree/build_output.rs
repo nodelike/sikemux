@@ -529,7 +529,7 @@ fn kept_by(core: &Core, tree: &Path) -> Option<Keeper> {
         let name = core.names().name(&agent.id).unwrap_or(agent.id);
         return Some(Keeper::Agent(format!("@{name} is awake in it")));
     }
-    let Ok(real) = tree.canonicalize() else {
+    let Ok(real) = crate::os::real_path(tree) else {
         return Some(Keeper::Unsure("its folder could not be read".to_owned()));
     };
     let Some(places) = procs::places() else {

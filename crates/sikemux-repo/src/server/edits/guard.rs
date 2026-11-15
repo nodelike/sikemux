@@ -31,11 +31,11 @@ pub fn others(
 ) -> Result<Vec<String>, String> {
     let top = git(dir, &["rev-parse", "--show-toplevel"])?;
     let top = PathBuf::from(top.trim());
-    let top = std::fs::canonicalize(&top).unwrap_or(top);
+    let top = crate::os::real_path(&top).unwrap_or(top);
     let projects = core.workspaces().project_paths();
     let project = project_of(&top, &projects);
     let in_project = projects.iter().any(|known| {
-        std::fs::canonicalize(known).unwrap_or_else(|_| known.clone()) == Path::new(&project)
+        crate::os::real_path(known).unwrap_or_else(|_| known.clone()) == Path::new(&project)
     });
     let mut others = BTreeSet::new();
     if in_project {

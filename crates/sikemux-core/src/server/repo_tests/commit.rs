@@ -27,7 +27,7 @@ use crate::server::ServerCore;
 #[test]
 fn a_path_in_a_folder_of_repositories_is_found_one_level_down() {
     let folder = tempfile::tempdir().unwrap();
-    let folder = std::fs::canonicalize(folder.path()).unwrap();
+    let folder = sikemux_repo::real_path(folder.path()).unwrap();
     for repo in ["api", "web"] {
         let repo = folder.join(repo);
         std::fs::create_dir_all(repo.join("lib")).unwrap();
