@@ -1929,11 +1929,7 @@ pub fn pane(
                 .with_size(px(13.))
                 .color(Tokens::get(cx).text_tertiary)
                 .into_any_element(),
-            Some(icon) => gpui_kit::img(icon)
-                .size(px(13.))
-                .flex_none()
-                .into_any_element(),
-            None => ui::icon(Icon::Globe, 13.).flex_none().into_any_element(),
+            favicon => ui::favicon(favicon, 13., cx),
         };
         let at_work = acting
             .as_ref()

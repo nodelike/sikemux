@@ -343,12 +343,14 @@ pub(super) fn overlay(
             .children(rows.iter().enumerate().map(|(at, row)| {
                 let selected = floating.selected == Some(at);
                 let mark = match (row.search, row.icon.as_deref()) {
-                    (true, _) => ui::icon(Icon::Search, 13.).into_any_element(),
-                    (false, Some(icon)) => match bench.desks.read(cx).favicon(icon) {
-                        Some(icon) => gpui_kit::img(icon).size(px(13.)).into_any_element(),
-                        None => ui::icon(Icon::Globe, 13.).into_any_element(),
-                    },
-                    (false, None) => ui::icon(Icon::Globe, 13.).into_any_element(),
+                    (true, _) => ui::icon(Icon::Search, 13.)
+                        .text_color(t.text_tertiary)
+                        .into_any_element(),
+                    (false, icon) => ui::favicon(
+                        icon.and_then(|icon| bench.desks.read(cx).favicon(icon)),
+                        13.,
+                        cx,
+                    ),
                 };
                 div()
                     .id(("address-row", at))

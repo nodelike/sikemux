@@ -269,6 +269,19 @@ pub fn initials(name: &str, key: &str, size: f32, cx: &App) -> Div {
         .child(initials)
 }
 
+/// A page's site icon, or a filled square in its place while the page has none.
+pub fn favicon(icon: Option<std::sync::Arc<gpui_kit::Image>>, size: f32, cx: &App) -> AnyElement {
+    match icon {
+        Some(icon) => img(icon).size(px(size)).flex_none().into_any_element(),
+        None => div()
+            .size(px(size))
+            .flex_none()
+            .rounded(theme::RADIUS_1)
+            .bg(Tokens::get(cx).text_disabled)
+            .into_any_element(),
+    }
+}
+
 /// A square that centres what it holds, so marks of any drawing line up.
 pub fn mark_box(size: f32, child: impl IntoElement) -> Div {
     div()
