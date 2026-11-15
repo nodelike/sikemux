@@ -730,7 +730,7 @@ fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
                 Err(error) => refused.push(error.to_string()),
             }
             opened.push(target);
-            if opened.len() % 10 == 0 {
+            if opened.len().is_multiple_of(10) {
                 run.frames(2);
             }
         }
