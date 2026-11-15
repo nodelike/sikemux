@@ -1,12 +1,18 @@
 //! The panes' grain on a real window's ground, timed with GPUI's frame stats: how often the
 //! ground layer is drawn, what each pass costs the GPU, and the frames around it.
 //!
-//!   cargo run --release --example ground_bench -- [stream|moving|still] [seconds]
+//!   cargo run --release --example ground_bench -- [stream|moving|still] [seconds] [kind]
+//!   cargo run --release --example ground_bench -- offscreen [frames]
 //!
 //! `stream` (the default) moves the grain under twenty panes that each take a line every 8 ms,
 //! as agents streaming do; `moving` moves it under panes that hold still; `still` shows it
-//! without moving. The window must stay in front, since a covered window does not draw. It
+//! without moving. `kind` is the backdrop drawn, grain (the default), gradient, stars or grid,
+//! in the default theme's inks. The window must stay in front, since a covered window does not draw. It
 //! prints one line of means over the run, after the first two seconds.
+//!
+//! `offscreen` opens no window: it draws a window-sized pane of each kind, and of no backdrop,
+//! `frames` times on the headless renderer, waiting for each frame to be read back, and prints
+//! each kind's mean and p95 milliseconds per frame over the empty pane's.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -19,6 +25,7 @@ use gpui_kit::{
 use sikemux_gpui::theme::{self, Tokens};
 use sikemux_gpui::ui::grain;
 use sikemux_gpui::WINDOW_SIZE;
+use sikemux_view::backdrop::{BackdropKind, ThemeBackdrop};
 use sikemux_view::prefs::Preferences;
 
 const PANES: usize = 20;
@@ -161,8 +168,105 @@ fn summary(stats: &str) -> Option<String> {
     ))
 }
 
+struct Field;
+
+impl Render for Field {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().relative().size_full().children(grain::field(cx))
+    }
+}
+
+/// Each kind's frames drawn offscreen, against frames with no backdrop.
+fn offscreen(frames: usize) -> anyhow::Result<()> {
+    use gpui::HeadlessAppContext;
+    use sikemux_view::prefs::PaneBackdrop;
+    let mut cx = HeadlessAppContext::with_platform(
+        gpui_platform::bench_text_system(),
+        std::sync::Arc::new(sikemux_gpui::icons::Icons),
+        gpui_platform::current_headless_renderer,
+    );
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        theme::install(cx);
+    });
+    let tokens = sikemux_corekit::themes::default_palette().tokens;
+    let kinds = [
+        ("none", None),
+        ("grain", Some(BackdropKind::Grain)),
+        ("gradient", Some(BackdropKind::Gradient)),
+        ("stars", Some(BackdropKind::Stars)),
+        ("grid", Some(BackdropKind::Grid)),
+    ];
+    let mut empty = 0.;
+    for (name, kind) in kinds {
+        let preferences = Preferences {
+            pane_backdrop: match kind {
+                None => PaneBackdrop::None,
+                Some(_) => PaneBackdrop::Theme,
+            },
+            ..Preferences::default()
+        };
+        let look = ThemeBackdrop {
+            kind: kind.unwrap_or_default(),
+            ..ThemeBackdrop::default()
+        };
+        let worn = sikemux_corekit::themes::backdrop::worn(&look, &tokens);
+        cx.update(|cx| {
+            grain::set(&preferences, cx);
+            grain::wear(&worn, cx);
+        });
+        let window = cx.update(|cx| {
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(Bounds {
+                        origin: gpui::point(px(0.), px(0.)),
+                        size: size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)),
+                    })),
+                    focus: false,
+                    show: false,
+                    ..Default::default()
+                },
+                |_, cx| cx.new(|_| Field),
+            )
+        })?;
+        cx.run_until_parked();
+        let mut took = Vec::with_capacity(frames);
+        for frame in 0..frames + 10 {
+            let started = std::time::Instant::now();
+            cx.update_window(window.into(), |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx)
+            })?;
+            cx.capture_screenshot(window.into())?;
+            if frame >= 10 {
+                took.push(started.elapsed().as_secs_f64() * 1000.);
+            }
+        }
+        took.sort_by(f64::total_cmp);
+        let mean = took.iter().sum::<f64>() / took.len() as f64;
+        let p95 = took[took.len() * 95 / 100];
+        if kind.is_none() {
+            empty = mean;
+        }
+        println!(
+            "{name:>8}: {mean:.3} ms a frame (p95 {p95:.3}), {:+.3} ms over no backdrop",
+            mean - empty
+        );
+        cx.update_window(window.into(), |_, window, _| window.remove_window())?;
+    }
+    Ok(())
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
+    if std::env::args().nth(1).as_deref() == Some("offscreen") {
+        let frames = std::env::args()
+            .nth(2)
+            .and_then(|frames| frames.parse().ok())
+            .unwrap_or(300);
+        offscreen(frames).expect("the frames draw offscreen");
+        return;
+    }
     let mode = match args.next().as_deref() {
         None | Some("stream") => Mode::Stream,
         Some("moving") => Mode::Moving,
@@ -170,6 +274,21 @@ fn main() {
         Some(other) => panic!("no mode {other}: stream, moving or still"),
     };
     let seconds: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(20);
+    let kind = match args.next().as_deref() {
+        None | Some("grain") => BackdropKind::Grain,
+        Some("gradient") => BackdropKind::Gradient,
+        Some("stars") => BackdropKind::Stars,
+        Some("grid") => BackdropKind::Grid,
+        Some(other) => panic!("no kind {other}: grain, gradient, stars or grid"),
+    };
+    let look = ThemeBackdrop {
+        kind,
+        ..ThemeBackdrop::default()
+    };
+    let worn = sikemux_corekit::themes::backdrop::worn(
+        &look,
+        &sikemux_corekit::themes::default_palette().tokens,
+    );
     let stats = std::env::var_os(gpui::frame_stats::ENV_VAR)
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -182,6 +301,7 @@ fn main() {
         gpui_kit::init(cx);
         theme::install(cx);
         grain::set(&Preferences::default(), cx);
+        grain::wear(&worn, cx);
         let bounds = Bounds::centered(None, size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
