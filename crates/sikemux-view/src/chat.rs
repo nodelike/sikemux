@@ -1354,6 +1354,11 @@ pub enum ChatPart {
         id: String,
         notice: TaskNotice,
     },
+    /// The background tasks that ended in one turn, as one line that opens onto each.
+    Tasks {
+        id: String,
+        tasks: EndedTasks,
+    },
     AgentNotice {
         id: String,
         notice: AgentNotice,
@@ -1379,6 +1384,7 @@ impl ChatPart {
             | Self::Tool { id, .. }
             | Self::Subagent { id, .. }
             | Self::Notice { id, .. }
+            | Self::Tasks { id, .. }
             | Self::AgentNotice { id, .. }
             | Self::Account { id, .. }
             | Self::Rotation { id, .. } => id,
@@ -1722,6 +1728,32 @@ pub struct TaskNotice {
     /// A subagent's notice shows that subagent's own card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent: Option<String>,
+}
+
+/// The background tasks that ended in one turn, or one after another while the agent was idle,
+/// a task that ran and ended the same way more than once told once, with how many ended each way.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndedTasks {
+    pub tasks: Vec<EndedTask>,
+    pub done: u32,
+    pub failed: u32,
+    pub stopped: u32,
+    /// How many of the stopped were watches.
+    pub watches_stopped: u32,
+}
+
+/// A background task that ended, or the same one run and ended the same way several times.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EndedTask {
+    pub name: String,
+    pub state: NoticeState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    pub times: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

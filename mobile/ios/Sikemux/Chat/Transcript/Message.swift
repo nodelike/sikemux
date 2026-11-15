@@ -377,6 +377,8 @@ private struct PartView: View {
             SubagentRow(subagent: subagent.subagent)
         case .notice(let notice):
             TaskNoticeOrCard(id: notice.id, notice: notice.notice)
+        case .tasks(let tasks):
+            EndedTasksLine(tasks: tasks.tasks)
         case .content(let content):
             ContentView(block: content.content)
         case .agentNotice(let notice):

@@ -1229,6 +1229,24 @@
   .trouble .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-left: 22px; }
   .trouble .acts span { height: 32px; padding: 0 13px; border-radius: 16px; border: 1px solid var(--border); display: flex; align-items: center; font-size: 13px; font-weight: 600; color: var(--ink); }
   .notice { margin: 2px 0; padding: 4px 0 4px 12px; font-size: 12.5px; }
+  .ended { display: inline-flex; align-items: center; gap: 8px; height: 32px; margin: 2px 0 2px -6px; padding: 0 6px; border-radius: 8px; color: var(--text-tertiary); }
+  .ended b { font-weight: 500; font-size: 13.5px; color: var(--ink); }
+  .ended .ok, .ended-row .ok { display: inline-flex; color: var(--live); }
+  .ended .dots { display: flex; gap: 3px; }
+  .ended .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--live); opacity: .85; }
+  .ended .dots i.s { background: var(--ink-faint); opacity: 1; }
+  .ended .ch { display: inline-flex; }
+  .ended-head { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px 10px; }
+  .ended-head b { font-size: 17px; font-weight: 600; color: var(--text-primary); }
+  .ended-head span { font-size: 14px; color: var(--text-tertiary); }
+  .ended-row { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 8px; border-top: 1px solid var(--border); font-size: 15px; color: var(--text-secondary); }
+  .ended-head + .ended-row { border-top: 0; }
+  .ended-row .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ended-row .go { display: inline-flex; color: var(--ink-faint); }
+  .ended-row.stop { color: var(--text-tertiary); }
+  .ended-row.stop > span:first-child { display: inline-flex; color: var(--ink-faint); }
+  .ended-row .ended-x { flex: none; margin-left: -6px; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--mono); font-size: 12px; color: var(--text-tertiary); }
+  .ended-row .ended-w { flex: none; font-family: var(--mono); font-size: 13px; color: var(--text-tertiary); }
   .notice .h { display: flex; align-items: center; gap: 8px; min-height: 18px; color: var(--ink-dim); white-space: nowrap; }
   .notice .nm { min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
   .notice .w { flex: none; }
@@ -4072,7 +4090,7 @@ expected 1 write, got 2</div>
             <div class="otail open-detail"><div class="note-q">The rest of the output was not kept</div></div>
             <div class="tools-body" style="padding-top:0"><div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">ptyController.ts</span><span class="end"><span class="add">+2</span><span class="del">−1</span></span></div></div>
           </div>
-          <div class="notice"><div class="h">{{IconTimer:12}}<span class="nm">pnpm dev --port 5174</span><span class="w">stopped</span><span class="sm">Served the preview for 14 minutes; last request GET /checkout 200</span></div></div>
+          <div class="ended"><span class="ok">{{IconCircleCheck:15}}</span><b>3 background tasks</b><span class="dots"><i></i><i></i><i class="s"></i></span><span class="ch">{{IconChevron:11}}</span></div>
         </div>
         <div class="composer-wrap">
           <div class="composer">
@@ -4089,7 +4107,27 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Commands, servers and tasks</b><div class="note">A call to another MCP server is named for the server, in the Mac's green, with its first short argument after the target. A command opens as what it printed: the exit code in a red pill when it failed and how many lines, its last 8 lines on a sunken ground with a copy button, and Show all for the rest. A background task that ends is a plain icon line: its name, how it ended and its summary, marked with the Mac's workflow icon when it was a workflow; a tap opens the summary in full.</div></figcaption>
+      <figcaption><b>Commands, servers and tasks</b><div class="note">A call to another MCP server is named for the server, in the Mac's green, with its first short argument after the target. A command opens as what it printed: the exit code in a red pill when it failed and how many lines, its last 8 lines on a sunken ground with a copy button, and Show all for the rest. A background task that ends joins the others that ended in the same turn in one line, which stays in view when the turn folds: a check, how many, and a dot for each in how it ended (green done, grey stopped, red failed), as on the Mac, without the Mac's "2 done · 1 stopped" for width. A tap lists them in a sheet.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen" style="opacity:.35">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Fix the flaky PTY replay test</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+      </div>
+      <div class="scrim"></div>
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div class="ended-head"><b>Background tasks</b><span>5 done · 2 watches stopped</span></div>
+        <div class="ended-row"><span class="ok">{{IconCheck:16}}</span><span class="t">Capture fresh phone screens into scratchpad</span></div>
+        <div class="ended-row"><span class="ok">{{IconCheck:16}}</span><span class="t">Rerun fresh phone capture on a free port</span></div>
+        <div class="ended-row"><span class="ok">{{IconCheck:16}}</span><span class="t">Wait for capture to end and show problems</span><span class="go">{{IconChevron:12}}</span></div>
+        <div class="ended-row"><span class="ok">{{IconCheck:16}}</span><span class="t">Rerun the full fresh capture</span></div>
+        <div class="ended-row"><span class="ok">{{IconCheck:16}}</span><span class="t">Wait for capture to finish</span></div>
+        <div class="ended-row stop"><span>{{IconEye:16}}</span><span class="t">Watch showcase capture scenes and failures</span><span class="ended-x">×2</span><span class="ended-w">stopped</span></div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Background tasks, listed</b><div class="note">"Background tasks" and how many ended each way, then one row for each: a green check when it finished, a red cross and "failed" when it failed, and dimmed with an eye and "stopped" for a watch that was stopped (a run icon for any other stopped task). The core tells a task that ran and ended the same way more than once only once, with ×2. A task that said how it went has a chevron, and a tap opens what it said under it. No times: the host does not know how long a task ran.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

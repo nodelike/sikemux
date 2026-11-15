@@ -2871,6 +2871,12 @@ export type ChatPart =
           id: string;
           notice: TaskNotice;
       }
+    /** The background tasks that ended in one turn, as one line that opens onto each. */
+    | {
+          kind: "tasks";
+          id: string;
+          tasks: EndedTasks;
+      }
     | {
           kind: "agent_notice";
           id: string;
@@ -3110,6 +3116,28 @@ export interface TaskNotice {
 }
 
 export type NoticeState = "completed" | "failed" | "stopped";
+
+/**
+ * The background tasks that ended in one turn, or one after another while the agent was idle,
+ * a task that ran and ended the same way more than once told once, with how many ended each way.
+ */
+export interface EndedTasks {
+    tasks: EndedTask[];
+    done: number;
+    failed: number;
+    stopped: number;
+    /** How many of the stopped were watches. */
+    watchesStopped: number;
+}
+
+/** A background task that ended, or the same one run and ended the same way several times. */
+export interface EndedTask {
+    name: string;
+    state: NoticeState;
+    summary?: string;
+    taskType?: string;
+    times: number;
+}
 
 /** Something the agent tells the person outside its reply, like a model fallback. */
 export interface AgentNotice {

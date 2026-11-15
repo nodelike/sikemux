@@ -168,6 +168,7 @@ extension ChatPart {
         case .tool(let part): part.id
         case .subagent(let part): part.id
         case .notice(let part): part.id
+        case .tasks(let part): part.id
         case .agentNotice(let part): part.id
         case .account(let part): part.id
         case .rotation(let part): part.id

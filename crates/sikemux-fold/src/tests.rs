@@ -1,6 +1,6 @@
 use serde_json::json;
 use sikemux_view::chat::{
-    ChatActivity, ChatChange, ChatView, DecidedLine, DiffLine, DiffSummary, OutputImage,
+    ChatActivity, ChatChange, ChatView, DecidedLine, DiffLine, DiffSummary, EndedTask, OutputImage,
     OutputSummary, PageRef, PlanEntry, PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall,
     ToolOutput, ToolStatus,
 };
@@ -809,17 +809,21 @@ mod reducer {
         assert!(chat.head().tasks.is_empty());
         let rows = chat.rows();
         match rows.last().and_then(|row| row.parts.last()) {
-            Some(ChatPart::Notice { notice, .. }) => assert_eq!(
-                *notice,
-                TaskNotice {
-                    name: "pnpm test".into(),
-                    state: NoticeState::Completed,
-                    summary: Some("12 files passed".into()),
-                    task_type: Some("shell".into()),
-                    subagent: None,
+            Some(ChatPart::Tasks { tasks, .. }) => assert_eq!(
+                *tasks,
+                EndedTasks {
+                    tasks: vec![EndedTask {
+                        name: "pnpm test".into(),
+                        state: NoticeState::Completed,
+                        summary: Some("12 files passed".into()),
+                        task_type: Some("shell".into()),
+                        times: 1,
+                    }],
+                    done: 1,
+                    ..EndedTasks::default()
                 }
             ),
-            other => panic!("expected a notice, got {other:?}"),
+            other => panic!("expected the ended tasks, got {other:?}"),
         }
     }
 
@@ -836,22 +840,22 @@ mod reducer {
             .join("\n"),
         ));
         let rows = chat.rows();
-        let notices: Vec<&TaskNotice> = rows
+        let ended: Vec<&EndedTask> = rows
             .iter()
             .flat_map(|row| &row.parts)
-            .map(|part| match part {
-                ChatPart::Notice { notice, .. } => notice,
-                other => panic!("expected only a notice, got {other:?}"),
+            .flat_map(|part| match part {
+                ChatPart::Tasks { tasks, .. } => &tasks.tasks,
+                other => panic!("expected only the ended tasks, got {other:?}"),
             })
             .collect();
         assert_eq!(
-            notices,
-            vec![&TaskNotice {
+            ended,
+            vec![&EndedTask {
                 name: "Background task".into(),
                 state: NoticeState::Completed,
                 summary: None,
                 task_type: None,
-                subagent: None,
+                times: 1,
             }]
         );
         assert!(rows.iter().all(|row| row.role != ChatRole::User));
@@ -1331,23 +1335,57 @@ mod reducer {
     }
 
     #[test]
+    fn folds_the_tasks_that_end_in_one_turn_into_one_line_between_its_calls() {
+        let mut chat = Chat::new();
+        chat.prompt(json!({ "text": "capture" })).turn_started();
+        for (id, name, kind) in [
+            ("b1", "Capture screens", "shell"),
+            ("m1", "Watch failures", "monitor"),
+            ("m2", "Watch failures", "monitor"),
+        ] {
+            chat.update(json!({ "sessionUpdate": "async_task_spawned", "asyncTaskId": id, "name": name, "taskType": kind }));
+        }
+        chat.update(json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": "b1", "state": "completed" }))
+            .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Read file", "status": "completed" }))
+            .update(json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": "m1", "state": "stopped" }))
+            .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "call-2", "title": "Read file", "status": "completed" }))
+            .update(json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": "m2", "state": "stopped" }));
+        let rows = chat.rows();
+        let lines: Vec<&EndedTasks> = rows
+            .iter()
+            .flat_map(|row| &row.parts)
+            .filter_map(|part| match part {
+                ChatPart::Tasks { tasks, .. } => Some(tasks),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines.len(), 1);
+        let watch = &lines[0].tasks[1];
+        assert_eq!((watch.name.as_str(), watch.times), ("Watch failures", 2));
+        assert_eq!(
+            (lines[0].done, lines[0].stopped, lines[0].watches_stopped),
+            (1, 2, 2)
+        );
+    }
+
+    #[test]
     fn writes_a_notice_without_a_summary_when_a_stopped_task_never_gave_one() {
         let mut chat = Chat::new();
         chat.update(json!({ "sessionUpdate": "async_task_spawned", "asyncTaskId": "task-1", "name": "Build" }))
             .update(json!({ "sessionUpdate": "async_task_state_update", "asyncTaskId": "task-1", "state": "stopped" }));
         assert!(chat.head().tasks.is_empty());
         match &chat.rows()[0].parts[0] {
-            ChatPart::Notice { notice, .. } => assert_eq!(
-                *notice,
-                TaskNotice {
+            ChatPart::Tasks { tasks, .. } => assert_eq!(
+                tasks.tasks,
+                vec![EndedTask {
                     name: "Build".into(),
                     state: NoticeState::Stopped,
                     summary: None,
                     task_type: None,
-                    subagent: None,
-                }
+                    times: 1,
+                }]
             ),
-            other => panic!("expected a notice, got {other:?}"),
+            other => panic!("expected the ended tasks, got {other:?}"),
         }
     }
 

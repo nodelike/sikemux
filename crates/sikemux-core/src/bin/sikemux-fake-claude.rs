@@ -26,7 +26,8 @@
 //! `{ "think": "..." }`, `{ "say": "..." }` or `{ "say_file": "reply.md" }`
 //! (beside the script), streamed a word at a time at `perSecond` (30), or
 //! `{ "tool": "Read", "input": {...}, "result": "...", "ms": 600 }`, failing with
-//! `"error": true`. A tool step
+//! `"error": true`, its call named `"id"` when a later step must point at it, or
+//! `{ "send": {...}, "ms": 0 }`, a message sent as it is, such as a task starting or ending. A tool step
 //! with `"call": "browser.navigate"` makes that call to Sikemux's own tools with
 //! its input, as the agent's tools server would, and answers with what they said. While
 //! `FAKE_CLAUDE_CLOCK` names a file holding a time in milliseconds, those
@@ -514,8 +515,15 @@ impl Claude {
         for (at, step) in steps.iter().enumerate() {
             let id = format!("{message_id}-{at}");
             let per_second = step["perSecond"].as_f64().unwrap_or(30.).max(1.);
+            if let Some(message) = step.get("send") {
+                self.send(message.clone());
+                clock.wait(step["ms"].as_f64().unwrap_or(0.));
+                continue;
+            }
             if let Some(name) = step["tool"].as_str() {
-                let tool_id = format!("toolu-{uuid}-{at}");
+                let tool_id = step["id"]
+                    .as_str()
+                    .map_or_else(|| format!("toolu-{uuid}-{at}"), str::to_owned);
                 self.send(json!({
                     "type": "assistant", "uuid": uuid::Uuid::new_v4().to_string(), "parent_tool_use_id": null,
                     "message": { "id": id, "model": model(), "role": "assistant",

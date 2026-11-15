@@ -247,6 +247,122 @@
   flex: none;
 }
 
+.chat-tasks-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  margin: 2px 0 2px -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.chat-tasks-line:hover {
+  background: var(--surface-hover);
+}
+
+.chat-tasks-done {
+  color: var(--live);
+}
+
+.chat-tasks-failed,
+.chat-tasks-list .state-failed > svg,
+.chat-tasks-list .state-failed .chat-tasks-state {
+  color: var(--danger);
+}
+
+.chat-tasks-name {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.chat-tasks-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.chat-tasks-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.chat-tasks-dots i.state-completed {
+  background: var(--live);
+  opacity: 0.85;
+}
+
+.chat-tasks-dots i.state-failed {
+  background: var(--danger);
+}
+
+.chat-tasks-chevron {
+  transition: transform 0.14s ease-out;
+}
+
+.chat-tasks-line[aria-expanded="true"] .chat-tasks-chevron {
+  transform: rotate(90deg);
+}
+
+.chat-tasks-list {
+  margin: 2px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.chat-tasks-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  margin-left: -8px;
+  padding: 0 8px;
+  border-radius: var(--radius-control);
+  color: var(--ink-dim);
+  font-size: var(--text-xs);
+}
+
+.chat-tasks-list li:hover {
+  background: var(--surface-hover);
+}
+
+.chat-tasks-list li > svg {
+  flex: none;
+  color: var(--live);
+}
+
+.chat-tasks-list .state-stopped > svg {
+  color: var(--ink-faint);
+}
+
+.chat-tasks-task {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-tasks-times {
+  padding: 0 4px;
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.chat-tasks-state {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
 /* Named with the command the task ran, like a background task; the name gives
    way so its state stays on screen. */
 .chat-notice-name {

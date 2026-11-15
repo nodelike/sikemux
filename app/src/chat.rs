@@ -66,6 +66,7 @@ mod composing;
 mod content;
 pub(crate) mod draft;
 mod edit;
+mod ended;
 mod files;
 mod find;
 mod gestures;

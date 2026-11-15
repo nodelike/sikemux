@@ -44,6 +44,15 @@ extension Icons {
         IconShape(d: "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M15 13a3 3 0 1 1 -6 0a3 3 0 1 1 6 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
+    static let circleAlert = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "M22 12a10 10 0 1 1 -20 0a10 10 0 1 1 20 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M12 7.5v5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M12 16.5h.01", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+    ])
+    static let circleCheck = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "M22 12a10 10 0 1 1 -20 0a10 10 0 1 1 20 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "m8.5 12.5 2.5 2.5 4.5-5", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+    ])
     static let click = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M14 4.1 12 6", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "m5.1 8-2.9-.8", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
@@ -483,6 +492,8 @@ extension Icons {
         case "IconCamera": return camera
         case "IconCheck": return check
         case "IconChevron": return chevron
+        case "IconCircleAlert": return circleAlert
+        case "IconCircleCheck": return circleCheck
         case "IconClaude": return mark("claude")
         case "IconClick": return click
         case "IconClock": return clock

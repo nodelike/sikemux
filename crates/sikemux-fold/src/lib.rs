@@ -3,6 +3,7 @@
 //! flush as [`sikemux_view::chat::ChatChange`]s, so a client never reads an
 //! agent's own messages and a streamed token costs only itself.
 
+mod ended;
 mod event;
 mod find;
 pub mod pickers;
@@ -36,8 +37,8 @@ use sikemux_wire::protocol::PermissionMode;
 use sikemux_view::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
-    ChiefAway, Compactions, ContentBlock, ContextUsage, FailureKind, GifRef, GuestMessage,
-    KeptRule, LetterKind, MoveReason, NoticeSeverity, NoticeState, OverruledDecision,
+    ChiefAway, Compactions, ContentBlock, ContextUsage, EndedTasks, FailureKind, GifRef,
+    GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity, NoticeState, OverruledDecision,
     PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage, RestoredPart,
     Retrying, RuleChange, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState,
     TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart, Unsourced,
@@ -350,6 +351,8 @@ pub struct Fold {
     late_gifs: HashMap<u64, Within>,
     details: Details,
     notices: HashSet<String>,
+    /// The line of ended tasks in the turn now running, by its row and part.
+    turn_tasks: Option<(String, usize)>,
     /// The compactions already counted, as an agent may say one has finished more than once.
     compacted: HashSet<String>,
     suppress_user_echo: bool,
@@ -664,6 +667,7 @@ impl Fold {
             late_gifs: HashMap::new(),
             details: Details::default(),
             notices: HashSet::new(),
+            turn_tasks: None,
             compacted: HashSet::new(),
             suppress_user_echo: false,
             head_dirty: BTreeSet::new(),
@@ -1027,6 +1031,7 @@ impl Fold {
             ChatEventKind::Prompt => self.prompted(index, payload, at),
             ChatEventKind::TurnStarted => {
                 let at = payload.get("at").and_then(Value::as_u64);
+                self.turn_tasks = None;
                 self.head.running = true;
                 self.head.turn_opening = Some(TurnStart { at });
                 self.head.retrying = None;
@@ -1651,7 +1656,7 @@ impl Fold {
         while open > 0
             && matches!(
                 row.msg.parts[open],
-                ChatPart::Notice { .. } | ChatPart::AgentNotice { .. }
+                ChatPart::Notice { .. } | ChatPart::Tasks { .. } | ChatPart::AgentNotice { .. }
             )
         {
             open -= 1;
@@ -2473,11 +2478,58 @@ impl Fold {
         if !self.notices.insert(task.to_owned()) {
             return;
         }
+        if notice.subagent.is_none() {
+            self.add_ended_task(index, notice, at, between);
+            return;
+        }
         if !between {
             self.append_part(index, &None, |id| ChatPart::Notice { id, notice }, false);
             return;
         }
         self.push_between(index, at, |id| ChatPart::Notice { id, notice });
+    }
+
+    /// A task that ended during a turn joins that turn's line of ended tasks, and one that ended
+    /// while the agent was idle joins the line just before it when nothing came since; otherwise
+    /// it starts a line of its own.
+    fn add_ended_task(&mut self, index: u64, notice: TaskNotice, at: Option<u64>, between: bool) {
+        let turn_tasks = self.turn_tasks.clone();
+        let Some(transcript) = self.transcript(&None) else {
+            return;
+        };
+        let rows = &transcript.rows;
+        let joins = if between {
+            rows.len()
+                .checked_sub(1)
+                .filter(|&last| rows[last].msg.role == ChatRole::Assistant && !rows[last].local)
+                .map(|last| (last, rows[last].msg.parts.len().saturating_sub(1)))
+        } else {
+            turn_tasks.and_then(|(row, part)| Some((transcript.position(&row)?, part)))
+        };
+        let joins = joins.filter(|&(position, part)| {
+            matches!(
+                transcript.rows[position].msg.parts.get(part),
+                Some(ChatPart::Tasks { .. })
+            )
+        });
+        if let Some((position, part)) = joins {
+            let row = &mut transcript.rows[position];
+            if let Some(ChatPart::Tasks { tasks, .. }) = row.msg.parts.get_mut(part) {
+                ended::add(tasks, notice);
+            }
+            row.touch_part(part);
+            transcript.touch(position);
+            self.note_main_change(&None, position);
+            return;
+        }
+        let mut tasks = EndedTasks::default();
+        ended::add(&mut tasks, notice);
+        let part = |id| ChatPart::Tasks { id, tasks };
+        if between {
+            self.push_between(index, at, part);
+        } else {
+            self.turn_tasks = self.append_part(index, &None, part, false);
+        }
     }
 
     /// A row of its own between the turns, holding only `part`.

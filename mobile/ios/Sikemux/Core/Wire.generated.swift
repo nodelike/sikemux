@@ -4280,6 +4280,8 @@ enum ChatPart: Codable, Hashable, Sendable {
     case tool(Tool)
     case subagent(Subagent)
     case notice(Notice)
+    /// The background tasks that ended in one turn, as one line that opens onto each.
+    case tasks(Tasks)
     case agentNotice(AgentNoticePayload)
     case account(Account)
     /// The core started a fresh session under the chat, from a brief it built.
@@ -4334,6 +4336,11 @@ enum ChatPart: Codable, Hashable, Sendable {
         var notice: TaskNotice
     }
 
+    struct Tasks: Codable, Hashable, Sendable {
+        var id: String
+        var tasks: EndedTasks
+    }
+
     struct AgentNoticePayload: Codable, Hashable, Sendable {
         var id: String
         var notice: AgentNotice
@@ -4368,6 +4375,8 @@ enum ChatPart: Codable, Hashable, Sendable {
             self = .subagent(try Subagent(from: decoder))
         case "notice":
             self = .notice(try Notice(from: decoder))
+        case "tasks":
+            self = .tasks(try Tasks(from: decoder))
         case "agent_notice":
             self = .agentNotice(try AgentNoticePayload(from: decoder))
         case "account":
@@ -4400,6 +4409,9 @@ enum ChatPart: Codable, Hashable, Sendable {
         case .notice(let value):
             try value.encode(to: encoder)
             tag = "notice"
+        case .tasks(let value):
+            try value.encode(to: encoder)
+            tag = "tasks"
         case .agentNotice(let value):
             try value.encode(to: encoder)
             tag = "agent_notice"
@@ -4886,6 +4898,26 @@ enum NoticeState: String, Codable, Hashable, Sendable {
     init(from decoder: any Decoder) throws {
         self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
     }
+}
+
+/// The background tasks that ended in one turn, or one after another while the agent was idle,
+/// a task that ran and ended the same way more than once told once, with how many ended each way.
+struct EndedTasks: Codable, Hashable, Sendable {
+    var tasks: [EndedTask]
+    var done: Int
+    var failed: Int
+    var stopped: Int
+    /// How many of the stopped were watches.
+    var watchesStopped: Int
+}
+
+/// A background task that ended, or the same one run and ended the same way several times.
+struct EndedTask: Codable, Hashable, Sendable {
+    var name: String
+    var state: NoticeState
+    var summary: String?
+    var taskType: String?
+    var times: Int
 }
 
 /// Something the agent tells the person outside its reply, like a model fallback.

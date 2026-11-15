@@ -358,6 +358,8 @@ const PHONE_ICONS = [
   "IconCamera",
   "IconCheck",
   "IconChevron",
+  "IconCircleAlert",
+  "IconCircleCheck",
   "IconClaude",
   "IconClick",
   "IconClock",

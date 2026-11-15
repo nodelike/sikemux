@@ -41,6 +41,7 @@ import { AnsweredQuestions } from './Question';
 import { Bubble, From, makeBubbleStyles } from './Bubble';
 import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notices';
+import { EndedTasksLine } from '@/chat/EndedTasks';
 import { ContextChips } from '@/chat/ContextChips';
 import { Editing, MessageEditor } from '@/chat/MessageEditor';
 import { FiredTrigger } from '@/chat/FiredTrigger';
@@ -167,6 +168,8 @@ function Parts({ id, parts, live, restored = null }: { id: string; parts: ChatPa
             return <Subagent key={run.id} subagent={run.subagent} />;
           case 'notice':
             return <TaskNoticeOrCard key={run.id} id={run.id} notice={run.notice} />;
+          case 'tasks':
+            return <EndedTasksLine key={run.id} tasks={run.tasks} />;
           case 'content':
             return <Content key={run.id} block={run.content} />;
           case 'agent_notice':

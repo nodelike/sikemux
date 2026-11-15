@@ -4,10 +4,14 @@ import { basename } from "@shared/lib/paths";
 import {
   IconCheck,
   IconChevron,
+  IconCircleAlert,
+  IconCircleCheck,
   IconClose,
+  IconEye,
   IconFile,
   IconInfo,
   IconPlug,
+  IconRun,
   IconTimer,
   IconUser,
   IconWarning,
@@ -19,6 +23,12 @@ import sikemuxMark from "../../../../../brand/mark/mark-purple.svg";
 import { AnsweredQuestion } from "./AgentQuestions";
 import { rateLabel, sentLabel, sentTitle } from "@shared/chat/messageMeta";
 import { durationLabel } from "@shared/chat/durationLabel";
+import {
+  endedDots,
+  endedHow,
+  endedName,
+  sentence,
+} from "@shared/chat/endedTasks";
 import { HIDE, leftOutCount, leftOutLine, SHOW } from "@shared/chat/leftOut";
 import { localImagePath } from "@shared/lib/imagePaths";
 import { useImagePreview } from "../files/imagePreview";
@@ -52,6 +62,7 @@ import type {
   ChatMessage,
   ChatPart,
   ContentBlock,
+  EndedTasks,
   SubagentCard,
   TaskNotice,
   WhyChip,
@@ -221,6 +232,7 @@ const MessagePart = memo(function MessagePart({
   if (part.kind === "subagent")
     return <SubagentPart subagent={part.subagent} />;
   if (part.kind === "notice") return <NoticePart notice={part.notice} />;
+  if (part.kind === "tasks") return <TasksPart tasks={part.tasks} />;
   if (part.kind === "agent_notice")
     return <AgentNoticePart notice={part.notice} />;
   if (part.kind === "account") return <AccountPart move={part.move} />;
@@ -315,6 +327,64 @@ function NoticePart({ notice }: { notice: TaskNotice }) {
       <span className="chat-notice-state">{notice.state}</span>
       {notice.summary && (
         <span className="chat-notice-summary">{notice.summary}</span>
+      )}
+    </div>
+  );
+}
+
+/** The background tasks that ended in one turn: one line with a dot for each, opening onto the list. */
+function TasksPart({ tasks }: { tasks: EndedTasks }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="chat-tasks">
+      <button
+        type="button"
+        className="chat-tasks-line"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {tasks.failed ? (
+          <IconCircleAlert size={13} className="chat-tasks-failed" />
+        ) : (
+          <IconCircleCheck size={13} className="chat-tasks-done" />
+        )}
+        <span className="chat-tasks-name">{endedName(tasks)}</span>
+        <span className="chat-tasks-dots" aria-hidden>
+          {endedDots(tasks, 24).map((state, at) => (
+            <i key={at} className={`state-${state}`} />
+          ))}
+        </span>
+        <span className="chat-tasks-how">{endedHow(tasks)}</span>
+        <IconChevron size={10} className="chat-tasks-chevron" />
+      </button>
+      {open && (
+        <ul className="chat-tasks-list">
+          {tasks.tasks.map((task, at) => (
+            <li key={at} className={`state-${task.state}`}>
+              {task.state === "completed" ? (
+                <IconCheck size={13} />
+              ) : task.state === "failed" ? (
+                <IconClose size={13} />
+              ) : task.taskType === "monitor" ? (
+                <IconEye size={13} />
+              ) : (
+                <IconRun size={13} />
+              )}
+              <span
+                className="chat-tasks-task"
+                title={task.summary ?? undefined}
+              >
+                {sentence(task.name)}
+              </span>
+              {task.times > 1 && (
+                <span className="chat-tasks-times">×{task.times}</span>
+              )}
+              {task.state !== "completed" && (
+                <span className="chat-tasks-state">{task.state}</span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

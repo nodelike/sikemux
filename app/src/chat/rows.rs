@@ -822,10 +822,40 @@ pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyE
         1 => t!("· 1 tool call").to_owned(),
         calls => t!("· {calls} tool calls", calls = calls),
     });
-    let (reader, id) = (looks.reader.clone(), fold.id.clone());
+    let toggle = fold_toggle(
+        &fold.id,
+        open,
+        vec![
+            looks.mark_of(&looks.agent, &looks.provider, 17., cx),
+            worked.into_any_element(),
+        ]
+        .into_iter()
+        .chain(calls.map(IntoElement::into_any_element))
+        .collect(),
+        looks,
+    );
+    div()
+        .mt(px(3.))
+        .flex()
+        .flex_col()
+        .gap(SPACE_1)
+        .child(div().flex().child(toggle))
+        .child(div().h(px(1.)).bg(looks.rule))
+        .into_any_element()
+}
+
+/// A line that folds something away beneath it, opened and closed by the reader under `key`:
+/// `says` then a chevron that turns as it opens.
+pub(super) fn fold_toggle(
+    key: &str,
+    open: bool,
+    says: Vec<AnyElement>,
+    looks: &Drawn,
+) -> gpui::Stateful<Div> {
+    let (reader, id) = (looks.reader.clone(), key.to_owned());
     let (hover, ink) = (looks.hover, looks.ink);
-    let toggle = div()
-        .id(SharedString::from(format!("work:{}", fold.id)))
+    div()
+        .id(SharedString::from(format!("work:{key}")))
         .h(px(22.))
         .ml(px(-6.))
         .px(SPACE_1H)
@@ -838,11 +868,9 @@ pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyE
         .text_color(looks.quiet)
         .cursor_pointer()
         .hover(move |toggle| toggle.bg(hover).text_color(ink))
-        .child(looks.mark_of(&looks.agent, &looks.provider, 17., cx))
-        .child(worked)
-        .children(calls)
+        .children(says)
         .child(motion::turn(
-            format!("work-chevron:{}", fold.id),
+            format!("work-chevron:{key}"),
             motion::fold_angle(open),
             motion::DETAIL_FOLD,
             ui::icon(Icon::Chevron, 10.).text_color(looks.quiet),
@@ -852,15 +880,7 @@ pub(super) fn work(fold: &WorkFold, open: bool, looks: &Drawn, cx: &App) -> AnyE
                 reading.toggle(&id);
                 cx.notify();
             })
-        });
-    div()
-        .mt(px(3.))
-        .flex()
-        .flex_col()
-        .gap(SPACE_1)
-        .child(div().flex().child(toggle))
-        .child(div().h(px(1.)).bg(looks.rule))
-        .into_any_element()
+        })
 }
 
 /// Where the reader's choice to see what was left out of `row` is kept.
@@ -1591,6 +1611,9 @@ pub(super) fn part(
         }
         ChatPart::Subagent { subagent, .. } => self::subagent(subagent, pen, looks, window, cx),
         ChatPart::Notice { notice, .. } => task_ended(notice, looks, cx),
+        ChatPart::Tasks { id: part, tasks } => {
+            super::ended::tasks(&row.message.id, part, tasks, looks, window, cx)
+        }
         ChatPart::AgentNotice { notice, .. } if notice.goal.is_some() => {
             goal_marker(notice, looks, cx)
         }
