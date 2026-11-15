@@ -1740,7 +1740,11 @@ mod tests {
 
     #[test]
     fn the_week_before_a_clock_change_begins_at_nine_on_its_monday() {
-        const ZONE: &str = "America/Los_Angeles";
+        const ZONE: &str = if cfg!(windows) {
+            "PST8PDT"
+        } else {
+            "America/Los_Angeles"
+        };
         const NAME: &str = "the_week_before_a_clock_change_begins_at_nine_on_its_monday";
         if std::env::var("TZ").as_deref() != Ok(ZONE) {
             let module = module_path!().split_once("::").expect("in a crate").1;
