@@ -139,6 +139,7 @@ fn running_telling(tell: bool) -> Result<PathBuf, String> {
 /// take the request, so it is told by signal.
 fn stop() -> Result<(), String> {
     let socket = launch()?.socket;
+    login_item::stop_restarting(IDENTIFIER);
     let pid = match probe(&socket, PROBE_TIMEOUT) {
         Err(ProbeError::Rejected { pid, .. }) => return terminate(pid, &socket),
         Err(probed @ (ProbeError::NotRunning(_) | ProbeError::Unanswered(_))) => {

@@ -18,7 +18,7 @@ use launchd as service;
 #[cfg(windows)]
 use run_entry as service;
 #[cfg(windows)]
-pub use run_entry::{start_at_sign_in, START_CORE_ARG};
+pub use run_entry::{keep_core_up, start_at_sign_in, START_CORE_ARG};
 #[cfg(all(unix, not(target_os = "macos")))]
 use systemd as service;
 
@@ -200,6 +200,15 @@ fn forget(identifier: &str) -> std::io::Result<()> {
     };
     service::forgotten(&label);
     std::fs::remove_file(&path)
+}
+
+/// Makes sure nothing starts the core again once it is stopped, until it is started again.
+/// Only Windows keeps its core up from a process of its own.
+pub fn stop_restarting(identifier: &str) {
+    #[cfg(windows)]
+    run_entry::stop_restarting(&label(identifier));
+    #[cfg(not(windows))]
+    let _ = identifier;
 }
 
 /// Stops and removes the login item. False when there was none.
@@ -420,20 +429,33 @@ WantedBy=default.target
 }
 
 /// A console program started at sign-in opens a console window, so the Run entry starts the
-/// app, which has none, with [`START_CORE_ARG`]; it starts the core detached as it always
-/// does and exits. The file the entry names holds how.
+/// app, which has none, with [`START_CORE_ARG`]. The app starts the core's own program
+/// detached with the same argument, and that process keeps the core up: it starts the core
+/// again whenever it ends with an error, as launchd and systemd do. The file the entry names
+/// holds how to start it.
 #[cfg(windows)]
 mod run_entry {
     use std::ffi::OsString;
+    use std::fs::{File, OpenOptions};
+    use std::io::{Read, Write};
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::OpenOptionsExt;
     use std::path::{Path, PathBuf};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use serde::{Deserialize, Serialize};
-    use sikemux_corekit::client::{ensure_running, frozen_request};
+    use sikemux_corekit::client::{ensure_running, frozen_request, spawn_detached};
     use sikemux_corekit::frozen::FrozenRequest;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_DELETE_ON_CLOSE, FILE_SHARE_DELETE, FILE_SHARE_READ,
+    };
     use windows_sys::Win32::System::Registry::{
         RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, TerminateProcess, WaitForSingleObject, INFINITE,
+        PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE,
     };
 
     use super::CoreLaunch;
@@ -443,6 +465,12 @@ mod run_entry {
     const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
     const APP: &str = "sikemux.exe";
     const STOP_WAIT: Duration = Duration::from_secs(10);
+    /// A core that ends sooner than this after it started is failing to run, not crashing.
+    const SHORT_RUN: Duration = Duration::from_secs(60);
+    /// How many short runs in a row the core is given before it is left down.
+    const SHORT_RUNS: u32 = 5;
+    const RETRY_WAIT: Duration = Duration::from_secs(1);
+    const WATCH_END_WAIT: Duration = Duration::from_secs(5);
 
     #[derive(Serialize, Deserialize)]
     struct Saved {
@@ -515,18 +543,38 @@ mod run_entry {
         unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, wide(RUN).as_ptr(), wide(label).as_ptr()) };
     }
 
+    /// Starts the process that keeps the core up, which starts the core.
     pub(super) fn start(_label: &str, path: &Path) -> Result<(), String> {
         let saved = read(path).ok_or_else(|| format!("{} cannot be read", path.display()))?;
-        ensure_running(&saved.socket, &saved.binary, &saved.log, &saved.args)
-            .map(drop)
-            .map_err(|error| error.to_string())
+        if let Some(logs) = saved.log.parent() {
+            std::fs::create_dir_all(logs).map_err(|error| error.to_string())?;
+        }
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&saved.log)
+            .map_err(|error| error.to_string())?;
+        let mut command = sikemux_process::user_environment::command(&saved.binary);
+        command.arg(START_CORE_ARG).arg(path);
+        spawn_detached(command, log).map_err(|error| error.to_string())
     }
 
     /// Stops the core it started, with everything running in it, and leaves sign-in alone.
     pub(super) fn stop(label: &str) {
         forgotten(label);
-        if let Some(saved) = path(label).as_deref().and_then(read) {
+        let Some(path) = path(label) else {
+            return;
+        };
+        end_watch(&path);
+        if let Some(saved) = read(&path) {
             let _ = frozen_request(&saved.socket, &FrozenRequest::StopEverything, STOP_WAIT);
+        }
+    }
+
+    /// Ends the process keeping the core up, so a core stopped next stays down.
+    pub(super) fn stop_restarting(label: &str) {
+        if let Some(path) = path(label) {
+            end_watch(&path);
         }
     }
 
@@ -537,6 +585,120 @@ mod run_entry {
             Err(error) => {
                 eprintln!("Sikemux could not start its core at sign-in: {error}");
                 1
+            }
+        }
+    }
+
+    /// What the core's program runs when started with [`START_CORE_ARG`] and `file`: it starts
+    /// the core and starts it again each time it ends with an error, until it ends cleanly, keeps
+    /// failing to run, or `file` is gone. A second one leaves the first to do it.
+    pub fn keep_core_up(file: &Path) -> i32 {
+        let Some(_watching) = watch(file) else {
+            return match read(file)
+                .map(|saved| ensure_running(&saved.socket, &saved.binary, &saved.log, &saved.args))
+            {
+                Some(Err(error)) => {
+                    eprintln!("Sikemux could not start its core: {error}");
+                    1
+                }
+                _ => 0,
+            };
+        };
+        let mut short_runs = 0;
+        loop {
+            let Some(saved) = read(file) else {
+                return 0;
+            };
+            let started = Instant::now();
+            let exit = ensure_running(&saved.socket, &saved.binary, &saved.log, &saved.args)
+                .map_err(|error| error.to_string())
+                .and_then(|hello| exit_code(hello.pid));
+            if exit == Ok(0) {
+                return 0;
+            }
+            short_runs = match started.elapsed() < SHORT_RUN {
+                true => short_runs + 1,
+                false => 1,
+            };
+            let ended = match exit {
+                Ok(code) => format!("ended with {code:#x}"),
+                Err(error) => error,
+            };
+            if short_runs >= SHORT_RUNS {
+                eprintln!("Sikemux's core {ended}, {short_runs} times in a row; it is left down");
+                return 1;
+            }
+            eprintln!("Sikemux's core {ended}; starting it again");
+            std::thread::sleep(RETRY_WAIT * short_runs);
+        }
+    }
+
+    fn watch_file(file: &Path) -> PathBuf {
+        file.with_extension("watch")
+    }
+
+    /// Holds the file that says which process keeps the core up, naming this one. Windows
+    /// deletes it once this process ends, however it ends. None while another holds it.
+    fn watch(file: &Path) -> Option<File> {
+        let mut watching = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_DELETE_ON_CLOSE)
+            .open(watch_file(file))
+            .ok()?;
+        write!(watching, "{}", std::process::id()).ok()?;
+        Some(watching)
+    }
+
+    fn end_watch(file: &Path) {
+        let watching = watch_file(file);
+        let mut pid = String::new();
+        let read = File::open(&watching).and_then(|mut opened| opened.read_to_string(&mut pid));
+        let Some(pid) = read.ok().and_then(|_| pid.trim().parse::<u32>().ok()) else {
+            return;
+        };
+        // SAFETY: the handle is checked before use and closed after.
+        unsafe {
+            let process = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if process.is_null() {
+                return;
+            }
+            TerminateProcess(process, 0);
+            CloseHandle(process);
+        }
+        let deadline = Instant::now() + WATCH_END_WAIT;
+        while watching.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// Waits for the process `pid` to end, and answers with its exit code.
+    fn exit_code(pid: u32) -> Result<u32, String> {
+        // SAFETY: the handle is checked before use and closed after, and `code` is writable.
+        unsafe {
+            let process = OpenProcess(
+                PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION,
+                0,
+                pid,
+            );
+            if process.is_null() {
+                return Err(format!(
+                    "could not be watched: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            WaitForSingleObject(process, INFINITE);
+            let mut code = 0;
+            let read = GetExitCodeProcess(process, &mut code);
+            CloseHandle(process);
+            match read {
+                0 => Err(format!(
+                    "ended, how is unknown: {}",
+                    std::io::Error::last_os_error()
+                )),
+                _ => Ok(code),
             }
         }
     }
