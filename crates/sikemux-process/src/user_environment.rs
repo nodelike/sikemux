@@ -99,23 +99,49 @@ pub fn agent_command_in_own_cgroup(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
-/// [`agent_command`] for `/bin/sh` at low priority, so what it starts never competes with the
+/// [`agent_command`] for `sh` at low priority, so what it starts never competes with the
 /// person's typing or terminals, on machines with a way to lower it.
-pub fn background_shell() -> Command {
-    const SHELL: &str = "/bin/sh";
+pub fn background_shell() -> Result<Command, String> {
+    let shell = shell_program()?;
     let lowering: Option<(&str, &[&str])> = match std::env::consts::OS {
         "macos" => Some(("/usr/sbin/taskpolicy", &["-c", "utility"])),
         "linux" => Some(("/usr/bin/nice", &["-n", "10"])),
         _ => None,
     };
-    match lowering.filter(|(program, _)| std::path::Path::new(program).exists()) {
-        Some((program, args)) => {
-            let mut command = agent_command_in_own_cgroup(program);
-            command.args(args).arg(SHELL);
-            command
-        }
-        None => agent_command_in_own_cgroup(SHELL),
-    }
+    Ok(
+        match lowering.filter(|(program, _)| std::path::Path::new(program).exists()) {
+            Some((program, args)) => {
+                let mut command = agent_command_in_own_cgroup(program);
+                command.args(args).arg(shell);
+                command
+            }
+            None => agent_command_in_own_cgroup(shell),
+        },
+    )
+}
+
+#[cfg(not(windows))]
+fn shell_program() -> Result<PathBuf, String> {
+    Ok(PathBuf::from("/bin/sh"))
+}
+
+/// The `sh` that comes with the git the core runs. Never the first on `PATH`: System32's
+/// `bash.exe` starts WSL, which sees other paths.
+#[cfg(windows)]
+fn shell_program() -> Result<PathBuf, String> {
+    git_program()
+        .and_then(|git| {
+            git.ancestors()
+                .skip(1)
+                .take(3)
+                .flat_map(|dir| [dir.join(r"bin\sh.exe"), dir.join(r"usr\bin\sh.exe")])
+                .find(|sh| sh.is_file())
+        })
+        .ok_or_else(|| {
+            "project commands on Windows run in the sh that comes with Git for Windows, \
+             which isn't installed"
+                .to_owned()
+        })
 }
 
 /// The git a bare `git` runs on the user's `PATH`, found once per `PATH`.
