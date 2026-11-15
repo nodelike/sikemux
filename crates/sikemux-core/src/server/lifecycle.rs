@@ -2,9 +2,10 @@
 //! agent again. A chat sleeps once it has been idle for a while, on screen or
 //! not, and off screen the oldest go first when more than a few sit idle. A
 //! message, a trigger or the person's first key wakes it on its saved session.
-//! A chat at work, one waiting to send again a turn the network cut short, one
-//! the person keeps alive or is writing in, and one the person started whose
-//! last answer they have not read, is never put to sleep. A terminal agent that
+//! A chat at work, one waiting to send again a turn the network cut short, or
+//! one the person keeps alive, is never put to sleep. One the person is writing
+//! in, or started and has not read the last answer of, sleeps only once more
+//! than a few sit idle off screen. A terminal agent that
 //! crashes comes back on its saved session below its last screen, unless it
 //! crashes again at once.
 
@@ -381,7 +382,7 @@ fn due(core: &Core, began: u64, now: u64) -> Vec<String> {
             .quiet_since(&agent_id)
             .unwrap_or(began)
             .max(began);
-        if now.saturating_sub(quiet) >= IDLE_SLEEP_MS {
+        if now.saturating_sub(quiet) >= IDLE_SLEEP_MS && left_alone(core, &agent_id) {
             stale.push(agent_id);
         } else if !core.seen().viewed(&agent_id) {
             off_screen.push((quiet, agent_id));
@@ -399,21 +400,28 @@ fn due(core: &Core, began: u64, now: u64) -> Vec<String> {
 }
 
 /// Whether the chat could sleep now: it is in the workspace, the person does
-/// not keep it alive, it has a conversation to wake on, nothing is drafted in
-/// it, and the person has read its last answer if they started it.
+/// not keep it alive, and it has a conversation to wake on.
 fn may_sleep(core: &Core, agent_id: &str) -> bool {
     let Some(agent) = core.workspaces().agent(agent_id) else {
         return false;
     };
-    let drafted =
-        (core.drafts().chat_draft(agent_id)).is_some_and(|draft| !draft.text.trim().is_empty());
-    let unread_by_starter = agent.lead.is_none() && core.seen().unread(agent_id);
     !agent.keep_alive
         && agent.resume_id.is_some()
-        && !drafted
-        && !unread_by_starter
         && idle(core, agent_id)
         && !super::chat::cap::holds_awake(core, agent_id, epoch_ms())
+}
+
+/// Whether the person has left the chat alone, so its idle time may put it to sleep: nothing is
+/// drafted in it, and they have read its last answer if they started it. Past the warm few off
+/// screen it sleeps either way.
+fn left_alone(core: &Core, agent_id: &str) -> bool {
+    let drafted =
+        (core.drafts().chat_draft(agent_id)).is_some_and(|draft| !draft.text.trim().is_empty());
+    let started_by_person = core
+        .workspaces()
+        .agent(agent_id)
+        .is_some_and(|agent| agent.lead.is_none());
+    !drafted && !(started_by_person && core.seen().unread(agent_id))
 }
 
 fn kept(core: &Core, agent_id: &str) -> bool {
