@@ -1,0 +1,72 @@
+name: Update rehearsal
+
+# Installs the last stable and has it update itself to a candidate through its own updater,
+# the path that fails on people's machines. Release calls it on a stable candidate's own
+# files; it can be started by hand on any published build.
+on:
+  push:
+    branches: [proof/update-rehearsal]
+  workflow_call:
+    inputs:
+      version:
+        description: The candidate's version
+        required: true
+        type: string
+      artifacts:
+        description: Take the candidate's signed files from the calling run, not a release
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to update to, published on GitHub
+        required: true
+        type: string
+      from:
+        description: The version to update from; the latest stable when empty
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: Host core updates from the last stable (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the candidate's host cores
+        if: ${{ inputs.artifacts }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: sikemux-host-*-${{ github.ref_name }}
+          merge-multiple: true
+          path: target/host
+
+      - name: Fetch their signatures
+        if: ${{ inputs.artifacts }}
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: host-signatures-${{ github.ref_name }}
+          path: target/host
+
+      - name: Update from the last stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version || '0.6.1-nightly.22' }}
+          FROM: ${{ inputs.from }}
+        run: scripts/rehearse-host-update.sh "$VERSION" ${FROM:+"$FROM"}
