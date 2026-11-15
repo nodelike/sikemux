@@ -14,9 +14,6 @@ pub struct ListPlace {
     pub snooze: Option<Snooze>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settled: Option<Settled>,
-    /// When it last left the settled list, so the core does not settle it again straight away.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub unsettled_at: Option<u64>,
 }
 
 impl ListPlace {
@@ -37,9 +34,6 @@ pub struct Snooze {
 #[serde(rename_all = "camelCase")]
 pub struct Settled {
     pub at: u64,
-    /// The core settled it, rather than the person.
-    #[serde(default)]
-    pub by_core: bool,
 }
 
 impl Workspaces {
@@ -92,9 +86,7 @@ impl Workspaces {
         self.move_places(&[agent_id.to_owned()], |place| {
             place.said_at = Some(now);
             place.snooze = None;
-            if place.settled.take().is_some() {
-                place.unsettled_at = Some(now);
-            }
+            place.settled = None;
         });
     }
 }

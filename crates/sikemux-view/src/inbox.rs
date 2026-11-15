@@ -452,9 +452,6 @@ pub struct AgentShown {
     /// When it was settled out of the main list; none while it is in it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settled_at: Option<u64>,
-    /// The core settled it by itself rather than the person, so a client offers Undo.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub auto_settled: bool,
     /// The person's labels for it, lower case.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,

@@ -190,7 +190,6 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         reconnecting: None,
         snoozed_until: None,
         settled_at: None,
-        auto_settled: false,
         tags: Vec::new(),
     }
 }

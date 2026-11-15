@@ -1,7 +1,4 @@
-//! Snoozing and settling agents out of the rail's main list, and the Undo for the ones the core
-//! settles by itself.
-
-use std::collections::HashSet;
+//! Snoozing and settling agents out of the rail's main list.
 
 use chrono::{Local, TimeZone};
 use gpui_kit::component::menu::PopupMenu;
@@ -14,7 +11,6 @@ use sikemux_calls::settling;
 use sikemux_calls::settling::SettleParams;
 use sikemux_calls::settling::SnoozeParams;
 use sikemux_process::clock::epoch_ms;
-use sikemux_view::device::DeviceView;
 
 use crate::core::Target;
 use crate::hosts::Place;
@@ -22,57 +18,6 @@ use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1, SPACE_2};
 use crate::toast;
 use crate::workbench::Workbench;
-
-/// How recently the core must have settled an agent for a client that just heard of it to
-/// offer Undo, so opening the app hours later does not.
-const FRESH_MS: u64 = 2 * 60_000;
-
-/// The agents in `view` the core settled by itself.
-pub fn auto_settled(view: Option<&DeviceView>) -> HashSet<String> {
-    view.map(|view| {
-        (view.inbox.agents.iter().chain(&view.inbox.kept))
-            .filter(|agent| agent.auto_settled)
-            .map(|agent| agent.agent_id.clone())
-            .collect()
-    })
-    .unwrap_or_default()
-}
-
-/// Offers Undo for the agents the core at `place` has just settled.
-pub fn tell(
-    bench: &Workbench,
-    place: &Place,
-    before: &HashSet<String>,
-    cx: &mut Context<Workbench>,
-) {
-    let now = epoch_ms();
-    let fresh: Vec<String> = bench
-        .view_at(place)
-        .into_iter()
-        .flat_map(|view| view.inbox.agents.iter().chain(&view.inbox.kept))
-        .filter(|agent| agent.auto_settled && !before.contains(&agent.agent_id))
-        .filter(|agent| {
-            agent
-                .settled_at
-                .is_some_and(|at| now.saturating_sub(at) < FRESH_MS)
-        })
-        .map(|agent| agent.agent_id.clone())
-        .collect();
-    if fresh.is_empty() {
-        return;
-    }
-    let said = match fresh.len() {
-        1 => t!("Settled a chat you're done with").to_owned(),
-        count => t!("Settled {count} chats you're done with", count = count),
-    };
-    let (bench_handle, place) = (cx.entity().downgrade(), place.clone());
-    bench.notify(
-        toast::undoable(said, move |_, cx| {
-            settle(&bench_handle, &place, fresh.clone(), false, cx);
-        }),
-        cx,
-    );
-}
 
 fn settle(
     bench: &WeakEntity<Workbench>,

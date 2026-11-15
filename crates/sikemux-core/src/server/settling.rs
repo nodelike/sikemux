@@ -1,44 +1,29 @@
 //! Snoozing and settling agents out of the main list. The person snoozes an agent until a
-//! time; the core settles one the person has seen, that has been quiet a while and left
-//! nothing uncommitted. Either comes back by itself once the agent needs the person.
+//! time, or settles one they are done with. Either comes back by itself once the agent needs
+//! the person.
 
-use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::settling::SnoozePreset;
 pub use sikemux_calls::settling::{parse_time, presets, HOUR_MS, MINUTE_MS};
 pub use sikemux_calls::settling::{SettleParams, SnoozeParams};
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::inbox::AgentShown;
-use sikemux_wire::protocol::AgentGroup;
 use tokio::sync::Notify;
 
-use super::connection::blocking;
 use super::workspace::{ListPlace, Settled, Snooze};
-use super::{inbox, Core, CoreResult};
+use super::{Core, CoreResult};
 
-/// How long an agent stays quiet, as far as this core has seen, before the core settles it.
-const SETTLE_AFTER_MS: u64 = 3 * HOUR_MS;
-/// How often the core looks for agents to settle.
+/// How often the core looks over its agents when no snooze wakes sooner.
 const SWEEP_MS: u64 = 5 * MINUTE_MS;
 
+#[derive(Default)]
 pub(crate) struct Settling {
     /// A snooze changed, so the next wake-up may be sooner.
     changed: Notify,
-    started_at: u64,
-}
-
-impl Default for Settling {
-    fn default() -> Self {
-        Self {
-            changed: Notify::new(),
-            started_at: epoch_ms(),
-        }
-    }
 }
 
 impl super::part::Part for Settling {
@@ -57,8 +42,7 @@ async fn run(core: Arc<Core>) {
     }
 }
 
-/// Wakes the snoozes whose time came and settles the agents ready for it, answering how
-/// long until it should look again.
+/// Wakes the snoozes whose time came, answering how long until it should look again.
 async fn sweep(core: &Arc<Core>) -> u64 {
     let now = epoch_ms();
     super::stalls::look(core, now).await;
@@ -69,29 +53,6 @@ async fn sweep(core: &Arc<Core>) -> u64 {
         .collect();
     core.workspaces()
         .move_places(&due, |place| place.snooze = None);
-    let chiefs = core.workspaces().chiefs();
-    let ready = ready_to_settle(core, &places, now);
-    let checking = core.clone();
-    let settle = blocking(move || {
-        Ok(ready
-            .into_iter()
-            .filter(|(agent_id, project, cwd)| {
-                !chiefs.contains(agent_id) && !inbox::uncommitted(&checking, project, agent_id, cwd)
-            })
-            .map(|(agent_id, _, _)| agent_id)
-            .collect::<Vec<_>>())
-    })
-    .await
-    .unwrap_or_default();
-    core.workspaces().move_places(&settle, |place| {
-        let written_since = place.said_at.is_some_and(|at| at > now);
-        if place.settled.is_none() && place.snooze.is_none() && !written_since {
-            place.settled = Some(Settled {
-                at: now,
-                by_core: true,
-            });
-        }
-    });
     let next_wake = (places.values())
         .filter_map(|(place, _)| place.snooze)
         .map(|snooze| snooze.until)
@@ -100,85 +61,23 @@ async fn sweep(core: &Arc<Core>) -> u64 {
     next_wake.map_or(SWEEP_MS, |until| (until - now).min(SWEEP_MS))
 }
 
-/// The agents, with their project and folder, that the person has seen, that sit idle and
-/// have been quiet long enough. A lead waits for its workers to settle first.
-fn ready_to_settle(
-    core: &Core,
-    places: &HashMap<String, (ListPlace, bool)>,
-    now: u64,
-) -> Vec<(String, String, std::path::PathBuf)> {
-    let (chats, sessions) = core.ranked_infos();
-    let mut restless: HashSet<&str> = (chats.iter())
-        .filter(|chat| chat.group != AgentGroup::Idle || chat.subagents + chat.tasks > 0)
-        .map(|chat| chat.agent_id.as_str())
-        .collect();
-    restless.extend(sessions.iter().filter_map(|session| {
-        let busy = session.group.is_some_and(|group| group != AgentGroup::Idle);
-        session.agent_id.as_deref().filter(|_| busy)
-    }));
-    let leads = core.workspaces().agent_leads();
-    let leading: HashSet<&str> = (leads.iter())
-        .filter(|(worker, _)| {
-            places
-                .get(*worker)
-                .is_some_and(|(place, _)| place.settled.is_none())
-        })
-        .map(|(_, lead)| lead.as_str())
-        .collect();
-    (core.workspace_agents().into_iter())
-        .filter(|agent| {
-            let Some((place, pinned)) = places.get(&agent.id) else {
-                return false;
-            };
-            let quiet_since = [
-                Some(core.settling().started_at),
-                Some(agent.created_at),
-                place.said_at,
-                place.unsettled_at,
-                core.seen().quiet_since(&agent.id),
-            ]
-            .into_iter()
-            .flatten()
-            .max()
-            .unwrap_or(now);
-            place.settled.is_none()
-                && place.snooze.is_none()
-                && !pinned
-                && !restless.contains(agent.id.as_str())
-                && !leading.contains(agent.id.as_str())
-                && !core.seen().unread(&agent.id)
-                && !core.seen().viewed(&agent.id)
-                && now.saturating_sub(quiet_since) >= SETTLE_AFTER_MS
-        })
-        .map(|agent| (agent.id, agent.project, agent.cwd))
-        .collect()
-}
-
 /// The agent asked the person something or ran into a problem, so it comes back to the
 /// main list whether snoozed or settled.
 pub(crate) fn needs_person(core: &Core, agent_id: &str) {
-    let now = epoch_ms();
     core.workspaces()
-        .move_places(&[agent_id.to_owned()], |place| unsettle(place, now));
+        .move_places(&[agent_id.to_owned()], unsettle);
 }
 
 /// The agent began a turn, whoever asked for it, so it no longer sits settled out of sight.
 /// A snooze the person chose still runs out.
 pub(crate) fn turn_started(core: &Core, agent_id: &str) {
-    let now = epoch_ms();
     core.workspaces()
-        .move_places(&[agent_id.to_owned()], |place| {
-            if place.settled.take().is_some() {
-                place.unsettled_at = Some(now);
-            }
-        });
+        .move_places(&[agent_id.to_owned()], |place| place.settled = None);
 }
 
-fn unsettle(place: &mut ListPlace, now: u64) {
+fn unsettle(place: &mut ListPlace) {
     place.snooze = None;
-    if place.settled.take().is_some() {
-        place.unsettled_at = Some(now);
-    }
+    place.settled = None;
 }
 
 /// When the agent at `place` wakes from a snooze still to run out.
@@ -192,7 +91,6 @@ pub(crate) fn snoozed_until(place: &ListPlace, now: u64) -> Option<u64> {
 pub(crate) fn show(shown: &mut AgentShown, place: &ListPlace, now: u64) {
     shown.snoozed_until = snoozed_until(place, now);
     shown.settled_at = place.settled.map(|settled| settled.at);
-    shown.auto_settled = place.settled.is_some_and(|settled| settled.by_core);
 }
 
 /// The agents in the main list, then the snoozed ones soonest to wake first, then the
@@ -227,7 +125,7 @@ pub(crate) fn snooze(core: &Core, params: SnoozeParams) -> CoreResult<()> {
     core.workspaces()
         .move_places(&agent_ids, |place| match until {
             Some(until) => {
-                unsettle(place, now);
+                place.settled = None;
                 place.snooze = Some(Snooze { until, at: now });
             }
             None => place.snooze = None,
@@ -244,13 +142,10 @@ pub(crate) fn settle(core: &Core, params: SettleParams) -> CoreResult<()> {
     };
     core.workspaces().move_places(&agent_ids, |place| {
         if !params.settled {
-            unsettle(place, now);
+            unsettle(place);
         } else if place.settled.is_none() {
             place.snooze = None;
-            place.settled = Some(Settled {
-                at: now,
-                by_core: false,
-            });
+            place.settled = Some(Settled { at: now });
         }
     });
     Ok(())

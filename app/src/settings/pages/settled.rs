@@ -37,13 +37,9 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
     super::change_pages(bench, cx, |pages, _| pages.settled = Some(fields));
 }
 
-/// Who settled it and when, after its name.
+/// When it was settled, after its name.
 fn about(agent: &AgentShown) -> SharedString {
     let when = agent.settled_at.map(ui::time::ago).unwrap_or_default();
-    let when = match agent.auto_settled {
-        true => t!("{when} by Sikemux", when = when),
-        false => when,
-    };
     match &agent.name {
         Some(name) => format!("@{name} · {when}"),
         None => when,

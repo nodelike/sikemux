@@ -1267,8 +1267,6 @@ export interface RemoteAgent {
     snoozedUntil?: number;
     /** When it was settled out of the main list; none while it is in it. */
     settledAt?: number;
-    /** The core settled it by itself rather than the person, so a client offers Undo. */
-    autoSettled?: boolean;
     /** The person's labels for it, lower case. */
     tags?: string[];
     /** What this host calls the host it runs on. */
@@ -1458,8 +1456,6 @@ export interface AgentShown {
     snoozedUntil?: number;
     /** When it was settled out of the main list; none while it is in it. */
     settledAt?: number;
-    /** The core settled it by itself rather than the person, so a client offers Undo. */
-    autoSettled?: boolean;
     /** The person's labels for it, lower case. */
     tags?: string[];
 }

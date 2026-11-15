@@ -2100,8 +2100,6 @@ struct RemoteAgent: Codable, Hashable, Sendable {
     var snoozedUntil: Int?
     /// When it was settled out of the main list; none while it is in it.
     var settledAt: Int?
-    /// The core settled it by itself rather than the person, so a client offers Undo.
-    var autoSettled: Bool?
     /// The person's labels for it, lower case.
     var tags: [String]?
     /// What this host calls the host it runs on.
@@ -2381,8 +2379,6 @@ struct AgentShown: Codable, Hashable, Sendable {
     var snoozedUntil: Int?
     /// When it was settled out of the main list; none while it is in it.
     var settledAt: Int?
-    /// The core settled it by itself rather than the person, so a client offers Undo.
-    var autoSettled: Bool?
     /// The person's labels for it, lower case.
     var tags: [String]?
 }

@@ -1309,7 +1309,6 @@ mod tests {
             reconnecting: Some(2),
             snoozed_until: Some(15),
             settled_at: Some(16),
-            auto_settled: true,
             tags: vec!["urgent".into()],
         }
     }

@@ -85161,58 +85161,6 @@
         }
       }
     },
-    "Settled a chat you're done with": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se resolvió un chat que ya terminaste"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已收起一个你已完成的聊天"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Einen Chat erledigt, mit dem du fertig bist"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Un chat terminé a été rangé"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "完了したチャットを 1 件片付けました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "끝난 채팅 1개를 정리했습니다"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Убран чат, с которым вы закончили"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Um chat que você terminou foi arquivado"
-          }
-        }
-      }
-    },
     "Settled chats": {
       "localizations": {
         "es": {
@@ -85261,58 +85209,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Chats resolvidos"
-          }
-        }
-      }
-    },
-    "Settled {count} chats you're done with": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se resolvieron {count} chats que ya terminaste"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "已收起 {count} 个你已完成的聊天"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{count} Chats erledigt, mit denen du fertig bist"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{count} chats terminés ont été rangés"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "完了したチャットを {count} 件片付けました"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "끝난 채팅 {count}개를 정리했습니다"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Убраны чаты, с которыми вы закончили: {count}"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{count} chats que você terminou foram arquivados"
           }
         }
       }
@@ -159641,58 +159537,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "{what}: {error}"
-          }
-        }
-      }
-    },
-    "{when} by Sikemux": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{when} por Sikemux"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{when}由 Sikemux"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{when} von Sikemux"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{when} par Sikemux"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{when}、Sikemux による"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{when} Sikemux가"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{when}, Sikemux"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "{when} pelo Sikemux"
           }
         }
       }

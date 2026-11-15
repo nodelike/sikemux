@@ -2,7 +2,8 @@
 //! devices added, how sleeping chats ran, and the projects, agents, spaces and
 //! pinned chats the app kept in its own state then. Agents kept before the
 //! core chose buddy colours, or before chats named their account, get theirs, and a chief
-//! loses the title its agent made of the greeting Sikemux sent it.
+//! loses the title its agent made of the greeting Sikemux sent it. Agents the core settled by
+//! itself come back to the list.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -100,6 +101,20 @@ pub fn untitle_chiefs(saved: &mut Saved) {
         let agent = &mut kept.agent;
         if chiefs.contains(&agent.id) && !agent.renamed {
             agent.title = agent.provider.clone();
+        }
+    }
+}
+
+/// Brings back to the list the agents the core once settled by itself; only the person
+/// settles an agent now.
+pub fn unsettle_by_core(saved: &mut Saved, read: &Value) {
+    let by_core: Vec<&str> = (read["agents"].as_array().into_iter().flatten())
+        .filter(|kept| kept["place"]["settled"]["byCore"].as_bool() == Some(true))
+        .filter_map(|kept| kept["id"].as_str())
+        .collect();
+    for kept in &mut saved.agents {
+        if by_core.contains(&kept.agent.id.as_str()) {
+            kept.place.settled = None;
         }
     }
 }

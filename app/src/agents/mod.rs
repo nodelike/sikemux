@@ -145,8 +145,9 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     let leading = tree::above(&agents, &working);
     let (gone, agents): (Vec<_>, Vec<_>) =
         (agents.into_iter()).partition(|agent| away(agent) && !leading.contains(&agent.id));
-    let (settled, snoozed): (Vec<_>, Vec<_>) =
-        (gone.into_iter()).partition(|agent| agent.settled_at.is_some());
+    let snoozed: Vec<_> = (gone.into_iter())
+        .filter(|agent| agent.settled_at.is_none())
+        .collect();
     let away_rows = |agents: &[AgentRow], cx: &mut Context<Workbench>| -> Vec<AnyElement> {
         (tree::tree(agents, 0, &HashSet::new()).into_iter())
             .map(|placed| agent_row(bench, &placed.row, &placed.hang, None, false, cx))
@@ -154,7 +155,6 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     };
     let unseen = out_of_sight(bench, &agents);
     let snoozed = away_rows(&snoozed, cx);
-    let settled = away_rows(&settled, cx);
     let projects: Vec<ProjectInfo> = match bench.rails.all_projects {
         true => ranked_projects(bench),
         false => bench.project().cloned().into_iter().collect(),
@@ -227,7 +227,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
     }
-    let quiet = rows.is_empty() && snoozed.is_empty() && settled.is_empty();
+    let quiet = rows.is_empty() && snoozed.is_empty();
     let empty = (quiet && pinned.is_empty() && recent.is_empty()).then(|| {
         let shown = (project.zip(other_host(bench)))
             .filter(|_| bench.filter_text().is_empty())
@@ -361,12 +361,6 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                                 .children(snoozed),
                         )
                     })
-                    .when(!settled.is_empty(), |scroll| {
-                        scroll.child(
-                            folding(Group::new(t!("Settled"), ""), SETTLED, bench, cx)
-                                .children(settled),
-                        )
-                    })
                     .when(!pinned.is_empty(), |scroll| {
                         scroll.child(
                             folding(Group::new(t!("Pinned"), ""), PINNED, bench, cx)
@@ -393,7 +387,6 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
 const PINNED: &str = "pinned";
 const RECENT: &str = "recent";
 const SNOOZED: &str = "snoozed";
-const SETTLED: &str = "settled";
 
 /// `group` folding on a click on its heading, and staying folded under `key` across restarts.
 pub(crate) fn folding(

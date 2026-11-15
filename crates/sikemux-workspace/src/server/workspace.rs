@@ -62,7 +62,7 @@ pub use recent::*;
 
 /// Bumped by a change to what [`Saved`] holds that an earlier file needs
 /// carried over to.
-const VERSION: u32 = 5;
+const VERSION: u32 = 6;
 const MAX_PROJECTS: usize = 512;
 const MAX_SPACES: usize = 64;
 const MAX_PINNED: usize = 256;
@@ -513,6 +513,9 @@ impl Workspaces {
         }
         if saved.version < 5 {
             migrate::untitle_chiefs(&mut saved);
+        }
+        if saved.version < 6 {
+            migrate::unsettle_by_core(&mut saved, &read);
         }
         saved.version = VERSION;
         let workspaces = Self {
