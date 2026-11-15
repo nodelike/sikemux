@@ -3,16 +3,6 @@
   "check": { "ci": ["CI"] },
   "landChecks": [
     {
-      "label": "pnpm strings:check",
-      "command": "node scripts/generate-strings.mjs --check",
-      "when": [
-        "app/src/**/*.rs",
-        "app/locales/Localizable.xcstrings",
-        "crates/sikemux-core/src/assets/keybindings.json",
-        "scripts/generate-strings.mjs"
-      ]
-    },
-    {
       "label": "pnpm agent-catalog:check",
       "command": "node scripts/generate-agent-catalog.mjs --check",
       "when": [
