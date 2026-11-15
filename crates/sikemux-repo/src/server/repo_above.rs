@@ -62,6 +62,8 @@ pub struct RepoAbove {
     pub messages_for_person_waiting: Note,
     /// Hands an agent work from Sikemux, for the reason `why`.
     pub messages_work_from_sikemux: for<'a> fn(&'a Arc<Core>, String, String, &'a str) -> Told<'a>,
+    /// Tells the agent's lead, when it has one, how its land went.
+    pub messages_tell_lead: fn(&Arc<Core>, &str, String),
     /// Whether a note can reach the agent now.
     pub messages_reachable: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, bool>,
     /// The status of an agent that runs on a linked host, as that host last said it.

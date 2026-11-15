@@ -595,7 +595,7 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         "reportsBack": reports,
         "note": format!(
             "{starting} and gets your prompt once it is ready.{}{}",
-            if reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" },
+            if reports { REPORTS } else { "" },
             if unproved { UNPROVED_SETUP } else { "" },
         ),
     });
@@ -944,13 +944,17 @@ async fn spawn_terminal(
         "note": format!(
             "{} is starting in a terminal tab and gets your prompt once its prompt box shows.{}",
             opening.name,
-            if opening.reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" },
+            if opening.reports { REPORTS } else { "" },
         ),
     });
     Ok(woken_by_answers(answer, reports))
 }
 
-/// Sends a worker's lead how its turn ended.
+/// What a lead is told of a worker it starts that reports to it.
+const REPORTS: &str = " Each time its turn ends, its final answer comes to you as a message, unless it ends on something set to wake it, such as a trigger, a run or a land in line, and asks nothing; you hear once its land goes in or is sent back.";
+
+/// Sends a worker's lead how its turn ended, unless it finished on something set to wake it and
+/// asks nothing: its row says what it waits on, and the lead hears once a land of its goes in.
 pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
     let Some(lead) = core.names().reports_to(agent_id) else {
         return;
@@ -985,10 +989,19 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
                 turn.answer
             }
         };
+        if quiet(&core, &worker, &ending, answer.as_ref()) {
+            elsewhere::send_commits(&core, &worker).await;
+            return;
+        }
         let text = report(&core, &worker, ending, answer);
         elsewhere::send_commits(&core, &worker).await;
         messages::report(&core, worker, lead, text).await;
     });
+}
+
+fn quiet(core: &Core, worker: &str, ending: &Ending, answer: Option<&TerminalAnswer>) -> bool {
+    let asks = matches!(answer, Some(TerminalAnswer::Said(said)) if super::questions::asks_in(said) || out_of_usage(said));
+    matches!(ending, Ending::Finished) && !asks && super::turn_state::set_a_wake(core, worker)
 }
 
 /// [`turn_ended`] for an agent in a terminal.

@@ -357,6 +357,7 @@ pub(super) fn repo_above() -> RepoAbove {
         messages_work_from_sikemux: |core, to, text, why| {
             Box::pin(messages::work_from_sikemux(core, to, text, why))
         },
+        messages_tell_lead: messages::report_land,
         messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
         foreign_status: |core, agent| core.hosts().team.get(agent).map(|foreign| foreign.status),
         turn_state_wrote: turn_state::wrote,

@@ -180,7 +180,7 @@ pub(crate) async fn spawn(
             "{shown} is starting on {} in a checkout of its own{}, from {started_from}, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
             link.name,
             if branch.is_empty() { String::new() } else { format!(" on its branch {branch}") },
-            if reports { " and its final answer comes to you as a message" } else { "" },
+            if reports { " and its final answer comes to you as a message, unless it ends on something set to wake it and asks nothing" } else { "" },
         ),
     }))
 }

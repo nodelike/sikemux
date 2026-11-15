@@ -89,6 +89,8 @@ pub enum TurnWaitKind {
     Line,
     /// Something used one at a time is in use by another.
     InUse,
+    /// Its commits wait in line to land on their branch.
+    Land,
     /// A value a newer core sends.
     #[serde(other)]
     Unknown,

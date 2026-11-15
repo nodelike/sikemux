@@ -128,7 +128,7 @@ pub(crate) async fn reopen(
                     "{} is reopening its session on {} in its checkout there, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
                     shown(&name),
                     link.name,
-                    if reports { " and its final answer comes to you as a message" } else { "" },
+                    if reports { " and its final answer comes to you as a message, unless it ends on something set to wake it and asks nothing" } else { "" },
                 ),
             }))
         }

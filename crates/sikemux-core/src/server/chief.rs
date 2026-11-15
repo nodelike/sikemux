@@ -64,6 +64,7 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - Do not ask before a change to a production place: make it, and Sikemux's gate holds it and raises the call. A level of trust moves when the person says so; for a production place only through a call they tap.
 - Send work in a standing role's area to that hire with agent_send instead of spawning a new worker; hire one with agent_hire when an area will need someone for weeks.
 - Start workers with agent_spawn for anything longer than a few minutes, and stay thin: shell output and file reads belong to workers. Their reports reach you; read more with agent_read only when you need it.
+- A worker's turn that ends waiting on something set to wake it, such as a trigger, a run or a land in line, sends you nothing, and agent_list says what it waits on. You hear when it lands, fails, is sent back, asks something, or stops with nothing set to wake it. When a turn a worker's message started changes nothing for the person, end it without writing anything.
 - A bug the person reports starts its fix in the same turn, without a go. A design question gets your one-line take and a Fable consult started in that turn.
 - Send a bug to the worker that already holds that area with a built checkout, when one does, rather than starting a new one.
 - A bug the person reports a second time is fixed with a check that reproduces their report, and the fix names each earlier one and why it missed.
@@ -136,6 +137,9 @@ struct Seat {
     rows: Vec<Row>,
     /// When the last week it counted began.
     counted: u64,
+    /// What it was last told it can start workers on, and when.
+    #[serde(default)]
+    can_start: Option<(String, u64)>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -639,27 +643,44 @@ pub(crate) fn chat_opened(core: &Core, chief: &str, feed: &Arc<Feed>) {
     }
 }
 
-/// What the chief's turn starts with, for the agent only: what it can start workers on, then
-/// the facts since its last digest as one compact block, left out when nothing happened. The
-/// person's words are read back from the chats' records and sit apart from what agents wrote,
-/// which is always quoted and named as theirs. The reading runs off the threads that serve chats.
+/// What the chief's turn starts with, for the agent only: what it can start workers on, when its
+/// session has not been told that yet, then the facts since its last digest as one compact
+/// block, left out when nothing happened. The person's words are read back from the chats'
+/// records and sit apart from what agents wrote, which is always quoted and named as theirs.
+/// The reading runs off the threads that serve chats.
 pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Vec<ChatContext> {
     if !is_chief(core, chief) {
         return Vec::new();
     }
     let (core, chief) = (core.clone(), chief.to_owned());
     super::connection::blocking(move || {
-        Ok((can_start(&core).into_iter())
+        let digest = digest_now(&core, &chief);
+        Ok((can_start_untold(&core, &chief).into_iter())
             .chain(standing_roles(&core, &chief))
-            .chain(digest_now(&core, &chief))
+            .chain(digest)
             .collect())
     })
     .await
     .unwrap_or_default()
 }
 
-/// What the chief can start workers on here, with each turn: the agents signed in and the models
-/// each last offered. Read from memory, with no model asked. Accounts and their limits stay out:
+/// [`can_start`], unless the chief's session was told the same since it last lost what it was
+/// told, to a compaction or a fresh session.
+fn can_start_untold(core: &Core, chief: &str) -> Option<ChatContext> {
+    let context = can_start(core)?;
+    let forgot = (core.chats().get(chief)).map_or(0, |chat| chat.meter.forgot_at());
+    let now = epoch_ms();
+    let told = core.chiefs().seat(chief, |seat| {
+        let told = (seat.can_start.as_ref())
+            .is_some_and(|(text, at)| *text == context.text && *at > forgot);
+        seat.can_start = Some((context.text.clone(), now));
+        told
+    });
+    (told != Some(true)).then_some(context)
+}
+
+/// What the chief can start workers on here: the agents signed in and the models each last
+/// offered. Read from memory, with no model asked. Accounts and their limits stay out:
 /// the core picks the account, moves chats off a full one and resumes them by itself.
 pub(crate) fn can_start(core: &Core) -> Option<ChatContext> {
     let mut kinds: Vec<String> = Vec::new();

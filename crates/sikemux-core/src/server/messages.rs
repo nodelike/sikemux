@@ -741,7 +741,9 @@ pub(crate) fn task(
 ) -> String {
     let lead = called(lead_name, lead_id);
     let answer = if reports {
-        format!("When your turn ends, your final answer goes to {lead} by itself. Message it with agent_send if you need to ask it something first.")
+        format!(
+            "When your turn ends, your final answer goes to {lead} by itself, unless you end it on something set to wake you, such as a trigger or a land in line, and ask nothing: then {lead} hears only how your land went. Message it with agent_send if you need to ask it something first."
+        )
     } else {
         format!("Your answers do not go to {lead} by themselves: send it what it needs with agent_send when you are done.")
     };
@@ -1652,6 +1654,24 @@ pub(crate) async fn report(core: &Arc<Core>, worker: String, lead: String, text:
     report_as(core, worker, name, lead, text).await;
 }
 
+/// Hands the lead of `worker`, when it has one, a line on how a land of its went, which ends
+/// after the turn that queued it.
+pub(crate) fn report_land(core: &Arc<Core>, worker: &str, text: String) {
+    let Some(lead) = core.names().reports_to(worker) else {
+        return;
+    };
+    let name = core.names().name(worker);
+    let (core, worker) = (core.clone(), worker.to_owned());
+    tokio::spawn(async move {
+        let note = |called: &str| {
+            format!(
+                "{called} is an agent you started, and this is how its land went, sent by Sikemux."
+            )
+        };
+        report_noted(&core, worker, name, lead, text, note).await;
+    });
+}
+
 /// [`report`] for a worker that may be gone, under the name it had.
 pub(crate) async fn report_as(
     core: &Arc<Core>,
@@ -1660,16 +1680,29 @@ pub(crate) async fn report_as(
     lead: String,
     text: String,
 ) {
+    let note = |called: &str| {
+        format!(
+            "{called} is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to it if it needs more; once its work has landed and you need nothing more, close it with agent_close."
+        )
+    };
+    report_noted(core, worker, name, lead, text, note).await;
+}
+
+async fn report_noted(
+    core: &Arc<Core>,
+    worker: String,
+    name: Option<String>,
+    lead: String,
+    text: String,
+    note: impl FnOnce(&str) -> String + Send + 'static,
+) {
     let found = {
         let core = core.clone();
         blocking(move || {
             let agents = listed(&core);
             let target = agents.iter().find(|agent| agent.agent_id == lead).cloned();
             let name = name.unwrap_or_else(|| worker.clone());
-            let worker_called = called(&name, &worker);
-            let note = format!(
-                "{worker_called} is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to it if it needs more; once its work has landed and you need nothing more, close it with agent_close."
-            );
+            let note = note(&called(&name, &worker));
             let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;
             Ok(target.map(|target| (target, letter)))

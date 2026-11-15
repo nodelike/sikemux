@@ -608,6 +608,7 @@
   "Waiting for permission: {tool}": "Ожидает разрешения: {tool}",
   "Waiting for {host} to allow this phone": "Ждём, пока {host} разрешит этот телефон",
   "Waiting for {what}": "Ждёт {what}",
+  "Waiting to land on {branch}": "Ждёт слияния в {branch}",
   "Waiting on CI": "Ждёт CI",
   "Waiting on the checks": "Ждёт проверок",
   "Waiting on the deploy": "Ждёт деплоя",

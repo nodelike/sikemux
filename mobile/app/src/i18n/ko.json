@@ -608,6 +608,7 @@
   "Waiting for permission: {tool}": "권한 대기 중: {tool}",
   "Waiting for {host} to allow this phone": "{host}에서 이 휴대폰을 허용하기를 기다리는 중",
   "Waiting for {what}": "{what} 기다리는 중",
+  "Waiting to land on {branch}": "{branch}에 반영 대기 중",
   "Waiting on CI": "CI 기다리는 중",
   "Waiting on the checks": "검사 기다리는 중",
   "Waiting on the deploy": "배포 기다리는 중",

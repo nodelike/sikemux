@@ -608,6 +608,7 @@
   "Waiting for permission: {tool}": "等待授权：{tool}",
   "Waiting for {host} to allow this phone": "正在等待 {host} 允许这台手机",
   "Waiting for {what}": "正在等待 {what}",
+  "Waiting to land on {branch}": "等待合入 {branch}",
   "Waiting on CI": "等待 CI",
   "Waiting on the checks": "等待检查",
   "Waiting on the deploy": "等待部署",

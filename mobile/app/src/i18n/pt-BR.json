@@ -608,6 +608,7 @@
   "Waiting for permission: {tool}": "Aguardando permissão: {tool}",
   "Waiting for {host} to allow this phone": "Esperando {host} permitir este celular",
   "Waiting for {what}": "Aguardando {what}",
+  "Waiting to land on {branch}": "Aguardando para entrar em {branch}",
   "Waiting on CI": "Aguardando o CI",
   "Waiting on the checks": "Aguardando as verificações",
   "Waiting on the deploy": "Aguardando o deploy",

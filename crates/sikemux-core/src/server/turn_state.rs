@@ -439,6 +439,9 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
     {
         return set;
     }
+    if let Some(land) = land_of(core, agent_id) {
+        return Some(land);
+    }
     let on_agents = match gathered.leads.get(agent_id) {
         Some(lead) => std::slice::from_ref(lead),
         None => gathered
@@ -460,6 +463,21 @@ fn wait_of(core: &Core, gathered: &Gathered, agent_id: &str, rested_at: u64) -> 
         });
     }
     set
+}
+
+fn land_of(core: &Core, agent_id: &str) -> Option<TurnWait> {
+    let land = super::edits::queue::in_line(core, agent_id)?;
+    Some(TurnWait {
+        kind: TurnWaitKind::Land,
+        what: land.branch,
+        started_at: land.since,
+        expected_ms: None,
+        until: None,
+        place: Some(land.place),
+        by: None,
+        agent: None,
+        agents: Vec::new(),
+    })
 }
 
 fn failed(core: &Core, agent_id: &str, ended: &Ended) -> Option<TurnFailed> {
@@ -685,12 +703,13 @@ pub(crate) fn left_open(core: &Core, agent_id: &str) -> Option<String> {
     core.chats().get(agent_id)?.feed.plan_left(started)
 }
 
-/// Whether the agent ends its turn on a wake it set itself: CI, a one-time timer, or a worker
-/// of its at work.
+/// Whether the agent ends its turn on a wake it set itself: CI, a run, a one-time timer, its
+/// commits in line to land, or a worker of its at work.
 pub(crate) fn set_a_wake(core: &Core, agent_id: &str) -> bool {
     core.triggers()
         .wait_of(agent_id, epoch_ms(), |_| None)
         .is_some()
+        || super::edits::queue::in_line(core, agent_id).is_some()
         || (core.workspaces().agent_leads().iter())
             .any(|(worker, lead)| lead == agent_id && core.agent_now(worker).mid_turn())
 }
@@ -749,6 +768,13 @@ pub(crate) fn line(turn: &TurnState) -> Option<String> {
                 TurnWaitKind::Process => "a process",
                 TurnWaitKind::Line => "its turn on the host",
                 TurnWaitKind::InUse => "something in use",
+                TurnWaitKind::Land => {
+                    let place = wait
+                        .place
+                        .map(|place| format!(", {place} in line"))
+                        .unwrap_or_default();
+                    return Some(format!("waiting to land on {}{place}", wait.what));
+                }
                 TurnWaitKind::Check | TurnWaitKind::Unknown => "the project's check",
             };
             match wait.what.is_empty() {

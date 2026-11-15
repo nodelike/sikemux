@@ -9,6 +9,7 @@
 //! commits, landed or sent back; a newer land of the same agent queues behind
 //! one being checked rather than taking its place.
 
+use crate::server::changed::{ChangedCore, What};
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::{BTreeSet, HashMap};
@@ -57,6 +58,7 @@ struct Waiting {
     /// The commit its checkout stood on when it asked to land.
     head: String,
     push: bool,
+    queued_at: u64,
     /// The branch's commit it was tried alone on, while that commit failed its own check.
     failed_over: Option<String>,
     /// A check holding it is running, so a newer land of its agent queues behind it.
@@ -115,6 +117,7 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         worktree,
         head,
         push,
+        queued_at: epoch_ms(),
         failed_over: None,
         checking: false,
     };
@@ -146,6 +149,7 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         save(core, &lines);
         placed
     };
+    core.changed(What::View);
     wake(core, key);
     let pushed = match push {
         true => " and pushed",
@@ -165,6 +169,27 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         branch: base,
         commits: laid.listed,
         ahead,
+    })
+}
+
+/// Where the agent's commits wait to land.
+pub struct InLine {
+    pub branch: String,
+    /// 1 for the next to be checked.
+    pub place: u32,
+    pub since: u64,
+}
+
+/// Where the agent's commits wait in the queue, when they do.
+pub fn in_line(core: &Core, agent_id: &str) -> Option<InLine> {
+    let lines = core.land_queue().0.locked();
+    lines.iter().find_map(|((_, branch), line)| {
+        let at = line.waiting.iter().position(|w| w.agent == agent_id)?;
+        Some(InLine {
+            branch: branch.clone(),
+            place: at as u32 + 1,
+            since: line.waiting[at].queued_at,
+        })
     })
 }
 
@@ -295,6 +320,7 @@ pub fn resume(core: &Arc<Core>) {
                 worktree,
                 head: saved.head,
                 push: saved.push,
+                queued_at: epoch_ms(),
                 failed_over: None,
                 checking: false,
             });
@@ -309,6 +335,7 @@ pub fn resume(core: &Arc<Core>) {
 
 fn leave(core: &Core, key: &Key, waiting: &Waiting) {
     with_line(core, key, |line| line.waiting.retain(|w| !w.is(waiting)));
+    core.changed(What::View);
 }
 
 /// Takes the land out of the queue and tells its agent why.
@@ -320,6 +347,22 @@ fn send_back(core: &Arc<Core>, key: &Key, waiting: &Waiting, why: &str) {
         key.1
     );
     tell(core, &waiting.agent, text);
+    let why = why.lines().next().unwrap_or_default();
+    tell_lead(
+        core,
+        &waiting.agent,
+        format!(
+            "Its land of {} onto {} was sent back: {why}\n\nIt has been told to fix it and land again.",
+            waiting.short(),
+            key.1
+        ),
+    );
+}
+
+/// Tells the agent's lead, when it has one, how its land went: its turn ended before the land did,
+/// so no report of that turn says so.
+fn tell_lead(core: &Arc<Core>, agent: &str, text: String) {
+    (core.repo_above().messages_tell_lead)(core, agent, text);
 }
 
 /// Hands the agent work about its land, waking it if need be: a notice would be
@@ -603,43 +646,48 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
         line.waiting
             .retain(|w| !landed.iter().any(|(laid, _, _)| laid.is(w)));
     });
+    core.changed(What::View);
+    let mut pushers = Vec::new();
     for (waiting, commits, stays) in &landed {
         let stays = stays
             .as_deref()
             .map(|stays| format!(" {stays}"))
             .unwrap_or_default();
-        let text = format!(
-            "Your land of {} is on {} as {}.{stays}",
-            waiting.short(),
-            key.1,
-            shorts(commits)
-        );
-        tell(core, &waiting.agent, text);
+        let on = format!("{} is on {} as {}", waiting.short(), key.1, shorts(commits));
+        tell(core, &waiting.agent, format!("Your land of {on}.{stays}"));
+        if waiting.push {
+            pushers.push((waiting.agent.clone(), on));
+        } else {
+            tell_lead(core, &waiting.agent, format!("Its land of {on}."));
+        }
     }
-    let pushers: Vec<String> = (landed.iter())
-        .filter(|(waiting, _, _)| waiting.push)
-        .map(|(waiting, _, _)| waiting.agent.clone())
-        .collect();
     if pushers.is_empty() {
         return;
     }
-    let (owner, repo, agents) = (core.clone(), key.0.clone(), pushers.clone());
+    let agents: Vec<String> = pushers.iter().map(|(agent, _)| agent.clone()).collect();
+    let (owner, repo) = (core.clone(), key.0.clone());
     let pushed =
         blocking(move || super::push::push(&owner, &repo, &agents, "origin").map_err(Into::into))
             .await;
-    match pushed {
-        Ok(pushed) => {
-            super::push::tell_sent_back(core, &tokio::runtime::Handle::current(), &pushed)
-        }
-        Err(error) => {
-            for agent in &pushers {
+    let pushed = pushed.inspect(|pushed| {
+        super::push::tell_sent_back(core, &tokio::runtime::Handle::current(), pushed)
+    });
+    for (agent, on) in &pushers {
+        let text = match &pushed {
+            Ok(pushed) if (pushed.blocked.iter()).any(|blocked| blocked.owners.contains(agent)) => {
+                format!("Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again.")
+            }
+            Ok(_) => format!("Its land of {on}, and pushed."),
+            Err(error) => {
                 tell(
                     core,
                     agent,
                     format!("Your commits landed on {} but did not push: {error}", key.1),
                 );
+                format!("Its land of {on}, but did not push: {error}")
             }
-        }
+        };
+        tell_lead(core, agent, text);
     }
 }
 

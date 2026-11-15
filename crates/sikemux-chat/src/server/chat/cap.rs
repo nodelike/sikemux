@@ -57,6 +57,8 @@ pub struct Meter {
     context: AtomicU64,
     /// The session was compacted since its last call, so its idle stretch needs no other.
     compacted: AtomicBool,
+    /// When the session last lost what it was told: it was compacted or started fresh.
+    forgot_at: AtomicU64,
     /// When the core asked for the compaction still running, or 0.
     compacting_since: AtomicU64,
     /// The person chose to keep the full history for the next message after the cache expired.
@@ -74,6 +76,8 @@ pub struct KeptMeter {
     compacted: bool,
     #[serde(default)]
     keeps_history: bool,
+    #[serde(default)]
+    forgot_at: u64,
 }
 
 impl KeptMeter {
@@ -89,6 +93,7 @@ impl Meter {
             context: self.context.load(Ordering::Acquire),
             compacted: self.compacted.load(Ordering::Acquire),
             keeps_history: self.keeps_history.load(Ordering::Acquire),
+            forgot_at: self.forgot_at.load(Ordering::Acquire),
         }
     }
 
@@ -99,6 +104,7 @@ impl Meter {
         self.compacted.store(kept.compacted, Ordering::Release);
         self.keeps_history
             .store(kept.keeps_history, Ordering::Release);
+        self.forgot_at.store(kept.forgot_at, Ordering::Release);
     }
 
     pub fn called(&self, context: u64) {
@@ -111,6 +117,11 @@ impl Meter {
     pub fn compacted(&self, context: u64) {
         self.context.store(context, Ordering::Release);
         self.compacted.store(true, Ordering::Release);
+        self.forgot_at.store(epoch_ms(), Ordering::Release);
+    }
+
+    pub fn forgot_at(&self) -> u64 {
+        self.forgot_at.load(Ordering::Acquire)
     }
 
     /// The core's own compaction runs, so the agent is at work though no turn shows.
@@ -132,6 +143,7 @@ impl Meter {
         self.last_call_ms.store(0, Ordering::Release);
         self.context.store(0, Ordering::Release);
         self.compacted.store(false, Ordering::Release);
+        self.forgot_at.store(epoch_ms(), Ordering::Release);
     }
 
     pub fn compaction_over(&self) {
@@ -239,6 +251,13 @@ pub fn standing(turn: &TurnState, now: u64) -> String {
 }
 
 pub fn waited(wait: &TurnWait, now: u64) -> String {
+    if wait.kind == TurnWaitKind::Land {
+        return format!(
+            "its land onto {}, since {}",
+            wait.what,
+            ago(now, wait.started_at)
+        );
+    }
     let kind = match wait.kind {
         TurnWaitKind::Ci => "CI",
         TurnWaitKind::Deploy => "a deploy",
@@ -248,6 +267,7 @@ pub fn waited(wait: &TurnWait, now: u64) -> String {
         TurnWaitKind::Check => "a check",
         TurnWaitKind::Line => "its turn on the host",
         TurnWaitKind::InUse => "something in use",
+        TurnWaitKind::Land => "a land",
         TurnWaitKind::Unknown => "something",
     };
     format!("{kind}, {}, since {}", wait.what, ago(now, wait.started_at))

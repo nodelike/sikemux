@@ -103,6 +103,8 @@ export function waitingOn(wait: TurnWait, say: Say = english): string {
             return wait.what;
         case "inUse":
             return say("Waiting for {what}", { what: wait.what });
+        case "land":
+            return say("Waiting to land on {branch}", { branch: wait.what });
         default:
             return say("Waiting on {what}", { what: wait.what });
     }
@@ -114,7 +116,7 @@ export function waitingOn(wait: TurnWait, say: Say = english): string {
  */
 export function waited(wait: TurnWait, now = Date.now(), say: Say = english): string[] {
     if (wait.kind === "timer") return [];
-    if (wait.kind === "line") {
+    if (wait.kind === "line" || wait.kind === "land") {
         return [...(wait.place != null ? [inLine(wait.place, say)] : []), ...(wait.expectedMs != null ? [about(wait.expectedMs, say)] : [])];
     }
     const gone = Math.floor(Math.max(0, now - wait.startedAt) / MINUTE);

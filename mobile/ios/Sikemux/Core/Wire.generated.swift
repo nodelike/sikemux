@@ -2175,6 +2175,8 @@ enum TurnWaitKind: String, Codable, Hashable, Sendable {
     case line
     /// Something used one at a time is in use by another.
     case inUse
+    /// Its commits wait in line to land on their branch.
+    case land
     /// One added after this build.
     case unknown
 

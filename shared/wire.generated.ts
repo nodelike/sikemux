@@ -1317,7 +1317,7 @@ export interface TurnWait {
     agents?: string[];
 }
 
-export type TurnWaitKind = "ci" | "deploy" | "agent" | "timer" | "process" | "check" | "line" | "inUse";
+export type TurnWaitKind = "ci" | "deploy" | "agent" | "timer" | "process" | "check" | "line" | "inUse" | "land";
 
 /** What the agent waits on the person for. */
 export interface TurnCall {

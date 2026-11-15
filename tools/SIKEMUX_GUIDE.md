@@ -692,8 +692,10 @@ share yours. It lands on your branch with `git_commit` `land: true`.
 person or the task asks for one.
 
 Each time its turn ends, its final answer comes to you as a message, cut to
-about 4 KB; `report: false` turns that off. Carry on rather than waiting for
-it.
+about 4 KB; `report: false` turns that off. A turn it ends on something set to
+wake it, such as a trigger, a run or a land in line, sends you nothing unless it
+asks something; `agent_list` says what it waits on, and you hear once its land
+goes in or is sent back. Carry on rather than waiting for it.
 
 ### Starting an agent on another host
 

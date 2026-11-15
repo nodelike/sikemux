@@ -92,6 +92,7 @@ enum CallWords {
             wait.until.map { String(localized: "Waiting until \(ChatWords.clock($0))") } ?? String(localized: "Waiting")
         case .line: wait.what
         case .inUse: String(localized: "Waiting for \(wait.what)")
+        case .land: String(localized: "Waiting to land on \(wait.what)")
         case .process, .unknown: String(localized: "Waiting on \(wait.what)")
         }
     }
@@ -101,7 +102,7 @@ enum CallWords {
     static func waited(_ wait: TurnWait, nowMs: Int) -> [String] {
         switch wait.kind {
         case .timer: return []
-        case .line: return [wait.place.map(inLine), wait.expectedMs.map(about)].compactMap { $0 }
+        case .line, .land: return [wait.place.map(inLine), wait.expectedMs.map(about)].compactMap { $0 }
         case .inUse:
             let gone = max(0, nowMs - wait.startedAt) / 60_000
             return [

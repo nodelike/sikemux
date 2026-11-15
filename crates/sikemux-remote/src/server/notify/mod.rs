@@ -542,7 +542,10 @@ fn apply(core: &Core, signal: Signal, now: u64) {
                 started.is_some_and(|started| now.saturating_sub(started) >= FINISHED_AFTER_MS);
             let asking = (core.remote_above().waits_on_answer)(core, &agent_id);
             let waits = (core.remote_above().turn_state_set_a_wake)(core, &agent_id);
-            if long && !cancelled && !asking && !waits {
+            let said_nothing = || {
+                (core.chats().get(&agent_id)).is_some_and(|chat| chat.feed.last_answer().is_none())
+            };
+            if long && !cancelled && !asking && !waits && !said_nothing() {
                 if let Some(draft) = finished(core, &agent_id, now) {
                     alert_all(core, &draft, now);
                 }

@@ -352,6 +352,7 @@ fn fact_words(fact: &NowFact, named: &impl Fn(&str) -> String) -> String {
                     return format!("waiting on {who}");
                 }
                 TurnWaitKind::Line => "in line",
+                TurnWaitKind::Land => "waiting to land",
                 TurnWaitKind::InUse => "waiting on something in use",
                 TurnWaitKind::Ci => "waiting on CI",
                 TurnWaitKind::Deploy => "waiting on a deploy",

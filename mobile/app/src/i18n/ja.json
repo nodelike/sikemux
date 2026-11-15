@@ -608,6 +608,7 @@
   "Waiting for permission: {tool}": "許可待ち: {tool}",
   "Waiting for {host} to allow this phone": "{host} がこのスマートフォンを許可するのを待っています",
   "Waiting for {what}": "{what} を待機中",
+  "Waiting to land on {branch}": "{branch} への取り込み待ち",
   "Waiting on CI": "CI を待機中",
   "Waiting on the checks": "チェックを待機中",
   "Waiting on the deploy": "デプロイを待機中",

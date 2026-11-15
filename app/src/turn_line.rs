@@ -202,10 +202,12 @@ pub fn brief(turn: &TurnState, now: u64) -> Option<String> {
             Some(TurnWaitKind::Deploy) => with(t!("deploy")),
             Some(TurnWaitKind::Check) => with(t!("checks")),
             Some(TurnWaitKind::Timer) => with(t!("timer")),
-            Some(TurnWaitKind::Line) => match turn.wait.as_ref().and_then(|wait| wait.place) {
-                Some(place) => in_line(place),
-                None => t!("in line").to_owned(),
-            },
+            Some(TurnWaitKind::Line | TurnWaitKind::Land) => {
+                match turn.wait.as_ref().and_then(|wait| wait.place) {
+                    Some(place) => in_line(place),
+                    None => t!("in line").to_owned(),
+                }
+            }
             _ => with(t!("waiting")),
         },
         TurnPhase::NeedsYou => with(t!("needs you")),
@@ -256,6 +258,7 @@ fn waiting_on(wait: &TurnWait) -> String {
         },
         TurnWaitKind::Line => wait.what.clone(),
         TurnWaitKind::InUse => t!("Waiting for {what}", what = wait.what),
+        TurnWaitKind::Land => t!("Waiting to land on {branch}", branch = wait.what),
         TurnWaitKind::Process | TurnWaitKind::Unknown => {
             t!("Waiting on {what}", what = wait.what)
         }
@@ -268,7 +271,7 @@ fn waited(wait: &TurnWait, now: u64) -> Vec<String> {
     let gone = now.saturating_sub(wait.started_at) / 60_000;
     match wait.kind {
         TurnWaitKind::Timer => Vec::new(),
-        TurnWaitKind::Line => (wait.place.map(in_line))
+        TurnWaitKind::Line | TurnWaitKind::Land => (wait.place.map(in_line))
             .into_iter()
             .chain(wait.expected_ms.map(about))
             .collect(),
