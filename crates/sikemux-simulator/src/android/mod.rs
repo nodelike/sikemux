@@ -340,6 +340,24 @@ impl Android {
         Ok(display)
     }
 
+    /// The screen's corner radius as a share of its short side, as Android rounds the corners
+    /// it draws over the picture.
+    async fn corner(&self, udid: &str) -> Option<f64> {
+        let serial = self.serial(udid).await.ok()?;
+        let display = self.display(&serial).await.ok()?;
+        let dump = self.shell(&serial, "dumpsys display").await.ok()?;
+        let radius: f64 = dump
+            .split("RoundedCorner{")
+            .nth(1)?
+            .split("radius=")
+            .nth(1)?
+            .split(|c: char| !c.is_ascii_digit())
+            .next()?
+            .parse()
+            .ok()?;
+        Some(radius / display.width.min(display.height))
+    }
+
     async fn launcher(&self, serial: &str) -> Option<String> {
         if let Some(known) = self.launchers.locked().get(serial) {
             return known.clone();
@@ -382,7 +400,7 @@ impl Android {
                 Ok(json!({}))
             }
             "chrome" => Ok(json!({ "chrome": null })),
-            "mask" => Ok(json!({ "mask": null })),
+            "mask" => Ok(json!({ "mask": null, "corner": self.corner(&udid).await })),
             "screen" => {
                 let serial = self.serial(&udid).await?;
                 let display = self.display(&serial).await?;

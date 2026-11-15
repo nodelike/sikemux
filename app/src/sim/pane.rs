@@ -101,6 +101,8 @@ struct Screen {
     turn: Turn,
     /// The device's own frame, once the helper has drawn it.
     chrome: Option<Rc<Chrome>>,
+    /// The screen's corner radius as a share of its short side, when the device says.
+    corner: Option<f32>,
     /// The side button the person is holding down.
     held: Option<String>,
     /// Where the screen was last drawn, to turn the pointer into device points.
@@ -740,6 +742,11 @@ impl Simulators {
                 });
                 let _ = sims.update(cx, |sims, cx| {
                     if let Some(screen) = sims.screens.get_mut(&agent) {
+                        screen.corner = read.as_ref().map(|chrome| chrome.corner).or_else(|| {
+                            mask.as_ref()
+                                .and_then(|mask| mask["corner"].as_f64())
+                                .map(|corner| corner as f32)
+                        });
                         screen.chrome = read.map(Rc::new);
                     }
                     cx.notify();
@@ -756,6 +763,7 @@ impl Simulators {
                 orientation: String::new(),
                 turn,
                 chrome: None,
+                corner: None,
                 held: None,
                 drawn: Rc::new(Cell::new(Bounds::default())),
                 input,
@@ -1494,14 +1502,14 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
     let Some(screen) = sims.screens.get(agent) else {
         return div().into_any_element();
     };
-    let corner = screen.chrome.as_ref().map(|chrome| chrome.corner);
+    let corner = screen.corner;
     #[cfg(target_os = "macos")]
     let buffer = screen.picture.locked().as_ref().map(|frame| frame.buffer());
     let picture = canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
-            let radii =
-                gpui::Corners::all(corner.map_or(px(28.), |corner| bounds.size.width * corner));
+            let short = bounds.size.width.min(bounds.size.height);
+            let radii = gpui::Corners::all(corner.map_or(px(28.), |corner| short * corner));
             window.paint_quad(gpui::fill(bounds, gpui::black()).corner_radii(radii));
             #[cfg(target_os = "macos")]
             if let Some(buffer) = buffer {

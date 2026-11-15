@@ -644,6 +644,13 @@ impl RgbFrames {
         if width == 0 || height == 0 || pixels.len() < width * height * 3 {
             return Err("the screen's picture is cut short".into());
         }
+        let row = width * 3;
+        // The surfaces hold colour once per two pixels, so an odd last column or row would
+        // show with no colour, as a green line.
+        let (width, height) = (width & !1, height & !1);
+        if width == 0 || height == 0 {
+            return Err("the screen's picture is too small to show".into());
+        }
         if self.pool.is_none_or(|(w, h, _)| (w, h) != (width, height)) {
             self.release_pool();
             let made = pool((width, height)).ok_or("no buffers for the screen's pictures")?;
@@ -662,7 +669,7 @@ impl RgbFrames {
                 height,
                 RGB,
                 pixels.as_ptr().cast_mut().cast(),
-                width * 3,
+                row,
                 ptr::null(),
                 ptr::null_mut(),
                 ptr::null(),
