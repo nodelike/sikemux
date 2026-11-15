@@ -121,7 +121,7 @@ fn told_text(core: &Core, agent: &WorkspaceAgent, to: &str) -> Option<String> {
         false => "Its lead has closed, so this comes to you as the project's chief. It",
     };
     Some(format!(
-        "{whose} has been idle for {} minutes with {} that are not on {branch}:\n{}\n\nLand them (ask it to run git_commit with land: true, or land them yourself), or close it if they are not wanted. You hear this once until it works again.",
+        "{whose} has been idle for {} minutes with {} off {branch}:\n{}\n\nLand what is listed (ask it to run git_commit with land: true, or land it yourself), or close it if that work is not wanted. You hear this once until it works again.",
         GRACE_MS / 60_000,
         match commits.len() {
             1 => "a commit".to_owned(),
