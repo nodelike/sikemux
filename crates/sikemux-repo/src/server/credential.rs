@@ -23,12 +23,12 @@ pub fn provide(core: &Arc<Core>) {
     let core = Arc::downgrade(core);
     identity::provide(move |remote| {
         let core = core.upgrade()?;
-        let Acting::Agents(actor) = crate::server::plugged::acts_as(&core, remote)? else {
-            return None;
-        };
-        Some(identity::Actor {
-            name: actor.name,
-            email: actor.email,
+        Some(match crate::server::plugged::acts_as(&core, remote)? {
+            Acting::Agents(actor) => identity::Acts::Agents(identity::Actor {
+                name: actor.name,
+                email: actor.email,
+            }),
+            Acting::Person => identity::Acts::Person,
         })
     });
 }
@@ -92,6 +92,7 @@ async fn answer(
     grant: Option<&str>,
     project: String,
 ) -> Result<Option<Credential>, sikemux_calls::plugins::PluginFailure> {
+    let mut reach = Reach::Agent;
     let agent = match asker {
         Asker::Agent(agent) => Some(agent),
         Asker::Core => {
@@ -103,12 +104,15 @@ async fn answer(
                     return Ok(Some(found));
                 }
             }
+            if crate::server::plugged::acts_as(core, remote) == Some(Acting::Person) {
+                reach = Reach::Core;
+            }
             None
         }
     };
     let ask = Ask {
         remote: remote.to_owned(),
-        reach: Reach::Agent,
+        reach,
     };
     let caller = Caller {
         agent,

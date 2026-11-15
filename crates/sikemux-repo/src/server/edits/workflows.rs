@@ -8,7 +8,7 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex, Weak};
 
-use sikemux_plugin_api::credential::{Ask, Credential, Reach};
+use sikemux_plugin_api::credential::{Acting, Ask, Credential, Reach};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallOutcome, CallResult, PersonCall};
@@ -34,7 +34,7 @@ pub fn guarded(core: &Core, dir: &Path, remote: &str) -> Option<String> {
     let url = Git::quick(dir)
         .trimmed(&["remote", "get-url", "--push", remote])
         .ok()?;
-    plugged::acts_as(core, &url).map(|_| url)
+    matches!(plugged::acts_as(core, &url), Some(Acting::Agents(_))).then_some(url)
 }
 
 /// The files under `.github/workflows` that `commit` adds, changes or deletes.
@@ -267,7 +267,7 @@ pub fn forward(
     remote: &str,
     updates: &[(String, String, String)],
 ) -> Result<Option<Grant>, String> {
-    if plugged::acts_as(core, remote).is_none() {
+    if !matches!(plugged::acts_as(core, remote), Some(Acting::Agents(_))) {
         return Ok(None);
     }
     let carried = carried(outbox, updates)

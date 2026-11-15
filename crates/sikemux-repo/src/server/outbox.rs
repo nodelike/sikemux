@@ -302,6 +302,13 @@ async fn send(core: &Arc<Core>, outbox: &Path, remote: &str, updates: &[Update])
                 remote: remote.to_owned(),
                 minted: None,
             });
+            if minted(core, &name, remote).await.is_none() {
+                FORWARDS.locked().retain(|forward| forward.name != name);
+                return (
+                    false,
+                    format!("Sikemux has no key that can push to {remote}. Open its connector in Settings and sign in again, then push once more."),
+                );
+            }
             name
         }
     };

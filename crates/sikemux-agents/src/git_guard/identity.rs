@@ -1,7 +1,8 @@
 //! Repositories whose remote has an identity of the agents' own, such as a GitHub App. Git
 //! that reaches such a remote asks the core for a credential that lasts one command, in place
 //! of the person's keychain and SSH key, and the commits agents make there carry that identity
-//! as committer. Every other remote works as it always has.
+//! as committer. A remote the core pushes to with the person's own sign-in only has its pushes
+//! go through the core. Every other remote works as it always has.
 //!
 //! The core keeps the list in a file beside the commit hooks, which the `git` and `gh`
 //! stand-ins read, and hands the same settings to the git it runs itself. All of it reaches git
@@ -27,10 +28,26 @@ pub struct Actor {
     pub email: String,
 }
 
+/// Who the core pushes to a remote as.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Acts {
+    Agents(Actor),
+    Person,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Acting {
     remote: String,
-    actor: Actor,
+    acts: Acts,
+}
+
+impl Acting {
+    fn actor(&self) -> Option<&Actor> {
+        match &self.acts {
+            Acts::Agents(actor) => Some(actor),
+            Acts::Person => None,
+        }
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -41,7 +58,7 @@ struct List {
     remotes: Vec<Acting>,
 }
 
-type Lookup = Box<dyn Fn(&str) -> Option<Actor> + Send + Sync>;
+type Lookup = Box<dyn Fn(&str) -> Option<Acts> + Send + Sync>;
 
 struct Kept {
     folder: PathBuf,
@@ -80,32 +97,32 @@ pub(super) fn install(folder: &Path, endpoint: &Path) {
     *KEPT.locked() = Some(kept);
 }
 
-/// How the core tells whether a remote, as git has its address, has an identity, from what
-/// it already knows and without asking over the network.
-pub fn provide(lookup: impl Fn(&str) -> Option<Actor> + Send + Sync + 'static) {
+/// How the core tells who it pushes to a remote as, with git's address for it, from what it
+/// already knows and without asking over the network.
+pub fn provide(lookup: impl Fn(&str) -> Option<Acts> + Send + Sync + 'static) {
     let _ = LOOKUP.set(Box::new(lookup));
 }
 
 /// Looks again at the remotes of the repository at `dir` and keeps the list right for them.
-/// Whether one of them has an identity.
+/// Whether one of them has an identity of the agents' own.
 pub fn note(dir: &Path) -> bool {
     let Some(lookup) = LOOKUP.get() else {
         return false;
     };
     let urls = remote_urls(dir);
-    let found: Vec<(String, Option<Actor>)> = urls
+    let found: Vec<(String, Option<Acts>)> = urls
         .into_iter()
         .map(|url| {
-            let actor = lookup(&url);
-            (url, actor)
+            let acts = lookup(&url);
+            (url, acts)
         })
         .collect();
-    let acting = found.iter().any(|(_, actor)| actor.is_some());
+    let acting = (found.iter()).any(|(_, acts)| matches!(acts, Some(Acts::Agents(_))));
     change(|remotes| {
-        for (url, actor) in found {
+        for (url, acts) in found {
             remotes.retain(|kept| kept.remote != url);
-            if let Some(actor) = actor {
-                remotes.push(Acting { remote: url, actor });
+            if let Some(acts) = acts {
+                remotes.push(Acting { remote: url, acts });
             }
         }
     });
@@ -119,7 +136,7 @@ pub fn forget(remote: &str) {
     change(|remotes| remotes.retain(|kept| key_of(&kept.remote) != key));
 }
 
-/// Whether `remote` has an identity of the agents' own, however its address is written.
+/// Whether the core pushes to `remote`, however its address is written.
 pub fn has(remote: &str) -> bool {
     let key = key_of(remote);
     KEPT.locked()
@@ -165,7 +182,7 @@ pub fn actor_of(dir: &Path) -> Option<Actor> {
     remotes
         .iter()
         .find(|kept| urls.contains(&kept.remote))
-        .map(|kept| kept.actor.clone())
+        .and_then(|kept| kept.actor().cloned())
 }
 
 /// What a commit the core makes for agents carries for its committer to be the identity of
@@ -193,9 +210,8 @@ pub(super) fn agent_settings(folder: &Path) -> Vec<(String, String)> {
 pub(super) fn acting_remote(folder: &Path, urls: impl FnOnce() -> Vec<String>) -> Option<String> {
     let list = read(folder)?;
     let urls = urls();
-    let keys: Vec<String> = list
-        .remotes
-        .iter()
+    let keys: Vec<String> = (list.remotes.iter())
+        .filter(|kept| kept.actor().is_some())
         .map(|kept| key_of(&kept.remote))
         .collect();
     urls.iter()
@@ -227,13 +243,13 @@ fn change(edit: impl FnOnce(&mut Vec<Acting>)) {
 }
 
 fn write(kept: &Kept) -> std::io::Result<()> {
-    for acting in &kept.list.remotes {
-        let file = actor_file(&kept.folder, &acting.actor);
+    for actor in kept.list.remotes.iter().filter_map(Acting::actor) {
+        let file = actor_file(&kept.folder, actor);
         if !file.is_file() {
             let text = format!(
                 "[committer]\n\tname = {}\n\temail = {}\n",
-                config_quoted(&acting.actor.name),
-                config_quoted(&acting.actor.email),
+                config_quoted(&actor.name),
+                config_quoted(&actor.email),
             );
             sikemux_process::files::write_atomic(&file, text.as_bytes(), false)?;
         }
@@ -257,8 +273,9 @@ fn config_quoted(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// For each remote: git asks only the core for its credential, never the person's keychain,
-/// reaches it over `https`, never the person's SSH key, and pushes through the core.
+/// For each remote: git pushes through the core. With an identity of the agents' own, git also
+/// asks only the core for its credential, never the person's keychain, and reaches the remote
+/// over `https`, never the person's SSH key.
 fn remote_settings(list: &List) -> Vec<(String, String)> {
     let mut settings = Vec::new();
     if !list.remotes.is_empty() {
@@ -268,12 +285,6 @@ fn remote_settings(list: &List) -> Vec<(String, String)> {
         let Some(https) = https_of(&acting.remote) else {
             continue;
         };
-        let credential = format!("credential.{https}");
-        settings.extend([
-            (format!("{credential}.helper"), String::new()),
-            (format!("{credential}.helper"), list.helper.clone()),
-            (format!("{credential}.useHttpPath"), "true".to_owned()),
-        ]);
         let Some((host, path)) = host_and_path(&https) else {
             continue;
         };
@@ -281,8 +292,16 @@ fn remote_settings(list: &List) -> Vec<(String, String)> {
             format!("git@{host}:{path}"),
             format!("ssh://git@{host}/{path}"),
         ];
-        for ssh in &ssh {
-            settings.push((format!("url.{https}.insteadOf"), ssh.clone()));
+        if acting.actor().is_some() {
+            let credential = format!("credential.{https}");
+            settings.extend([
+                (format!("{credential}.helper"), String::new()),
+                (format!("{credential}.helper"), list.helper.clone()),
+                (format!("{credential}.useHttpPath"), "true".to_owned()),
+            ]);
+            for ssh in &ssh {
+                settings.push((format!("url.{https}.insteadOf"), ssh.clone()));
+            }
         }
         let pushed = format!("url.{} {https}.pushInsteadOf", list.outbox);
         for address in std::iter::once(&https).chain(&ssh) {
@@ -298,15 +317,14 @@ fn ext_quoted(text: &str) -> String {
 }
 
 fn committer_of(folder: &Path, list: &List) -> Vec<(String, String)> {
-    list.remotes
-        .iter()
-        .map(|acting| {
-            (
+    (list.remotes.iter())
+        .filter_map(|acting| {
+            Some((
                 format!("includeIf.hasconfig:remote.*.url:{}.path", acting.remote),
-                actor_file(folder, &acting.actor)
+                actor_file(folder, acting.actor()?)
                     .to_string_lossy()
                     .into_owned(),
-            )
+            ))
         })
         .collect()
 }
