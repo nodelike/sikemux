@@ -129,8 +129,13 @@ check_keychain_entitlements() {
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   [[ "$(/usr/bin/plutil -extract ExpirationDate raw -o - "$decoded")" > "$now" ]] || fail "$(basename "$profile") has expired"
 }
-check_keychain_entitlements "$ARCHIVE_APP" app sikemux-developer-id.provisionprofile
-check_keychain_entitlements "$CORE_APP" core sikemux-core-developer-id.provisionprofile
+if grep -q '^Authority=' <<<"$(signing_info "$ARCHIVE_APP")"; then
+  check_keychain_entitlements "$ARCHIVE_APP" app sikemux-developer-id.provisionprofile
+  check_keychain_entitlements "$CORE_APP" core sikemux-core-developer-id.provisionprofile
+else
+  [[ ! -e "$ARCHIVE_APP/Contents/embedded.provisionprofile" && ! -e "$CORE_APP/Contents/embedded.provisionprofile" ]] ||
+    fail "an ad hoc signed app embeds a provisioning profile, which macOS refuses to launch"
+fi
 NOTCH_APP="$ARCHIVE_APP/Contents/Helpers/Sikemux Notch.app"
 grep -q 'flags=.*runtime' <<<"$(signing_info "$NOTCH_APP")" || fail "notch helper lacks the hardened runtime"
 

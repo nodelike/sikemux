@@ -183,9 +183,14 @@ if [[ "$STAGE" == "all" ]]; then
       fail "Apple notarization credentials are not configured"
     fi
   else
-    # shellcheck disable=SC2034 # signing() hands it to the signing steps
-    SIGNING_APPLE_SIGNING_IDENTITY=-
-    echo "! Community release: updater-signed and ad-hoc code signed, but not Apple-notarized." >&2
+    identity="$(signing_value APPLE_SIGNING_IDENTITY)"
+    if [[ -n "$identity" ]] && /usr/bin/security find-identity -v -p codesigning | grep -Fq "\"$identity\""; then
+      echo "! Signed as $identity but not Apple-notarized." >&2
+    else
+      # shellcheck disable=SC2034 # signing() hands it to the signing steps
+      SIGNING_APPLE_SIGNING_IDENTITY=-
+      echo "! Community release: updater-signed and ad-hoc code signed, without the shared keychain." >&2
+    fi
   fi
 fi
 # The Release workflow checks the tag and the GitHub release before it builds.

@@ -35,7 +35,7 @@ if [[ "$NOTARIZED" == "1" ]]; then
   fi
   TIMESTAMP=(--timestamp)
 else
-  IDENTITY=-
+  IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
   TIMESTAMP=()
 fi
 # Each tool below gets only the secret it needs.
@@ -109,11 +109,18 @@ notarize() {
 }
 
 echo "→ Signing $APP_NAME.app as $IDENTITY"
-# The profiles let the app and its core claim the keychain group they share.
-/usr/bin/ditto "$ROOT/packaging/macos/sikemux-developer-id.provisionprofile" "$APP/Contents/embedded.provisionprofile"
-/usr/bin/ditto "$ROOT/packaging/macos/sikemux-core-developer-id.provisionprofile" "$CORE_APP/Contents/embedded.provisionprofile"
-"$ROOT/scripts/mac-entitlements.sh" app >"$WORK/app.entitlements"
-"$ROOT/scripts/mac-entitlements.sh" core >"$WORK/core.entitlements"
+if [[ "$IDENTITY" == "-" ]]; then
+  # macOS refuses to launch an ad hoc signature that claims a team's keychain group.
+  rm -f "$APP/Contents/embedded.provisionprofile" "$CORE_APP/Contents/embedded.provisionprofile"
+  cp "$ROOT/packaging/Entitlements.plist" "$WORK/app.entitlements"
+  cp "$ROOT/packaging/Entitlements.plist" "$WORK/core.entitlements"
+else
+  # The profiles let the app and its core claim the keychain group they share.
+  /usr/bin/ditto "$ROOT/packaging/macos/sikemux-developer-id.provisionprofile" "$APP/Contents/embedded.provisionprofile"
+  /usr/bin/ditto "$ROOT/packaging/macos/sikemux-core-developer-id.provisionprofile" "$CORE_APP/Contents/embedded.provisionprofile"
+  "$ROOT/scripts/mac-entitlements.sh" app >"$WORK/app.entitlements"
+  "$ROOT/scripts/mac-entitlements.sh" core >"$WORK/core.entitlements"
+fi
 /usr/bin/codesign --force --options runtime ${TIMESTAMP[@]+"${TIMESTAMP[@]}"} --sign "$IDENTITY" "$NOTCH_APP"
 /usr/bin/codesign --force --options runtime ${TIMESTAMP[@]+"${TIMESTAMP[@]}"} \
   --entitlements "$WORK/core.entitlements" --sign "$IDENTITY" "$CORE_APP"
