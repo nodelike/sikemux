@@ -362,13 +362,14 @@ fn send_back(core: &Arc<Core>, key: &Key, waiting: &Waiting, why: &str) {
             waiting.short(),
             key.1
         ),
+        false,
     );
 }
 
 /// Tells the agent's lead, when it has one, how its land went: its turn ended before the land did,
-/// so no report of that turn says so.
-fn tell_lead(core: &Arc<Core>, agent: &str, text: String) {
-    (core.repo_above().messages_tell_lead)(core, agent, text);
+/// so no report of that turn says so. A calm note is a land that went in with nothing to fix.
+fn tell_lead(core: &Arc<Core>, agent: &str, text: String, calm: bool) {
+    (core.repo_above().messages_tell_lead)(core, agent, text, calm);
 }
 
 /// Hands the agent work about its land, waking it if need be: a notice would be
@@ -792,7 +793,7 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
         if waiting.push {
             pushers.push((waiting.agent.clone(), on));
         } else {
-            tell_lead(core, &waiting.agent, format!("Its land of {on}."));
+            tell_lead(core, &waiting.agent, format!("Its land of {on}."), true);
         }
     }
     if pushers.is_empty() {
@@ -807,23 +808,23 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
         super::push::tell_sent_back(core, &tokio::runtime::Handle::current(), pushed)
     });
     for (agent, on) in &pushers {
-        let text = match &pushed {
+        let (text, calm) = match &pushed {
             Ok(pushed) if (pushed.blocked.iter()).any(|blocked| blocked.owners.contains(agent)) => {
-                format!(
+                (format!(
                     "Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again."
-                )
+                ), false)
             }
-            Ok(_) => format!("Its land of {on}, and pushed."),
+            Ok(_) => (format!("Its land of {on}, and pushed."), true),
             Err(error) => {
                 tell(
                     core,
                     agent,
                     format!("Your commits landed on {} but did not push: {error}", key.1),
                 );
-                format!("Its land of {on}, but did not push: {error}")
+                (format!("Its land of {on}, but did not push: {error}"), false)
             }
         };
-        tell_lead(core, agent, text);
+        tell_lead(core, agent, text, calm);
     }
 }
 

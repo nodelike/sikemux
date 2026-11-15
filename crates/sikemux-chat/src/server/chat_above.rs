@@ -47,8 +47,9 @@ pub struct ChatAbove {
     pub start_new: for<'a> fn(&'a Arc<Core>, ChatChoice) -> Doing<'a, CoreResult<String>>,
     /// Gives a launch a home of its own for agents that keep one; whether it changed.
     pub own_home: for<'a> fn(&'a Core, &'a mut ChatLaunch) -> Doing<'a, bool>,
-    /// What a chief is told of what happened while its session was away.
-    pub chief_digest: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, Vec<ChatContext>>,
+    /// What an agent's turn starts with: a chief's digest of what happened since its last turn,
+    /// and any lead's calm reports from the agents it started.
+    pub turn_digest: for<'a> fn(&'a Arc<Core>, &'a str) -> Doing<'a, Vec<ChatContext>>,
     /// A chat on `account`, one of the person's profiles or the default one when absent, was
     /// refused for sign-in: the account is signed out now, whatever its CLI last said.
     pub agent_accounts_chat_refused: fn(&Core, &str, Option<&str>),

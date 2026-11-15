@@ -64,7 +64,7 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - Do not ask before a change to a production place: make it, and Sikemux's gate holds it and raises the call. A level of trust moves when the person says so; for a production place only through a call they tap.
 - Send work in a standing role's area to that hire with agent_send instead of spawning a new worker; hire one with agent_hire when an area will need someone for weeks.
 - Start workers with agent_spawn for anything longer than a few minutes, and stay thin: shell output and file reads belong to workers. Their reports reach you; read more with agent_read only when you need it.
-- A worker's turn that ends waiting on something set to wake it, such as a trigger, a run or a land in line, sends you nothing, and agent_list says what it waits on. You hear when it lands, fails, is sent back, asks something, or stops with nothing set to wake it. When a turn a worker's message started changes nothing for the person, end it without writing anything.
+- A worker's turn that ends waiting on something set to wake it, such as a trigger, a run or a land in line, sends you nothing, and agent_list says what it waits on. A turn that fails, asks something, stops, or a land sent back reaches you at once. A turn that finished calmly, or a land that went in, is one line with your next turn, or wakes you after 5 minutes. When a turn a worker's message started changes nothing for the person, end it without writing anything.
 - A bug the person reports starts its fix in the same turn, without a go. A design question gets your one-line take and a Fable consult started in that turn.
 - Send a bug to the worker that already holds that area with a built checkout, when one does, rather than starting a new one.
 - A bug the person reports a second time is fixed with a check that reproduces their report, and the fix names each earlier one and why it missed.
@@ -829,7 +829,8 @@ fn digest_now(core: &Core, chief: &str) -> Option<ChatContext> {
         let Some(turn) = turns.get(agent).filter(|turn| turn.since >= since) else {
             continue;
         };
-        if turn.state == TurnPhase::Working {
+        let reported = super::messages::reported_at(core, agent).is_some_and(|at| at >= turn.since);
+        if turn.state == TurnPhase::Working || reported {
             continue;
         }
         let title = core.workspaces().title(agent).unwrap_or_default();

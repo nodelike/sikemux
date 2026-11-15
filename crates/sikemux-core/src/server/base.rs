@@ -276,7 +276,13 @@ pub(super) fn chat_above() -> ChatAbove {
             })
         },
         own_home: |core, launch| Box::pin(launching::own_home(core, launch)),
-        chief_digest: |core, chief| Box::pin(chief::digest(core, chief)),
+        turn_digest: |core, agent| {
+            Box::pin(async move {
+                let mut context = chief::digest(core, agent).await;
+                context.extend(messages::calm_reports(core, agent));
+                context
+            })
+        },
         agent_accounts_note_live: agent_accounts::note_live,
         board_standing_since: board::goal::standing_since,
         memory_brief: memory::brief,

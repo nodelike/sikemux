@@ -602,6 +602,11 @@ pub(crate) fn wrote(core: &Core, agent_id: &str) {
     });
 }
 
+/// Where the agent's work is in git now, read afresh.
+pub(crate) fn work_now(core: &Arc<Core>, agent_id: &str) -> Option<WorkAt> {
+    work_of(core, agent_id).map(|work| work.changes)
+}
+
 fn keep_work(core: &Arc<Core>, agent_id: &str) {
     let Some(work) = work_of(core, agent_id) else {
         return;

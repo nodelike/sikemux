@@ -963,7 +963,7 @@ async fn spawn_terminal(
 }
 
 /// What a lead is told of a worker it starts that reports to it.
-const REPORTS: &str = " Each time its turn ends, its final answer comes to you as a message, unless it ends on something set to wake it, such as a trigger, a run or a land in line, and asks nothing; you hear once its land goes in or is sent back.";
+const REPORTS: &str = " When its turn fails, stops or asks something, or its land is sent back, you hear at once. A turn that finished calmly, or a land that went in, comes as one line with your next turn, or wakes you after 5 minutes. A turn that ends on something set to wake it sends nothing.";
 
 /// Sends a worker's lead how its turn ended, unless it finished on something set to wake it and
 /// asks nothing: its row says what it waits on, and the lead hears once a land of its goes in.
@@ -1007,10 +1007,70 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending) {
             elsewhere::send_commits(&core, &worker).await;
             return;
         }
+        let settled = {
+            let (core, worker) = (core.clone(), worker.clone());
+            blocking(move || Ok(work_settled(&core, &worker))).await
+        };
+        let calm = is_calm(&ending, answer.as_ref(), settled.unwrap_or(false));
+        if let Some(line) = calm
+            .then(|| calm_line(&core, &worker, answer.as_ref()))
+            .flatten()
+        {
+            elsewhere::send_commits(&core, &worker).await;
+            messages::report_calm(&core, worker, lead, line).await;
+            return;
+        }
         let text = report(&core, &worker, ending, answer);
         elsewhere::send_commits(&core, &worker).await;
         messages::report(&core, worker, lead, text).await;
     });
+}
+
+/// What of a worker's report quotes its final answer, for a calm one.
+const CALM_QUOTE_CHARS: usize = 200;
+
+/// Whether the worker's work is landed or unchanged, and its turn left nothing of its plan open.
+fn work_settled(core: &Arc<Core>, worker: &str) -> bool {
+    use sikemux_view::turn::WorkAt;
+    let landed = matches!(
+        super::turn_state::work_now(core, worker),
+        Some(WorkAt::None | WorkAt::Landed | WorkAt::Staged | WorkAt::Shipped)
+    );
+    landed && super::turn_state::left_open(core, worker).is_none()
+}
+
+/// Whether a report can wait for its lead's next turn: the turn finished with its work
+/// `settled`, and its answer asks nothing. Any other report wakes the lead at once.
+fn is_calm(ending: &Ending, answer: Option<&TerminalAnswer>, settled: bool) -> bool {
+    let Some(TerminalAnswer::Said(said)) = answer else {
+        return false;
+    };
+    matches!(ending, Ending::Finished)
+        && settled
+        && !super::questions::asks_in(said)
+        && !out_of_usage(said)
+}
+
+/// The one line a calm report is, which quotes the start of the worker's final answer.
+fn calm_line(core: &Core, worker: &str, answer: Option<&TerminalAnswer>) -> Option<String> {
+    let Some(TerminalAnswer::Said(said)) = answer else {
+        return None;
+    };
+    let quote = crate::text::one_line(said).replace('"', "'");
+    let quote = crate::text::clipped(&quote, CALM_QUOTE_CHARS);
+    Some(
+        match core
+            .workspaces()
+            .title(worker)
+            .filter(|title| !title.is_empty())
+        {
+            Some(title) => format!(
+                "finished its turn on \"{}\": \"{quote}\"",
+                crate::text::one_line(&title).replace('"', "'")
+            ),
+            None => format!("finished its turn: \"{quote}\""),
+        },
+    )
 }
 
 fn quiet(core: &Core, worker: &str, ending: &Ending, answer: Option<&TerminalAnswer>) -> bool {

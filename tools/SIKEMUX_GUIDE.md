@@ -734,11 +734,13 @@ share yours. It lands on your branch with `git_commit` `land: true`.
 `mode: "terminal"` runs the CLI's own screen in a terminal tab, only when the
 person or the task asks for one.
 
-Each time its turn ends, its final answer comes to you as a message, cut to
-about 4 KB; `report: false` turns that off. A turn it ends on something set to
-wake it, such as a trigger, a run or a land in line, sends you nothing unless it
-asks something; `agent_list` says what it waits on, and you hear once its land
-goes in or is sent back. Carry on rather than waiting for it.
+A turn of its that fails, stops or asks something, and a land of its sent back,
+reach you at once, its final answer cut to about 6 KB. A turn that finished
+calmly, or a land that went in, is one line that comes with your next turn, or
+wakes you after 5 minutes; `agent_read` has the rest. A turn it ends on
+something set to wake it, such as a trigger, a run or a land in line, sends you
+nothing; `agent_list` says what it waits on. `report: false` turns reports off.
+Carry on rather than waiting for it.
 
 ### Starting an agent on another host
 
