@@ -868,6 +868,7 @@ pub(crate) async fn run_core(
         vault::start(&core);
     }
     git::follow_projects(&core);
+    sikemux_repo::server::edits::queue::resume(&core);
     backdrop::follow(&core);
     goal_summary::name_unnamed(&core);
     if let Some(data_dir) = config.data_dir.as_deref() {

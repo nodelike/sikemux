@@ -15,7 +15,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
@@ -123,7 +123,7 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         let mut lines = core.land_queue().0.locked();
         let line = lines.entry(key.clone()).or_default();
         let earlier = (line.waiting.iter()).position(|w| w.agent == agent_id && !w.checking);
-        match earlier {
+        let placed = match earlier {
             Some(at) if line.waiting[at].head == waiting.head => (at, None),
             Some(at) => {
                 let replaced = Replaced::Took(line.waiting[at].short().to_owned());
@@ -142,7 +142,9 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
                 line.waiting.push(waiting);
                 (line.waiting.len() - 1, behind)
             }
-        }
+        };
+        save(core, &lines);
+        placed
     };
     wake(core, key);
     let pushed = match push {
@@ -222,13 +224,87 @@ fn next(core: &Arc<Core>, key: &Key) -> Option<Vec<Waiting>> {
         }
         None => {
             lines.remove(key);
+            save(core, &lines);
             None
         }
     }
 }
 
 fn with_line<T>(core: &Core, key: &Key, change: impl FnOnce(&mut Line) -> T) -> Option<T> {
-    core.land_queue().0.locked().get_mut(key).map(change)
+    let mut lines = core.land_queue().0.locked();
+    let changed = lines.get_mut(key).map(change);
+    save(core, &lines);
+    changed
+}
+
+const SAVED: &str = "land-queue.json";
+
+/// A waiting land as the queue's file keeps it, so a core started again takes it up.
+#[derive(Serialize, Deserialize)]
+struct Saved {
+    agent: String,
+    head: String,
+    push: bool,
+}
+
+fn save(core: &Core, lines: &HashMap<Key, Line>) {
+    let Some(path) = core.data_dir().as_ref().map(|dir| dir.join(SAVED)) else {
+        return;
+    };
+    let saved: Vec<Saved> = (lines.values().flat_map(|line| &line.waiting))
+        .map(|w| Saved {
+            agent: w.agent.clone(),
+            head: w.head.clone(),
+            push: w.push,
+        })
+        .collect();
+    let written = serde_json::to_vec(&saved)
+        .map_err(|error| error.to_string())
+        .and_then(|bytes| std::fs::write(&path, bytes).map_err(|error| error.to_string()));
+    if let Err(error) = written {
+        eprintln!("sikemux core: the land queue was not saved: {error}");
+    }
+}
+
+/// Puts back in line the lands a core before this one had waiting, and starts their queues.
+pub fn resume(core: &Arc<Core>) {
+    let Some(path) = core.data_dir().as_ref().map(|dir| dir.join(SAVED)) else {
+        return;
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return;
+    };
+    let saved: Vec<Saved> = serde_json::from_slice(&bytes).unwrap_or_default();
+    let mut keys = BTreeSet::new();
+    {
+        let mut lines = core.land_queue().0.locked();
+        for saved in saved {
+            let Some(worktree) = land::own_checkout(core, &saved.agent) else {
+                eprintln!(
+                    "sikemux core: a land of {} was dropped, as its agent's checkout is gone",
+                    saved.agent
+                );
+                continue;
+            };
+            let Some(base) = worktree.base.clone() else {
+                continue;
+            };
+            let key = (worktree.repo.clone(), base);
+            lines.entry(key.clone()).or_default().waiting.push(Waiting {
+                agent: saved.agent,
+                worktree,
+                head: saved.head,
+                push: saved.push,
+                failed_over: None,
+                checking: false,
+            });
+            keys.insert(key);
+        }
+        save(core, &lines);
+    }
+    for key in keys {
+        wake(core, key);
+    }
 }
 
 fn leave(core: &Core, key: &Key, waiting: &Waiting) {
@@ -354,6 +430,33 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         send_back(core, key, waiting, why);
     }
     if stacked.laid.is_empty() {
+        return;
+    }
+    let ranges: Vec<(String, String)> = (stacked.laid.iter())
+        .scan(stacked.tip.clone(), |from, laid| {
+            Some((std::mem::replace(from, laid.tip.clone()), laid.tip.clone()))
+        })
+        .collect();
+    let repo = key.0.clone();
+    let unformatted = blocking(move || {
+        Ok((ranges.iter())
+            .map(|(from, to)| unformatted(&repo, from, to))
+            .collect::<Vec<_>>())
+    })
+    .await
+    .unwrap_or_default();
+    let mut sent_back = false;
+    for (laid, files) in stacked.laid.iter().zip(unformatted) {
+        if !files.is_empty() {
+            let why = format!(
+                "rustfmt --check fails on {}. Run cargo fmt on them and land again.",
+                files.join(", ")
+            );
+            send_back(core, key, &laid.waiting, &why);
+            sent_back = true;
+        }
+    }
+    if sent_back {
         return;
     }
     let tip = stacked.tip.clone();
@@ -623,6 +726,66 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
         landed.push((waiting.clone(), laid.commits.clone(), stays));
     }
     landed
+}
+
+/// The Rust files changed from `from` to `to` that rustfmt would change, as
+/// they stand at `to`. A tree with no Cargo.toml at its root has none.
+fn unformatted(repo: &Path, from: &str, to: &str) -> Vec<String> {
+    let Ok(manifest) = git(repo, &["show", &format!("{to}:Cargo.toml")]) else {
+        return Vec::new();
+    };
+    let edition = (manifest.lines())
+        .find_map(|row| row.trim().strip_prefix("edition"))
+        .and_then(|row| row.split('"').nth(1))
+        .unwrap_or("2021")
+        .to_owned();
+    let Ok(changed) = git(
+        repo,
+        &[
+            "diff",
+            "-z",
+            "--name-only",
+            "--diff-filter=AMR",
+            from,
+            to,
+            "--",
+            "*.rs",
+        ],
+    ) else {
+        return Vec::new();
+    };
+    let files: Vec<&str> = changed
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .collect();
+    if files.is_empty() {
+        return Vec::new();
+    }
+    let mut shell = sikemux_process::user_environment::background_shell();
+    shell
+        .args([
+            "-c",
+            r#"to=$1 edition=$2; shift 2; for f; do [ -z "$(git show "$to:$f" | rustfmt --edition "$edition" --check 2>/dev/null)" ] || printf '%s\n' "$f"; done"#,
+            "unformatted",
+            to,
+            &edition,
+        ])
+        .args(&files)
+        .envs(crate::git_guard::shim::environment(None))
+        .current_dir(repo);
+    match sikemux_process::run(
+        &mut shell,
+        None,
+        METADATA_LIMIT,
+        METADATA_OUTPUT_LIMIT,
+        None,
+    ) {
+        Ok(output) => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::to_owned)
+            .collect(),
+        Err(_) => Vec::new(),
+    }
 }
 
 /// The check for what changed from `from` to `to`, read in `checkout` at `to`,
