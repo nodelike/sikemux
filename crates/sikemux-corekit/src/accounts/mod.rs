@@ -3,10 +3,8 @@
 
 pub mod hooks;
 pub mod host;
-#[cfg(unix)]
 pub mod live;
 pub mod share;
-#[cfg(unix)]
 pub mod socket;
 pub mod vault;
 
