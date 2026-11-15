@@ -1,0 +1,8 @@
+[
+  {
+    "when": "three app servers",
+    "steps": [
+      { "say": "It would hold up for reads, but each server would keep its own copy.\n\nSQLite lives in one file on one machine, so three app servers means three caches. A product page cached on one server is a miss on the other two, and when a price changes you have to clear it in three places, or a shopper sees the old price until that copy expires.\n\nReads themselves are fine: SQLite serves many readers at once, and a cache hit is a single indexed lookup, well under a millisecond. Writes are where it gets awkward, since only one writer holds the file at a time.\n\nRedis is one cache all three servers share, so a page is cached once and cleared once. That is why I'd still pick it here.", "perSecond": 80 }
+    ]
+  }
+]
