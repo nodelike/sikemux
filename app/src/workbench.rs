@@ -387,7 +387,7 @@ impl Workbench {
             skills_offered: HashSet::new(),
             chats: crate::chat::Chats::default(),
             git: crate::git::GitTab::default(),
-            tasks: crate::tasks::Tasks::new(cx),
+            tasks: Default::default(),
             files: FileTree::default(),
             files_focus: cx.focus_handle(),
             moving: None,
@@ -475,7 +475,7 @@ impl Workbench {
     }
 
     /// The clock and every "ago" move each minute, which draws the whole window again. What
-    /// counts seconds, such as a running tool call or the Run chip, counts them itself.
+    /// counts seconds, such as a running tool call, counts them itself.
     fn until_next_minute() -> Duration {
         let now = chrono::Local::now();
         let into_second = Duration::from_nanos(u64::from(now.timestamp_subsec_nanos()));

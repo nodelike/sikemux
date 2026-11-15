@@ -1,7 +1,6 @@
 use crate::battery::battery_chip;
 use crate::core::Target;
 use crate::tabs;
-use crate::tasks::chip::run_chip;
 use crate::ui::Clicks;
 use crate::workbench::actions;
 use sikemux_calls::call;
@@ -124,11 +123,13 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
         ))
         .child(
             div()
+                .relative()
                 .flex()
                 .flex_none()
                 .items_center()
                 .gap(SPACE_2)
                 .pr(SPACE_4)
+                .children(crate::tasks::cards(bench, cx))
                 .children(
                     crate::overload::chip(bench, roomy, cx)
                         .map(|chip| [chip, separator(cx)])
@@ -140,12 +141,6 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
                         .map(|chip| {
                             crate::settings::leaves(div().child(chip), cx).into_any_element()
                         })
-                        .map(|chip| [chip, separator(cx)])
-                        .into_iter()
-                        .flatten(),
-                )
-                .children(
-                    run_chip(bench, cx)
                         .map(|chip| [chip, separator(cx)])
                         .into_iter()
                         .flatten(),

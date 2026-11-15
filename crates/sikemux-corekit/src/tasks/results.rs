@@ -843,25 +843,3 @@ pub fn fix_prompt(
     ));
     lines.join("\n")
 }
-
-/// What an agent is asked when a process stopped with an error: it starts the process itself to
-/// see why.
-pub fn stopped_prompt(
-    project_name: &str,
-    label: &str,
-    stopped: &str,
-    command: &str,
-    cwd: &str,
-    process: &str,
-) -> String {
-    [
-        format!("The process \"{label}\" in {project_name} stopped: {stopped}."),
-        format!("It runs `{command}` in {cwd}."),
-        format!(
-            "Start it with process_start (processId {}) and read its output with process_read to see the error, then find the cause and fix it.",
-            process
-        ),
-        "Start it again afterwards and check that it keeps running.".to_owned(),
-    ]
-    .join("\n")
-}

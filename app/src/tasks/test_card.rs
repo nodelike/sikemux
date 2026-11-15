@@ -1,5 +1,5 @@
-//! The Run chip's cards: the tests the task's last run failed, or why it stopped, each with
-//! its output and an agent one click away, as the Mac's run button shows them.
+//! The card of the tests the person's last run failed, with its output and an agent one click
+//! away, hung under the top bar's right end until the person closes it.
 
 use crate::ui::Clicks;
 use sikemux_view::layout::PaneKind;
@@ -10,7 +10,6 @@ use gpui_kit::{
     anchored, deferred, div, px, Anchor, AnyElement, Context, FontWeight, InteractiveElement,
     IntoElement, ParentElement, StatefulInteractiveElement, Styled,
 };
-use sikemux_agents::harness::runs::RunStatus;
 use sikemux_calls::tasks::RunView;
 use sikemux_calls::tasks::TaskView;
 use sikemux_corekit::tasks::results::TestFailure;
@@ -18,134 +17,50 @@ use sikemux_corekit::tasks::results::TestResults;
 
 use crate::editor::OpenAt;
 use crate::icons::Icon;
-use crate::theme::{
-    Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_XS,
-};
+use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_XS};
 use crate::ui::{self, IconButton, Variant};
 use crate::workbench::Workbench;
 use sikemux_calls::call;
 use sikemux_calls::tasks::RerunParams;
 
-/// A finished run of the task the chip shows, with the task it ran.
-pub struct Finished<'a> {
-    pub run: &'a RunView,
-    pub task: &'a TaskView,
+/// A finished run, with the task it ran.
+struct Finished<'a> {
+    run: &'a RunView,
+    task: &'a TaskView,
 }
 
 impl Finished<'_> {
     fn execution(&self) -> String {
         self.run.run.execution_id.clone()
     }
-
-    fn tests(&self) -> Option<&TestResults> {
-        self.run.tests.as_ref()
-    }
-
-    fn failed(&self) -> u32 {
-        self.tests().map_or(0, |tests| tests.failed)
-    }
-
-    /// How the run ended in a word, when it failed.
-    fn stopped(&self) -> Option<String> {
-        (self.run.run.status == RunStatus::Failed).then(|| match self.run.run.exit_code {
-            Some(code) => format!("exited {code}"),
-            None => "failed".into(),
-        })
-    }
-
-    /// How the run ended, as the person reads it.
-    fn stopped_said(&self) -> Option<String> {
-        (self.run.run.status == RunStatus::Failed).then(|| match self.run.run.exit_code {
-            Some(code) => t!("exited {code}", code = code),
-            None => t!("failed").into(),
-        })
-    }
 }
 
-/// What the chip says of the run: how many tests failed or passed, else how it stopped,
-/// and whether that went wrong.
-pub fn status(finished: &Finished) -> Option<(String, bool)> {
-    match finished.tests() {
-        Some(_) if finished.failed() > 0 => {
-            Some((t!("{count} failed", count = finished.failed()), true))
-        }
-        Some(tests) => Some((t!("{count} passed", count = tests.passed), false)),
-        None => finished.stopped_said().map(|stopped| (stopped, true)),
-    }
-}
-
-/// Which card the Run chip shows, by the run's execution: the failed tests until the person
-/// closes them, and why a run stopped once they ask.
+/// The run whose failed tests the person closed, by its execution.
 #[derive(Default)]
 pub struct RunCards {
     tests_closed: Option<String>,
-    why_open: Option<String>,
 }
 
-impl RunCards {
-    fn open(&self, finished: &Finished) -> bool {
-        let execution = finished.execution();
-        match finished.tests() {
-            Some(_) => self.tests_closed.as_deref() != Some(&execution),
-            None => self.why_open.as_deref() == Some(&execution),
-        }
+/// The failed tests of the person's last run, until they are closed.
+pub fn card(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let (running, last) = bench.person_runs();
+    let run = last.filter(|_| running.is_none())?;
+    let tests = run.tests.as_ref().filter(|tests| tests.failed > 0)?;
+    if bench.tasks.cards.tests_closed.as_deref() == Some(&run.run.execution_id) {
+        return None;
     }
+    let task = (bench.feeds.in_front().tasks.as_ref())
+        .and_then(|read| read.tasks.iter().find(|task| task.id == run.run.task_id))?;
+    let output = run.run.pty_id.map(|session| (session, task.label.clone()));
+    let finished = Finished { run, task };
+    Some(under_bar(tests_card(bench, &finished, tests, output, cx)))
 }
 
-/// Whether the chip offers "Why?": failed tests whose card was closed, or a run that stopped
-/// without tests whose card is not open.
-pub fn offers_why(bench: &Workbench, finished: &Finished) -> bool {
-    let shown = bench.tasks.cards.open(finished);
-    match finished.tests() {
-        Some(_) => finished.failed() > 0 && !shown,
-        None => finished.stopped().is_some() && !shown,
-    }
-}
-
-/// Opens the card of the person's last run again.
-pub fn why(bench: &mut Workbench) {
-    let (_, last) = bench.person_runs();
-    let Some(run) = last else {
-        return;
-    };
-    match run.tests.is_some() {
-        true => bench.tasks.cards.tests_closed = None,
-        false => bench.tasks.cards.why_open = Some(run.run.execution_id.clone()),
-    }
-}
-
-/// The card the run shows under the chip, if any: its failed tests until they are closed,
-/// or why it stopped once "Why?" asked.
-pub fn card(
-    bench: &Workbench,
-    finished: &Finished,
-    output: Option<(u64, String)>,
-    cx: &mut Context<Workbench>,
-) -> Option<AnyElement> {
-    let shown = bench.tasks.cards.open(finished);
-    let body = match finished.tests() {
-        Some(tests) if finished.failed() > 0 => {
-            if !shown {
-                return None;
-            }
-            tests_card(bench, finished, tests, output, cx)
-        }
-        Some(_) => return None,
-        None => {
-            if !shown {
-                return None;
-            }
-            failure_card(bench, finished, output, cx)
-        }
-    };
-    Some(under_chip(body))
-}
-
-/// `body` hanging under the Run chip, over what is beneath it.
-pub(crate) fn under_chip(body: AnyElement) -> AnyElement {
+/// `body` hanging under the top bar's right end, over what is beneath it.
+pub(crate) fn under_bar(body: AnyElement) -> AnyElement {
     div()
         .absolute()
-        .top(px(30.))
+        .top(px(34.))
         .right_0()
         .child(
             deferred(
@@ -305,45 +220,6 @@ fn tests_card(
         .into_any_element()
 }
 
-fn failure_card(
-    bench: &Workbench,
-    finished: &Finished,
-    output: Option<(u64, String)>,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let label = finished.task.label.clone();
-    let command = finished.task.command.clone();
-    let stopped = finished.stopped_said().unwrap_or_default();
-    let title = div()
-        .flex()
-        .gap(SPACE_1H)
-        .text_size(crate::theme::ui_text(TEXT_XS))
-        .child(div().text_color(t.text_primary).child(label))
-        .child(div().text_color(t.danger).child(stopped))
-        .into_any_element();
-    let request = failure_fix_request(bench, finished);
-    frame(cx)
-        .child(head(title, cx))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(SPACE_1)
-                .child(ui::mono(command, TEXT_2XS, cx).text_color(t.text_secondary))
-                .child(
-                    ui::text(
-                        t!("The reason is in its output, usually near the first error."),
-                        TEXT_2XS_H,
-                        FontWeight::NORMAL,
-                    )
-                    .text_color(t.text_tertiary),
-                ),
-        )
-        .child(actions(output, cx).child(fix_button(bench, request, cx)))
-        .into_any_element()
-}
-
 /// The card's buttons, Show output first when the run has a terminal.
 fn actions(output: Option<(u64, String)>, cx: &mut Context<Workbench>) -> gpui_kit::Div {
     div()
@@ -402,7 +278,7 @@ fn fix_button(bench: &Workbench, request: String, cx: &mut Context<Workbench>) -
     )
 }
 
-/// Adds a task that runs only the failed tests and starts it, making it the one the chip runs.
+/// Adds a task that runs only the failed tests and starts it.
 fn rerun_failed(bench: &Workbench, execution: &str, cx: &mut Context<Workbench>) {
     let rerun = bench
         .target()
@@ -412,7 +288,7 @@ fn rerun_failed(bench: &Workbench, execution: &str, cx: &mut Context<Workbench>)
     bench.report(
         rerun,
         t!("Could not rerun the failed tests"),
-        |bench, answer, cx| bench.pick_task(&answer.task_id, cx),
+        |_, _, _| {},
         cx,
     );
 }
@@ -449,28 +325,12 @@ fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFail
     )
 }
 
-/// What an agent is asked when a process stopped with an error.
-fn failure_fix_request(bench: &Workbench, finished: &Finished) -> String {
-    let task = finished.task;
-    sikemux_corekit::tasks::results::stopped_prompt(
-        &crate::ui::path::file_name(Path::new(&project_path(bench))),
-        &task.label,
-        &finished.stopped().unwrap_or_default(),
-        &task.command,
-        &task.cwd,
-        &task.id,
-    )
-}
-
 impl Workbench {
-    /// Closes whichever card the Run chip shows.
+    /// Closes the failed tests' card.
     pub fn close_run_card(&mut self) {
         let (running, last) = self.person_runs();
-        if running.is_none() {
-            if let Some(run) = last {
-                self.tasks.cards.tests_closed = Some(run.run.execution_id.clone());
-            }
+        if let Some(run) = last.filter(|_| running.is_none()) {
+            self.tasks.cards.tests_closed = Some(run.run.execution_id.clone());
         }
-        self.tasks.cards.why_open = None;
     }
 }

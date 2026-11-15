@@ -197,9 +197,8 @@ fn save_task(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
     cx.notify();
     cx.spawn_in(window, async move |bench, cx| {
         let added = adding.await;
-        let _ = bench.update_in(cx, |bench, window, cx| match added {
-            Ok(answer) => {
-                bench.pick_task(&answer.task_id, cx);
+        let _ = bench.update_in(cx, |_, window, cx| match added {
+            Ok(_) => {
                 let saved = match (edited, team) {
                     (true, true) => t!(
                         "Saved {name} in sikemux.json; commit it to share it",

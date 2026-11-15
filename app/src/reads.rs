@@ -559,7 +559,6 @@ impl Workbench {
                 }
                 self.place_agent_runs(cx);
                 self.show_started_runs();
-                self.time_run(cx);
             }
             Read::Activity => {
                 let Some(summary) = decoded(value, "activity") else {
@@ -581,7 +580,6 @@ impl Workbench {
                 if !keep_decoded(&mut self.feeds.at_mut(&place).ports, value, "ports") {
                     return;
                 }
-                self.time_run(cx);
             }
             Read::WhatsNew => {
                 let news = decoded::<WhatsNew>(value, "release notes");

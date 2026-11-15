@@ -1,43 +1,32 @@
-//! A project's tasks: running them, what they listen on, the checks that hold them back, and
-//! adding one.
+//! A project's tasks: running them, the checks that hold them back, and adding one.
 
 pub(crate) mod add_task;
-pub(crate) mod chip;
-pub(crate) mod ports;
 pub(crate) mod run_check;
 pub(crate) mod test_card;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use gpui_kit::{AppContext, Context, Entity, Window};
+use gpui_kit::{AnyElement, Context, Window};
 use sikemux_calls::call;
 use sikemux_calls::harness::RunSelector;
-use sikemux_calls::ports::PortOwner;
-use sikemux_calls::ports::ProjectPort;
 use sikemux_calls::tasks::RunView;
 use sikemux_calls::tasks::TaskView;
 
 use crate::workbench::Workbench;
 
-/// The Run button's state: what it starts, what it has started, and how it counts them.
+/// The runs the person started here, and the card of the last one's failed tests.
+#[derive(Default)]
 pub struct Tasks {
-    /// The task each project's Run button starts, when the person chose one, by project path.
-    pub picked: HashMap<String, String>,
     /// The runs the person started here, whose terminal opens once the run has one.
     pub to_show: HashSet<String>,
     pub cards: test_card::RunCards,
-    pub clock: Entity<chip::RunClock>,
 }
 
-impl Tasks {
-    pub(crate) fn new(cx: &mut Context<Workbench>) -> Self {
-        Self {
-            picked: HashMap::new(),
-            to_show: HashSet::new(),
-            cards: Default::default(),
-            clock: cx.new(|_| chip::RunClock::default()),
-        }
-    }
+/// What hangs under the top bar's right end: the checks holding back a task the person started,
+/// else the failed tests of their last run.
+pub(crate) fn cards(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let project = bench.watched.project.as_deref()?;
+    run_check::card(bench, project, cx).or_else(|| test_card::card(bench, cx))
 }
 
 impl Workbench {
@@ -58,32 +47,7 @@ impl Workbench {
         )
     }
 
-    /// The port the task run `execution` listens on, when it listens on one.
-    pub fn port_of_run(&self, execution: &str) -> Option<&ProjectPort> {
-        self.feeds.in_front().ports.iter().find(|port| {
-            matches!(&port.listening.owner, PortOwner::Task { execution_id, .. } if execution_id == execution)
-        })
-    }
-
-    /// Counts the seconds on the Run chip while the person's task runs with no port to show.
-    pub(crate) fn time_run(&mut self, cx: &mut Context<Self>) {
-        let run = self.person_runs().0;
-        let counting = run.is_some_and(|run| self.port_of_run(&run.run.execution_id).is_none());
-        let started_at = run.and_then(|run| run.run.started_at).map(|at| at as i64);
-        self.tasks
-            .clock
-            .update(cx, |clock, cx| clock.set(counting, started_at, cx));
-    }
-
-    /// Makes `task` the one the project's Run button starts.
-    pub fn pick_task(&mut self, task: &str, cx: &mut Context<Self>) {
-        if let Some(project) = self.watched.project.clone() {
-            self.tasks.picked.insert(project, task.to_owned());
-            cx.notify();
-        }
-    }
-
-    /// Opens the Add a process dialog for the project whose processes the Run menu lists.
+    /// Opens the Add a process dialog for the project in front.
     pub fn add_task(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(project) = self.watched.project.clone() {
             self.overlays.adding_task =

@@ -1,11 +1,10 @@
-//! Starting one of the project's tasks, and the card its checks raise when one fails, as the
-//! Mac's Run chip shows it: what is missing, then Run anyway, or Install and run or Fix and run
+//! Starting one of the project's tasks, and the card its checks raise when one fails, hung under
+//! the top bar's right end: what is missing, then Run anyway, or Install and run or Fix and run
 //! when the core can set right what is missing.
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled,
-    Window,
 };
 use sikemux_agents::harness::runs::RunStatus;
 use sikemux_view::layout::At;
@@ -161,19 +160,6 @@ impl Workbench {
         }
     }
 
-    /// Puts in `to`'s composer the ask to find how the project `name` is run, tested and built,
-    /// and save those as tasks, starting its chat first when it is a new one.
-    pub fn find_tasks_with(
-        &mut self,
-        to: crate::send_to::Recipient,
-        name: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let text = sikemux_calls::tasks::find_processes_prompt(name);
-        crate::send_to::send(self, to, async move { Some(text) }, window, cx);
-    }
-
     fn task_label(&self, task: &str) -> String {
         (self.feeds.in_front().tasks.as_ref())
             .and_then(|read| read.tasks.iter().find(|listed| listed.id == task))
@@ -187,7 +173,7 @@ impl Workbench {
     }
 }
 
-/// The card under the Run chip of the project at `project`, while one of its tasks waits on
+/// The card under the top bar of the project at `project`, while one of its tasks waits on
 /// its checks.
 pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let check = bench
@@ -284,5 +270,5 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
         .children(items)
         .child(actions)
         .into_any_element();
-    Some(crate::tasks::test_card::under_chip(body))
+    Some(crate::tasks::test_card::under_bar(body))
 }

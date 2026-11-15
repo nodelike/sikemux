@@ -79,8 +79,8 @@ overlays! {
     adding_provider: crate::add_provider::AddProvider => AddingProvider, Dialog, true, crate::add_provider::view;
     buddy_picker: crate::buddy_picker::BuddyPicker => BuddyPicker, Dialog, true, crate::buddy_picker::view;
     sharing: crate::share::Sharing => Sharing, Dialog, true, crate::share::view;
-    /// A task its checks held back, waiting on the person. Its card sits on the Run chip and asks
-    /// nothing of the keys.
+    /// A task its checks held back, waiting on the person. Its card hangs under the top bar and
+    /// asks nothing of the keys.
     run_check: crate::tasks::run_check::RunCheck => RunCheck, InPlace, false;
     /// Edit Spaces, while it is open under the space switch.
     space_editor: Entity<crate::space_editor::SpaceEditor> => SpaceEditor, InPlace, true;
