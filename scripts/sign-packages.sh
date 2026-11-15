@@ -59,7 +59,8 @@ echo "→ Signing the rpms"
 rpm --dbpath "$WORK/rpmdb" --initdb
 rpm --dbpath "$WORK/rpmdb" --import "$WORK/public.asc"
 for package in "${RPMS[@]}"; do
-  rpmsign --addsign --define "_gpg_name $KEY" \
+  # Ubuntu's rpm names /usr/bin/gpg2, which its gnupg does not install.
+  rpmsign --addsign --define "__gpg $(command -v gpg)" --define "_gpg_name $KEY" \
     --define "_gpg_sign_cmd_extra_args --batch --pinentry-mode loopback --passphrase-file $PASSPHRASE" \
     "$package" >/dev/null
   rpm --dbpath "$WORK/rpmdb" --checksig "$package" | grep -q 'signatures OK' ||
