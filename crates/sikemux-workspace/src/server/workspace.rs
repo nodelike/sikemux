@@ -2146,10 +2146,17 @@ mod tests {
         );
         assert_eq!(by_id("codex:cx").label, "Codex · Default");
         assert_eq!(by_id("claude:builtin-claude").agent.config_path, None);
+        assert_eq!(by_id("opencode").permission_mode, PermissionMode::Bypass);
+        assert_eq!(by_id("grok").permission_mode, PermissionMode::Bypass);
+        workspaces
+            .set_permission_mode(PermissionMode::Auto)
+            .unwrap();
+        let offered = workspaces.offered();
+        let by_id = |id: &str| offered.iter().find(|launcher| launcher.id == id).unwrap();
+        assert_eq!(by_id("claude:work").permission_mode, PermissionMode::Auto);
         assert_eq!(
             by_id("opencode").permission_mode,
             PermissionMode::WorkspaceWrite
         );
-        assert_eq!(by_id("grok").permission_mode, PermissionMode::Bypass);
     }
 }
