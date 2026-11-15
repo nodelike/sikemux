@@ -359,12 +359,18 @@ pub async fn letter(
 /// chat says whether it is going. The agent's record names the account at once, so every client
 /// shows the chat on its way there, and names the one before again when the chat stays. An agent
 /// with no chat running starts on it next time.
-pub async fn move_chat(core: &Core, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
+pub async fn move_chat(core: &Arc<Core>, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
     validate_account(&account)?;
     let before = core.workspaces().agent_or_gone(agent_id)?.profile_id;
     let to = account.id.clone();
     core.workspaces()
         .edit_agent(agent_id, |agent| agent.profile_id = Some(to))?;
+    if core.chats().get(agent_id).is_none() {
+        if before.as_deref() != Some(account.id.as_str()) {
+            tell_sleeping(core, agent_id, before.as_deref(), &account).await;
+        }
+        return Ok(());
+    }
     let going = send_switch(core, agent_id, account).await;
     if going.is_err() {
         let _ = core
@@ -372,6 +378,25 @@ pub async fn move_chat(core: &Core, agent_id: &str, account: ChatAccount) -> Cor
             .edit_agent(agent_id, |agent| agent.profile_id = before);
     }
     going
+}
+
+/// Writes the move into the history a chat with no agent running kept, so it opens on the
+/// account it moved to rather than on a failure the account before left.
+async fn tell_sleeping(core: &Arc<Core>, agent_id: &str, before: Option<&str>, to: &ChatAccount) {
+    unshelve(core, agent_id, None).await;
+    let Ok(feed) = core.chats().readable(agent_id) else {
+        return;
+    };
+    let book = core.workspaces().accounts().unwrap_or_default();
+    let from = before
+        .and_then(|id| book.profile(id))
+        .map(|profile| profile.known_name());
+    let notice = rebind::account_notice(from.as_deref(), to, "chosen");
+    feed.emit(
+        ChatEventKind::SessionUpdate,
+        serde_json::json!({ "sessionId": agent_id, "update": notice }),
+    );
+    let _ = tokio::task::spawn_blocking(move || feed.rest()).await;
 }
 
 const MOVE_ANSWERED_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
@@ -425,7 +450,7 @@ pub fn accounts(core: &Core, agent_id: &str) -> CoreResult<Takers> {
     Ok(book.takers(&agent.provider, agent.profile_id.as_deref(), started))
 }
 
-pub async fn move_to_account(core: &Core, agent_id: &str, account_id: &str) -> CoreResult<()> {
+pub async fn move_to_account(core: &Arc<Core>, agent_id: &str, account_id: &str) -> CoreResult<()> {
     let takers = accounts(core, agent_id)?;
     let account = takers
         .others

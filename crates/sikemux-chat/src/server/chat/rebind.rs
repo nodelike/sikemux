@@ -176,11 +176,19 @@ pub fn next_account<'a>(
 }
 
 pub fn switch_notice(launch: &ChatLaunch, to: &ChatAccount, reason: &str) -> Value {
+    let from = launch
+        .account
+        .as_ref()
+        .map(|account| account.label.as_str());
+    account_notice(from, to, reason)
+}
+
+pub fn account_notice(from: Option<&str>, to: &ChatAccount, reason: &str) -> Value {
     json!({
         "sessionUpdate": UpdateKind::AccountSwitched,
         "account": to.id,
         "label": to.label,
-        "from": launch.account.as_ref().map(|account| account.label.clone()),
+        "from": from,
         "reason": reason,
     })
 }

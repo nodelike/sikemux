@@ -55,7 +55,11 @@ async fn change(
 /// Moves `provider`'s chats onto the account `id` the person chose, where it
 /// keeps their chats too, with a turn at work carrying on there. Agents in a
 /// terminal stay where they are.
-async fn move_chats(core: &Core, provider: &str, id: &str) -> (Vec<MovedChat>, Vec<StayedChat>) {
+async fn move_chats(
+    core: &Arc<Core>,
+    provider: &str,
+    id: &str,
+) -> (Vec<MovedChat>, Vec<StayedChat>) {
     let (mut moved, mut stayed) = (Vec::new(), Vec::new());
     for agent_id in core.workspaces().agent_ids() {
         let Some(agent) = core.workspaces().agent(&agent_id) else {
