@@ -18950,6 +18950,7 @@
         }
       }
     },
+    "Closed @{name}, {why}": {},
     "Closed as not planned": {
       "localizations": {
         "es": {
@@ -19002,6 +19003,7 @@
         }
       }
     },
+    "Closed lately": {},
     "Closed {closed} · paused 1 trigger": {
       "localizations": {
         "es": {
@@ -35916,6 +35918,7 @@
         }
       }
     },
+    "For you": {},
     "Force delete {name}?": {
       "localizations": {
         "es": {
@@ -59915,6 +59918,7 @@
         }
       }
     },
+    "Not sure": {},
     "Not trusted yet": {
       "localizations": {
         "es": {
@@ -61321,6 +61325,7 @@
         }
       }
     },
+    "Now": {},
     "Now a check": {
       "localizations": {
         "de": {
@@ -72926,6 +72931,7 @@
         }
       }
     },
+    "Ready to look at": {},
     "Ready · API key": {
       "localizations": {
         "es": {
@@ -76774,6 +76780,7 @@
         }
       }
     },
+    "Reopen": {},
     "Reopen closed browser tab": {
       "localizations": {
         "es": {
@@ -110651,6 +110658,7 @@
         }
       }
     },
+    "Waiting on you": {},
     "Waiting on {what}": {
       "localizations": {
         "es": {
@@ -118146,6 +118154,8 @@
         }
       }
     },
+    "asked you {count} things": {},
+    "asks you something": {},
     "asleep": {
       "localizations": {
         "es": {
@@ -120174,6 +120184,7 @@
         }
       }
     },
+    "changed nothing": {},
     "changed {over}'s edit": {
       "localizations": {
         "es": {
@@ -120226,6 +120237,7 @@
         }
       }
     },
+    "changes not committed": {},
     "changes {names} (allowed)": {
       "localizations": {
         "es": {
@@ -121162,6 +121174,8 @@
         }
       }
     },
+    "closed": {},
+    "closed by you": {},
     "closing the window": {
       "localizations": {
         "es": {
@@ -121682,6 +121696,7 @@
         }
       }
     },
+    "committed, not landed": {},
     "conflict": {
       "localizations": {
         "es": {
@@ -127303,6 +127318,8 @@
     },
     "in use": {},
     "in use by @{name}": {},
+    "in your app": {},
+    "in {tag}": {},
     "increment": {
       "localizations": {
         "es": {
@@ -127979,6 +127996,7 @@
         }
       }
     },
+    "its turn failed": {},
     "just now": {
       "localizations": {
         "es": {
@@ -128551,6 +128569,7 @@
         }
       }
     },
+    "left changes uncommitted": {},
     "light": {
       "localizations": {
         "es": {
@@ -136045,6 +136064,7 @@
         }
       }
     },
+    "released": {},
     "remove": {
       "localizations": {
         "es": {
@@ -139998,6 +140018,7 @@
         }
       }
     },
+    "stopped, nothing set to wake it": {},
     "string": {
       "localizations": {
         "es": {
@@ -143796,6 +143817,9 @@
         }
       }
     },
+    "waiting on @{who}": {},
+    "waiting on CI": {},
+    "waiting on {what}": {},
     "waits {left}": {
       "localizations": {
         "es": {
