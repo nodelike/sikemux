@@ -156,6 +156,16 @@ begin
   SaveStringToFile(Preferences(), '{' + Fields + '}', False);
 end;
 
+{ An update stops the core and the process that restarts it, so neither holds a file being replaced. }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  Code: Integer;
+begin
+  Result := '';
+  if FileExists(ExpandConstant('{app}\{#Core}')) then
+    Exec(ExpandConstant('{app}\{#Core}'), 'stop', '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssInstall) and not WebView2Present() then

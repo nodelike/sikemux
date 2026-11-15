@@ -19,6 +19,7 @@ $Core = "$Dir\sikemux-host.exe"
 $SignIn = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $SignInName = "com.nodelike.sikemux.core"
 $SignInFile = "$env:LOCALAPPDATA\sikemux\com.nodelike.sikemux.core.json"
+$WatchFile = "$env:LOCALAPPDATA\sikemux\com.nodelike.sikemux.core.watch"
 
 function Check($Holds, $What) {
   if (-not $Holds) { throw "failed: $What" }
@@ -85,7 +86,7 @@ if ($HasCore) {
   Check ($Command -like "`"$App`" --start-core *") "the core is set to start at sign-in from the app: $Command"
   Installed-Running | Stop-Process -Force
   & $Core stop | Out-Host
-  Check (-not (Core-Answers)) "the core is stopped"
+  Check (-not (Core-Answers)) "the core and its watcher are stopped"
   # Exactly what Windows runs at sign-in.
   Start-Process cmd.exe -ArgumentList "/c", $Command -Wait -WindowStyle Hidden
   Check (Wait-Core 30) "the sign-in command starts a core that answers"
@@ -111,6 +112,7 @@ Check (-not (Test-Path $Uninstall)) "Apps & features no longer lists it"
 Check (-not (Test-Path $CliCopy)) "the agents' sikemux command is gone"
 Check (-not (Get-ItemProperty $SignIn -Name $SignInName -ErrorAction SilentlyContinue)) "the core no longer starts at sign-in"
 Check (-not (Test-Path $SignInFile)) "the sign-in file is gone"
+Check (-not (Test-Path $WatchFile)) "the core's watch file is gone"
 Check (@(Get-Process sikemux-host -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $Core }).Count -eq 0) "the core is stopped"
 Check ((Installed-Running).Count -eq 0) "nothing runs from the install folder"
 Check (Test-Path $Preferences) "the person's data stays"
