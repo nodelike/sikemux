@@ -1285,7 +1285,7 @@ pub struct Ran {
 }
 
 /// Runs `command` in `cwd` at low priority, with its output in the order written, for `limit`
-/// at most.
+/// at most, not counting the time its heavy commands wait for their turn on the host.
 fn run_check(
     cwd: &Path,
     command: &str,
@@ -1300,8 +1300,13 @@ fn run_check(
         .envs(env)
         .current_dir(cwd);
     let started = Instant::now();
-    let output = sikemux_process::run(&mut shell, None, limit, OUTPUT_LIMIT, None)
-        .map_err(|error| format!("it did not run: {error}"))?;
+    let output = sikemux_process::run_not_counting_waits(
+        &mut shell,
+        limit,
+        OUTPUT_LIMIT,
+        &crate::git_guard::waits_for_turn,
+    )
+    .map_err(|error| format!("it did not run: {error}"))?;
     Ok(Ran {
         passed: output.status.success(),
         text: all_said(&output),

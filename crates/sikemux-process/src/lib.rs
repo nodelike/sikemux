@@ -124,6 +124,8 @@ enum RunEvent {
 /// the child's exit and each drained pipe arrive as events. A run with no
 /// token waits with no timer at all.
 const CANCEL_CHECK_INTERVAL: Duration = Duration::from_millis(250);
+/// How often a run whose waits do not count asks whether it waits.
+const WAIT_LOOK_INTERVAL: Duration = Duration::from_secs(2);
 
 fn read_bounded(
     mut pipe: impl Read,
@@ -175,6 +177,45 @@ pub fn run_with_pid(
     max_output_bytes: usize,
     cancellation: Option<&ProcessCancellation>,
     started: impl FnOnce(u32),
+) -> Result<Output, ProcessRunError> {
+    run_counting(
+        command,
+        input,
+        timeout,
+        max_output_bytes,
+        cancellation,
+        started,
+        None,
+    )
+}
+
+/// [`run`], whose `timeout` counts only the time `waiting`, asked of the child's pid every
+/// few seconds, says the child is not waiting for its turn.
+pub fn run_not_counting_waits(
+    command: &mut Command,
+    timeout: Duration,
+    max_output_bytes: usize,
+    waiting: &dyn Fn(u32) -> bool,
+) -> Result<Output, ProcessRunError> {
+    run_counting(
+        command,
+        None,
+        timeout,
+        max_output_bytes,
+        None,
+        |_| {},
+        Some(waiting),
+    )
+}
+
+fn run_counting(
+    command: &mut Command,
+    input: Option<&[u8]>,
+    timeout: Duration,
+    max_output_bytes: usize,
+    cancellation: Option<&ProcessCancellation>,
+    started: impl FnOnce(u32),
+    waiting: Option<&dyn Fn(u32) -> bool>,
 ) -> Result<Output, ProcessRunError> {
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     if input.is_some() {
@@ -235,7 +276,10 @@ pub fn run_with_pid(
         let _ = events.send(RunEvent::Exited(child.wait()));
     });
 
-    let deadline = Instant::now() + timeout;
+    let mut left = timeout;
+    let mut counted_to = Instant::now();
+    let mut counting = true;
+    let mut next_look = counted_to;
     let mut completed_status = None;
     let mut readers_finished = 0_u8;
     let status = loop {
@@ -252,7 +296,16 @@ pub fn run_with_pid(
                 break Ok(status);
             }
         }
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let now = Instant::now();
+        if counting {
+            left = left.saturating_sub(now - counted_to);
+        }
+        counted_to = now;
+        if let Some(waiting) = waiting.filter(|_| now >= next_look) {
+            counting = !waiting(pid);
+            next_look = now + WAIT_LOOK_INTERVAL;
+        }
+        let remaining = left;
         if remaining.is_zero() {
             // The direct child may already have exited while a descendant
             // retains one of its pipes. The process-group kill closes those
@@ -263,6 +316,10 @@ pub fn run_with_pid(
         let wait = match cancellation {
             Some(_) => remaining.min(CANCEL_CHECK_INTERVAL),
             None => remaining,
+        };
+        let wait = match waiting {
+            Some(_) => wait.min(WAIT_LOOK_INTERVAL),
+            None => wait,
         };
         match arrivals.recv_timeout(wait) {
             Ok(RunEvent::ReaderFinished) => readers_finished += 1,

@@ -38,6 +38,23 @@ pub fn waits_in_line(command: &str, cwd: &Path) -> bool {
     })
 }
 
+/// Whether a heavy command started under `root` still waits for its turn on the host: a heavy
+/// program in its tree that has started nothing yet, while nothing there has its turn.
+pub fn waits_for_turn(root: u32) -> bool {
+    use sikemux_process::{procs, vars};
+    let tree = procs::descendants(root);
+    let parents: std::collections::HashSet<u32> = tree.values().copied().collect();
+    let pids: Vec<u32> = std::iter::once(root).chain(tree.keys().copied()).collect();
+    let has_turn = |pid: u32| procs::environment_value(pid, vars::BUILD_TURN).is_some();
+    if pids.iter().any(|&pid| has_turn(pid)) {
+        return false;
+    }
+    pids.iter().any(|&pid| {
+        !parents.contains(&pid)
+            && procs::name(pid).is_some_and(|name| heavy::built_in_programs().any(|p| p == name))
+    })
+}
+
 /// Why `command`, a shell command line run in `cwd`, may not run, if it may not.
 pub fn refusal(command: &str, cwd: &Path, others: &Others) -> Option<String> {
     segments(command).iter().find_map(|words| {
