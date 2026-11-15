@@ -202,7 +202,7 @@ jobs:
             runuser -u person -- env -i HOME=/home/person USER=person LOGNAME=person PATH=/usr/bin DISPLAY=:99 dbus-run-session -- /usr/bin/sikemux >/out/window.log 2>&1 &
             core=
             for _ in $(seq 1 90); do
-              for pid in $(for p in $(pgrep -u person); do [ "$(readlink /proc/$p/exe || true)" = /usr/lib/sikemux/sikemux-host ] && echo $p; done || true); do
+              for pid in $(pgrep -u person -f "^(/usr/lib/sikemux/sikemux-host|sikemux core crash reporter) " || true); do
                 grep -q "crash reporter" /proc/$pid/cmdline || core=$pid
               done
               [ -n "$core" ] && break
@@ -210,7 +210,7 @@ jobs:
             done
             test -n "$core"
             sleep 15
-            for pid in $(for p in $(pgrep -u person); do [ "$(readlink /proc/$p/exe || true)" = /usr/lib/sikemux/sikemux-host ] && echo $p; done || true); do
+            for pid in $(pgrep -u person -f "^(/usr/lib/sikemux/sikemux-host|sikemux core crash reporter) " || true); do
               echo "== $pid: $(tr "\0" " " </proc/$pid/cmdline)"
               for task in /proc/$pid/task/*; do echo "$(cat $task/comm): $(grep ^Gid $task/status)"; done | sort | uniq -c
             done
@@ -218,7 +218,7 @@ jobs:
             echo "threads of the core holding the group: $held"
             [ "$held" = sikemux-secrets ] || [ "$GROUP_STRICT" = no ]
             others=0
-            for pid in $(for p in $(pgrep -u person); do [ "$(readlink /proc/$p/exe || true)" = /usr/lib/sikemux/sikemux-host ] && echo $p; done || true); do
+            for pid in $(pgrep -u person -f "^(/usr/lib/sikemux/sikemux-host|sikemux core crash reporter) " || true); do
               [ $pid = $core ] && continue
               others=$((others+1))
               echo "other sikemux-host $pid: $(tr "\0" " " </proc/$pid/cmdline)"
