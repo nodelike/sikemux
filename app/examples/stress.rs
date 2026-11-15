@@ -11,7 +11,8 @@
 //! Scenarios: `agents` (ten chats streaming, one in front, then the front one
 //! changing), `long` (a chat of thousands of rows scrolled, searched and streamed
 //! into), `flood` (a terminal flooding beside a streaming chat), `repo <folder>` (a
-//! large repository's Git tab, files, search and finder), `newchat` (⌘N beside three
+//! large repository's Git tab, files, search and finder), `resize` (the window resized and the side
+//! rail dragged every frame while twenty chats stream), `newchat` (⌘N beside three
 //! open chats), `soak` (`agents` for `minutes`, ten by default, watching memory), and
 //! `windowed` (a chat filled to `STRESS_WINDOWED_ROWS` rows, its memory once settled, its
 //! first message found by the core and then by the find bar, asleep with
@@ -42,7 +43,7 @@ use gpui_transcript::Row as _;
 use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;
 use sikemux_gpui::workbench::actions::{self, CommandId};
-use sikemux_gpui::workbench::Workbench;
+use sikemux_gpui::workbench::{Edge, Workbench};
 use sikemux_gpui::{core, icons, memory, theme, WINDOW_SIZE};
 use sikemux_view::layout::Pane;
 use sikemux_wire::protocol::{ChatAttachment, LaunchIdentity, SpawnTarget, TerminalSpawn};
@@ -592,6 +593,60 @@ fn agents(run: &mut Run, driver: &Arc<Driver>, minutes: Option<f64>) {
     if let Some(minutes) = minutes {
         soak(run, minutes);
     }
+    stop.store(true, Ordering::Relaxed);
+}
+
+/// Times the window resized frame after frame, and then the side rail dragged frame after
+/// frame, while twenty chats stream, one of them in front.
+fn resize(run: &mut Run, driver: &Arc<Driver>) {
+    let stop = Arc::new(AtomicBool::new(false));
+    let chats: Vec<String> = (0..20).map(|_| driver.chat()).collect();
+    run.until(30, |run| run.front_chat().is_some());
+    for chat in &chats {
+        driver.keep_busy(chat.clone(), 2_500, stop.clone());
+    }
+    run.frames(240);
+    println!(
+        "{}",
+        run.measure(10., |_, _| {})
+            .line("20 chats streaming, one in front")
+    );
+    let wide = window_size();
+    let swing = |index: usize, reach: usize| {
+        let at = index % (reach * 2);
+        at.min(reach * 2 - at) as f32
+    };
+    let set_size = |run: &mut Run, width: Pixels| {
+        run.cx
+            .update_window(run.window, |_, window, cx| {
+                window.resize(size(width, wide.height));
+                window.bounds_changed(cx);
+            })
+            .ok();
+    };
+    let resized = run.steps(600, |run, index| {
+        set_size(run, wide.width - px(swing(index, 100) * 4.));
+    });
+    set_size(run, wide.width);
+    println!(
+        "{}",
+        resized.line("the window resized every frame, 20 chats streaming")
+    );
+    let bench = run.bench.clone();
+    let dragged = run.steps(600, |run, index| {
+        let width = 180. + swing(index, 150) * 2.;
+        run.cx
+            .update_window(run.window, |_, window, cx| {
+                bench.update(cx, |bench, cx| {
+                    bench.resize_rail(Edge::Start, width, window, cx)
+                })
+            })
+            .ok();
+    });
+    println!(
+        "{}",
+        dragged.line("the side rail dragged every frame, 20 chats streaming")
+    );
     stop.store(true, Ordering::Relaxed);
 }
 
@@ -1593,6 +1648,7 @@ fn main() -> anyhow::Result<()> {
 
     match scenario.as_str() {
         "agents" => agents(&mut run, &driver, None),
+        "resize" => resize(&mut run, &driver),
         "soak" => agents(&mut run, &driver, Some(minutes.unwrap_or(10.))),
         "long" => long(&mut run, &driver),
         "newchat" => new_chats(&mut run, &driver),

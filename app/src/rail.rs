@@ -1878,7 +1878,7 @@ impl Workbench {
     }
 
     /// Sets a rail's width, within what that rail allows, and draws it at once.
-    pub(crate) fn resize_rail(
+    pub fn resize_rail(
         &mut self,
         edge: Edge,
         width: f32,

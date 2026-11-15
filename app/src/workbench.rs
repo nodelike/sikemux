@@ -1,6 +1,6 @@
 use crate::keyboard::Keyboard;
 use crate::rail::DraggedRail;
-use crate::rail::Edge;
+pub use crate::rail::Edge;
 use crate::trust::Trust;
 use sikemux_calls::call;
 use sikemux_view::layout::At;
