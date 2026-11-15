@@ -57,9 +57,12 @@ jobs:
       run:
         shell: bash
     steps:
-      # Cargo's target folder nests deeper than Windows' old 260-character limit.
-      - name: Allow long paths
-        run: git config --global core.longpaths true
+      # Cargo's target folder nests deeper than Windows' old 260-character limit, and
+      # tests compare generated files byte for byte with the Unix line endings in git.
+      - name: Configure git
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,4 +117,4 @@ jobs:
           PACKAGES: ${{ steps.crates.outputs.packages }}
         run: |
           read -ra packages <<<"$PACKAGES"
-          cargo test "${packages[@]}" --all-targets
+          cargo test "${packages[@]}" --all-targets --no-fail-fast
