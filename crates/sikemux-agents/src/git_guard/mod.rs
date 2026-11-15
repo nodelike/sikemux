@@ -98,8 +98,13 @@ fn refused(
     }
     let shown = format!("git {}", subcommand.join(" "));
     match touched {
-        Touch::Stages(paths) => {
+        Touch::Stages(mut paths) => {
             let checkout = checkout?;
+            let conflicted = unmerged(git(), options);
+            paths.retain(|path| !resolves(path, &conflicted));
+            if paths.is_empty() {
+                return None;
+            }
             let names = others(&checkout.dir, &paths).filter(|names| !names.is_empty())?;
             let names = listed(&names);
             Some(format!(
@@ -154,6 +159,30 @@ fn nothing_uncommitted(mut git: Command, options: &[String]) -> bool {
         .stderr(Stdio::null())
         .output()
         .is_ok_and(|output| output.status.success() && output.stdout.is_empty())
+}
+
+/// The paths a merge, rebase or cherry-pick left in conflict, as git, given the global
+/// `options`, names them from the folder it runs in.
+fn unmerged(mut git: Command, options: &[String]) -> Vec<String> {
+    let Ok(output) = git
+        .args(options)
+        .args(["diff", "--name-only", "--relative", "--diff-filter=U", "-z"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    else {
+        return Vec::new();
+    };
+    (output.stdout.split(|byte| *byte == 0))
+        .filter(|name| !name.is_empty())
+        .map(|name| String::from_utf8_lossy(name).into_owned())
+        .collect()
+}
+
+/// Whether staging `path` only marks a conflicted file as resolved.
+fn resolves(path: &str, conflicted: &[String]) -> bool {
+    let path = path.trim_start_matches("./");
+    conflicted.iter().any(|file| file == path)
 }
 
 /// Whether git, given the global `options`, reads `word` as a commit, as
