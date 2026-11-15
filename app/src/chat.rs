@@ -613,8 +613,10 @@ pub struct Chat {
     activity_line: Entity<status::Activity>,
     /// What a screen reader hears of the turn as it runs.
     announcer: Entity<announce::Announcer>,
-    /// The calls the agent asks, over the activity line.
+    /// The calls the agent asked that settled lately, over the activity line.
     calls: Entity<crate::calls::InChat>,
+    /// The agent's open calls, over the composer.
+    open_calls: Entity<crate::calls::InChat>,
     /// The core of the host the agent runs on, which every ask of the chat goes to.
     pub target: Target,
     /// The head as last changed.
@@ -698,8 +700,12 @@ impl Chat {
         let reader = cx.new(|_| Reading::default());
         let running = reader.read(cx).running.clone();
         let stage = bench.clone();
-        let calls =
-            cx.new(|cx| crate::calls::InChat::new(bench.clone(), cards, target.clone(), cx));
+        let in_chat = |seat, cx: &mut App| {
+            let (bench, cards, target) = (bench.clone(), cards.clone(), target.clone());
+            cx.new(|cx| crate::calls::InChat::new(bench, cards, target, seat, cx))
+        };
+        let calls = in_chat(crate::calls::InChatSeat::Transcript, cx);
+        let open_calls = in_chat(crate::calls::InChatSeat::Composer, cx);
         let chat = agent.clone();
         let looks = Rc::new(RefCell::new(Rc::new(Looks::new(
             Tokens::get(cx),
@@ -823,6 +829,7 @@ impl Chat {
             activity_line,
             announcer: cx.new(|_| announce::Announcer::default()),
             calls,
+            open_calls,
             target,
             _rows: [emptied, rows_changed],
             state: None,
@@ -1730,8 +1737,17 @@ pub fn pane(
             calls: away_calls.into_iter().cloned().collect(),
         })),
     };
+    let pinned = (calls.open.clone(), away.clone());
     chat.calls
         .update(cx, |shown, cx| shown.show(calls, away, cx));
+    chat.open_calls.update(cx, |shown, cx| {
+        let (open, away) = pinned;
+        let calls = crate::calls::CallsOf {
+            open,
+            ..Default::default()
+        };
+        shown.show(calls, away, cx)
+    });
     let permissions = chat
         .state
         .as_ref()
@@ -1854,6 +1870,7 @@ pub fn pane(
         .children(status::plan(agent, chat, cx))
         .children(status::trouble(bench, agent, chat, cx))
         .children(permissions)
+        .child(chat.open_calls.clone())
         .children(notice)
         .children(dock)
         .children(chat.composer.as_ref().map(|composing| {

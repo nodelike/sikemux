@@ -26,7 +26,7 @@ use crate::core::Target;
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::picture::Picture;
-use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2};
+use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::{Strip, Workbench};
 
@@ -1161,16 +1161,28 @@ fn notice(call: &PersonCall, t: &Tokens) -> Option<AnyElement> {
 }
 
 /// The away block a chat draw found: the one already shown, or a new one or none.
+#[derive(Clone)]
 pub(crate) enum Shown {
     Same,
     New(Option<Away>),
 }
 
-/// The calls an agent asks, at the end of its chat, over the line saying how it stands.
+/// Where in a chat its calls are drawn.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InChatSeat {
+    /// After the last row: the calls settled since, and a chief's away block.
+    Transcript,
+    /// Over the composer, outside the rows, so an open call stays in sight while the chat moves
+    /// on under it.
+    Composer,
+}
+
+/// The calls an agent asks, in its chat.
 pub struct InChat {
     bench: WeakEntity<Workbench>,
     cards: Entity<Cards>,
     target: Target,
+    seat: InChatSeat,
     calls: CallsOf,
     away: Option<Away>,
     _cards: Subscription,
@@ -1181,6 +1193,7 @@ impl InChat {
         bench: WeakEntity<Workbench>,
         cards: Entity<Cards>,
         target: Target,
+        seat: InChatSeat,
         cx: &mut Context<Self>,
     ) -> Self {
         let observed = cx.observe(&cards, |_, _, cx| cx.notify());
@@ -1188,6 +1201,7 @@ impl InChat {
             bench,
             cards,
             target,
+            seat,
             calls: CallsOf::default(),
             away: None,
             _cards: observed,
@@ -1224,6 +1238,10 @@ impl InChat {
         if let Some(away) = &self.away {
             (calls.open).retain(|call| !away.calls.iter().any(|shown| shown.id == call.id));
         }
+        match self.seat {
+            InChatSeat::Transcript => calls.open.clear(),
+            InChatSeat::Composer => calls.settled.clear(),
+        }
         if changed || self.calls.open != calls.open || self.calls.settled != calls.settled {
             self.calls = calls;
             cx.notify();
@@ -1244,7 +1262,11 @@ fn answered_in_chat<'a>(
 
 impl Render for InChat {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.calls.open.is_empty() && self.calls.settled.is_empty() && self.away.is_none() {
+        let away = self
+            .away
+            .as_ref()
+            .filter(|_| self.seat == InChatSeat::Transcript);
+        if self.calls.open.is_empty() && self.calls.settled.is_empty() && away.is_none() {
             return div().into_any_element();
         }
         let t = Tokens::get(cx).clone();
@@ -1280,7 +1302,7 @@ impl Render for InChat {
                     .into_any_element()
             })
             .collect();
-        let away = self.away.as_ref().map(|away| {
+        let away = away.map(|away| {
             let through = Through {
                 target: &self.target,
                 cards: &self.cards,
@@ -1288,6 +1310,10 @@ impl Render for InChat {
             };
             away::block(away, through, window, cx)
         });
+        let (width, gutter) = match self.seat {
+            InChatSeat::Transcript => (px(800.), px(22.)),
+            InChatSeat::Composer => (crate::chat::column::composer(cx), SPACE_4),
+        };
         div()
             .w_full()
             .flex()
@@ -1295,8 +1321,8 @@ impl Render for InChat {
             .child(
                 div()
                     .w_full()
-                    .max_w(px(800.))
-                    .px(px(22.))
+                    .max_w(width)
+                    .px(gutter)
                     .pt(SPACE_2)
                     .pb(SPACE_2)
                     .flex()
