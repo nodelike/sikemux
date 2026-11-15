@@ -10743,6 +10743,7 @@ dependencies = [
  "sikemux-view",
  "sikemux-wire",
  "tokio",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 
