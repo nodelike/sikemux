@@ -393,9 +393,6 @@ impl Claude {
             "--autocompact".to_owned(),
             format!("{}k", cap::CLAUDE_WINDOW / 1000),
         ]);
-        if let Some(settings) = crate::git_guard::shim::claude_settings() {
-            args.extend(["--settings".to_owned(), settings]);
-        }
         if let Some(model) = model {
             args.extend(["--model".to_owned(), model.to_owned()]);
         }

@@ -4,11 +4,12 @@
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
 
 use serde_json::Value;
+use sikemux_drivers::server::chat::native::session::ShipHeld;
 use sikemux_view::chat::FailureKind;
 use sikemux_view::questions::QuestionChoice;
 use sikemux_view::slice::Decision;
@@ -31,6 +32,9 @@ type Doing<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// A provider, a launch, and which accounts may be picked by their id.
 type AccountWithRoom = fn(&Core, &str, &ChatLaunch, &dyn Fn(&str) -> bool) -> Option<String>;
+
+/// An agent, a shell command, what its launch set in its environment, and where it runs.
+type ShipHeldFor = fn(Arc<Core>, String, String, BTreeMap<String, String>, PathBuf) -> ShipHeld;
 
 pub struct ChatAbove {
     /// Starts the agent's chat again on what it saved, waiting for the person or not.
@@ -139,6 +143,9 @@ pub struct ChatAbove {
     pub permit_elsewhere: fn(&Core, &str, &str, Option<String>) -> bool,
     /// What a checkout in this folder gives the programs started in it.
     pub checkout_environment: fn(&Core, &Path) -> Vec<(String, String)>,
+    /// What an agent is told in place of running a shell command, when something the command
+    /// sends off this machine past the shim on its PATH is held for the person.
+    pub ship_held: ShipHeldFor,
     /// Finds a saved session by its id, of this CLI when given.
     pub locate_saved: fn(&Core, &str, Option<&str>) -> Result<Saved, String>,
     /// The note for a teammate on a linked host.

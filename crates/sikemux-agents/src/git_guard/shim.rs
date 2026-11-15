@@ -23,7 +23,8 @@ const AGENT_BIN: &str = "agent-bin";
 /// The name the hook is linked under, outside the agents' PATH.
 const HOOK: &str = "sikemux-git-hook";
 /// Given to the hook where the shim is first on PATH, so it checks only what
-/// leaves this machine past the shim.
+/// leaves this machine past the shim. Only Claude chats still running from
+/// before the core checked their commands itself pass it.
 const SHIP_ONLY: &str = "ship";
 /// macOS has no `timeout`, which agents reach for out of habit.
 const TIMEOUT: &str = "timeout";
@@ -130,14 +131,6 @@ pub(super) fn grok_hooks(command: &str) -> Value {
             "hooks": [{ "type": "command", "command": command }],
         }],
     })
-}
-
-/// The settings a Claude Code chat starts with to check each shell command for
-/// what leaves this machine, which a program it runs by its full path would
-/// get past the shim with. None before [`install`].
-pub fn claude_settings() -> Option<String> {
-    let (_, command) = hook()?;
-    Some(json!({ "hooks": grok_hooks(&format!("{command} {SHIP_ONLY}")) }).to_string())
 }
 
 /// The plugin a Grok chat loads the hook from. None before [`install`].
@@ -355,14 +348,9 @@ fn run_hook(ship_only: bool) -> i32 {
     let Ok(event) = serde_json::from_str::<Value>(&input) else {
         return 0;
     };
-    let tool = &event["tool_input"];
-    let (Some(command), Some(cwd)) = (tool["command"].as_str(), event["cwd"].as_str()) else {
+    let Some((command, cwd)) = hooked_command(&event) else {
         return 0;
     };
-    let cwd = ["workdir", "cwd"]
-        .iter()
-        .find_map(|key| tool[*key].as_str())
-        .map_or_else(|| PathBuf::from(cwd), |dir| Path::new(cwd).join(dir));
     if let Some(refusal) = (!ship_only)
         .then(|| super::refusal(command, &cwd, &others))
         .flatten()
@@ -370,14 +358,11 @@ fn run_hook(ship_only: bool) -> i32 {
         eprintln!("{refusal}");
         return 2;
     }
-    let extra = project_ships(&cwd);
     let looks = match ship_only {
         true => crate::ship::Looks::PastTheShim,
         false => crate::ship::Looks::Every,
     };
-    let ships = crate::ship::of_command(command, &extra, looks, &cwd, &|name| {
-        std::env::var(name).ok()
-    });
+    let ships = ships_of(command, looks, &cwd, &|name| std::env::var(name).ok());
     let held = ships
         .iter()
         .find_map(|ship| match asked(ship, &cwd, false) {
@@ -391,6 +376,29 @@ fn run_hook(ship_only: bool) -> i32 {
         }
         None => 0,
     }
+}
+
+/// The shell command of a tool call a harness is about to run, in Claude's
+/// hook form, and the folder it runs in.
+pub fn hooked_command(event: &Value) -> Option<(&str, PathBuf)> {
+    let tool = &event["tool_input"];
+    let (command, cwd) = (tool["command"].as_str()?, event["cwd"].as_str()?);
+    let cwd = ["workdir", "cwd"]
+        .iter()
+        .find_map(|key| tool[*key].as_str())
+        .map_or_else(|| PathBuf::from(cwd), |dir| Path::new(cwd).join(dir));
+    Some((command, cwd))
+}
+
+/// Every command of the shell command line `command`, run in `cwd` under
+/// `env`, that leaves this machine, the project's own such commands among them.
+pub fn ships_of(
+    command: &str,
+    looks: crate::ship::Looks,
+    cwd: &Path,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Vec<crate::ship::Ship> {
+    crate::ship::of_command(command, &project_ships(cwd), looks, cwd, env)
 }
 
 /// The commands the project `cwd` is in lists in its sikemux.json as leaving

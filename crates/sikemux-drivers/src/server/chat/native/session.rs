@@ -2,6 +2,9 @@
 //! tells the chat what its agent does through a [`Sink`].
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
@@ -352,6 +355,9 @@ pub trait Told: Send + Sync {
 
 pub type Telling = dyn Told;
 
+/// What a held shell command's agent is told, once the chat has checked the command.
+pub type ShipHeld = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
+
 /// What the chat does for a driver's [`Sink`].
 pub trait SinkPort: Send + Sync {
     /// Whether the provider has a saved session to load.
@@ -408,6 +414,10 @@ pub trait SinkPort: Send + Sync {
 
     /// Whether the chat answers what it may for the person, as under YOLO.
     fn approves(&self) -> bool;
+
+    /// What the agent is told in place of running the shell command `command` in `cwd`, when
+    /// something it sends off this machine is held for the person.
+    fn ship_held(&self, command: String, cwd: PathBuf) -> ShipHeld;
 
     /// Puts `request` to the person. `kept` is the reply as plain data, for a core that takes
     /// the chat over, and `respond` is told the chosen option's id, or none when cancelled.

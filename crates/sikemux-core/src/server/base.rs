@@ -252,6 +252,13 @@ pub(super) fn chat_above() -> ChatAbove {
                 .map(|here| here.environment())
                 .unwrap_or_default()
         },
+        ship_held: |core, agent_id, command, env, cwd| {
+            Box::pin(async move {
+                super::ship::check_hooked(&core, &agent_id, &command, env, &cwd)
+                    .await
+                    .err()
+            })
+        },
         locate_saved: saved::locate,
         note_elsewhere: team_told::note_elsewhere,
         open_work: team_told::open_work,

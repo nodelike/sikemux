@@ -14,7 +14,7 @@ use crate::server::changed::What;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::ship::{HoldParams, WebWriteParams};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -1094,6 +1094,48 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
     })
 }
 
+/// Whether the shell command line `command`, which agent `agent_id` runs in `cwd`, may run:
+/// each of its commands that `looks` sees leave this machine, as [`check`] says. `set` reads
+/// the variables the agent was given beside the person's own.
+async fn check_command(
+    core: &Arc<Core>,
+    agent_id: &str,
+    command: &str,
+    set: impl Fn(&str) -> Option<String> + Send + 'static,
+    cwd: &Path,
+    looks: Looks,
+) -> Result<(), String> {
+    let (checking, agent_id, command, cwd) = (
+        core.clone(),
+        agent_id.to_owned(),
+        command.to_owned(),
+        cwd.to_owned(),
+    );
+    let databases = match command.contains("psql") || command.contains("mysql") {
+        true => production_databases(core).await,
+        false => Vec::new(),
+    };
+    let going = tokio::task::spawn_blocking(move || {
+        let env = |name: &str| set(name).or_else(|| sikemux_process::user_environment::var(name));
+        let ships = crate::git_guard::shim::ships_of(&command, looks, &cwd, &env);
+        let mut going = Vec::new();
+        for ship in ships
+            .into_iter()
+            .filter_map(|ship| on_databases(ship, &databases))
+        {
+            going.extend(check(&checking, &agent_id, ship, &cwd)?);
+        }
+        Ok::<_, String>(going)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    for deploy in going {
+        let core = core.clone();
+        tokio::spawn(async move { ended(core, deploy, None).await });
+    }
+    Ok(())
+}
+
 /// Whether the process `command`, which agent `agent_id` starts in `cwd` with `env` set,
 /// may run: each of its commands that leaves this machine, as [`check`] says. The core
 /// starts the process outside the agent's own, so the shim inside it can't tell it is the
@@ -1105,44 +1147,30 @@ pub async fn check_process(
     env: &[(String, String)],
     cwd: &Path,
 ) -> Result<(), String> {
-    let (checking, agent_id, command, env, cwd) = (
-        core.clone(),
-        agent_id.to_owned(),
-        command.to_owned(),
-        env.to_vec(),
-        cwd.to_owned(),
-    );
-    let databases = match command.contains("psql") || command.contains("mysql") {
-        true => production_databases(core).await,
-        false => Vec::new(),
+    let env = env.to_vec();
+    let set = move |name: &str| {
+        (env.iter().rev())
+            .find(|(set, _)| set == name)
+            .map(|(_, value)| value.clone())
     };
-    let going = tokio::task::spawn_blocking(move || {
-        let extra = crate::git_guard::shim::project_ships(&cwd);
-        let set = |name: &str| {
-            (env.iter().rev())
-                .find(|(set, _)| set == name)
-                .map(|(_, value)| value.clone())
-                .or_else(|| sikemux_process::user_environment::var(name))
-        };
-        let ships = crate::ship::of_command(&command, &extra, Looks::Every, &cwd, &set);
-        let mut going = Vec::new();
-        for ship in ships
-            .into_iter()
-            .filter_map(|ship| on_databases(ship, &databases))
-        {
-            let checked = check(&checking, &agent_id, ship, &cwd)
-                .map_err(|said| format!("{said} Start the process with a new idempotencyKey."))?;
-            going.extend(checked);
-        }
-        Ok::<_, String>(going)
-    })
-    .await
-    .map_err(|error| error.to_string())??;
-    for deploy in going {
-        let core = core.clone();
-        tokio::spawn(async move { ended(core, deploy, None).await });
-    }
-    Ok(())
+    check_command(core, agent_id, command, set, cwd, Looks::Every)
+        .await
+        .map_err(|said| format!("{said} Start the process with a new idempotencyKey."))
+}
+
+/// Whether the shell command `command`, which the chat of agent `agent_id` is about to run
+/// in `cwd`, may run. Its agent was started with `env` set and the shim first on its PATH,
+/// which checks the programs it stands in for as they run, so this checks the rest: programs
+/// run by a path, and the project's own commands.
+pub async fn check_hooked(
+    core: &Arc<Core>,
+    agent_id: &str,
+    command: &str,
+    env: BTreeMap<String, String>,
+    cwd: &Path,
+) -> Result<(), String> {
+    let set = move |name: &str| env.get(name).cloned();
+    check_command(core, agent_id, command, set, cwd, Looks::PastTheShim).await
 }
 
 /// How a deploy the shim followed ended, by the `went` the core gave it.

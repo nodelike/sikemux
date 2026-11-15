@@ -6,6 +6,7 @@ use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::ops::ControlFlow;
 use std::os::fd::OwnedFd;
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -39,7 +40,7 @@ use super::super::{reset, stall_later, Asked, Chat, ChatCommand, Delivery, Respo
 use super::process::{AgentRecord, Process, Released};
 use crate::server::activity_log::{Compaction, ModelCall};
 pub use sikemux_drivers::server::chat::native::session::{
-    slim, Backend, Prompt, Sink, SinkPort, Steered, Telling, Told, TurnEnd,
+    slim, Backend, Prompt, ShipHeld, Sink, SinkPort, Steered, Telling, Told, TurnEnd,
 };
 
 impl From<&Replay> for Prompt {
@@ -325,6 +326,17 @@ impl SinkPort for ChatSink {
 
     fn approves(&self) -> bool {
         self.chat.approves()
+    }
+
+    fn ship_held(&self, command: String, cwd: PathBuf) -> ShipHeld {
+        let Some(core) = self.chat.core.upgrade() else {
+            return Box::pin(std::future::ready(None));
+        };
+        let (agent_id, env) = (
+            self.chat.agent_id().to_owned(),
+            self.chat.current_launch().env,
+        );
+        (core.chat_above().ship_held)(core.clone(), agent_id, command, env, cwd)
     }
 
     fn hold(&self, mut request: Value, kept: Value, respond: Respond) {

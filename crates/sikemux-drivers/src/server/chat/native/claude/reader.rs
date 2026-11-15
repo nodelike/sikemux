@@ -181,6 +181,18 @@ pub(crate) struct ReaderState {
     others_called: bool,
 }
 
+/// The answer to the hook before a tool that has Claude not run it, and tells it `reason`.
+fn tool_refused(reason: &str) -> Value {
+    json!({
+        "continue": true,
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        },
+    })
+}
+
 fn usage_total(usage: &Value) -> Option<u64> {
     let field = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
     usage.is_object().then(|| {
@@ -648,14 +660,10 @@ impl Reader {
                         }),
                         None => json!({ "continue": true }),
                     },
-                    Some(cap::TOOL_HOOK) if self.shared.locked().hushed => json!({
-                        "continue": true,
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": HANDOFF_NO_TOOLS,
-                        },
-                    }),
+                    Some(cap::TOOL_HOOK) if self.shared.locked().hushed => {
+                        tool_refused(HANDOFF_NO_TOOLS)
+                    }
+                    Some(cap::SHIP_HOOK) => return self.check_ships(request_id, &request["input"]),
                     _ => json!({ "continue": true }),
                 };
                 self.control.respond(&request_id, answer)
@@ -664,6 +672,25 @@ impl Reader {
                 .control
                 .refuse(&request_id, "Sikemux does not handle this request"),
         }
+    }
+
+    /// Answers the hook before the shell command of `event` once the chat has said whether
+    /// what it sends off this machine may go.
+    fn check_ships(&self, request_id: String, event: &Value) {
+        let Some((command, cwd)) = crate::git_guard::shim::hooked_command(event) else {
+            return self
+                .control
+                .respond(&request_id, json!({ "continue": true }));
+        };
+        let held = self.sink.ship_held(command.to_owned(), cwd);
+        let control = self.control.clone();
+        tokio::spawn(async move {
+            let answer = match held.await {
+                Some(said) => tool_refused(&said),
+                None => json!({ "continue": true }),
+            };
+            control.respond(&request_id, answer);
+        });
     }
 
     fn can_use_tool(&mut self, request_id: String, request: Value) {
