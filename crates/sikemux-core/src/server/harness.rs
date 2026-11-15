@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+#[cfg(unix)]
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
@@ -26,8 +27,12 @@ use crate::cli::protocol::{
     PLUGINS_CHANGED_METHOD, SHIP_CHECK_METHOD, SHIP_RAN_METHOD, TOOLS_MANIFEST_METHOD,
 };
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
-use crate::harness::journal::{EventsPage, JournalRecord, Journals};
-use crate::harness::runs::{CommandLaunch, Launch, Run, RunStatus, Runs, RunsRecord};
+#[cfg(unix)]
+use crate::harness::journal::JournalRecord;
+use crate::harness::journal::{EventsPage, Journals};
+#[cfg(unix)]
+use crate::harness::runs::RunsRecord;
+use crate::harness::runs::{CommandLaunch, Launch, Run, RunStatus, Runs};
 use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_wire::protocol::{SessionId, TaskSessionInfo, WindowCall};
 
@@ -87,9 +92,11 @@ const AWAITING_TRUST_NOTE: &str = "Waiting for the person to trust this project'
 const STARTING_NOTE: &str = "Still starting. Call process_start again with the same idempotencyKey, or events_wait with this executionId, to see when it runs.";
 const NOT_READY_NOTE: &str = "The process is running but readyWhen has not appeared yet. Wait with events_wait on this executionId and until ready.";
 
+#[cfg(unix)]
 const LAUNCH_CUT_SHORT: &str = "Sikemux's background process was updated while the window was starting this process; start it again";
 
 /// The harness as a replacement core takes it over.
+#[cfg(unix)]
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HarnessRecord {
@@ -266,6 +273,7 @@ impl Harness {
         })
     }
 
+    #[cfg(unix)]
     pub(crate) fn record(&self) -> HarnessRecord {
         self.read(|state| HarnessRecord {
             runs: state.runs.record(),
@@ -275,6 +283,7 @@ impl Harness {
 
     /// Takes over an earlier core's runs, keys and journals. A launch the
     /// window was in the middle of answered the earlier core, so it is over.
+    #[cfg(unix)]
     pub(crate) fn restore(&self, record: HarnessRecord) {
         self.change(|state| {
             state.runs = Runs::restored(record.runs);

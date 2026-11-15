@@ -257,6 +257,7 @@ fn scrub_words(message: &mut Value) {
 /// Scrubs what a core handing over carried in `value` of words typed while a call whose words
 /// are never kept waited: a prompt to send again that holds them is dropped, and any other
 /// message loses its words and the mark.
+#[cfg(unix)]
 pub(super) fn scrub_carried(value: &mut Value) {
     match value {
         Value::Object(fields) => {
