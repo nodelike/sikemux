@@ -418,6 +418,7 @@ async fn run(core: Arc<Core>) {
                     super::worktree::build_output::make_room(&core, free, total);
                 }
                 super::worktree::build_output::sweep_set_aside(&core);
+                super::worktree::build_output::sweep_landed(&core);
                 if now >= next_shown {
                     next_shown = now + LOAD_SHOWN_EVERY;
                     if core.shows_load() && core.load_moved(&load(&core)) {

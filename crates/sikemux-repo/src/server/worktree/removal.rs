@@ -281,3 +281,34 @@ pub async fn remove(core: &Arc<Core>, params: RemoveWorktreeParams) -> CoreResul
         branch_deleted: deleted,
     })
 }
+
+/// Removes the worktree at `tree` that no agent works in any more, with its branch. Git
+/// refuses while anything in it is uncommitted, so only build output and other ignored
+/// folders go with it.
+pub async fn remove_left(core: &Arc<Core>, repo: &Path, tree: &Path) {
+    ports::checkout::removing(core, tree).await;
+    let (repo, tree) = (repo.to_owned(), tree.to_owned());
+    let removed = blocking(move || {
+        let branch = (Git::quick(&tree)
+            .trimmed(&["branch", "--show-current"])
+            .ok())
+        .filter(|branch| !branch.is_empty());
+        let path = tree.to_string_lossy().into_owned();
+        Git::at(&repo)
+            .text(&["worktree", "remove", &path])
+            .map_err(CoreError::from)?;
+        if let Some(branch) = &branch {
+            Git::at(&repo)
+                .text(&["branch", "-D", branch])
+                .map_err(CoreError::from)?;
+        }
+        Ok(path)
+    })
+    .await;
+    match removed {
+        Ok(path) => {
+            eprintln!("sikemux core: removed the worktree {path}, as all its work is landed")
+        }
+        Err(error) => eprintln!("sikemux core: kept a landed worktree: {error}"),
+    }
+}
