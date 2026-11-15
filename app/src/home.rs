@@ -474,7 +474,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         .as_ref()
         .filter(|retitling| retitling.agent == agent.id && !retitling.in_rail)
         .map(|retitling| retitle_field(retitling, 13., cx).min_w(px(160.)));
-    let chief = agent.chief.then(|| chief_fact(bench, agent, cx));
+    let chief = agent.chief.then(|| chief_fact(bench, cx)).flatten();
     let weak = cx.weak_entity();
     let chain = (!agent.chief)
         .then(|| chain_to(bench, agent, &weak, cx))
@@ -547,34 +547,16 @@ fn side_of(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>) -> 
     )
 }
 
-/// What follows @Chief in its chat's header: the project, how many agents it has, and the
-/// agent and model it runs on, so its mark never reads as a model of Sikemux's own.
-fn chief_fact(bench: &Workbench, agent: &AgentRow, cx: &App) -> AnyElement {
-    let t = Tokens::get(cx);
-    let project = bench.project();
-    let count = project.map_or(0, |project| project.agents);
-    let model = (bench.chats.open.get(&agent.id))
-        .and_then(|chat| chat.state.as_ref()?.model.clone())
-        .filter(|model| !model.current.is_empty())
-        .map(|model| crate::chat::composer::chosen(&model, t!("Model")))
-        .unwrap_or_else(|| crate::turn_line::maker(&agent.provider).to_owned());
-    let dot = || div().text_color(t.text_disabled).child("·");
-    div()
-        .flex()
-        .items_center()
-        .gap(SPACE_1H)
-        .text_size(crate::theme::ui_text(TEXT_XS))
-        .text_color(t.text_tertiary)
-        .children(project.map(|project| div().child(project.name.clone())))
-        .child(dot())
-        .child(match count {
-            1 => t!("1 agent").to_owned(),
-            count => t!("{count} agents", count = count),
-        })
-        .child(dot())
-        .child(ui::mark(&agent.provider, 14.))
-        .child(model)
-        .into_any_element()
+/// What follows @Chief in its chat's header: the project it is the chief of.
+fn chief_fact(bench: &Workbench, cx: &App) -> Option<AnyElement> {
+    let project = bench.project()?;
+    Some(
+        div()
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_color(Tokens::get(cx).text_tertiary)
+            .child(project.name.clone())
+            .into_any_element(),
+    )
 }
 
 /// The chain down to a worker in a project with a chief, leading its header: @Chief, then each
