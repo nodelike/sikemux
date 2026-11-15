@@ -1,5 +1,5 @@
 # A call stays open while the person asks the agent about it: the question and the answer go in
-# the chat, and the card waits above the composer until a choice is picked.
+# the chat, and the card stays at the end of the transcript until a choice is picked.
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
