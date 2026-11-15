@@ -23,6 +23,7 @@ use sikemux_plugin_api::codehost::{
 use sikemux_process::sync::Locked;
 
 pub mod ci;
+pub mod gh_run;
 pub mod log;
 pub mod repo;
 

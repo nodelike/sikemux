@@ -309,6 +309,9 @@ pub const GIT_OUTBOX_METHOD: &str = "git.outbox";
 /// What `gh pr merge` on a remote with an identity of the agents' own hands the core, which
 /// merges as that identity. Not a tool.
 pub const GH_MERGE_METHOD: &str = "gh.merge";
+/// What an agent's `gh run list`, `view` or `watch` hands the core, which answers from the CI it
+/// holds for everyone. Not a tool.
+pub const GH_RUN_METHOD: &str = "gh.run";
 /// How a deploy the core let go ended, from the shim that ran it.
 pub const SHIP_RAN_METHOD: &str = "ship.ran";
 /// `sikemux chat` outside every agent asks the person to let it in, and waits for the answer.
@@ -381,6 +384,7 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
         && request.method != GIT_CREDENTIAL_METHOD
         && request.method != GIT_OUTBOX_METHOD
         && request.method != GH_MERGE_METHOD
+        && request.method != GH_RUN_METHOD
         && request.method != SHIP_CHECK_METHOD
         && request.method != SHIP_RAN_METHOD
         && request.method != OUTSIDE_SIGN_IN_METHOD

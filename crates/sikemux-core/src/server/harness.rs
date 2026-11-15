@@ -21,7 +21,7 @@ use tokio::time::Instant;
 
 use crate::cli::protocol::{
     validate_harness, HarnessRequest, COMMIT_FOOTER_METHOD, COMMIT_MADE_METHOD, CORE_REPLY_TIMEOUT,
-    GH_MERGE_METHOD, GIT_CREDENTIAL_METHOD, GIT_GUARD_METHOD, GIT_OUTBOX_METHOD,
+    GH_MERGE_METHOD, GH_RUN_METHOD, GIT_CREDENTIAL_METHOD, GIT_GUARD_METHOD, GIT_OUTBOX_METHOD,
     OUTSIDE_CALL_METHOD, OUTSIDE_SIGN_IN_METHOD, OUTSIDE_SIGN_IN_WAIT_METHOD,
     PLUGINS_CHANGED_METHOD, SHIP_CHECK_METHOD, SHIP_RAN_METHOD, TOOLS_MANIFEST_METHOD,
 };
@@ -502,6 +502,12 @@ pub(crate) async fn call(
     }
     if request.method == GH_MERGE_METHOD {
         return sikemux_repo::server::credential::merge(core, &request, peer, port).await;
+    }
+    if request.method == GH_RUN_METHOD {
+        let args: Vec<String> = (request.params["args"].as_array().into_iter().flatten())
+            .filter_map(|arg| arg.as_str().map(str::to_owned))
+            .collect();
+        return sikemux_repo::server::codehost::gh_run::call(core, &request.project, &args).await;
     }
     let grant = if request.method == COMMIT_FOOTER_METHOD {
         tokio::task::spawn_blocking(move || super::callers::take_commit_grant(peer, port))

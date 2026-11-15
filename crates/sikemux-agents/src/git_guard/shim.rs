@@ -458,6 +458,11 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         eprintln!("{program}: Sikemux found no {program} to run on PATH");
         return 127;
     };
+    if program == "gh" {
+        if let Some(code) = gh_run(&words, &cwd) {
+            return code;
+        }
+    }
     let as_agents = (program == "gh")
         .then(|| gh_as_agents(&words, &cwd))
         .flatten();
@@ -538,6 +543,65 @@ fn gh_as_agents(words: &[String], cwd: &Path) -> Option<GhAsAgents> {
 
 fn words_of(words: &[String]) -> Vec<&str> {
     words.iter().map(String::as_str).collect()
+}
+
+/// Hands `gh run list`, `view` and `watch` to the core, which answers from the CI it holds for
+/// every agent rather than each one asking GitHub; none when the real `gh` should run instead.
+fn gh_run(words: &[String], cwd: &Path) -> Option<i32> {
+    let ["run", "list" | "ls" | "view" | "watch", ..] = words_of(words).as_slice() else {
+        return None;
+    };
+    let mut args = Vec::new();
+    let mut filter = None;
+    let mut given = words.iter();
+    while let Some(word) = given.next() {
+        match word.split_once('=') {
+            Some(("--jq" | "-q", value)) => filter = Some(value.to_owned()),
+            _ if word == "--jq" || word == "-q" => filter = Some(given.next()?.clone()),
+            _ => args.push(word.clone()),
+        }
+    }
+    let jq = match &filter {
+        Some(_) if args.iter().any(|arg| arg.starts_with("--json")) => Some(real("jq")?),
+        Some(_) => return None,
+        None => None,
+    };
+    let answer = crate::cli::client::attempt(
+        &footer::endpoint()?,
+        &cwd.to_string_lossy(),
+        None,
+        crate::cli::protocol::GH_RUN_METHOD,
+        &json!({ "args": args }),
+        Duration::from_secs(60),
+    )
+    .ok()?;
+    if answer["pass"] == Value::Bool(true) {
+        return None;
+    }
+    let code = answer["code"]
+        .as_i64()
+        .and_then(|code| i32::try_from(code).ok())
+        .unwrap_or(0);
+    if let Some(said) = answer["err"].as_str() {
+        eprintln!("{said}");
+        return Some(code);
+    }
+    let out = answer["out"].as_str().unwrap_or_default();
+    let (Some(jq), Some(filter)) = (jq, filter) else {
+        println!("{out}");
+        return Some(code);
+    };
+    let mut child = sikemux_process::user_environment::command(&jq)
+        .args(["-r", &filter])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        drop(stdin.write_all(out.as_bytes()));
+    }
+    let filtered = child.wait().ok()?.code().unwrap_or(1);
+    Some(if filtered == 0 { code } else { filtered })
 }
 
 /// Hands `gh pr merge <args>` to the core, which merges as the agents' own identity, since no
