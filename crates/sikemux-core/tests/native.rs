@@ -74,6 +74,7 @@ impl TestCore {
             data_dir: Some(dir.path().join("data")),
             ..ServerConfig::new(socket.clone())
         };
+        let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
         let thread = std::thread::spawn(move || server::run(config));
         let deadline = Instant::now() + WAIT;
         while probe(&socket, Duration::from_secs(1)).is_err() {
@@ -1045,7 +1046,10 @@ async fn an_opencode_command_waits_for_the_persons_answer() {
     let core = TestCore::start();
     let (client, mut chat) = core.connect("opencode-b").await;
     client
-        .acp_start(opencode_launch("opencode-b", home.path()))
+        .acp_start(ChatLaunch {
+            permission_mode: PermissionMode::WorkspaceWrite,
+            ..opencode_launch("opencode-b", home.path())
+        })
         .await
         .expect("start");
 
