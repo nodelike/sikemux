@@ -10,6 +10,7 @@ import { useDevicePalette } from '@/devices/palette';
 import { Crashed } from '@/ui/Crashed';
 import { Backdrop, BackdropContext, backdropUnderStack } from '@/ui/Backdrop';
 import { FacesContext } from '@/devices/Buddy';
+import { CrewContext, useCrewOf } from '@/devices/Crew';
 import { goHome } from '@/ui/navigate';
 import { swipeOptions, useStillFade } from '@/ui/swipeStack';
 import { isLight, PaletteProvider, type Palette } from '@/ui/theme';
@@ -36,6 +37,7 @@ export default function DeviceLayout() {
     () => (agents && style ? { faces: Object.fromEntries(agents.map((agent) => [agent.id, agent.face ?? null])), style } : undefined),
     [agents, style],
   );
+  const crew = useCrewOf(snapshot);
   const navigation = useNavigation();
   // The host's own screen drags back to Devices only from its list; deeper in, the swipe belongs to the screen on top.
   const swipeHostOnlyAtTop = (data: unknown) =>
@@ -52,30 +54,32 @@ export default function DeviceLayout() {
     <PaletteProvider value={palette}>
       <BackdropContext.Provider value={backdrop}>
         <FacesContext.Provider value={faces}>
-          <StatusBar style={isLight(palette) ? 'dark' : 'light'} />
-          {backdropUnderStack ? (
-            <>
-              <StillGround palette={palette} />
-              <SwipeStack
-                screenOptions={swipeOptions('transparent')}
-                screenListeners={{ state: (event) => swipeHostOnlyAtTop(event.data) }}>
-                <SwipeStack.Screen
-                  name="chat/[agent]"
-                  options={({ route }: { route: { params?: object } }) => (started(route) ? { animation: 'none' } : {})}
-                />
-              </SwipeStack>
-            </>
-          ) : (
-            <Stack
-              screenOptions={{
-                headerShown: false,
-                freezeOnBlur: true,
-                fullScreenGestureEnabled: true,
-                contentStyle: { backgroundColor: palette.ground },
-              }}>
-              <Stack.Screen name="chat/[agent]" options={({ route }) => ({ animation: started(route) ? 'none' : 'default' })} />
-            </Stack>
-          )}
+          <CrewContext value={crew}>
+            <StatusBar style={isLight(palette) ? 'dark' : 'light'} />
+            {backdropUnderStack ? (
+              <>
+                <StillGround palette={palette} />
+                <SwipeStack
+                  screenOptions={swipeOptions('transparent')}
+                  screenListeners={{ state: (event) => swipeHostOnlyAtTop(event.data) }}>
+                  <SwipeStack.Screen
+                    name="chat/[agent]"
+                    options={({ route }: { route: { params?: object } }) => (started(route) ? { animation: 'none' } : {})}
+                  />
+                </SwipeStack>
+              </>
+            ) : (
+              <Stack
+                screenOptions={{
+                  headerShown: false,
+                  freezeOnBlur: true,
+                  fullScreenGestureEnabled: true,
+                  contentStyle: { backgroundColor: palette.ground },
+                }}>
+                <Stack.Screen name="chat/[agent]" options={({ route }) => ({ animation: started(route) ? 'none' : 'default' })} />
+              </Stack>
+            )}
+          </CrewContext>
         </FacesContext.Provider>
       </BackdropContext.Provider>
     </PaletteProvider>

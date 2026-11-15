@@ -17,7 +17,7 @@ import { ConfigSheet, type RoutePick } from '@/chat/ConfigSheet';
 import { ModelChip } from '@/chat/ModelChip';
 import { currentLabel, useAgents } from '@/chat/sessionConfig';
 import { AttachSheet } from '@/chat/AttachSheet';
-import { YoloEdge, YoloToggle } from '@/chat/YoloToggle';
+import { yoloEdge, YoloToggle } from '@/chat/YoloToggle';
 import { WorktreeSwitch } from '@/chat/Worktree';
 import { ComposerInput } from '@/chat/ComposerInput';
 import { fitting, type Attachment } from '@/chat/uploads';
@@ -39,7 +39,10 @@ import { useDevices, useLive } from '@/devices/hub';
 import { deviceName } from '@/devices/paired';
 import { ProjectSheet } from '@/devices/ProjectSheet';
 import { haptics } from '@/ui/haptics';
-import { AgentFace } from '@/devices/Buddy';
+import { crumbsOf, useCrew } from '@/devices/Crew';
+import { Welcome } from '@/chat/Welcome';
+import { KeyboardDismissArea } from '@/ui/KeyboardDismissArea';
+import { HostContext } from '@/chat/hostFiles';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { type Glyph, PromptGlyph } from '@/ui/prompt';
 import { Nav, Screen, useKeyboardShown } from '@/ui/screen';
@@ -248,6 +251,8 @@ export default function NewChat() {
       : workspace && !project
         ? t('No open projects on the host.')
         : undefined;
+  const crew = useCrew();
+  const crumbs = useMemo(() => crumbsOf(crew, undefined, project?.id, live.snapshot), [crew, project?.id, live.snapshot]);
   const noAgents = Boolean(workspace && !workspace.launchers.length);
   const absent: Glyph | undefined = noAgents ? 'IconAgent' : live.status === 'open' && workspace && !project ? 'IconFolder' : undefined;
   const busy = useRef(false);
@@ -358,7 +363,9 @@ export default function NewChat() {
       <Nav
         title={
           launcher ? (
-            <ChatTitle provider={launcher.provider} title={t('New {agent} chat', { agent: agentLabel(launcher.provider) })} />
+            <HostContext value={core}>
+              <ChatTitle provider={launcher.provider} title={t('New chat')} crumbs={crumbs} />
+            </HostContext>
           ) : undefined
         }
         end={
@@ -376,21 +383,13 @@ export default function NewChat() {
       />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         {sending ? (
-          <View style={styles.sending}>
+          <KeyboardDismissArea style={styles.sending}>
             <Message message={sending.message} unsent={{ state: 'sending' }} sentFiles={sending.files} />
             {launcher ? <Activity provider={launcher.provider} doing={{ verb: step ?? t('Starting') }} since={sending.since} /> : null}
-          </View>
+          </KeyboardDismissArea>
         ) : (
-          <View style={styles.welcome}>
-            {absent ? (
-              <PromptGlyph icon={absent} small />
-            ) : launcher ? (
-              <AgentFace agentId={project?.id} provider={launcher.provider} size={38} logoSize={40} />
-            ) : null}
-            <Text style={styles.welcomeTitle}>{t('New chat')}</Text>
-            {launcher && !noAgents && !problem && !blocked ? (
-              <Text style={type.meta}>{t('{agent} on {host}', { agent: agentLabel(launcher.provider), host: hostName })}</Text>
-            ) : null}
+          <KeyboardDismissArea style={styles.welcome}>
+            {absent ? <PromptGlyph icon={absent} small /> : project ? <Welcome project={project.name} /> : null}
             {smartPick && launcher && !problem && !blocked ? <SmartPick move={smartPick} provider={launcher.provider} /> : null}
             {noAgents ? <Text style={[type.meta, { textAlign: 'center' }]}>{t('No agents on the host.')}</Text> : null}
             {problem ? <Text style={styles.problem}>{problem}</Text> : null}
@@ -399,13 +398,12 @@ export default function NewChat() {
                 {blocked}
               </Text>
             ) : null}
-          </View>
+          </KeyboardDismissArea>
         )}
         <SafeAreaView edges={typing ? [] : ['bottom']} style={styles.wrap}>
           {prompt.toast}
           {mention !== undefined ? <StashMenu query={mention} onPick={(item) => fromStash([item], withoutQuery(draft))} /> : null}
           <View style={[styles.composer, mode === 'bypass' ? styles.yoloComposer : focused && { borderColor: colors.borderSelected }]}>
-            {mode === 'bypass' ? <YoloEdge radius={10} /> : null}
             {attachments.length || chips.length ? (
               <ComposerAttachments
                 attachments={attachments}
@@ -595,7 +593,6 @@ const makeStyles = (colors: Palette) => {
       paddingBottom: 28,
     },
     sending: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: 18, paddingBottom: 28 },
-    welcomeTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.4, color: colors.ink },
     problem: { fontFamily: fonts.ui, fontSize: 13.5, color: colors.danger, textAlign: 'center' },
     wrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 },
     // Where the chat will run, picked from the line under the box as on the Mac's new chat.
@@ -606,7 +603,7 @@ const makeStyles = (colors: Palette) => {
     placeName: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.ink },
     slash: { fontFamily: fonts.ui, fontSize: 13, color: colors.borderStrong },
     composer: { padding: 6, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
-    yoloComposer: { borderColor: 'transparent' },
+    yoloComposer: { borderColor: yoloEdge(colors) },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
     more: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },

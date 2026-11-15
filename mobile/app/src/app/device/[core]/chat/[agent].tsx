@@ -2,7 +2,7 @@ import { useChatFind, useRevealFound } from '@/chat/useChatFind';
 import { takeFind } from '@/devices/pendingFind';
 import { useEditingRow } from '@/chat/useEditingRow';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { type TextInput, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type TextInput, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import MaskedView from '@react-native-masked-view/masked-view';
@@ -41,7 +41,9 @@ import { Message, plainlySent, TeamFold, WorkSummary } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
 import { SmartPick } from '@/chat/Notices';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
-import { ActsContext, AgentContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
+import { ActsContext, AgentContext, ChiefContext, liveRunKey, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
+import { placeResults, ResultCard } from '@/chat/ResultCard';
+import { crumbsOf, useCrew } from '@/devices/Crew';
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
 import { useT } from '@/i18n';
@@ -132,9 +134,10 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   if (editing !== undefined && !canEdit) setEditing(undefined);
   const editable = (message: ChatMessage) =>
     canEdit && message.role === 'user' && message.promptId !== undefined && !message.context?.length && !chat.unsent.has(message.id);
+  const results = useMemo(() => placeResults(state.results, rows), [state.results, rows]);
   const marks = useMemo(
-    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
-    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing],
+    () => [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, results],
+    [chat.unsent, chat.sentFiles, liveId, open, openStrip, openWork, canEdit, editing, results],
   );
   const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
   const { handoff, guests, plan, runningSubagents, tasks, queued } = state;
@@ -191,7 +194,10 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const runShown = useSyncExternalStore(session.folds.subscribe, () => liveRun !== null && session.folds.isOpen(liveRun, true));
   const activity = doing && runShown ? { verb: doing.verb } : doing;
   const listed = live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId);
-  const title = state.title ?? listed?.title ?? agentLabel(provider);
+  const own = state.title ?? (listed?.titled ? listed.title : undefined);
+  const title = own ?? (info?.name ? undefined : (listed?.title ?? agentLabel(provider)));
+  const crew = useCrew();
+  const crumbs = useMemo(() => crumbsOf(crew, agentId, listed?.project, live.snapshot), [crew, agentId, listed?.project, live.snapshot]);
   const steerable = state.capabilities.steering === true && state.running && !watchOnly;
   // The person may change how sending mid-turn goes between turns, so each turn reads it afresh.
   const preferences = useHostCall(connection, 'preferences', {}, String(state.running)).data;
@@ -289,7 +295,19 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const screen = (
     <Screen>
       <Nav
-        title={<ChatTitle agentId={agentId} turn={state.turn} provider={provider} name={info?.name} title={title} chief={state.chief} />}
+        title={
+          <HostContext value={core}>
+            <ChatTitle
+              agentId={agentId}
+              turn={state.turn}
+              provider={provider}
+              name={info?.name}
+              title={title}
+              chief={state.chief}
+              crumbs={crumbs}
+            />
+          </HostContext>
+        }
         end={
           <Pressable
             onPress={() => setMenu(true)}
@@ -308,150 +326,166 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
           <HostContext value={core}>
             <ProviderContext value={provider}>
               <AgentContext value={agentId}>
-                <ActsContext value={access === 'full'}>
-                  <FoldsContext value={session.folds}>
-                    <SubagentsContext value={subagents}>
-                      <ToolDetailContext value={session.toolDetail}>
-                        <View style={styles.transcript}>
-                          <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
-                            <FlashList
-                              ref={list}
-                              showsVerticalScrollIndicator={false}
-                              data={rows}
-                              keyExtractor={(message) => message.id}
-                              // Folded work draws nothing, so it is never recycled into a whole answer.
-                              getItemType={(message) => (rowFold(message, workOpen, runs.get(message.id)).hidden ? 'folded' : message.role)}
-                              extraData={marks}
-                              renderItem={({ item, index }) => {
-                                const run = runs.get(item.id);
-                                const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen, run);
-                                const head = run?.head ? (
-                                  <TeamFold
-                                    line={run.head}
-                                    open={session.folds.isOpen(`team/${run.id}`, false)}
-                                    all={session.folds.isOpen(`team-all/${run.id}`, false)}
-                                    onToggle={() => toggleRun(run.id)}
-                                    onAll={() => showRunEarlier(run.id)}
-                                  />
-                                ) : null;
-                                const note =
-                                  index === 0 && worktree && !chat.hasEarlier ? (
-                                    <WorktreeNote branch={worktree.branch} path={worktree.path} />
+                <ChiefContext value={state.chief === true}>
+                  <ActsContext value={access === 'full'}>
+                    <FoldsContext value={session.folds}>
+                      <SubagentsContext value={subagents}>
+                        <ToolDetailContext value={session.toolDetail}>
+                          <View style={styles.transcript}>
+                            <MaskedView style={styles.transcript} maskElement={<EdgeFades />}>
+                              <FlashList
+                                ref={list}
+                                showsVerticalScrollIndicator={false}
+                                data={rows}
+                                keyExtractor={(message) => message.id}
+                                // Folded work draws nothing, so it is never recycled into a whole answer.
+                                getItemType={(message) =>
+                                  rowFold(message, workOpen, runs.get(message.id)).hidden ? 'folded' : message.role
+                                }
+                                extraData={marks}
+                                renderItem={({ item, index }) => {
+                                  const run = runs.get(item.id);
+                                  const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen, run);
+                                  const head = run?.head ? (
+                                    <TeamFold
+                                      line={run.head}
+                                      open={session.folds.isOpen(`team/${run.id}`, false)}
+                                      all={session.folds.isOpen(`team-all/${run.id}`, false)}
+                                      onToggle={() => toggleRun(run.id)}
+                                      onAll={() => showRunEarlier(run.id)}
+                                    />
                                   ) : null;
-                                const summary = fold ? (
-                                  <WorkSummary
-                                    took={fold.took}
-                                    calls={fold.calls}
-                                    thought={fold.thought}
-                                    open={workOpen(fold.id)}
-                                    onToggle={() => toggleWork(fold.id)}
-                                  />
-                                ) : null;
-                                if (hidden)
-                                  return note || summary || head ? (
+                                  const note =
+                                    index === 0 && worktree && !chat.hasEarlier ? (
+                                      <WorktreeNote branch={worktree.branch} path={worktree.path} />
+                                    ) : null;
+                                  const summary = fold ? (
+                                    <WorkSummary
+                                      took={fold.took}
+                                      calls={fold.calls}
+                                      thought={fold.thought}
+                                      open={workOpen(fold.id)}
+                                      onToggle={() => toggleWork(fold.id)}
+                                    />
+                                  ) : null;
+                                  const finished = results
+                                    .get(index)
+                                    ?.map((result) => <ResultCard key={result.agentId} row={result} connection={connection} />);
+                                  if (hidden)
+                                    return note || summary || head || finished ? (
+                                      <>
+                                        {note}
+                                        {head}
+                                        {summary}
+                                        {finished}
+                                      </>
+                                    ) : (
+                                      <View />
+                                    );
+                                  return (
                                     <>
                                       {note}
                                       {head}
                                       {summary}
+                                      <Message
+                                        message={item}
+                                        live={item.id === liveId}
+                                        unsent={chat.unsent.get(item.id)}
+                                        onRetry={session.retrySend}
+                                        onTap={onTap}
+                                        strip={item.id === open ? openStrip : undefined}
+                                        sentFiles={chat.sentFiles}
+                                        kept={kept}
+                                        onEdit={editable(item) ? startEdit : undefined}
+                                        editing={item.id === editing ? editingRow : undefined}
+                                        followsOwn={plainlySent(item) && plainlySent(rows[index - 1])}
+                                        followedByOwn={plainlySent(item) && plainlySent(rows[index + 1])}
+                                      />
+                                      {finished}
                                     </>
-                                  ) : (
-                                    <View />
                                   );
-                                return (
+                                }}
+                                ListEmptyComponent={state.placed ? <SmartPick move={state.placed} provider={provider} /> : null}
+                                ListHeaderComponent={
+                                  chat.hasEarlier ? (
+                                    <Earlier
+                                      failed={chat.earlier === 'failed'}
+                                      loading={chat.earlier === 'loading'}
+                                      onRetry={session.loadEarlier}
+                                    />
+                                  ) : state.earlierLost ? (
+                                    <EarlierLost />
+                                  ) : null
+                                }
+                                ListFooterComponent={
                                   <>
-                                    {note}
-                                    {head}
-                                    {summary}
-                                    <Message
-                                      message={item}
-                                      live={item.id === liveId}
-                                      unsent={chat.unsent.get(item.id)}
-                                      onRetry={session.retrySend}
-                                      onTap={onTap}
-                                      strip={item.id === open ? openStrip : undefined}
-                                      sentFiles={chat.sentFiles}
-                                      kept={kept}
-                                      onEdit={editable(item) ? startEdit : undefined}
-                                      editing={item.id === editing ? editingRow : undefined}
-                                      followsOwn={plainlySent(item) && plainlySent(rows[index - 1])}
-                                      followedByOwn={plainlySent(item) && plainlySent(rows[index + 1])}
+                                    {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
+                                    {state.away ? (
+                                      <AwayCard
+                                        away={state.away}
+                                        connection={connection}
+                                        full={access === 'full'}
+                                        providerOf={providerOf}
+                                        onOpen={(other) => router.push(`/device/${core}/chat/${other}`)}
+                                      />
+                                    ) : null}
+                                    {activity ? (
+                                      <Activity
+                                        provider={provider}
+                                        doing={activity}
+                                        since={chat.turnSince}
+                                        agentId={agentId}
+                                        chief={state.chief}
+                                      />
+                                    ) : state.turn ? (
+                                      <TurnLine
+                                        agentId={agentId}
+                                        provider={provider}
+                                        chief={state.chief === true}
+                                        turn={state.turn}
+                                        connection={connection}
+                                        canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
+                                        docked={!!docked}
+                                        onLook={() => input.current?.focus()}
+                                      />
+                                    ) : null}
+                                    <Trouble
+                                      state={state}
+                                      provider={provider}
+                                      hostName={hostName}
+                                      connection={connection}
+                                      session={session}
+                                      canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
+                                      onStartOver={startOver}
                                     />
                                   </>
-                                );
-                              }}
-                              ListEmptyComponent={state.placed ? <SmartPick move={state.placed} provider={provider} /> : null}
-                              ListHeaderComponent={
-                                chat.hasEarlier ? (
-                                  <Earlier
-                                    failed={chat.earlier === 'failed'}
-                                    loading={chat.earlier === 'loading'}
-                                    onRetry={session.loadEarlier}
-                                  />
-                                ) : state.earlierLost ? (
-                                  <EarlierLost />
-                                ) : null
-                              }
-                              ListFooterComponent={
-                                <>
-                                  {queued.length ? <Queued held={queued} sentFiles={chat.sentFiles} /> : null}
-                                  {state.away ? (
-                                    <AwayCard
-                                      away={state.away}
-                                      connection={connection}
-                                      full={access === 'full'}
-                                      providerOf={providerOf}
-                                      onOpen={(other) => router.push(`/device/${core}/chat/${other}`)}
-                                    />
-                                  ) : null}
-                                  {activity ? (
-                                    <Activity provider={provider} doing={activity} since={chat.turnSince} />
-                                  ) : state.turn ? (
-                                    <TurnLine
-                                      agentId={agentId}
-                                      provider={provider}
-                                      turn={state.turn}
-                                      connection={connection}
-                                      canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
-                                      docked={!!docked}
-                                      onLook={() => input.current?.focus()}
-                                    />
-                                  ) : null}
-                                  <Trouble
-                                    state={state}
-                                    provider={provider}
-                                    hostName={hostName}
-                                    connection={connection}
-                                    session={session}
-                                    canAct={!watchOnly && chat.attached === 'live' && live.status === 'open'}
-                                    onStartOver={startOver}
-                                  />
-                                </>
-                              }
-                              contentContainerStyle={styles.content}
-                              {...scroll.listProps}
-                              renderScrollComponent={renderScrollComponent}
-                              keyboardDismissMode="interactive"
-                              keyboardShouldPersistTaps={editing === undefined ? 'never' : 'handled'}
-                            />
-                          </MaskedView>
-                          {scroll.away ? (
-                            <KeyboardStickyView style={styles.jumpPlace} offset={{ opened: homeBar }}>
-                              <Pressable
-                                onPress={scroll.toEnd}
-                                style={styles.jump}
-                                hitSlop={8}
-                                accessibilityRole="button"
-                                accessibilityLabel={t('Jump to latest message')}>
-                                <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
-                              </Pressable>
-                            </KeyboardStickyView>
-                          ) : null}
-                          {nowCard}
-                        </View>
-                      </ToolDetailContext>
-                    </SubagentsContext>
-                  </FoldsContext>
-                </ActsContext>
+                                }
+                                contentContainerStyle={styles.content}
+                                {...scroll.listProps}
+                                renderScrollComponent={renderScrollComponent}
+                                keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
+                                keyboardShouldPersistTaps={editing === undefined ? 'never' : 'handled'}
+                              />
+                            </MaskedView>
+                            {scroll.away ? (
+                              <KeyboardStickyView style={styles.jumpPlace} offset={{ opened: homeBar }}>
+                                <Pressable
+                                  onPress={scroll.toEnd}
+                                  style={styles.jump}
+                                  hitSlop={8}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={t('Jump to latest message')}>
+                                  <Icon name="IconArrowDown" size={16} color={colors.inkDim} />
+                                </Pressable>
+                              </KeyboardStickyView>
+                            ) : null}
+                            {nowCard}
+                          </View>
+                        </ToolDetailContext>
+                      </SubagentsContext>
+                    </FoldsContext>
+                  </ActsContext>
+                </ChiefContext>
               </AgentContext>
             </ProviderContext>
           </HostContext>

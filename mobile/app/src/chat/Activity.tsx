@@ -4,13 +4,25 @@ import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import type { Doing } from '@shared/chat/chatStatus';
 import { durationLabel } from '@shared/chat/durationLabel';
 import { useT } from '@/i18n';
-import { AgentIcon } from '@/ui/Icon';
+import { OwnMark } from '@/devices/Crew';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { useAnimating, useSecond } from '@/ui/motion';
 import { Shimmer } from '@/ui/Shimmer';
 
-/** The line under the last row: the agent's mark, a sweep on what it is doing, then what it is on and for how long. */
-export function Activity({ provider, doing, since }: { provider: string; doing: Doing; since: number }) {
+/** The line under the last row: the agent's own mark, a sweep on what it is doing, then what it is on and for how long. */
+export function Activity({
+  provider,
+  doing,
+  since,
+  agentId,
+  chief,
+}: {
+  provider: string;
+  doing: Doing;
+  since: number;
+  agentId?: string;
+  chief?: boolean;
+}) {
   const styles = useStyles(makeStyles);
   const t = useT();
   const [breath] = useState(() => new Animated.Value(1));
@@ -32,7 +44,7 @@ export function Activity({ provider, doing, since }: { provider: string; doing: 
   return (
     <View style={styles.activity} accessible accessibilityLabel={[doing.verb, doing.what, doing.after].filter(Boolean).join(' ')}>
       <Animated.View style={{ opacity: breath }}>
-        <AgentIcon provider={provider} size={20} />
+        <OwnMark agentId={agentId} provider={provider} chief={chief} size={20} />
       </Animated.View>
       {doing.verb ? <Shimmer style={styles.verb}>{doing.verb}</Shimmer> : null}
       {doing.what ? (

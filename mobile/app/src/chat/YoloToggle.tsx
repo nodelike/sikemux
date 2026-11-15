@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -7,44 +6,12 @@ import { canSwitchMode } from '@shared/agents/catalog';
 import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
-import { fonts, isLight, type Palette, useColors, useStyles } from '@/ui/theme';
+import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
 
 const rainbow = (colors: Palette) => [colors.accent, colors.cmd, colors.danger, colors.warn, colors.live, colors.accent];
 
-/** YOLO's rainbow along the composer's edge, as the Mac's composer draws it while the agent runs without asking. */
-export function YoloEdge({ radius }: { radius: number }) {
-  const colors = useColors();
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  const stops = rainbow(colors);
-  return (
-    <View
-      style={StyleSheet.absoluteFill}
-      pointerEvents="none"
-      onLayout={(event) => setSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}>
-      {size.width ? (
-        <Svg width={size.width} height={size.height} opacity={isLight(colors) ? 0.6 : 0.45}>
-          <Defs>
-            <LinearGradient id="yolo-edge" x1="0" y1="0" x2="1" y2="0">
-              {stops.map((color, index) => (
-                <Stop key={index} offset={index / (stops.length - 1)} stopColor={color} />
-              ))}
-            </LinearGradient>
-          </Defs>
-          <Rect
-            x={0.5}
-            y={0.5}
-            width={size.width - 1}
-            height={size.height - 1}
-            rx={radius - 0.5}
-            fill="none"
-            stroke="url(#yolo-edge)"
-            strokeWidth={1}
-          />
-        </Svg>
-      ) : null}
-    </View>
-  );
-}
+/** The composer's edge while the agent runs without asking: the accent at half strength, as the Mac's composer draws it. */
+export const yoloEdge = (colors: Palette) => translucent(colors.accent, 0.5);
 
 function YoloWord() {
   const colors = useColors();

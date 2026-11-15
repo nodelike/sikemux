@@ -21,6 +21,7 @@ import { FileRef, hostImagePath, LinkedImage, namesFile } from './FileRef';
 import { ImageViewerHost } from './ImageViewer';
 import type { Fading } from './reveal';
 import { WhyChipsContext, WhyChipText } from './WhyChip';
+import { NamedWords } from '@/devices/Crew';
 
 type Table = Extract<MdElement, { t: 'table' }>;
 
@@ -102,7 +103,8 @@ function FoundIn({ code, styles }: { code: FoundCode; styles: Styles }) {
 
 function inline(node: MdNode, key: number, ink: Ink): ReactNode {
   const { styles, paths } = ink;
-  if (typeof node === 'string') return <Fragment key={key}>{node}</Fragment>;
+  if (typeof node === 'string')
+    return node.includes('@') ? <NamedWords key={key} text={node} size={15} /> : <Fragment key={key}>{node}</Fragment>;
   const found = foundOf(node);
   if (found) {
     return (

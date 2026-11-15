@@ -7,22 +7,22 @@ import type { TurnPhase, TurnState, TurnStep } from '@shared/wire.generated';
 import type { ConnectionLike } from '@sikemux/native';
 import { callHost } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
-import { Dot, Working } from '@/devices/AgentMarks';
+import { AgentPill, namedAgent, OwnMark, useCrew } from '@/devices/Crew';
 import { useT } from '@/i18n';
 import { Chip } from '@/ui/controls';
-import { Icon } from '@/ui/Icon';
 import { useAnimating, useMinute, useSecond } from '@/ui/motion';
 import { Shimmer } from '@/ui/Shimmer';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
 /**
- * The chat's last line once a turn has ended, or while it works on a step it named: the state's mark, how the turn
- * stands in the core's words, and the next steps as buttons on the same row. A failed turn's line is the trouble
+ * The chat's last line once a turn has ended, or while it works on a step it named: the agent's own mark, how the turn
+ * stands in the core's words, with the agent it waits on as that agent's chip, and the next steps as buttons on the same row. A failed turn's line is the trouble
  * card's. With the call it waits on docked right under it, the line says only how many wait and how long.
  */
 export function TurnLine({
   agentId,
   provider,
+  chief,
   turn,
   connection,
   canAct,
@@ -31,6 +31,8 @@ export function TurnLine({
 }: {
   agentId: string;
   provider: string;
+  /** The project's chief, which wears Sikemux's S. */
+  chief: boolean;
   turn: TurnState;
   connection?: ConnectionLike;
   canAct: boolean;
@@ -49,6 +51,7 @@ export function TurnLine({
   const now = ticks && second ? second * 1000 : minute * 60_000;
   const [taking, setTaking] = useState<TurnStep>();
   const [refused, setRefused] = useState<string>();
+  const crew = useCrew();
   if (turn.state === 'failed') return null;
   const line = said(turn, agentLabel(provider), now, t);
   if (!line) return null;
@@ -81,14 +84,20 @@ export function TurnLine({
 
   // A wait's place, holder and minutes matter more than its long name, which gives way first.
   const waiting = shown.phase === 'waiting';
+  const awaited = waiting && turn.wait?.kind === 'agent' ? namedAgent(crew, turn.wait.agent) : undefined;
+  const [before, after] = t('Waiting on {what}', { what: '\uFFFC' }).split('\uFFFC');
   return (
     <View style={styles.wrap}>
       <View style={styles.line}>
-        <View style={styles.mark}>
-          <Mark phase={turn.state} />
-        </View>
+        <OwnMark agentId={agentId} provider={provider} chief={chief} turn={turn} size={18} />
         <View style={styles.words} accessible accessibilityLabel={[shown.word, ...shown.parts].join(', ')}>
-          {shown.phase === 'working' ? (
+          {awaited ? (
+            <>
+              {before?.trim() ? <Text style={[styles.word, { color: tint(shown.phase, colors) }]}>{before.trim()}</Text> : null}
+              <AgentPill agent={awaited} size={12.5} />
+              {after?.trim() ? <Text style={[styles.word, { color: tint(shown.phase, colors) }]}>{after.trim()}</Text> : null}
+            </>
+          ) : shown.phase === 'working' ? (
             <Shimmer style={[styles.word, { color: colors.ink }]}>{shown.word}</Shimmer>
           ) : (
             <Text
@@ -113,25 +122,6 @@ export function TurnLine({
   );
 }
 
-/** The state's mark, one set everywhere. */
-function Mark({ phase }: { phase: TurnPhase }) {
-  const colors = useColors();
-  switch (phase) {
-    case 'working':
-      return <Working />;
-    case 'waiting':
-      return <Icon name="IconTimer" size={14} color={colors.cmd} />;
-    case 'needsYou':
-      return <Dot color={colors.warn} size={8} />;
-    case 'done':
-      return <Dot color={colors.accent} size={8} />;
-    case 'stopped':
-      return <Dot color={colors.secondary} size={8} hollow />;
-    default:
-      return null;
-  }
-}
-
 function tint(phase: TurnPhase, colors: Palette): string {
   switch (phase) {
     case 'done':
@@ -153,7 +143,6 @@ const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     wrap: { marginTop: 10, gap: 4 },
     line: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 32 },
-    mark: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
     words: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 6 },
     word: { fontFamily: fonts.uiMedium, fontSize: 13 },
     shortened: { flexShrink: 1 },
@@ -162,6 +151,6 @@ const makeStyles = (colors: Palette) => {
     dot: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint },
     partText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12.5 },
     buttons: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    refused: { marginLeft: 24, fontFamily: fonts.ui, fontSize: 12.5, color: colors.danger },
+    refused: { marginLeft: 26, fontFamily: fonts.ui, fontSize: 12.5, color: colors.danger },
   });
 };

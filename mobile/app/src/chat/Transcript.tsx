@@ -39,7 +39,8 @@ import type { Attachment } from './uploads';
 import { ToolGroup } from './Tools';
 import { AnsweredQuestions } from './Question';
 import { Bubble, From, makeBubbleStyles } from './Bubble';
-import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
+import { AgentContext, ChiefContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
+import { OwnMark } from '@/devices/Crew';
 import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notices';
 import { EndedTasksLine } from '@/chat/EndedTasks';
 import { ContextChips } from '@/chat/ContextChips';
@@ -591,6 +592,8 @@ export function WorkSummary({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const provider = useContext(ProviderContext);
+  const agentId = useContext(AgentContext);
+  const chief = useContext(ChiefContext);
   const t = useT();
   const worked = workedLabel(took ?? null, thought, t);
   const counted = callsLabel(calls, t);
@@ -606,7 +609,7 @@ export function WorkSummary({
         accessibilityRole="button"
         accessibilityLabel={calls > 0 ? `${worked}, ${counted}` : worked}
         accessibilityState={{ expanded: open }}>
-        <AgentIcon provider={provider} size={17} />
+        <OwnMark agentId={agentId || undefined} provider={provider} chief={chief} size={17} />
         <Text style={styles.workText}>{worked}</Text>
         {calls > 0 ? (
           <>

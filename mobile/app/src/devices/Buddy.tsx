@@ -89,6 +89,7 @@ export function AgentFace({
   asking,
   size,
   logoSize = size,
+  still,
 }: {
   agentId?: string | null;
   provider: string;
@@ -98,6 +99,8 @@ export function AgentFace({
   asking?: boolean;
   size: number;
   logoSize?: number;
+  /** It keeps still, as a mark inside a line of words does. */
+  still?: boolean;
 }) {
   const faces = useFaces();
   const face = agentId ? faces?.faces[agentId] : undefined;
@@ -107,7 +110,12 @@ export function AgentFace({
     [faces, agentId, wears, face],
   );
   return look && faces ? (
-    <Buddy look={look} moves={faces.style.motion} state={asking ? 'waiting' : turn ? buddyStateOfTurn(turn) : 'idle'} size={size} />
+    <Buddy
+      look={look}
+      moves={faces.style.motion && !still}
+      state={asking ? 'waiting' : turn ? buddyStateOfTurn(turn) : 'idle'}
+      size={size}
+    />
   ) : (
     <AgentIcon provider={provider} size={logoSize} />
   );

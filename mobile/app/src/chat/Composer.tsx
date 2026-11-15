@@ -33,7 +33,7 @@ import { useMentions } from './useMentions';
 import { PermissionDock } from '@/chat/PermissionDock';
 import { ChatPlace, type Place } from './ChatPlace';
 import { ContextRing } from '@/chat/ContextRing';
-import { YoloEdge, YoloToggle } from '@/chat/YoloToggle';
+import { yoloEdge, YoloToggle } from '@/chat/YoloToggle';
 import { ConfigSheet } from '@/chat/ConfigSheet';
 
 function Commands({ matches, onPick }: { matches: ChatCommandInfo[]; onPick: (name: string) => void }) {
@@ -269,7 +269,6 @@ export const Composer = memo(function Composer({
       <View
         style={[styles.composer, yolo ? styles.yoloComposer : focused && { borderColor: colors.borderSelected }]}
         {...pullUp.panHandlers}>
-        {yolo ? <YoloEdge radius={BOX_RADIUS} /> : null}
         {attachments.length || chips.length ? (
           <ComposerAttachments
             attachments={attachments}
@@ -393,7 +392,7 @@ const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     wrap: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 },
     composer: { padding: 6, borderRadius: BOX_RADIUS, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.composer },
-    yoloComposer: { borderColor: 'transparent' },
+    yoloComposer: { borderColor: yoloEdge(colors) },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
     send: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },

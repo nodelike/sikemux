@@ -6,6 +6,9 @@ import type { ChatMessage } from '@shared/wire.generated';
 /** The chat's agent, whose mark its subagents carry. */
 export const ProviderContext = createContext('agent');
 
+/** The chat is its project's chief, whose rows wear Sikemux's S. */
+export const ChiefContext = createContext(false);
+
 /** The chat's own agent, which an answer to its own question needs no name for. */
 export const AgentContext = createContext('');
 
