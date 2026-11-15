@@ -820,8 +820,6 @@ fn team_rows(
     let mut in_team = false;
     let mut team_members: Vec<&AgentRow> = Vec::new();
     let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(agents.len());
-    let chiefs: Vec<String> = heads.iter().map(|(project, _)| project.clone()).collect();
-    let under_chief = |agent: &AgentRow| !agent.chief && chiefs.contains(&agent.project);
     let mut shown = Vec::new();
     for (ix, agent) in agents.iter().enumerate() {
         if let Some(at) = heads
@@ -856,12 +854,7 @@ fn team_rows(
                     matches!(next.team, Some(TeamLink::Member | TeamLink::Last))
                 })
         };
-        let flat = under_chief(agent);
         let fold = match team {
-            _ if flat => {
-                folded = false;
-                None
-            }
             Some(TeamLink::Head) => {
                 let members: Vec<&AgentRow> = std::iter::once(agent)
                     .chain(agents[ix + 1..].iter().take_while(|worker| {
@@ -884,7 +877,7 @@ fn team_rows(
             }
         };
         shown.push((agent.id.clone(), agent.clone()));
-        let row = agent_row(bench, agent, team.filter(|_| !flat), fold, glided, cx);
+        let row = agent_row(bench, agent, team, fold, glided, cx);
         drawn.push((agent.id.clone(), row.into_any_element()));
         if team.is_some() && !folded && !continues(ix + 1) {
             let workers = remote_of(&team_members);
@@ -902,7 +895,7 @@ fn team_rows(
                 };
                 drawn.push((
                     row.id.clone(),
-                    agent_row(bench, &row, (!flat).then_some(link), None, glided, cx),
+                    agent_row(bench, &row, Some(link), None, glided, cx),
                 ));
                 shown.push((row.id.clone(), row));
             }
