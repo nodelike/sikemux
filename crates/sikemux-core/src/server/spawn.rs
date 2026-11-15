@@ -964,7 +964,7 @@ async fn spawn_terminal(
 }
 
 /// What a lead is told of a worker it starts that reports to it.
-const REPORTS: &str = " When its turn fails, stops or asks something, or its land is sent back, you hear at once. A turn that finished calmly, or a land that went in, comes as one line with your next turn, or wakes you after 5 minutes. A turn that ends on something set to wake it sends nothing.";
+const REPORTS: &str = " When its turn fails, stops or asks something, or its land is sent back, you hear at once. A turn that finished calmly, or a land that went in, comes as one line with your next turn, or wakes you after 5 minutes, at once when no other worker of yours is open. A turn that ends on something set to wake it sends nothing.";
 
 /// Sends a worker's lead how its turn ended, unless it finished on something set to wake it and
 /// asks nothing: its row says what it waits on, and the lead hears once a land of its goes in.

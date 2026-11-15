@@ -739,7 +739,8 @@ person or the task asks for one.
 A turn of its that fails, stops or asks something, and a land of its sent back,
 reach you at once, its final answer cut to about 6 KB. A turn that finished
 calmly, or a land that went in, is one line that comes with your next turn, or
-wakes you after 5 minutes; `agent_read` has the rest. A turn it ends on
+wakes you after 5 minutes, at once when no other worker of yours is open;
+`agent_read` has the rest. A turn it ends on
 something set to wake it, such as a trigger, a run or a land in line, sends you
 nothing; `agent_list` says what it waits on. `report: false` turns reports off.
 Carry on rather than waiting for it.

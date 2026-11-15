@@ -104,9 +104,9 @@ struct Letter {
     /// It carries something the person just did, such as a click on a step or an answer to a
     /// call, so the agent reads it soon after its turn, as it would the person's own words.
     awaited: bool,
-    /// A worker's turn that ended with nothing for its lead to act on, which waits for the
-    /// lead's next turn as one line rather than starting one.
-    calm: bool,
+    /// When a worker's turn that ended with nothing for its lead to act on may start a lead's
+    /// turn; until then it waits as one line for the lead's next turn.
+    calm: Option<u64>,
 }
 
 /// A question the person answered, and the agent that asked it.
@@ -218,7 +218,7 @@ impl Letter {
             paths: Vec::new(),
             waits: false,
             awaited: false,
-            calm: false,
+            calm: None,
         }
     }
 
@@ -252,8 +252,7 @@ struct Origin {
     kind: MessageKind,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     awaited: bool,
-    /// When a calm report came: it rides on the agent's next turn, or starts one only
-    /// [`CALM_WAIT_MS`] later.
+    /// When a calm report may start the agent's turn; until then it rides on the next one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     calm: Option<u64>,
 }
@@ -651,7 +650,8 @@ impl Mailbox {
         (state.waiting.get(agent_id)).is_some_and(|waiting| !waiting.iter().all(Queued::is_calm))
     }
 
-    /// When the calm reports that are all that waits for the agent may start a turn.
+    /// When the calm reports that are all that waits for the agent may start a turn: the soonest
+    /// any of them is due.
     fn calm_until(&self, agent_id: &str) -> Option<u64> {
         let state = self.state.locked();
         let waiting = state.waiting.get(agent_id)?;
@@ -660,7 +660,7 @@ impl Mailbox {
             .collect::<Option<Vec<u64>>>()?
             .into_iter()
             .min()?;
-        Some(first + CALM_WAIT_MS)
+        Some(first)
     }
 
     /// Takes the calm reports waiting for the agent, leaving the rest.
@@ -852,7 +852,7 @@ pub(crate) fn task(
         paths: Vec::new(),
         waits: false,
         awaited: false,
-        calm: false,
+        calm: None,
         note: Some(format!(
             "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person: report to it. {answer}"
         )),
@@ -1297,7 +1297,7 @@ async fn carry(
             from: letter.from_id.clone(),
             kind: letter.kind,
             awaited: letter.awaited,
-            calm: letter.calm.then_some(letter.at),
+            calm: letter.calm,
         }),
         mark: None,
         paths: Vec::new(),
@@ -1364,7 +1364,7 @@ pub(crate) async fn from_host(
         paths: Vec::new(),
         waits: false,
         awaited: false,
-        calm: false,
+        calm: None,
     };
     if let Some((branch, count)) = landed {
         letter.text.push_str(&format!(
@@ -1503,7 +1503,7 @@ pub(crate) async fn answer(
             paths,
             waits: false,
             awaited: false,
-            calm: false,
+            calm: None,
         }
     });
     let mut letter = letters.next().ok_or("there is no answer to send")?;
@@ -1759,7 +1759,7 @@ fn letter_from(
         paths: Vec::new(),
         waits: false,
         awaited: false,
-        calm: false,
+        calm: None,
     }
 }
 
@@ -1772,7 +1772,7 @@ pub(crate) async fn report(core: &Arc<Core>, worker: String, lead: String, text:
 }
 
 /// Hands `line` from `worker` to its lead as a calm report: one line read with the lead's next
-/// turn, which starts a turn of its own only when none comes for [`CALM_WAIT_MS`].
+/// turn, which starts a turn of its own once due, as [`calm_due`] says.
 pub(crate) async fn report_calm(core: &Arc<Core>, worker: String, lead: String, line: String) {
     let name = core.names().name(&worker);
     report_noted(core, worker, name, lead, line, true, |_: &str| {
@@ -1883,7 +1883,7 @@ async fn report_noted(
             let note = note(&called(&name, &worker));
             let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;
-            letter.calm = calm;
+            letter.calm = calm.then(|| calm_due(&agents, &letter.from_id, &lead, letter.at));
             Ok(target.map(|target| (target, letter)))
         })
         .await
@@ -1897,10 +1897,22 @@ async fn report_noted(
     }
 }
 
+/// A calm report is due at once when its lead has no other worker open to join it, and
+/// [`CALM_WAIT_MS`] after `at` otherwise.
+fn calm_due(agents: &[Listed], worker: &str, lead: &str, at: u64) -> u64 {
+    let others = agents
+        .iter()
+        .any(|agent| agent.agent_id != worker && agent.parent.as_deref() == Some(lead));
+    match others {
+        true => at + CALM_WAIT_MS,
+        false => at,
+    }
+}
+
 async fn deliver(core: &Arc<Core>, target: &Listed, letter: Letter) -> Result<Value, String> {
     let text = match letter.calm {
-        true => format!("- @{}: {}", letter.from_name, letter.text),
-        false => wrapped(&letter),
+        Some(_) => format!("- @{}: {}", letter.from_name, letter.text),
+        None => wrapped(&letter),
     };
     Box::pin(deliver_as(core, target, letter, text)).await
 }
@@ -1922,7 +1934,7 @@ async fn deliver_as(
             from: letter.from_id.clone(),
             kind: letter.kind,
             awaited: letter.awaited,
-            calm: letter.calm.then_some(letter.at),
+            calm: letter.calm,
         }),
         mark: letter.puts.clone(),
         paths: letter.paths.clone(),
@@ -1990,7 +2002,7 @@ async fn handed(
     let notice = letter.kind == MessageKind::Notice;
     match target.reach {
         Reach::Chat | Reach::Terminal | Reach::Asleep if stopped => held = Some(STOPPED_NOTE),
-        Reach::Chat | Reach::Terminal | Reach::Asleep if letter.calm => {
+        Reach::Chat | Reach::Terminal | Reach::Asleep if letter.calm.is_some() => {
             held = Some("reads calm reports with its next turn")
         }
         Reach::Chat | Reach::Terminal => {}
