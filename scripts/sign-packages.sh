@@ -6,8 +6,7 @@
 #                    for a stable version, since apt refuses a Release of another suite
 #   apt/<suite>/gz/  the same index as Packages.gz, so a suite can move with no moment
 #                    where its index and the signed file naming it disagree
-#   rpm/repodata/    for dnf, which fetches each .rpm from the release itself, and
-#                    zypper, which ignores that and fetches it beside the index
+#   rpm/repodata/    for dnf, which fetches each .rpm from the release itself
 # The key comes in PACKAGES_SIGNING_KEY (an armored signing subkey) and
 # PACKAGES_SIGNING_KEY_PASSWORD; it never reaches a job that builds.
 #   scripts/sign-packages.sh <version> <bundle dir>

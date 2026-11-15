@@ -44,7 +44,6 @@ jobs:
             tar -xf target/packages/packages-index-$version.tar -C proof/index-$version
           done
           cp proof/index-1.0.0/apt/stable/xz/* $S/objects/packages-stable/
-          cp $S/objects/v1.0.0/*.rpm $S/pages/packages-stable/
           cp -R proof/index-1.0.0/rpm/repodata $S/pages/packages-stable/
           cp packaging/linux/sikemux-archive.asc proof/archive.asc
           cp .github/package-proof/*.sh proof/

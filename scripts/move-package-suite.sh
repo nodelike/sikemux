@@ -49,8 +49,7 @@ trap 'rm -rf "$dir"' EXIT
 gh release download "v$VERSION" -p "packages-index-$VERSION.tar" -D "$dir"
 mkdir "$dir/index"
 tar -xf "$dir/packages-index-$VERSION.tar" -C "$dir/index"
-printf '%s\n' "$VERSION" >"$dir/index/rpm/version"
-tar -cf "$dir/rpm-repodata.tar" -C "$dir/index/rpm" repodata version
+tar -cf "$dir/rpm-repodata.tar" -C "$dir/index/rpm" repodata
 
 TITLE="Packages, $SUITE (v$VERSION)"
 NOTES="The $SUITE suite of Sikemux's apt repository, and the source of its rpm repository on GitHub Pages.

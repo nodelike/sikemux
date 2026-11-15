@@ -14,10 +14,10 @@ Suites: $SUITE/
 Signed-By: /usr/share/keyrings/sikemux-archive.asc
 SOURCE
 fi
-if [ -f /etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux ]; then
-  for repos in /etc/yum.repos.d /etc/zypp/repos.d; do
-    [ -d "$repos" ] || continue
-    cat >"$repos/sikemux.repo" <<REPO
+# zypper fetches each .rpm beside the index rather than from the release it names,
+# so openSUSE keeps updating through the installer.
+if [ -f /etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux ] && [ -d /etc/yum.repos.d ] && command -v dnf >/dev/null 2>&1; then
+  cat >/etc/yum.repos.d/sikemux.repo <<REPO
 [sikemux]
 name=Sikemux
 baseurl=$PAGES/$SUITE/
@@ -26,5 +26,4 @@ gpgcheck=1
 repo_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux
 REPO
-  done
 fi
