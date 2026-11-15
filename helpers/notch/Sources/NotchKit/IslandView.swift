@@ -185,7 +185,8 @@ struct ClosedWings: View {
 
     private var shown: [Entry] { store.entries }
 
-    static let groupGap: CGFloat = 10
+    static let groupGap: CGFloat = 12
+    static let countGap: CGFloat = 3
 
     /// Each wing as wide as what it holds, so a quiet right wing stays small
     /// and grows when a state mark arrives.
@@ -198,7 +199,7 @@ struct ClosedWings: View {
         if count > 3 { left += 9 + 6.5 * CGFloat(String(count - 3).count + 1) }
         let groups = rollups.map { group in
             if group.mark == .calls { return CallCount.width(group.count) }
-            return (group.mark.showsCount(group.count) ? CGFloat(String(group.count).count) * 7.5 + 6 : 0) + 16
+            return (group.mark.showsCount(group.count) ? CGFloat(String(group.count).count) * 7.5 + ClosedWings.countGap : 0) + 16
         }
         let held = groups.reduce(0, +) + CGFloat(rollups.count - 1) * ClosedWings.groupGap
         return (left, 10 + held + 14)
@@ -242,14 +243,13 @@ struct ClosedWings: View {
                         if group.mark == .calls {
                             CallCount(count: group.count)
                         } else {
-                            HStack(spacing: 6) {
+                            HStack(spacing: Self.countGap) {
                                 if group.mark.showsCount(group.count) {
                                     Text("\(group.count)").font(Theme.ui(12, .semibold)).monospacedDigit().foregroundStyle(Theme.ink)
                                 }
                                 switch group.mark {
                                 case .mark(let mark): StateMark(mark: mark)
                                 case .subagents: RunningGlyph(icon: Icons.agent, size: 10, colour: Theme.live)
-                                case .shells: RunningGlyph(icon: Icons.command, size: 11, colour: Theme.warn)
                                 case .calls: EmptyView()
                                 }
                             }

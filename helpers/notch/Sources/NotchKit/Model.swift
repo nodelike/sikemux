@@ -43,7 +43,6 @@ enum Rollup: Hashable {
     case calls
     case mark(Mark)
     case subagents
-    case shells
 
     /// Totals show their count even at one; a state shows it only past one.
     func showsCount(_ count: Int) -> Bool {
