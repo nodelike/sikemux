@@ -132,7 +132,7 @@ pub(crate) fn terminal_rows(
                 div()
                     .id(SharedString::from(format!("terminal-menu-{}", tab.id)))
                     .child(row)
-                    .context_menu(ui::menu(crate::tabs::tab_menu(bench, strip, tab, cx)))
+                    .context_menu(ui::menu(crate::tabs::tab_menu(strip, tab, cx)))
                     .into_any_element(),
             );
         }

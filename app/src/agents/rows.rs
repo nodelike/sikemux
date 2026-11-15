@@ -102,9 +102,15 @@ impl Workbench {
     pub fn agent(&self) -> Option<AgentRow> {
         let project = self.project()?;
         let target = shows(self.tab()?, PaneKind::Agent)?;
-        self.agents_of(&project.id)
-            .into_iter()
-            .find(|agent| &agent.id == target)
+        self.agent_in(&project.id, target)
+    }
+
+    /// The agent `id` of the project `project` on the host in front.
+    pub fn agent_in(&self, project: &str, id: &str) -> Option<AgentRow> {
+        let place = self.place();
+        rows_of(self.view_at(&place)?)
+            .find(|row| row.agent_id == id && row.project.as_deref() == Some(project))
+            .and_then(|row| agent_row(row, &place))
     }
 
     pub fn agent_by_id(&self, id: &str) -> Option<AgentRow> {

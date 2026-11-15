@@ -424,12 +424,9 @@ fn strip_tab(
     let view = first_view(&tab.pane);
     let shown = match view {
         Some((PaneKind::Agent, target)) => match match strip {
-            Strip::Project(project) => bench.agents_of(project),
-            Strip::Host(_) | Strip::Terminals => Vec::new(),
-        }
-        .into_iter()
-        .find(|agent| &agent.id == target)
-        {
+            Strip::Project(project) => bench.agent_in(project, target),
+            Strip::Host(_) | Strip::Terminals => None,
+        } {
             Some(agent) => base
                 .mark(agent.mark(19., cx))
                 .note(agent.beside().map(SharedString::from))
@@ -477,7 +474,7 @@ fn strip_tab(
     if !live {
         return div().flex().min_w_0().child(shown).into_any_element();
     }
-    let menu = tab_menu(bench, strip, tab, cx);
+    let menu = tab_menu(strip, tab, cx);
     let drawn = div()
         .id(SharedString::from(format!("tab-menu-{}", tab.id)))
         .flex()
@@ -517,26 +514,35 @@ fn ssh_link(bench: &Workbench, kind: PaneKind, target: &str) -> Option<ui::Tone>
 }
 
 /// What right-clicking a tab offers, wherever it is listed: an agent's menu for an
-/// agent's tab, else the tab's own.
+/// agent's tab, else the tab's own. It is made when the menu opens, since a strip draws
+/// hundreds of tabs and each menu looks through every tab and agent.
 pub fn tab_menu(
-    bench: &Workbench,
     strip: &Strip,
     tab: &LayoutTab,
     cx: &Context<Workbench>,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
-    let tab_menu = TabMenu::new(bench, strip, tab, cx);
-    let agent_menu = match first_view(&tab.pane) {
-        Some((PaneKind::Agent, agent)) => AgentMenu::new(bench, agent, cx),
-        _ => None,
-    };
-    let separable = bench.separable(tab, cx);
     let (bench, strip, tab) = (cx.entity().downgrade(), strip.clone(), tab.id.clone());
     move |popup, window, cx| {
+        let made = bench.update(cx, |bench, cx| {
+            let tab = bench.tabs(&strip).iter().find(|other| other.id == tab)?;
+            let agent_menu = match first_view(&tab.pane) {
+                Some((PaneKind::Agent, agent)) => AgentMenu::new(bench, agent, cx),
+                _ => None,
+            };
+            Some((
+                TabMenu::new(bench, &strip, tab, cx),
+                agent_menu,
+                bench.separable(tab, cx),
+            ))
+        });
+        let Ok(Some((tab_menu, agent_menu, separable))) = made else {
+            return popup;
+        };
         let popup = match &agent_menu {
             Some(menu) => menu.build(popup, window, cx),
             None => tab_menu.build(popup),
         };
-        let Some((view, kind)) = separable.clone() else {
+        let Some((view, kind)) = separable else {
             return popup;
         };
         let (strip, tab) = (strip.clone(), tab.clone());

@@ -660,7 +660,7 @@ fn open_files(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
             (PaneKind::Files, target) => Some((
                 tab.id.clone(),
                 PathBuf::from(target),
-                crate::tabs::tab_menu(bench, &strip, tab, cx),
+                crate::tabs::tab_menu(&strip, tab, cx),
             )),
             _ => None,
         })

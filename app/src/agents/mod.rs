@@ -1067,7 +1067,6 @@ fn agent_row(
         .map(|project| project.name.clone());
     let chosen = bench.agent().is_some_and(|front| front.id == agent.id);
     let id = agent.id.clone();
-    let menu = AgentMenu::of_row(bench, agent, cx);
     let mark = match &fold {
         Some(fold) => div()
             .relative()
@@ -1238,6 +1237,7 @@ fn agent_row(
         pinned: chat.is_some_and(|chat| chat.pinned),
         label: agent.title.clone().into(),
     };
+    let (menu_bench, menu_row) = (cx.weak_entity(), agent.clone());
     let wrap = div()
         .id(SharedString::from(format!("agent-menu-{}", agent.id)))
         .group(AGENT_ROW)
@@ -1266,9 +1266,11 @@ fn agent_row(
             wrap.child(crate::agents::card::follow_row(cx.entity()))
         })
         .children(card.map(|card| div().absolute().top_0().left_0().child(card)))
-        .context_menu(ui::menu(move |popup, window, cx| match &menu {
-            Some(menu) => menu.build(popup, window, cx),
-            None => popup,
+        .context_menu(ui::menu(move |popup, window, cx| {
+            match menu_bench.update(cx, |bench, cx| AgentMenu::of_row(bench, &menu_row, cx)) {
+                Ok(Some(menu)) => menu.build(popup, window, cx),
+                _ => popup,
+            }
         }));
     (bench.rails.keyed(Edge::End)).row(keyed_id, label, row, cx)
 }
