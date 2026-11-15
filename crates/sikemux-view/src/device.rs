@@ -156,7 +156,7 @@ pub struct FaceStyle {
 impl Default for FaceStyle {
     fn default() -> Self {
         Self {
-            on: false,
+            on: true,
             pack: "all".into(),
             shape: "mixed".into(),
             motion: true,
