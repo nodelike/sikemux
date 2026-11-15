@@ -60,6 +60,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: read
+      checks: read
       contents: read
     outputs:
       rust: ${{ steps.areas.outputs.rust }}
@@ -89,15 +90,19 @@ jobs:
             read -r run base < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&per_page=50" \
               --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0] // empty | "\(.id) \(.head_sha)"') || true
             if [ -n "${run:-}" ]; then
-              failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name')" || base=""
-              while IFS= read -r job; do
+              failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | "\(.id)\t\(.name)"')" || base=""
+              # A helper job that a failed Linux check stopped proved nothing about its own area.
+              stopped() {
+                gh api "repos/$GITHUB_REPOSITORY/check-runs/$1/annotations" --jq '.[].message' 2>/dev/null | grep -q '^Stopped because '
+              }
+              while IFS=$'\t' read -r id job; do
                 case "$job" in
                   "") ;;
                   "Dependency audit" | "Frontend quality, build, and tests" | "GPUI in a real window") ;;
                   "Linux compile check and core tests"*) rerun+=" rust packaging" ;;
                   "Rust "* | "Core unit tests" | "GPUI app tests" | "GPUI on Linux in a real window") rerun+=" rust" ;;
-                  "iOS Simulator helper") rerun+=" simulator" ;;
-                  "Notch and voice helpers") rerun+=" helpers" ;;
+                  "iOS Simulator helper") stopped "$id" || rerun+=" simulator" ;;
+                  "Notch and voice helpers") stopped "$id" || rerun+=" helpers" ;;
                   *) base="" ;;
                 esac
               done <<<"$failed"
@@ -120,7 +125,7 @@ jobs:
             fi
           }
           area rust '^(app/|crates/|plugins/|packaging/linux/build-packages\.txt$|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
-          area simulator '^(helpers/sim/|crates/sikemux-simulator/|crates/sikemux-base/|crates/helper_build\.rs$|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|scripts/lib/build\.mjs$|rust-toolchain\.toml$)'
+          area simulator '^(helpers/sim/|crates/sikemux-simulator/|crates/helper_build\.rs$|scripts/build-sim-(helper|fixture)\.mjs$|scripts/lib/build\.mjs$|rust-toolchain\.toml$)'
           area helpers '^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-(notch-icons|notch-sources|wire-types)\.mjs$|crates/sikemux-(wire|view)/src/|shared/(ui|buddies|assets/agent-logos)/|brand/mark/|app/assets/icons/|crates/sikemux-core/src/assets/agent-catalog\.json$|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
           area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/smoke-core\.mjs$|scripts/app-metadata\.mjs$|scripts/lib/build\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-agents/resources/sikemux_pi_tools\.ts$)'
 
@@ -541,15 +546,12 @@ jobs:
     name: Linux compile check and core tests (${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.packaging == 'true'
+    # The two architectures agreed on almost every push, so aarch64 waits for the nightly schedule.
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - arch: x86_64
-            runner: ubuntu-24.04
-          - arch: aarch64
-            runner: ubuntu-24.04-arm
-    runs-on: ${{ matrix.runner }}
+        arch: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["x86_64","aarch64"]' || '["x86_64"]') }}
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     env:
       CORE_CRATES: -p sikemux-core -p sikemux-calls -p sikemux-corekit -p sikemux-git -p sikemux-agents -p sikemux-kernel -p sikemux-serve -p sikemux-workspace -p sikemux-chat -p sikemux-remote -p sikemux-repo -p sikemux-board -p sikemux-drivers -p sikemux-hostkit -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
     steps:
@@ -579,7 +581,7 @@ jobs:
 
       # The tests that fail most often run first, so a broken push stops the Mac jobs sooner.
       - name: Check the agent tools fit their budgets
-        if: matrix.arch == 'aarch64'
+        if: matrix.arch == 'x86_64'
         run: |
           read -ra crates <<<"$CORE_CRATES"
           cargo nextest run --locked "${crates[@]}" -E 'test(/^tools_mcp::tests::/)'
