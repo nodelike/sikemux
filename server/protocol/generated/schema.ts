@@ -1358,7 +1358,7 @@ export const schema = {
         minimumVersions: { $ref: "#/$defs/MinimumVersions" },
         flags: { $ref: "#/$defs/Flags" },
       },
-      required: ["relays", "minimumVersions", "flags"],
+      required: ["relays", "minimumVersions"],
       additionalProperties: false,
     },
     PendingHost: {

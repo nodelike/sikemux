@@ -3596,7 +3596,7 @@
           "minimumVersions": { "$ref": "#/components/schemas/MinimumVersions" },
           "flags": { "$ref": "#/components/schemas/Flags" }
         },
-        "required": ["relays", "minimumVersions", "flags"],
+        "required": ["relays", "minimumVersions"],
         "additionalProperties": false
       },
       "PendingHost": {

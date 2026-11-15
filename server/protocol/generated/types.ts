@@ -718,7 +718,7 @@ export interface Network {
   /** The relays to use, best first. A host connects to every one; a phone dials a host through the relay the host says it is on. */
   relays: Relay[];
   minimumVersions: MinimumVersions;
-  flags: Flags;
+  flags?: Flags;
 }
 
 /** The host waiting behind a user code, for the person to check before approving it. */
