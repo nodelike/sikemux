@@ -151,13 +151,18 @@ pub fn top_bar(
                         .into_iter()
                         .flatten(),
                 )
+                .children(
+                    crate::agents::limits::chip(bench, cx)
+                        .map(|chip| [chip.into_any_element(), separator(cx)])
+                        .into_iter()
+                        .flatten(),
+                )
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
                 .child(
                     div()
                         .flex()
                         .gap(SPACE_0)
-                        .children(crate::agents::limits::chip(bench, cx))
                         .child(
                             IconButton::new(
                                 "devices",
