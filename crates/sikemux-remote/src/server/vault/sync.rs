@@ -752,7 +752,7 @@ async fn reconcile(
     let plan = blocking(move || {
         let (books, entries, account, me, vault) = planning;
         let local = local::load(data_dir.as_deref(), &account, &vault);
-        let marks = local::marks(data_dir.as_deref());
+        let marks = local::marks(data_dir.as_deref()).map_err(CoreError::from)?;
         let planned = compare || !local.moved_in;
         let plan = if planned {
             plan(&books, &entries, local, &marks, &me)?

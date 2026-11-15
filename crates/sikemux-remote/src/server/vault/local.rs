@@ -148,11 +148,20 @@ impl Marks {
     }
 }
 
-pub fn marks(data_dir: Option<&Path>) -> Marks {
-    data_dir
-        .and_then(|dir| std::fs::read(marks_path(dir)).ok())
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+/// The marks on disk, or none where there is no file yet. A file that does not read is an
+/// error, since reading it as no marks would send every kept sign-in to the vault.
+pub fn marks(data_dir: Option<&Path>) -> Result<Marks, String> {
+    let Some(dir) = data_dir else {
+        return Ok(Marks::default());
+    };
+    let unread = |error: &dyn std::fmt::Display| {
+        format!("the sign-ins kept on this host (vault-kept.json) do not read: {error}")
+    };
+    match std::fs::read(marks_path(dir)) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| unread(&error)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Marks::default()),
+        Err(error) => Err(unread(&error)),
+    }
 }
 
 static CHANGING_MARKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -163,7 +172,7 @@ pub fn change_marks(
     change: impl FnOnce(&mut Marks),
 ) -> Result<Marks, String> {
     let _turn = CHANGING_MARKS.locked();
-    let mut kept = marks(data_dir);
+    let mut kept = marks(data_dir)?;
     let before = kept.clone();
     change(&mut kept);
     if kept != before {
