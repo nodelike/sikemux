@@ -46,7 +46,7 @@ async fn run() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("where is sikemux-fake-acp-agent?"))?;
     let (client, _events) = CoreClient::connect(&socket).await?;
     client.ask(ask::RegisterWindow).await?;
-    let provider = std::env::var("FAKE_PROVIDER").unwrap_or("opencode".into());
+    let provider = std::env::var("FAKE_PROVIDER").unwrap_or("omp".into());
     let profile = json!({ "id": "fake", "name": "Fake", "provider": provider, "accent": "#a277ff", "executablePath": agent });
     let profiles = match std::env::var("FAKE_PROFILES") {
         Ok(listed) => serde_json::from_str::<Vec<serde_json::Value>>(&listed)?,

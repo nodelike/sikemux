@@ -136,7 +136,7 @@ impl Driver {
     }
 
     fn setup(&self, project_folder: &Path) {
-        let profile = json!({ "id": "fake", "name": "Fake", "provider": "opencode", "accent": "#a277ff", "executablePath": self.agent });
+        let profile = json!({ "id": "fake", "name": "Fake", "provider": "omp", "accent": "#a277ff", "executablePath": self.agent });
         self.call("setAgentAccounts", json!({ "profiles": [profile] }));
         self.call(
             "setPreference",
@@ -153,7 +153,7 @@ impl Driver {
             .runtime
             .block_on(
                 self.client
-                    .start_chat("opencode:fake".into(), PROJECT.into(), None),
+                    .start_chat("omp:fake".into(), PROJECT.into(), None),
             )
             .expect("a chat starts");
         self.front(&chat, "agent");
