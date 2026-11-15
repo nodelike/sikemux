@@ -181,6 +181,13 @@ fn added_skills(
     let mut added = Vec::new();
     for (agent, folder) in folders {
         for skill in skills::list_in(folder) {
+            // A link into another folder (agentctl fans ~/skills out this way) is
+            // the shared skill, not one the agent saved on its own.
+            let linked = std::fs::symlink_metadata(&skill.path)
+                .is_ok_and(|meta| meta.file_type().is_symlink());
+            if linked {
+                continue;
+            }
             if known.insert(skill.path.clone()) {
                 added.push(GlobalSkillAdded {
                     agent: (*agent).to_owned(),
