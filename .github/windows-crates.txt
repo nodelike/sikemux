@@ -3,13 +3,16 @@ gpui-clicks
 gpui-native-view
 gpui-terminal-grid
 gpui-transcript
+sikemux-agents
 sikemux-app
 sikemux-base
 sikemux-board
 sikemux-browser
 sikemux-buildinfo
+sikemux-calls
 sikemux-chat
 sikemux-fold
+sikemux-git
 sikemux-gpui
 sikemux-grid
 sikemux-hostkit
