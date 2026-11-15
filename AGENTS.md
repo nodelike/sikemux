@@ -232,8 +232,9 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 
 - The user docs for docs.sikemux.com live in `docs-site/`, a Fumadocs site on Astro with
   its own package, dark only in sikemux.com's palette. `pnpm dev` there serves them.
-- A change that adds, removes or renames something users see updates its page in
-  `docs-site/src/content/docs/` in the same commit.
+- A change that adds, removes or renames something users see carries one `Docs:` line in its
+  commit body saying what changed for them. Leave the pages alone: a daily docs pass, a board
+  card at 18:00, writes them from those lines, so the docs trail main by up to a day.
 - The pages under `reference/` are generated: run `pnpm docs:reference` after changing
   a default shortcut, the CLI's help or `tools/tools.json`. CI fails while they are
   out of date.
