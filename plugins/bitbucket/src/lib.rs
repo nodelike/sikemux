@@ -11,6 +11,7 @@ mod oauth;
 mod pictures;
 mod pipelines;
 mod pulls;
+mod push;
 mod repo;
 mod review;
 
@@ -29,6 +30,7 @@ use sikemux_plugin_api::codehost::{
     LogExcerpt, Notification, Pull, PullCommit, Release, RepoListing, Resolved, Review,
     ReviewFeedback, RunDetail, RunPage, RunTiming, TimelineItem, Workflow, WorkflowFile,
 };
+use sikemux_plugin_api::credential::{Acting, Ask, Credential};
 use sikemux_plugin_api::host_work;
 use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
@@ -86,6 +88,18 @@ impl Plugin for Bitbucket {
     ) -> PluginFuture<'a, ()> {
         let account = named_in(&input);
         Box::pin(as_account(account, dispatch_stream(ctx, method, sink)))
+    }
+
+    fn acts_as(&self, ctx: &PluginContext, remote: &str) -> Option<Acting> {
+        push::acts_as(ctx, remote)
+    }
+
+    fn credential<'a>(
+        &'a self,
+        ctx: &'a PluginContext,
+        ask: &'a Ask,
+    ) -> PluginFuture<'a, Option<Credential>> {
+        Box::pin(async move { Ok(push::credential(ctx.data_dir(), ask).await?) })
     }
 
     fn offers_agent_tools<'a>(

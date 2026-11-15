@@ -177,6 +177,7 @@ async fn save_sign_in(
     })
     .await?;
     client::forget(Some(&id)).await;
+    crate::push::forget(data_dir, &id);
     Ok(id)
 }
 
@@ -199,6 +200,7 @@ pub async fn sign_out(data_dir: &Path) -> BitbucketResult<()> {
     .await?;
     if let Some((account, ())) = removed {
         client::forget(Some(&account.id)).await;
+        crate::push::forget(data_dir, &account.id);
     }
     Ok(())
 }
