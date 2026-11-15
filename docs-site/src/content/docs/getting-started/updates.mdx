@@ -1,16 +1,16 @@
 ---
 title: Updates
-description: "Stable and nightly channels, and how Sikemux updates itself."
+description: "Stable and nightly channels, and how Sikemux updates when you ask."
 ---
 
-On a Mac, and from the AppImage on Linux, Sikemux keeps itself up to date. Choose how new in **Settings → About → Updates**:
+On a Mac, and from the AppImage on Linux, Sikemux tells you when a new build is out and installs it only when you ask. Choose how new in **Settings → About → Updates**:
 
 | Channel | What you get |
 |---|---|
 | **Stable** | The latest signed release |
 | **Nightly** | The newest signed build, prerelease or stable |
 
-When an update is out, the foot of the side rail says so, then shows how its download and install are going. Click it for the release's notes and **Install**.
+When an update is out, the foot of the side rail says so, then shows how its download and install are going. Click it for the release's notes and **Install**. Nothing downloads or installs, and Sikemux never restarts, until you click it.
 
 Sikemux looks for an update every half hour, and **Check now** looks straight away. When a check fails, such as while you are offline, **Last checked** says why.
 
@@ -18,7 +18,7 @@ If Sikemux's servers stop working with the version you have, **Update Sikemux** 
 
 ## Linux
 
-The AppImage updates itself like the Mac app: its core asks root for each signed release, which replaces the core and the app unpacked beside it together.
+The AppImage updates like the Mac app, when you click **Install**: its core asks root for each signed release, which replaces the core and the app unpacked beside it together.
 
 The `.deb` and `.rpm` are updated by the installer that put them in place. When a new release is out, **Settings → About** shows it with **Copy command**. Run the copied line in a terminal:
 
