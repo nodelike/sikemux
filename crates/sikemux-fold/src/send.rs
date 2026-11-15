@@ -778,10 +778,12 @@ impl Fold {
         budget: usize,
         beyond: Option<u64>,
         session: Option<&str>,
+        ask: Option<u64>,
     ) -> ChatPage {
         let mut fold = Fold::new(self.head.permission_mode);
         fold.head.session_id = self.head.session_id.clone();
         fold.agents = self.agents.clone();
+        fold.answering(ask);
         for (index, event) in events {
             let at = event
                 .payload

@@ -461,6 +461,7 @@ impl Feed {
                     0,
                 );
             }
+            fold.answering(inner.replay.held_ask());
             for (index, seq, event) in inner.replay.fold_events() {
                 let at = event
                     .payload
@@ -1393,6 +1394,7 @@ impl Feed {
                 continue;
             }
             let edge = planned.edge(side);
+            let ask = planned.ask();
             events.extend(planned.held);
             let mut inner = self.inner.locked();
             let page = inner.replay.with_spawns(Page {
@@ -1400,9 +1402,14 @@ impl Feed {
                 older_before: None,
                 first: planned.lo,
             });
-            return Ok(self
-                .fold(&mut inner)
-                .page_of(&page.events, side, budget, edge, session));
+            return Ok(self.fold(&mut inner).page_of(
+                &page.events,
+                side,
+                budget,
+                edge,
+                session,
+                ask,
+            ));
         }
         Err("that part of the chat changed; ask again".into())
     }

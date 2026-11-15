@@ -755,6 +755,12 @@ impl Fold {
         }
     }
 
+    /// The person's ask that the turn the next events start inside of answers, when they start
+    /// past the prompt that opened it.
+    pub fn answering(&mut self, ask: Option<u64>) {
+        self.main.ask = ask;
+    }
+
     pub fn set_running(&mut self, running: bool) {
         if self.head.running != running {
             if !running {

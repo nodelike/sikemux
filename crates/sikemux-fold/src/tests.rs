@@ -2991,9 +2991,14 @@ mod window {
                 ),
             ),
         ];
-        let page = chat
-            .fold
-            .page_of(&events, PageOf::Before(u64::MAX), PAGE_BYTES, None, None);
+        let page = chat.fold.page_of(
+            &events,
+            PageOf::Before(u64::MAX),
+            PAGE_BYTES,
+            None,
+            None,
+            None,
+        );
         assert_eq!(
             page.rows
                 .iter()

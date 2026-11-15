@@ -1,6 +1,7 @@
 //! The pages of a chat a client scrolls back through, chosen under the chat's lock and read
 //! from disk once it is let go.
 
+use serde_json::Value;
 use sikemux_fold::{ChatEvent, ChatEventKind, PageOf};
 
 use super::super::super::history::{History, Page, Reader};
@@ -25,6 +26,10 @@ pub(in super::super) struct Planned {
     pub(in super::super) held: Vec<(u64, ChatEvent)>,
     /// The chat holds more on the side the page reads away from.
     pub(in super::super) beyond: bool,
+    /// The person's ask the turn the events start inside of answers, when its prompt is held.
+    ask: Option<u64>,
+    /// The prompt that opened that turn, on disk, when it is not held.
+    prompt: Option<u64>,
 }
 
 impl Planned {
@@ -36,6 +41,24 @@ impl Planned {
         };
         self.beyond.then_some(edge)
     }
+
+    /// The person's ask the turn these events start inside of answers, read from disk when its
+    /// prompt is not held.
+    pub(in super::super) fn ask(&self) -> Option<u64> {
+        if self.ask.is_some() {
+            return self.ask;
+        }
+        let prompt = self.prompt?;
+        let read = self.reader.as_ref()?.range(prompt, prompt + 1).ok()?;
+        ask_of(&read.first()?.1)
+    }
+}
+
+/// The person's ask a prompt was filed under.
+fn ask_of(event: &ChatEvent) -> Option<u64> {
+    (event.kind == ChatEventKind::Prompt)
+        .then(|| event.payload.get("ask").and_then(Value::as_u64))
+        .flatten()
 }
 
 impl Replay {
@@ -153,6 +176,22 @@ impl Replay {
             PageOf::After(after) => forward(after.saturating_add(1)),
             PageOf::From(from) => forward(from),
         };
+        let opened = (points.iter().rev())
+            .find(|(index, _, starts)| *index <= lo && *starts)
+            .map(|(index, _, _)| *index)
+            .filter(|index| *index < lo);
+        let held = |index: u64| {
+            (self
+                .entries
+                .binary_search_by_key(&index, |entry| entry.index))
+            .ok()
+            .map(|at| &self.entries[at])
+        };
+        let (ask, prompt) = match opened.map(|index| (index, held(index))) {
+            Some((_, Some(entry))) => (ask_of(&entry.event), None),
+            Some((index, None)) => (None, Some(index)),
+            None => (None, None),
+        };
         let held = self
             .entries
             .iter()
@@ -166,7 +205,21 @@ impl Replay {
             hi,
             held,
             beyond,
+            ask,
+            prompt,
         })
+    }
+
+    /// The person's ask the turn the events held start inside of answers, when the prompt that
+    /// opened it is no longer held. Reads the disk, so it blocks.
+    pub(in super::super) fn held_ask(&self) -> Option<u64> {
+        let front = self.entries.front().filter(|entry| !entry.starts_turn)?;
+        let reader = self.history.as_ref()?.reader().ok()??;
+        let prompt = (reader.points())
+            .filter(|(index, _, starts)| *starts && *index < front.index)
+            .last()?
+            .0;
+        ask_of(&reader.range(prompt, prompt + 1).ok()?.first()?.1)
     }
 
     /// `page` with the starts of the subagents it speaks of that began before it.
