@@ -29,9 +29,11 @@ on:
 permissions:
   contents: read
 
+# Each dispatch runs on its own: workers start several at once on one branch, and a group named
+# after the crate list grew past GitHub's limit.
 concurrency:
-  group: windows-${{ github.ref }}-${{ github.event_name }}-${{ inputs.packages }}-${{ inputs.command }}
-  cancel-in-progress: ${{ github.event_name == 'workflow_dispatch' }}
+  group: windows-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
+  cancel-in-progress: false
 
 env:
   DEPS_OPT_LEVEL: 1
