@@ -36,4 +36,3 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SUITE: ${{ inputs.suite }}
         run: scripts/move-package-suite.sh "$SUITE"
-
