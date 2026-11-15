@@ -20,7 +20,7 @@ use sikemux_client::client::CoreClient;
 use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_view::chat::{
-    ChatPage, ChatPart, ChatRole, FailureKind, PermissionAsk, PermissionKind, PlanStatus,
+    ChatPage, ChatPart, ChatRole, ChatView, FailureKind, PermissionAsk, PermissionKind, PlanStatus,
     StopReason, SubagentState, ToolStatus,
 };
 use sikemux_wire::protocol::{
@@ -954,17 +954,18 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
             .filter(|row| row.role == ChatRole::Assistant)
             .count()
     };
-    let shown = answers(&chat.view.rows);
-    assert!(shown <= 50, "{shown} answers were sent at once");
-    assert_eq!(said(&chat.view.rows).len(), shown * ANSWER);
-    let ChatAttachment::Live { mark, .. } = client
+    let ChatAttachment::Live { mark, view } = client
         .acp_attach("claude-long".into())
         .await
         .expect("attach")
     else {
         panic!("the chat is gone");
     };
-    let mut before = chat.view.older_before;
+    let opened: ChatView = serde_json::from_value(view).expect("a chat view");
+    let shown = answers(&opened.rows);
+    assert!(shown <= 50, "{shown} answers were sent at once");
+    assert_eq!(said(&opened.rows).len(), shown * ANSWER);
+    let mut before = opened.older_before;
     assert!(
         before.is_some(),
         "the earlier turns were not said to be there"
@@ -989,7 +990,7 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
         before = page.older_before;
     }
     assert_eq!(shown + paged, 200);
-    asked.extend(chat.prompts());
+    asked.extend(prompts(&opened.rows));
     let questions: Vec<String> = (0..200).map(|turn| format!("question {turn}")).collect();
     assert_eq!(asked, questions);
 }
