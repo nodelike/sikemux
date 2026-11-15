@@ -278,7 +278,7 @@ impl Folded {
         fold.flush();
         let head = fold.view(false).head;
         let rows = fold
-            .page_of(&events, PageOf::Before(u64::MAX), usize::MAX, None, None)
+            .page_of(&events, PageOf::Before(u64::MAX), usize::MAX, None, None, None)
             .rows;
         assert!(rows.len() >= ROWS, "the fold made {} rows", rows.len());
         let answer = Words(11).answer(TOKENS);
@@ -353,6 +353,7 @@ impl Folded {
             PageOf::Before(before),
             PAGE_BYTES,
             older_before,
+            None,
             None,
         )
     }
