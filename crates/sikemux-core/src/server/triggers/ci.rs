@@ -5,7 +5,7 @@
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeParts;
-use crate::server::workspace_state::{WorkspaceCore, WorkspaceParts};
+use crate::server::workspace_state::WorkspaceParts;
 use std::path::Path;
 use std::sync::Arc;
 
