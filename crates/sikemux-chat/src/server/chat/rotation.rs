@@ -8,11 +8,14 @@
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::chat::{RotationBriefParams, RotationBriefRead};
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
+use sikemux_serve::server::kept::Kept;
 use sikemux_view::chat::{
     BriefCounts, BriefSection, BriefSectionKind, RotationBrief, RotationReason,
 };
@@ -150,6 +153,54 @@ pub fn kept(chat: &Chat) -> KeptSession {
     }
 }
 
+/// Where each capped chat's session stands, by agent, so a sleep or a new core goes on from it.
+pub struct Sessions {
+    file: Kept,
+    saved: Mutex<HashMap<String, KeptSession>>,
+}
+
+impl Default for Sessions {
+    fn default() -> Self {
+        Self::load(None)
+    }
+}
+
+impl Sessions {
+    pub fn load(data_dir: Option<&Path>) -> Self {
+        let file = Kept::new(data_dir, "chat-sessions.json");
+        let saved = Mutex::new(file.load());
+        Self { file, saved }
+    }
+
+    /// Keeps where a capped chat's session stands, when that changed.
+    pub fn keep(&self, chat: &Chat) {
+        if !chat.chief() {
+            return;
+        }
+        let kept = kept(chat);
+        let mut saved = self.saved.locked();
+        if saved.get(chat.agent_id()) != Some(&kept) {
+            saved.insert(chat.agent_id().to_owned(), kept);
+            self.file.save_soon(&*saved);
+        }
+    }
+
+    pub fn kept(&self, agent_id: &str) -> Option<KeptSession> {
+        self.saved.locked().get(agent_id).cloned()
+    }
+
+    fn forget(&self, agent_id: &str) {
+        let mut saved = self.saved.locked();
+        if saved.remove(agent_id).is_some() {
+            self.file.save_soon(&*saved);
+        }
+    }
+
+    pub fn flush(&self) {
+        self.file.flush();
+    }
+}
+
 pub fn take_up(chat: &Chat, kept: KeptSession) {
     let mut inner = chat.rotation.inner.locked();
     inner.footing = kept.footing;
@@ -256,7 +307,10 @@ pub fn due(core: &Core, chat: &Chat, now: &Footing) -> Option<RotationReason> {
     if was.account != now.account {
         return Some(RotationReason::Account);
     }
-    (rotating && epoch_ms().saturating_sub(last_call) >= AWAY_MS).then_some(RotationReason::Away)
+    let away = epoch_ms().saturating_sub(last_call) >= AWAY_MS;
+    let goes_on_away = !core.workspaces().is_chief(chat.agent_id())
+        && core.names().role(chat.agent_id()).is_some();
+    (rotating && away && !goes_on_away).then_some(RotationReason::Away)
 }
 
 /// Whether starting fresh from `brief` costs the new account less than its cold cache reading
@@ -335,13 +389,37 @@ fn within(lines: impl IntoIterator<Item = String>, most: usize) -> String {
     text
 }
 
+/// The line a chat hired for a standing role starts with, ahead of what Sikemux keeps for the
+/// project.
+pub fn hired_seat(core: &Core, agent_id: &str) -> Option<String> {
+    let role = core.names().role(agent_id)?;
+    let name = core.names().name_or_id(agent_id);
+    Some(format!(
+        "You are @{name}, hired for a standing role in this project under @Chief: {role}. Work in \
+         this area comes to you across sessions and weeks; record what you decide with \
+         board_decide, and hand work outside it to @Chief."
+    ))
+}
+
+/// `brief` with the hired chat's role line ahead of it.
+pub fn with_hired_seat(core: &Core, agent_id: &str, brief: Option<String>) -> Option<String> {
+    match (hired_seat(core, agent_id), brief) {
+        (Some(seat), Some(brief)) => Some(format!("{seat}\n\n{brief}")),
+        (seat, brief) => seat.or(brief),
+    }
+}
+
 pub fn brief(core: &Core, chat: &Chat) -> Brief {
     let mut sections = Vec::new();
-    let instructions = if core.workspaces().is_chief(chat.agent_id()) {
+    let agent_id = chat.agent_id();
+    let chief = core.workspaces().is_chief(agent_id);
+    let instructions = if chief {
         (core.chat_above().chief_brief)(core, &chat.launch.cwd)
     } else {
-        (core.chat_above().memory_for_chat)(core, &chat.launch.cwd).unwrap_or_default()
+        let kept = (core.chat_above().memory_for_chat)(core, &chat.launch.cwd);
+        with_hired_seat(core, agent_id, kept).unwrap_or_default()
     };
+    let hired = !chief && core.names().role(agent_id).is_some();
     let rules = instructions
         .lines()
         .filter(|line| line.starts_with("- #"))
@@ -357,7 +435,14 @@ pub fn brief(core: &Core, chat: &Chat) -> Brief {
 
     let project = core.workspaces().project_of(&chat.launch.cwd);
     let since = epoch_ms().saturating_sub(DECISION_DAYS * 24 * 60 * 60_000);
-    let decided = (core.chat_above().board_standing_since)(core, &project, since, MOST_DECISIONS);
+    let mut decided =
+        (core.chat_above().board_standing_since)(core, &project, since, MOST_DECISIONS);
+    if hired {
+        decided.retain(|decision| {
+            decision.learned.agent.as_deref() == Some(agent_id)
+                || decision.holder.as_deref() == Some(agent_id)
+        });
+    }
     let decisions = within(
         decided.iter().map(|decision| match &decision.why {
             Some(why) => format!("- {} ({why})", decision.text),
@@ -377,7 +462,7 @@ pub fn brief(core: &Core, chat: &Chat) -> Brief {
         ));
     }
 
-    let open = (core.chat_above().open_work)(core, chat.agent_id());
+    let open = (core.chat_above().open_work)(core, agent_id);
     let work = within(open.iter().cloned(), WORK_CHARS);
     if !work.is_empty() {
         let count = |opening: &str| {
@@ -513,8 +598,10 @@ pub fn keep(core: &Core, agent_id: &str, at: u64, whole: &RotationBrief) {
     }
 }
 
-/// Lets go of the briefs a closed chat's fresh sessions started from.
+/// Lets go of where a closed chat's session stood, and of the briefs its fresh sessions started
+/// from.
 pub fn forget(core: &Core, agent_id: &str) {
+    core.chats().sessions.forget(agent_id);
     let Some(folder) = briefs_folder(core, agent_id) else {
         return;
     };

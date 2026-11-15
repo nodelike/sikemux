@@ -34,6 +34,7 @@ pub(crate) use sikemux_repo::server::checks;
 pub(crate) use sikemux_serve::server::catalog;
 pub(crate) use sikemux_serve::server::changed;
 pub mod chief;
+mod hire;
 pub use sikemux_repo::server::codehost;
 pub(crate) use sikemux_repo::server::collisions;
 pub(crate) use sikemux_serve::server::connection;

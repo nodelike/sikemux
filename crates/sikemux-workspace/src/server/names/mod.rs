@@ -41,6 +41,7 @@ pub fn new_agent_id() -> String {
 /// so one still starting keeps it.
 const STARTING_MS: u64 = 10 * 60 * 1000;
 const MAX_NAME_CHARS: usize = 24;
+const MAX_ROLE_CHARS: usize = 200;
 /// How many agents below one the person started may start agents of their own.
 pub const MAX_SPAWNED_PER_PROJECT: usize = 64;
 /// How many closed agents' sessions are kept, newest first.
@@ -91,6 +92,9 @@ struct Entry {
     /// It runs in its CLI in a terminal rather than as a chat.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     terminal: bool,
+    /// The standing role it was hired for, in a line. A hired chat keeps its session for weeks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
 }
 
 impl Entry {
@@ -293,6 +297,7 @@ impl Names {
             title: None,
             profile: None,
             terminal: false,
+            role: None,
         };
         let named = entry.view();
         book.agents.push(entry);
@@ -324,6 +329,7 @@ impl Names {
                 title: None,
                 profile: None,
                 terminal: false,
+                role: None,
             });
         }
         self.save(&book);
@@ -447,6 +453,7 @@ impl Names {
             title: None,
             profile: None,
             terminal: false,
+            role: None,
         };
         let named = entry.view();
         book.agents.push(entry);
@@ -753,6 +760,55 @@ impl Names {
         Ok(named)
     }
 
+    /// Hires the agent for a standing role: it is called `name` and keeps `role`, a line.
+    pub fn hire_for_role(
+        &self,
+        agent_id: &str,
+        name: &str,
+        role: &str,
+        open: HashSet<String>,
+    ) -> Result<AgentName, String> {
+        let role = role.split_whitespace().collect::<Vec<_>>().join(" ");
+        if role.is_empty() || role.chars().count() > MAX_ROLE_CHARS {
+            return Err(format!(
+                "a role is one line of up to {MAX_ROLE_CHARS} characters"
+            ));
+        }
+        let unchanged = self
+            .name(agent_id)
+            .is_some_and(|held| same(&held, name.trim()));
+        if !unchanged {
+            self.rename(agent_id, name, open)?;
+        }
+        let mut book = self.book.locked();
+        let entry = book
+            .entry_mut(agent_id)
+            .ok_or("Sikemux has not named that agent yet")?;
+        entry.role = Some(role);
+        entry.chosen = true;
+        let named = entry.view();
+        self.save(&book);
+        Ok(named)
+    }
+
+    /// The standing role the agent was hired for.
+    pub fn role(&self, agent_id: &str) -> Option<String> {
+        (self.book.locked().agents.iter())
+            .find(|entry| entry.agent_id == agent_id)
+            .and_then(|entry| entry.role.clone())
+    }
+
+    /// The agents of `project` hired for a standing role, each with its name and role.
+    pub fn roles_in(&self, project: &str) -> Vec<(String, String, String)> {
+        (self.book.locked().agents.iter())
+            .filter(|entry| entry.project == project)
+            .filter_map(|entry| {
+                let role = entry.role.clone()?;
+                Some((entry.agent_id.clone(), entry.name.clone(), role))
+            })
+            .collect()
+    }
+
     /// The agent id a chat taken up again from `session` comes back as: the closed agent that
     /// last ran it, unless an agent here has that id now, else a new id. `open` holds the
     /// agents open here.
@@ -1027,6 +1083,7 @@ impl Book {
             title: None,
             profile: None,
             terminal: false,
+            role: None,
         };
         let named = entry.view();
         self.agents.push(entry);
@@ -1083,6 +1140,7 @@ impl Book {
             title: closed.ran.title,
             profile: closed.ran.profile,
             terminal: closed.ran.terminal,
+            role: None,
         });
         Some(Returned { buddy, same_name })
     }

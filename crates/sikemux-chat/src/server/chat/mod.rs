@@ -383,8 +383,9 @@ pub struct Chat {
     brief: Mutex<Option<String>>,
     /// How big its agent's session is and when it last called the model.
     pub meter: cap::Meter,
-    /// A chief's chat, which hands over to fresh sessions and compacts more eagerly when idle.
-    chief: bool,
+    /// A chief's chat, or one hired for a standing role, which hands over to fresh sessions and
+    /// compacts more eagerly when idle.
+    chief: AtomicBool,
     pub rotation: rotation::State,
 }
 
@@ -393,8 +394,15 @@ impl Chat {
         &self.launch.agent_id
     }
 
+    /// Its agent's session hands over to fresh sessions and compacts more eagerly when idle: a
+    /// chief's, or a chat hired for a standing role.
     pub fn chief(&self) -> bool {
-        self.chief
+        self.chief.load(Ordering::Acquire)
+    }
+
+    /// The chat was hired for a standing role, so its session is kept small from now on.
+    pub fn hired(&self) {
+        self.chief.store(true, Ordering::Release);
     }
 
     /// What Sikemux keeps for the project, as the chat began.

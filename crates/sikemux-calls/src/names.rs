@@ -30,6 +30,15 @@ pub struct RenameAgentParams {
     pub name: String,
 }
 
+/// Hires an agent for a standing role: it is called `name` and keeps `role`, a line.
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HireAgentParams {
+    pub agent_id: String,
+    pub name: String,
+    pub role: String,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClosedAgentsParams {

@@ -415,6 +415,18 @@ impl Workspaces {
         self.set_pinned(pins)
     }
 
+    /// Pins the chat `pin` names, unless it is pinned already.
+    pub fn pin(&self, pin: PinnedChat) -> CoreResult<()> {
+        let mut pins = self.published.locked().saved.pinned.clone();
+        let held =
+            |kept: &PinnedChat| kept.provider == pin.provider && kept.session_id == pin.session_id;
+        if pins.iter().any(held) {
+            return Ok(());
+        }
+        pins.push(pin);
+        self.set_pinned(pins)
+    }
+
     /// The saved session of the recent chat named `recent`, with the program and sign-in of
     /// the launcher that found it.
     pub fn recent_session(

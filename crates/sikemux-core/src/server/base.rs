@@ -94,7 +94,6 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
         },
         agent_closed: |core, agent_id| {
             chat::rotation::forget(core, agent_id);
-            chief::closed(core, agent_id);
             core.line().agent_closed(core, agent_id);
             launching::clear_temp(core, agent_id);
         },
@@ -285,8 +284,6 @@ pub(super) fn chat_above() -> ChatAbove {
             chief::rows_missing(core, agent, feed);
             memory::rules_missing(core, agent, feed);
         },
-        chief_keep_session: chief::keep_session,
-        chief_kept_session: chief::kept_session,
         chief_person_wrote: chief::person_wrote,
         hosts_rows_moved: hosts::route::rows_moved,
         launching_own_tools: launching::own_tools,

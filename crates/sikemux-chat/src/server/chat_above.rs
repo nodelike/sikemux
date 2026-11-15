@@ -19,7 +19,6 @@ use crate::agent_accounts::usage::UsageWindow;
 use crate::agent_accounts::Book;
 
 use super::chat::feed::Feed;
-use super::chat::rotation::KeptSession;
 use super::chat::{Activity, Chat, Ending, Fault, Saved};
 use super::workspace::ChatChoice;
 use super::{Core, CoreResult};
@@ -69,10 +68,6 @@ pub struct ChatAbove {
     /// A chat an earlier core ran goes on in a feed of a new name, holding all the old one held,
     /// so lines put on the old one are not put there again.
     pub feed_moved: fn(&Core, &str, &str, &str),
-    /// Keeps where a chief's session stands when it changed, so a sleep or a new core goes on from it.
-    pub chief_keep_session: fn(&Core, &Chat),
-    /// `chief::kept_session`.
-    pub chief_kept_session: fn(&Core, &str) -> Option<KeptSession>,
     /// The person wrote to `agent_id` themselves. Written to a chief, they are with it, and an away
     /// block with no call in it is done with; written to another agent, its chief's next digest
     /// reads that chat.

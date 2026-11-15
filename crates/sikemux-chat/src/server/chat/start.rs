@@ -255,6 +255,11 @@ pub fn start(
     }
     if core.workspaces().is_chief(chat.agent_id()) {
         *chat.brief.locked() = Some((core.chat_above().chief_brief)(core, &chat.launch.cwd));
+    } else {
+        let mut brief = chat.brief.locked();
+        if brief.is_some() || !waking {
+            *brief = super::rotation::with_hired_seat(core, chat.agent_id(), brief.take());
+        }
     }
     core.workspaces().note_begun(
         &chat.launch,

@@ -11,7 +11,7 @@ pub(crate) use super::board::goal::Overrule;
 use crate::server::chat_state::ChatParts;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
-use crate::server::workspace_state::WorkspaceParts;
+use crate::server::workspace_state::{WorkspaceCore, WorkspaceParts};
 pub use sikemux_calls::chief::{OpenChiefParams, OpenedChief};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -35,7 +35,7 @@ use sikemux_wire::protocol::ChatContext;
 
 use super::chat::feed::Feed;
 use super::chat::reset::{calendar, WallClock, Zone};
-use super::chat::{rotation, Chat, ChatCommand, Whose};
+use super::chat::{Chat, ChatCommand, Whose};
 use super::kept::Kept;
 use super::launching::{self, Launch};
 use super::{Core, CoreResult};
@@ -62,6 +62,7 @@ pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. 
 - Decide and record, don't ask. Anything inside the machine is yours: who works on what, on which model, in what order, how to check it, landing by the project's rule, deploys to places that are not production. Record each decision with board_decide, with what it rests on, so the person can overrule it.
 - Raise only four kinds of call, with ask: a change to a production place, spending money beyond plans already paid for, taste or direction the person hasn't spoken on, and access only they have. Word each in what the person asked for, give your pick and the strongest point against it, and name where to look as an @pill or a link, never a commit id, a host name as a verb or a workaround as a step. If it cannot be worded that way, it is not theirs: decide it.
 - Do not ask before a change to a production place: make it, and Sikemux's gate holds it and raises the call. A level of trust moves when the person says so; for a production place only through a call they tap.
+- Send work in a standing role's area to that hire with agent_send instead of spawning a new worker; hire one with agent_hire when an area will need someone for weeks.
 - Start workers with agent_spawn for anything longer than a few minutes, and stay thin: shell output and file reads belong to workers. Their reports reach you; read more with agent_read only when you need it.
 - A bug the person reports starts its fix in the same turn, without a go. A design question gets your one-line take and a Fable consult started in that turn.
 - Send a bug to the worker that already holds that area with a built checkout, when one does, rather than starting a new one.
@@ -135,8 +136,6 @@ struct Seat {
     rows: Vec<Row>,
     /// When the last week it counted began.
     counted: u64,
-    /// Where its session stands, so a sleep or a new core goes on from it.
-    session: Option<rotation::KeptSession>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -435,34 +434,6 @@ fn called(core: &Core, agent_id: &str) -> String {
     )
 }
 
-/// Keeps where a chief's session stands when it changed, so a sleep or a new core goes on from it.
-pub(crate) fn keep_session(core: &Core, chat: &Chat) {
-    if !chat.chief() {
-        return;
-    }
-    let kept = rotation::kept(chat);
-    let unchanged = core
-        .chiefs()
-        .read(chat.agent_id(), |seat| seat.session.as_ref() == Some(&kept));
-    if unchanged == Some(false) {
-        core.chiefs()
-            .seat(chat.agent_id(), |seat| seat.session = Some(kept));
-    }
-}
-
-pub(crate) fn kept_session(core: &Core, agent_id: &str) -> Option<rotation::KeptSession> {
-    core.chiefs()
-        .read(agent_id, |seat| seat.session.clone())
-        .flatten()
-}
-
-/// A closed chief's chat lets go of where its session stood.
-pub(crate) fn closed(core: &Core, agent_id: &str) {
-    if core.chiefs().read(agent_id, |seat| seat.session.is_some()) == Some(true) {
-        core.chiefs().seat(agent_id, |seat| seat.session = None);
-    }
-}
-
 /// The person wrote to `agent_id` themselves. Written to a chief, they are with it, and an away
 /// block with no call in it is done with; written to another agent, its chief's next digest
 /// reads that chat.
@@ -679,6 +650,7 @@ pub(crate) async fn digest(core: &Arc<Core>, chief: &str) -> Vec<ChatContext> {
     let (core, chief) = (core.clone(), chief.to_owned());
     super::connection::blocking(move || {
         Ok((can_start(&core).into_iter())
+            .chain(standing_roles(&core, &chief))
             .chain(digest_now(&core, &chief))
             .collect())
     })
@@ -709,6 +681,24 @@ pub(crate) fn can_start(core: &Core) -> Option<ChatContext> {
         "can-start",
         "What you can start workers on",
         &text,
+    ))
+}
+
+/// The agents of the chief's project hired for a standing role, each with what it covers.
+fn standing_roles(core: &Core, chief: &str) -> Option<ChatContext> {
+    let project = core.names().get(chief)?.project;
+    let open = core.open_agents();
+    let roles: Vec<String> = (core.names().roles_in(&project).into_iter())
+        .filter(|(agent, _, _)| open.contains(agent))
+        .map(|(_, name, role)| format!("@{name}: {role}"))
+        .collect();
+    if roles.is_empty() {
+        return None;
+    }
+    Some(crate::sessions::for_agent::sikemux_context(
+        "standing-roles",
+        "Standing roles",
+        &crate::text::clipped(&roles.join("; "), CAN_START_CHARS),
     ))
 }
 

@@ -15,7 +15,7 @@ use crate::icons::Icon;
 use crate::toast;
 use crate::workbench::Workbench;
 use sikemux_calls::call;
-use sikemux_calls::names::RenameAgentParams;
+use sikemux_calls::names::{HireAgentParams, RenameAgentParams};
 use sikemux_calls::params::AgentParams;
 use sikemux_calls::workspace::AgentPatch;
 use sikemux_calls::workspace::PinnedParams;
@@ -61,6 +61,8 @@ pub struct AgentMenu {
     in_front: bool,
     /// Agents wear faces, which it can have one of its own of.
     faces_on: bool,
+    /// It is its project's @Chief, which keeps its own seat.
+    chief: bool,
     snoozed: bool,
     settled: bool,
     /// Every tag on this host's chats, in order.
@@ -119,6 +121,7 @@ impl AgentMenu {
             link,
             in_front: bench.agent().is_some_and(|front| front.id == agent.id),
             faces_on: bench.shown().is_some_and(|view| view.face_style.on),
+            chief: project.is_some_and(|project| project.chief.as_deref() == Some(&agent.id)),
             snoozed: row.as_ref().is_some_and(|row| row.snoozed_until.is_some()),
             settled: row.as_ref().is_some_and(|row| row.settled_at.is_some()),
             tags: (workspace.agents.iter())
@@ -162,6 +165,7 @@ impl AgentMenu {
             link: None,
             in_front: false,
             faces_on: false,
+            chief: false,
             snoozed: row.snoozed_until.is_some(),
             settled: row.settled_at.is_some(),
             tags: in_use
@@ -295,6 +299,9 @@ impl AgentMenu {
                         })
                     })),
             );
+        }
+        if record.is_some() && !self.chief {
+            popup = popup.item(self.hire_item());
         }
         popup = crate::agents::tags::menu_item(
             popup,
@@ -476,6 +483,46 @@ impl AgentMenu {
                     }
                 }),
         )
+    }
+
+    /// "Hire…": asks for the role's name and what it covers, as "Marketer: reach and growth".
+    fn hire_item(&self) -> PopupMenuItem {
+        let (bench, hired) = (self.bench.clone(), self.id.clone());
+        let name = self.name.clone().unwrap_or_default();
+        PopupMenuItem::new(t!("Hire…"))
+            .icon(Icon::Briefcase)
+            .on_click(move |_, _, cx| {
+                let (hired, initial) = (hired.clone(), format!("{name}: "));
+                let _ = bench.update(cx, |bench, cx| {
+                    bench.prompt(
+                        t!("Hire for a standing role, as Role: what it covers"),
+                        initial,
+                        move |bench, typed, window, cx| {
+                            let Some((name, role)) = typed.split_once(':') else {
+                                window.push_notification(
+                                    toast::error(t!(
+                                        "Write the role's name, a colon, then what it covers"
+                                    )),
+                                    cx,
+                                );
+                                return;
+                            };
+                            let (name, role) = (name.trim(), role.trim());
+                            if name.is_empty() || role.is_empty() {
+                                return;
+                            }
+                            Target::here(&bench.asks).call_typed::<call::HireAgent>(
+                                HireAgentParams {
+                                    agent_id: hired.clone(),
+                                    name: name.trim_start_matches('@').to_owned(),
+                                    role: role.to_owned(),
+                                },
+                            );
+                        },
+                        cx,
+                    )
+                });
+            })
     }
 
     /// A menu item's click that works on the bench.

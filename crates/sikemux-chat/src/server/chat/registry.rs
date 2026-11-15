@@ -28,6 +28,8 @@ pub struct Chats {
     pub resting: Mutex<Vec<Resting>>,
     /// Every chat asleep or closed that can be opened again, with the history it keeps.
     pub shelf: shelf::Shelf,
+    /// Where each capped chat's session stands.
+    pub sessions: super::rotation::Sessions,
     unshelving: Mutex<()>,
 }
 
@@ -58,6 +60,7 @@ impl Chats {
             kept: data_dir.map(|dir| dir.join("chats")),
             resets: reset::LimitResumes::new(data_dir),
             handoffs: handoff::Handoffs::new(data_dir),
+            sessions: super::rotation::Sessions::load(data_dir),
             ..Self::default()
         }
     }
@@ -534,6 +537,7 @@ impl Chats {
             feed.seat_chief();
             (core.chat_above().chief_chat_opened)(core, &launch.agent_id, &feed);
         }
+        let capped = chief || core.names().role(&launch.agent_id).is_some();
         let keeper = Keeper::new(self.kept.as_deref(), feed.id());
         let chat = Arc::new(Chat {
             generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
@@ -558,7 +562,7 @@ impl Chats {
             unstarted: AtomicBool::new(false),
             brief: Mutex::new(None),
             meter: Default::default(),
-            chief,
+            chief: AtomicBool::new(capped),
             rotation: Default::default(),
             wanted: tokio::sync::Notify::new(),
             person_came: tokio::sync::Notify::new(),
@@ -572,8 +576,8 @@ impl Chats {
         if let Some(meter) = rested_meter {
             chat.meter.take_up(meter);
         }
-        if let Some(kept) = chief
-            .then(|| (core.chat_above().chief_kept_session)(core, &chat.launch.agent_id))
+        if let Some(kept) = capped
+            .then(|| self.sessions.kept(&chat.launch.agent_id))
             .flatten()
         {
             super::rotation::take_up(&chat, kept);
@@ -603,6 +607,7 @@ impl crate::server::part::Part for Chats {
 
     fn flush(&self) {
         self.shelf.flush();
+        self.sessions.flush();
     }
 
     fn client_gone(&self, _core: &Arc<Core>, client: ClientId) {

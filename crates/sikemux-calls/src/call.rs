@@ -101,6 +101,7 @@ crate::calls! {
     "keepPasted" KeepPasted (crate::attachments::KeepPastedParams) -> crate::attachments::Kept;
     "page" ReadPage (crate::harness::PageParams) -> crate::harness::PageHtml;
     "renameAgent" RenameAgent (crate::names::RenameAgentParams) -> crate::names::AgentName;
+    "hireAgent" HireAgent (crate::names::HireAgentParams) -> crate::names::AgentName;
     "startSideChat" StartSideChat (crate::chat::SideChatParams) -> crate::chat::SideChat;
     "closedAgents" ClosedAgents (crate::names::ClosedAgentsParams) -> Vec<crate::names::ClosedAgent>;
     "agentCatalog" AgentCatalog (crate::params::NoParams) -> Vec<sikemux_view::catalog::CatalogAgent>;

@@ -702,6 +702,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "agent_hire",
+        Spec {
+            verb: "hire",
+            kind: "edit",
+            icon: "user",
+            target: &["{agent}", "as @{name}"],
+            detail: &["{role}"],
+            plugin: None,
+        },
+    ),
+    (
         "ask",
         Spec {
             verb: "ask",

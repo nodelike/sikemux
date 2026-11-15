@@ -806,7 +806,7 @@ impl<B: Backend> Running<'_, B> {
     fn rest(&self) {
         self.chat.keep(self.state.progress());
         if let Some(core) = self.chat.core.upgrade() {
-            (core.chat_above().chief_keep_session)(&core, &self.chat);
+            core.chats().sessions.keep(&self.chat);
         }
         if !self.chat.prompted() {
             self.tell_reach();

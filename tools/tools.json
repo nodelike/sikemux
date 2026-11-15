@@ -1938,6 +1938,37 @@
       ]
     },
     {
+      "name": "agent_hire",
+      "row": {"verb": "hire", "kind": "edit", "icon": "user", "target": ["{agent}", "as @{name}"], "detail": ["{role}"]},
+      "method": "agent.hire",
+      "description": "@Chief only: hire an agent for a standing role.",
+      "properties": {
+        "agent": {
+          "description": "Name or id",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "name": {
+          "description": "The role's name, one word",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24
+        },
+        "role": {
+          "description": "What it covers, one line",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "agent",
+        "name",
+        "role"
+      ]
+    },
+    {
       "name": "ask",
       "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["the person for {for}", "{question}"]},
       "method": "agent.ask",
