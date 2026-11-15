@@ -53,19 +53,29 @@ pub struct Fields {
     aws: Option<Aws>,
     rundeck: Option<Lists>,
     databases: Vec<Database>,
-    github: Option<GithubApp>,
-    /// GitHub's page for making the agents' App is open, which dropping stops.
+    github: Option<GithubApps>,
+    /// The organization to make an App for, empty for the person's own account.
+    organization: Option<Entity<InputState>>,
+    /// GitHub's page for making an App is open, which dropping stops.
     making_app: Option<Task<()>>,
     vault: super::vault::Fields,
 }
 
-/// The GitHub App agents act as, as the GitHub connector last said.
+/// The GitHub Apps agents act as, as the GitHub connector last said.
+#[derive(Deserialize)]
+struct GithubApps {
+    apps: Vec<GithubApp>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GithubApp {
-    app: Option<String>,
+    id: String,
+    app: String,
+    owner: String,
+    organization: bool,
     repositories: usize,
-    install_url: Option<String>,
+    install_url: String,
     problem: Option<String>,
 }
 
@@ -214,6 +224,10 @@ pub(super) fn read(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         .detach();
     }
     if on(GITHUB) {
+        if change_fields(bench, cx, |fields, _| fields.organization.is_none()) == Some(true) {
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("Organization")));
+            change_fields(bench, cx, |fields, _| fields.organization = Some(input));
+        }
         read_github(bench, cx);
     }
     if on(DATABASE) {
@@ -568,73 +582,127 @@ fn settings(
     }
 }
 
-/// The agents' own GitHub App: whether it is made and where it is installed, and the ways to
-/// make it, install it on more repositories, or forget it here.
+/// The agents' own GitHub Apps: a way to make one for the person or an organization, then a row
+/// for each, with where it is installed and the ways to install it on more repositories or
+/// forget it here.
 fn github_settings(fields: &Fields, this: &Entity<Workbench>, cx: &App) -> Vec<AnyElement> {
     let Some(github) = &fields.github else {
         return Vec::new();
     };
-    let about = match (&github.app, github.repositories) {
-        (None, _) => t!("Agents push as you today. Make a GitHub App for them and they get an identity of their own, which cannot change your repositories' settings or secrets.").to_owned(),
-        (Some(app), 0) => t!("{app} is made but not installed on any repository yet.", app = app),
-        (Some(app), 1) => t!("{app} is installed on 1 repository.", app = app),
-        (Some(app), count) => t!(
-            "{app} is installed on {count} repositories.",
-            app = app,
-            count = count
-        ),
+    let about = match github.apps.is_empty() {
+        true => t!("Agents push to GitHub as you today. Create a GitHub App to give them their own identity, which cannot change your repositories' settings or secrets."),
+        false => t!("Agents act as the App installed on the repository they work in. Create another for an organization's repositories."),
     };
-    let about = match &github.problem {
-        Some(problem) => t!(
-            "{about} GitHub said: {problem}",
-            about = about,
-            problem = problem
-        ),
-        None => about,
-    };
-    let buttons = match (&github.app, &github.install_url) {
-        (Some(_), Some(install)) => {
-            let install = install.clone();
-            vec![
-                ui::Button::new(
-                    "github-app-install",
-                    t!("Install on more repositories"),
-                    ui::Variant::Outline,
-                )
-                .icon(Icon::ExternalLink)
-                .on_click(move |_, _, cx| cx.open_url(&install))
-                .into_any_element(),
-                ui::Button::new("github-app-forget", t!("Forget here"), ui::Variant::Ghost)
-                    .on_click(on(this, forget_app))
-                    .into_any_element(),
-            ]
-        }
-        _ if fields.making_app.is_some() => vec![sign_in::waiting(
+    let about = t!(
+        "{about} Name an organization to make its App. Only its owners and App managers can, so ask one of them if you are neither.",
+        about = about
+    );
+    let control = match (&fields.making_app, &fields.organization) {
+        (Some(_), _) => sign_in::waiting(
             "github-app-making",
             t!("Finish making the App on GitHub"),
             on(this, stop_making_app),
             cx,
         )
-        .into_any_element()],
-        _ => vec![ui::Button::new(
-            "github-app-make",
-            t!("Make the agents' App"),
-            ui::Variant::Primary,
-        )
-        .icon(mark(GITHUB))
-        .on_click(on(this, make_app))
-        .into_any_element()],
+        .into_any_element(),
+        (None, organization) => {
+            let named = organization.clone();
+            let this = this.clone();
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .children(
+                    organization
+                        .as_ref()
+                        .map(|input| div().w(px(200.)).child(ui::Field::new(input))),
+                )
+                .child(
+                    ui::Button::new(
+                        "github-app-make",
+                        t!("Create GitHub App"),
+                        ui::Variant::Primary,
+                    )
+                    .icon(mark(GITHUB))
+                    .on_click(move |_, _, cx| {
+                        let organization = (named.as_ref())
+                            .map(|input| input.read(cx).value().trim().to_owned())
+                            .filter(|name| !name.is_empty());
+                        this.update(cx, |bench, cx| make_app(bench, organization, cx));
+                    }),
+                )
+                .into_any_element()
+        }
     };
-    vec![setting(
-        t!("Agents' identity"),
+    let mut rows = vec![setting(
+        t!("Agent identity"),
         Some(about.into()),
-        div().flex().items_center().gap(SPACE_2).children(buttons),
+        control,
         cx,
-    )]
+    )];
+    rows.extend(github.apps.iter().map(|app| github_app(app, this, cx)));
+    rows
+}
+
+fn github_app(app: &GithubApp, this: &Entity<Workbench>, cx: &App) -> AnyElement {
+    let owner = match app.organization {
+        true => t!("Owned by the {owner} organization.", owner = app.owner),
+        false => t!("Owned by {owner}.", owner = app.owner),
+    };
+    let installed = match app.repositories {
+        0 => t!("Not installed on any repository yet.").to_owned(),
+        1 => t!("Installed on 1 repository.").to_owned(),
+        count => t!("Installed on {count} repositories.", count = count),
+    };
+    let about = match &app.problem {
+        Some(problem) => t!(
+            "{owner} {installed} GitHub said: {problem}",
+            owner = owner,
+            installed = installed,
+            problem = problem
+        ),
+        None => t!("{owner} {installed}", owner = owner, installed = installed),
+    };
+    let install = app.install_url.clone();
+    let id = app.id.clone();
+    let forget = {
+        let this = this.clone();
+        move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+            let id = id.clone();
+            this.update(cx, |bench, cx| forget_app(bench, id, cx));
+        }
+    };
+    setting(
+        app.app.clone(),
+        Some(about.into()),
+        div()
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .child(
+                ui::Button::new(
+                    SharedString::from(format!("github-app-install:{}", app.id)),
+                    t!("Install on more repositories"),
+                    ui::Variant::Outline,
+                )
+                .icon(Icon::ExternalLink)
+                .on_click(move |_, _, cx| cx.open_url(&install)),
+            )
+            .child(
+                ui::Button::new(
+                    SharedString::from(format!("github-app-forget:{}", app.id)),
+                    t!("Forget here"),
+                    ui::Variant::Ghost,
+                )
+                .tooltip(t!("Forgets this App on this computer. It stays on GitHub until you delete it there."))
+                .on_click(forget),
+            ),
+        cx,
+    )
 }
 
 fn read_github(bench: &Workbench, cx: &mut Context<Workbench>) {
-    let status = ask::<GithubApp>(bench, GITHUB, "appStatus", Value::Null);
+    let status = ask::<GithubApps>(bench, GITHUB, "appStatus", Value::Null);
     cx.spawn(async move |bench, cx| {
         let Ok(status) = status.await else {
             return;
@@ -646,12 +714,13 @@ fn read_github(bench: &Workbench, cx: &mut Context<Workbench>) {
     .detach();
 }
 
-/// Opens GitHub's page for making the App, then its page for picking repositories.
-fn make_app(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+/// Opens GitHub's page for making an App for the person or `organization`, then its page for
+/// picking repositories.
+fn make_app(bench: &mut Workbench, organization: Option<String>, cx: &mut Context<Workbench>) {
     let call = PluginCall {
         plugin: GITHUB.to_owned(),
         method: "createApp".to_owned(),
-        params: Value::Null,
+        params: json!({ "organization": organization }),
     };
     let mut streaming = Target::here(&bench.asks)
         .stream::<call::PluginStream>(|stream| StreamCall { stream, call });
@@ -686,8 +755,8 @@ fn stop_making_app(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.making_app = None);
 }
 
-fn forget_app(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let forgot = ask::<Value>(bench, GITHUB, "forgetApp", Value::Null);
+fn forget_app(bench: &mut Workbench, id: String, cx: &mut Context<Workbench>) {
+    let forgot = ask::<Value>(bench, GITHUB, "forgetApp", json!({ "app": id }));
     cx.spawn(async move |bench, cx| {
         let forgot = forgot.await;
         let _ = bench.update(cx, |bench, cx| {

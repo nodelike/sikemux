@@ -20,7 +20,7 @@ use sikemux_plugin_api::credential::{Actor, Ask, Credential, Reach};
 use sikemux_plugin_api::http::Read;
 use sikemux_plugin_api::keychain_service;
 use sikemux_plugin_api::store::{self, Held, Secrets};
-use sikemux_plugin_api::vault::{self, Book, SignIn, Single, Whole};
+use sikemux_plugin_api::vault::{self, Book, Listed, Listing, SignIn};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
@@ -31,13 +31,13 @@ use crate::repo::{self, Repo};
 
 /// Each App's private key, as GitHub handed it out, under `host:app id`.
 pub const KEYS: Secrets = Secrets::new(keychain_service!("sikemux-github-app-key"));
-const APP_FILE: &str = "app.json";
+const APPS_FILE: &str = "apps.json";
 const INSTALLATIONS_FILE: &str = "app-installations.json";
 const USERNAME: &str = "x-access-token";
 const IDENTITY_PREFIX: &str = "app:";
 /// A held token is handed out until this close to the hour GitHub gives it.
 const RENEW_BEFORE_MS: u64 = 5 * 60 * 1000;
-/// How long a repository the App was not on is taken as still without it.
+/// How long a repository an App was not on is taken as still without it.
 const RECHECK: Duration = Duration::from_secs(10 * 60);
 const MAX_PAGES: u32 = 10;
 
@@ -59,12 +59,13 @@ pub struct App {
     pub client_id: String,
     pub host: String,
     pub owner: String,
+    pub organization: bool,
     pub bot_id: u64,
     pub bot_login: String,
 }
 
 impl App {
-    fn key_account(&self) -> String {
+    pub fn key_account(&self) -> String {
         format!("{}:{}", self.host, self.id)
     }
 
@@ -79,23 +80,27 @@ impl App {
     }
 }
 
-impl Whole for App {
-    fn identity(&self) -> Option<String> {
-        Some(format!("{IDENTITY_PREFIX}{}", self.key_account()))
+impl Listing for App {
+    fn secret_account(&self) -> Option<String> {
+        Some(self.key_account())
     }
 
     fn label(&self) -> String {
         format!("{} on {}", self.slug, self.host)
     }
 
-    fn secrets(&self) -> Vec<(Secrets, String)> {
-        vec![(KEYS, self.key_account())]
+    fn identity(&self) -> Option<String> {
+        Some(format!("{IDENTITY_PREFIX}{}", self.key_account()))
+    }
+
+    fn starts_kept(&self) -> bool {
+        self.organization
     }
 }
 
-static APP_BOOK: Single<App> = Single::new(APP_FILE);
+static APP_BOOK: Listed<App> = Listed::new(APPS_FILE, "apps", "id", None, KEYS);
 
-/// The person's own sign-ins and the App, for the account vault.
+/// The person's own sign-ins and each App, for the account vault.
 pub struct Books;
 
 pub static BOOKS: Books = Books;
@@ -130,7 +135,7 @@ impl Book for Books {
     }
 }
 
-/// The repositories the App is installed on, as `owner/name` in lower case, with the
+/// The repositories one App is installed on, as `owner/name` in lower case, with the
 /// installation that covers each.
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -141,19 +146,30 @@ pub struct Installations {
     pub repos: BTreeMap<String, u64>,
 }
 
+#[derive(Deserialize, Default)]
+struct AppsFile {
+    #[serde(default)]
+    apps: Vec<App>,
+}
+
+/// Each App's installations, by its `host:app id`.
+type AllInstallations = BTreeMap<String, Installations>;
+
 #[derive(Clone, Default)]
 struct Known {
-    app: Option<App>,
-    installations: Installations,
+    apps: Vec<App>,
+    installations: AllInstallations,
 }
 
 /// What `acts_as` answers from, read from disk once and kept in step with every write here.
 static KNOWN: Mutex<Option<Known>> = Mutex::new(None);
 static WRITING: Mutex<()> = Mutex::new(());
 static REFRESHING: AtomicBool = AtomicBool::new(false);
-/// Tokens kept for reuse, by `owner/name` and reach: an agent's own, and the merge's.
-static MINTED: Mutex<BTreeMap<String, Credential>> = Mutex::new(BTreeMap::new());
-/// Repositories GitHub said the App is not on, so a git command there does not ask again.
+/// Tokens kept for reuse, by `owner/name` and reach: an agent's own, and the merge's, with the
+/// App each came from.
+static MINTED: Mutex<BTreeMap<String, (App, Credential)>> = Mutex::new(BTreeMap::new());
+/// Repositories GitHub said an App is not on, by `host:app id owner/name`, so a git command
+/// there does not ask again.
 static NOT_INSTALLED: Held<()> = Held::new(RECHECK);
 
 fn forget_known() {
@@ -165,68 +181,108 @@ fn forget_known() {
 fn known(data_dir: &Path) -> Known {
     let mut kept = KNOWN.locked();
     kept.get_or_insert_with(|| Known {
-        app: read_app(data_dir),
+        apps: read_apps(data_dir),
         installations: store::read_file(&data_dir.join(INSTALLATIONS_FILE)).unwrap_or_default(),
     })
     .clone()
 }
 
-fn read_app(data_dir: &Path) -> Option<App> {
-    let settings: Value = store::read_file(&data_dir.join(APP_FILE)).ok()?;
-    serde_json::from_value(settings).ok()
+fn read_apps(data_dir: &Path) -> Vec<App> {
+    store::read_file::<AppsFile>(&data_dir.join(APPS_FILE))
+        .map(|file| file.apps)
+        .unwrap_or_default()
 }
 
 fn repo_key(repo: &Repo) -> String {
     format!("{}/{}", repo.owner, repo.name).to_ascii_lowercase()
 }
 
-fn save_installations(data_dir: &Path, installations: Installations) -> GithubResult<()> {
-    store::write_file(&data_dir.join(INSTALLATIONS_FILE), &installations)?;
+fn not_installed_key(app: &App, repo_key: &str) -> String {
+    format!("{} {repo_key}", app.key_account())
+}
+
+fn save_installations(data_dir: &Path, all: AllInstallations) -> GithubResult<()> {
+    store::write_file(&data_dir.join(INSTALLATIONS_FILE), &all)?;
     if let Some(known) = KNOWN.locked().as_mut() {
-        known.installations = installations;
+        known.installations = all;
     }
     Ok(())
 }
 
-fn installed(data_dir: &Path, key: &str, installation: Option<u64>) -> GithubResult<()> {
-    let mut installations = known(data_dir).installations;
-    match installation {
-        Some(id) => installations.repos.insert(key.to_owned(), id),
-        None => installations.repos.remove(key),
-    };
-    save_installations(data_dir, installations)
+fn change_installations(
+    data_dir: &Path,
+    app: &App,
+    change: impl FnOnce(&mut Installations),
+) -> GithubResult<()> {
+    let _turn = WRITING.locked();
+    let mut all = known(data_dir).installations;
+    change(all.entry(app.key_account()).or_default());
+    save_installations(data_dir, all)
 }
 
-pub fn app(data_dir: &Path) -> Option<App> {
-    known(data_dir).app
+fn installed(data_dir: &Path, app: &App, key: &str, installation: Option<u64>) -> GithubResult<()> {
+    change_installations(data_dir, app, |installations| {
+        match installation {
+            Some(id) => installations.repos.insert(key.to_owned(), id),
+            None => installations.repos.remove(key),
+        };
+    })
 }
 
-pub fn installations(data_dir: &Path) -> Installations {
-    known(data_dir).installations
+pub fn apps(data_dir: &Path) -> Vec<App> {
+    known(data_dir).apps
 }
 
-/// The App and the repository `remote` points at, when the remote is on the App's GitHub.
-fn app_for(data_dir: &Path, remote: &str) -> Option<(App, Repo)> {
-    let repo = repo::from_remote(remote)?;
-    let app = app(data_dir)?;
-    (repo.host == app.host).then_some((app, repo))
+pub fn installations(data_dir: &Path, app: &App) -> Installations {
+    (known(data_dir).installations)
+        .remove(&app.key_account())
+        .unwrap_or_default()
 }
 
-/// Who commits to `remote` carry as committer, from what is known here. A miss on the
-/// App's GitHub starts a look at its installations, for the next ask.
+/// The Apps on `repo`'s GitHub, the ones its owner owns first.
+fn candidates(known: &Known, repo: &Repo) -> Vec<App> {
+    let mut apps: Vec<App> = (known.apps.iter())
+        .filter(|app| app.host == repo.host)
+        .cloned()
+        .collect();
+    apps.sort_by_key(|app| !app.owner.eq_ignore_ascii_case(&repo.owner));
+    apps
+}
+
+/// The App known to be installed on `repo`, with its installation there.
+fn installed_on(known: &Known, repo: &Repo) -> Option<(App, u64)> {
+    let key = repo_key(repo);
+    candidates(known, repo).into_iter().find_map(|app| {
+        let on = known
+            .installations
+            .get(&app.key_account())?
+            .repos
+            .get(&key)
+            .copied()?;
+        Some((app, on))
+    })
+}
+
+/// Who commits to `remote` carry as committer, from what is known here. A miss on a GitHub
+/// with an App starts a look at every App's installations there, for the next ask.
 pub fn acts_as(ctx: &sikemux_plugin_api::PluginContext, remote: &str) -> Option<Actor> {
     let data_dir = ctx.data_dir();
-    let (app, repo) = app_for(data_dir, remote)?;
-    let installations = installations(data_dir);
-    if installations.repos.contains_key(&repo_key(&repo)) {
+    let repo = repo::from_remote(remote)?;
+    let known = known(data_dir);
+    if let Some((app, _)) = installed_on(&known, &repo) {
         return Some(app.actor());
     }
-    if epoch_ms().saturating_sub(installations.checked_at) > RECHECK.as_millis() as u64
-        && !REFRESHING.swap(true, Ordering::AcqRel)
-    {
+    let stale = candidates(&known, &repo).iter().any(|app| {
+        let checked_at = (known.installations.get(&app.key_account()))
+            .map_or(0, |installations| installations.checked_at);
+        epoch_ms().saturating_sub(checked_at) > RECHECK.as_millis() as u64
+    });
+    if stale && !REFRESHING.swap(true, Ordering::AcqRel) {
         let data_dir = data_dir.to_path_buf();
         ctx.spawn(async move {
-            let _ = refresh(&data_dir).await;
+            for app in apps(&data_dir) {
+                let _ = refresh(&data_dir, &app).await;
+            }
             REFRESHING.store(false, Ordering::Release);
         });
     }
@@ -237,26 +293,23 @@ pub fn acts_as(ctx: &sikemux_plugin_api::PluginContext, remote: &str) -> Option<
 /// once the push they were made for is done.
 pub async fn credential(data_dir: &Path, ask: &Ask) -> GithubResult<Option<Credential>> {
     let keep = ask.reach == Reach::Agent;
-    token(data_dir, &ask.remote, ask.reach, keep).await
+    let minted = token(data_dir, &ask.remote, ask.reach, keep).await?;
+    Ok(minted.map(|(_, credential)| credential))
 }
 
 /// Merges a pull request as the App, with a token that never leaves the plugin. False when the
 /// App is not on that repository.
 pub async fn merge(data_dir: &Path, remote: &str, merge: Merge) -> GithubResult<bool> {
-    let pointed = repo::from_remote(remote).map(|repo| repo_key(&repo));
     let asked = format!("{}/{}", merge.pull.repo.owner, merge.pull.repo.name).to_ascii_lowercase();
-    if pointed.as_deref() != Some(asked.as_str()) {
+    let Some(repo) = repo::from_remote(remote).filter(|repo| repo_key(repo) == asked) else {
         return Err(GithubError::BadArg(
             "that pull request is not in the repository named".into(),
         ));
-    }
-    let Some(app) = app(data_dir) else {
+    };
+    let Some((app, held)) = token(data_dir, remote, Reach::Core, true).await? else {
         return Ok(false);
     };
-    let Some(held) = token(data_dir, remote, Reach::Core, true).await? else {
-        return Ok(false);
-    };
-    let session = Session::of_app(&app.host, &app.bot_login, held.secret);
+    let session = Session::of_app(&repo.host, &app.bot_login, held.secret);
     client::as_app(session, crate::pulls::merge(data_dir, merge)).await?;
     Ok(true)
 }
@@ -274,40 +327,54 @@ fn permissions(reach: Reach) -> Vec<(&'static str, &'static str)> {
     permissions
 }
 
+/// The App to use on `repo` with its installation there, asking GitHub about each App whose
+/// installations here do not name it.
+async fn pick(data_dir: &Path, repo: &Repo) -> GithubResult<Option<(App, String, u64)>> {
+    let known = known(data_dir);
+    if let Some((app, installation)) = installed_on(&known, repo) {
+        let jwt = jwt(&app).await?;
+        return Ok(Some((app, jwt, installation)));
+    }
+    let key = repo_key(repo);
+    for app in candidates(&known, repo) {
+        let asked = not_installed_key(&app, &key);
+        if NOT_INSTALLED.get(&asked).is_some() {
+            continue;
+        }
+        let jwt = jwt(&app).await?;
+        match installation_of(&app, &jwt, repo).await? {
+            Some(installation) => {
+                installed(data_dir, &app, &key, Some(installation))?;
+                return Ok(Some((app, jwt, installation)));
+            }
+            None => NOT_INSTALLED.put(&asked, ()),
+        }
+    }
+    Ok(None)
+}
+
 async fn token(
     data_dir: &Path,
     remote: &str,
     reach: Reach,
     keep: bool,
-) -> GithubResult<Option<Credential>> {
-    let Some((app, repo)) = app_for(data_dir, remote) else {
+) -> GithubResult<Option<(App, Credential)>> {
+    let Some(repo) = repo::from_remote(remote) else {
         return Ok(None);
     };
     let key = repo_key(&repo);
     let held_as = format!("{key} {reach:?}");
     if keep {
         let held = MINTED.locked().get(&held_as).cloned();
-        if let Some(held) = held.filter(|held| held.expires_at > epoch_ms() + RENEW_BEFORE_MS) {
+        if let Some((app, held)) =
+            held.filter(|(_, held)| held.expires_at > epoch_ms() + RENEW_BEFORE_MS)
+        {
             KEYS.used(&app.key_account());
-            return Ok(Some(held));
+            return Ok(Some((app, held)));
         }
     }
-    if NOT_INSTALLED.get(&key).is_some() {
+    let Some((app, jwt, installation)) = pick(data_dir, &repo).await? else {
         return Ok(None);
-    }
-    let jwt = jwt(&app).await?;
-    let installation = match installations(data_dir).repos.get(&key).copied() {
-        Some(id) => id,
-        None => match installation_of(&app, &jwt, &repo).await? {
-            Some(id) => {
-                installed(data_dir, &key, Some(id))?;
-                id
-            }
-            None => {
-                NOT_INSTALLED.put(&key, ());
-                return Ok(None);
-            }
-        },
     };
     let minted = match mint(
         &app,
@@ -319,8 +386,8 @@ async fn token(
     .await
     {
         Err(GithubError::NotFound(_)) => {
-            installed(data_dir, &key, None)?;
-            NOT_INSTALLED.put(&key, ());
+            installed(data_dir, &app, &key, None)?;
+            NOT_INSTALLED.put(&not_installed_key(&app, &key), ());
             return Ok(None);
         }
         minted => minted?,
@@ -331,29 +398,30 @@ async fn token(
         expires_at: minted.expires_at,
     };
     if keep {
-        MINTED.locked().insert(held_as, credential.clone());
+        MINTED
+            .locked()
+            .insert(held_as, (app.clone(), credential.clone()));
     }
-    Ok(Some(credential))
+    Ok(Some((app, credential)))
 }
 
-pub async fn revoke(data_dir: &Path, remote: &str, secret: &str) -> GithubResult<()> {
-    let Some((app, _)) = app_for(data_dir, remote) else {
+pub async fn revoke(remote: &str, secret: &str) -> GithubResult<()> {
+    let Some(repo) = repo::from_remote(remote) else {
         return Ok(());
     };
-    MINTED.locked().retain(|_, held| held.secret != secret);
-    end_token(&app, secret).await
+    MINTED.locked().retain(|_, (_, held)| held.secret != secret);
+    end_token(&repo.host, secret).await
 }
 
-/// Learns every repository the App is installed on, so installs made on GitHub since are
-/// noticed without a restart.
-pub async fn refresh(data_dir: &Path) -> GithubResult<Installations> {
-    let app = app(data_dir).ok_or(GithubError::Unconfigured)?;
-    let jwt = jwt(&app).await?;
+/// Learns every repository `app` is installed on, so installs made on GitHub since are noticed
+/// without a restart.
+pub async fn refresh(data_dir: &Path, app: &App) -> GithubResult<Installations> {
+    let jwt = jwt(app).await?;
     let mut repos = BTreeMap::new();
-    for installation in installation_ids(&app, &jwt).await? {
-        let token = mint(&app, &jwt, installation, None, &[("metadata", "read")]).await?;
-        let listed = repositories(&app, &token.token).await;
-        end_token(&app, &token.token).await.ok();
+    for installation in installation_ids(app, &jwt).await? {
+        let token = mint(app, &jwt, installation, None, &[("metadata", "read")]).await?;
+        let listed = repositories(app, &token.token).await;
+        end_token(&app.host, &token.token).await.ok();
         for name in listed? {
             repos.insert(name.to_ascii_lowercase(), installation);
         }
@@ -362,41 +430,48 @@ pub async fn refresh(data_dir: &Path) -> GithubResult<Installations> {
         checked_at: epoch_ms(),
         repos,
     };
-    save_installations(data_dir, installations.clone())?;
+    let kept = installations.clone();
+    change_installations(data_dir, app, |installations| *installations = kept)?;
     NOT_INSTALLED.forget(None);
     Ok(installations)
 }
 
-/// Puts a new App and its key here, in place of any other.
+fn write_apps(data_dir: &Path, apps: &[App]) -> GithubResult<()> {
+    store::write_file(&data_dir.join(APPS_FILE), &json!({ "apps": apps }))?;
+    Ok(())
+}
+
+/// Adds a new App and its key here, beside the others.
 pub fn remember(data_dir: &Path, app: &App, pem: &str) -> GithubResult<()> {
     let _turn = WRITING.locked();
-    if let Some(before) = read_app(data_dir).filter(|before| before != app) {
-        KEYS.delete(&before.key_account())?;
-    }
     KEYS.write(&app.key_account(), pem)?;
-    store::write_file(&data_dir.join(APP_FILE), app)?;
-    store::write_file(
-        &data_dir.join(INSTALLATIONS_FILE),
-        &Installations::default(),
-    )?;
+    let mut apps = read_apps(data_dir);
+    apps.retain(|kept| kept.key_account() != app.key_account());
+    apps.push(app.clone());
+    write_apps(data_dir, &apps)?;
+    let mut all: AllInstallations =
+        store::read_file(&data_dir.join(INSTALLATIONS_FILE)).unwrap_or_default();
+    all.remove(&app.key_account());
+    store::write_file(&data_dir.join(INSTALLATIONS_FILE), &all)?;
     forget_known();
     Ok(())
 }
 
-/// Forgets the App on this host. It stays on GitHub until the person deletes it there.
-pub fn forget(data_dir: &Path) -> GithubResult<()> {
+/// Forgets the App under `key_account` on this host. It stays on GitHub until the person deletes
+/// it there.
+pub fn forget(data_dir: &Path, key_account: &str) -> GithubResult<()> {
     let _turn = WRITING.locked();
-    if let Some(app) = read_app(data_dir) {
-        KEYS.delete(&app.key_account())?;
-    }
-    for file in [APP_FILE, INSTALLATIONS_FILE] {
-        match std::fs::remove_file(data_dir.join(file)) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                return Err(GithubError::Transport(error.to_string()))
-            }
-            _ => {}
-        }
-    }
+    let mut apps = read_apps(data_dir);
+    let Some(at) = apps.iter().position(|app| app.key_account() == key_account) else {
+        return Ok(());
+    };
+    apps.remove(at);
+    KEYS.delete(key_account)?;
+    write_apps(data_dir, &apps)?;
+    let mut all: AllInstallations =
+        store::read_file(&data_dir.join(INSTALLATIONS_FILE)).unwrap_or_default();
+    all.remove(key_account);
+    store::write_file(&data_dir.join(INSTALLATIONS_FILE), &all)?;
     forget_known();
     Ok(())
 }
@@ -544,9 +619,9 @@ async fn mint(
     })
 }
 
-async fn end_token(app: &App, token: &str) -> GithubResult<()> {
+async fn end_token(host: &str, token: &str) -> GithubResult<()> {
     HTTP.ask(
-        request(&app.host, Method::DELETE, "/installation/token", token)?,
+        request(host, Method::DELETE, "/installation/token", token)?,
         Read::ALL,
     )
     .await?

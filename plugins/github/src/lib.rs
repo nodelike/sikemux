@@ -103,11 +103,11 @@ impl Plugin for Github {
 
     fn revoke<'a>(
         &'a self,
-        ctx: &'a PluginContext,
+        _ctx: &'a PluginContext,
         remote: &'a str,
         secret: &'a str,
     ) -> PluginFuture<'a, ()> {
-        Box::pin(async move { Ok(app::revoke(ctx.data_dir(), remote, secret).await?) })
+        Box::pin(async move { Ok(app::revoke(remote, secret).await?) })
     }
 
     fn merge_as_agents<'a>(
@@ -154,7 +154,7 @@ impl Github {
             "signIn" => signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await,
             "signOut" => answer(auth::sign_out(data_dir)).await,
             "appStatus" => reply(app_setup::status(data_dir).await),
-            "forgetApp" => answer(app_setup::forget(data_dir)).await,
+            "forgetApp" => answer(app_setup::forget(data_dir, params(input)?)).await,
             _ => codehost::dispatch(self, data_dir, method, input).await,
         }
     }

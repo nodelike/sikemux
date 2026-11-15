@@ -32,40 +32,56 @@ pub struct Create {
     pub organization: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct Forget {
+    pub app: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppStatus {
-    pub app: Option<String>,
-    pub owner: Option<String>,
+    /// What `forgetApp` names it by.
+    pub id: String,
+    pub app: String,
+    pub owner: String,
+    pub organization: bool,
     pub repositories: usize,
-    pub install_url: Option<String>,
+    pub install_url: String,
     pub problem: Option<String>,
 }
 
-pub async fn status(data_dir: &Path) -> AppStatus {
-    let Some(found) = app::app(data_dir) else {
-        return AppStatus {
-            app: None,
-            owner: None,
-            repositories: 0,
-            install_url: None,
-            problem: None,
-        };
-    };
-    let (repositories, problem) = match app::refresh(data_dir).await {
-        Ok(installations) => (installations.repos.len(), None),
-        Err(error) => (
-            app::installations(data_dir).repos.len(),
-            Some(sikemux_plugin_api::PluginError::from(error).message),
-        ),
-    };
-    AppStatus {
-        install_url: Some(install_url(&found)),
-        app: Some(found.slug),
-        owner: Some(found.owner),
-        repositories,
-        problem,
-    }
+#[derive(Serialize)]
+pub struct Apps {
+    pub apps: Vec<AppStatus>,
+}
+
+pub async fn status(data_dir: &Path) -> Apps {
+    let apps = app::apps(data_dir);
+    let looked =
+        futures::future::join_all(apps.iter().map(|app| app::refresh(data_dir, app))).await;
+    let apps = apps
+        .into_iter()
+        .zip(looked)
+        .map(|(app, looked)| {
+            let (repositories, problem) = match looked {
+                Ok(installations) => (installations.repos.len(), None),
+                Err(error) => (
+                    app::installations(data_dir, &app).repos.len(),
+                    Some(sikemux_plugin_api::PluginError::from(error).message),
+                ),
+            };
+            AppStatus {
+                id: app.key_account(),
+                install_url: install_url(&app),
+                organization: app.organization,
+                app: app.slug,
+                owner: app.owner,
+                repositories,
+                problem,
+            }
+        })
+        .collect();
+    Apps { apps }
 }
 
 fn install_url(app: &App) -> String {
@@ -96,7 +112,7 @@ pub async fn create(data_dir: &Path, ask: Create, sink: &StreamSink) -> GithubRe
         None => format!("https://{host}/settings/apps/new"),
     };
     let manifest = manifest(
-        &proposed_name(login.as_deref().or(ask.organization.as_deref())),
+        &proposed_name(ask.organization.as_deref().or(login.as_deref())),
         callback.redirect_uri(),
     );
     let page = posting_page(&format!("{target}?state={state}"), &manifest.to_string());
@@ -122,9 +138,9 @@ pub async fn create(data_dir: &Path, ask: Create, sink: &StreamSink) -> GithubRe
     Ok(())
 }
 
-pub async fn forget(data_dir: &Path) -> GithubResult<()> {
+pub async fn forget(data_dir: &Path, ask: Forget) -> GithubResult<()> {
     let data = data_dir.to_path_buf();
-    sikemux_plugin_api::store::blocking(move || app::forget(&data)).await
+    sikemux_plugin_api::store::blocking(move || app::forget(&data, &ask.app)).await
 }
 
 fn plain_name(text: &str) -> bool {
@@ -179,7 +195,7 @@ fn posting_page(action: &str, manifest: &str) -> String {
         "<!doctype html><meta charset=utf-8><title>Sikemux</title>\
          <body style=\"font:15px -apple-system,sans-serif;padding:48px\">\
          <form method=post action=\"{}\"><input type=hidden name=manifest value=\"{}\">\
-         <p>Taking you to GitHub to make the agents' App.</p>\
+         <p>Taking you to GitHub to create the GitHub App.</p>\
          <button type=submit>Continue to GitHub</button></form>\
          <script>document.forms[0].submit()</script>",
         escape(action),
@@ -190,6 +206,8 @@ fn posting_page(action: &str, manifest: &str) -> String {
 #[derive(Deserialize)]
 struct Owner {
     login: String,
+    #[serde(rename = "type")]
+    kind: String,
 }
 
 #[derive(Deserialize)]
@@ -238,6 +256,7 @@ async fn convert(host: &str, code: &str) -> GithubResult<(App, String)> {
         client_id: converted.client_id,
         host: host.to_owned(),
         owner: converted.owner.login,
+        organization: converted.owner.kind == "Organization",
         bot_id: bot.id,
         bot_login: bot.login,
     };

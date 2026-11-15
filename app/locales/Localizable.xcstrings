@@ -7959,6 +7959,7 @@
         }
       }
     },
+    "Agent identity": {},
     "Agent manifests: {error}": {
       "localizations": {
         "es": {
@@ -8375,6 +8376,7 @@
         }
       }
     },
+    "Agents act as the App installed on the repository they work in. Create another for an organization's repositories.": {},
     "Agents at work keep running through an update, but these are still starting or in the middle of a request. The update installs on its own once they are ready.": {
       "localizations": {
         "es": {
@@ -8843,7 +8845,7 @@
         }
       }
     },
-    "Agents push as you today. Make a GitHub App for them and they get an identity of their own, which cannot change your repositories' settings or secrets.": {},
+    "Agents push to GitHub as you today. Create a GitHub App to give them their own identity, which cannot change your repositories' settings or secrets.": {},
     "Agents run everything else. A change to one of these waits for your yes on a call, unless its level says otherwise.": {
       "localizations": {
         "es": {
@@ -9158,7 +9160,6 @@
         }
       }
     },
-    "Agents' identity": {},
     "All": {
       "localizations": {
         "es": {
@@ -24725,6 +24726,7 @@
         }
       }
     },
+    "Create GitHub App": {},
     "Create a pane below": {
       "localizations": {
         "es": {
@@ -35915,6 +35917,7 @@
       }
     },
     "Forget here": {},
+    "Forgets this App on this computer. It stays on GitHub until you delete it there.": {},
     "Forked from a {agent} chat": {
       "localizations": {
         "es": {
@@ -42428,6 +42431,8 @@
         }
       }
     },
+    "Installed on 1 repository.": {},
+    "Installed on {count} repositories.": {},
     "Installed {bin} at {at}": {
       "localizations": {
         "es": {
@@ -49089,7 +49094,6 @@
         }
       }
     },
-    "Make the agents' App": {},
     "Manual": {
       "localizations": {
         "es": {
@@ -59183,6 +59187,7 @@
         }
       }
     },
+    "Not installed on any repository yet.": {},
     "Not installed · free": {
       "localizations": {
         "es": {
@@ -65532,6 +65537,7 @@
         }
       }
     },
+    "Organization": {},
     "Other apps": {
       "localizations": {
         "es": {
@@ -66312,6 +66318,8 @@
         }
       }
     },
+    "Owned by the {owner} organization.": {},
+    "Owned by {owner}.": {},
     "PR": {
       "localizations": {
         "es": {
@@ -144878,7 +144886,7 @@
         }
       }
     },
-    "{about} GitHub said: {problem}": {},
+    "{about} Name an organization to make its App. Only its owners and App managers can, so ask one of them if you are neither.": {},
     "{account} has no {what} left": {
       "localizations": {
         "es": {
@@ -146079,9 +146087,6 @@
         }
       }
     },
-    "{app} is installed on 1 repository.": {},
-    "{app} is installed on {count} repositories.": {},
-    "{app} is made but not installed on any repository yet.": {},
     "{asked} calls, all {asked} answered as picked": {
       "localizations": {
         "es": {
@@ -156542,6 +156547,8 @@
         }
       }
     },
+    "{owner} {installed}": {},
+    "{owner} {installed} GitHub said: {problem}": {},
     "{part} takes the most, {size}.": {
       "localizations": {
         "es": {
