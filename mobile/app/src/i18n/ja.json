@@ -112,6 +112,7 @@
   "Continue on {account}": "{account} で続ける",
   "Continue with email": "メールで続ける",
   "Continue with {provider}": "{provider} で続ける",
+  "Could not sign in with {provider}. Try again, or continue with email.": "{provider} でサインインできませんでした。もう一度試すか、メールで続けてください。",
   "Copied": "コピーしました",
   "Copy": "コピー",
   "Copy code": "コードをコピー",

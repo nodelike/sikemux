@@ -112,6 +112,7 @@
   "Continue on {account}": "在 {account} 上继续",
   "Continue with email": "使用邮箱继续",
   "Continue with {provider}": "使用 {provider} 继续",
+  "Could not sign in with {provider}. Try again, or continue with email.": "无法使用 {provider} 登录。请重试，或使用邮箱继续。",
   "Copied": "已复制",
   "Copy": "复制",
   "Copy code": "复制代码",

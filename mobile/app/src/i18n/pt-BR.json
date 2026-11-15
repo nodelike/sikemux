@@ -112,6 +112,7 @@
   "Continue on {account}": "Continuar em {account}",
   "Continue with email": "Continuar com e-mail",
   "Continue with {provider}": "Continuar com {provider}",
+  "Could not sign in with {provider}. Try again, or continue with email.": "Não foi possível entrar com {provider}. Tente de novo ou continue com e-mail.",
   "Copied": "Copiado",
   "Copy": "Copiar",
   "Copy code": "Copiar código",

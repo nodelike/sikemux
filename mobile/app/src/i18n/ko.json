@@ -112,6 +112,7 @@
   "Continue on {account}": "{account}에서 계속",
   "Continue with email": "이메일로 계속",
   "Continue with {provider}": "{provider}로 계속",
+  "Could not sign in with {provider}. Try again, or continue with email.": "{provider}(으)로 로그인하지 못했습니다. 다시 시도하거나 이메일로 계속하세요.",
   "Copied": "복사됨",
   "Copy": "복사",
   "Copy code": "코드 복사",

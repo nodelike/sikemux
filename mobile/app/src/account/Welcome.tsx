@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { useSSO } from '@clerk/expo';
+import { isClerkAPIResponseError, useSSO } from '@clerk/expo';
 import { useSignInWithGoogle } from '@clerk/expo/google';
 import Constants from 'expo-constants';
 import * as AuthSession from 'expo-auth-session';
@@ -21,6 +21,8 @@ import { defaultPalette as colors, fonts, typeFor } from '@/ui/theme';
 WebBrowser.maybeCompleteAuthSession();
 
 type Provider = 'oauth_google' | 'oauth_github';
+
+const PROVIDER_NAME: Record<Provider, string> = { oauth_google: 'Google', oauth_github: 'GitHub' };
 
 // Shown before any host is paired, so it is drawn in the default theme.
 const type = typeFor(colors);
@@ -112,6 +114,7 @@ function useProviderSignIn() {
   const { startGoogleAuthenticationFlow } = useSignInWithGoogle();
   const [busy, setBusy] = useState<Provider>();
   const [problem, setProblem] = useState<string>();
+  const t = useT();
   const start = async (strategy: Provider) => {
     if (busy) return;
     setBusy(strategy);
@@ -123,7 +126,13 @@ function useProviderSignIn() {
           : await startSSOFlow({ strategy, redirectUrl: AuthSession.makeRedirectUri({ path: 'sso-callback' }) });
       if (createdSessionId && setActive) await setActive({ session: createdSessionId });
     } catch (error) {
-      setProblem(problemOf(error));
+      console.warn(error);
+      // Only what the accounts server said is meant for the person; Clerk's own errors are addressed to us.
+      setProblem(
+        isClerkAPIResponseError(error)
+          ? problemOf(error)
+          : t('Could not sign in with {provider}. Try again, or continue with email.', { provider: PROVIDER_NAME[strategy] }),
+      );
     } finally {
       setBusy(undefined);
     }
@@ -147,14 +156,14 @@ export function Welcome() {
       </View>
       <View style={[styles.actions, { paddingBottom: bottom }]}>
         <Button
-          title={t('Continue with {provider}', { provider: 'Google' })}
+          title={t('Continue with {provider}', { provider: PROVIDER_NAME.oauth_google })}
           icon={<GoogleG />}
           busy={provider.busy === 'oauth_google'}
           onPress={() => provider.start('oauth_google')}
           style={styles.provider}
         />
         <Button
-          title={t('Continue with {provider}', { provider: 'GitHub' })}
+          title={t('Continue with {provider}', { provider: PROVIDER_NAME.oauth_github })}
           icon={<GitHubMark color={colors.ink} />}
           busy={provider.busy === 'oauth_github'}
           onPress={() => provider.start('oauth_github')}

@@ -112,6 +112,7 @@
   "Continue on {account}": "Продолжить в {account}",
   "Continue with email": "Продолжить с эл. почтой",
   "Continue with {provider}": "Продолжить с {provider}",
+  "Could not sign in with {provider}. Try again, or continue with email.": "Не удалось войти через {provider}. Попробуйте ещё раз или продолжите с почтой.",
   "Copied": "Скопировано",
   "Copy": "Копировать",
   "Copy code": "Копировать код",
