@@ -7,7 +7,7 @@
     "NowClosed": "agent name at why work lead",
     "HostLoad": "overloaded loadAverage cores builds",
     "AgentBuild": "agentId command",
-    "Workspace": "projects launchers",
+    "Workspace": "projects launchers palette",
     "ProjectInfo": "id name path chief agents standing calls",
     "LauncherInfo": "id provider label permissionMode model effort",
     "ConfigPicker": "id current choices",

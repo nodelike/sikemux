@@ -1531,6 +1531,19 @@ const SECTIONS = [
         ],
     },
     {
+        id: "theme", letter: "T", title: "Wearing a theme",
+        lede: "The island wears the person's theme: its ink, accent and state colours come from the palette the core sends. Its ground stays black, as the notch is, so a colour that would not read on black at 4.5:1 stays Sikemux's own. The three inks go together: a light theme's greys would swap their order on black. Fills and hairlines stay white at low opacity.",
+        states: [
+            { id: "T1", name: "A dark theme", when: "The person wears a dark theme, here Gruvbox Dark.",
+              shows: "Every colour is the theme's: cream ink, a yellow accent and Gruvbox's own red for a failed turn.",
+              opts: { agents: () => only(["a1", "a2", "a4", "a10"]), mode: "open" },
+              theme: { "--ink": "#ebdbb2", "--ink-dim": "#a89984", "--ink-faint": "#928374", "--acc": "#fabd2f", "--acc-soft": "rgba(250, 189, 47, 0.13)", "--acc-line": "rgba(250, 189, 47, 0.32)", "--on-accent": "#1d2021", "--live": "#78dca1", "--warn": "#e9ba6c", "--cmd": "#b8bb26", "--danger": "#fb4934" } },
+            { id: "T2", name: "A light theme", when: "The person wears a light theme, here Aura Day.",
+              shows: "Every colour of a light theme is too dark to read on black, so the island looks as it does by default. A light theme whose accent is bright enough would lend just that.",
+              opts: { agents: () => only(["a1", "a2", "a4", "a10"]), mode: "open" } },
+        ],
+    },
+    {
         id: "drop", letter: "D", title: "Drag and drop",
         lede: "A file dragged towards the top of the screen opens the island before the pointer reaches it.",
         states: [
@@ -1591,6 +1604,7 @@ function stateCard(section, state) {
 function paintCard(entry) {
     const { card, state } = entry;
     const stage = card.querySelector(".stage");
+    for (const [variable, value] of Object.entries(state.theme ?? {})) stage.style.setProperty(variable, value);
     const opts = { channel, ...state.opts, display, agents: typeof state.opts.agents === "function" ? state.opts.agents() : state.opts.agents };
     const island = new Island(stage, opts);
     requestAnimationFrame(() => {

@@ -307,7 +307,7 @@ func standing(_ workspace: Workspace, agents: [AgentShown], calls: [PersonCall])
         return ProjectInfo(id: project.id, name: project.name, path: project.path, chief: project.chief,
                            agents: project.agents, standing: standing, calls: open > 0 ? open : nil)
     }
-    return Workspace(projects: projects, launchers: workspace.launchers)
+    return Workspace(projects: projects, launchers: workspace.launchers, palette: workspace.palette)
 }
 
 let full = DeviceView(
@@ -349,13 +349,15 @@ let notch = NotchGeometry(notchWidth: 221, height: 38, centerX: 0)
 let plain = NotchGeometry(notchWidth: 0, height: 24, centerX: 0)
 
 func render(_ name: String, agents: Set<String>? = nil, load: HostLoad? = nil, geometry: NotchGeometry = notch, height: CGFloat = 140,
-            dev: Bool = false, devices: [PendingDevice] = [], card: (NotchStore) -> Void = { _ in },
+            dev: Bool = false, devices: [PendingDevice] = [], palette: [String: String] = [:],
+            card: (NotchStore) -> Void = { _ in },
             setup: (IslandModel) -> Void = { _ in })
 {
     var options = Options()
     options.dev = dev
     let store = NotchStore(options: options)
     store.apply(view(keeping: agents, load: load))
+    Theme.worn.wear(palette)
     store.apply(questions)
     store.apply(devices, now: Date().addingTimeInterval(-8))
     card(store)
@@ -509,5 +511,15 @@ render("O3-model-picker", height: 460) {
 render("O4-empty", agents: [], height: 220) { $0.mode = .open }
 render("D1-drop", height: 260) { $0.mode = .drop }
 render("V1-dev-open", height: 440, dev: true) { $0.mode = .open }
+let gruvboxDark = [
+    "ink": "#ebdbb2", "inkDim": "#a89984", "inkFaint": "#928374", "accent": "#fabd2f", "onAccent": "#1d2021",
+    "live": "#78dca1", "warn": "#e9ba6c", "cmd": "#b8bb26", "danger": "#fb4934",
+]
+let auraDay = [
+    "ink": "#211d2b", "inkDim": "#625b70", "inkFaint": "#91899e", "accent": "#7450c7", "onAccent": "#efebf5",
+    "live": "#247345", "warn": "#875508", "cmd": "#a72b72", "danger": "#c33149",
+]
+render("T1-dark-theme", agents: ["a1", "a2", "a4", "a10"], height: 420, palette: gruvboxDark) { $0.mode = .open }
+render("T2-light-theme", agents: ["a1", "a2", "a4", "a10"], height: 420, palette: auraDay) { $0.mode = .open }
 render("X-plain-working", geometry: plain, height: 100)
 render("X-plain-open", geometry: plain, height: 440) { $0.mode = .open }

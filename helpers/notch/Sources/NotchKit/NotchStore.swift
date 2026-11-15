@@ -120,6 +120,7 @@ final class NotchStore {
         let before = Dictionary(self.view.inbox.items.map { ($0.id, $0.kind) }, uniquingKeysWith: { first, _ in first })
         let waited = Set(calls.map(\.id))
         self.view = view
+        Theme.worn.wear(view.workspace.palette)
         withAnimation(Motion.open) {
             entries = view.entries(questions)
             keepCalls(view)

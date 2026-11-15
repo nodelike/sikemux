@@ -33,8 +33,6 @@ const COLOURS = {
   inkDim: "--ink-dim",
   inkFaint: "--ink-faint",
   accent: "--acc",
-  accentSoft: "--acc-soft",
-  accentLine: "--acc-line",
   onAccent: "--void",
   live: "--live",
   warn: "--warn",
@@ -188,12 +186,13 @@ await write(
 
 import SwiftUI
 
-extension Theme {
+extension Colours {
+    /// Sikemux's own colours, which the island wears until the core sends the person's palette.
+    static let own = Colours(
 ${Object.entries(COLOURS)
-  .map(
-    ([name, variable]) => `    static let ${name} = ${swiftColour(variable)}`,
-  )
-  .join("\n")}
+  .map(([name, variable]) => `        ${name}: ${swiftColour(variable)}`)
+  .join(",\n")}
+    )
 }
 `,
 );
