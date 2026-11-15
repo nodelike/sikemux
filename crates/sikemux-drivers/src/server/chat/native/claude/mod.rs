@@ -124,6 +124,7 @@ pub async fn read_options(
     });
     let said = crate::agent_accounts::usage::ask(
         "claude",
+        "model lookup",
         command,
         crate::agent_accounts::usage::CLAUDE_STREAM_ARGS,
         &format!("{request}\n"),

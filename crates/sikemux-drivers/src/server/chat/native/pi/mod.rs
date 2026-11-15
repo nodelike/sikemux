@@ -91,6 +91,7 @@ pub async fn read_options(command: tokio::process::Command) -> Result<Value, Str
     );
     let said = crate::agent_accounts::usage::ask(
         "pi",
+        "model lookup",
         command,
         &["--mode", "rpc", "--no-session"],
         &asked,

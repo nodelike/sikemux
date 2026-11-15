@@ -602,12 +602,13 @@ async fn run(
     for key in removed_env {
         command.env_remove(key);
     }
-    ask(provider, command, args, input).await
+    ask(provider, "usage lookup", command, args, input).await
 }
 
 /// Runs `command` once with `args`, writing `input` and answering what it printed.
 pub async fn ask(
     provider: &str,
+    lookup: &str,
     mut command: Command,
     args: &[&str],
     input: &str,
@@ -619,32 +620,32 @@ pub async fn ask(
         .stderr(std::process::Stdio::piped());
     let mut child = command
         .spawn()
-        .map_err(|_| format!("Could not start the {provider} usage lookup"))?;
+        .map_err(|_| format!("Could not start the {provider} {lookup}"))?;
     let mut stdin = child
         .stdin
         .take()
-        .ok_or_else(|| format!("Could not open the {provider} usage lookup input"))?;
+        .ok_or_else(|| format!("Could not open the {provider} {lookup} input"))?;
     stdin
         .write_all(input.as_bytes())
         .await
-        .map_err(|_| format!("Could not write the {provider} usage lookup input"))?;
+        .map_err(|_| format!("Could not write the {provider} {lookup} input"))?;
     // A CLI reading stream-json input answers and exits only once its input ends.
     drop(stdin);
     let output = tokio::time::timeout(USAGE_LOOKUP_TIMEOUT, child.wait_with_output())
         .await
-        .map_err(|_| format!("The {provider} usage lookup timed out"))?
-        .map_err(|_| format!("Could not read the {provider} usage lookup output"))?;
+        .map_err(|_| format!("The {provider} {lookup} timed out"))?
+        .map_err(|_| format!("Could not read the {provider} {lookup} output"))?;
     if !output.status.success() {
         return Err(match error_detail(&output.stderr) {
-            Some(detail) => format!("{provider} usage lookup exited unsuccessfully: {detail}"),
-            None => format!("{provider} usage lookup exited unsuccessfully"),
+            Some(detail) => format!("{provider} {lookup} exited unsuccessfully: {detail}"),
+            None => format!("{provider} {lookup} exited unsuccessfully"),
         });
     }
     if output.stdout.len() > USAGE_LOOKUP_OUTPUT_LIMIT {
-        return Err(format!("The {provider} usage lookup said too much"));
+        return Err(format!("The {provider} {lookup} said too much"));
     }
     String::from_utf8(output.stdout)
-        .map_err(|_| format!("The {provider} usage lookup was not valid UTF-8"))
+        .map_err(|_| format!("The {provider} {lookup} was not valid UTF-8"))
 }
 
 /// Runs the account's CLI once, which renews its sign-in when that has run out.
