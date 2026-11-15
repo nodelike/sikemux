@@ -4,6 +4,7 @@ use sikemux_calls::chat::ToolDetailParams;
 use sikemux_calls::chat_find::FindAnswer;
 use sikemux_calls::chat_find::FindParams;
 use sikemux_calls::launching::StartParams;
+use sikemux_calls::params::AgentParams;
 use sikemux_calls::streams::StreamParams;
 use sikemux_calls::workspace::AgentPatch;
 use sikemux_calls::workspace::UpdateAgentParams;
@@ -314,6 +315,8 @@ pub struct NewChat {
     model: Option<String>,
     effort: Option<String>,
     started: Option<oneshot::Sender<String>>,
+    /// The person opened it themselves, so its agent starts now rather than at their first key.
+    by_person: bool,
 }
 
 /// What the window asks of remote access, each answered with where it stands now.
@@ -586,7 +589,19 @@ async fn open_chat_on(
         model,
         effort,
         started,
+        by_person,
     } = chat;
+    let wake = |agent: String| {
+        let client = client.clone();
+        async move {
+            if by_person {
+                let params = AgentParams { agent_id: agent };
+                if let Err(error) = called::<call::Composing>(&client, params).await {
+                    eprintln!("sikemux: a new chat's agent did not start: {error}");
+                }
+            }
+        }
+    };
     let asked = client.ask(ask::StartChat {
         launcher,
         project: project.clone(),
@@ -597,7 +612,7 @@ async fn open_chat_on(
     let (begun, shown) = {
         let early = async {
             let agent = begun?.await.ok()?;
-            open_tab(&client, &project, &agent).await;
+            tokio::join!(wake(agent.clone()), open_tab(&client, &project, &agent));
             Some(agent)
         };
         tokio::pin!(asked, early);
@@ -610,7 +625,7 @@ async fn open_chat_on(
     match opened {
         Ok((agent, _)) => {
             if shown.as_ref() != Some(&agent) {
-                open_tab(&client, &project, &agent).await;
+                tokio::join!(wake(agent.clone()), open_tab(&client, &project, &agent));
             }
             if let Some(started) = started {
                 let _ = started.send(agent);
@@ -1090,6 +1105,20 @@ impl Target {
         self.start_chat_as(launcher, project, mode, (None, None), started);
     }
 
+    /// Starts a chat as `start_chat` does for one the person opened themselves, whose agent
+    /// starts at once so it is ready by the time they send.
+    pub fn open_new_chat(&self, launcher: String, project: String, mode: Option<PermissionMode>) {
+        self.ask(Ask::StartChat(NewChat {
+            launcher,
+            project,
+            mode,
+            model: None,
+            effort: None,
+            started: None,
+            by_person: true,
+        }));
+    }
+
     /// Starts a chat as `start_chat` does, on the model and effort of `(model, effort)` where
     /// they are named.
     pub fn start_chat_as(
@@ -1107,6 +1136,7 @@ impl Target {
             model,
             effort,
             started,
+            by_person: false,
         }));
     }
 

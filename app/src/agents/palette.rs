@@ -69,11 +69,10 @@ impl Workbench {
                         }
                         _ => PermissionMode::WorkspaceWrite,
                     };
-                    bench.target().start_chat(
+                    bench.target().open_new_chat(
                         launcher.to_owned(),
                         project.clone(),
                         Some(launch_mode),
-                        None,
                     );
                 } else if let Some(launcher) = key.strip_prefix(SIGN_IN) {
                     sign_in(bench, launcher, window, cx);

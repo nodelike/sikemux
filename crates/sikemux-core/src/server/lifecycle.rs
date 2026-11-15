@@ -31,6 +31,8 @@ const IDLE_SLEEP_MS: u64 = 10 * 60_000;
 /// back to most come back at once.
 const MAX_WARM: usize = 3;
 const CHECK_EVERY: Duration = Duration::from_secs(30);
+/// How long a new chat's agent runs with nothing sent before it sleeps until the person writes.
+const UNSENT_SLEEP: Duration = Duration::from_secs(5 * 60);
 /// A terminal agent that dies this soon after it was started again is in a
 /// crash loop, and the person decides what next.
 const RESUME_WINDOW: Duration = Duration::from_secs(30);
@@ -135,6 +137,38 @@ pub(crate) fn sleep(core: &Core, agent_id: &str) -> bool {
         core.note_agent_asleep(agent_id);
     }
     stopped
+}
+
+/// Starts the agent of a chat the person opened or began writing in, and puts it to sleep again
+/// should it sit there with nothing sent and an empty draft, so an abandoned new chat holds no
+/// process. Their next key starts it again.
+pub(crate) fn began_writing(core: &Arc<Core>, agent_id: &str) {
+    let starts = core
+        .chats()
+        .get(agent_id)
+        .is_none_or(|chat| chat.unstarted());
+    super::chat::composing(core, agent_id);
+    if !starts {
+        return;
+    }
+    let (core, agent_id) = (core.clone(), agent_id.to_owned());
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(UNSENT_SLEEP).await;
+            let new = core
+                .workspaces()
+                .agent(&agent_id)
+                .is_some_and(|agent| agent.resume_id.is_none());
+            if !new || core.chats().get(&agent_id).is_none() {
+                return;
+            }
+            let drafted = (core.drafts().chat_draft(&agent_id))
+                .is_some_and(|draft| !draft.text.trim().is_empty());
+            if !drafted && sleep(&core, &agent_id) {
+                return;
+            }
+        }
+    });
 }
 
 /// Puts every chat to sleep at the person's word to stop everything, ending

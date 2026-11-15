@@ -500,7 +500,7 @@ impl Workbench {
             Some(launcher) => {
                 let launcher = self.new_chat_launcher(launcher);
                 self.target()
-                    .start_chat(launcher, project.to_owned(), None, None)
+                    .open_new_chat(launcher, project.to_owned(), None)
             }
             None => self.toggle_agent_palette(window, cx),
         }
