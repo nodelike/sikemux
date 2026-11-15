@@ -357,6 +357,7 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         handed.len(),
         binary.display()
     );
+    sikemux_repo::server::checks::stop_running();
     super::log_times::before_exec();
     let error = command.exec();
     super::log_times::start();

@@ -1286,6 +1286,17 @@ pub struct Ran {
 
 /// Runs `command` in `cwd` at low priority, with its output in the order written, for `limit`
 /// at most, not counting the time its heavy commands wait for their turn on the host.
+/// The checks running now, each leading its own process group.
+static RUNNING: Mutex<BTreeSet<u32>> = Mutex::new(BTreeSet::new());
+
+/// Stops every check running now with everything it started, before the core hands over to a
+/// new one: the new core runs those checks again in the same checkouts.
+pub fn stop_running() {
+    for pid in std::mem::take(&mut *RUNNING.locked()) {
+        sikemux_process::terminate_tree(pid, true);
+    }
+}
+
 fn run_check(
     cwd: &Path,
     command: &str,
@@ -1300,13 +1311,21 @@ fn run_check(
         .envs(env)
         .current_dir(cwd);
     let started = Instant::now();
+    let pid = std::sync::OnceLock::new();
     let output = sikemux_process::run_not_counting_waits(
         &mut shell,
         limit,
         OUTPUT_LIMIT,
+        |child| {
+            RUNNING.locked().insert(child);
+            let _ = pid.set(child);
+        },
         &crate::git_guard::waits_for_turn,
-    )
-    .map_err(|error| format!("it did not run: {error}"))?;
+    );
+    if let Some(pid) = pid.get() {
+        RUNNING.locked().remove(pid);
+    }
+    let output = output.map_err(|error| format!("it did not run: {error}"))?;
     Ok(Ran {
         passed: output.status.success(),
         text: all_said(&output),

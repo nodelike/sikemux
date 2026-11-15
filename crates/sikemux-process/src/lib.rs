@@ -190,11 +190,12 @@ pub fn run_with_pid(
 }
 
 /// [`run`], whose `timeout` counts only the time `waiting`, asked of the child's pid every
-/// few seconds, says the child is not waiting for its turn.
+/// few seconds, says the child is not waiting for its turn. `started` hears the child's pid.
 pub fn run_not_counting_waits(
     command: &mut Command,
     timeout: Duration,
     max_output_bytes: usize,
+    started: impl FnOnce(u32),
     waiting: &dyn Fn(u32) -> bool,
 ) -> Result<Output, ProcessRunError> {
     run_counting(
@@ -203,7 +204,7 @@ pub fn run_not_counting_waits(
         timeout,
         max_output_bytes,
         None,
-        |_| {},
+        started,
         Some(waiting),
     )
 }
