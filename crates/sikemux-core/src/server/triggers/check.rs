@@ -1,6 +1,7 @@
 //! A repeating trigger's check: a command run each time the trigger comes due, which fires it
 //! only when what the command says has changed since the last time, so a look that finds
-//! nothing new posts nothing in the chat.
+//! nothing new posts nothing in the chat. A check that cannot run fires every time, so it
+//! never goes quiet while broken.
 
 use crate::server::parts::Parts;
 use std::path::Path;
@@ -63,23 +64,23 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         trigger.and_then(|trigger| trigger.check.clone())
     };
     let Some(check) = check else { return };
-    let said = match run(&check.command, &check.dir).await {
-        Ok(said) => said,
-        Err(error) => error,
-    };
-    if said == check.said {
+    let ran = run(&check.command, &check.dir).await;
+    if ran.as_deref() == Ok(check.said.as_str()) {
         return;
     }
     let trigger = core.triggers().change(|state| {
         let trigger = state.triggers.iter_mut().find(|trigger| trigger.id == id)?;
-        trigger.check.as_mut()?.said = said.clone();
+        if let Ok(said) = &ran {
+            trigger.check.as_mut()?.said = said.clone();
+        }
         Some(trigger.clone())
     });
     let Some(mut trigger) = trigger else { return };
-    trigger.prompt = format!(
-        "{}\n\nIts check `{}` says something new:\n{said}",
-        trigger.prompt, check.command
-    );
+    let news = match ran {
+        Ok(said) => format!("says something new:\n{said}"),
+        Err(error) => format!("could not run, and fires each time until it can:\n{error}"),
+    };
+    trigger.prompt = format!("{}\n\nIts check `{}` {news}", trigger.prompt, check.command);
     fire(
         core,
         Firing {

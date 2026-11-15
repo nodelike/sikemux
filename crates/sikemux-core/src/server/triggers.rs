@@ -787,7 +787,8 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             if !given(params, "every") && !given(params, "daily") {
                 return Err("A check runs each time a repeating trigger comes due, so give it every or daily".into());
             }
-            Some(check::Check::first(command.trim().to_owned(), request.project.clone()).await?)
+            let dir = board.clone().unwrap_or_else(|| request.project.clone());
+            Some(check::Check::first(command.trim().to_owned(), dir).await?)
         }
         Some(_) => return Err("check must be a shell command".into()),
     };
