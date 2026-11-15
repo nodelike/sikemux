@@ -6,8 +6,10 @@
 //! commits after it, so its files stay exactly as they are.
 
 use crate::server::remote_state::RemoteParts;
+use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -42,6 +44,22 @@ pub struct Pushed {
     note: Option<String>,
     #[serde(skip)]
     pub held: Vec<String>,
+    /// Commits taken off the branch, as they do not apply onto the remote's newest commits.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    sent_back: Vec<String>,
+    #[serde(skip)]
+    pub blocked: Vec<Blocked>,
+}
+
+/// A commit of the branch that does not apply onto the remote's newest commits, so the push
+/// left it out and took it off the branch.
+pub struct Blocked {
+    pub id: String,
+    pub subject: String,
+    /// The files it clashes in.
+    pub files: Vec<String>,
+    /// The chats of the agents who made it.
+    pub owners: Vec<String>,
 }
 
 /// One unpushed commit: whose it is, and what it is made of.
@@ -128,7 +146,17 @@ pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<
     };
     let guarded = workflows::guarded(core, dir, remote).is_some();
     let judge = |commit: &str| guarded && workflows::waits(dir, commit);
-    let pushed = push_holding(dir, remote, whose, judge, &Signing::of(core))?;
+    let mut pushed = push_holding(dir, remote, whose, judge, whole_branch, &Signing::of(core))?;
+    for blocked in &mut pushed.blocked {
+        blocked.owners = match verified(core, dir, &blocked.id) {
+            Ok(agents) if !agents.is_empty() => {
+                agents.into_iter().map(|agent| agent.chat).collect()
+            }
+            _ => committer::of(core, dir, &blocked.id)
+                .map(|made_by| vec![made_by.chat])
+                .unwrap_or_default(),
+        };
+    }
     if !pushed.held.is_empty() {
         workflows::ask(core, dir, remote, agents, &pushed.held);
     }
@@ -146,7 +174,7 @@ fn push_as(
     whose: impl Fn(&str) -> Result<(bool, String), String>,
     signing: &Signing,
 ) -> Result<Pushed, String> {
-    push_holding(dir, remote, whose, |_| false, signing)
+    push_holding(dir, remote, whose, |_| false, false, signing)
 }
 
 /// [`push_as`], leaving out the caller's commits `judge` says wait for the person, with those
@@ -156,6 +184,7 @@ fn push_holding(
     remote: &str,
     whose: impl Fn(&str) -> Result<(bool, String), String>,
     judge: impl Fn(&str) -> bool,
+    drop_clashing: bool,
     signing: &Signing,
 ) -> Result<Pushed, String> {
     let top = PathBuf::from(git(dir, &["rev-parse", "--show-toplevel"])?.trim());
@@ -164,7 +193,15 @@ fn push_holding(
         .trim()
         .to_owned();
     for _ in 0..ATTEMPTS {
-        match push_once(&top, remote, &branch, &whose, &judge, signing) {
+        match push_once(
+            &top,
+            remote,
+            &branch,
+            &whose,
+            &judge,
+            drop_clashing,
+            signing,
+        ) {
             Err(Attempt::Raced) => continue,
             Err(Attempt::Failed(why)) => return Err(why),
             Ok(pushed) => return Ok(pushed),
@@ -192,6 +229,7 @@ fn push_once(
     branch: &str,
     whose: &impl Fn(&str) -> Result<(bool, String), String>,
     judge: &impl Fn(&str) -> bool,
+    drop_clashing: bool,
     signing: &Signing,
 ) -> Result<Pushed, Attempt> {
     let head = line(git(top, &["rev-parse", "HEAD"])?);
@@ -239,6 +277,8 @@ fn push_once(
             waiting: Vec::new(),
             note: None,
             held: Vec::new(),
+            sent_back: Vec::new(),
+            blocked: Vec::new(),
         });
     }
     let cannot_go_alone = || {
@@ -255,6 +295,7 @@ fn push_once(
     let mut tip = base;
     let mut going: Vec<&Unpushed> = Vec::new();
     let mut waiting: Vec<&Unpushed> = Vec::new();
+    let mut blocked: Vec<Blocked> = Vec::new();
     for (at, commit) in unpushed.iter().enumerate() {
         if !commit.mine {
             continue;
@@ -281,6 +322,12 @@ fn push_once(
                         .join("; ")
                 )))
             }
+            Err(_) if moved && drop_clashing => blocked.push(Blocked {
+                id: commit.id.clone(),
+                subject: commit.subject.clone(),
+                files: clashes(top, &tip, &commit.id),
+                owners: Vec::new(),
+            }),
             Err(why) => {
                 return Err(match moved {
                     true => Attempt::Failed(format!("{why}; pull and settle it, then push again")),
@@ -291,6 +338,7 @@ fn push_once(
     }
     let left: Vec<&Unpushed> = (unpushed.iter())
         .filter(|commit| !going.iter().any(|gone| gone.id == commit.id))
+        .filter(|commit| !blocked.iter().any(|off| off.id == commit.id))
         .collect();
     let pushed = Pushed {
         remote: remote.to_owned(),
@@ -300,8 +348,19 @@ fn push_once(
         waiting: shown(&waiting),
         note: waits(&waiting),
         held: held_ids,
+        sent_back: (blocked.iter())
+            .map(|off| {
+                format!(
+                    "{} {} clashes in {}",
+                    short(&off.id),
+                    off.subject,
+                    off.files.join(", ")
+                )
+            })
+            .collect(),
+        blocked,
     };
-    if going.is_empty() {
+    if going.is_empty() && pushed.blocked.is_empty() {
         return Ok(pushed);
     }
     let rebuilt = replay(signing, top, &tip, &left, clash).map_err(|_| cannot_go_alone())?;
@@ -324,6 +383,57 @@ fn push_once(
         },
         ..pushed
     })
+}
+
+/// The files `commit` clashes in when made again on `onto`.
+fn clashes(top: &Path, onto: &str, commit: &str) -> Vec<String> {
+    let mut command = sikemux_process::user_environment::command("git");
+    command
+        .args([
+            "merge-tree",
+            "--write-tree",
+            "--name-only",
+            "--no-messages",
+            &format!("--merge-base={commit}^"),
+            onto,
+            commit,
+        ])
+        .current_dir(top);
+    let Ok(output) = command.output() else {
+        return Vec::new();
+    };
+    let mut files: Vec<String> = (String::from_utf8_lossy(&output.stdout).lines())
+        .skip(1)
+        .take_while(|file| !file.is_empty())
+        .map(str::to_owned)
+        .collect();
+    files.dedup();
+    files
+}
+
+/// Tells each agent whose commit a push took off its branch why, and what to do.
+pub fn tell_sent_back(core: &Arc<Core>, runtime: &tokio::runtime::Handle, pushed: &Pushed) {
+    for blocked in &pushed.blocked {
+        let text = format!(
+            "Your commit {} {} was on {} but does not apply onto {}/{}'s newest commits: it clashes in {}. Sikemux took it off {} so everyone else's commits could push. Bring your checkout up with git_commit sync, settle the clash, and land it again.",
+            short(&blocked.id),
+            blocked.subject,
+            pushed.branch,
+            pushed.remote,
+            pushed.branch,
+            blocked.files.join(", "),
+            pushed.branch,
+        );
+        for owner in &blocked.owners {
+            let (core, owner, text) = (core.clone(), owner.clone(), text.clone());
+            runtime.spawn(async move {
+                let told = (core.repo_above().messages_work_from_sikemux)(&core, owner, text, "about its push");
+                if let Err(error) = told.await {
+                    eprintln!("sikemux core: a note about a commit taken off a branch did not reach its agent: {error}");
+                }
+            });
+        }
+    }
 }
 
 /// What a push says of the caller's commits it left for the person.
@@ -834,5 +944,37 @@ mod tests {
         };
         assert!(push_as(&work, "origin", whose, &signing).is_err());
         assert_eq!(subjects(&remote, "main"), "mine: c\nmine: a\nbase");
+    }
+
+    /// Main stopped pushing on 2026-11-15: GitHub took a rustfmt pass while a landed commit
+    /// changed one of its lines, and that one commit failed every push after it.
+    #[test]
+    fn a_landed_commit_that_clashes_with_the_remote_comes_off_and_the_rest_push() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        let (work, other) = (root.join("work"), root.join("other"));
+        git_in(&root, &["init", "-q", "--bare", "-b", "main", "remote.git"]);
+        git_in(&root, &["clone", "-q", &remote.to_string_lossy(), "work"]);
+        git_in(&work, &["checkout", "-q", "-b", "main"]);
+        commit(&work, "x.txt", "one\n", "base");
+        git_in(&work, &["push", "-q", "origin", "main"]);
+        git_in(&root, &["clone", "-q", &remote.to_string_lossy(), "other"]);
+        commit(&other, "x.txt", "formatted\n", "fmt");
+        git_in(&other, &["push", "-q", "origin", "main"]);
+        commit(&work, "x.txt", "changed\n", "clashes");
+        commit(&work, "y.txt", "y\n", "fine");
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        let whose = |_: &str| Ok((true, "someone".to_owned()));
+        let pushed = push_holding(&work, "origin", whose, |_| false, true, &signing).unwrap();
+        let subjects = |dir: &Path, rev: &str| git_in(dir, &["log", "--format=%s", rev]);
+        assert_eq!(subjects(&remote, "main"), "fine\nfmt\nbase");
+        assert_eq!(subjects(&work, "main"), "fine\nfmt\nbase");
+        assert_eq!(pushed.blocked.len(), 1);
+        assert_eq!(pushed.blocked[0].subject, "clashes");
+        assert_eq!(pushed.blocked[0].files, ["x.txt"]);
     }
 }

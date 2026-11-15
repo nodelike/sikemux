@@ -262,6 +262,9 @@ fn push_or_tell(
         let Err(std::sync::mpsc::SendError(pushed)) = answer.send(pushed) else {
             return;
         };
+        if let (Ok(pushed), Some(runtime)) = (&pushed, &runtime) {
+            super::push::tell_sent_back(&owner, runtime, pushed);
+        }
         let text = match pushed {
             Ok(pushed) => format!(
                 "Your push ended: {}",

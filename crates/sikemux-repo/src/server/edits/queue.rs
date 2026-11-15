@@ -627,13 +627,18 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
     let pushed =
         blocking(move || super::push::push(&owner, &repo, &agents, "origin").map_err(Into::into))
             .await;
-    if let Err(error) = pushed {
-        for agent in &pushers {
-            tell(
-                core,
-                agent,
-                format!("Your commits landed on {} but did not push: {error}", key.1),
-            );
+    match pushed {
+        Ok(pushed) => {
+            super::push::tell_sent_back(core, &tokio::runtime::Handle::current(), &pushed)
+        }
+        Err(error) => {
+            for agent in &pushers {
+                tell(
+                    core,
+                    agent,
+                    format!("Your commits landed on {} but did not push: {error}", key.1),
+                );
+            }
         }
     }
 }

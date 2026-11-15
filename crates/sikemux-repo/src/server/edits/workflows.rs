@@ -636,6 +636,7 @@ pub async fn answered(core: &Arc<Core>, call: &PersonCall, key: &str, typed: Opt
             .unwrap_or_else(|error| Err(error.to_string()));
             match went {
                 Ok(pushed) => {
+                    push::tell_sent_back(core, &tokio::runtime::Handle::current(), &pushed);
                     person_calls::set_outcome(core, &call.id, outcome(CallResult::Shipped));
                     format!(
                         "The person passed your change to CI, and Sikemux pushed it: {}",
