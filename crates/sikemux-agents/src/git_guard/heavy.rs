@@ -300,14 +300,23 @@ pub(crate) fn rustc_cache() -> Vec<(String, String)> {
                 .next()
         }),
     };
-    let wrapper = (chosen.as_ref().map(|path| path.to_string_lossy().into_owned()))
-        .or(named)
-        .unwrap_or_default();
+    let wrapper = (chosen
+        .as_ref()
+        .map(|path| path.to_string_lossy().into_owned()))
+    .or(named)
+    .unwrap_or_default();
     let mut env: Vec<(String, String)> = chosen
-        .map(|path| ("RUSTC_WRAPPER".to_owned(), path.to_string_lossy().into_owned()))
+        .map(|path| {
+            (
+                "RUSTC_WRAPPER".to_owned(),
+                path.to_string_lossy().into_owned(),
+            )
+        })
         .into_iter()
         .collect();
-    let kache = Path::new(&wrapper).file_name().is_some_and(|name| name == "kache");
+    let kache = Path::new(&wrapper)
+        .file_name()
+        .is_some_and(|name| name == "kache");
     if kache && std::env::var_os(KACHE_INCREMENTAL).is_none() {
         env.push((KACHE_INCREMENTAL.to_owned(), "0".to_owned()));
     }
