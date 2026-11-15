@@ -9,6 +9,8 @@ use serde_json::{json, Value};
 use sikemux_fold::UpdateKind;
 
 use crate::agent_accounts::sign_in::{self, SignIn};
+use crate::agent_accounts::{allocate, usage};
+use sikemux_process::clock::epoch_ms;
 
 use super::native::SessionEnd;
 use sikemux_wire::protocol::{ChatAccount, ChatContext, ChatLaunch};
@@ -137,8 +139,8 @@ pub fn switches_at_limit(chat: &Chat) -> bool {
         .is_none_or(|core| core.workspaces().accounts().unwrap_or_default().smart)
 }
 
-/// The account to move to that has usage left to try and is signed in: of those, the one with
-/// the most of its week left, so the chat can keep going, else the first.
+/// The account to move to that is signed in and not known to be out of usage: of those, the one
+/// with the most of its week left, so the chat can keep going, else the first.
 pub fn next_account<'a>(
     chat: &Chat,
     provider: &str,
@@ -149,14 +151,19 @@ pub fn next_account<'a>(
         .core
         .upgrade()
         .and_then(|core| core.workspaces().accounts());
+    let now = epoch_ms();
     let open: Vec<&ChatAccount> = (launch.fallbacks.iter())
         .filter(|fallback| {
+            let env = &on_account(provider, launch, fallback).env;
             !exhausted.contains(&fallback.id)
                 && book
                     .as_ref()
                     .is_none_or(|book| book.allowed_in(&launch.cwd, &fallback.id))
-                && sign_in::signed_in(provider, &on_account(provider, launch, fallback).env)
-                    != Some(SignIn::SignedOut)
+                && sign_in::signed_in(provider, env) != Some(SignIn::SignedOut)
+                && !usage::last_reading(provider, crate::launch::named_account(provider, env))
+                    .is_some_and(|reading| {
+                        allocate::spent(&reading.usage, launch.model.as_deref(), now)
+                    })
         })
         .collect();
     let placed = chat.core.upgrade().and_then(|core| {

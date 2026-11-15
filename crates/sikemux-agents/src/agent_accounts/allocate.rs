@@ -79,6 +79,12 @@ fn governs(window: &UsageWindow, model: Option<&str>) -> bool {
     !model.is_empty() && (model.contains(&scope) || scope.contains(&model))
 }
 
+/// Whether a window over a chat on `model` is used up, so the account cannot run it before
+/// that window resets.
+pub fn spent(usage: &Usage, model: Option<&str>, now_ms: u64) -> bool {
+    (usage.windows.iter()).any(|window| governs(window, model) && window.used_at(now_ms) >= 100.0)
+}
+
 /// Where the account stands for a chat on `model`, or none when a window over that model is
 /// too full to start one. A chat whose model is not known counts every model's own week as
 /// over it while `wary`.

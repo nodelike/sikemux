@@ -264,17 +264,23 @@ pub fn schedule(chat: &Arc<Chat>, launch: &ChatLaunch, prompt: Replay, resets_at
     }
     let (chat, launch) = (chat.clone(), launch.clone());
     tokio::spawn(async move {
-        let at = match resets_at {
+        let own = match resets_at {
             None => reset_from_usage(&core, &launch).await,
             known => known,
         };
+        let now = epoch_ms();
+        let at = [own, reset_elsewhere(&core, &launch)]
+            .into_iter()
+            .flatten()
+            .filter(|at| *at > now)
+            .min();
         let resets = &core.chats().resets;
         let mut slots = resets.slots.locked();
         let current = slots.get(chat.agent_id());
         if !matches!(current, Some(Slot::Looking { ticket: own }) if *own == ticket) {
             return;
         }
-        let Some(at) = at.filter(|at| *at > epoch_ms()) else {
+        let Some(at) = at else {
             slots.remove(chat.agent_id());
             drop(slots);
             not_retrying(&core, &chat);
@@ -426,6 +432,24 @@ async fn reset_from_usage(core: &Core, launch: &ChatLaunch) -> Option<u64> {
         .await
         .ok()?
         .resets_at()
+}
+
+/// The soonest another account the chat may move to frees up, by its last reading, so a chat
+/// whose own account resets later carries on there instead.
+fn reset_elsewhere(core: &Core, launch: &ChatLaunch) -> Option<u64> {
+    let book = core.workspaces().accounts().unwrap_or_default();
+    if !book.smart {
+        return None;
+    }
+    let provider = launch.provider.as_str();
+    (launch.fallbacks.iter())
+        .filter(|other| book.allowed_in(&launch.cwd, &other.id))
+        .filter_map(|other| {
+            let env = &super::rebind::on_account(provider, launch, other).env;
+            let folder = crate::launch::named_account(provider, env);
+            usage::last_reading(provider, folder)?.usage.resets_at()
+        })
+        .min()
 }
 
 fn say(chat: &Chat, update: Value) {
