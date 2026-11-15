@@ -4,7 +4,6 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom, Write};
-use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -650,7 +649,7 @@ impl Reader {
             .find(|point| point.index >= hi)
             .map_or(self.bytes, |point| point.offset);
         let mut text = vec![0; to.saturating_sub(from) as usize];
-        self.file.read_exact_at(&mut text, from)?;
+        crate::os::read_exact_at(&self.file, &mut text, from)?;
         Ok(text
             .split(|byte| *byte == b'\n')
             .filter(|line| !line.is_empty())
