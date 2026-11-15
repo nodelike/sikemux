@@ -5,6 +5,7 @@ mod commands;
 mod json;
 mod models;
 pub mod muse;
+pub mod opencode;
 mod parts;
 mod patch;
 mod pending;

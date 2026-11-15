@@ -32,6 +32,7 @@ pub mod index;
 pub mod muse;
 pub mod omp;
 pub mod opencode;
+pub mod opencode_server;
 pub mod pi;
 pub mod recent;
 pub mod relocate;

@@ -7,7 +7,7 @@ mod session;
 
 use crate::server::chat_state::ChatParts;
 use sikemux_drivers::server::chat::native::session::Told;
-use sikemux_drivers::server::chat::native::{acp, claude, codex, muse, pi, process};
+use sikemux_drivers::server::chat::native::{acp, claude, codex, muse, opencode, pi, process};
 
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::agent_catalog::ChatDriver;
+use crate::agent_catalog::{AgentKind, ChatDriver};
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::rebind::Outcome;
@@ -75,6 +75,15 @@ pub async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
         }
         Some(ChatDriver::Codex) => codex::read_options(command).await,
         Some(ChatDriver::Pi) => pi::read_options(command).await,
+        Some(ChatDriver::Acp { .. }) if launch.provider == AgentKind::Opencode.as_str() => {
+            opencode::read_options(
+                command,
+                &launch.cwd,
+                launch.model.as_deref(),
+                launch.effort.as_deref(),
+            )
+            .await
+        }
         Some(ChatDriver::Muse | ChatDriver::Acp { .. }) | None => Err(format!(
             "{} offers its options only in a session",
             launch.provider
