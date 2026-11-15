@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Points an update feed, the fixed `staff` or `nightly` release holding only latest.json, at a
-# published nightly by copying that nightly's own latest.json. Nothing is rebuilt.
+# published build by copying that build's own latest.json. Nothing is rebuilt. The staff feed
+# also serves stable candidates; the nightly feed only nightlies.
 #   move-feed.sh <staff|nightly> <version>
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 FEED="${1:-}"
 VERSION="${2:-}"
-[[ "$FEED" == staff || "$FEED" == nightly ]] && [[ "$VERSION" == *-nightly.* ]] || {
+[[ "$FEED" == staff || ( "$FEED" == nightly && "$VERSION" == *-nightly.* ) ]] && [[ -n "$VERSION" ]] || {
   echo "Usage: $0 <staff|nightly> <version>" >&2
   exit 2
 }

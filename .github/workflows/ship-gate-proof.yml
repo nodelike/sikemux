@@ -1,0 +1,25 @@
+name: Ship gate proof
+on:
+  push:
+    branches: [proof/ship-gate]
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Gather the evidence for v0.6.0, which has shipped, so it must refuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          set +e
+          scripts/ship-gate.sh 0.6.0 30 2
+          echo "gate exited $?"

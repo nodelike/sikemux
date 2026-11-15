@@ -86,19 +86,31 @@ path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
 RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
+# The staff feed takes a nightly unless it serves a newer build, or a stable candidate that
+# has not shipped yet: staff machines keep running the candidate the owner is asked about.
+staff_feed_takes() {
+  local serving
+  serving="$(gh release download staff -p latest.json -O - 2>/dev/null | node -pe 'JSON.parse(require("fs").readFileSync(0)).version' 2>/dev/null)" || return 0
+  if [[ "$serving" != *-* ]] &&
+    [[ "$(gh release view "v$serving" --json isPrerelease,name --jq '.isPrerelease and (.name | endswith("(pulled)") | not)')" == true ]]; then
+    echo "  the staff feed keeps the candidate v$serving until it ships or is pulled"
+    return 1
+  fi
+  node scripts/newer-version.mjs "$1" "$serving" || { echo "  the staff feed already serves v$serving"; return 1; }
+}
+
 if [[ "$CHANNEL" == "stable" ]]; then
-  echo "→ Publishing stable v$VERSION"
-  "${RELEASE_CMD[@]}" "$MANIFEST"
-  gh workflow run packages.yml -f suite=stable
-  gh workflow run packages.yml -f suite=nightly
-  echo "✓ Released stable v$VERSION"
+  echo "→ Publishing stable v$VERSION as a candidate for staff"
+  "${RELEASE_CMD[@]}" "$MANIFEST" --prerelease
+  scripts/move-feed.sh staff "$VERSION"
+  echo "✓ v$VERSION is on the staff feed; the Ship workflow makes it stable once it has soaked"
 else
   echo "→ Publishing nightly v$VERSION"
   # A push to main brings no tag, so Release makes it; the owner may still push one by hand.
   gh api "repos/{owner}/{repo}/git/ref/tags/v$VERSION" >/dev/null 2>&1 ||
     gh api -X POST "repos/{owner}/{repo}/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$(git rev-parse HEAD)" >/dev/null
   "${RELEASE_CMD[@]}" "$MANIFEST" --prerelease
-  scripts/move-feed.sh staff "$VERSION"
+  if staff_feed_takes "$VERSION"; then scripts/move-feed.sh staff "$VERSION"; fi
   gh workflow run nightly-soak.yml -f "version=$VERSION"
-  echo "✓ Released nightly v$VERSION to staff; the nightly feed follows once it has soaked"
+  echo "✓ Released nightly v$VERSION; the nightly feed follows once it has soaked"
 fi

@@ -1,9 +1,10 @@
 name: Release
 run-name: Release ${{ github.event_name == 'workflow_run' && format('nightly from {0}', github.event.workflow_run.head_sha) || github.ref_name }}
 
-# A stable release starts from a v* tag, which only the owner may push. A nightly is built from
-# each push to main as CI starts checking it, and once CI passes goes to the staff feed at once
-# and to nightly after a soak.
+# A stable release starts from a v* tag, which only the owner may push, and publishes a candidate
+# that only the staff feed serves; the Ship workflow makes it stable on the owner's approval. A
+# nightly is built from each push to main as CI starts checking it, and once CI passes goes to the
+# staff feed at once and to nightly after a soak.
 on:
   push:
     tags: ["v*"]
@@ -31,16 +32,6 @@ env:
   DO_NOT_TRACK: "1"
 
 jobs:
-  approve:
-    name: Approve the stable release
-    if: ${{ github.event_name == 'push' && !contains(github.ref_name, '-nightly.') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: approval
-    steps:
-      - name: Approved
-        run: echo "Approved ${GITHUB_REF_NAME}" >>"$GITHUB_STEP_SUMMARY"
-
   pushed-checks:
     name: Checks already run on this commit
     needs: plan
@@ -173,8 +164,8 @@ jobs:
   # the voice and simulator helpers it downloads, so they are signed first.
   helpers:
     name: Build the helpers
-    needs: [approve, plan]
-    if: &approved_plan ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    needs: plan
+    if: &planned ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
@@ -226,8 +217,8 @@ jobs:
   # The core is not compiled with the helpers' hashes, so it builds alongside them.
   mac-core:
     name: Build the Mac core
-    needs: [approve, plan]
-    if: *approved_plan
+    needs: plan
+    if: *planned
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
@@ -368,8 +359,8 @@ jobs:
   # app only when it is packed, so the app compiles while the core does.
   build:
     name: Build the app
-    needs: [approve, plan]
-    if: *approved_plan
+    needs: plan
+    if: *planned
     env:
       CARGO_PROFILE_RELEASE_LTO: *lto
     runs-on: macos-26
@@ -603,8 +594,8 @@ jobs:
   # The packages' core builds beside their app, as the Mac's does, on the same machines with the same libraries.
   linux-core:
     name: Build the core of the Linux packages (${{ matrix.arch }})
-    needs: [approve, plan]
-    if: *approved_plan
+    needs: plan
+    if: *planned
     strategy:
       matrix:
         include: &linux_machines
@@ -660,8 +651,8 @@ jobs:
 
   build-linux:
     name: Build Linux packages (${{ matrix.arch }})
-    needs: [approve, plan]
-    if: *approved_plan
+    needs: plan
+    if: *planned
     strategy:
       matrix:
         include: *linux_machines
@@ -781,8 +772,8 @@ jobs:
 
   build-host:
     name: Build the Linux host core (${{ matrix.arch }})
-    needs: [approve, plan]
-    if: *approved_plan
+    needs: plan
+    if: *planned
     strategy:
       matrix:
         include:
@@ -965,6 +956,15 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
         run: scripts/sentry-release.sh "$VERSION" target/symbols
 
+  rehearsal:
+    name: Rehearse the update
+    needs: [plan, sign-host]
+    if: ${{ !cancelled() && needs.sign-host.result == 'success' }}
+    uses: ./.github/workflows/update-rehearsal.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+      artifacts: true
+
   publish:
     name: Publish
     needs:
@@ -975,6 +975,7 @@ jobs:
         build-arch,
         build-host,
         sign-host,
+        rehearsal,
         sentry,
         pushed-checks,
         checks,
@@ -983,6 +984,7 @@ jobs:
       !cancelled() && needs.verify.result == 'success' && needs.build-linux.result == 'success' &&
       needs.build-arch.result == 'success' && needs.sentry.result == 'success' &&
       needs.build-host.result == 'success' && needs.sign-host.result == 'success' &&
+      needs.rehearsal.result == 'success' &&
       (needs.pushed-checks.outputs.passed == 'true' || needs.checks.result == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -1063,88 +1065,3 @@ jobs:
           flags=()
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/publish-release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-
-  # The cask downloads the DMG from the release, so it moves only once that is out.
-  homebrew:
-    name: Update the Homebrew cask
-    needs: [plan, publish]
-    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.plan.outputs.channel == 'stable' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: release
-    permissions:
-      contents: read
-    steps:
-      - name: Look for the tap key
-        id: token
-        env:
-          HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
-        run: |
-          if [[ -n "$HOMEBREW_TAP_SSH_KEY" ]]; then
-            echo "configured=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "No HOMEBREW_TAP_SSH_KEY in the release environment, so the cask keeps its last version" >>"$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Checkout
-        if: steps.token.outputs.configured == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ env.RELEASE_SHA }}
-          persist-credentials: false
-
-      - name: Download the published DMG
-        if: steps.token.outputs.configured == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: gh release download "v$VERSION" -R "$GITHUB_REPOSITORY" -p "Sikemux_${VERSION}_aarch64.dmg" -D "$RUNNER_TEMP"
-
-      - name: Push the cask to nodelike/homebrew-tap
-        if: steps.token.outputs.configured == 'true'
-        env:
-          HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
-          VERSION: ${{ needs.plan.outputs.version }}
-        run: packaging/homebrew/push-cask.sh "$VERSION" "$RUNNER_TEMP/Sikemux_${VERSION}_aarch64.dmg"
-
-  # The AUR's PKGBUILD downloads the tarball from the release, so it moves only once that is out.
-  aur:
-    name: Update the AUR package
-    needs: [plan, publish]
-    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.plan.outputs.channel == 'stable' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: release
-    permissions:
-      contents: read
-    steps:
-      - name: Look for the AUR key
-        id: key
-        env:
-          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-        run: |
-          if [[ -n "$AUR_SSH_PRIVATE_KEY" ]]; then
-            echo "configured=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "No AUR_SSH_PRIVATE_KEY in the release environment, so the AUR keeps its last version" >>"$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Checkout
-        if: steps.key.outputs.configured == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ env.RELEASE_SHA }}
-          persist-credentials: false
-
-      - name: Fetch the AUR recipe
-        if: steps.key.outputs.configured == 'true'
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: sikemux-arch-${{ github.ref_name }}
-          path: target/release/bundle/arch
-
-      - name: Push it to sikemux-bin
-        if: steps.key.outputs.configured == 'true'
-        env:
-          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-        run: packaging/arch/push-aur.sh "${{ needs.plan.outputs.version }}" target/release/bundle/arch/aur
