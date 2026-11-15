@@ -69,8 +69,8 @@ impl ThemeChanges {
 macro_rules! theme_parts {
     ($(
         $(#[$meta:meta])*
-        $part:ident / $changes:ident {
-            $( $(#[$field_meta:meta])* $field:ident: $kind:ty, )*
+        pub struct $part:ident / $changes:ident {
+            $( $(#[$field_meta:meta])* pub $field:ident: $kind:ty, )*
         }
     )*) => {$(
         $(#[$meta])*
@@ -97,90 +97,90 @@ macro_rules! theme_parts {
 }
 
 theme_parts! {
-    /// How a theme draws beside its colours.
-    #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase", default)]
-    ThemeStyle / ThemeStyleChanges {
-        /// How round corners are, from square at 0 through the default at 1 to twice as round at 2.
-        corners: f64,
-    }
+/// How a theme draws beside its colours.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ThemeStyle / ThemeStyleChanges {
+    /// How round corners are, from square at 0 through the default at 1 to twice as round at 2.
+    pub corners: f64,
+}
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    ThemeChrome / ThemeChromeChanges {
-        bg: String,
-        bg_dim: String,
-        bg_raised: String,
-        ink: String,
-        ink_dim: String,
-        ink_muted: String,
-        acc: String,
-        acc_line: String,
-        acc_dim: String,
-        line: String,
-        hl: String,
-        danger: String,
-    }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeChrome / ThemeChromeChanges {
+    pub bg: String,
+    pub bg_dim: String,
+    pub bg_raised: String,
+    pub ink: String,
+    pub ink_dim: String,
+    pub ink_muted: String,
+    pub acc: String,
+    pub acc_line: String,
+    pub acc_dim: String,
+    pub line: String,
+    pub hl: String,
+    pub danger: String,
+}
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    ThemeEditor / ThemeEditorChanges {
-        fg: String,
-        bg: String,
-        caret: String,
-        selection: String,
-        active_line: String,
-        gutter: String,
-        gutter_active: String,
-        indent: String,
-        indent_active: String,
-    }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeEditor / ThemeEditorChanges {
+    pub fg: String,
+    pub bg: String,
+    pub caret: String,
+    pub selection: String,
+    pub active_line: String,
+    pub gutter: String,
+    pub gutter_active: String,
+    pub indent: String,
+    pub indent_active: String,
+}
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    ThemeHighlight / ThemeHighlightChanges {
-        keyword: String,
-        string: String,
-        comment: String,
-        number: String,
-        function: String,
-        #[serde(rename = "type")]
-        kind: String,
-        variable: String,
-        property: String,
-        tag: String,
-        operator: String,
-        link: String,
-        invalid: String,
-        meta: String,
-        heading: String,
-    }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeHighlight / ThemeHighlightChanges {
+    pub keyword: String,
+    pub string: String,
+    pub comment: String,
+    pub number: String,
+    pub function: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub variable: String,
+    pub property: String,
+    pub tag: String,
+    pub operator: String,
+    pub link: String,
+    pub invalid: String,
+    pub meta: String,
+    pub heading: String,
+}
 
-    #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    ThemeTerminal / ThemeTerminalChanges {
-        background: String,
-        foreground: String,
-        cursor: String,
-        cursor_accent: String,
-        selection_background: String,
-        black: String,
-        red: String,
-        green: String,
-        yellow: String,
-        blue: String,
-        magenta: String,
-        cyan: String,
-        white: String,
-        bright_black: String,
-        bright_red: String,
-        bright_green: String,
-        bright_yellow: String,
-        bright_blue: String,
-        bright_magenta: String,
-        bright_cyan: String,
-        bright_white: String,
-    }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeTerminal / ThemeTerminalChanges {
+    pub background: String,
+    pub foreground: String,
+    pub cursor: String,
+    pub cursor_accent: String,
+    pub selection_background: String,
+    pub black: String,
+    pub red: String,
+    pub green: String,
+    pub yellow: String,
+    pub blue: String,
+    pub magenta: String,
+    pub cyan: String,
+    pub white: String,
+    pub bright_black: String,
+    pub bright_red: String,
+    pub bright_green: String,
+    pub bright_yellow: String,
+    pub bright_blue: String,
+    pub bright_magenta: String,
+    pub bright_cyan: String,
+    pub bright_white: String,
+}
 }
 
 impl Eq for ThemeStyle {}
