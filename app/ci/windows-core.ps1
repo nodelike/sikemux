@@ -60,7 +60,7 @@ function Picture([string] $name) {
 $failed = @()
 # Windows PowerShell drops the double quotes inside an argument to a program, so JSON goes with
 # each one escaped.
-function Cli {
+function Ask-Core {
     param([string] $Step, [string[]] $Words)
     # A program's own error lines are part of its answer, not a failure of the script.
     $ErrorActionPreference = 'Continue'
@@ -79,16 +79,16 @@ function Cli {
 Start-Sleep -Seconds $Settle
 Picture 'connected'
 
-Cli -Step 'open the project' -Words 'open', $project | Out-Null
+Ask-Core -Step 'open the project' -Words 'open', $project | Out-Null
 Start-Sleep -Seconds 10
-$started = Cli -Step 'start a terminal' -Words 'tool', 'process.start', '{"command":"ping -n 900 127.0.0.1","label":"ping","idempotencyKey":"window-run"}'
+$started = Ask-Core -Step 'start a terminal' -Words 'tool', 'process.start', '{"command":"ping -n 900 127.0.0.1","label":"ping","idempotencyKey":"window-run"}'
 $execution = ''
 try { $execution = ($started | ConvertFrom-Json).executionId } catch {}
 if ($execution) {
-    Cli -Step 'show the terminal' -Words 'tool', 'ui.open', (@{ kind = 'terminal'; executionId = $execution } | ConvertTo-Json -Compress) | Out-Null
+    Ask-Core -Step 'show the terminal' -Words 'tool', 'ui.open', (@{ kind = 'terminal'; executionId = $execution } | ConvertTo-Json -Compress) | Out-Null
 } else { $failed += 'no executionId' }
 $env:SIKEMUX_AGENT_ID = 'window-run'
-Cli -Step 'open a browser tab' -Words 'tool', 'browser.navigate', '{"url":"https://example.com"}' | Out-Null
+Ask-Core -Step 'open a browser tab' -Words 'tool', 'browser.navigate', '{"url":"https://example.com"}' | Out-Null
 Remove-Item Env:SIKEMUX_AGENT_ID
 Start-Sleep -Seconds 15
 Picture 'window'
