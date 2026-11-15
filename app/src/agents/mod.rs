@@ -1349,6 +1349,25 @@ fn chief_row(
         };
         host_mark(format!("chief-home-{}", project.id), said.into(), cx)
     });
+    let take_over = (project.chief_home.as_ref())
+        .filter(|home| home.away_since.is_some())
+        .map(|_| {
+            let project_id = project.id.clone();
+            ui::Button::new(
+                SharedString::from(format!("chief-take-over-{}", project.id)),
+                t!("Take over here"),
+                ui::Variant::Outline,
+            )
+            .sized(18., 6., TEXT_2XS)
+            .on_click(cx.listener(move |bench, _, _, cx| {
+                cx.stop_propagation();
+                bench.take_over_chief(&project_id, cx);
+            }))
+        });
+    let status = match take_over {
+        Some(button) => Some(button.into_any_element()),
+        None => chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())),
+    };
     let (id, project_id) = (chief.map(|chief| chief.id.clone()), project.id.clone());
     let home_project = project.chief_home.as_ref().and_then(|home| {
         let copy = (project.copies.iter()).find(|copy| copy.host == home.host)?;
@@ -1361,7 +1380,7 @@ fn chief_row(
     .mark(22., ui::chief_mark(20.))
     .chosen(chosen)
     .compact(bench.rail_compact())
-    .status(chief.and_then(|chief| ui::turn_mark(&chief.id, chief.turn.as_ref())))
+    .status(status)
     .detail(rows::chief_role())
     .children(place)
     .children(home)

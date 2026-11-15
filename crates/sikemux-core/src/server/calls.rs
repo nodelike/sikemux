@@ -165,6 +165,7 @@ calls! { core, client, method, params;
     "resumeSession" = ResumeSession: Full, counted => super::launching::resume_session(&core, params).await?,
     "reopenAgent" = ReopenAgent: Full, counted => super::launching::person_reopens(&core, params.agent_id).await?,
     "openChief" = OpenChief: Full, counted => super::chief::open(&core, params).await?,
+    "takeOverChief" = TakeOverChief: Full, counted => super::hosts::rehome::take_over_here(&core, params).await?,
     "handOff" = HandOff: Full, counted => super::chat::handoff::hand_off(&core, params).await?,
     "dropHandoff" = DropHandoff: Full => super::chat::handoff::drop_handoff(&core, params)?,
     "keepHistory" = KeepHistory: Full => super::chat::cap::keep_history(&core, params)?,

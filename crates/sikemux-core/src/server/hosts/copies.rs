@@ -309,6 +309,7 @@ pub(super) fn heard(core: &Core, host: &str, params: HeldParams) -> Answer {
         heard.insert(host.to_owned(), params.projects);
         copies.kept.save(&*heard);
         drop(heard);
+        super::rehome::follow(core, host);
         stand_down(core);
         core.changed(What::View);
     }

@@ -12,6 +12,7 @@ crate::calls! {
     "goalReports" GoalReports (crate::board::GoalReportsParams) -> Vec<sikemux_view::slice::GoalReport>;
     "chatGoalUndo" ChatGoalUndo (crate::board::ChatGoalParams) -> ();
     "openChief" OpenChief (crate::chief::OpenChiefParams) -> crate::chief::OpenedChief;
+    "takeOverChief" TakeOverChief (crate::chief::OpenChiefParams) -> crate::chief::OpenedChief;
     "runCustomCommand" RunCustomCommand (crate::custom_command::RunCustomParams) -> crate::custom_command::CommandRan;
     "hostDiagnosis" HostDiagnosis (crate::diagnosis::DiagnosisParams) -> sikemux_view::host_stats::HostDiagnosis;
     "diagramLayout" DiagramLayout (crate::diagrams::DiagramParams) -> crate::diagrams::DiagramLayout;

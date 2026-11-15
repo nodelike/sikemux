@@ -721,6 +721,28 @@ impl Workbench {
             target.request_typed::<call::OpenChief>(sikemux_calls::chief::OpenChiefParams {
                 project: project.to_owned(),
             });
+        self.show_chief(target, project, opening, cx);
+    }
+
+    /// Takes the chief of `project` over on this host while the host it lives on is out of
+    /// reach, and opens it.
+    pub fn take_over_chief(&self, project: &str, cx: &mut Context<Self>) {
+        let target = self.target();
+        let taking =
+            target.request_typed::<call::TakeOverChief>(sikemux_calls::chief::OpenChiefParams {
+                project: project.to_owned(),
+            });
+        self.show_chief(target, project, taking, cx);
+    }
+
+    fn show_chief(
+        &self,
+        target: Target,
+        project: &str,
+        opening: impl std::future::Future<Output = Result<sikemux_calls::chief::OpenedChief, String>>
+            + 'static,
+        cx: &mut Context<Self>,
+    ) {
         let project = project.to_owned();
         cx.spawn(async move |bench, cx| match opening.await {
             Ok(opened) => {
