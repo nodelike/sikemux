@@ -72,10 +72,16 @@ jobs:
         with:
           cache: "true"
 
+      - name: Write the icon and version resources
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: packaging\windows\resources.ps1 -Version $env:VERSION -Out "$env:RUNNER_TEMP\resources"
+
       - name: Build the app
         env:
           SIKEMUX_USAGE_REPORTING: app
-        run: cargo build --locked --release -p sikemux-app --bin sikemux
+        run: cargo rustc --locked --release -p sikemux-app --bin sikemux -- -C "link-arg=$RUNNER_TEMP\resources\sikemux.res"
 
       # The core does not compile on Windows yet; the installer carries the app alone until it does.
       - name: Build the core
@@ -83,7 +89,7 @@ jobs:
         continue-on-error: true
         env:
           SIKEMUX_USAGE_REPORTING: app
-        run: cargo build --locked --release -p sikemux-host --bin sikemux-host
+        run: cargo rustc --locked --release -p sikemux-host --bin sikemux-host -- -C "link-arg=$RUNNER_TEMP\resources\sikemux-host.res"
 
       - name: Say whether the core is in
         env:
@@ -99,7 +105,7 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: packaging\windows\build.ps1 -Arch ${{ matrix.arch }} -Version $env:VERSION -Binaries target\release -Out "$env:RUNNER_TEMP\installer" | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
+        run: packaging\windows\build.ps1 -Arch ${{ matrix.arch }} -Version $env:VERSION -Binaries target\release -Resources "$env:RUNNER_TEMP\resources" -Out "$env:RUNNER_TEMP\installer" | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY
 
       - name: Install, open, update and uninstall it
         shell: pwsh
