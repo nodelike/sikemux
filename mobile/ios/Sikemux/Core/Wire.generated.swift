@@ -4901,6 +4901,8 @@ struct AgentNotice: Codable, Hashable, Sendable {
     var ruleChange: RuleChange?
     /// A decision the agent recorded itself, which Overrule (`overruleDecision`) retires.
     var decided: DecidedLine?
+    /// A page one of the agent's workers showed, as a row that opens it on that worker's desk.
+    var workerPage: WorkerPage?
 }
 
 enum NoticeSeverity: String, Codable, Hashable, Sendable {
@@ -5016,6 +5018,16 @@ struct DecidedLine: Codable, Hashable, Sendable {
     var text: String
     /// What it rests on, as the agent wrote it, on one line.
     var why: String?
+}
+
+/// A page a worker showed with `page_show`, in its lead's chat. Shown again under the same
+/// title, it takes its old row's place.
+struct WorkerPage: Codable, Hashable, Sendable {
+    var id: String
+    var title: String
+    /// The worker, by id and by name.
+    var agentId: String
+    var name: String
 }
 
 /// The core started a fresh session under the chat, from a brief it built from what it keeps.

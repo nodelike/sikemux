@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_view::chat::{
     ChiefWeek, DecidedLine, GoalMarker, KeptRule, OverruledDecision, RuleChange, StopReason,
+    WorkerPage,
 };
 
 use crate::ChatEventKind;
@@ -350,6 +351,13 @@ pub fn goal_notice(title: &str, marker: GoalMarker) -> Value {
 pub fn overruled_notice(title: &str, overruled: OverruledDecision) -> Value {
     let mut update = notice("info", title, None);
     update["overruled"] = json!(overruled);
+    update
+}
+
+/// The row in a lead's chat for a page one of its workers showed.
+pub fn worker_page_notice(page: WorkerPage) -> Value {
+    let mut update = notice("info", "Page shown", None);
+    update["workerPage"] = json!(page);
     update
 }
 

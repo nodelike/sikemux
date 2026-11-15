@@ -40,10 +40,8 @@ pub(super) async fn show_page(
     let mut page = blocking(move || Ok(crate::pages::publish(&dir, &path, &title, height)))
         .await
         .map_err(|error| error.to_string())??;
-    let in_chat = request
-        .agent_id
-        .as_deref()
-        .is_none_or(|agent_id| core.chats().get(agent_id).is_some());
+    let asker = request.agent_id.clone();
+    let in_chat = (asker.as_deref()).is_none_or(|agent_id| core.chats().get(agent_id).is_some());
     let mut on_desk = false;
     if core.window().is_open() {
         let card = in_chat && tab;
@@ -59,6 +57,9 @@ pub(super) async fn show_page(
         }
         page.tab = card && on_desk;
     }
+    if let Some(agent_id) = asker.as_deref() {
+        shown_by(core, agent_id, &page);
+    }
     let note = if page.tab {
         PAGE_IN_TAB
     } else if in_chat {
@@ -69,6 +70,20 @@ pub(super) async fn show_page(
         PAGE_KEPT
     };
     Ok(json!({ "page": page, "note": note }))
+}
+
+/// Whoever started `agent_id` sees the page as a row in their chat, and a call about its work
+/// links it.
+fn shown_by(core: &Core, agent_id: &str, page: &crate::pages::PageRef) {
+    let lead = core.workspaces().agent_leads().remove(agent_id);
+    let name = (core.names().get(agent_id)).map_or_else(|| agent_id.to_owned(), |named| named.name);
+    let shown = sikemux_view::chat::WorkerPage {
+        id: page.id.clone(),
+        title: page.title.clone(),
+        agent_id: agent_id.to_owned(),
+        name,
+    };
+    crate::server::chief::page_shown(core, lead.as_deref(), shown);
 }
 
 fn picture_path(dir: &Path, id: &str) -> PathBuf {

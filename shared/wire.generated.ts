@@ -3124,6 +3124,8 @@ export interface AgentNotice {
     ruleChange?: RuleChange;
     /** A decision the agent recorded itself, which Overrule (`overruleDecision`) retires. */
     decided?: DecidedLine;
+    /** A page one of the agent's workers showed, as a row that opens it on that worker's desk. */
+    workerPage?: WorkerPage;
 }
 
 export type NoticeSeverity = "info" | "warning" | "error";
@@ -3226,6 +3228,18 @@ export interface DecidedLine {
     text: string;
     /** What it rests on, as the agent wrote it, on one line. */
     why?: string;
+}
+
+/**
+ * A page a worker showed with `page_show`, in its lead's chat. Shown again under the same
+ * title, it takes its old row's place.
+ */
+export interface WorkerPage {
+    id: string;
+    title: string;
+    /** The worker, by id and by name. */
+    agentId: string;
+    name: string;
 }
 
 /**

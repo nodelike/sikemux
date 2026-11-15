@@ -3486,6 +3486,58 @@
         }
       }
     },
+    "@{name} showed a page": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@{name} mostró una página"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@{name} 展示了一个页面"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@{name} hat eine Seite gezeigt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@{name} a montré une page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@{name} がページを表示しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@{name}이(가) 페이지를 보여 줬습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@{name} показал(а) страницу"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@{name} mostrou uma página"
+          }
+        }
+      }
+    },
     "A Kubernetes context": {
       "localizations": {
         "es": {

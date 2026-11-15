@@ -37,6 +37,7 @@
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "Tras {days} días se borran tu inicio de sesión, las claves de los dispositivos y el historial, y las copias de seguridad {backupDays} días después.",
   "Against it:": "En contra:",
   "about": "sobre",
+  "@{name} showed a page": "@{name} mostró una página",
   "Agents": "Agentes",
   "All": "Todos",
   "All agents": "Todos los agentes",

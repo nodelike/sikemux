@@ -68,6 +68,8 @@ const MAX_QUESTION_BYTES: usize = 8 * 1024;
 const MAX_CHOICES: usize = 9;
 const MAX_LABEL_CHARS: usize = 200;
 const MAX_DETAIL_CHARS: usize = 400;
+/// How recent the page an agent showed must be for a call about its work to link it unasked.
+const LAST_PAGE_MS: u64 = 60 * 60_000;
 /// A question's title on the tab the person picks it by.
 const MAX_HEADER_CHARS: usize = 40;
 const MAX_ANSWER_BYTES: usize = 64 * 1024;
@@ -1042,7 +1044,10 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         None => None,
     };
     let page_wanted = text_param(params, "page", 64)?;
-    let page = page_wanted.as_deref().and_then(|id| page_of(core, id));
+    let page = match page_wanted.as_deref() {
+        Some(id) => page_of(core, id),
+        None => (about.as_ref()).and_then(|about| last_page_of(core, &about.agent_id)),
+    };
     let question = open(
         core,
         &agent_id,
@@ -1130,6 +1135,13 @@ fn page_of(core: &Core, id: &str) -> Option<CallPage> {
         title: crate::pages::title(&dir, id)?,
         id: id.to_owned(),
     })
+}
+
+/// The page `agent` showed in the last hour, which a call about its work links when the asker
+/// named none.
+fn last_page_of(core: &Core, agent: &str) -> Option<CallPage> {
+    let page = super::chief::last_page(core, agent, LAST_PAGE_MS)?;
+    page_of(core, &page.id)
 }
 
 /// Asks the person, never a lead, whether a plugin tool call goes ahead.

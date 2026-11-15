@@ -42641,6 +42641,58 @@
           }
         }
       }
+    },
+    "@%@ showed a page": {
+      "localizations": {
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@%@ mostró una página"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@%@ 展示了一个页面"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@%@ hat eine Seite gezeigt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@%@ a montré une page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@%@ がページを表示しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@%@이(가) 페이지를 보여 줬습니다"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@%@ показал(а) страницу"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "@%@ mostrou uma página"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

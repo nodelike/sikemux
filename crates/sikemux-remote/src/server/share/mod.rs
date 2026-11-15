@@ -354,7 +354,8 @@ fn unshown(payload: &[u8]) -> Cow<'_, [u8]> {
             .windows(quoted.len())
             .any(|window| window == quoted.as_bytes())
     };
-    if !(NOT_SHARED.iter().chain(&["ruleChange", "chips"])).any(|name| holds(name)) {
+    let rows_hold = ["ruleChange", "workerPage", "chips"];
+    if !(NOT_SHARED.iter().chain(&rows_hold)).any(|name| holds(name)) {
         return Cow::Borrowed(payload);
     }
     let Ok(mut value) = serde_json::from_slice::<Value>(payload) else {
@@ -365,8 +366,8 @@ fn unshown(payload: &[u8]) -> Cow<'_, [u8]> {
 }
 
 /// Takes out of `value` what a share does not carry: from every chat head, a view's head and the
-/// fields a head change sets; a rule change, which holds the person's rule in their words, so its
-/// row is a plain titled notice; and where each `why` chip opens, which becomes the unknown kind.
+/// fields a head change sets; a rule change, which holds the person's rule in their words, and a
+/// worker's page, which names the worker, so either row is a plain titled notice; and where each `why` chip opens, which becomes the unknown kind.
 /// A chip's address still names what it points at.
 fn strip_unshared(value: &mut Value) {
     match value {
@@ -382,6 +383,7 @@ fn strip_unshared(value: &mut Value) {
                 }
             }
             fields.remove("ruleChange");
+            fields.remove("workerPage");
             if let Some(Value::Array(chips)) = fields.get_mut("chips") {
                 for chip in chips.iter_mut().filter_map(Value::as_object_mut) {
                     if chip.contains_key("href") && chip.contains_key("kind") {
@@ -688,6 +690,7 @@ mod tests {
                 back_by: None,
             }),
             decided: None,
+            worker_page: None,
         };
         let chip = WhyChip {
             href: "sikemux://why/commit/c0ffee1234".into(),

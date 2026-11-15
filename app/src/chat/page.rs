@@ -17,7 +17,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, StyledImage, Window,
 };
 use gpui_native_view::{native_view, NativeSurface};
-use sikemux_view::chat::PageRef;
+use sikemux_view::chat::{PageRef, WorkerPage};
 
 use super::Looks;
 use crate::icons::Icon;
@@ -214,6 +214,33 @@ pub(super) fn tabs(
         })
         .collect();
     tab_frame(rows, cx)
+}
+
+/// A page one of the agent's workers showed, as the row a page in a tab gets, named as the
+/// worker's; Open brings it forward on the worker's desk.
+pub(super) fn worker_page(
+    page: &WorkerPage,
+    looks: &Looks,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let page_ref = PageRef {
+        id: page.id.clone(),
+        title: page.title.clone(),
+        height: None,
+        tab: true,
+    };
+    let picture = shown(&page_ref, looks, window, cx).picture.clone();
+    let place = t!("@{name}'s page", name = page.name).into();
+    let row = tab_row(
+        &page_ref,
+        picture,
+        place,
+        false,
+        (&page.agent_id, &looks.bench),
+        cx,
+    );
+    tab_frame(vec![row], cx)
 }
 
 /// The shared frame page rows sit in.

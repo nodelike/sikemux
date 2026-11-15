@@ -37,6 +37,7 @@
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "{days} 日後にサインイン情報、デバイスキー、履歴が消去され、バックアップはその {backupDays} 日後に消去されます。",
   "Against it:": "反対の理由:",
   "about": "対象",
+  "@{name} showed a page": "@{name} がページを表示しました",
   "Agents": "エージェント",
   "All": "すべて",
   "All agents": "すべてのエージェント",

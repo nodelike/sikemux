@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { AccountMove, AgentNotice, ChatPart, TaskNotice as Notice } from '@shared/wire.generated';
+import type { AccountMove, AgentNotice, ChatPart, TaskNotice as Notice, WorkerPage } from '@shared/wire.generated';
 import { useT, type Translate } from '@/i18n';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
@@ -58,6 +58,7 @@ export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
   if (notice.decided) return <DecidedLineRow decided={notice.decided} />;
   if (notice.week) return <WeekLine week={notice.week} />;
   if (notice.ruleChange) return <RuleLine line={notice.ruleChange} />;
+  if (notice.workerPage) return <WorkerPageLine page={notice.workerPage} />;
   const tint = notice.severity === 'error' ? colors.danger : notice.severity === 'warning' ? colors.warn : colors.inkDim;
   return (
     <View style={styles.notice} accessible accessibilityLabel={`${notice.title}${notice.description ? `. ${notice.description}` : ''}`}>
@@ -70,6 +71,27 @@ export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
           </Text>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+/** A page one of the agent's workers showed: a line naming the worker over the page's card. */
+function WorkerPageLine({ page }: { page: WorkerPage }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  const said = t('@{name} showed a page', { name: page.name });
+  return (
+    <View>
+      <View style={styles.notice} accessible accessibilityLabel={said}>
+        <View style={styles.noticeHead}>
+          <Icon name="IconTabs" size={12} color={colors.inkDim} />
+          <Text style={styles.noticeInline} numberOfLines={1}>
+            {said}
+          </Text>
+        </View>
+      </View>
+      <PageCard page={page} />
     </View>
   );
 }

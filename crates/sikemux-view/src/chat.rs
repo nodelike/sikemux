@@ -1759,6 +1759,21 @@ pub struct AgentNotice {
     /// A decision the agent recorded itself, which Overrule (`overruleDecision`) retires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decided: Option<DecidedLine>,
+    /// A page one of the agent's workers showed, as a row that opens it on that worker's desk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_page: Option<WorkerPage>,
+}
+
+/// A page a worker showed with `page_show`, in its lead's chat. Shown again under the same
+/// title, it takes its old row's place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerPage {
+    pub id: String,
+    pub title: String,
+    /// The worker, by id and by name.
+    pub agent_id: String,
+    pub name: String,
 }
 
 /// A decision an agent recorded itself, shown under its reply in its own chat until the person

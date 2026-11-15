@@ -37,6 +37,7 @@
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "{days} 天后，你的登录信息、设备密钥和历史记录将被清除，备份会在其后 {backupDays} 天清除。",
   "Against it:": "反对理由：",
   "about": "关于",
+  "@{name} showed a page": "@{name} 展示了一个页面",
   "Agents": "智能体",
   "All": "全部",
   "All agents": "所有智能体",

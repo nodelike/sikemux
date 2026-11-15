@@ -101,6 +101,8 @@ struct AgentNoticeLine: View {
             WeekLine(week: week)
         } else if let rule = notice.ruleChange {
             RuleLine(line: rule)
+        } else if let page = notice.workerPage {
+            WorkerPageLine(page: page)
         } else {
             let tint =
                 notice.severity == .error ? palette.danger : notice.severity == .warning ? palette.warn : palette.inkDim
@@ -118,6 +120,28 @@ struct AgentNoticeLine: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(notice.title)\(notice.description.map { ". \($0)" } ?? "")")
+        }
+    }
+}
+
+/// A page one of the agent's workers showed: a line naming the worker over the page's card.
+struct WorkerPageLine: View {
+    @Environment(\.palette) private var palette
+    let page: WorkerPage
+
+    var body: some View {
+        let said = CallWords.showedPage(page.name)
+        VStack(alignment: .leading, spacing: 0) {
+            NoticeLine {
+                HStack(spacing: 8) {
+                    IconView(icon: Icons.tabs, size: 12).foregroundStyle(palette.inkDim)
+                    Text(said).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).lineLimit(1)
+                }
+                .frame(minHeight: 18)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(said)
+            PageCard(page: PageRef(id: page.id, title: page.title))
         }
     }
 }

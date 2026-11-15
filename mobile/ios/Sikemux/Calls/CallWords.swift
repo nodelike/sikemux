@@ -244,6 +244,8 @@ enum CallWords {
     static let pick = String(localized: "pick")
     static let againstIt = String(localized: "Against it:")
     static let about = String(localized: "about")
+    /// The line over a page one of a lead's workers showed.
+    static func showedPage(_ name: String) -> String { String(localized: "@\(name) showed a page") }
     static let addNote = String(localized: "Add a note…")
     static let ownWords = String(localized: "Or answer in your own words…")
     static let secretField = String(localized: "Type or paste it…")

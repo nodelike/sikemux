@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::ui::Clicks;
-use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice};
+use sikemux_view::chat::{ChiefWeek, GoalMoment, PageRef, TaskNotice, WorkerPage};
 use sikemux_view::slice::SliceState;
 
 use crate::theme::{
@@ -1012,6 +1012,25 @@ fn kept_rule(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
         .into_any_element()
 }
 
+/// A page one of the agent's workers showed: a line naming the worker over the page's row.
+fn worker_page(page: &WorkerPage, looks: &Drawn, window: &mut Window, cx: &mut App) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(SPACE_1H)
+        .child(
+            notice_box(looks)
+                .child(ui::icon(Icon::Tabs, 12.).text_color(looks.quiet))
+                .child(notice_name(
+                    t!("@{name} showed a page", name = page.name).to_string(),
+                    false,
+                    looks,
+                )),
+        )
+        .child(self::page::worker_page(page, looks.looks, window, cx))
+        .into_any_element()
+}
+
 /// The quiet line under an agent's reply that says it recorded a decision itself: what it
 /// decided, what that rests on, and Overrule. The reason gives way first on a narrow pane.
 fn decided(notice: &AgentNotice, looks: &Drawn) -> AnyElement {
@@ -1589,6 +1608,14 @@ pub(super) fn part(
             },
             ..
         } => week_count(week, looks),
+        ChatPart::AgentNotice {
+            notice:
+                AgentNotice {
+                    worker_page: Some(page),
+                    ..
+                },
+            ..
+        } => worker_page(page, looks, window, cx),
         ChatPart::AgentNotice { notice, .. } => {
             let t = Tokens::get(cx);
             let (icon, tint, state) = match notice.severity {

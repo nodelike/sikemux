@@ -41,7 +41,7 @@ use sikemux_view::chat::{
     PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage, RestoredPart,
     Retrying, RuleChange, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState,
     TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart, Unsourced,
-    UsageCost, WhyChip, WorkflowAgent, WHY_URI,
+    UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -2572,7 +2572,15 @@ impl Fold {
             decided: update
                 .get("decided")
                 .and_then(|decided| serde_json::from_value(decided.clone()).ok()),
+            worker_page: update
+                .get("workerPage")
+                .and_then(|page| serde_json::from_value(page.clone()).ok()),
         };
+        if let Some(page) = notice.worker_page.as_ref() {
+            if self.worker_page_again(page) {
+                return;
+            }
+        }
         if let Some(overruled) = notice.overruled.as_ref() {
             if self.decision_line_moved(overruled, &notice.title) {
                 return;
@@ -2619,7 +2627,8 @@ impl Fold {
             || notice.decided.is_some()
             || notice.rule.as_ref().is_some_and(|rule| rule.undone)
             || notice.week.is_some()
-            || notice.rule_change.is_some();
+            || notice.rule_change.is_some()
+            || notice.worker_page.is_some();
         if own_line && !self.head.running {
             let at = stamped_at(update);
             self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
@@ -2631,6 +2640,31 @@ impl Fold {
             |id| ChatPart::AgentNotice { id, notice },
             false,
         );
+    }
+
+    /// A worker showed a page again under a title it showed before: the row for that one shows
+    /// this one instead of a new row. Answers whether the chat held that row.
+    fn worker_page_again(&mut self, page: &WorkerPage) -> bool {
+        let found = (self.main.rows.iter().enumerate().rev()).find_map(|(position, held)| {
+            let part = held.msg.parts.iter().position(|part| {
+                matches!(part, ChatPart::AgentNotice { notice, .. }
+                if notice.worker_page.as_ref().is_some_and(|shown| {
+                    shown.agent_id == page.agent_id && shown.title == page.title
+                }))
+            })?;
+            Some((position, part))
+        });
+        let Some((position, part)) = found else {
+            return false;
+        };
+        let held = &mut self.main.rows[position];
+        if let Some(ChatPart::AgentNotice { notice, .. }) = held.msg.parts.get_mut(part) {
+            notice.worker_page = Some(page.clone());
+        }
+        held.touch_part(part);
+        self.main.touch(position);
+        self.note_main_change(&None, position);
+        true
     }
 
     /// A rule an agent took off the list or reworded is back: its line says so. Answers whether

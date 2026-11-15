@@ -26,7 +26,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::calls::{CallState, PersonCall};
 use sikemux_view::chat::{
     AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, DecidedLine, LinesChanged,
-    OverruledDecision, RuleChange,
+    OverruledDecision, RuleChange, WorkerPage,
 };
 use sikemux_view::slice::Decision;
 use sikemux_view::turn::{TurnPhase, TurnStep};
@@ -101,6 +101,9 @@ struct Saved {
     /// as decided or as overruled.
     #[serde(default)]
     lines: HashMap<String, Vec<Row>>,
+    /// The last page each agent showed, and when, which a call about its work links.
+    #[serde(default)]
+    last_pages: HashMap<String, (WorkerPage, u64)>,
 }
 
 /// What the core keeps for one chief.
@@ -1340,6 +1343,43 @@ fn decided_line_moved(core: &Core, project: &str, goal: Option<u64>, id: u64, up
             emit_row(&feed, &agent, update.clone(), at);
         }
     }
+}
+
+/// `page` was shown: a row in the chat of the agent that started its worker names it, kept with
+/// that chat's other lines, in place of the row for a page it showed before under the same title.
+pub(crate) fn page_shown(core: &Core, lead: Option<&str>, page: WorkerPage) {
+    let at = epoch_ms();
+    let feed = lead.and_then(|lead| core.chats().heard(lead));
+    let key = format!("page|{}|{}", page.agent_id, page.title);
+    let update = sikemux_fold::update::worker_page_notice(page.clone());
+    core.chiefs().change(|saved| {
+        (saved.last_pages).insert(page.agent_id.clone(), (page, at));
+        let Some(lead) = lead else {
+            return;
+        };
+        let lines = saved.lines.entry(lead.to_owned()).or_default();
+        let first = (lines.iter().position(|row| row.key == key)).map(|at| lines.remove(at).at);
+        lines.push(Row {
+            key,
+            update: update.clone(),
+            at: first.unwrap_or(at),
+            feed: feed.as_ref().map(|feed| feed.id().to_owned()),
+        });
+        if lines.len() > MOST_ROWS {
+            lines.remove(0);
+        }
+    });
+    if let Some((feed, lead)) = feed.zip(lead) {
+        emit_row(&feed, lead, update, at);
+    }
+}
+
+/// The page `agent` showed last, if it did in the last `within` ms.
+pub(crate) fn last_page(core: &Core, agent: &str, within: u64) -> Option<WorkerPage> {
+    let now = epoch_ms();
+    let state = core.chiefs().state.locked();
+    let (page, at) = state.last_pages.get(agent)?;
+    (now.saturating_sub(*at) <= within).then(|| page.clone())
 }
 
 fn decided_key(project: &str, goal: Option<u64>, decision: u64) -> String {
