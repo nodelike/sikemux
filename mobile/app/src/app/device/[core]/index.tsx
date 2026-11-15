@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -28,6 +28,7 @@ import { fonts, isLight, type Palette, typeFor, useColors, useStyles, useType, t
 import { Agents, type Tab } from '@/devices/DeviceAgents';
 import { Terminals } from '@/devices/DeviceTerminals';
 import { ChatSearch } from '@/devices/ChatSearch';
+import { NeedsYouChip, NeedsYouMarks, useNeedsYou } from '@/devices/NeedsYou';
 
 /** What runs in a project, as its row in the project sheet shows it. */
 function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: ProjectInfo }) {
@@ -319,6 +320,16 @@ export default function Device() {
     outputRange: [headHeight + 1000, headHeight, 0],
     extrapolateRight: 'clamp',
   });
+  const list = useRef<ScrollView>(null);
+  const [listHeight, setListHeight] = useState(0);
+  const needs = useNeedsYou((y) => list.current?.scrollTo({ y, animated: true }));
+  // What of the list shows: from under the pinned tabs to above the home bar's fade.
+  const offset = useRef(0);
+  const seeing = (at: number) => {
+    offset.current = at;
+    needs.view(at, Math.max(0, headHeight - at) + barHeight, listHeight - bottom - 24);
+  };
+  useEffect(() => seeing(offset.current), [headHeight, barHeight, listHeight, bottom]);
   const hostName = device ? deviceName(device, t) : t('Host');
   const projectLabel = scope?.name ?? t('All projects');
   // The title opens the project picker when there is something to pick.
@@ -412,49 +423,57 @@ export default function Device() {
         </View>
       ) : (
         <>
-          <View style={styles.list}>
+          <View style={styles.list} onLayout={(event) => setListHeight(event.nativeEvent.layout.height)}>
             <MaskedView style={styles.list} maskElement={<UnderBar height={barHeight} open={unpinned} bottom={bottom + 24} />}>
               <Animated.ScrollView
+                ref={list}
                 {...scrollPause}
                 showsVerticalScrollIndicator={false}
-                onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrolled } } }], { useNativeDriver: true })}
+                onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrolled } } }], {
+                  useNativeDriver: true,
+                  listener: (event: { nativeEvent: { contentOffset: { y: number } } }) => seeing(event.nativeEvent.contentOffset.y),
+                })}
                 scrollEventThrottle={16}
                 style={status.online ? undefined : styles.stale}
                 accessibilityHint={status.online ? undefined : t('Out of date until the host answers again')}
                 contentContainerStyle={{ paddingBottom: bottom + 24 }}>
-                <View onLayout={(event) => setHeadHeight(event.nativeEvent.layout.height)}>
-                  <ProjectHead
-                    title={projectLabel}
-                    line={status.facts}
-                    provider={filtering && provider !== 'all' ? provider : undefined}
-                    onPick={pickable ? () => setPicking(true) : undefined}
-                  />
-                </View>
-                <View style={{ height: barHeight }} />
-                <View style={styles.body}>
-                  {snapshot ? (
-                    tab === 'agents' ? (
-                      <Agents
-                        core={core}
-                        snapshot={snapshot}
-                        scope={scope}
-                        provider={provider}
-                        full={device?.access === 'full'}
-                        hostName={hostName}
-                        onTab={switchTo}
-                      />
-                    ) : tab === 'terminals' ? (
-                      <Terminals snapshot={snapshot} scope={scope} />
-                    ) : (
-                      <CallsTab
-                        core={core}
-                        snapshot={snapshot}
-                        scope={scope}
-                        connection={connectionOf(live)}
-                        canAnswer={device?.access !== 'watch' && live.status === 'open'}
-                      />
-                    )
-                  ) : null}
+                <View ref={needs.content} collapsable={false}>
+                  <View onLayout={(event) => setHeadHeight(event.nativeEvent.layout.height)}>
+                    <ProjectHead
+                      title={projectLabel}
+                      line={status.facts}
+                      provider={filtering && provider !== 'all' ? provider : undefined}
+                      onPick={pickable ? () => setPicking(true) : undefined}
+                    />
+                  </View>
+                  <View style={{ height: barHeight }} />
+                  <View style={styles.body}>
+                    {snapshot ? (
+                      tab === 'agents' ? (
+                        <NeedsYouMarks value={needs.marks}>
+                          <Agents
+                            core={core}
+                            snapshot={snapshot}
+                            scope={scope}
+                            provider={provider}
+                            full={device?.access === 'full'}
+                            hostName={hostName}
+                            onTab={switchTo}
+                          />
+                        </NeedsYouMarks>
+                      ) : tab === 'terminals' ? (
+                        <Terminals snapshot={snapshot} scope={scope} />
+                      ) : (
+                        <CallsTab
+                          core={core}
+                          snapshot={snapshot}
+                          scope={scope}
+                          connection={connectionOf(live)}
+                          canAnswer={device?.access !== 'watch' && live.status === 'open'}
+                        />
+                      )
+                    ) : null}
+                  </View>
                 </View>
               </Animated.ScrollView>
             </MaskedView>
@@ -465,6 +484,17 @@ export default function Device() {
                 <HostTabs tab={tab} calling={calling} onSwitch={switchTo} />
               </View>
             </Animated.View>
+            {tab === 'agents' ? (
+              <>
+                <NeedsYouChip
+                  up
+                  count={needs.unseen.above.length}
+                  onPress={needs.onAbove}
+                  style={{ top: barHeight + 6, transform: [{ translateY: barTop }] }}
+                />
+                <NeedsYouChip up={false} count={needs.unseen.below.length} onPress={needs.onBelow} style={{ bottom: bottom + 8 }} />
+              </>
+            ) : null}
           </View>
           {snapshot ? (
             <ProjectSheet

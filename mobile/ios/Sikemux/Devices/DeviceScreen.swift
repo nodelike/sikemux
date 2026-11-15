@@ -26,6 +26,9 @@ private struct DeviceContent: View {
     @State private var scrolled: CGFloat = 0
     @State private var headHeight: CGFloat = 0
     @State private var barHeight: CGFloat = 34
+    @State private var listHeight: CGFloat = 0
+    /// The rows that need the person scrolled out of the list, for the chips at its edges.
+    @State private var unseen = Unseen()
 
     /// How far rows take to fade out as they reach the tabs pinned at the top.
     private static let fade: CGFloat = 22
@@ -128,55 +131,83 @@ private struct DeviceContent: View {
         let barTop = max(0, headHeight - scrolled)
 
         ZStack(alignment: .top) {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    ProjectHead(
-                        title: projectLabel(view, device: device), line: status.facts,
-                        provider: filtering ? provider : nil,
-                        onPick: pickable(view, device: device) ? { picking = true } : nil
-                    )
-                    .onGeometryChange(for: CGFloat.self) {
-                        $0.size.height
-                    } action: {
-                        headHeight = $0
-                    }
-                    .onGeometryChange(for: CGFloat.self) {
-                        $0.frame(in: .named("list")).minY
-                    } action: {
-                        scrolled = -$0
-                    }
-                    Color.clear.frame(height: barHeight)
-                    Group {
-                        switch tab {
-                        case .terminals: Terminals(view: view, scope: scope)
-                        case .calls:
-                            CallsTab(
-                                core: core, view: view, scope: scope,
-                                canAnswer: device?.access != .watch && live.isOpen)
-                        default:
-                            DeviceAgents(
-                                core: core, view: view, scope: scope, provider: provider,
-                                full: device?.access == .full,
-                                hostName: hostName, onTab: { tab = $0 },
-                                onHold: device?.access == .full ? { held = $0 } : nil)
+            ScrollViewReader { reader in
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 0) {
+                        ProjectHead(
+                            title: projectLabel(view, device: device), line: status.facts,
+                            provider: filtering ? provider : nil,
+                            onPick: pickable(view, device: device) ? { picking = true } : nil
+                        )
+                        .onGeometryChange(for: CGFloat.self) {
+                            $0.size.height
+                        } action: {
+                            headHeight = $0
                         }
-                    }
-                    .padding(.horizontal, 16)
-                }
-                .padding(.bottom, bottomGap + 24)
-            }
-            .coordinateSpace(.named("list"))
-            .pausesBackdrop()
-            .opacity(status.online ? 1 : 0.5)
-            .accessibilityHint(status.online ? "" : "Out of date until the host answers again")
-            .mask {
-                VStack(spacing: 0) {
-                    if pinned {
+                        .onGeometryChange(for: CGFloat.self) {
+                            $0.frame(in: .named("list")).minY
+                        } action: {
+                            scrolled = -$0
+                        }
                         Color.clear.frame(height: barHeight)
-                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(
-                            height: Self.fade)
+                        Group {
+                            switch tab {
+                            case .terminals: Terminals(view: view, scope: scope)
+                            case .calls:
+                                CallsTab(
+                                    core: core, view: view, scope: scope,
+                                    canAnswer: device?.access != .watch && live.isOpen)
+                            default:
+                                DeviceAgents(
+                                    core: core, view: view, scope: scope, provider: provider,
+                                    full: device?.access == .full,
+                                    hostName: hostName, onTab: { tab = $0 },
+                                    onHold: device?.access == .full ? { held = $0 } : nil)
+                            }
+                        }
+                        .padding(.horizontal, 16)
                     }
-                    Color.black
+                    .padding(.bottom, bottomGap + 24)
+                }
+                .coordinateSpace(.named("list"))
+                .onGeometryChange(for: CGFloat.self) {
+                    $0.size.height
+                } action: {
+                    listHeight = $0
+                }
+                .onPreferenceChange(NeedsYouRows.self) { rows in
+                    // From under the pinned tabs to above the home bar's fade.
+                    let next = Unseen(rows, top: barTop + barHeight, bottom: listHeight - bottomGap - 24)
+                    if next != unseen { unseen = next }
+                }
+                .pausesBackdrop()
+                .opacity(status.online ? 1 : 0.5)
+                .accessibilityHint(status.online ? "" : "Out of date until the host answers again")
+                .mask {
+                    VStack(spacing: 0) {
+                        if pinned {
+                            Color.clear.frame(height: barHeight)
+                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(
+                                height: Self.fade)
+                        }
+                        Color.black
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if tab == .agents, let nearest = unseen.below.first {
+                        NeedsYouChip(count: unseen.below.count, up: false) {
+                            withAnimation(.snappy) { reader.scrollTo(nearest, anchor: .center) }
+                        }
+                        .padding(.bottom, bottomGap + 8)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if tab == .agents, let nearest = unseen.above.first {
+                        NeedsYouChip(count: unseen.above.count, up: true) {
+                            withAnimation(.snappy) { reader.scrollTo(nearest, anchor: .center) }
+                        }
+                        .padding(.top, barTop + barHeight + 6)
+                    }
                 }
             }
 

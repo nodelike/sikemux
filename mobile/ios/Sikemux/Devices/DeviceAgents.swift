@@ -34,12 +34,10 @@ struct DeviceAgents: View {
                             let placed = AgentTree.tree(
                                 team.items, id: \.id, lead: \.lead, root: team.project == nil ? 0 : 1, folded: folded)
                             if let project = team.project {
-                                ChiefRow(
-                                    core: core, project: project,
-                                    shown: view.inbox.agents.first { $0.chief == true && $0.project == project.id },
-                                    mixed: scope == nil, now: now
-                                )
-                                .modifier(TreeLines(open: !placed.isEmpty))
+                                let shown = view.inbox.agents.first { $0.chief == true && $0.project == project.id }
+                                ChiefRow(core: core, project: project, shown: shown, mixed: scope == nil, now: now)
+                                    .modifier(TreeLines(open: !placed.isEmpty))
+                                    .needsYou("chief:\(project.id)", shown?.group == .blocked)
                             }
                             ForEach(placed, id: \.item.id) { row($0, folds: true, now: now) }
                         }
@@ -195,6 +193,7 @@ struct DeviceAgents: View {
             }
         }
         .modifier(TreeLines(depth: placed.depth, lines: placed.lines, open: placed.open))
+        .needsYou(item.id, item.agent?.group == .blocked)
     }
 }
 

@@ -6,6 +6,7 @@ import type { AgentShown, ProjectInfo, RemoteAgent } from '@shared/wire.generate
 import type { Snapshot } from '@/core/protocol';
 import { WorkerRow } from '@/devices/RemoteWorker';
 import { TreeFold, TreeLines, teamFold } from '@/devices/AgentTree';
+import { NeedsYouMark } from '@/devices/NeedsYou';
 import { above, topOf, tree, type Placed } from '@/devices/tree';
 import { useAnimating, useMinute } from '@/ui/motion';
 import { AgentFace } from '@/devices/Buddy';
@@ -165,31 +166,33 @@ export function Agents({
     const fold = folds && placed.below > 0 ? { count: placed.below, open: !folded.has(item.id) } : undefined;
     const lead = nameOf(placed.leadApart);
     return (
-      <TreeLines key={item.id} depth={placed.depth} lines={placed.lines} open={placed.open}>
-        {item.worker ? (
-          <WorkerRow worker={item.worker} lead={lead} foldCount={fold?.count} foldOpen={fold?.open} />
-        ) : !item.agent ? null : item.agent.session == null ? (
-          <ChatRow
-            core={core}
-            shown={item.agent}
-            minute={minute}
-            onHold={onHold}
-            lead={lead}
-            foldCount={fold?.count}
-            foldOpen={fold?.open}
-          />
-        ) : (
-          <TerminalAgentRow
-            shown={item.agent}
-            minute={minute}
-            onOpen={() => onTab('terminals')}
-            onHold={onHold}
-            lead={lead}
-            foldCount={fold?.count}
-            foldOpen={fold?.open}
-          />
-        )}
-      </TreeLines>
+      <NeedsYouMark key={item.id} id={item.id} on={item.agent?.group === 'blocked'}>
+        <TreeLines depth={placed.depth} lines={placed.lines} open={placed.open}>
+          {item.worker ? (
+            <WorkerRow worker={item.worker} lead={lead} foldCount={fold?.count} foldOpen={fold?.open} />
+          ) : !item.agent ? null : item.agent.session == null ? (
+            <ChatRow
+              core={core}
+              shown={item.agent}
+              minute={minute}
+              onHold={onHold}
+              lead={lead}
+              foldCount={fold?.count}
+              foldOpen={fold?.open}
+            />
+          ) : (
+            <TerminalAgentRow
+              shown={item.agent}
+              minute={minute}
+              onOpen={() => onTab('terminals')}
+              onHold={onHold}
+              lead={lead}
+              foldCount={fold?.count}
+              foldOpen={fold?.open}
+            />
+          )}
+        </TreeLines>
+      </NeedsYouMark>
     );
   };
   const away = tree(snoozed, leafOf, 0, new Set());
@@ -208,15 +211,14 @@ export function Agents({
               return (
                 <Fragment key={team.id}>
                   {team.project ? (
-                    <TreeLines open={placed.length > 0}>
-                      <ChiefRow
-                        core={core}
-                        project={team.project}
-                        shown={snapshot.inbox.agents.find((agent) => agent.chief && agent.project === team.project?.id)}
-                        mixed={!scope}
-                        now={minute * 60_000}
-                      />
-                    </TreeLines>
+                    <ChiefTeamRow
+                      core={core}
+                      project={team.project}
+                      snapshot={snapshot}
+                      mixed={!scope}
+                      minute={minute}
+                      open={placed.length > 0}
+                    />
                   ) : null}
                   {placed.map((placed) => row(placed, true))}
                 </Fragment>
@@ -234,6 +236,32 @@ export function Agents({
         <EmptyState icon="IconAgent" text={scope ? t('No agents in {project}.', { project: scope.name }) : t('No agents running.')} />
       ) : null}
     </>
+  );
+}
+
+/** A project's @Chief row, marked for the list's edge while it needs the person. */
+function ChiefTeamRow({
+  core,
+  project,
+  snapshot,
+  mixed,
+  minute,
+  open,
+}: {
+  core: string;
+  project: ProjectInfo;
+  snapshot: Snapshot;
+  mixed: boolean;
+  minute: number;
+  open: boolean;
+}) {
+  const shown = snapshot.inbox.agents.find((agent) => agent.chief && agent.project === project.id);
+  return (
+    <NeedsYouMark id={`chief:${project.id}`} on={shown?.group === 'blocked'}>
+      <TreeLines open={open}>
+        <ChiefRow core={core} project={project} shown={shown} mixed={mixed} now={minute * 60_000} />
+      </TreeLines>
+    </NeedsYouMark>
   );
 }
 
