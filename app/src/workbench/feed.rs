@@ -174,6 +174,7 @@ impl Workbench {
         }
         self.mods_follow(&place, crate::mod_pane::Moved::View, cx);
         let settled_before = crate::agents::settled::auto_settled(self.view_at(&place));
+        let calls_moved = self.view_at(&place).is_none_or(|shown| shown.calls != view.calls);
         match &place {
             Place::This => {
                 crate::ui::moving_face::set_on(view.face_style.motion, cx);
@@ -192,6 +193,10 @@ impl Workbench {
         }
         crate::agents::settled::tell(self, &place, &settled_before, cx);
         self.keep_cards(cx);
+        // The chat's call cards draw inside the cached stage, which a new view alone leaves as it was.
+        if calls_moved {
+            self.parts.redraw_stage(cx);
+        }
         self.settle_closing();
         self.keep_terminals();
         crate::editor::keep(self, cx);
