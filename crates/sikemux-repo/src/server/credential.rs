@@ -68,6 +68,8 @@ pub async fn call(
         return Ok(json!({}));
     };
     let grant = request.params["grant"].as_str();
+    let person = matches!(asker, Asker::Core)
+        && crate::server::plugged::acts_as(core, &remote) == Some(Acting::Person);
     match answer(core, asker, &remote, grant, project).await {
         Ok(Some(credential)) => Ok(json!({
             "username": credential.username,
@@ -75,7 +77,9 @@ pub async fn call(
             "expiresAt": credential.expires_at,
         })),
         Ok(None) => {
-            identity::forget(&remote);
+            if !person {
+                identity::forget(&remote);
+            }
             Ok(json!({}))
         }
         Err(failure) => Err(crate::server::plugged::explain(&failure)),
@@ -84,7 +88,8 @@ pub async fn call(
 
 /// What `asker` gets for `remote`. This is where the core decides what a credential may do:
 /// only the git the core starts to forward a push may write the repository, and only one the
-/// person passed may change its workflows.
+/// person passed may change its workflows. On a remote the core pushes to with the person's
+/// own sign-in, that sign-in goes only to the git the core starts to fill or forward an outbox.
 async fn answer(
     core: &Arc<Core>,
     asker: Asker,
@@ -96,6 +101,7 @@ async fn answer(
     let agent = match asker {
         Asker::Agent(agent) => Some(agent),
         Asker::Core => {
+            let mut fetch = false;
             if let Some(grant) = grant {
                 if let Some(found) = super::edits::workflows::granted(core, grant, remote).await {
                     return Ok(Some(found));
@@ -103,8 +109,12 @@ async fn answer(
                 if let Some(found) = super::outbox::minted(core, grant, remote).await {
                     return Ok(Some(found));
                 }
+                fetch = super::outbox::fetching(grant, remote);
             }
             if crate::server::plugged::acts_as(core, remote) == Some(Acting::Person) {
+                if !fetch {
+                    return Ok(None);
+                }
                 reach = Reach::Core;
             }
             None

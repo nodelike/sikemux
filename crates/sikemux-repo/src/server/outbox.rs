@@ -35,6 +35,9 @@ static REMOTES: Mutex<Vec<(String, Arc<tokio::sync::Mutex<()>>)>> = Mutex::new(V
 /// The core's own pushes in flight, by the name their git carries, with the key each minted.
 static FORWARDS: Mutex<Vec<Forward>> = Mutex::new(Vec::new());
 
+/// The fetches that fill an outbox, by the name their git carries, with the remote each reads.
+static FETCHES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
 struct Forward {
     name: String,
     remote: String,
@@ -123,6 +126,11 @@ pub(super) async fn minted(core: &Core, name: &str, remote: &str) -> Option<Cred
     Some(credential)
 }
 
+/// Whether `name` is the core's fetch into an outbox from `remote`.
+pub(super) fn fetching(name: &str, remote: &str) -> bool {
+    (FETCHES.locked().iter()).any(|(fetch, from)| fetch == name && identity::same(from, remote))
+}
+
 /// Deletes `branch` on `remote`, as long as it still holds `head`, through an outbox of its own.
 pub(super) async fn delete_branch(
     core: &Arc<Core>,
@@ -168,7 +176,7 @@ pub(super) async fn delete_branch(
 fn open(core: &Core, cwd: &Path, remote: &str) -> Result<(PathBuf, String), String> {
     let Some(remote) = identity::https_of(remote).filter(|https| identity::has(https)) else {
         return Err(format!(
-            "Sikemux has no identity of the agents' own on {remote}"
+            "Sikemux has no GitHub App or connector sign-in that pushes to {remote}"
         ));
     };
     let common = output(sikemux_git::git_command(cwd).args([
@@ -216,7 +224,9 @@ fn make(outbox: &Path, checkout_objects: &Path, remote: &str) -> Result<(), Stri
         )
         .map_err(|error| error.to_string())?;
     }
-    output(clean(outbox).args([
+    let name = uuid::Uuid::new_v4().simple().to_string();
+    FETCHES.locked().push((name.clone(), remote.to_owned()));
+    let fetched = output(clean(outbox).env(vars::PUSH_GRANT, &name).args([
         "fetch",
         "--quiet",
         "--no-tags",
@@ -224,8 +234,9 @@ fn make(outbox: &Path, checkout_objects: &Path, remote: &str) -> Result<(), Stri
         remote,
         "+refs/heads/*:refs/heads/*",
         "+refs/tags/*:refs/tags/*",
-    ]))?;
-    Ok(())
+    ]));
+    FETCHES.locked().retain(|(fetch, _)| *fetch != name);
+    fetched.map(|_| ())
 }
 
 struct Update {
@@ -306,7 +317,7 @@ async fn send(core: &Arc<Core>, outbox: &Path, remote: &str, updates: &[Update])
                 FORWARDS.locked().retain(|forward| forward.name != name);
                 return (
                     false,
-                    format!("Sikemux has no key that can push to {remote}. Open its connector in Settings and sign in again, then push once more."),
+                    format!("Sikemux could not get a key that pushes to {remote}. Check in Settings that its connector is signed in and reaches this repository, then push again."),
                 );
             }
             name
