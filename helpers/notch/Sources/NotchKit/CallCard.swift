@@ -83,6 +83,9 @@ struct CallCard: View {
             if let context {
                 prose(context)
             }
+            if let page = call.page {
+                pageRow(page).padding(.top, 12)
+            }
             ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) { _, evidence in
                 prose(evidence.what).foregroundStyle(Theme.inkDim)
             }
@@ -137,9 +140,40 @@ struct CallCard: View {
             }
             Text("·").foregroundStyle(Theme.inkFaint)
             Text(Self.age(call.raisedAt)).foregroundStyle(Theme.inkDim)
+            if let about = call.about {
+                Text("·").foregroundStyle(Theme.inkFaint)
+                Button { store.focus(about.agentId) } label: {
+                    HStack(spacing: 4) {
+                        Text("about").foregroundStyle(Theme.inkDim)
+                        Text("@\(about.name)").font(Theme.ui(12, .medium)).foregroundStyle(Theme.inkSoft)
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         }
         .font(Theme.ui(12))
         .frame(height: 20)
+    }
+
+    /// The page the call names, which opens its agent in Sikemux, where the page is.
+    private func pageRow(_ page: CallPage) -> some View {
+        let owner = call.about ?? call.asker
+        return Button { store.focus(owner.agentId) } label: {
+            HStack(spacing: 10) {
+                IconView(icon: Icons.window, size: 14).foregroundStyle(Theme.inkDim)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(page.title).font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                    Text("@\(owner.name)'s page").font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim)
+                }
+                Spacer(minLength: 8)
+                Text("Open").font(Theme.ui(12)).foregroundStyle(Theme.inkSoft)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Theme.raised))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.hairline, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 
     static func age(_ at: Int, now: Date = .now) -> String {

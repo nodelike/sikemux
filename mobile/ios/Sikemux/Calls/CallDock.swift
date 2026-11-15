@@ -32,7 +32,7 @@ struct CallDock: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 CallWho(
-                    call: call, place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
+                    core: core, call: call, place: queue.count > 1 ? queue.firstIndex(of: call).map { ($0 + 1, queue.count) } : nil)
                 Text(call.question)
                     .font(Theme.ui(17, .semibold))
                     .tracking(-0.2)
@@ -49,6 +49,9 @@ struct CallDock: View {
                         .accessibilityAddTraits(whole ? [] : .isButton)
                         .accessibilityValue(whole ? "" : contextOpen ? "expanded" : "collapsed")
                         .accessibilityHint(whole ? "" : contextOpen ? CallWords.showLess : CallWords.showAll)
+                }
+                if let page = call.page {
+                    PageCard(page: PageRef(id: page.id, title: page.title))
                 }
                 ForEach(Array((call.evidence ?? []).filter { $0.picture == nil }.enumerated()), id: \.offset) {
                     Text($0.element.what).font(Theme.ui(14)).foregroundStyle(palette.tertiary).padding(.top, 4)
@@ -308,18 +311,35 @@ struct CallDock: View {
 /// Who asks a call and how long ago, the chief by its own mark.
 struct CallWho: View {
     @Environment(\.palette) private var palette
+    let core: String
     let call: PersonCall
     /// Which of its asker's calls it is, and of how many, while there are several.
     var place: (Int, Int)?
 
     var body: some View {
         HStack(spacing: 8) {
-            AskerMark(
-                agentId: call.asker.agentId, provider: call.asker.cli, chief: call.asker.chief == true,
-                asking: true)
-            Text("@\(call.asker.name)").font(Theme.ui(14, .medium)).foregroundStyle(palette.secondary)
-            Text("·").foregroundStyle(palette.inkFaint)
-            Text(Format.age(Format.date(millis: call.raisedAt))).foregroundStyle(palette.tertiary)
+            HStack(spacing: 8) {
+                AskerMark(
+                    agentId: call.asker.agentId, provider: call.asker.cli, chief: call.asker.chief == true,
+                    asking: true)
+                Text("@\(call.asker.name)").font(Theme.ui(14, .medium)).foregroundStyle(palette.secondary)
+                Text("·").foregroundStyle(palette.inkFaint)
+                Text(Format.age(Format.date(millis: call.raisedAt))).foregroundStyle(palette.tertiary)
+            }
+            .accessibilityElement(children: .combine)
+            if let about = call.about {
+                Text("·").foregroundStyle(palette.inkFaint).accessibilityHidden(true)
+                Button {
+                    Haptics.select()
+                    Router.shared.push(.chat(core: core, agent: about.agentId))
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(CallWords.about).foregroundStyle(palette.tertiary)
+                        Text("@\(about.name)").font(Theme.ui(14, .medium)).foregroundStyle(palette.secondary)
+                    }
+                }
+                .buttonStyle(PressFade())
+            }
             if let place {
                 Spacer(minLength: 8)
                 Text(CallWords.place(place.0, of: place.1)).font(Theme.ui(13)).monospacedDigit()
@@ -327,7 +347,6 @@ struct CallWho: View {
             }
         }
         .font(Theme.ui(14))
-        .accessibilityElement(children: .combine)
     }
 }
 

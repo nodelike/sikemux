@@ -70,6 +70,14 @@ pub struct CallEvidence {
     pub picture: Option<String>,
 }
 
+/// A page an agent showed with `page_show` that a call names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallPage {
+    pub id: String,
+    pub title: String,
+}
+
 /// A place a call changes, by an id that outlives a rename.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -188,6 +196,12 @@ pub struct PersonCall {
     /// Other agents waiting on the same thing, which this one answer covers.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub joined: Vec<CallAsker>,
+    /// The agent whose work the call is about, when that is not the asker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub about: Option<CallAsker>,
+    /// The page that shows what the call is about, such as the mockup of its choices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<CallPage>,
     /// The decision, in one line.
     pub question: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]

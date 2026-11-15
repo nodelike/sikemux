@@ -30,7 +30,7 @@ use sikemux_process::sync::Locked;
 use crate::cli::protocol::HarnessRequest;
 use crate::sessions::asked::may_hold_secret;
 use crate::text::clipped;
-use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallState, PersonCall};
+use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallPage, CallState, PersonCall};
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::WindowCall;
 
@@ -119,6 +119,12 @@ struct Question {
     /// What the asker says makes it the person's to decide.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     kind: Option<CallKind>,
+    /// The agent whose work it is about, when that is not the asker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    about: Option<CallAsker>,
+    /// The page that shows what it is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    page: Option<CallPage>,
     at: u64,
     stage: Stage,
     /// The linked host it was also put to the person on, where its asker's team
@@ -212,6 +218,8 @@ impl Question {
                 chief: false,
             },
             joined: Vec::new(),
+            about: self.about.clone(),
+            page: self.page.clone(),
             question: self.text.clone(),
             context: None,
             assumption: None,
@@ -353,6 +361,8 @@ struct Asked {
     blocked: bool,
     secret: bool,
     kind: Option<CallKind>,
+    about: Option<CallAsker>,
+    page: Option<CallPage>,
     approval: Option<Approval>,
     dialog: Option<String>,
 }
@@ -888,6 +898,8 @@ fn open(
             },
             secret: asked.secret,
             kind: asked.kind,
+            about: asked.about,
+            page: asked.page,
             id: format!("question-{}", uuid::Uuid::new_v4().simple()),
             agent_id: agent_id.to_owned(),
             name: name.clone(),
@@ -1024,6 +1036,13 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         mark_pick(pick, &mut choices);
     }
     (core.harness().questions).keep_pictures(&request.project, &mut choices)?;
+    let about_wanted = text_param(params, "about", 200)?;
+    let about = match &about_wanted {
+        Some(wanted) => about_of(core, &agent_id, wanted).await,
+        None => None,
+    };
+    let page_wanted = text_param(params, "page", 64)?;
+    let page = page_wanted.as_deref().and_then(|id| page_of(core, id));
     let question = open(
         core,
         &agent_id,
@@ -1035,6 +1054,8 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             blocked,
             secret,
             kind,
+            about,
+            page,
             approval: None,
             dialog: None,
         }],
@@ -1057,8 +1078,58 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             Stage::Lead { lead_name, .. } => lead_name.clone(),
             Stage::Person { .. } => "the person".to_owned(),
         },
-        "note": sent_note(&question),
+        "note": left_off(sent_note(&question), about_wanted.filter(|_| question.about.is_none()), page_wanted.filter(|_| question.page.is_none())),
     }))
+}
+
+/// The note on an asked question, saying which of its hints the card leaves off.
+fn left_off(note: String, about: Option<String>, page: Option<String>) -> String {
+    let about = about.map(|about| {
+        format!(" The card names no other agent: {about} is you, or no open agent is called that.")
+    });
+    let page = page.map(|page| {
+        format!(" The card links no page: {page} is no page you showed with page_show.")
+    });
+    format!(
+        "{note}{}{}",
+        about.unwrap_or_default(),
+        page.unwrap_or_default()
+    )
+}
+
+/// The open agent `wanted` names, by name or id, looked for in the asker's project first. None
+/// when it is the asker itself, which the card already names.
+async fn about_of(core: &Arc<Core>, asker: &str, wanted: &str) -> Option<CallAsker> {
+    let wanted = wanted.trim_start_matches('@').to_owned();
+    let (core, asker) = (core.clone(), asker.to_owned());
+    tokio::task::spawn_blocking(move || {
+        let project = core.names().get(&asker).map(|named| named.project);
+        let found = (super::roster::listed(&core).into_iter())
+            .filter(|listed| {
+                listed.agent_id == wanted
+                    || (listed.name.as_deref())
+                        .is_some_and(|name| name.eq_ignore_ascii_case(&wanted))
+            })
+            .min_by_key(|listed| Some(&listed.project) != project.as_ref())?;
+        (found.agent_id != asker).then(|| CallAsker {
+            chief: super::chief::all(&core).contains(&found.agent_id),
+            name: found.name.unwrap_or(wanted),
+            cli: found.cli,
+            agent_id: found.agent_id,
+        })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Page `id`, kept from an agent's page_show, by its title.
+fn page_of(core: &Core, id: &str) -> Option<CallPage> {
+    let dir = core.config().data_dir.as_ref()?.join(crate::pages::FOLDER);
+    Some(CallPage {
+        title: crate::pages::title(&dir, id)?,
+        id: id.to_owned(),
+    })
 }
 
 /// Asks the person, never a lead, whether a plugin tool call goes ahead.
@@ -1082,6 +1153,8 @@ pub(crate) fn put_to_person(
             blocked: true,
             secret: false,
             kind: None,
+            about: None,
+            page: None,
             approval: Some(approval),
             dialog: None,
         }],
@@ -1114,6 +1187,8 @@ pub(crate) fn ask_for_dialog(
             blocked: true,
             secret: false,
             kind: None,
+            about: None,
+            page: None,
             approval: None,
             dialog: Some(dialog),
         }],
@@ -1174,6 +1249,8 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
                 blocked: true,
                 secret: question["isSecret"].as_bool().unwrap_or(false),
                 kind: None,
+                about: None,
+                page: None,
                 approval: None,
                 dialog: None,
             })

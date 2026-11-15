@@ -1520,6 +1520,10 @@ export interface PersonCall {
     asker: CallAsker;
     /** Other agents waiting on the same thing, which this one answer covers. */
     joined?: CallAsker[];
+    /** The agent whose work the call is about, when that is not the asker. */
+    about?: CallAsker;
+    /** The page that shows what the call is about, such as the mockup of its choices. */
+    page?: CallPage;
     /** The decision, in one line. */
     question: string;
     context?: string;
@@ -1563,6 +1567,12 @@ export interface CallAsker {
     cli: string;
     /** The asker is its project's chief. */
     chief?: boolean;
+}
+
+/** A page an agent showed with `page_show` that a call names. */
+export interface CallPage {
+    id: string;
+    title: string;
 }
 
 /** One of the answers the person picks among. */

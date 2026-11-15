@@ -203,9 +203,25 @@ pub(super) fn tabs(
         .map(|(at, page)| {
             let shown = shown(page, looks, window, cx);
             let (picture, failed) = (shown.picture.clone(), shown.failed.clone());
-            tab_row(page, picture, failed, at > 0, looks, cx)
+            let place: SharedString = match failed {
+                Some(failed) => t!("Could not show it: {failed}", failed = failed).into(),
+                None => t!("In a tab on the desk").into(),
+            };
+            tab_row(
+                page,
+                picture,
+                place,
+                at > 0,
+                (&looks.agent, &looks.bench),
+                cx,
+            )
         })
         .collect();
+    tab_frame(rows, cx)
+}
+
+/// The shared frame page rows sit in.
+pub(crate) fn tab_frame(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     div()
         .w_full()
@@ -220,12 +236,14 @@ pub(super) fn tabs(
         .into_any_element()
 }
 
-fn tab_row(
+/// A page's row: the top of the page, its title over `place`, and Open, which brings its tab
+/// forward on `agent`'s desk, as a click anywhere on the row does.
+pub(crate) fn tab_row(
     page: &PageRef,
     picture: Option<Arc<Image>>,
-    failed: Option<SharedString>,
+    place: SharedString,
     below_another: bool,
-    looks: &Looks,
+    (agent, bench): (&str, &gpui_kit::WeakEntity<crate::workbench::Workbench>),
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
@@ -251,10 +269,7 @@ fn tab_row(
                 .text_color(t.text_tertiary)
                 .into_any_element(),
         });
-    let place = match failed {
-        Some(failed) => ui::meta(t!("Could not show it: {failed}", failed = failed), cx).truncate(),
-        None => ui::meta(t!("In a tab on the desk"), cx),
-    };
+    let place = ui::meta(place, cx).truncate();
     div()
         .id(SharedString::from(format!("page-card-{}", page.id)))
         .h(px(ROW_HEIGHT))
@@ -265,7 +280,7 @@ fn tab_row(
         .pr(px(14.))
         .when(below_another, |row| row.border_t_1().border_color(t.border))
         .hover(|row| row.bg(t.surface_hover))
-        .clicks(opens_tab(page, looks))
+        .clicks(opens_tab(page, agent, bench))
         .child(thumb)
         .child(
             div()
@@ -285,7 +300,7 @@ fn tab_row(
             )
             .icon(Icon::Tabs)
             .sized(24., 10., 11.5)
-            .on_click(opens_tab(page, looks)),
+            .on_click(opens_tab(page, agent, bench)),
         )
         .into_any_element()
 }
@@ -300,15 +315,16 @@ fn open_in_tab(page: &PageRef, looks: &Looks, key: &str, cx: &App) -> AnyElement
     .icon(Icon::Tabs)
     .sized(22., 8., 11.5)
     .solid(t.surface_raised, t.surface_hover)
-    .on_click(opens_tab(page, looks))
+    .on_click(opens_tab(page, &looks.agent, &looks.bench))
     .into_any_element()
 }
 
 fn opens_tab(
     page: &PageRef,
-    looks: &Looks,
+    agent: &str,
+    bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
 ) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
-    let (id, agent, bench) = (page.id.clone(), looks.agent.clone(), looks.bench.clone());
+    let (id, agent, bench) = (page.id.clone(), agent.to_owned(), bench.clone());
     move |_, _, cx| {
         let _ = bench.update(cx, |bench, cx| bench.open_page_in_tab(&agent, &id, cx));
     }

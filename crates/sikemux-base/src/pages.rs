@@ -208,6 +208,28 @@ pub fn publish(
     })
 }
 
+/// The title of page `id` kept in `dir`, as its `<title>` names it; none when no such page is kept.
+pub fn title(dir: &Path, id: &str) -> Option<String> {
+    if !is_page_id(id) {
+        return None;
+    }
+    let page = std::fs::read_to_string(dir.join(format!("{id}.html"))).ok()?;
+    let start = page.to_ascii_lowercase().find("<title")?;
+    let (_, rest) = page[start..].split_once('>')?;
+    let (title, _) = rest.split_once('<')?;
+    let title = (title
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'"))
+    .replace("&amp;", "&");
+    let title: String = title.trim().chars().take(MAX_TITLE_CHARS).collect();
+    Some(match title.is_empty() {
+        true => "Page".to_owned(),
+        false => title,
+    })
+}
+
 const BASE_CSS: &str = "html{background:var(--background,Canvas);color:var(--foreground,CanvasText);font-family:var(--font-sans,system-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}html[data-sikemux-framed]{background:transparent;overflow:hidden!important}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono,ui-monospace)}";
 
 /// The window's theme as the `:root` rule pages style against. Only custom

@@ -596,6 +596,9 @@ agents it started, and only what follows reaches the person.
   tiles; a choice of what to do has none and shows as a list. For choices drawn
   on one mockup page, give each its own element and take each picture with
   `page_preview` and `selector`, so a card shows that choice and nothing around it.
+  A taste call about a look gives each choice its picture, or names the page
+  that shows them with `page`, the id `page_show` gave. When the work is another
+  agent's, such as a worker's mockup, name it in `about`, so the card links to it.
 - A question in your reply stays in this chat, where the person answers it as an
   ordinary message. A decision that is the person's goes through `ask`.
 - The person sees every decision in the log and can overrule it. If they do, the

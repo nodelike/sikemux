@@ -1991,7 +1991,9 @@
         "blocked": {"description": "Default true: end your turn and wait", "type": "boolean"},
         "secret": {"description": "The answer is a password or token", "type": "boolean"},
         "kind": {"description": "Why it is the person's to decide", "type": "string", "enum": ["production", "money", "taste", "access"]},
-        "pick": {"description": "The choice you recommend", "type": "string", "minLength": 1, "maxLength": 200}
+        "pick": {"description": "The choice you recommend", "type": "string", "minLength": 1, "maxLength": 200},
+        "about": {"description": "Agent whose work it is, when not yours", "type": "string", "minLength": 1, "maxLength": 200},
+        "page": {"description": "Id of a page you showed that pictures it", "type": "string", "minLength": 32, "maxLength": 32}
       },
       "required": ["question"]
     },

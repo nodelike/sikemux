@@ -24,7 +24,9 @@ import {
   WHAT_RUNS,
 } from '@shared/calls/words';
 import { useT } from '@/i18n';
-import type { CallOption, PersonCall } from '@shared/wire.generated';
+import type { CallAsker, CallOption, PersonCall } from '@shared/wire.generated';
+import { router } from 'expo-router';
+import { PageCard } from '@/chat/Notices';
 import { AskerMark } from '@/calls/AskerMark';
 import { SECRET_INPUT } from '@/calls/secretInput';
 import { answer, answerOf, choose, chosenIn, draftOf, edit, focus, see, useKept } from '@/calls/hostCalls';
@@ -110,6 +112,7 @@ export const CallDock = memo(function CallDock({
           <Text style={styles.name}>@{call.asker.name}</Text>
           <Text style={styles.sep}>·</Text>
           <Text style={styles.age}>{formatAge(call.raisedAt, minute * 60_000, t)}</Text>
+          {call.about ? <About core={core} about={call.about} /> : null}
           {queue.length > 1 && at >= 0 ? <Text style={styles.place}>{place(at + 1, queue.length, t)}</Text> : null}
         </View>
         <Text style={styles.question}>{call.question}</Text>
@@ -124,6 +127,7 @@ export const CallDock = memo(function CallDock({
             {context}
           </Text>
         ) : null}
+        {call.page ? <PageCard page={call.page} /> : null}
         {(call.evidence ?? [])
           .filter((evidence) => !evidence.picture)
           .map((evidence, index) => (
@@ -306,6 +310,25 @@ function ChoiceMark({ on }: { on: boolean }) {
   );
 }
 
+/** The agent the call is about, which opens its chat. */
+function About({ core, about }: { core: string; about: CallAsker }) {
+  const styles = useStyles(makeStyles);
+  const t = useT();
+  return (
+    <Pressable
+      style={styles.about}
+      accessibilityRole="button"
+      onPress={() => {
+        haptics.select();
+        router.push(`/device/${core}/chat/${about.agentId}`);
+      }}>
+      <Text style={styles.sep}>·</Text>
+      <Text style={styles.age}>{t('about')}</Text>
+      <Text style={styles.name}>@{about.name}</Text>
+    </Pressable>
+  );
+}
+
 /** A taste call's pictures: the chosen option's leads, large, the others smaller and dimmed beside it. */
 function Strip({ call, chosen, onChoose }: { call: PersonCall; chosen: string[]; onChoose: (option: string) => void }) {
   const styles = useStyles(makeStyles);
@@ -395,6 +418,7 @@ const makeStyles = (colors: Palette) => {
     who: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     name: { fontFamily: fonts.uiMedium, fontSize: 14, color: colors.secondary },
     sep: { color: colors.inkFaint },
+    about: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     age: { fontFamily: fonts.ui, fontSize: 14, color: colors.tertiary },
     place: { marginLeft: 'auto', fontFamily: fonts.ui, fontSize: 13, color: colors.tertiary, fontVariant: ['tabular-nums'] },
     question: { marginTop: 8, fontFamily: fonts.uiSemibold, fontSize: 17, lineHeight: 22, color: colors.ink },

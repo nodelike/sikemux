@@ -41,6 +41,7 @@ const LINE_ICONS = {
   pencil: "IconPencil",
   clock: "IconClock",
   message: "IconMessage",
+  window: "IconWindow",
 };
 
 /** The grid and stroke of every line icon in shared/ui/Icons.tsx, which are Lucide's. */

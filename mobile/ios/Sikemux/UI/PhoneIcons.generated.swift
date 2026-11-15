@@ -370,12 +370,6 @@ extension Icons {
         IconShape(d: "M4 12h10", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M12 19h8", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
-    static let window = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
-        IconShape(d: "M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-16a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
-        IconShape(d: "M6 8h.01", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
-        IconShape(d: "M10 8h.01", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
-        IconShape(d: "M14 8h.01", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
-    ])
     static let workflow = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M5 3h4a2 2 0 0 1 2 2v4a2 2 0 0 1 -2 2h-4a2 2 0 0 1 -2 -2v-4a2 2 0 0 1 2 -2z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M7 11v4a2 2 0 0 0 2 2h4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),

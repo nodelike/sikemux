@@ -856,6 +856,10 @@ struct PersonCall: Codable, Hashable {
     let asker: CallAsker
     /// Other agents waiting on the same thing, which this one answer covers.
     let joined: [CallAsker]?
+    /// The agent whose work the call is about, when that is not the asker.
+    let about: CallAsker?
+    /// The page that shows what the call is about, such as the mockup of its choices.
+    let page: CallPage?
     /// The decision, in one line.
     let question: String
     let context: String?
@@ -913,6 +917,12 @@ struct CallAsker: Codable, Hashable {
     let cli: String
     /// The asker is its project's chief.
     let chief: Bool?
+}
+
+/// A page an agent showed with `page_show` that a call names.
+struct CallPage: Codable, Hashable {
+    let id: String
+    let title: String
 }
 
 /// One of the answers the person picks among.

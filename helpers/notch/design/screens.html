@@ -256,6 +256,11 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .call .strip .rest { flex: 1; display: flex; flex-direction: column; gap: 6px; }
 .call .strip .rest .pic { flex: 1; opacity: 0.72; cursor: pointer; }
 .call .gap12 { height: 12px; }
+.call .shown { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 8px 10px; border-radius: 8px; background: var(--raised); box-shadow: inset 0 0 0 1px var(--hairline); color: var(--ink-dim); cursor: pointer; }
+.call .shown span { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.call .shown b { font-size: 13px; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call .shown em { font-style: normal; font-size: 11.5px; color: var(--ink-dim); }
+.call .shown i { font-style: normal; font-size: 12px; color: rgba(231, 229, 239, 0.78); }
 .invoice { padding: 16px 18px; color: #18181b; font-family: var(--sys); }
 .invoice .amt { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
 .invoice .due { font-size: 11px; color: #71717a; margin-bottom: 10px; }
@@ -638,6 +643,7 @@ async function loadIcons() {
         clock: icon("IconClock", 11),
         message: icon("IconMessage", 11, 'stroke-width="2.1"'),
         chevronSmall: icon("IconChevron", 10),
+        window: icon("IconWindow", 14),
     };
 }
 const MARK = `<img src="../../../brand/mark/mark-white.svg" alt="">`;
@@ -681,6 +687,7 @@ function chiefAsking() {
     return { id: "c1", chief: true, name: "Chief", type: "claude", title: "Friendlier welcome screen", titled: true, project: "sikemux", tier: "needs", state: "blocked", clock: "3m",
         what: "Needs you",
         calls: [{ id: "c1q", age: "3m", question: "Should the welcome screen say hello by name?", context: "Sign-up already has the name; the screen greets everyone the same today.",
+                about: "Maple", shown: "Welcome greeting, both ways",
                 options: ["Greet them by name", "Keep one greeting"], pick: 0,
                 against: "a name typed in a hurry reads back wrong on the first screen." }] };
 }
@@ -876,8 +883,9 @@ function callCard(call, card, listed = false) {
         : "";
     const ready = chosen.length || card.typed;
     return `<div class="call${listed ? " listed" : ""}" data-call="${call.id}">
-        ${listed ? "" : `<div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}</div>`}
+        ${listed ? "" : `<div class="who"><span class="tile">${face(call.agent, "blocked")}</span><b>@${call.agent.name}</b><span class="sep">·</span>${call.agent.project}<span class="sep">·</span>${call.age}${call.about ? `<span class="sep">·</span>about<b>@${call.about}</b>` : ""}</div>`}
         <h4>${call.question}</h4>${call.context ? `<p class="ctx">${call.context}</p>` : ""}
+        ${call.shown ? `<div class="shown">${GLYPH.window}<span><b>${call.shown}</b><em>@${call.about ?? call.agent.name}'s page</em></span><i>Open</i></div>` : ""}
         ${pictures}
         ${rows || field ? `<div class="rows${lit ? " lit" : ""}">${rows}${field}</div>` : ""}
         ${call.against ? `<p class="vs"><em>Against it:</em> ${call.against}</p>` : ""}
@@ -1460,7 +1468,7 @@ const SECTIONS = [
               shows: "No row chosen, the field ringed in the accent with what was typed. Go with this sends it as the answer. A call asking for a secret opens in Sikemux instead, with Answer in Sikemux in place of Go with this.",
               leaves: "As P4.", opts: { agents: () => only(["a2", "a9"]), mode: "call", callId: "q1", cards: { q1: { chosen: [], typed: "Cents, and convert on import" } } } },
             { id: "P13", name: "A call the chief asks", when: "The project's chief puts a call to the person itself.",
-              shows: "The same card, its asker drawn as Sikemux's S in the accent, as the chief's row is, in the card's head and in the call's row of the list; any other asker wears its own face.",
+              shows: "The same card, its asker drawn as Sikemux's S in the accent, as the chief's row is, in the card's head and in the call's row of the list; any other asker wears its own face. The chief asks about @Maple's work, so its head ends \"about @Maple\", and the page it names sits under the context with its title and Open; either opens that agent in Sikemux, where the page is.",
               leaves: "As P4.", opts: { agents: () => [chiefAsking(), ...only(["a2"])], mode: "call", callId: "c1q" } },
             { id: "P14", name: "A call for a secret", when: "An agent asks for a password or a token.",
               shows: "No field, since the island takes no secret: Answer in Sikemux opens the asker's chat, whose composer and card keep it private.",

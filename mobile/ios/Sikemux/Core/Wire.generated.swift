@@ -2434,6 +2434,10 @@ struct PersonCall: Codable, Hashable, Sendable {
     var asker: CallAsker
     /// Other agents waiting on the same thing, which this one answer covers.
     var joined: [CallAsker]?
+    /// The agent whose work the call is about, when that is not the asker.
+    var about: CallAsker?
+    /// The page that shows what the call is about, such as the mockup of its choices.
+    var page: CallPage?
     /// The decision, in one line.
     var question: String
     var context: String?
@@ -2491,6 +2495,12 @@ struct CallAsker: Codable, Hashable, Sendable {
     var cli: String
     /// The asker is its project's chief.
     var chief: Bool?
+}
+
+/// A page an agent showed with `page_show` that a call names.
+struct CallPage: Codable, Hashable, Sendable {
+    var id: String
+    var title: String
 }
 
 /// One of the answers the person picks among.

@@ -36,6 +36,7 @@
   "Added to {name}'s draft": "Добавлено в черновик {name}",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "Через {days} дн. ваш вход, ключи устройств и история будут стёрты, а резервные копии — ещё через {backupDays} дн.",
   "Against it:": "Против:",
+  "about": "о",
   "Agents": "Агенты",
   "All": "Все",
   "All agents": "Все агенты",

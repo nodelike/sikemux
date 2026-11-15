@@ -57,6 +57,8 @@ pub struct Cards {
     opened: Option<String>,
     /// Each evidence picture's width over its height, read once from its file.
     ratios: HashMap<String, Option<f32>>,
+    /// The top of each page a call links, as its tab shows it, asked of the core once.
+    page_pictures: HashMap<String, Option<std::sync::Arc<gpui_kit::Image>>>,
 }
 
 struct Held {
@@ -168,6 +170,35 @@ impl Cards {
             let (width, height) = image::image_dimensions(path).ok()?;
             (height > 0).then(|| width as f32 / height as f32)
         })
+    }
+
+    fn page_picture(
+        &mut self,
+        id: &str,
+        target: &Target,
+        cx: &mut Context<Self>,
+    ) -> Option<std::sync::Arc<gpui_kit::Image>> {
+        if let Some(picture) = self.page_pictures.get(id) {
+            return picture.clone();
+        }
+        self.page_pictures.insert(id.to_owned(), None);
+        let answer = target.request_typed::<call::ReadPage>(sikemux_calls::harness::PageParams {
+            id: id.to_owned(),
+        });
+        let id = id.to_owned();
+        cx.spawn(async move |cards, cx| {
+            let picture = (answer.await.ok())
+                .and_then(|answer| answer.picture)
+                .and_then(|picture| crate::picture::decode("image/jpeg", &picture));
+            if picture.is_some() {
+                let _ = cards.update(cx, |cards, cx| {
+                    cards.page_pictures.insert(id, picture);
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+        None
     }
 
     /// Tells the core once that this window drew the call, which a production call needs
@@ -468,6 +499,21 @@ fn card(
         )
         .child(div().text_color(t.text_disabled).child("·"))
         .child(ui::time::age(call.raised_at))
+        .when_some(call.about.as_ref(), |who, about| {
+            let row =
+                (bench.upgrade()).and_then(|bench| bench.read(cx).agent_by_id(&about.agent_id));
+            let pill = match row {
+                Some(row) => crate::chat::agent_pill(&row, 12., bench, cx).into_any_element(),
+                None => div()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(t.text_secondary)
+                    .child(format!("@{}", about.name))
+                    .into_any_element(),
+            };
+            who.child(div().text_color(t.text_disabled).child("·"))
+                .child(t!("about"))
+                .child(pill)
+        })
         .when_some(
             match &seat {
                 Seat::Queue { at, of } if *of > 1 => Some((*at, *of)),
@@ -497,6 +543,22 @@ fn card(
         )),
         None => call.context.clone(),
     };
+    let page = call.page.as_ref().map(|page| {
+        let owner = call.about.as_ref().unwrap_or(&call.asker);
+        let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
+        let place = t!("@{name}'s page", name = owner.name).into();
+        let page = sikemux_view::chat::PageRef {
+            id: page.id.clone(),
+            title: page.title.clone(),
+            height: None,
+            tab: false,
+        };
+        let row =
+            crate::chat::page::tab_row(&page, picture, place, false, (&owner.agent_id, bench), cx);
+        div()
+            .mt(SPACE_3_PX)
+            .child(crate::chat::page::tab_frame(vec![row], cx))
+    });
     let prose = |text: String| {
         div()
             .text_size(theme::ui_text(12.5))
@@ -726,6 +788,7 @@ fn card(
         .child(who)
         .child(question)
         .children(context.map(prose))
+        .children(page)
         .children(evidence_lines)
         .map(|card| match pictures {
             Some(pictures) => card

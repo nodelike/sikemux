@@ -36,6 +36,7 @@
   "Added to {name}'s draft": "{name}의 초안에 추가됨",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "{days}일 후 로그인 정보, 기기 키, 기록이 지워지고, 백업은 그로부터 {backupDays}일 뒤에 지워집니다.",
   "Against it:": "반대 이유:",
+  "about": "대상",
   "Agents": "에이전트",
   "All": "전체",
   "All agents": "모든 에이전트",

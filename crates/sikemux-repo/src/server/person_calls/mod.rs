@@ -133,6 +133,8 @@ impl Raise {
             kind: self.kind,
             asker: self.asker,
             joined: Vec::new(),
+            about: None,
+            page: None,
             question: self.question,
             context: self.context,
             assumption: None,

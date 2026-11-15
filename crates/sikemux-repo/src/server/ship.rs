@@ -1681,6 +1681,8 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
             chief: false,
         },
         joined: Vec::new(),
+        about: None,
+        page: None,
         question,
         context: hold.why.clone(),
         assumption: None,
