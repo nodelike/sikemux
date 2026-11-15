@@ -31,7 +31,7 @@ use self::log::{MessageEntry, MessageLog, MessageOutcome};
 use super::chat::{self, Delivery};
 use super::connection::blocking;
 use super::kept::Kept;
-use super::roster::{listed, resolve, Listed, Reach};
+use super::roster::{self, listed, resolve, Listed, Reach};
 use super::session::{self, Session};
 use super::wake::{sooner, Wake};
 use super::{agent, launching, Core, CoreResult};
@@ -1825,13 +1825,14 @@ pub(crate) fn report_land(core: &Arc<Core>, worker: &str, text: String, calm: bo
     });
 }
 
-/// Hands `to` the commits an idle `worker` left off the project's branch.
-pub(crate) fn report_unlanded(core: &Arc<Core>, worker: String, to: String, text: String) {
+/// Hands `to` the work an idle `worker` left behind: commits off the project's branch, or
+/// changes it never committed.
+pub(crate) fn report_left(core: &Arc<Core>, worker: String, to: String, text: String) {
     let name = core.names().name(&worker);
     let core = core.clone();
     tokio::spawn(async move {
         let note = |called: &str| {
-            format!("{called} has commits that never landed, and this is a note from Sikemux, sent once while it stays idle.")
+            format!("{called} left work behind, and this is a note from Sikemux, sent once while it stays idle.")
         };
         report_noted(&core, worker, name, to, text, false, note).await;
     });
@@ -1878,7 +1879,17 @@ async fn report_noted(
         let core = core.clone();
         blocking(move || {
             let agents = listed(&core);
-            let target = agents.iter().find(|agent| agent.agent_id == lead).cloned();
+            let find = |id: &str| agents.iter().find(|agent| agent.agent_id == id).cloned();
+            let (target, text) = match find(&lead) {
+                Some(target) => (Some(target), text),
+                None => match roster::hears_of(&core, &worker) {
+                    roster::Hears::Chief(chief) => (
+                        find(&chief),
+                        format!("Its lead has closed, so this comes to you as the project's chief.\n\n{text}"),
+                    ),
+                    _ => (None, text),
+                },
+            };
             let name = name.unwrap_or_else(|| worker.clone());
             let note = note(&called(&name, &worker));
             let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
@@ -1889,7 +1900,6 @@ async fn report_noted(
         .await
     };
     let Ok(Some((target, letter))) = found else {
-        eprintln!("sikemux core: an agent's report has no lead left to reach");
         return;
     };
     if let Err(error) = deliver(core, &target, letter).await {

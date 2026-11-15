@@ -1,7 +1,8 @@
 //! Work an agent leaves behind: commits that never landed, and changes it never committed.
 //! Whoever hears of an idle agent ([`roster::hears_of`]) is woken for them a few minutes after
 //! its turn ends, once per idle stretch; with only the person to hear, the agent's row says it
-//! already. A lead closing a worker hears in `agent_close`'s answer what the close left.
+//! already. A lead closing a worker hears in `agent_close`'s answer what the close left, and a
+//! project's chief hears of the person's asks that nobody has.
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::parts::Parts;
@@ -75,7 +76,72 @@ pub(crate) fn read(
 
 pub(crate) fn tell(core: &Arc<Core>, left: Vec<Left>) {
     for left in left {
-        super::messages::report_unlanded(core, left.agent, left.to, left.text);
+        super::messages::report_left(core, left.agent, left.to, left.text);
+    }
+}
+
+/// A note for a project's chief on the person's asks nobody has.
+pub(crate) struct Unowned {
+    chief: String,
+    text: String,
+}
+
+/// The person's asks that have had nobody on them for the grace, grouped by the chief of their
+/// project, told once per stretch with nobody; and when the next one falls due.
+pub(crate) fn asks(
+    core: &Core,
+    told: &mut HashMap<u64, u64>,
+    now: u64,
+) -> (Vec<Unowned>, Option<u64>) {
+    let nobody = super::now::asks::with_nobody(core);
+    told.retain(|id, since| nobody.iter().any(|ask| ask.0 == *id && ask.3 == *since));
+    let chiefs = super::chief::seated(core);
+    let mut lines: HashMap<String, Vec<String>> = HashMap::new();
+    let mut next: Option<u64> = None;
+    for (id, project, title, since) in nobody {
+        if told.contains_key(&id) {
+            continue;
+        }
+        let Some(chief) = chiefs.get(&project) else {
+            continue;
+        };
+        let due = since + GRACE_MS;
+        if now < due {
+            next = Some(next.map_or(due, |next| next.min(due)));
+            continue;
+        }
+        told.insert(id, since);
+        (lines.entry(chief.clone()).or_default()).push(format!(
+            "- {title} ({} min)",
+            now.saturating_sub(since) / 60_000
+        ));
+    }
+    let notes = (lines.into_iter())
+        .map(|(chief, lines)| Unowned {
+            chief,
+            text: format!(
+                "{} of the person's asks {} had nobody on them for over {} minutes:\n{}\n\nRoute each to a worker, or say why it waits. You hear of each once until someone takes it.",
+                lines.len(),
+                if lines.len() == 1 { "has" } else { "have" },
+                GRACE_MS / 60_000,
+                lines.join("\n"),
+            ),
+        })
+        .collect();
+    (notes, next)
+}
+
+pub(crate) fn tell_chiefs(core: &Arc<Core>, notes: Vec<Unowned>) {
+    for note in notes {
+        let core = core.clone();
+        tokio::spawn(async move {
+            let why = "because asks of the person's have nobody on them";
+            if let Err(error) =
+                super::messages::work_from_sikemux(&core, note.chief, note.text, why).await
+            {
+                eprintln!("sikemux core: the chief did not hear of asks with nobody: {error}");
+            }
+        });
     }
 }
 
