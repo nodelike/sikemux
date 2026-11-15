@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::backdrop::{ThemeBackdrop, ThemeBackdropChanges, WornBackdrop};
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Theme {
@@ -16,6 +18,8 @@ pub struct Theme {
     pub terminal: ThemeTerminal,
     #[serde(default, skip_serializing_if = "ThemeStyle::is_plain")]
     pub style: ThemeStyle,
+    #[serde(default, skip_serializing_if = "ThemeBackdrop::is_plain")]
+    pub backdrop: ThemeBackdrop,
 }
 
 /// A theme written as changes to a base theme, as theme files and `theme_set`'s `save` give
@@ -39,6 +43,8 @@ pub struct ThemeChanges {
     pub terminal: Option<ThemeTerminalChanges>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<ThemeStyleChanges>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop: Option<ThemeBackdropChanges>,
 }
 
 impl ThemeChanges {
@@ -61,6 +67,9 @@ impl ThemeChanges {
         }
         if let Some(changes) = self.style {
             changes.lay_over(&mut theme.style);
+        }
+        if let Some(changes) = self.backdrop {
+            changes.lay_over(&mut theme.backdrop);
         }
     }
 }
@@ -95,6 +104,7 @@ macro_rules! theme_parts {
         }
     )*};
 }
+pub(crate) use theme_parts;
 
 theme_parts! {
 /// How a theme draws beside its colours.
@@ -247,6 +257,9 @@ pub struct Palette {
     pub theme: Theme,
     pub tokens: UiTokens,
     pub style: UiStyle,
+    /// What panes show behind them, the theme's own or the kind the person picked.
+    #[serde(default)]
+    pub backdrop: WornBackdrop,
 }
 
 /// DESIGN.md's corner radii, row density, border width and shadow depth for one theme.

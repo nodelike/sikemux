@@ -16,7 +16,10 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use sikemux_view::prefs::{ChatWidth, Contrast, Motion, PaneColours, PaneCoverage, PanePattern};
+use sikemux_view::backdrop::BackdropKind;
+use sikemux_view::prefs::{
+    ChatWidth, Contrast, Motion, PaneBackdrop, PaneColours, PaneCoverage, PanePattern,
+};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
 use crate::core::Target;
@@ -25,6 +28,7 @@ use crate::reads::Read;
 use crate::settings::index::Page::{Buddies, Interface, Theme};
 use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
+use crate::settings::rows::Choice;
 use crate::settings::Page;
 use crate::settings::Settings;
 use crate::theme::{
@@ -79,8 +83,8 @@ pub(in crate::settings) const INTERFACE: &[Entry] = &[
     row(
         Interface,
         "Panes",
-        "Pane texture",
-        "dither dithering shader grain noise background effect",
+        "Backdrop",
+        "dither dithering shader grain noise background effect texture gradient stars grid picture none",
     ),
     row(
         Interface,
@@ -239,6 +243,37 @@ const SOURCES: [(ThemeSource, &str); 4] = [
     (ThemeSource::Ghostty, "Ghostty"),
 ];
 
+/// What the Backdrop row offers, in its order.
+const BACKDROPS: [(PaneBackdrop, &str); 7] = [
+    (PaneBackdrop::Theme, n!("The theme's")),
+    (PaneBackdrop::Grain, n!("Grain")),
+    (PaneBackdrop::Gradient, n!("Gradient")),
+    (PaneBackdrop::Stars, n!("Stars")),
+    (PaneBackdrop::Grid, n!("Grid")),
+    (PaneBackdrop::Picture, n!("Picture")),
+    (PaneBackdrop::None, n!("None")),
+];
+
+/// What the Backdrop row says is worn: the theme's own kind by the theme's name, or the choice.
+fn backdrop_about(choice: PaneBackdrop, theme: &str, kind: BackdropKind) -> SharedString {
+    let kind = match kind {
+        BackdropKind::Grain => t!("grain"),
+        BackdropKind::Gradient => t!("gradient"),
+        BackdropKind::Stars => t!("stars"),
+        BackdropKind::Grid => t!("grid"),
+    };
+    match choice {
+        PaneBackdrop::Theme => return t!("{theme}'s {kind}.", theme = theme, kind = kind).into(),
+        PaneBackdrop::Grain => t!("The grain, as every theme draws it unless it names another."),
+        PaneBackdrop::Gradient => t!("Soft washes of the theme's accent and command colours."),
+        PaneBackdrop::Stars => t!("A field of stars in the theme's ink and accent."),
+        PaneBackdrop::Grid => t!("Fine lines in the theme's border colour."),
+        PaneBackdrop::Picture => t!("Your own picture, dithered."),
+        PaneBackdrop::None => t!("Nothing behind the panes."),
+    }
+    .into()
+}
+
 /// What the page keeps: the theme search, the theme list's filter, and the
 /// sliders, each setting its preference as it moves.
 pub struct Fields {
@@ -246,6 +281,7 @@ pub struct Fields {
     query: SharedString,
     tone: Tone,
     source: Option<ThemeSource>,
+    backdrop: Choice,
     strength: Entity<SliderState>,
     dot_size: Entity<SliderState>,
     contrast: Entity<SliderState>,
@@ -306,6 +342,21 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
             change_fields(bench, cx, |fields, _| fields.query = query);
         }
     });
+    let backdrop = Choice::new(
+        BACKDROPS
+            .iter()
+            .map(|(_, label)| crate::i18n::tr(label))
+            .collect(),
+        BACKDROPS
+            .iter()
+            .position(|(choice, _)| *choice == preferences.pane_backdrop)
+            .unwrap_or(0),
+        |bench, at, _| {
+            crate::settings::set(bench, PreferenceChange::PaneBackdrop(BACKDROPS[at].0));
+        },
+        window,
+        cx,
+    );
     let (strength, moved_strength) = slider(
         |value| PreferenceChange::PaneStrength(hundredths(value)),
         (0., 2., 0.05),
@@ -391,6 +442,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         query: SharedString::default(),
         tone: Tone::All,
         source: None,
+        backdrop,
         strength,
         dot_size,
         contrast,
@@ -1296,29 +1348,31 @@ pub fn render(
             motion,
             cx,
         ));
+    let choice = preferences.pane_backdrop;
+    let picture = choice == PaneBackdrop::Picture;
+    let theme_name = worn.map_or_else(String::new, |worn| worn.name.clone());
+    let theme_kind = crate::ui::grain::theme_kind(cx);
     let interface = div()
-        .child(rows::row(
-            t!("Pane texture"),
-            Some(t!("The dithered grain behind each pane.")),
-            rows::switch(
-                "pane-texture",
-                PreferenceChange::PaneShader,
-                preferences.pane_shader,
-                this,
-            ),
+        .child(rows::row_with(
+            None,
+            t!("Backdrop"),
+            Some(backdrop_about(choice, &theme_name, theme_kind)),
+            fields.backdrop.view(),
             cx,
         ))
-        .child(rows::row(
-            t!("Pane image"),
-            Some(if following_omarchy {
-                t!("Omarchy's background, dithered in place of the grain.")
-            } else {
-                t!("A picture shared by every pane, dithered in place of the grain.")
-            }),
-            image,
-            cx,
-        ))
-        .when(on_omarchy, |rows_of| {
+        .when(picture, |rows_of| {
+            rows_of.child(rows::row(
+                t!("Pane image"),
+                Some(if following_omarchy {
+                    t!("Omarchy's background, dithered behind each pane.")
+                } else {
+                    t!("A picture shared by every pane, dithered behind it.")
+                }),
+                image,
+                cx,
+            ))
+        })
+        .when(picture && on_omarchy, |rows_of| {
             rows_of.child(rows::row(
                 t!("Follow Omarchy background"),
                 Some(t!(
@@ -1333,18 +1387,20 @@ pub fn render(
                 cx,
             ))
         })
-        .child(rows::row(
-            t!("Pane strength"),
-            Some(t!(
-                "How strongly the texture or picture shows. 1.00 is the default."
-            )),
-            knob(
-                &fields.strength,
-                format!("{:.2}", preferences.pane_strength),
-            ),
-            cx,
-        ))
-        .when(preferences.pane_shader && has_pane_image, |rows_of| {
+        .when(choice != PaneBackdrop::None, |rows_of| {
+            rows_of.child(rows::row(
+                t!("Pane strength"),
+                Some(t!(
+                    "How strongly the backdrop shows. 1.00 is its own strength."
+                )),
+                knob(
+                    &fields.strength,
+                    format!("{:.2}", preferences.pane_strength),
+                ),
+                cx,
+            ))
+        })
+        .when(picture && has_pane_image, |rows_of| {
             rows_of.child(picture_rows(preferences, fields, this, &knob, cx))
         });
 

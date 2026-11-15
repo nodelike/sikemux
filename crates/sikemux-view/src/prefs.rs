@@ -127,9 +127,9 @@ pub struct Preferences {
     pub kept_running_notice_shown: bool,
     /// The person was asked once for a star on GitHub.
     pub star_asked: bool,
-    /// Panes show a dithered texture behind them.
-    pub pane_shader: bool,
-    /// A picture every pane dithers in place of the texture.
+    /// What panes show behind them.
+    pub pane_backdrop: PaneBackdrop,
+    /// The picture every pane dithers when `pane_backdrop` is a picture.
     pub pane_image: Option<String>,
     /// On an Omarchy desktop, panes dither the background it shows instead of `pane_image`.
     pub pane_image_follows_omarchy: bool,
@@ -266,7 +266,7 @@ preference_changes! {
     NotificationsIntroduced notifications_introduced: bool,
     KeptRunningNoticeShown kept_running_notice_shown: bool,
     StarAsked star_asked: bool,
-    PaneShader pane_shader: bool,
+    PaneBackdrop pane_backdrop: PaneBackdrop,
     PaneImage pane_image: Option<String>,
     PaneImageFollowsOmarchy pane_image_follows_omarchy: bool,
     PaneStrength pane_strength: f64,
@@ -352,6 +352,21 @@ pub enum PaneColours {
     Theme,
     Picture,
     Custom,
+}
+
+/// What panes show behind them: the theme's backdrop, one of the built-in kinds at its own
+/// numbers, the person's picture, or nothing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PaneBackdrop {
+    #[default]
+    Theme,
+    Grain,
+    Gradient,
+    Stars,
+    Grid,
+    Picture,
+    None,
 }
 
 /// The grid that decides which of two inks each dot takes, or random noise.
@@ -482,7 +497,7 @@ impl Default for Preferences {
             notifications_introduced: false,
             kept_running_notice_shown: false,
             star_asked: false,
-            pane_shader: true,
+            pane_backdrop: PaneBackdrop::default(),
             pane_image: None,
             pane_image_follows_omarchy: false,
             pane_strength: 1.0,

@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_corekit::cli::manifest::GUIDE;
 use sikemux_corekit::themes::{custom_id, find, made, summaries, Shelf, MOST_CUSTOM_THEMES};
-use sikemux_view::prefs::{Contrast, Motion, PreferenceChange, Scrollbars};
+use sikemux_view::prefs::{Contrast, Motion, PaneBackdrop, PreferenceChange, Scrollbars};
 use sikemux_view::theme::{Theme, ThemeChanges, ThemeSource};
 
 use crate::cli::protocol::HarnessRequest;
@@ -130,6 +130,17 @@ pub(crate) async fn set(core: &Arc<Core>, request: HarnessRequest) -> Result<Val
     answer.insert("wearing".into(), json!(worn.id));
     answer.insert("clamped".into(), json!(clamped));
     answer.insert("undo".into(), undo);
+    let shown = core.preferences().get().pane_backdrop;
+    if !worn.backdrop.is_plain() && shown != PaneBackdrop::Theme {
+        let shown = json!(shown);
+        answer.insert(
+            "backdrop".into(),
+            json!(format!(
+                "not showing: the person wears {} in Settings",
+                shown.as_str().unwrap_or_default()
+            )),
+        );
+    }
     match crate::server::harness::forward(core, notice).await {
         Ok(Value::Object(shown)) => answer.extend(shown),
         Ok(_) => {}

@@ -5,16 +5,6 @@
 // params: where the clock starts, how fast it runs, device pixels per point and the
 // pane's corner radius in points, then the dots' colour.
 
-fn fade_down(y: f32) -> f32 {
-    if (y < 0.2) {
-        return mix(1.0, 0.45, y / 0.2);
-    }
-    if (y < 0.38) {
-        return mix(0.45, 0.08, (y - 0.2) / 0.18);
-    }
-    return mix(0.08, 0.0, min((y - 0.38) / 0.12, 1.0));
-}
-
 @fragment
 fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let shader = instances[input.instance];
@@ -26,7 +16,7 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let scale = setup.z;
     let size = shader.bounds.zw / scale;
     let local = (device - shader.bounds.xy) / scale;
-    let fade = fade_down(local.y / size.y);
+    let fade = band_fade(local.y / size.y);
     if (fade <= 0.0) {
         discard;
     }

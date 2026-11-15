@@ -15,7 +15,10 @@ use gpui::{
     canvas, div, relative, AnyElement, App, AppContext, Context, Global, Hsla, IntoElement,
     ParentElement, RawShaderProgram, RenderImage, Rgba, Styled, Task, Window,
 };
-use sikemux_view::prefs::{Motion, PaneColours, PaneCoverage, PanePattern, Preferences};
+use sikemux_view::backdrop::{BackdropKind, GridShape, WornBackdrop};
+use sikemux_view::prefs::{
+    Motion, PaneBackdrop, PaneColours, PaneCoverage, PanePattern, Preferences,
+};
 
 use crate::theme::{self, radius_3, Tokens};
 
@@ -30,6 +33,7 @@ macro_rules! program {
 }
 
 static FIELD: RawShaderProgram = program!("field");
+static KIND: RawShaderProgram = program!("kind");
 static PICTURE: RawShaderProgram = program!("picture");
 static SKY: RawShaderProgram = program!("sky");
 static POSTER_MARK: RawShaderProgram = program!("poster_mark");
@@ -47,6 +51,8 @@ const FRAMES_PER_SECOND: u64 = 30;
 /// Slower on battery, where every frame is paid for out of the charge.
 const BATTERY_FRAMES_PER_SECOND: u64 = 20;
 const FIELD_SPEED: f32 = 0.5;
+/// How far the grid scrolls in a second at full drift, in points.
+const GRID_DRIFT: f32 = 8.;
 const SKY_SPEED: f32 = 0.35;
 const GLOW_SPEED: f32 = 1.;
 const TILE_SPEED: f32 = 1.2;
@@ -73,6 +79,9 @@ const GLOW_THRESHOLD: f32 = 0.45;
 #[derive(Clone, Default)]
 pub struct Grain {
     shown: bool,
+    choice: PaneBackdrop,
+    /// The theme's backdrop, or the kind the person picked, as the core resolved it.
+    worn: WornBackdrop,
     /// From 0 to 2.
     strength: f32,
     look: Look,
@@ -172,19 +181,31 @@ impl Grain {
     /// Only the grain moves: a picture holds still, and one still being read or a grain at no
     /// strength paints nothing.
     fn moving(&self) -> bool {
-        self.skies > 0
-            || self.glowing
-            || (self.shown && self.strength > 0. && self.wanted.is_none())
+        let drawn = match self.choice {
+            PaneBackdrop::Picture => self.wanted.is_none(),
+            _ => self.worn.look.speed > 0.,
+        };
+        self.skies > 0 || self.glowing || (self.shown && self.strength() > 0. && drawn)
+    }
+
+    /// The person's pane strength laid over what is worn, held where text over it still reads.
+    fn strength(&self) -> f32 {
+        match self.choice {
+            PaneBackdrop::Picture | PaneBackdrop::None => self.strength,
+            _ => (self.strength * self.worn.look.strength as f32).min(self.worn.most as f32),
+        }
     }
 }
 
 /// Takes the preferences for what panes show, reading a newly chosen picture or spread of glow.
 pub fn set(preferences: &Preferences, cx: &mut App) {
     let old = cx.try_global::<Grain>().cloned().unwrap_or_default();
-    let wanted = preferences.pane_image.clone().map(|path| Baked {
-        path,
-        glow_size: preferences.pane_glow_size as f32,
-    });
+    let wanted = (preferences.pane_image.clone())
+        .filter(|_| preferences.pane_backdrop == PaneBackdrop::Picture)
+        .map(|path| Baked {
+            path,
+            glow_size: preferences.pane_glow_size as f32,
+        });
     let mut picture = old.picture.clone();
     if wanted.is_none() {
         if let Some((_, image)) = picture.take() {
@@ -200,7 +221,9 @@ pub fn set(preferences: &Preferences, cx: &mut App) {
         }
     }
     let grain = Grain {
-        shown: preferences.pane_shader,
+        shown: preferences.pane_backdrop != PaneBackdrop::None,
+        choice: preferences.pane_backdrop,
+        worn: old.worn.clone(),
         strength: preferences.pane_strength as f32,
         look: Look::of(preferences),
         wanted,
@@ -211,6 +234,7 @@ pub fn set(preferences: &Preferences, cx: &mut App) {
     };
     let changed = cx.try_global::<Grain>().is_none()
         || grain.shown != old.shown
+        || grain.choice != old.choice
         || grain.strength != old.strength
         || grain.look != old.look
         || grain.wanted != old.wanted
@@ -223,6 +247,30 @@ pub fn set(preferences: &Preferences, cx: &mut App) {
     if changed {
         cx.refresh_windows();
     }
+}
+
+/// The kind the worn theme draws, for Settings to name.
+pub fn theme_kind(cx: &App) -> BackdropKind {
+    cx.try_global::<Grain>()
+        .map_or(BackdropKind::Grain, |grain| grain.worn.look.kind)
+}
+
+/// Takes what the theme draws behind panes, or the kind the person picked, from the palette.
+pub fn wear(worn: &WornBackdrop, cx: &mut App) {
+    let Some(grain) = cx.try_global::<Grain>() else {
+        cx.set_global(Grain {
+            worn: worn.clone(),
+            ..Grain::default()
+        });
+        return;
+    };
+    if grain.worn == *worn {
+        return;
+    }
+    let mut grain = grain.clone();
+    grain.worn = worn.clone();
+    cx.set_global(grain);
+    cx.refresh_windows();
 }
 
 fn read(wanted: Baked, cx: &mut App) {
@@ -377,7 +425,7 @@ fn inner_radius() -> f32 {
 fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
     let grain = cx
         .try_global::<Grain>()
-        .filter(|grain| grain.shown && grain.strength > 0.)?;
+        .filter(|grain| grain.shown && grain.strength() > 0.)?;
     if let Some((_, picture)) = &grain.picture {
         let band = match grain.look.full {
             true => relative(1.),
@@ -400,10 +448,27 @@ fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
     if grain.wanted.is_some() {
         return None;
     }
-    let dot = Tokens::get(cx).shader_dot.to_rgb();
-    let (start, speed) = clock(FIELD_SPEED, cx);
-    let alpha = (dot.a * FIELD_OPACITY * grain.strength).min(1.);
-    Some(Rc::new(move |solid| {
+    let worn = (grain.choice != PaneBackdrop::Picture).then_some(&grain.worn);
+    match worn.map(|worn| worn.look.kind) {
+        None | Some(BackdropKind::Grain) => Some(grain_field(grain, worn, cx)),
+        Some(_) => worn.map(|worn| kind_field(worn, grain.strength(), cx)),
+    }
+}
+
+/// The grain in the theme's grain colour, or in the first ink the theme gives it.
+fn grain_field(
+    grain: &Grain,
+    worn: Option<&WornBackdrop>,
+    cx: &App,
+) -> Rc<dyn Fn(f32) -> AnyElement> {
+    let ink = worn
+        .and_then(|worn| worn.inks.first())
+        .map(|ink| theme::color(ink).to_rgb());
+    let dot = ink.unwrap_or_else(|| Tokens::get(cx).shader_dot.to_rgb());
+    let speed = FIELD_SPEED * worn.map_or(1., |worn| worn.look.speed as f32);
+    let (start, speed) = clock(speed, cx);
+    let alpha = (dot.a * FIELD_OPACITY * grain.strength()).min(1.);
+    Rc::new(move |solid| {
         canvas(
             |_, _, _| {},
             move |bounds, (), window, _| {
@@ -424,7 +489,75 @@ fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
         .absolute()
         .inset_0()
         .into_any_element()
-    }))
+    })
+}
+
+/// The gradient, the stars or the grid, as `kind.wgsl` takes them.
+fn kind_field(worn: &WornBackdrop, strength: f32, cx: &App) -> Rc<dyn Fn(f32) -> AnyElement> {
+    let look = &worn.look;
+    let ink = |at: usize| {
+        worn.inks.get(at).map_or(-1., |ink| {
+            let ink = theme::color(ink).to_rgb();
+            packed(ink.r * 255., ink.g * 255., ink.b * 255.)
+        })
+    };
+    let (start, speed) = clock(look.speed as f32, cx);
+    let alpha = (look.kind.solid() as f32 * strength).min(1.);
+    let (kind, own) = match look.kind {
+        BackdropKind::Gradient => (1., [look.softness as f32, look.dither as f32, 0., 0.]),
+        BackdropKind::Stars => (
+            2.,
+            [
+                look.density as f32,
+                look.twinkle as f32,
+                look.drift as f32,
+                f32::from(look.depth),
+            ],
+        ),
+        BackdropKind::Grid | BackdropKind::Grain => (
+            3.,
+            [
+                if look.shape == GridShape::Dots {
+                    1.
+                } else {
+                    0.
+                },
+                look.cell as f32,
+                look.weight as f32,
+                look.drift as f32 * GRID_DRIFT,
+            ],
+        ),
+    };
+    let setup = [
+        ink(0),
+        ink(1),
+        ink(2),
+        alpha,
+        kind,
+        if look.coverage == PaneCoverage::Full {
+            1.
+        } else {
+            0.
+        },
+        look.seed as f32,
+        look.scale as f32,
+    ];
+    Rc::new(move |solid| {
+        canvas(
+            |_, _, _| {},
+            move |bounds, (), window, _| {
+                let mut params = [0.; gpui::RAW_SHADER_PARAMS];
+                params[..4].copy_from_slice(&[start, speed, window.ground_scale(), inner_radius()]);
+                params[4..12].copy_from_slice(&setup);
+                params[7] *= solid;
+                params[12..].copy_from_slice(&own);
+                let _ = window.paint_ground_shader(bounds, &KIND, params, None);
+            },
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element()
+    })
 }
 
 /// Keeps the ground moving while a new chat's glow is on screen.

@@ -4,6 +4,7 @@
 //! `sikemux-wire` instead.
 
 pub mod audit;
+pub mod backdrop;
 pub mod calls;
 pub mod catalog;
 pub mod changed;

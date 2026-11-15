@@ -154,7 +154,9 @@ fn preference_changed(core: &Core, change: &PreferenceChange) -> CoreResult<()> 
         PreferenceChange::UpdateChannel(_) | PreferenceChange::UpdateWhenIdle(_) => {
             super::updates::follow_when_idle(core)
         }
-        PreferenceChange::PaneShader(_) | PreferenceChange::PaneImage(_) => backdrop::follow(core),
+        PreferenceChange::PaneBackdrop(_) | PreferenceChange::PaneImage(_) => {
+            backdrop::follow(core)
+        }
         PreferenceChange::PaneImageFollowsOmarchy(_) => {
             themes::follow_omarchy_background(core);
             backdrop::follow(core);

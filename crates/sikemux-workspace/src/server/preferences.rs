@@ -16,8 +16,8 @@ use sikemux_process::sync::Locked;
 use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};
 use sikemux_view::prefs::{
-    CustomCommand, PreferenceChange, Preferences, MAX_PROJECT_DEPTH, MAX_TERMINAL_FONT_SIZE,
-    MAX_TEXT_SCALE, MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE, UI_TEXT_SCALES,
+    CustomCommand, PaneBackdrop, PreferenceChange, Preferences, MAX_PROJECT_DEPTH,
+    MAX_TERMINAL_FONT_SIZE, MAX_TEXT_SCALE, MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE, UI_TEXT_SCALES,
 };
 
 /// The id of the theme an Omarchy desktop sets.
@@ -45,6 +45,9 @@ impl Prefs {
             Some(Value::Array(themes)) => themes,
             _ => Vec::new(),
         };
+        if let Some(saved) = saved.as_object_mut() {
+            backdrop_chosen(saved);
+        }
         for (key, value) in saved.as_object().into_iter().flatten() {
             let _ = put(&mut values, key, value.clone());
         }
@@ -104,10 +107,29 @@ fn defaults(omarchy: bool) -> Map<String, Value> {
     if omarchy {
         preferences.theme_id = OMARCHY_THEME.to_owned();
         preferences.pane_image_follows_omarchy = true;
+        preferences.pane_backdrop = PaneBackdrop::Picture;
     }
     match serde_json::to_value(preferences) {
         Ok(Value::Object(fields)) => fields,
         _ => Map::new(),
+    }
+}
+
+/// Moves preferences saved with the old texture switch to the Backdrop choice, keeping what
+/// panes showed: nothing with the texture off, the picture when one was set, else the theme's.
+fn backdrop_chosen(saved: &mut Map<String, Value>) {
+    let Some(texture) = saved.remove("paneShader") else {
+        return;
+    };
+    let picture = saved.get("paneImage").is_some_and(|image| !image.is_null())
+        || saved.get("paneImageFollowsOmarchy") == Some(&Value::Bool(true));
+    let choice = match (texture, picture) {
+        (Value::Bool(false), _) => PaneBackdrop::None,
+        (_, true) => PaneBackdrop::Picture,
+        _ => PaneBackdrop::Theme,
+    };
+    if let Ok(choice) = serde_json::to_value(choice) {
+        saved.entry("paneBackdrop").or_insert(choice);
     }
 }
 

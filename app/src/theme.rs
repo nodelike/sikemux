@@ -460,6 +460,7 @@ pub fn apply(palette: &Palette, cx: &mut App) {
         &palette.theme.style.mono_font,
         cx,
     );
+    crate::ui::grain::wear(&palette.backdrop, cx);
     let tokens = Tokens::new(palette);
     let scale = text_scale(cx);
     let kit = KitTheme::global_mut(cx);

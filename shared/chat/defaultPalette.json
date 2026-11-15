@@ -125,5 +125,27 @@
     "density": 1.0,
     "border": 1.0,
     "shadows": 1.0
+  },
+  "backdrop": {
+    "look": {
+      "kind": "grain",
+      "strength": 1.0,
+      "speed": 1.0,
+      "scale": 1.0,
+      "inks": [],
+      "coverage": "band",
+      "seed": 0,
+      "softness": 0.6,
+      "dither": 0.0,
+      "density": 0.5,
+      "twinkle": 0.5,
+      "depth": 2,
+      "drift": 0.2,
+      "shape": "lines",
+      "cell": 24.0,
+      "weight": 1.0
+    },
+    "inks": [],
+    "most": 2.0
   }
 }

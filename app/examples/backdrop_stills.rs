@@ -55,6 +55,7 @@ fn main() -> anyhow::Result<()> {
     )?;
     let pictured = Preferences {
         pane_image: Some(picture.clone()),
+        pane_backdrop: sikemux_view::prefs::PaneBackdrop::Picture,
         pane_coverage: PaneCoverage::Full,
         ..Preferences::default()
     };

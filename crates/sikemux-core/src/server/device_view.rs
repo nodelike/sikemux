@@ -236,10 +236,7 @@ impl DeviceViewCore for Core {
         let preferences = self.preferences().get();
         let mut workspace = self.workspaces().view();
         workspace.palette = self.look().tokens_by_name();
-        workspace.backdrop.look = Some(super::backdrop::look(
-            &preferences,
-            &self.look().palette().tokens,
-        ));
+        workspace.backdrop.look = Some(super::backdrop::look(&preferences, &self.look().palette()));
         workspace.disabled_plugins = super::plugins::disabled_in(self.config().plugins);
         self.names().fill(&mut workspace.agents);
         self.faces().fill(&mut workspace.agents);

@@ -4,8 +4,8 @@
 use crate::server::changed::ChangedCore;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;
-use sikemux_view::prefs::{PaneColours, Preferences};
-use sikemux_view::theme::UiTokens;
+use sikemux_view::prefs::{PaneBackdrop, PaneColours, Preferences};
+use sikemux_view::theme::Palette;
 use sikemux_view::workspace::BackdropLook;
 
 use super::workspace::BackdropImage;
@@ -18,8 +18,9 @@ pub(crate) fn follow(core: &Core) {
         return;
     };
     let preferences = core.shown_preferences();
-    let texture = preferences.pane_shader;
-    let Some(path) = preferences.pane_image.filter(|_| texture) else {
+    let texture = preferences.pane_backdrop != PaneBackdrop::None;
+    let picture = preferences.pane_backdrop == PaneBackdrop::Picture;
+    let Some(path) = preferences.pane_image.filter(|_| picture) else {
         publish(&core, texture, None);
         return;
     };
@@ -30,14 +31,22 @@ pub(crate) fn follow(core: &Core) {
         }
         let image = id.and_then(|id| shrunk(&path, id));
         let now = core.shown_preferences();
-        if now.pane_shader && now.pane_image.as_deref() == Some(path.as_str()) {
+        if now.pane_backdrop == PaneBackdrop::Picture
+            && now.pane_image.as_deref() == Some(path.as_str())
+        {
             publish(&core, true, image);
         }
     });
 }
 
 /// How the host's panes draw their backdrop, with the inks a themed picture takes resolved.
-pub(crate) fn look(preferences: &Preferences, tokens: &UiTokens) -> BackdropLook {
+pub(crate) fn look(preferences: &Preferences, palette: &Palette) -> BackdropLook {
+    let tokens = &palette.tokens;
+    let worn = &palette.backdrop;
+    let strength = match preferences.pane_backdrop {
+        PaneBackdrop::Picture | PaneBackdrop::None => preferences.pane_strength,
+        _ => (preferences.pane_strength * worn.look.strength).min(worn.most),
+    };
     let inks = match preferences.pane_colours {
         PaneColours::Custom => (0..3)
             .map(|at| preferences.pane_inks.get(at).cloned())
@@ -47,7 +56,7 @@ pub(crate) fn look(preferences: &Preferences, tokens: &UiTokens) -> BackdropLook
         }
     };
     BackdropLook {
-        strength: preferences.pane_strength,
+        strength,
         inks,
         own_colours: preferences.pane_colours == PaneColours::Picture,
         pattern: preferences.pane_pattern,

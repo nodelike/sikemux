@@ -9,8 +9,78 @@ const float GRAIN_SCALE = 2.4;
 const float PICTURE_STEPS = 4.0;
 
 
-vec2 modulo(vec2 x, float y) {
-    return (x - (y * floor((x / vec2(y)))));
+float band_fade(float y) {
+    if ((y < 0.2)) {
+        return mix(1.0, 0.45, (y / 0.2));
+    }
+    if ((y < 0.38)) {
+        return mix(0.45, 0.08, ((y - 0.2) / 0.18));
+    }
+    return mix(0.08, 0.0, min(((y - 0.38) / 0.12), 1.0));
+}
+
+vec2 cell_random(vec2 cell, float seed) {
+    vec2 p = (vec2(dot(cell, vec2(127.1, 311.7)), dot(cell, vec2(269.5, 183.3))) + vec2((seed * 0.618)));
+    return fract((sin(p) * 43758.547));
+}
+
+vec4 pick_ink(float choice, vec4 first, vec4 second, vec4 third) {
+    bool local = false;
+    float count = ((1.0 + step(0.001, second.w)) + step(0.001, third.w));
+    float at = floor((choice * count));
+    if ((at < 0.5)) {
+        return first;
+    }
+    if ((at < 1.5)) {
+        local = (second.w > 0.001);
+    } else {
+        local = false;
+    }
+    bool _e25 = local;
+    if (_e25) {
+        return second;
+    }
+    return ((third.w > 0.001) ? third : second);
+}
+
+float gradient_blob(vec2 point, vec2 size, float time, float phase, float reach) {
+    vec2 path = vec2(sin(((0.11 * time) + (phase * 6.283))), cos(((0.083 * time) + (phase * 4.1))));
+    vec2 centre = (size * (vec2(0.5) + (0.38 * path)));
+    float apart = (length((point - centre)) / reach);
+    return exp((-(apart) * apart));
+}
+
+float bayer8_(vec2 cell_1) {
+    uvec2 at_1 = uvec2((fract((cell_1 / vec2(8.0))) * 8.0));
+    uint a = (at_1.x ^ at_1.y);
+    uint b = at_1.y;
+    uint value = (((((((a & 1u) << 5u) | ((b & 1u) << 4u)) | ((a & 2u) << 2u)) | ((b & 2u) << 1u)) | ((a & 4u) >> 1u)) | ((b & 4u) >> 2u));
+    return (float(value) / 64.0);
+}
+
+vec4 gradient(vec2 point_1, vec2 size_1, float time_1, float seed_1, float softness, float dither, float dot_size, vec4 first_1, vec4 second_1, vec4 third_1) {
+    float reach_1 = (max(size_1.x, size_1.y) * mix(0.22, 0.6, softness));
+    vec2 _e19 = cell_random(vec2(seed_1, 1.0), seed_1);
+    float _e21 = gradient_blob(point_1, size_1, time_1, _e19.x, reach_1);
+    float a_1 = (_e21 * first_1.w);
+    float _e27 = gradient_blob(point_1, size_1, (time_1 + 40.0), _e19.y, reach_1);
+    float b_1 = (_e27 * second_1.w);
+    float _e35 = gradient_blob(point_1, size_1, (time_1 + 80.0), (_e19.x + _e19.y), reach_1);
+    float c = (_e35 * third_1.w);
+    float total = ((a_1 + b_1) + c);
+    if ((total <= 0.0001)) {
+        return vec4(0.0);
+    }
+    vec3 colour_1 = ((((first_1.xyz * a_1) + (second_1.xyz * b_1)) + (third_1.xyz * c)) / vec3(total));
+    float smooth_alpha = min(total, 1.0);
+    vec2 cell_6 = (point_1 / vec2(max(dot_size, 1.0)));
+    float _e60 = bayer8_(cell_6);
+    float dotted = step(_e60, smooth_alpha);
+    return vec4(colour_1, mix(smooth_alpha, (dotted * 0.8), dither));
+}
+
+vec2 modulo(vec2 x, float y_1) {
+    return (x - (y_1 * floor((x / vec2(y_1)))));
 }
 
 vec3 permute(vec3 x_1) {
@@ -21,13 +91,13 @@ float snoise(vec2 v) {
     vec2 i = vec2(0.0);
     vec4 x12_ = vec4(0.0);
     vec3 m = vec3(0.0);
-    vec4 c = vec4(0.21132487, 0.36602542, -0.57735026, 0.024390243);
-    i = floor((v + vec2(dot(v, c.yy))));
+    vec4 c_1 = vec4(0.21132487, 0.36602542, -0.57735026, 0.024390243);
+    i = floor((v + vec2(dot(v, c_1.yy))));
     vec2 _e12 = i;
     vec2 _e14 = i;
-    vec2 x0_ = ((v - _e12) + vec2(dot(_e14, c.xx)));
+    vec2 x0_ = ((v - _e12) + vec2(dot(_e14, c_1.xx)));
     vec2 i1_ = ((x0_.x > x0_.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
-    x12_ = (x0_.xyxy + c.xxzz);
+    x12_ = (x0_.xyxy + c_1.xxzz);
     vec4 _e33 = x12_;
     vec4 _e36 = x12_;
     x12_ = vec4((_e33.xy - i1_), _e36.zw);
@@ -49,7 +119,7 @@ float snoise(vec2 v) {
     vec3 _e83 = m;
     vec3 _e84 = m;
     m = (_e83 * _e84);
-    vec3 x_2 = ((2.0 * fract((_e60 * c.www))) - vec3(1.0));
+    vec3 x_2 = ((2.0 * fract((_e60 * c_1.www))) - vec3(1.0));
     vec3 h = (abs(x_2) - vec3(0.5));
     vec3 ox = floor((x_2 + vec3(0.5)));
     vec3 a0_ = (x_2 - ox);
@@ -62,19 +132,11 @@ float snoise(vec2 v) {
     return (130.0 * dot(_e130, g));
 }
 
-float bayer8_(vec2 cell) {
-    uvec2 at = uvec2((fract((cell / vec2(8.0))) * 8.0));
-    uint a = (at.x ^ at.y);
-    uint b = at.y;
-    uint value = (((((((a & 1u) << 5u) | ((b & 1u) << 4u)) | ((a & 2u) << 2u)) | ((b & 2u) << 1u)) | ((a & 4u) >> 1u)) | ((b & 4u) >> 2u));
-    return (float(value) / 64.0);
-}
-
-float grain(vec2 point, float time) {
+float grain(vec2 point_2, float time_2) {
     float noise = 0.0;
-    float t = (0.5 * time);
-    vec2 cell_4 = (point / vec2(3.0));
-    vec2 pixelized = ((floor(cell_4) + vec2(0.5)) * GRAIN_DOT);
+    float t = (0.5 * time_2);
+    vec2 cell_7 = (point_2 / vec2(3.0));
+    vec2 pixelized = ((floor(cell_7) + vec2(0.5)) * GRAIN_DOT);
     vec2 uv = (((pixelized / vec2(2.4)) + vec2(0.5)) * 0.001);
     float _e26 = snoise((uv - vec2(0.0, (0.3 * t))));
     noise = (0.5 * _e26);
@@ -83,46 +145,61 @@ float grain(vec2 point, float time) {
     noise = (_e30 + (0.5 * _e38));
     float _e42 = noise;
     float shape = smoothstep(0.3, 0.9, (0.5 + (0.5 * _e42)));
-    float _e50 = bayer8_(cell_4);
+    float _e50 = bayer8_(cell_7);
     return step(0.5, ((shape + _e50) - 0.5));
 }
 
-float bayer4_(vec2 cell_1) {
-    uvec2 at_1 = uvec2((fract((cell_1 / vec2(4.0))) * 4.0));
-    uint a_1 = (at_1.x ^ at_1.y);
-    uint b_1 = at_1.y;
-    return (float((((((a_1 & 1u) << 3u) | ((b_1 & 1u) << 2u)) | (a_1 & 2u)) | ((b_1 & 2u) >> 1u))) / 16.0);
+vec4 grid(vec2 point_3, float time_3, float dots, float cell_2, float weight, float drift, float pixel, vec4 first_2) {
+    float edge = 0.0;
+    vec2 moved = (point_3 + vec2((time_3 * drift)));
+    vec2 within = (moved - (cell_2 * floor((moved / vec2(cell_2)))));
+    vec2 apart_1 = min(within, (vec2(cell_2) - within));
+    if ((dots > 0.5)) {
+        edge = (length(apart_1) - weight);
+    } else {
+        edge = (min(apart_1.x, apart_1.y) - (0.5 * weight));
+    }
+    float _e34 = edge;
+    float lit = (1.0 - smoothstep((-0.5 * pixel), (0.5 * pixel), _e34));
+    return vec4(first_2.xyz, (first_2.w * lit));
 }
 
-float bayer2_(vec2 cell_2) {
-    uvec2 at_2 = uvec2((fract((cell_2 / vec2(2.0))) * 2.0));
-    return (float((((at_2.x ^ at_2.y) << 1u) | at_2.y)) / 4.0);
+float bayer4_(vec2 cell_3) {
+    uvec2 at_2 = uvec2((fract((cell_3 / vec2(4.0))) * 4.0));
+    uint a_2 = (at_2.x ^ at_2.y);
+    uint b_2 = at_2.y;
+    return (float((((((a_2 & 1u) << 3u) | ((b_2 & 1u) << 2u)) | (a_2 & 2u)) | ((b_2 & 2u) >> 1u))) / 16.0);
 }
 
-float threshold(vec2 cell_3, float pattern) {
+float bayer2_(vec2 cell_4) {
+    uvec2 at_3 = uvec2((fract((cell_4 / vec2(2.0))) * 2.0));
+    return (float((((at_3.x ^ at_3.y) << 1u) | at_3.y)) / 4.0);
+}
+
+float threshold(vec2 cell_5, float pattern) {
     if ((pattern > 6.0)) {
-        float _e4 = bayer8_(cell_3);
+        float _e4 = bayer8_(cell_5);
         return _e4;
     }
     if ((pattern > 3.0)) {
-        float _e7 = bayer4_(cell_3);
+        float _e7 = bayer4_(cell_5);
         return _e7;
     }
     if ((pattern > 1.0)) {
-        float _e10 = bayer2_(cell_3);
+        float _e10 = bayer2_(cell_5);
         return _e10;
     }
-    return fract((sin(dot(floor(cell_3), vec2(12.9898, 78.233))) * 43758.547));
+    return fract((sin(dot(floor(cell_5), vec2(12.9898, 78.233))) * 43758.547));
 }
 
-vec2 picture_cover(vec2 point_1, vec2 size, float aspect) {
-    vec2 covered = (max((size.x / aspect), size.y) * vec2(aspect, 1.0));
-    vec2 at_3 = ((point_1 / covered) + vec2(0.5));
-    return vec2(at_3.x, (1.0 - at_3.y));
+vec2 picture_cover(vec2 point_4, vec2 size_2, float aspect) {
+    vec2 covered = (max((size_2.x / aspect), size_2.y) * vec2(aspect, 1.0));
+    vec2 at_4 = ((point_4 / covered) + vec2(0.5));
+    return vec2(at_4.x, (1.0 - at_4.y));
 }
 
-vec2 picture_dot(vec2 point_2, float dot_size) {
-    return ((floor((point_2 / vec2(dot_size))) + vec2(0.5)) * dot_size);
+vec2 picture_dot(vec2 point_5, float dot_size_1) {
+    return ((floor((point_5 / vec2(dot_size_1))) + vec2(0.5)) * dot_size_1);
 }
 
 float picture_fade(float down) {
@@ -135,14 +212,14 @@ float picture_fade(float down) {
     return mix(0.08, 0.0, min(((down - 0.76) / 0.24), 1.0));
 }
 
-vec4 picture(vec2 point_3, vec3 texel, float glowing, float dot_size_1, float pattern_1, float contrast, float brightness, float glow, float own_colours, vec4 dark, vec4 middle, vec4 light, float shown) {
+vec4 picture(vec2 point_6, vec3 texel, float glowing, float dot_size_2, float pattern_1, float contrast, float brightness, float glow, float own_colours, vec4 dark, vec4 middle, vec4 light, float shown) {
     vec3 colour = vec3(0.0);
     float opacity = 0.0;
     vec4 picked = vec4(0.0);
-    vec2 cell_5 = (point_3 / vec2(dot_size_1));
+    vec2 cell_8 = (point_6 / vec2(dot_size_2));
     float raw = dot(vec3(0.2126, 0.7152, 0.0722), texel);
     float lum = clamp(((((raw - 0.5) * (1.0 + contrast)) + 0.5) + (0.5 * brightness)), 0.0, 1.0);
-    float _e33 = threshold(cell_5, pattern_1);
+    float _e33 = threshold(cell_8, pattern_1);
     vec3 own = (texel / vec3(max(raw, 0.04)));
     if ((own_colours > 0.5)) {
         float steps = (floor(((clamp((lum + ((_e33 - 0.5) / PICTURE_STEPS)), 0.0, 1.0) * PICTURE_STEPS) + 0.5)) / PICTURE_STEPS);
@@ -169,9 +246,64 @@ vec4 picture(vec2 point_3, vec3 texel, float glowing, float dot_size_1, float pa
     float glowed = (glowing * glow);
     vec3 _e85 = colour;
     float _e86 = opacity;
-    vec3 lit = ((_e85 * _e86) + (tint * glowed));
+    vec3 lit_1 = ((_e85 * _e86) + (tint * glowed));
     float _e90 = opacity;
     float alpha = (clamp((_e90 + glowed), 0.0, 1.0) * shown);
-    return vec4(min((lit * shown), vec3(alpha)), alpha);
+    return vec4(min((lit_1 * shown), vec3(alpha)), alpha);
+}
+
+vec4 star_layer(vec2 point_7, float time_4, float seed_2, float layer, float density, float twinkle, float drift_1, float scale, vec4 first_3, vec4 second_2, vec4 third_2) {
+    float near = (1.0 - (layer / 3.0));
+    float cell_size = ((mix(46.0, 18.0, density) * scale) * mix(1.6, 1.0, near));
+    vec2 moved_1 = (point_7 + vec2(((time_4 * drift_1) * mix(1.5, 6.0, near)), 0.0));
+    vec2 cell_9 = floor((moved_1 / vec2(cell_size)));
+    vec2 _e37 = cell_random(cell_9, (seed_2 + (layer * 17.0)));
+    if ((_e37.x > mix(0.35, 0.8, density))) {
+        return vec4(0.0);
+    }
+    float radius = (mix(0.55, 1.1, near) * scale);
+    float room = (cell_size - (4.0 * radius));
+    vec2 _e64 = cell_random((cell_9 + vec2(7.0)), (seed_2 + layer));
+    vec2 spot = ((((cell_9 + vec2(0.0)) * cell_size) + vec2((2.0 * radius))) + (_e64 * room));
+    float apart_2 = length((moved_1 - spot));
+    float lit_2 = (1.0 - smoothstep((radius * 0.5), radius, apart_2));
+    if ((lit_2 <= 0.0)) {
+        return vec4(0.0);
+    }
+    float breathe = (1.0 - (twinkle * (0.5 + (0.5 * sin(((time_4 * mix(0.9, 2.3, _e37.y)) + (_e37.x * 40.0)))))));
+    vec4 _e96 = pick_ink(_e37.y, first_3, second_2, third_2);
+    return vec4(_e96.xyz, (((_e96.w * lit_2) * breathe) * mix(0.55, 1.0, near)));
+}
+
+vec4 stars(vec2 point_8, float time_5, float seed_3, float density_1, float twinkle_1, float drift_2, float depth, float scale_1, vec4 first_4, vec4 second_3, vec4 third_3) {
+    vec4 brightest = vec4(0.0);
+    float layer_1 = 0.0;
+    bool loop_init = true;
+    while(true) {
+        if (!loop_init) {
+            float _e27 = layer_1;
+            layer_1 = (_e27 + 1.0);
+        }
+        loop_init = false;
+        float _e16 = layer_1;
+        if ((_e16 < 3.0)) {
+        } else {
+            break;
+        }
+        {
+            float _e19 = layer_1;
+            if ((_e19 >= depth)) {
+                break;
+            }
+            float _e21 = layer_1;
+            vec4 _e22 = star_layer(point_8, time_5, seed_3, _e21, density_1, twinkle_1, drift_2, scale_1, first_4, second_3, third_3);
+            float _e25 = brightest.w;
+            if ((_e22.w > _e25)) {
+                brightest = _e22;
+            }
+        }
+    }
+    vec4 _e30 = brightest;
+    return _e30;
 }
 `;

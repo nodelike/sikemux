@@ -1,6 +1,7 @@
 //! The colour themes: the Sikemux themes and Ghostty's catalogue, with the app's colours worked
 //! out from each terminal palette.
 
+pub mod backdrop;
 mod own;
 
 use std::sync::OnceLock;
@@ -8,7 +9,8 @@ use std::sync::OnceLock;
 use base64::Engine;
 pub use own::{from_ghostty_file, made, Shelf};
 use sikemux_grid::TerminalColors;
-use sikemux_view::prefs::{Contrast, Preferences, DEFAULT_THEME_ID};
+use sikemux_view::backdrop::{BackdropKind, ThemeBackdrop};
+use sikemux_view::prefs::{Contrast, PaneBackdrop, Preferences, DEFAULT_THEME_ID};
 use sikemux_view::theme::{
     Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSource, ThemeStyle,
     ThemeSummary, ThemeTerminal, UiStyle, UiTokens,
@@ -53,7 +55,22 @@ pub fn default_palette() -> Palette {
 }
 
 pub fn palette(shelf: &Shelf, preferences: &Preferences) -> Palette {
-    palette_of(resolve(shelf, &preferences.theme_id), preferences.contrast)
+    let mut palette = palette_of(resolve(shelf, &preferences.theme_id), preferences.contrast);
+    let picked = match preferences.pane_backdrop {
+        PaneBackdrop::Grain => Some(BackdropKind::Grain),
+        PaneBackdrop::Gradient => Some(BackdropKind::Gradient),
+        PaneBackdrop::Stars => Some(BackdropKind::Stars),
+        PaneBackdrop::Grid => Some(BackdropKind::Grid),
+        PaneBackdrop::Theme | PaneBackdrop::Picture | PaneBackdrop::None => None,
+    };
+    if let Some(kind) = picked {
+        let own = ThemeBackdrop {
+            kind,
+            ..ThemeBackdrop::default()
+        };
+        palette.backdrop = backdrop::worn(&own, &palette.tokens);
+    }
+    palette
 }
 
 /// The theme with `id` among every theme to pick from; the person's own files come first.
@@ -314,9 +331,11 @@ pub fn by_name(palette: &Palette) -> std::collections::BTreeMap<String, String> 
 
 /// The palette a theme draws with, saved or not, as a theme editor previews it.
 pub fn palette_of(theme: Theme, contrast: Contrast) -> Palette {
+    let tokens = tokens(&theme, contrast);
     Palette {
-        tokens: tokens(&theme, contrast),
+        backdrop: backdrop::worn(&theme.backdrop, &tokens),
         style: style(&theme),
+        tokens,
         theme,
     }
 }
@@ -398,6 +417,12 @@ pub fn checked(theme: Theme) -> Result<(Theme, Vec<String>), String> {
             ));
         }
     }
+    let tokens = tokens(&theme, Contrast::default());
+    let (fitted, notes) = backdrop::within(theme.backdrop, &tokens)?;
+    clamped.extend(notes);
+    let (readable, notes) = backdrop::readable(fitted, &tokens);
+    clamped.extend(notes);
+    theme.backdrop = readable;
     Ok((theme, clamped))
 }
 
@@ -741,5 +766,6 @@ fn ghostty_theme(
             bright_white: terminal(15),
         },
         style: ThemeStyle::default(),
+        backdrop: Default::default(),
     })
 }

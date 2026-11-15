@@ -227,8 +227,8 @@ one you name with `theme`.
 - `theme` — an id to wear, as it is.
 - `save` — a new theme, worn at once: `base` (an id, the worn theme when left
   out), `name`, and only what changes, in the parts `theme_read` shows:
-  `dark`, `chrome`, `editor`, `highlight`, `terminal` and `style`. Saving the
-  same name again replaces your earlier save. It is written as a file.
+  `dark`, `chrome`, `editor`, `highlight`, `terminal`, `style` and `backdrop`.
+  Saving the same name again replaces your earlier save. It is written as a file.
   `{"base": "aura-noir", "name": "Square Noir", "style": {"corners": 0}}`
 - `adjust` — the person's own settings, which stay whatever theme is worn:
   `scrollbars` is `scrolling` (shown while a list moves), `hover` or `always`;
@@ -247,6 +247,24 @@ else is refused. `chrome.ink` must read at 4.5:1 on `chrome.bg`. Style:
 - `shadows` — 0 (none) to 2 (twice as dark); 1 is the default.
 
 `{"base": "nord", "name": "Nord Mono", "style": {"uiFont": "Iosevka", "monoFont": "Iosevka", "density": 0.9, "shadows": 0}}`
+
+`backdrop` is what each pane shows behind it; every theme draws the grain
+unless it names another `kind`. All kinds take `strength` (0 to 2), `speed`
+(0 to 2), `scale` (0.5 to 3), `coverage` (`band`, fading by the middle of a
+pane, or `full`), `seed` (0 to 65535) and up to three `inks`, each a colour or
+a token name from `theme_read`'s palette such as `accent`, `ink` or `live`.
+
+- `grain` — dithered noise, in the theme's grain colour or the first ink.
+- `gradient` — each ink a soft drifting wash: `softness` and `dither`, 0 to 1.
+- `stars` — `density`, `twinkle` and `drift`, 0 to 1, and `depth`, 1 to 3.
+- `grid` — `shape` `lines` or `dots`, `cell` 8 to 96 pt, `weight` 0.5 to 3
+  pt, `drift` 0 to 1.
+
+`{"base": "tokyo-night", "name": "Night Sky", "backdrop": {"kind": "stars", "inks": ["ink", "accent"], "depth": 3}}`
+
+The strength is lowered until text over the backdrop reads, and `clamped` says
+so. The person picks in Settings whether the theme's backdrop shows; when they
+wear another, the answer's `backdrop` says it is not showing.
 
 Out-of-range values are clamped and the answer lists each one in `clamped`.
 

@@ -72,7 +72,7 @@
         }
       }
     ],
-    "paneShader": true,
+    "paneBackdrop": "theme",
     "paneStrength": 0.55,
     "paneColours": "theme",
     "paneInks": [
