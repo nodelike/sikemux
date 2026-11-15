@@ -1,6 +1,6 @@
 //! Triggers that fire once CI on a commit or a run ends, so an agent ends its turn rather than
-//! sleeping and asking the code host again. The core's one CI watch looks at the repository and
-//! says when its runs move; a trigger also looks on its own now and then, in case a move was missed.
+//! sleeping and asking the code host again. The core's one CI watch says when the repository's
+//! runs move; a trigger also looks on its own now and then, in case a move was missed.
 
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
@@ -22,9 +22,10 @@ use crate::server::notify::{CiEnded, Signal};
 use crate::server::Core;
 
 /// How long a CI trigger goes without looking, when the CI watch says nothing moved.
-pub(super) const LOOK_AGAIN_MS: u64 = 5 * 60 * 1000;
-/// How many looks in a row may fail to read the CI before its wait ends as unread: an hour of
-/// looking again.
+const LOOK_AGAIN_MS: u64 = 5 * 60 * 1000;
+/// The same, once its CI is running in a repository whose CI webhook tells the core of each move.
+const FED_LOOK_AGAIN_MS: u64 = 30 * 60 * 1000;
+/// How many looks in a row may fail to read the CI before its wait ends as unread.
 const MAX_UNREAD: u32 = 12;
 const SHORT_SHA: usize = 9;
 
@@ -43,6 +44,9 @@ pub(super) struct CiWatch {
     /// How many looks in a row failed to read its CI.
     #[serde(default, skip_serializing_if = "is_zero")]
     unread: u32,
+    /// Its repository's CI webhook tells the core when its runs move.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    fed: bool,
 }
 
 fn is_zero(count: &u32) -> bool {
@@ -61,6 +65,16 @@ impl CiWatch {
     /// When its wait began: when its CI was first seen running, else when it was set.
     pub(super) fn since(&self) -> u64 {
         self.running_since.unwrap_or(self.since)
+    }
+
+    /// How long it goes without looking. Where a webhook tells of every move, it looks only to
+    /// say no run started, or in case a move was lost.
+    pub(super) fn look_again_ms(&self) -> u64 {
+        match (self.fed, self.running_since) {
+            (false, _) => LOOK_AGAIN_MS,
+            (true, None) => CI_START_WAIT_MS,
+            (true, Some(_)) => FED_LOOK_AGAIN_MS,
+        }
     }
 
     /// The run or commit it waits on, which every agent waiting on it shares.
@@ -121,6 +135,7 @@ pub(super) async fn watch(
     };
     let watch = CiWatch {
         dir: dir.to_owned(),
+        fed: crate::server::codehost::ci::is_fed(core, &repo.id()),
         repo: repo.watched(),
         on,
         since: epoch_ms(),
@@ -259,9 +274,11 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         Ok(Ci::Ended(said, how)) => (said, how),
         Ok(Ci::Going { running }) => {
             let now = epoch_ms();
-            if (running && watch.running_since.is_none()) || watch.unread > 0 {
+            let fed = crate::server::codehost::ci::is_fed(&core, &watch.repo.id);
+            if (running && watch.running_since.is_none()) || watch.unread > 0 || fed != watch.fed {
                 watched(&core, id, |watch| {
                     watch.unread = 0;
+                    watch.fed = fed;
                     if running {
                         watch.running_since.get_or_insert(now);
                     }

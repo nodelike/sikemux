@@ -29,6 +29,12 @@ use super::{Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::tasks::config::ConfigLoad;
 
+/// A webhook of this host just made, and where senders post to it.
+pub struct NewHook {
+    pub id: String,
+    pub url: String,
+}
+
 type Doing<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// A note on its way to an agent: what the agent's side answered, or why it could not be given.
 type Told<'a> = Doing<'a, Result<Value, String>>;
@@ -108,6 +114,10 @@ pub struct RepoAbove {
     pub triggers_waiting_on_ci: fn(&Core) -> Vec<Shown>,
     /// Runs moved in the repository, so the triggers waiting on it look again.
     pub triggers_ci_moved: fn(&Arc<Core>, &Shown),
+    /// A webhook of this host on the accounts server: its id, and the address senders post to.
+    pub hooks_register: for<'a> fn(&'a Arc<Core>) -> Doing<'a, CoreResult<NewHook>>,
+    /// Takes one of this host's webhooks away.
+    pub hooks_remove: for<'a> fn(&'a Core, &'a str) -> Doing<'a, CoreResult<()>>,
     /// The repositories of the pull requests the git panel shows.
     pub git_pending_pulls: fn(&Core) -> Vec<Shown>,
     /// Runs moved in the repository, so the git panel reads its pull requests again.

@@ -169,6 +169,21 @@ fn handle(core: &Arc<Core>, received: Received) -> bool {
             return true;
         }
     };
+    if super::codehost::ci::feeds_hook(core, &delivery.hook_id) {
+        let core = core.clone();
+        tokio::spawn(async move {
+            let taken = super::codehost::ci::delivered(
+                &core,
+                &delivery.hook_id,
+                &delivery.headers,
+                &delivery.body,
+            );
+            if let Err(error) = taken.await {
+                eprintln!("sikemux core: dropped a CI webhook's request {id}, as {error}");
+            }
+        });
+        return true;
+    }
     match triggers::delivered(core, delivery) {
         Ok(()) => true,
         Err(error) => {

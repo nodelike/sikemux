@@ -406,6 +406,16 @@ pub(super) fn repo_above() -> RepoAbove {
         saved_locate: saved::locate,
         triggers_waiting_on_ci: triggers::waiting_on_ci,
         triggers_ci_moved: triggers::ci_moved,
+        hooks_register: |core| {
+            Box::pin(async move {
+                let added = super::hooks::register_hook(core).await?;
+                Ok(super::repo_above::NewHook {
+                    id: added.hook_id,
+                    url: added.url,
+                })
+            })
+        },
+        hooks_remove: |core, hook_id| Box::pin(super::hooks::remove_hook(core, hook_id)),
         git_pending_pulls: git::pending_pulls,
         git_ci_moved: git::ci_moved,
         board_landed_set: board::landed_set,

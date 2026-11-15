@@ -370,9 +370,9 @@ impl Triggers {
                 return true;
             }
             changed = true;
-            if trigger.ci.is_some() {
+            if let Some(watch) = &trigger.ci {
                 looking.push(trigger.id);
-                trigger.next_at = Some(now + ci::LOOK_AGAIN_MS);
+                trigger.next_at = Some(now + watch.look_again_ms());
                 return true;
             }
             if let Some(park) = &trigger.park {
@@ -824,15 +824,10 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             (TriggerWhen::Once { at }, Some(at), None)
         }
         _ if ci.is_some() => {
-            let shown = ci
-                .as_ref()
-                .map(|(_, shown)| shown.clone())
+            let (look_again, shown) = (ci.as_ref())
+                .map(|(watch, shown)| (watch.look_again_ms(), shown.clone()))
                 .unwrap_or_default();
-            (
-                TriggerWhen::Ci { on: shown },
-                Some(now + ci::LOOK_AGAIN_MS),
-                None,
-            )
+            (TriggerWhen::Ci { on: shown }, Some(now + look_again), None)
         }
         Some(Value::Bool(true)) => {
             if TIMES.iter().any(|key| given(params, key)) {
