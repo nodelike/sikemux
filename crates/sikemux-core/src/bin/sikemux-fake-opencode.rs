@@ -41,9 +41,13 @@ struct Fake {
     interrupted: AtomicBool,
 }
 
-/// The person's own permission rules, as their OpenCode config would hold them.
-fn own_rules() -> Vec<Value> {
-    vec![json!({ "action": "shell", "resource": "git push *", "effect": "deny" })]
+/// The build agent's permission rules: OpenCode's catch-all, then the person's own config,
+/// which denies `git push`.
+fn build_rules() -> Value {
+    json!([
+        { "action": "*", "resource": "*", "effect": "allow" },
+        { "action": "shell", "resource": "git push *", "effect": "deny" },
+    ])
 }
 
 fn uuid() -> String {
@@ -171,11 +175,6 @@ impl Fake {
                 }
             }
             ("GET", ["api", "model"]) => answer(&stream, 200, json!({ "data": models() })),
-            ("GET", ["api", "config"]) => answer(
-                &stream,
-                200,
-                json!({ "data": [{ "type": "document", "info": { "permissions": own_rules() } }] }),
-            ),
             ("GET", ["api", "model", "default"]) => {
                 answer(&stream, 200, json!({ "data": models()[0] }))
             }
@@ -183,7 +182,7 @@ impl Fake {
                 &stream,
                 200,
                 json!({ "data": [
-                    { "id": "build", "name": "Build", "mode": "primary" },
+                    { "id": "build", "name": "Build", "mode": "primary", "permissions": build_rules() },
                     { "id": "plan", "name": "Plan", "mode": "primary" },
                     { "id": "general", "name": "General", "mode": "subagent" },
                 ] }),
@@ -365,15 +364,14 @@ impl Fake {
         self.emit("session.execution.succeeded", json!({ "sessionID": child }));
     }
 
-    /// What OpenCode's rules say to running `command`: its base policy, then the person's
-    /// config, then the session's rules, the last match winning.
+    /// What OpenCode's rules say to running `command`: the build agent's, then the session's,
+    /// the last match winning.
     fn effect(&self, session: &str, command: &str) -> String {
         let sessions = self.sessions.locked();
         let session_rules = sessions[session]["permissions"]
             .as_array()
             .cloned()
             .unwrap_or_default();
-        let base = json!({ "action": "*", "resource": "*", "effect": "allow" });
         let matches = |pattern: &str| {
             pattern == "*"
                 || pattern == command
@@ -381,8 +379,9 @@ impl Fake {
                     .strip_suffix(" *")
                     .is_some_and(|stem| command == stem || command.starts_with(&format!("{stem} ")))
         };
-        std::iter::once(base)
-            .chain(own_rules())
+        let agent_rules = build_rules().as_array().cloned().unwrap_or_default();
+        agent_rules
+            .into_iter()
             .chain(session_rules)
             .filter(|rule| rule["action"] == "*" || rule["action"] == "shell")
             .rfind(|rule| matches(rule["resource"].as_str().unwrap_or_default()))

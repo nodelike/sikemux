@@ -53,6 +53,8 @@ struct Mode {
     mode: String,
     #[serde(default)]
     hidden: bool,
+    #[serde(default)]
+    permissions: Vec<Value>,
 }
 
 impl Listed {
@@ -146,6 +148,15 @@ impl Catalog {
             .efforts()
             .contains(&wanted)
             .then(|| wanted.to_owned())
+    }
+
+    /// The permission rules of the agent `mode` runs, as OpenCode built them from its own
+    /// defaults and the person's config.
+    pub fn permissions(&self, mode: &str) -> &[Value] {
+        self.modes
+            .iter()
+            .find(|offered| offered.id == mode)
+            .map_or(&[], |offered| &offered.permissions)
     }
 
     pub fn offers_mode(&self, mode: &str) -> bool {

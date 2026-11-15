@@ -199,7 +199,7 @@ struct Kept {
     effort: Option<String>,
     mode: String,
     commands: Vec<String>,
-    own_rules: Vec<Value>,
+    permission_mode: PermissionMode,
     session: Session,
 }
 
@@ -212,8 +212,7 @@ pub struct Opencode {
     effort: Option<String>,
     mode: String,
     commands: Vec<String>,
-    /// The person's own permission rules, which outlast the chat's mode.
-    own_rules: Vec<Value>,
+    permission_mode: PermissionMode,
     events: JoinHandle<()>,
 }
 
@@ -221,48 +220,40 @@ fn refused(error: Refused) -> String {
     error.message
 }
 
-/// The session's permission rules for a mode. OpenCode applies them after the person's own and
-/// the last matching rule wins, so the person's rules follow again: all of them in Normal, which
-/// asks before commands and edits, and their denies in YOLO, which asks about nothing.
-fn rules(mode: PermissionMode, own: &[Value]) -> Value {
-    let (ours, kept): (Value, fn(&Value) -> bool) = match mode {
-        PermissionMode::Bypass => (
-            json!([{ "action": "*", "resource": "*", "effect": "allow" }]),
-            |rule| rule["effect"] == "deny",
-        ),
-        PermissionMode::WorkspaceWrite | PermissionMode::Auto => (
-            json!([
-                { "action": "shell", "resource": "*", "effect": "ask" },
-                { "action": "edit", "resource": "*", "effect": "ask" },
-            ]),
-            |_| true,
-        ),
-    };
-    let mut rules = ours.as_array().cloned().unwrap_or_default();
-    rules.extend(own.iter().filter(|rule| kept(rule)).cloned());
-    Value::Array(rules)
-}
-
-/// The permission rules in every config document OpenCode reads for the chat's directory, in
-/// the order it applies them.
-async fn read_own_rules(client: &Client) -> Result<Vec<Value>, String> {
-    let documents = client.get("/api/config").await.map_err(refused)?;
-    let rules = documents
-        .as_array()
-        .into_iter()
-        .flatten()
-        .flat_map(|document| {
-            let info = &document["info"];
-            let policies = info["policies"].as_array().into_iter().flatten();
-            std::iter::once(&info["permissions"])
-                .chain(policies.map(|policy| &policy["permissions"]))
-                .filter_map(Value::as_array)
-                .flatten()
+/// The session's permission rules for a chat in `mode` on an agent whose own rules are `agent`.
+/// OpenCode applies a session's rules after its agent's, and the last matching rule wins. YOLO
+/// turns every ask into an allow and keeps what the agent denies. Normal asks before commands
+/// and edits, placed after the agent's catch-all so the narrower rules after it, such as the
+/// person's own, still decide.
+fn rules(mode: PermissionMode, agent: &[Value]) -> Value {
+    let rules: Vec<Value> = match mode {
+        PermissionMode::Bypass => std::iter::once(
+            json!({ "action": "*", "resource": "*", "effect": "allow" }),
+        )
+        .chain(agent.iter().map(|rule| match rule["effect"] == "ask" {
+            true => {
+                json!({ "action": rule["action"], "resource": rule["resource"], "effect": "allow" })
+            }
+            false => rule.clone(),
+        }))
+        .collect(),
+        PermissionMode::WorkspaceWrite | PermissionMode::Auto => {
+            let catch_all = agent
+                .iter()
+                .position(|rule| rule["action"] == "*" && rule["resource"] == "*")
+                .map_or(0, |at| at + 1);
+            let (base, narrower) = agent.split_at(catch_all);
+            base.iter()
                 .cloned()
-                .collect::<Vec<_>>()
-        })
-        .collect();
-    Ok(rules)
+                .chain([
+                    json!({ "action": "shell", "resource": "*", "effect": "ask" }),
+                    json!({ "action": "edit", "resource": "*", "effect": "ask" }),
+                ])
+                .chain(narrower.iter().cloned())
+                .collect()
+        }
+    };
+    Value::Array(rules)
 }
 
 /// Each tool server the chat hands its agent, as OpenCode registers one for a folder.
@@ -373,13 +364,15 @@ impl Opencode {
         catalog: &Catalog,
         model: &str,
         effort: Option<&str>,
-        permissions: Value,
+        mode: PermissionMode,
     ) -> Result<Value, String> {
         if let Some(existing) = &launch.resume_id {
             let path = format!("/api/session/{existing}");
             match client.get(&path).await {
                 Ok(session) => {
-                    let permissions = json!({ "permissions": permissions });
+                    let agent = session["agent"].as_str().unwrap_or(BUILD);
+                    let permissions =
+                        json!({ "permissions": rules(mode, catalog.permissions(agent)) });
                     client.patch(&path, permissions).await.map_err(refused)?;
                     replay(sink, launch, existing);
                     return Ok(session);
@@ -392,7 +385,7 @@ impl Opencode {
         let mut body = json!({
             "location": { "directory": launch.cwd },
             "agent": BUILD,
-            "permissions": permissions,
+            "permissions": rules(mode, catalog.permissions(BUILD)),
         });
         if let Some(model) = model_ref(model, effort) {
             body["model"] = model;
@@ -414,6 +407,17 @@ impl Opencode {
             .map_err(refused)?;
         self.driver.session.locked().window = self.catalog.window(&self.model);
         Ok(())
+    }
+
+    /// Gives the session the permission rules for the chat's mode on the agent it runs.
+    async fn put_rules(&self) -> Result<(), String> {
+        let rules = rules(self.permission_mode, self.catalog.permissions(&self.mode));
+        self.driver
+            .client
+            .patch(&self.driver.path(""), json!({ "permissions": rules }))
+            .await
+            .map(drop)
+            .map_err(refused)
     }
 
     async fn read_commands(client: &Client) -> Result<Vec<Value>, String> {
@@ -491,11 +495,10 @@ impl Backend for Opencode {
         let url = ready(&process, &mut lines).await?;
         let failed = |error: String| process.start_error(error);
         let client = Client::new(url, password, &launch.cwd);
-        let (catalog, (), commands, own_rules) = tokio::try_join!(
+        let (catalog, (), commands) = tokio::try_join!(
             Catalog::read(&client),
             Self::register_tools(&client, launch),
             Self::read_commands(&client),
-            read_own_rules(&client)
         )
         .map_err(failed)?;
         let model = catalog.model(launch.model.as_deref());
@@ -507,7 +510,6 @@ impl Backend for Opencode {
             servers: server_names(launch),
         };
         let events = driver.follow().await.map_err(failed)?;
-        let permissions = rules(launch.permission_mode, &own_rules);
         let opened = Self::open(
             &client,
             &sink,
@@ -515,7 +517,7 @@ impl Backend for Opencode {
             &catalog,
             &model,
             effort.as_deref(),
-            permissions,
+            launch.permission_mode,
         )
         .await
         .map_err(failed)?;
@@ -547,7 +549,7 @@ impl Backend for Opencode {
                 .iter()
                 .filter_map(|command| command["name"].as_str().map(str::to_owned))
                 .collect(),
-            own_rules,
+            permission_mode: launch.permission_mode,
             events,
         };
         let on = opened.get("model").and_then(read_ref);
@@ -641,15 +643,8 @@ impl Backend for Opencode {
     }
 
     async fn set_permission_mode(&mut self, mode: PermissionMode) -> Result<(), String> {
-        self.driver
-            .client
-            .patch(
-                &self.driver.path(""),
-                json!({ "permissions": rules(mode, &self.own_rules) }),
-            )
-            .await
-            .map(drop)
-            .map_err(refused)
+        self.permission_mode = mode;
+        self.put_rules().await
     }
 
     async fn set_config(&mut self, config_id: &str, value: &str) -> Result<Value, String> {
@@ -670,6 +665,7 @@ impl Backend for Opencode {
                     .await
                     .map_err(refused)?;
                 self.mode = value.to_owned();
+                self.put_rules().await?;
             }
             _ => return Err(format!("OpenCode has no option {config_id}")),
         }
@@ -725,7 +721,7 @@ impl Backend for Opencode {
             effort,
             mode,
             commands,
-            own_rules,
+            permission_mode,
             events,
         } = self;
         events.abort();
@@ -739,7 +735,7 @@ impl Backend for Opencode {
             effort,
             mode,
             commands,
-            own_rules,
+            permission_mode,
             session,
         })
         .await
@@ -781,7 +777,7 @@ impl Backend for Opencode {
             effort: kept.effort,
             mode: kept.mode,
             commands: kept.commands,
-            own_rules: kept.own_rules,
+            permission_mode: kept.permission_mode,
             events,
         })
     }
