@@ -40,9 +40,10 @@ pub async fn spend(
         return Ok(ResetOutcome::NoReset);
     };
     let grant = match grant {
-        Some(id) => (grants.live.iter())
-            .find(|live| live.id == id)
-            .map(|live| live.id.clone()),
+        Some(id) => match grants.live.iter().find(|live| live.id == id) {
+            Some(live) if !live.usable => return Err(HELD_BACK.to_owned()),
+            found => found.map(|live| live.id.clone()),
+        },
         None => grants.next.clone(),
     };
     let Some(grant) = grant else {
@@ -82,6 +83,7 @@ pub async fn spend(
 }
 
 const SIGNED_OUT: &str = "Sign in to Claude again to use resets";
+const HELD_BACK: &str = "Claude isn't offering this reset right now. Try again later";
 
 /// The request id of a spend that got no answer, by account and grant, sent again with a retry
 /// so Claude takes the two as one and never spends a second reset.
@@ -107,9 +109,10 @@ struct Grant {
     kind: Option<String>,
 }
 
-/// A grant Claude would spend now.
+/// A grant with resets left that has not run out.
 struct Live {
     id: String,
+    usable: bool,
     label: String,
     left: u32,
     ends: Option<u64>,
@@ -117,7 +120,7 @@ struct Live {
     kind: Option<String>,
 }
 
-/// The account's usable grants, in Claude's order, and the one Claude spends next.
+/// The account's grants with resets left, in Claude's order, and the one Claude spends next.
 struct Grants {
     live: Vec<Live>,
     next: Option<String>,
@@ -141,10 +144,11 @@ impl Grants {
                 .as_deref()
                 .map(crate::accounts::live::parse_rfc3339);
             let expired = ends.is_some_and(|ends| ends.is_none_or(|ends| ends <= now_ms));
-            if grant.paused || !grant.usable_now || expired || grant.resets_left == 0 {
+            if expired || grant.resets_left == 0 {
                 continue;
             }
             live.push(Live {
+                usable: grant.usable_now && !grant.paused,
                 label: match grant.label.trim() {
                     "" => "Reset".to_owned(),
                     label => label.to_owned(),
@@ -157,7 +161,7 @@ impl Grants {
             });
         }
         let next = next_id
-            .filter(|id| live.iter().any(|grant| grant.id == *id))
+            .filter(|id| live.iter().any(|grant| grant.id == *id && grant.usable))
             .map(str::to_owned);
         Some(Self { live, next })
     }
@@ -170,9 +174,15 @@ impl Grants {
             match kinds.iter_mut().find(|kind| kind.window == window) {
                 Some(kind) => {
                     kind.left += grant.left;
-                    if grant.ends.unwrap_or(u64::MAX) < kind.use_by.unwrap_or(u64::MAX) {
-                        (kind.id, kind.use_by) = (Some(grant.id.clone()), grant.ends);
+                    let sooner = grant.ends.unwrap_or(u64::MAX) < kind.use_by.unwrap_or(u64::MAX);
+                    if grant.usable && (sooner || !kind.usable) {
+                        kind.id = Some(grant.id.clone());
                     }
+                    kind.usable |= grant.usable;
+                    kind.use_by = match (kind.use_by, grant.ends) {
+                        (Some(kept), Some(ends)) => Some(kept.min(ends)),
+                        (kept, ends) => kept.or(ends),
+                    };
                 }
                 None => kinds.push(ResetKind {
                     id: Some(grant.id.clone()),
@@ -180,6 +190,7 @@ impl Grants {
                     left: grant.left,
                     use_by: grant.ends,
                     window,
+                    usable: grant.usable,
                 }),
             }
         }
@@ -424,5 +435,61 @@ fn keychain_item(folder: Option<&Path>) -> String {
             let hash = hex::encode(Sha256::digest(folder.to_string_lossy().as_bytes()));
             format!("Claude Code-credentials-{}", &hash[..8])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window(scope: Option<&str>, label: &str) -> UsageWindow {
+        UsageWindow {
+            label: label.to_owned(),
+            scope: scope.map(str::to_owned),
+            used_percent: 0.0,
+            resets_at: None,
+            window_minutes: Some(10_080),
+        }
+    }
+
+    fn grant(id: &str, label: &str, kind: &str, left: u32, usable_now: bool) -> Value {
+        serde_json::json!({
+            "id": id,
+            "label": label,
+            "resets_left": left,
+            "ends_at": "2027-03-09T07:59:00+00:00",
+            "clears": ["seven_day"],
+            "paused": false,
+            "usable_now": usable_now,
+            "type": kind,
+        })
+    }
+
+    // Claude marked every grant of an account not usable_now for a while after one was spent,
+    // and the limits float lost the account's one weekly and two Fable resets.
+    #[test]
+    fn resets_held_back_still_count() {
+        let block = serde_json::json!({
+            "eligible": true,
+            "next_grant_id": "full-reset-2611",
+            "grants": [
+                grant("full-reset-2611", "One full limit reset (November 2026)", "weekly", 1, false),
+                grant("launch-2610-fable", "New model launch: one Fable reset", "full", 0, false),
+                grant("launch-2610-fable-12mo", "One more Fable reset at 12 months", "full", 1, false),
+                grant("launch-2610-fable-6mo", "One more Fable reset at 6 months", "full", 1, false),
+            ],
+        });
+        let windows = [window(None, "7d"), window(Some("Fable"), "Fable · 7d")];
+        let grants = Grants::from(&block, 0).unwrap();
+        assert_eq!(grants.next, None);
+        let resets = grants.resets(&windows);
+        let counts: Vec<_> = (resets.kinds.iter())
+            .map(|kind| (kind.label.as_str(), kind.left, kind.usable))
+            .collect();
+        assert_eq!(
+            counts,
+            [("Weekly reset", 1, false), ("Fable reset", 2, false)]
+        );
+        assert_eq!(resets.left, 3);
     }
 }

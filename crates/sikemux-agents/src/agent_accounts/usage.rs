@@ -75,6 +75,10 @@ pub struct ResetKind {
     pub use_by: Option<u64>,
     /// The label of the window one refills; none when one starts every used-up window over.
     pub window: Option<String>,
+    /// Whether one can be spent now. Claude holds a reset back while it cools down after one
+    /// was used, or until the limit it refills is reached.
+    #[serde(default)]
+    pub usable: bool,
 }
 
 /// What spending a reset did.
@@ -1111,6 +1115,7 @@ fn codex_resets(result: &Value) -> Option<Resets> {
                 left,
                 use_by,
                 window: None,
+                usable: true,
             })
             .into_iter()
             .collect(),

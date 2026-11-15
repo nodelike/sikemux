@@ -5299,6 +5299,11 @@ export interface ResetKind {
     useBy: number | null;
     /** The label of the window one refills; none when one starts every used-up window over. */
     window: string | null;
+    /**
+     * Whether one can be spent now. Claude holds a reset back while it cools down after one
+     * was used, or until the limit it refills is reached.
+     */
+    usable?: boolean;
 }
 
 /** What answers a call: an option, with a note, or the person's own words, with any files. */

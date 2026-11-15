@@ -1185,11 +1185,15 @@ fn reset_row(
         }
     };
     if !asking {
-        let action = match busy {
-            true => ui::text(t!("Resetting…"), TEXT_2XS, FontWeight::MEDIUM)
+        let action = match (busy, kind.usable) {
+            (true, _) => ui::text(t!("Resetting…"), TEXT_2XS, FontWeight::MEDIUM)
                 .text_color(t.text_tertiary)
                 .into_any_element(),
-            false => ui::text(t!("Use"), TEXT_2XS, FontWeight::MEDIUM)
+            (false, false) => ui::text(t!("Not yet"), TEXT_2XS, FontWeight::NORMAL)
+                .px(px(2.))
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+            (false, true) => ui::text(t!("Use"), TEXT_2XS, FontWeight::MEDIUM)
                 .id(SharedString::from(format!(
                     "limits-use-{}",
                     reset_key(shown, kind)
