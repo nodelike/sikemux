@@ -127,7 +127,7 @@ struct CallDock: View {
                 chosen.first.flatMap { id in call.options.firstIndex { $0.id == id } }
                 ?? call.pick.flatMap { id in call.options.firstIndex { $0.id == id } } ?? 0
             HStack(spacing: 6) {
-                CallPicture(core: core, path: call.options[lead].picture).frame(maxWidth: .infinity)
+                CallPicture(core: core, path: call.options[lead].picture, whole: true).frame(maxWidth: .infinity)
                     .layoutPriority(2)
                 VStack(spacing: 6) {
                     ForEach(call.options.indices.filter { $0 != lead }, id: \.self) { index in
@@ -368,19 +368,21 @@ struct CallChoiceMark: View {
     }
 }
 
-/// A picture a call names on the host, fetched to this phone. Evidence (`top`) shows a page from its top.
+/// A picture a call names on the host, fetched to this phone. Evidence (`top`) shows a page from its top, and the
+/// lead option (`whole`) all of its picture.
 struct CallPicture: View {
     @Environment(\.palette) private var palette
     let core: String
     let path: String?
     var top = false
+    var whole = false
     @State private var image: UIImage?
 
     var body: some View {
         palette.sunken
             .overlay(alignment: top ? .topLeading : .center) {
                 if let image {
-                    Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
+                    Image(uiImage: image).resizable().aspectRatio(contentMode: whole ? .fit : .fill)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))

@@ -938,6 +938,8 @@ fn radio(on: bool, t: &Tokens) -> AnyElement {
 enum Fill {
     /// All of it covered, cut evenly at the edges.
     Cover,
+    /// All of the picture shown, with bars where its shape differs.
+    Contain,
     /// From its top, as a page is read, given its width over its height and the width it
     /// fills: its full width, or wider when that would leave its place short.
     Top(f32, f32),
@@ -967,6 +969,9 @@ fn picture(
             Fill::Cover => img(shown.source_at(px(PICTURE_SIZE)))
                 .size_full()
                 .object_fit(ObjectFit::Cover),
+            Fill::Contain => img(shown.source_at(px(PICTURE_SIZE)))
+                .size_full()
+                .object_fit(ObjectFit::Contain),
             Fill::Top(ratio, width) => {
                 let height = (width / ratio).max(EVIDENCE_HEIGHT);
                 img(shown.source_at(px(PICTURE_SIZE)))
@@ -1026,8 +1031,13 @@ fn strip(
     let shown = |ix: usize| {
         let option = &call.options[ix];
         let id = SharedString::from(format!("call-picture-{}-{ix}", call.id));
+        let fill = if ix == lead {
+            Fill::Contain
+        } else {
+            Fill::Cover
+        };
         match option.picture.as_deref() {
-            Some(path) => picture(id, path, option.label.clone(), Fill::Cover, bench, t),
+            Some(path) => picture(id, path, option.label.clone(), fill, bench, t),
             None => div().id(id).rounded(px(8.)).bg(t.surface_sunken),
         }
     };

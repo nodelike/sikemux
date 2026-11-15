@@ -338,7 +338,7 @@ function Strip({ call, chosen, onChoose }: { call: PersonCall; chosen: string[];
   );
   return (
     <View style={styles.strip}>
-      <CallPicture path={call.options[lead].picture} style={styles.lead} />
+      <CallPicture path={call.options[lead].picture} style={styles.lead} whole />
       <View style={styles.rest}>
         {call.options.map((option, index) =>
           index === lead ? null : (
@@ -383,8 +383,9 @@ function Evidence({ call }: { call: PersonCall }) {
   );
 }
 
-/** A picture a call names on the host, fetched to this phone; evidence shows a page from its top. */
-function CallPicture({ path, style, top }: { path?: string; style: object; top?: boolean }) {
+/** A picture a call names on the host, fetched to this phone; evidence shows a page from its top, and the lead
+ * option all of its picture. */
+function CallPicture({ path, style, top, whole }: { path?: string; style: object; top?: boolean; whole?: boolean }) {
   const styles = useStyles(makeStyles);
   const uri = useHostFile(path ?? '', !!path, 1200);
   return (
@@ -393,7 +394,7 @@ function CallPicture({ path, style, top }: { path?: string; style: object; top?:
         <Image
           source={{ uri }}
           style={top ? styles.topImage : StyleSheet.absoluteFill}
-          resizeMode="cover"
+          resizeMode={whole ? 'contain' : 'cover'}
           accessibilityIgnoresInvertColors
         />
       ) : null}
