@@ -340,6 +340,14 @@ impl Triggers {
         mine.count() as u32
     }
 
+    /// The titles of the triggers that prompt the open chat `agent_id`.
+    pub(crate) fn titles(&self, agent_id: &str) -> Vec<String> {
+        (self.state.locked().triggers.iter())
+            .filter(|trigger| trigger.prompts(agent_id) && !trigger.waits_in_line())
+            .map(|trigger| trigger.title.clone())
+            .collect()
+    }
+
     /// Whether any trigger waits for a closed chat.
     fn any_paused(&self) -> bool {
         let state = self.state.locked();

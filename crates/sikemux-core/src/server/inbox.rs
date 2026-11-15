@@ -646,9 +646,19 @@ pub(crate) fn ever_edited(core: &Core, project: &str, agent_id: &str) -> bool {
 /// Whether a file the agent changed in any turn of its chat holds changes git has not committed,
 /// so a later turn that changed nothing does not hide them.
 pub(crate) fn uncommitted(core: &Core, project: &str, agent_id: &str, cwd: &Path) -> bool {
+    !uncommitted_files(core, project, agent_id, cwd).is_empty()
+}
+
+/// The files the agent changed in `project` that are not committed yet.
+pub(crate) fn uncommitted_files(
+    core: &Core,
+    project: &str,
+    agent_id: &str,
+    cwd: &Path,
+) -> Vec<String> {
     let filter = serde_json::from_value(json!({ "project": project, "agentId": agent_id }));
     let Ok(filter) = filter else {
-        return false;
+        return Vec::new();
     };
     let mut files: Vec<String> = (core.edits().read(project, &filter).into_iter())
         .map(|edit| edit.path)
@@ -657,13 +667,17 @@ pub(crate) fn uncommitted(core: &Core, project: &str, agent_id: &str, cwd: &Path
     files.dedup();
     files.truncate(MAX_STATUS_FILES);
     if files.is_empty() {
-        return false;
+        return Vec::new();
     }
     let mut status = vec!["status", "--porcelain", "--"];
     status.extend(files.iter().map(String::as_str));
-    Git::at(cwd)
-        .text(&status)
-        .is_ok_and(|listed| !listed.trim().is_empty())
+    let Ok(listed) = Git::at(cwd).text(&status) else {
+        return Vec::new();
+    };
+    (listed.lines())
+        .filter_map(|line| line.get(3..))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// How an agent's latest turn left things, as a row about the agent says it.

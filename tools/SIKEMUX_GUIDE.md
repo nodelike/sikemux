@@ -804,7 +804,8 @@ they have opened its last answer. Don't list agents for the person to close.
 committed or handed on, and a worker whose lead has closed, but not one
 another open agent is waiting on. It closes every
 agent it may and lists the rest under `refused` with each one's reason, so
-don't retry the ones it closed. Their chats stay in Recent, and `agent_send`
+don't retry the ones it closed. `left` names commits, files and triggers a close orphaned.
+Their chats stay in Recent, and `agent_send`
 or `agent_spawn` with `resume` reopens one.
 
 ### Standing roles
