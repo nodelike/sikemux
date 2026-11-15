@@ -712,7 +712,7 @@ fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
                 driver
                     .runtime
                     .block_on(driver.client.start_chat(
-                        "opencode:fake".into(),
+                        format!("{}:fake", provider()),
                         PROJECT.into(),
                         None,
                     ))

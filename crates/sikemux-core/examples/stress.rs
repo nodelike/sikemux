@@ -50,7 +50,7 @@ async fn main() -> Result<(), Failure> {
 async fn setup(client: &CoreClient, agent: &str, folder: &str) -> Result<(), Failure> {
     let accounts = json!({
         "profiles": [{
-            "id": "fake", "name": "Fake", "provider": "opencode",
+            "id": "fake", "name": "Fake", "provider": "omp",
             "accent": "#a277ff", "executablePath": agent,
         }],
     });
@@ -126,7 +126,7 @@ async fn chats(client: &CoreClient, count: usize) -> Result<(), Failure> {
     for index in 0..count {
         let started = Instant::now();
         match client
-            .start_chat("opencode:fake".into(), PROJECT.into(), None)
+            .start_chat("omp:fake".into(), PROJECT.into(), None)
             .await
         {
             Ok((agent, _)) => {
@@ -246,7 +246,7 @@ async fn tools(
     let mut refused = Vec::new();
     for index in 0..holders {
         match client
-            .start_chat("opencode:fake".into(), PROJECT.into(), None)
+            .start_chat("omp:fake".into(), PROJECT.into(), None)
             .await
         {
             Ok((agent, _)) => {
@@ -260,7 +260,7 @@ async fn tools(
     let mut probes = Vec::new();
     for _ in 0..10 {
         let (agent, _) = client
-            .start_chat("opencode:fake".into(), PROJECT.into(), None)
+            .start_chat("omp:fake".into(), PROJECT.into(), None)
             .await?;
         probes.push(agent);
     }
@@ -308,7 +308,7 @@ async fn stream(
     let mut refused = Vec::new();
     for index in 0..count {
         match client
-            .start_chat("opencode:fake".into(), PROJECT.into(), None)
+            .start_chat("omp:fake".into(), PROJECT.into(), None)
             .await
         {
             Ok((agent, _)) => agents.push(agent),
