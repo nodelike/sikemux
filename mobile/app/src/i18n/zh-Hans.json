@@ -36,7 +36,6 @@
   "Added to {name}'s draft": "已添加到 {name} 的草稿",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "{days} 天后，你的登录信息、设备密钥和历史记录将被清除，备份会在其后 {backupDays} 天清除。",
   "Against it:": "反对理由：",
-  "Agent": "智能体",
   "Agents": "智能体",
   "All": "全部",
   "All agents": "所有智能体",
@@ -268,7 +267,6 @@
   "Message": "消息",
   "Messaging {what}": "正在发消息给 {what}",
   "mode": "模式",
-  "Model": "模型",
   "Model, {model}": "模型，{model}",
   "move": "移动",
   "Moved to": "已切换到",
@@ -807,5 +805,10 @@
   "{place}nd": "第{place}",
   "{place}rd": "第{place}",
   "{place}th": "第{place}",
-  "about {minutes} min": "约 {minutes} 分钟"
+  "about {minutes} min": "约 {minutes} 分钟",
+  "Search {agent}'s models…": "搜索 {agent} 的模型…",
+  "Show more": "显示更多",
+  "No model matches": "没有匹配的模型",
+  "Default": "默认",
+  "Speed": "速度"
 }

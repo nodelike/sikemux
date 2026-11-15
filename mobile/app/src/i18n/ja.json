@@ -36,7 +36,6 @@
   "Added to {name}'s draft": "{name} の下書きに追加しました",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "{days} 日後にサインイン情報、デバイスキー、履歴が消去され、バックアップはその {backupDays} 日後に消去されます。",
   "Against it:": "反対の理由:",
-  "Agent": "エージェント",
   "Agents": "エージェント",
   "All": "すべて",
   "All agents": "すべてのエージェント",
@@ -268,7 +267,6 @@
   "Message": "メッセージ",
   "Messaging {what}": "{what} にメッセージ送信中",
   "mode": "モード",
-  "Model": "モデル",
   "Model, {model}": "モデル、{model}",
   "move": "移動",
   "Moved to": "移動先",
@@ -807,5 +805,10 @@
   "{place}nd": "{place}番目",
   "{place}rd": "{place}番目",
   "{place}th": "{place}番目",
-  "about {minutes} min": "約{minutes}分"
+  "about {minutes} min": "約{minutes}分",
+  "Search {agent}'s models…": "{agent} のモデルを検索…",
+  "Show more": "さらに表示",
+  "No model matches": "一致するモデルはありません",
+  "Default": "デフォルト",
+  "Speed": "速度"
 }

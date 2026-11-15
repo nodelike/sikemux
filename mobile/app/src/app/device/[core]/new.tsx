@@ -5,7 +5,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { File } from 'expo-file-system';
 
 import { composerPlaceholder } from '@shared/chat/chatStatus';
-import type { ChatMessage, LauncherInfo } from '@shared/wire.generated';
+import type { ChatMessage, ConfigPicker, LauncherInfo } from '@shared/wire.generated';
 import { agentLabel } from '@shared/agents/catalog';
 import { ComposerAttachments } from '@/chat/Attachments';
 import { ChatTitle } from '@/chat/ChatTitle';
@@ -13,6 +13,9 @@ import { newChatDraft, type NewChatDraft } from '@/chat/kept';
 import { Message } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
 import { startChat } from '@/chat/start';
+import { ConfigSheet } from '@/chat/ConfigSheet';
+import { ModelChip } from '@/chat/ModelChip';
+import { currentLabel, useAgents } from '@/chat/sessionConfig';
 import { AttachSheet } from '@/chat/AttachSheet';
 import { YoloEdge, YoloToggle } from '@/chat/YoloToggle';
 import { WorktreeSwitch } from '@/chat/Worktree';
@@ -78,48 +81,6 @@ function sendingOf(draft: string, attachments: Attachment[]): Sending {
     files: new Map(attachments.map((attachment) => [attachment.uri, attachment])),
     since,
   };
-}
-
-function AgentSheet({
-  visible,
-  onClose,
-  launchers,
-  chosen,
-  onChoose,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  launchers: LauncherInfo[];
-  chosen?: LauncherInfo;
-  onChoose: (launcher: LauncherInfo) => void;
-}) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const t = useT();
-  const agents = launchers.filter((launcher, index) => launchers.findIndex((first) => first.provider === launcher.provider) === index);
-  return (
-    <Sheet visible={visible} onClose={onClose}>
-      <SheetLabel>{t('Agent')}</SheetLabel>
-      <View style={styles.agents}>
-        {agents.map((launcher) => {
-          const on = launcher.provider === chosen?.provider;
-          return (
-            <Pressable
-              key={launcher.provider}
-              onPress={() => onChoose(on && chosen ? chosen : launcher)}
-              style={[styles.agent, on && styles.agentOn]}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}>
-              <AgentIcon provider={launcher.provider} size={22} />
-              <Text style={[styles.agentText, on && { color: colors.ink }]} numberOfLines={1}>
-                {agentLabel(launcher.provider)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </Sheet>
-  );
 }
 
 function SettingsSheet({
@@ -190,11 +151,13 @@ export default function NewChat() {
   const workspace = live.snapshot?.workspace;
   const [launcherId, setLauncherId] = useState<string | undefined>(linkedLauncher);
   const [chosenMode, setChosenMode] = useState<string>();
+  /** The model and effort picked for the chat before it starts, by their config ids. */
+  const [chosenConfig, setChosenConfig] = useState<Record<string, string>>({});
   const [projectId, setProjectId] = useState<string | undefined>(linkedProject);
   const kept = useMemo(() => newChatDraft(core), [core]);
   const [held] = useState(() => kept.load());
   const [draft, setDraft] = useState(held?.text ?? '');
-  const [sheet, setSheet] = useState<'agent' | 'project' | 'attach' | 'stash' | 'settings'>();
+  const [sheet, setSheet] = useState<'model' | 'project' | 'attach' | 'stash' | 'settings'>();
   const [attachments, setAttachments] = useState<Attachment[]>(
     () => held?.attachments.filter((attachment) => new File(attachment.uri).exists) ?? [],
   );
@@ -223,6 +186,10 @@ export default function NewChat() {
     [workspace, projectId],
   );
   const mode = chosenMode ?? launcher?.permissionMode ?? '';
+  const agents = useAgents(core);
+  /** `picker` with what the person picked before the chat starts as its current choice. */
+  const picked = (picker: ConfigPicker | null | undefined): ConfigPicker | undefined =>
+    picker ? { ...picker, current: chosenConfig[picker.id] ?? picker.current } : undefined;
   const worktree = (flipped?.project === project?.id ? flipped?.on : undefined) ?? project?.worktreeDefault ?? false;
   const flipWorktree = () => {
     if (!project || live.status !== 'open') return;
@@ -343,6 +310,9 @@ export default function NewChat() {
         launcherId: launcher.id,
         projectId: project.id,
         mode: chosenMode,
+        config: [launcher.model?.id, launcher.effort?.id].flatMap((id) =>
+          id && chosenConfig[id] !== undefined ? [{ id, value: chosenConfig[id] }] : [],
+        ),
         text,
         attachments: shown.attachments,
         worktree,
@@ -478,19 +448,13 @@ export default function NewChat() {
                 />
               ) : null}
               {launcher ? (
-                <Pressable
-                  style={styles.picker}
-                  onPress={() => setSheet('agent')}
+                <ModelChip
+                  provider={launcher.provider}
+                  model={currentLabel(picked(launcher.model))}
+                  effort={currentLabel(picked(launcher.effort))}
                   disabled={Boolean(started)}
-                  hitSlop={5}
-                  accessibilityRole="button"
-                  accessibilityLabel={t('Agent')}>
-                  <AgentIcon provider={launcher.provider} size={16} />
-                  <Text style={styles.pickerText}>{agentLabel(launcher.provider)}</Text>
-                  <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
-                    <Icon name="IconChevron" size={10} color={colors.accent} />
-                  </View>
-                </Pressable>
+                  onPress={() => setSheet('model')}
+                />
               ) : null}
               <View style={{ flex: 1 }} />
               <Pressable
@@ -548,17 +512,26 @@ export default function NewChat() {
         onStash={fromStash}
         onStashPrompt={stashable ? prompt.stash : undefined}
       />
-      <AgentSheet
-        visible={sheet === 'agent'}
-        onClose={() => setSheet(undefined)}
-        launchers={workspace?.launchers ?? []}
-        chosen={launcher}
-        onChoose={(next) => {
-          setLauncherId(next.id);
-          setChosenMode(undefined);
-          setSheet(undefined);
-        }}
-      />
+      {launcher ? (
+        <ConfigSheet
+          visible={sheet === 'model'}
+          onClose={() => setSheet(undefined)}
+          provider={launcher.provider}
+          agents={agents}
+          onAgent={(agent) => {
+            setLauncherId(workspace?.launchers.find((known) => known.provider === agent)?.id);
+            setChosenMode(undefined);
+            setChosenConfig({});
+          }}
+          model={picked(launcher.model)}
+          effort={picked(launcher.effort)}
+          speed={undefined}
+          onPick={(picker, value) => {
+            setChosenConfig((chosen) => ({ ...chosen, [picker.id]: value }));
+            if (picker.id === launcher.model?.id) setSheet(undefined);
+          }}
+        />
+      ) : null}
       {launcher ? (
         <SettingsSheet
           visible={sheet === 'settings'}
@@ -611,25 +584,8 @@ const makeStyles = (colors: Palette) => {
     yoloComposer: { borderColor: 'transparent' },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-    picker: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 7 },
-    pickerText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.accent },
     more: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
     send: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
-
-    agents: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    agent: {
-      width: '23.6%',
-      height: 66,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.raised,
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 6,
-    },
-    agentOn: { backgroundColor: colors.active, borderColor: colors.borderStrong },
-    agentText: { fontFamily: fonts.ui, fontSize: 12, color: colors.tertiary },
 
     sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4 },
     sheetTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.35, color: colors.ink },

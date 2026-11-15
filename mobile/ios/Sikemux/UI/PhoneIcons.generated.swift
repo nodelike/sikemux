@@ -100,6 +100,10 @@ extension Icons {
         IconShape(d: "M6.453 15h11.094", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M8.5 2h7", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
     ])
+    static let gauge = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
+        IconShape(d: "m12 14 4-4", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+        IconShape(d: "M3.34 19a10 10 0 1 1 17.32 0", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
+    ])
     static let git = IconDef(viewBox: ViewBox(x: 0, y: 0, width: 24, height: 24), shapes: [
         IconShape(d: "M15 6a9 9 0 0 0-9 9V3", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
         IconShape(d: "M21 6a3 3 0 1 1 -6 0a3 3 0 1 1 6 0z", style: .stroke, opacity: 1, evenOdd: false, translate: (0, 0), lineWidth: 2),
@@ -495,6 +499,7 @@ extension Icons {
         case "IconFilePlus": return filePlus
         case "IconFolder": return folder
         case "IconFlask": return flask
+        case "IconGauge": return gauge
         case "IconGit": return git
         case "IconGlobe": return globe
         case "IconGrok": return mark("grok")

@@ -11,7 +11,7 @@ struct ComposerQuestion {
 }
 
 /// The bottom of a chat: what waits on the person docked above the composer, the menus over it, and the composer
-/// with its bar of attach, stash, YOLO, model, effort and context, and send or stop.
+/// with its bar of attach, stash, YOLO, model and effort, context, and send or stop.
 struct Composer: View {
     @Environment(\.palette) private var palette
     let session: ChatSession
@@ -177,11 +177,16 @@ struct Composer: View {
         )
         .liftedSheet(shown: $configuring) {
             ConfigSheet(
-                provider: provider, model: rows.model, effort: rows.effort, usage: rows.usage,
+                provider: provider, agents: Self.agents(core: core),
+                onAgent: { agent in
+                    configuring = false
+                    session.handOff(to: agent)
+                },
+                model: rows.model, effort: rows.effort, speed: rows.speed, usage: rows.usage,
                 expiredCache: session.expiredCache, onSummarise: session.setSummarise
             ) { picker, value in
                 session.setConfig(picker.id, value)
-                configuring = false
+                if picker.id == rows.model?.id { configuring = false }
             }
         }
     }
@@ -204,13 +209,11 @@ struct Composer: View {
             YoloToggle(
                 core: core, mode: session.permissionMode, provider: provider,
                 locked: modeLocked, onToggle: session.setPermissionMode)
-            // The model keeps its name; the effort's shortens first, as on the Mac.
-            if let model {
-                Capped(width: 160) { picker(model, accent: true, label: String(localized: "Model, \(model)")) }
-                    .layoutPriority(1)
-            }
-            if let effort {
-                picker(effort, accent: false, label: String(localized: "Effort, \(effort)")).layoutPriority(-1)
+            if model != nil || effort != nil {
+                Capped(width: 240) {
+                    ModelChip(provider: provider, model: model, effort: effort) { configuring = true }
+                }
+                .layoutPriority(1)
             }
             if let usage = rows.usage {
                 ContextRing(
@@ -222,26 +225,6 @@ struct Composer: View {
             sendOrStop(sendable: sendable, uploading: uploading)
         }
         .padding(.top, 6)
-    }
-
-    private func picker(_ value: String, accent: Bool, label: String) -> some View {
-        Button {
-            configuring = true
-        } label: {
-            HStack(spacing: 6) {
-                if accent { AgentMark(provider: provider, size: 16) }
-                Text(value).font(Theme.ui(12.5)).foregroundStyle(accent ? palette.accent : palette.inkDim).lineLimit(1)
-                IconView(icon: Icons.chevron, size: 10)
-                    .foregroundStyle(accent ? palette.accent : palette.inkDim)
-                    .rotationEffect(.degrees(90))
-                    .opacity(0.6)
-            }
-            .padding(.horizontal, 7)
-            .frame(height: 34)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(ActiveFill(radius: 7))
-        .accessibilityLabel(label)
     }
 
     @ViewBuilder
@@ -402,6 +385,14 @@ struct Composer: View {
     }
 
     /// The name of the value a picker holds, or the value itself when its choices do not list it.
+    /// The agents the host can start, each once, in the order it lists them.
+    static func agents(core: String) -> [String] {
+        var seen = Set<String>()
+        return (Hub.shared.live(core).view?.workspace.launchers ?? []).map(\.provider).filter {
+            seen.insert($0).inserted
+        }
+    }
+
     static func label(_ picker: ConfigPicker?) -> String? {
         guard let picker else { return nil }
         if let found = picker.choices.first(where: { $0.value == picker.current }) { return found.label }
@@ -452,5 +443,44 @@ private struct Capped: Layout {
 
     private func capped(_ proposal: ProposedViewSize) -> ProposedViewSize {
         ProposedViewSize(width: min(proposal.width ?? width, width), height: proposal.height)
+    }
+}
+
+/// The model and its effort in one chip, as on the Mac, such as "Opus 5.5 · ◔ High"; the effort's word shortens
+/// first. With neither said yet it names the agent.
+struct ModelChip: View {
+    @Environment(\.palette) private var palette
+    @Environment(\.hostCore) private var core
+    let provider: String
+    let model: String?
+    let effort: String?
+    let action: () -> Void
+
+    var body: some View {
+        let named = model ?? (effort == nil ? Catalog.label(provider, core: core) : nil)
+        Button(action: action) {
+            HStack(spacing: 5) {
+                if let named {
+                    AgentMark(provider: provider, size: 16)
+                    Text(named).font(Theme.ui(12.5)).foregroundStyle(palette.accent).lineLimit(1).layoutPriority(1)
+                }
+                if let effort {
+                    if named != nil { Text(verbatim: "·").font(Theme.ui(12.5)).foregroundStyle(palette.inkFaint) }
+                    IconView(icon: Icons.gauge, size: 13).foregroundStyle(palette.inkDim)
+                    Text(effort).font(Theme.ui(12.5)).foregroundStyle(palette.inkDim).lineLimit(1)
+                }
+                IconView(icon: Icons.chevron, size: 10)
+                    .foregroundStyle(named != nil ? palette.accent : palette.inkDim)
+                    .rotationEffect(.degrees(90))
+                    .opacity(0.6)
+            }
+            .padding(.horizontal, 7)
+            .frame(height: 34)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(ActiveFill(radius: 7))
+        .accessibilityLabel(
+            [named.map { String(localized: "Model, \($0)") }, effort.map { String(localized: "Effort, \($0)") }]
+                .compactMap { $0 }.joined(separator: ", "))
     }
 }

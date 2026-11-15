@@ -36,7 +36,6 @@
   "Added to {name}'s draft": "{name}의 초안에 추가됨",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "{days}일 후 로그인 정보, 기기 키, 기록이 지워지고, 백업은 그로부터 {backupDays}일 뒤에 지워집니다.",
   "Against it:": "반대 이유:",
-  "Agent": "에이전트",
   "Agents": "에이전트",
   "All": "전체",
   "All agents": "모든 에이전트",
@@ -268,7 +267,6 @@
   "Message": "메시지",
   "Messaging {what}": "{what}에게 메시지 보내는 중",
   "mode": "모드",
-  "Model": "모델",
   "Model, {model}": "모델, {model}",
   "move": "이동",
   "Moved to": "이동함",
@@ -807,5 +805,10 @@
   "{place}nd": "{place}번째",
   "{place}rd": "{place}번째",
   "{place}th": "{place}번째",
-  "about {minutes} min": "약 {minutes}분"
+  "about {minutes} min": "약 {minutes}분",
+  "Search {agent}'s models…": "{agent} 모델 검색…",
+  "Show more": "더 보기",
+  "No model matches": "일치하는 모델 없음",
+  "Default": "기본값",
+  "Speed": "속도"
 }

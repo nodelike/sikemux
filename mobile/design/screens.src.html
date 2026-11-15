@@ -422,7 +422,10 @@
   .yolo.on .ico { color: var(--acc); }
   .yolo.on b { font-weight: 560; color: transparent; background: linear-gradient(90deg, var(--acc), var(--cmd), var(--danger), var(--warn), var(--live), var(--acc)); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; }
   .picker { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 7px; border-radius: 7px; font-size: 12.5px; color: var(--ink-dim); white-space: nowrap; }
-  .picker.model { color: var(--acc); }
+  .picker.model { color: var(--acc); gap: 5px; }
+  .picker .dot { font-style: normal; color: var(--ink-faint); }
+  .picker.model > span:first-child svg { width: 16px; height: 16px; flex: none; }
+  .picker .eff { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; }
   .picker .ch .ico { transform: rotate(90deg); opacity: .6; }
   .ring { width: 34px; height: 34px; display: grid; place-items: center; flex: none; }
   .spacer { flex: 1; }
@@ -706,6 +709,30 @@
   .ring-tokens { height: 34px; display: inline-flex; align-items: center; gap: 5px; padding: 0 10px; flex: none; font-family: var(--mono); font-size: 12px; color: var(--acc); }
   .ring-tokens .ctx { --c: var(--acc); }
 
+  .harness-strip { display: flex; gap: 6px; padding-bottom: 10px; }
+  .harness-strip > span { width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center; }
+  .harness-strip > span.on { background: var(--surface-active); }
+  .harness-strip svg { width: 20px; height: 20px; }
+  .ps-rows { display: flex; flex-direction: column; gap: 2px; }
+  .ps-rows .sec { display: flex; align-items: center; gap: 10px; padding: 18px 8px 6px; font-size: 11px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: var(--text-tertiary); }
+  .ps-rows .sec::after { content: ""; flex: 1; height: 1px; background: color-mix(in oklab, var(--ink) 9%, transparent); }
+  .ps-rows .it { display: flex; align-items: center; gap: 11px; height: 42px; padding: 0 10px; border-radius: 9px; font-size: 15px; color: var(--text-secondary); }
+  .ps-rows .it.on { background: var(--surface-active); color: var(--text-primary); }
+  .ps-rows .it .dm { font-size: 12px; color: var(--text-tertiary); }
+  .ps-rows .it > span:first-child svg { width: 17px; height: 17px; flex: none; }
+  .ps-rows .it .k { margin-left: auto; color: var(--acc); }
+  .ps-rows .it.more { color: var(--text-tertiary); }
+  .ps-effort { display: flex; align-items: center; gap: 6px; padding: 14px 6px 8px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); }
+  .ps-effort .r { margin-left: auto; font-size: 12px; font-weight: 400; }
+  .effort-steps { display: flex; gap: 3px; padding: 3px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-raised); }
+  .effort-steps > span { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 9px 0; border-radius: 9px; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+  .effort-steps > span.on { background: var(--surface-active); color: var(--text-primary); }
+  .bars { display: flex; align-items: flex-end; gap: 1.5px; height: 11px; }
+  .bars i { width: 2.5px; border-radius: 1px; background: var(--border-strong); }
+  .bars i:nth-child(1) { height: 3px; } .bars i:nth-child(2) { height: 5px; } .bars i:nth-child(3) { height: 7px; } .bars i:nth-child(4) { height: 9px; } .bars i:nth-child(5) { height: 11px; }
+  .bars.l1 i:nth-child(-n+1), .bars.l2 i:nth-child(-n+2), .bars.l3 i:nth-child(-n+3), .bars.l4 i:nth-child(-n+4), .bars.l5 i { background: var(--acc); }
+  .ps-speed { display: flex; align-items: center; justify-content: space-between; padding: 14px 0 0 6px; font-size: 13px; font-weight: 600; color: var(--text-tertiary); }
+  .ps-speed .track { margin: 0; width: 200px; }
   .agent-switch { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .agent-switch > span { height: 64px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-raised); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--text-tertiary); }
   .agent-switch > span.on { background: var(--surface-active); border-color: var(--border-strong); color: var(--text-primary); }
@@ -2459,7 +2486,7 @@
 <!-- ================================================================ -->
 <section class="flow on-host">
   <h2>An agent</h2>
-  <p>The Mac's chat pane, line for line: your messages in a bubble on the right, the agent's prose with no bubble, its thinking in faint italics, tool calls as a tree with the coloured verbs, open while the agent is still adding to them and folded to "N tool calls" once it moves on. Waits on the same thing back to back share one row, which counts them, as in ×3, and the run's count still counts each. Once a turn ends, everything before its reply folds under the agent's logo and "Worked for 48s · 1 tool call" with the Mac's rule under it, or "Thought for 3s" when the turn only thought, and a tap opens it again; one opened stays open after leaving the chat and coming back. Then the working line with the agent's logo breathing. No line runs under the header: the transcript fades out under it and above the composer, over the backdrop. The composer is the Mac's: attach, YOLO, model, effort, context ring, send or stop. What the agent still has going sits in one line docked on the composer, and opens into a sheet.</p>
+  <p>The Mac's chat pane, line for line: your messages in a bubble on the right, the agent's prose with no bubble, its thinking in faint italics, tool calls as a tree with the coloured verbs, open while the agent is still adding to them and folded to "N tool calls" once it moves on. Waits on the same thing back to back share one row, which counts them, as in ×3, and the run's count still counts each. Once a turn ends, everything before its reply folds under the agent's logo and "Worked for 48s · 1 tool call" with the Mac's rule under it, or "Thought for 3s" when the turn only thought, and a tap opens it again; one opened stays open after leaving the chat and coming back. Then the working line with the agent's logo breathing. No line runs under the header: the transcript fades out under it and above the composer, over the backdrop. The composer is the Mac's: attach, YOLO, the model and effort in one chip, context ring, send or stop. What the agent still has going sits in one line docked on the composer, and opens into a sheet.</p>
   <div class="phones">
 
     <figure><div class="phone"><div class="island"></div>
@@ -2488,8 +2515,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -2605,8 +2631,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -2673,8 +2698,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -2813,8 +2837,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -2848,8 +2871,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -2888,8 +2910,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -2917,8 +2938,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:46"></i></span>
               <span class="spacer"></span>
               <span class="send off">{{IconArrowUp:16}}</span>
@@ -2949,8 +2969,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:46"></i></span>
               <span class="spacer"></span>
               <span class="send off">{{IconArrowUp:16}}</span>
@@ -3372,8 +3391,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -3403,8 +3421,7 @@
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send off">{{IconArrowUp:16}}</span>
@@ -3439,8 +3456,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -3470,8 +3486,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -3495,15 +3510,12 @@ expected 1 write, got 2</div>
         <div class="scrim"></div>
         <div class="sheet picker-sheet">
           <div class="grabber"></div>
-          <div class="ps-head"><span class="claude">{{IconClaude:20}}</span><b>Claude</b><span class="ps-plan">Max</span></div>
-          <div class="ps-label">Model</div>
-          <div class="group">
-            <div class="row on"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Opus 4.6</div></div><span class="check">{{IconCheck:17}}</span></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Sonnet 4.6</div></div></div>
-            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Haiku 4.5</div></div></div>
-          </div>
-          <div class="ps-label">Effort</div>
-          <div class="track three"><span>Low</span><span>Medium</span><span class="on">High</span></div>
+          <div class="harness-strip"><span class="on"><span class="claude">{{IconClaude:20}}</span></span><span><span class="codex">{{IconCodex:20}}</span></span><span><span class="hermes">{{IconHermes:20}}</span></span><span><span class="opencode">{{IconOpenCode:20}}</span></span><span><span class="grok">{{IconGrok:20}}</span></span><span><span class="pi">{{IconPi:20}}</span></span></div>
+          <div class="search">{{IconSearch:18}}Search Claude's models…</div>
+          <div class="ps-rows"><div class="sec">Anthropic</div><div class="it on"><span class="claude">{{IconClaude:17}}</span>Opus 5.5 <span class="dm">Default</span><span class="k">{{IconCheck:15}}</span></div><div class="it"><span class="claude">{{IconClaude:17}}</span>Fable 5.2</div><div class="it"><span class="claude">{{IconClaude:17}}</span>Sonnet 5.5</div><div class="it"><span class="claude">{{IconClaude:17}}</span>Haiku 5.5</div><div class="it more">{{IconChevron:14}}Show more</div></div>
+          <div class="ps-effort">{{IconGauge:13}}Effort<span class="r">Opus 5.5</span></div>
+          <div class="effort-steps"><span><span class="bars l1"><i></i><i></i><i></i><i></i><i></i></span>Low</span><span><span class="bars l2"><i></i><i></i><i></i><i></i><i></i></span>Medium</span><span class="on"><span class="bars l3"><i></i><i></i><i></i><i></i><i></i></span>High</span><span><span class="bars l4"><i></i><i></i><i></i><i></i><i></i></span>Extra high</span><span><span class="bars l5"><i></i><i></i><i></i><i></i><i></i></span>Max</span></div>
+          <div class="ps-speed">Speed<div class="track"><span class="on">Standard</span><span>{{IconBolt:12}}Fast</span></div></div>
           <div class="ps-context">
             <div class="ps-ctx-top"><span>Context</span><span class="m">84k of 150k</span></div>
             <div class="ps-bar"><i style="width:56%"></i></div>
@@ -3512,7 +3524,7 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Model and effort</b><div class="note">Tapping the model or effort opens one sheet: the agent and its plan, the models with the agent's icon and a check on the chosen one, effort as a three-way switch, and how much of the context is used before the agent compacts it, in the provider’s colour, with where it compacts and the whole window under it, with what the session has cost when the agent says.</div></figcaption>
+      <figcaption><b>Model and effort</b><div class="note">The composer's one chip reads the model, the gauge and the effort, as on the Mac ("Opus 5.5 · ◔ High"); the effort's word shortens first. A tap opens the Mac's model menu laid out for a phone: the agents in a strip across the top, where another hands the chat to it; a search over the agent's models; the models under their maker in spaced capitals, the agent's icon on each, "Default" on its default and the accent check on the chosen one, with older releases folded under Show more; then the effort as steps led by the Mac's strength bars, with the model it applies to on the right, and Speed when the agent offers a faster tier. Picking a model closes the sheet; an effort or speed keeps it open. While a search is typed, the effort and everything under it fold away. Under them, how much of the context is used before the agent compacts it, in the provider’s colour, with where it compacts and the whole window under it, with what the session has cost when the agent says.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3528,8 +3540,8 @@ expected 1 write, got 2</div>
         <div class="sheet picker-sheet">
           <div class="grabber"></div>
           <div class="ps-head"><span class="claude">{{IconClaude:20}}</span><b>Claude</b><span class="ps-plan">Max</span></div>
-          <div class="ps-label">Effort</div>
-          <div class="track three"><span>Low</span><span>Medium</span><span class="on">High</span></div>
+          <div class="ps-effort">{{IconGauge:13}}Effort<span class="r"></span></div>
+          <div class="effort-steps"><span><span class="bars l1"><i></i><i></i><i></i><i></i><i></i></span>Low</span><span><span class="bars l2"><i></i><i></i><i></i><i></i><i></i></span>Medium</span><span class="on"><span class="bars l3"><i></i><i></i><i></i><i></i><i></i></span>High</span><span><span class="bars l4"><i></i><i></i><i></i><i></i><i></i></span>Extra high</span><span><span class="bars l5"><i></i><i></i><i></i><i></i><i></i></span>Max</span></div>
           <div class="ps-context">
             <div class="ps-ctx-top"><span>Context</span><span class="m">15% · 152k of 1M</span></div>
             <div class="ps-bar"><i style="width:15%"></i></div>
@@ -3577,25 +3589,15 @@ expected 1 write, got 2</div>
         <div class="scrim"></div>
         <div class="sheet picker-sheet">
           <div class="grabber"></div>
-          <div class="ps-label" style="padding-top:4px">Agent</div>
-          <div class="agent-switch">
-            <span><span class="claude">{{IconClaude:20}}</span>Claude</span>
-            <span class="on"><span class="codex">{{IconCodex:20}}</span>Codex</span>
-            <span><span class="hermes">{{IconHermes:20}}</span>Hermes</span>
-            <span><span class="opencode">{{IconOpenCode:20}}</span>OpenCode</span>
-          </div>
-          <div class="ps-label">Model</div>
-          <div class="group">
-            <div class="row on"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">GPT-5.5</div></div><span class="check">{{IconCheck:17}}</span></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">GPT-5.5 mini</div></div></div>
-            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">GPT-5.4</div></div></div>
-          </div>
-          <div class="ps-label">Effort</div>
-          <div class="track three"><span>Low</span><span class="on">Medium</span><span>High</span></div>
+          <div class="harness-strip"><span><span class="claude">{{IconClaude:20}}</span></span><span class="on"><span class="codex">{{IconCodex:20}}</span></span><span><span class="hermes">{{IconHermes:20}}</span></span><span><span class="opencode">{{IconOpenCode:20}}</span></span><span><span class="grok">{{IconGrok:20}}</span></span><span><span class="pi">{{IconPi:20}}</span></span></div>
+          <div class="search">{{IconSearch:18}}Search Codex's models…</div>
+          <div class="ps-rows"><div class="sec">OpenAI</div><div class="it on"><span class="codex">{{IconCodex:17}}</span>GPT-5.5<span class="k">{{IconCheck:15}}</span></div><div class="it"><span class="codex">{{IconCodex:17}}</span>GPT-5.5 mini</div><div class="it"><span class="codex">{{IconCodex:17}}</span>GPT-5.4</div></div>
+          <div class="ps-effort">{{IconGauge:13}}Effort<span class="r">GPT-5.5</span></div>
+          <div class="effort-steps"><span><span class="bars l2"><i></i><i></i><i></i><i></i><i></i></span>Low</span><span class="on"><span class="bars l4"><i></i><i></i><i></i><i></i><i></i></span>Medium</span><span><span class="bars l5"><i></i><i></i><i></i><i></i><i></i></span>High</span></div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>Model and effort, new chat</b><div class="note">Before the first message the agent is still open, so the sheet starts with an agent switch and the models follow it. Context is left out: there is none yet.</div></figcaption>
+      <figcaption><b>Model and effort, new chat</b><div class="note">Before the first message the new chat's chip opens the same sheet: a tap in the strip switches the agent and the models follow it, and the model and effort picked are set on the chat as it starts. Context is left out: there is none yet.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3765,8 +3767,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:58"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -3802,8 +3803,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:58"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -3873,8 +3873,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:58"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -3916,8 +3915,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:74"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -3957,8 +3955,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:58"></i></span>
               <span class="spacer"></span>
               <span class="send"><i></i></span>
@@ -3990,8 +3987,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:58"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -4024,8 +4020,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:58"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -4056,8 +4051,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -4190,8 +4184,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:58"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -4219,8 +4212,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:74"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -4286,8 +4278,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<i class="dot">·</i><span class="eff">{{IconGauge:13}}Medium</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx codex" style="--p:74"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -4479,8 +4470,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
               <span class="spacer"></span>
               <span class="send">{{IconArrowUp:16}}</span>
@@ -4766,8 +4756,7 @@ expected 1 write, got 2</div>
             <div class="bar">
               <span class="ib">{{IconPlus:18}}</span>
               <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
-              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
-              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<i class="dot">·</i><span class="eff">{{IconGauge:13}}High</span><span class="ch">{{IconChevron:10}}</span></span>
               <span class="spacer"></span>
               <span class="ib">{{IconMic:17}}</span>
               <span class="send off">{{IconArrowUp:16}}</span>

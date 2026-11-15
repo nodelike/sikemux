@@ -13,6 +13,8 @@ type FirstMessage = {
   launcherId: string;
   projectId: string;
   mode: string | undefined;
+  /** The model and effort picked before the chat started, model first, since the efforts on offer depend on it. */
+  config: { id: string; value: string }[];
   text: string;
   attachments: Attachment[];
   worktree: boolean;
@@ -44,6 +46,7 @@ export async function startChat(connection: ConnectionLike, first: FirstMessage,
     if (!agentId) {
       agentId = await connection.startChat(first.launcherId, first.projectId, first.mode);
       progress.started(agentId);
+      for (const { id, value } of first.config) await connection.setChatConfig(agentId, id, value);
     }
     if (first.worktree && !inWorktree) {
       progress.step(translate('Creating worktree'));

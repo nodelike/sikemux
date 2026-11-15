@@ -36,7 +36,6 @@
   "Added to {name}'s draft": "Añadido al borrador de {name}",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "Tras {days} días se borran tu inicio de sesión, las claves de los dispositivos y el historial, y las copias de seguridad {backupDays} días después.",
   "Against it:": "En contra:",
-  "Agent": "Agente",
   "Agents": "Agentes",
   "All": "Todos",
   "All agents": "Todos los agentes",
@@ -268,7 +267,6 @@
   "Message": "Mensaje",
   "Messaging {what}": "Escribiendo a {what}",
   "mode": "modo",
-  "Model": "Modelo",
   "Model, {model}": "Modelo, {model}",
   "move": "mover",
   "Moved to": "Movido a",
@@ -807,5 +805,10 @@
   "{place}nd": "{place}.º",
   "{place}rd": "{place}.º",
   "{place}th": "{place}.º",
-  "about {minutes} min": "unos {minutes} min"
+  "about {minutes} min": "unos {minutes} min",
+  "Search {agent}'s models…": "Buscar modelos de {agent}…",
+  "Show more": "Mostrar más",
+  "No model matches": "Ningún modelo coincide",
+  "Default": "Predeterminado",
+  "Speed": "Velocidad"
 }

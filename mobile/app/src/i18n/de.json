@@ -36,7 +36,6 @@
   "Added to {name}'s draft": "Zum Entwurf von {name} hinzugefügt",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "Nach {days} Tagen werden deine Anmeldung, Geräteschlüssel und dein Verlauf gelöscht, die Backups {backupDays} Tage später.",
   "Against it:": "Dagegen spricht:",
-  "Agent": "Agent",
   "Agents": "Agenten",
   "All": "Alle",
   "All agents": "Alle Agenten",
@@ -268,7 +267,6 @@
   "Message": "Nachricht",
   "Messaging {what}": "Schreibt an {what}",
   "mode": "Modus",
-  "Model": "Modell",
   "Model, {model}": "Modell, {model}",
   "move": "verschieben",
   "Moved to": "Gewechselt zu",
@@ -807,5 +805,10 @@
   "{place}nd": "{place}.",
   "{place}rd": "{place}.",
   "{place}th": "{place}.",
-  "about {minutes} min": "etwa {minutes} Min."
+  "about {minutes} min": "etwa {minutes} Min.",
+  "Search {agent}'s models…": "{agent}-Modelle durchsuchen…",
+  "Show more": "Mehr anzeigen",
+  "No model matches": "Kein Modell passt",
+  "Default": "Standard",
+  "Speed": "Tempo"
 }

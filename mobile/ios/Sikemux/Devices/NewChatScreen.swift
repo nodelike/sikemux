@@ -19,7 +19,7 @@ struct NewChatScreen: View {
 }
 
 private struct NewChatContent: View {
-    enum SheetShown { case agent, project, settings, attach, stash }
+    enum SheetShown { case model, project, settings, attach, stash }
 
     /// What the screen held when it was left, so coming back to it finds it as it was.
     struct Kept: Codable {
@@ -46,6 +46,8 @@ private struct NewChatContent: View {
     @State var projectId: String?
     @State var launcherId: String?
     @State private var chosenMode: PermissionMode?
+    /// The model, effort and speed picked for the chat before it starts, by their config ids.
+    @State private var chosenConfig: [String: String] = [:]
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
     @State private var chips: [StashItem] = []
@@ -147,11 +149,20 @@ private struct NewChatContent: View {
             }
             composer(launcher: launcher, project: project, worktree: worktree, sendable: sendable, starting: starting)
         }
-        .sheet(shown: Binding(get: { sheet == .agent }, set: { if !$0 { sheet = nil } })) {
-            AgentPicker(launchers: workspace?.launchers ?? [], chosen: launcher) {
-                launcherId = $0.id
-                chosenMode = nil
-                sheet = nil
+        .sheet(shown: Binding(get: { sheet == .model }, set: { if !$0 { sheet = nil } })) {
+            if let launcher {
+                ConfigSheet(
+                    provider: launcher.provider, agents: Composer.agents(core: core),
+                    onAgent: { agent in
+                        launcherId = workspace?.launchers.first { $0.provider == agent }?.id
+                        chosenMode = nil
+                        chosenConfig = [:]
+                    },
+                    model: picked(launcher.model), effort: picked(launcher.effort), speed: nil
+                ) { picker, value in
+                    chosenConfig[picker.id] = value
+                    if picker.id == launcher.model?.id { sheet = nil }
+                }
             }
         }
         .sheet(shown: Binding(get: { sheet == .settings }, set: { if !$0 { sheet = nil } })) {
@@ -253,23 +264,11 @@ private struct NewChatContent: View {
                             core: core, mode: chosenMode ?? launcher.permissionMode, provider: launcher.provider,
                             locked: starting || started != nil
                         ) { chosenMode = $0 }
-                        Button {
-                            sheet = .agent
-                        } label: {
-                            HStack(spacing: 6) {
-                                AgentMark(provider: launcher.provider, size: 16)
-                                Text(Catalog.label(launcher.provider, core: core)).font(Theme.ui(12.5)).foregroundStyle(
-                                    palette.accent)
-                                IconView(icon: Icons.chevron, size: 10).foregroundStyle(palette.accent).rotationEffect(
-                                    .degrees(90)
-                                ).opacity(0.6)
-                            }
-                            .padding(.horizontal, 7)
-                            .frame(height: 34)
-                        }
-                        .buttonStyle(PressFade())
+                        ModelChip(
+                            provider: launcher.provider, model: Composer.label(picked(launcher.model)),
+                            effort: Composer.label(picked(launcher.effort))
+                        ) { sheet = .model }
                         .disabled(started != nil)
-                        .accessibilityLabel("Agent")
                     }
                     Spacer()
                     Button {
@@ -467,6 +466,13 @@ private struct NewChatContent: View {
     }
 
     /// Starts the agent, makes its worktree when asked, and leaves the message with the chat to go once it is attached.
+    /// `picker` with what the person picked before the chat starts as its current choice.
+    private func picked(_ picker: ConfigPicker?) -> ConfigPicker? {
+        guard var picker else { return nil }
+        if let value = chosenConfig[picker.id] { picker.current = value }
+        return picker
+    }
+
     private func start(launcher: LauncherInfo?, project: ProjectInfo?, worktree: Bool) {
         let text = StashWords.withContext(
             draft.trimmingCharacters(in: .whitespacesAndNewlines), chips.map(StashWords.contextChip))
@@ -495,6 +501,12 @@ private struct NewChatContent: View {
                         launcher: launcher.id, project: project.id, permissionMode: chosenMode?.rawValue)
                     agentId = made
                     started = made
+                    // The model goes first, since the efforts on offer depend on it.
+                    for configId in [launcher.model?.id, launcher.effort?.id].compactMap({ $0 }) {
+                        if let value = chosenConfig[configId] {
+                            _ = try await connection.setChatConfig(agentId: made, configId: configId, value: value)
+                        }
+                    }
                 }
                 guard let agentId else { return }
                 if worktree && !inWorktree {
@@ -546,48 +558,6 @@ private struct NewChatContent: View {
         attachments = files ?? sending?.attachments ?? attachments
         sending = nil
         step = nil
-    }
-}
-
-private struct AgentPicker: View {
-    @Environment(\.palette) private var palette
-    @Environment(\.hostCore) private var core
-    let launchers: [LauncherInfo]
-    let chosen: LauncherInfo?
-    let onChoose: (LauncherInfo) -> Void
-
-    var body: some View {
-        var seen = Set<String>()
-        let agents = launchers.filter { seen.insert($0.provider).inserted }
-        VStack(spacing: 0) {
-            SheetLabel("Agent")
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
-                ForEach(agents, id: \.provider) { launcher in
-                    let on = launcher.provider == chosen?.provider
-                    Button {
-                        onChoose(on ? chosen ?? launcher : launcher)
-                    } label: {
-                        VStack(spacing: 6) {
-                            AgentMark(provider: launcher.provider, size: 22)
-                            Text(Catalog.label(launcher.provider, core: core))
-                                .font(Theme.ui(12))
-                                .foregroundStyle(on ? palette.ink : palette.tertiary)
-                                .lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 66)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(
-                                on ? palette.active : palette.raised)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(
-                                on ? palette.borderStrong : palette.border, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(on ? [.isSelected] : [])
-                }
-            }
-        }
     }
 }
 

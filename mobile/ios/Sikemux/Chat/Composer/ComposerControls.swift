@@ -42,6 +42,7 @@ struct YoloToggle: View {
             Text(on ? "YOLO" : "SAFE")
                 .font(Theme.ui(11, .semibold))
                 .tracking(0.9)
+                .fixedSize()
                 .foregroundStyle(
                     on ? AnyShapeStyle(Self.rainbow(palette)) : AnyShapeStyle(palette.inkFaint))
         }

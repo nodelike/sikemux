@@ -374,6 +374,7 @@ const PHONE_ICONS = [
   "IconFilePlus",
   "IconFolder",
   "IconFlask",
+  "IconGauge",
   "IconGit",
   "IconGlobe",
   "IconGrok",

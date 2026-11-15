@@ -36,7 +36,6 @@
   "Added to {name}'s draft": "Ajouté au brouillon de {name}",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "Après {days} jours, votre connexion, les clés des appareils et l’historique sont effacés, et les sauvegardes {backupDays} jours plus tard.",
   "Against it:": "Contre :",
-  "Agent": "Agent",
   "Agents": "Agents",
   "All": "Tous",
   "All agents": "Tous les agents",
@@ -268,7 +267,6 @@
   "Message": "Message",
   "Messaging {what}": "Message à {what}",
   "mode": "mode",
-  "Model": "Modèle",
   "Model, {model}": "Modèle, {model}",
   "move": "déplacer",
   "Moved to": "Passé à",
@@ -807,5 +805,10 @@
   "{place}nd": "{place}e",
   "{place}rd": "{place}e",
   "{place}th": "{place}e",
-  "about {minutes} min": "environ {minutes} min"
+  "about {minutes} min": "environ {minutes} min",
+  "Search {agent}'s models…": "Rechercher les modèles de {agent}…",
+  "Show more": "Afficher plus",
+  "No model matches": "Aucun modèle ne correspond",
+  "Default": "Par défaut",
+  "Speed": "Vitesse"
 }

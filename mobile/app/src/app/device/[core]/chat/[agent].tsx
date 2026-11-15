@@ -480,6 +480,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   steers={steers}
                   model={state.model}
                   effort={state.effort}
+                  speed={state.speed}
                   usage={state.usage}
                   expiredCache={chat.expiredCache}
                   commands={state.commands}

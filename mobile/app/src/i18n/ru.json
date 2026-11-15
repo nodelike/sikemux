@@ -36,7 +36,6 @@
   "Added to {name}'s draft": "Добавлено в черновик {name}",
   "After {days} days your sign-in, device keys and history are erased, and backups {backupDays} days later.": "Через {days} дн. ваш вход, ключи устройств и история будут стёрты, а резервные копии — ещё через {backupDays} дн.",
   "Against it:": "Против:",
-  "Agent": "Агент",
   "Agents": "Агенты",
   "All": "Все",
   "All agents": "Все агенты",
@@ -268,7 +267,6 @@
   "Message": "Сообщение",
   "Messaging {what}": "Пишет {what}",
   "mode": "режим",
-  "Model": "Модель",
   "Model, {model}": "Модель, {model}",
   "move": "перенос",
   "Moved to": "Перенесено в",
@@ -807,5 +805,10 @@
   "{place}nd": "{place}-й",
   "{place}rd": "{place}-й",
   "{place}th": "{place}-й",
-  "about {minutes} min": "около {minutes} мин"
+  "about {minutes} min": "около {minutes} мин",
+  "Search {agent}'s models…": "Поиск моделей {agent}…",
+  "Show more": "Показать ещё",
+  "No model matches": "Нет подходящих моделей",
+  "Default": "По умолчанию",
+  "Speed": "Скорость"
 }

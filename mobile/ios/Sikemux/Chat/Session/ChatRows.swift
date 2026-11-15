@@ -235,6 +235,7 @@ extension ChatRows {
     var draft: ChatDraft? { head.draft }
     var model: ConfigPicker? { head.model }
     var effort: ConfigPicker? { head.effort }
+    var speed: ConfigPicker? { head.speed }
     var usage: ContextUsage? { head.usage }
     var commands: [ChatCommandInfo] { head.commands }
 }

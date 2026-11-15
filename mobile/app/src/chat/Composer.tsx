@@ -4,7 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
 import { unknownCommand } from '@shared/chat/composerInput';
-import { currentLabel } from '@/chat/sessionConfig';
+import { currentLabel, useAgents } from '@/chat/sessionConfig';
+import { ModelChip } from '@/chat/ModelChip';
 import type { ChatRows } from '@shared/chat/rows';
 import type { ChatCommandInfo, ExpiredCache, PermissionAsk } from '@shared/wire.generated';
 import { problem } from '@/core/problem';
@@ -108,6 +109,7 @@ export const Composer = memo(function Composer({
   steers,
   model,
   effort,
+  speed,
   usage,
   expiredCache,
   commands,
@@ -138,6 +140,7 @@ export const Composer = memo(function Composer({
   steers: boolean;
   model: ChatRows['model'];
   effort: ChatRows['effort'];
+  speed: ChatRows['speed'];
   usage: ChatRows['usage'];
   expiredCache: ExpiredCache | null;
   commands: ChatCommandInfo[];
@@ -187,6 +190,7 @@ export const Composer = memo(function Composer({
   const [sheet, setSheet] = useState(false);
   const modelLabel = currentLabel(model);
   const effortLabel = currentLabel(effort);
+  const agents = useAgents(core);
   const pulls = !draft && onRecent !== undefined;
   const pullUp = useMemo(
     () =>
@@ -336,34 +340,8 @@ export const Composer = memo(function Composer({
           </Pressable>
           <StashButton onPress={() => setAdding('stash')} />
           <YoloToggle core={core} mode={permissionMode} provider={provider} locked={modeLocked} onToggle={session.setPermissionMode} />
-          {modelLabel ? (
-            <Pressable
-              style={[styles.picker, styles.model]}
-              onPress={() => setSheet(true)}
-              accessibilityRole="button"
-              accessibilityLabel={t('Model, {model}', { model: modelLabel })}>
-              <AgentIcon provider={provider} size={16} />
-              <Text style={[styles.pickerText, styles.modelText, { color: colors.accent }]} numberOfLines={1}>
-                {modelLabel}
-              </Text>
-              <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
-                <Icon name="IconChevron" size={10} color={colors.accent} />
-              </View>
-            </Pressable>
-          ) : null}
-          {effortLabel ? (
-            <Pressable
-              style={[styles.picker, styles.effort]}
-              onPress={() => setSheet(true)}
-              accessibilityRole="button"
-              accessibilityLabel={t('Effort, {effort}', { effort: effortLabel })}>
-              <Text style={[styles.pickerText, { flexShrink: 1 }]} numberOfLines={1}>
-                {effortLabel}
-              </Text>
-              <View style={{ transform: [{ rotate: '90deg' }], opacity: 0.6 }}>
-                <Icon name="IconChevron" size={10} color={colors.inkDim} />
-              </View>
-            </Pressable>
+          {modelLabel || effortLabel ? (
+            <ModelChip provider={provider} model={modelLabel} effort={effortLabel} onPress={() => setSheet(true)} />
           ) : null}
           {usage ? (
             <ContextRing
@@ -421,14 +399,20 @@ export const Composer = memo(function Composer({
         visible={sheet}
         onClose={() => setSheet(false)}
         provider={provider}
+        agents={agents}
+        onAgent={(agent) => {
+          setSheet(false);
+          session.handOff(agent);
+        }}
         model={model}
         effort={effort}
+        speed={speed}
         usage={usage}
         expiredCache={expiredCache}
         onSummarise={session.setSummarise}
         onPick={(picker, value) => {
           session.setConfig(picker.id, value);
-          setSheet(false);
+          if (picker.id === model?.id) setSheet(false);
         }}
       />
     </SafeAreaView>
@@ -460,12 +444,6 @@ const makeStyles = (colors: Palette) => {
     answeringX: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
     bar: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingTop: 6 },
     add: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-    picker: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 7, borderRadius: 7, flexShrink: 0 },
-    // The model keeps its name; the effort's shortens first, as on the Mac.
-    model: { flexShrink: 0, maxWidth: 160 },
-    effort: { flexShrink: 1, minWidth: 0 },
-    modelText: { flexShrink: 1 },
-    pickerText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
     send: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center' },
     stop: { width: 10, height: 10, borderRadius: 2, backgroundColor: colors.ground },
     watch: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 },
