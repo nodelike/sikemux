@@ -8,6 +8,7 @@
  *   node scripts/shots.mjs phone <commit> <showcase scene>... mobile/showcase/capture.mjs scenes
  *   node scripts/shots.mjs iphone <commit>                    builds both iPhone apps on the showcase's data,
  *                                                             then prints the sim calls that take each picture
+ *   node scripts/shots.mjs iphone <commit> --compare  once its pictures are in <out>/before and <out>/after
  *     [--out <folder>]   default ~/Library/Caches/com.nodelike.sikemux/shots/out/<commit>
  *
  * Both sides use the commit's own scenes and data, so a scene it adds also draws the before.
@@ -30,7 +31,7 @@ import { parseArgs } from "node:util";
 
 const { values: options, positionals } = parseArgs({
   allowPositionals: true,
-  options: { out: { type: "string" } },
+  options: { out: { type: "string" }, compare: { type: "boolean" } },
 });
 const [platform, wanted, ...scenes] = positionals;
 const PLATFORMS = {
@@ -44,7 +45,7 @@ if (
   (scenes.length === 0 && platform !== "iphone")
 ) {
   console.error(
-    "usage: node scripts/shots.mjs mac|phone <commit> <scene>... | iphone <commit> [--out <folder>]",
+    "usage: node scripts/shots.mjs mac|phone <commit> <scene>... | iphone <commit> [--compare] [--out <folder>]",
   );
   process.exit(2);
 }
@@ -113,6 +114,15 @@ function moveTo(rev) {
     maxBuffer: 1 << 30,
   });
   execFileSync("tar", ["-x", "-C", checkout], { input: archive });
+  if (
+    platform === "iphone" &&
+    !existsSync(join(checkout, "mobile/ios/Sikemux/Core/Showcase.swift"))
+  ) {
+    console.error(
+      `${rev.slice(0, 10)} has no iPhone showcase mode, which came in 4819b46d8; take this commit's pictures on phone instead`,
+    );
+    process.exit(1);
+  }
 }
 
 const cargoPath = {
@@ -276,8 +286,8 @@ function iphoneSteps() {
   sim attach
   sim install ${relative(here, join(iphoneApps, "before.app"))}
   sim launch com.nodelike.sikemux.mobile.dev arguments: ["-SikemuxShowcase", "${showcaseData}", "-SikemuxShowcaseOpen", "sikemux-dev://device/${core}"]
-  sim screenshot
-then the same with after.app. -SikemuxShowcaseOpen takes any of the app's links, such as sikemux-dev://device/${core}/chat/<agent>; the agents are in ${showcaseData}.`);
+  sim screenshot, saving the picture as ${relative(here, join(out, "before"))}/<name>.jpg
+then the same with after.app into after/, and run this again with --compare for compare.html. -SikemuxShowcaseOpen takes any of the app's links, such as sikemux-dev://device/${core}/chat/<agent>; the agents are in ${showcaseData}.`);
 }
 
 function pictures(folder) {
@@ -285,7 +295,7 @@ function pictures(folder) {
   return readdirSync(folder).flatMap((name) => {
     const path = join(folder, name);
     if (statSync(path).isDirectory()) return pictures(path);
-    return name.endsWith(".png") ? [path] : [];
+    return /\.(png|jpg)$/.test(name) ? [path] : [];
   });
 }
 
@@ -312,8 +322,14 @@ function compare() {
   );
 }
 
+if (options.compare) {
+  compare();
+  say(`wrote ${join(out, "compare.html")}`);
+  process.exit(0);
+}
 lock();
 rmSync(out, { recursive: true, force: true });
+mkdirSync(out, { recursive: true });
 for (const [side, rev] of [
   ["before", parent],
   ["after", commit],

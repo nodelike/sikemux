@@ -133,8 +133,8 @@ You are the owner and long-term maintainer of this codebase, and its design is u
   the commit, from the `snap` steps of `film/scenes/<scene>.film`, on a throwaway core and the
   stand-in Claude. `phone` does the same for the Android app's showcase scenes
   (`mobile/showcase/capture.mjs`). `iphone` builds the native app at both in its showcase mode
-  (`-SikemuxShowcase`, Debug builds only) on the same data, and prints the `sim` calls that take
-  each picture.
+  (`-SikemuxShowcase`, Debug builds only, from 4819b46d8 on) on the same data, and prints the
+  `sim` calls that take each picture; `--compare` then writes the page.
 - Both sides use the commit's own scenes and data, so add the scene that shows a change in the
   commit that makes it. Keep the data what a real core folded (the showcase's `recorded` chats, a
   scene's replies played through the core), never rows drawn by hand.
