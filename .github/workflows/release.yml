@@ -775,13 +775,22 @@ jobs:
           - arch: aarch64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    # Debian 12's glibc is older than the runner's, so building there lets the core run on both.
-    container: rust:1.99-bookworm
+    # A core runs on the glibc it was built against and newer. AlmaLinux 9 has 2.34, the oldest
+    # hosts get (RHEL 9, Amazon Linux 2023), so the install check below runs on that oldest too.
+    container: almalinux:9
     timeout-minutes: 60
     permissions:
       contents: read
     env: *compiled_into_core
     steps:
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False gcc make binutils git-core pkgconf-pkg-config zlib-devel tar gzip findutils shadow-utils
+
+      - name: Install rustup
+        run: |
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain none --profile minimal --no-modify-path
+          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -789,6 +798,9 @@ jobs:
           persist-credentials: false
 
       - *plan_files
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
 
       - *keep_symbols
 

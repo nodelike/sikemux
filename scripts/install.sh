@@ -9,6 +9,7 @@
 set -eu
 
 REPO="https://github.com/nodelike/sikemux"
+OLDEST_GLIBC=2.34
 CHANNEL="${SIKEMUX_CHANNEL:-stable}"
 SIGN_IN="${SIKEMUX_SIGN_IN:-now}"
 MODE=ask
@@ -398,12 +399,24 @@ link_cli() {
   ln -sf /usr/local/lib/sikemux/sikemux-host "$bin/sikemux"
 }
 
+# Says so plainly, instead of leaving the loader's error once the core is in.
+need_glibc() {
+  have=$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc //p')
+  if [ -z "$have" ]; then
+    ldd --version 2>&1 | grep -qi musl && fail "a Sikemux host needs glibc $OLDEST_GLIBC or later, and this system uses musl"
+    return 0
+  fi
+  [ "$(printf '%s\n%s\n' "$OLDEST_GLIBC" "$have" | sort -V | head -n 1)" = "$OLDEST_GLIBC" ] ||
+    fail "a Sikemux host needs glibc $OLDEST_GLIBC or later, and this system has $have; Ubuntu 22.04, Debian 12, RHEL 9 and Amazon Linux 2023 or newer have it"
+}
+
 install_host() {
   case "$(uname -m)" in
     x86_64 | amd64) arch=x86_64 ;;
     aarch64 | arm64) arch=aarch64 ;;
     *) fail "a Sikemux host needs an x86_64 or arm64 machine" ;;
   esac
+  need_glibc
   if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
   previous=""
   [ -x "$bin/sikemux" ] && previous=$("$bin/sikemux" --version 2>/dev/null | sed 's/^sikemux //')

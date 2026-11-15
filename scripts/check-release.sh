@@ -203,9 +203,8 @@ grep -Fq 'group: release' .github/workflows/release.yml || {
   exit 1
 }
 
-channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-grep -Fq "container: rust:${channel%.*}-bookworm" .github/workflows/release.yml || {
-  echo "the Release workflow's container is not on rust-toolchain.toml's Rust" >&2
+grep -Fxq "OLDEST_GLIBC=2.34" scripts/install.sh && grep -Fq "container: almalinux:9" .github/workflows/release.yml || {
+  echo "the host core is built on AlmaLinux 9 for glibc 2.34; change the installer's OLDEST_GLIBC and build-host's container together" >&2
   exit 1
 }
 

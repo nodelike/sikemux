@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Packs the core a Linux host installs (`install.sh --host`) after checking it
-# starts with no window: it must not link WebKit, GTK or a display server.
+# starts with no window: it must not link WebKit, GTK or a display server, and
+# runs on the oldest glibc the installer accepts.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ARCH="${1:?usage: $0 <x86_64|aarch64>}"
 BINARY=target/release/sikemux-host
 VERSION="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json)"
+OLDEST_GLIBC="$(sed -n 's/^OLDEST_GLIBC=//p' scripts/install.sh)"
 
 fail() {
   echo "Host package failed: $*" >&2
@@ -18,6 +20,14 @@ if ldd "$BINARY" | grep -Eiq 'webkit|gtk|gdk|libX|wayland|soup'; then
   ldd "$BINARY" >&2
   fail "the core links window libraries"
 fi
+too_new="$(objdump -T "$BINARY" | awk -v oldest="$OLDEST_GLIBC" '
+  { for (i = 1; i <= NF; i++) if ($i ~ /^\(?GLIBC_[0-9]/) {
+      v = $i; gsub(/[()]|GLIBC_/, "", v); split(v, have, "."); split(oldest, need, ".")
+      if (have[1] > need[1] || (have[1] == need[1] && have[2] > need[2])) print "  " $NF " (GLIBC_" v ")"
+  } }' | sort -u)"
+[[ -n "$OLDEST_GLIBC" ]] || fail "scripts/install.sh names no OLDEST_GLIBC"
+[[ -z "$too_new" ]] || fail "the core needs a glibc newer than $OLDEST_GLIBC, the oldest hosts get:
+$too_new"
 "$BINARY" --help >/dev/null || fail "the core does not start"
 
 OUT=target/host
