@@ -37,7 +37,7 @@ use super::{
     lifecycle, messages, pins, requests, session_watch, ssh, tasks, themes, triggers, upgrade,
     worktree, Core, CoreResult,
 };
-use super::{hooks, inbox, mods, stash};
+use super::{finished, hooks, inbox, mods, stash};
 use serde_json::Value;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -94,6 +94,7 @@ pub(super) fn workspace_above() -> WorkspaceAbove {
         },
         agent_closed: |core, agent_id| {
             chat::rotation::forget(core, agent_id);
+            finished::moved(core);
             core.line().agent_closed(core, agent_id);
             launching::clear_temp(core, agent_id);
         },
@@ -361,6 +362,7 @@ pub(super) fn repo_above() -> RepoAbove {
         messages_reachable: |core, to| Box::pin(messages::reachable(core, to)),
         foreign_status: |core, agent| core.hosts().team.get(agent).map(|foreign| foreign.status),
         turn_state_wrote: turn_state::wrote,
+        pushed: finished::moved,
         turn_state_committed: |core, agent| {
             core.inbox().committed(agent);
             turn_state::read_work(core, agent);

@@ -105,6 +105,7 @@ impl ActivityCore for Core {
                     }
                     super::turn_state::read_work(self, agent_id);
                 }
+                super::finished::moved(self);
                 self.notify().send(Signal::TurnCompleted {
                     agent_id: agent_id.to_owned(),
                     cancelled,

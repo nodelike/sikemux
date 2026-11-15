@@ -77,7 +77,6 @@ impl super::part::Part for Now {
 }
 
 /// An agent of `project` closed: its strip logs it, newest first, until it is reopened.
-#[expect(dead_code, reason = "auto-close calls it")]
 pub(crate) fn closed(core: &Core, project: &str, entry: NowClosed) {
     core.now().change(|saved| {
         let log = saved.closed.entry(project.to_owned()).or_default();

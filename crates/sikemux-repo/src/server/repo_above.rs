@@ -72,6 +72,8 @@ pub struct RepoAbove {
     /// light after its turn ended.
     pub turn_state_wrote: fn(&Core, &str),
     /// The agent committed or its commits landed, so where its turn's work is is read again.
+    /// Commits went to a remote, so what is on its branches moved.
+    pub pushed: fn(&Core),
     pub turn_state_committed: fn(&Core, &str),
     /// The project's check passed on the `covered` commits, so the pages of the turns whose
     /// work is at one of them are taken.

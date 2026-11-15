@@ -50,6 +50,7 @@ pub use sikemux_workspace::server::drafts;
 mod entry;
 pub(crate) use sikemux_repo::server::fast_forward;
 pub use sikemux_workspace::server::faces;
+mod finished;
 mod follow;
 mod from_app;
 pub mod git;
@@ -544,6 +545,7 @@ impl ServerCore for Core {
                     mods: mods::Mods::new(data_dir),
                     chiefs: chief::Chiefs::new(data_dir),
                     now: now::Now::new(data_dir),
+                    finishing: finished::Finishing::default(),
                 }) as sikemux_kernel::Parts,
             ]
         });

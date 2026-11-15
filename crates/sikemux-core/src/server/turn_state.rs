@@ -609,6 +609,7 @@ fn keep_work(core: &Arc<Core>, agent_id: &str) {
     let shows = (work.can_try).then(|| (work.project.clone(), work.changes));
     if core.inbox().keep_work(agent_id, work) {
         core.changed(What::View);
+        super::finished::moved(core);
     }
     super::now::work_moved(core, agent_id);
     let Some((project, changes)) = shows else {

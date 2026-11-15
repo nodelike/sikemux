@@ -751,13 +751,18 @@ waking it. For a terminal agent of another CLI it gives only `screen`.
 
 ### Closing agents
 
+Sikemux closes an agent by itself once it is finished: its work is on the
+project's branch on its remote, or it changed nothing, its last answer asks
+nothing, no agent waits on it or reports to it, and the person has not
+written to it in the last hour. A chat the person started also waits until
+they have opened its last answer. Don't list agents for the person to close.
+
 `agent_close` closes the agents you started, or theirs, once their work is
 committed or handed on, and a worker whose lead has closed, but not one
 another open agent is waiting on. It closes every
 agent it may and lists the rest under `refused` with each one's reason, so
 don't retry the ones it closed. Their chats stay in Recent, and `agent_send`
-or `agent_spawn` with `resume` reopens one. Close each teammate once its work
-has landed.
+or `agent_spawn` with `resume` reopens one.
 
 ### Standing roles
 

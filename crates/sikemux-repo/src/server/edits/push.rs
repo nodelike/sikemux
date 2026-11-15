@@ -157,6 +157,7 @@ pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<
                 .unwrap_or_default(),
         };
     }
+    (core.repo_above().pushed)(core);
     if !pushed.held.is_empty() {
         workflows::ask(core, dir, remote, agents, &pushed.held);
     }

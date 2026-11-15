@@ -18,9 +18,9 @@ use tokio::sync::Notify;
 use super::{streams, themes, ServerConfig};
 
 use super::{
-    chief, device_view, git, goal_summary, goals, harness, hooks, host_stats, hosts, inbox, layout,
-    lifecycle, line, memory, mods, now, outside, pictures, pins, remote_image, session_watch,
-    settling, spare, stalls, tasks, tools, triggers, updates, Core,
+    chief, device_view, finished, git, goal_summary, goals, harness, hooks, host_stats, hosts,
+    inbox, layout, lifecycle, line, memory, mods, now, outside, pictures, pins, remote_image,
+    session_watch, settling, spare, stalls, tasks, tools, triggers, updates, Core,
 };
 
 pub(crate) struct Fields {
@@ -64,6 +64,7 @@ pub(crate) struct Fields {
     pub(super) mods: mods::Mods,
     pub(super) chiefs: chief::Chiefs,
     pub(super) now: now::Now,
+    pub(super) finishing: finished::Finishing,
 }
 
 pub(crate) trait Parts {
@@ -101,6 +102,7 @@ pub(crate) trait Parts {
     fn mods(&self) -> &mods::Mods;
     fn chiefs(&self) -> &chief::Chiefs;
     fn now(&self) -> &now::Now;
+    fn finishing(&self) -> &finished::Finishing;
 }
 
 impl Parts for Core {
@@ -239,11 +241,15 @@ impl Parts for Core {
     fn now(&self) -> &now::Now {
         &self.kept::<Fields>().now
     }
+
+    fn finishing(&self) -> &finished::Finishing {
+        &self.kept::<Fields>().finishing
+    }
 }
 
 /// Walking every part of the core.
 pub(crate) trait PartCore {
-    fn parts(&self) -> [&dyn Part; 36];
+    fn parts(&self) -> [&dyn Part; 37];
 
     /// Every feature's tasks, to end when the core stops.
     fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
@@ -255,7 +261,7 @@ pub(crate) trait PartCore {
 }
 
 impl PartCore for Core {
-    fn parts(&self) -> [&dyn Part; 36] {
+    fn parts(&self) -> [&dyn Part; 37] {
         [
             self.harness(),
             self.outside(),
@@ -291,6 +297,7 @@ impl PartCore for Core {
             self.look(),
             self.chiefs(),
             self.now(),
+            self.finishing(),
             &super::lsp::Lsp,
             &super::fast_forward::FastForward,
         ]
