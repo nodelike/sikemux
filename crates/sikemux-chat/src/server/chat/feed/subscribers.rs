@@ -2,7 +2,7 @@
 //! behind is caught up with how the chat stands once it has read what it has.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sikemux_view::chat::ChatChange;
 
@@ -30,7 +30,7 @@ const SLOW_BYTES: usize = 512 * 1024;
 const CATCH_UP: Duration = Duration::from_millis(50);
 
 /// One frame's worth of streamed updates travels as a single event, since an agent
-/// sends one update per token.
+/// sends one update per token. An update after a quiet frame goes at once.
 const FLUSH: Duration = Duration::from_millis(16);
 
 impl Feed {
@@ -92,6 +92,7 @@ impl Feed {
         }
         let seq = inner.replay.delivered();
         fold.number(seq + 1);
+        inner.flushed_at = Some(Instant::now());
         let frame = self.frame(seq, &changes);
         let mut behind = false;
         inner.subscribers.retain(|_, subscriber| {
@@ -177,10 +178,18 @@ impl Feed {
         if inner.flush_scheduled {
             return;
         }
+        let wait = inner
+            .flushed_at
+            .map_or(Duration::ZERO, |at| FLUSH.saturating_sub(at.elapsed()));
+        if wait.is_zero() {
+            self.flush_locked(inner);
+            self.let_go(inner);
+            return;
+        }
         inner.flush_scheduled = true;
         let feed = self.clone();
         self.runtime.spawn(async move {
-            tokio::time::sleep(FLUSH).await;
+            tokio::time::sleep(wait).await;
             feed.flush();
         });
     }
