@@ -28,6 +28,8 @@ jobs:
     name: Check the candidate is ready
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Holds SENTRY_READ_TOKEN; the job runs only this checkout's own script.
+    environment: release
     permissions:
       actions: read
       contents: read
@@ -43,7 +45,7 @@ jobs:
         id: gate
         env:
           GH_TOKEN: ${{ github.token }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
           VERSION: ${{ inputs.version }}
           MINUTES: ${{ inputs.minutes }}
           MACS: ${{ inputs.macs }}

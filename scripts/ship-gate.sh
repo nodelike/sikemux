@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Works out, from GitHub and Sentry, whether a stable candidate is ready to ship, and writes the
 # evidence the owner reads before approving. Exits 1 when it is not ready, so no approval is asked.
-#   SENTRY_AUTH_TOKEN=… scripts/ship-gate.sh <version> [minutes on staff] [Macs]
+#   SENTRY_READ_TOKEN=… scripts/ship-gate.sh <version> [minutes on staff] [Macs]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -10,7 +10,7 @@ MINUTES="${2:-30}"
 MACS="${3:-2}"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 OUTPUT="${GITHUB_OUTPUT:-/dev/null}"
-[[ -n "${SENTRY_AUTH_TOKEN:-}" ]] || { echo "SENTRY_AUTH_TOKEN is not set" >&2; exit 1; }
+[[ -n "${SENTRY_READ_TOKEN:-}" ]] || { echo "SENTRY_READ_TOKEN is not set" >&2; exit 1; }
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "v$VERSION is not a stable version" >&2; exit 1; }
 
 problems=()
@@ -30,14 +30,14 @@ echo "release_run=$(jq -r .databaseId <<<"$run")" >>"$OUTPUT"
 # Counts events in Sentry: the version's own crashes, and the report each update to it sends when
 # it ends, from whichever build saw it end.
 count() {
-  curl -fsS -G -H "Authorization: Bearer $SENTRY_AUTH_TOKEN" \
+  curl -fsS -G -H "Authorization: Bearer $SENTRY_READ_TOKEN" \
     "https://de.sentry.io/api/0/organizations/nodelike/events/" \
     --data-urlencode "field=count()" --data-urlencode "query=$1" \
     --data-urlencode "project=-1" --data-urlencode "statsPeriod=14d" |
     jq -r '.data[0]["count()"] // 0'
 }
 if ! crashes="$(count "release:sikemux@$VERSION !logger:update")"; then
-  echo "Sentry did not answer; its token needs event:read and org:read" >&2
+  echo "Sentry did not answer; SENTRY_READ_TOKEN needs the event:read and org:read scopes" >&2
   exit 1
 fi
 failed="$(count "logger:update tags[update.to]:$VERSION tags[update.result]:failed")"

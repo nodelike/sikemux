@@ -8,6 +8,7 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: release
     permissions:
       actions: read
       contents: read
@@ -18,7 +19,7 @@ jobs:
       - name: Gather the evidence for v0.6.0, which has shipped, so it must refuse
         env:
           GH_TOKEN: ${{ github.token }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_READ_TOKEN: ${{ secrets.SENTRY_READ_TOKEN }}
         run: |
           set +e
           scripts/ship-gate.sh 0.6.0 30 2
