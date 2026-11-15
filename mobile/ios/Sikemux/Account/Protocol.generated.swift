@@ -368,7 +368,7 @@ struct MinimumVersions: Codable, Hashable, Sendable {
     var android: ChannelVersions
 }
 
-/// How hosts and phones reach each other, the oldest app the server still serves, and the features it has switched off. Apps read it when they start, so changing any of them needs no app release.
+/// How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.
 struct WireNetwork: Codable, Hashable, Sendable {
     /// The relays to use, best first. A host connects to every one; a phone dials a host through the relay the host says it is on.
     var relays: [Relay]

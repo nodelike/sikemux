@@ -507,7 +507,10 @@ function rustNumbered(name, members) {
 }
 
 /** The Rust types of the definitions `include` picks; `imports` brings in those they refer to. */
-export function rust(definitions, { include = () => true, imports = "" } = {}) {
+export function rust(
+  definitions,
+  { include = () => true, imports = "", omit = {} } = {},
+) {
   const unions = unionOf(definitions);
   const chosen = sortedDefinitions(definitions).filter(include);
   let out = `${HEADER}\nuse serde::{Deserialize, Serialize};\n${imports}`;
@@ -532,7 +535,8 @@ export function rust(definitions, { include = () => true, imports = "" } = {}) {
     } else if (kind === "object") {
       out += `#[derive(Clone, Debug, PartialEq${eq}, Serialize, Deserialize)]\n#[serde(rename_all = "camelCase")]\n`;
       const properties = Object.entries(schema.properties ?? {}).filter(
-        ([, value]) => !("const" in value),
+        ([property, value]) =>
+          !("const" in value) && !omit[name]?.includes(property),
       );
       if (properties.length === 0) {
         out += `pub struct ${name} {}\n`;

@@ -24,6 +24,7 @@ export function rust(
   options?: {
     include?: (definition: Definition) => boolean;
     imports?: string;
+    omit?: Record<string, string[]>;
   },
 ): string;
 export function reachable(

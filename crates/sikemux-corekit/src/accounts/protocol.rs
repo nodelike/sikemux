@@ -278,6 +278,14 @@ pub struct FcmTokenRegistration {
     pub signature: String,
 }
 
+/// Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Flags {
+    /// The names of the features switched off, such as staffFeed.
+    pub off: Vec<String>,
+}
+
 /// Whether the API can serve requests, and which build is answering.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -896,6 +904,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "ErrorDetail" => through::<ErrorDetail>(json),
         "EventId" => through::<EventId>(json),
         "FcmTokenRegistration" => through::<PushTokenRegistration>(json),
+        "Flags" => through::<Flags>(json),
         "Health" => through::<Health>(json),
         "HealthStatus" => through::<HealthStatus>(json),
         "JoinRequest" => through::<JoinRequest>(json),

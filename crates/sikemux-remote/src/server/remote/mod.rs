@@ -93,6 +93,9 @@ pub struct Stored {
     /// reach. A copy this build cannot read is dropped and fetched again.
     #[serde(default, deserialize_with = "readable_or_none")]
     pub network: Option<Network>,
+    /// The features the accounts server last said it switched off.
+    #[serde(default)]
+    pub flags_off: Vec<String>,
     /// Each phone's key for its notifications and what it wants to hear
     /// about, by device id.
     #[serde(default)]
@@ -516,12 +519,7 @@ impl Remote {
     /// The features the accounts server last said it switched off.
     pub fn flags_off(&self) -> Vec<String> {
         let inner = self.inner.locked();
-        inner
-            .stored
-            .network
-            .as_ref()
-            .map(|network| network.flags.off.clone())
-            .unwrap_or_default()
+        inner.stored.flags_off.clone()
     }
 
     /// This build is older than the accounts server works with.

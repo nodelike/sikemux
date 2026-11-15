@@ -39,13 +39,17 @@ const PHONE_RUST = new Set([
   "AppVersion",
   "ChannelVersions",
   "DeviceKey",
-  "Flags",
   "JoinTicket",
   "MinimumVersions",
   "Network",
   "Relay",
   "RevokeReason",
 ]);
+/**
+ * Fields of PHONE_RUST definitions the phone does not act on. Leaving them out keeps its native code,
+ * and so its over-the-air updates, as they are; the core reads them with its own types.
+ */
+const PHONE_RUST_OMITS = { Network: ["flags"] };
 /**
  * The definitions the iPhone app reads and sends, generated into Swift with everything they refer
  * to. Its own names for other things, in SWIFT_RENAMED, take the Wire prefix here.
@@ -144,6 +148,7 @@ try {
       definitions,
       {
         include: (definition) => PHONE_RUST.has(definition.name),
+        omit: PHONE_RUST_OMITS,
       },
     ),
     [join(repo, "crates/sikemux-corekit/src/accounts/protocol.rs")]: rust(

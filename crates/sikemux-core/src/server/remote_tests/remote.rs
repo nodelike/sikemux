@@ -150,6 +150,7 @@ fn the_devices_survive_a_write_and_read() {
         pending_leave: Some("user_2old".into()),
         removed: None,
         network: None,
+        flags_off: Vec::new(),
         notifications: BTreeMap::new(),
         revoked: BTreeMap::new(),
         shares: Vec::new(),
@@ -630,7 +631,6 @@ fn network_allowing(version: &str) -> Network {
             "ios": any,
             "android": any,
         },
-        "flags": { "off": [] },
     }))
     .unwrap()
 }

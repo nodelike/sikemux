@@ -86,6 +86,9 @@ pub fn watch_network(core: &Arc<Core>) {
             let wait = match fetched {
                 Some(fetched) => {
                     apply_network(&core, fetched).await;
+                    if let Some(off) = read_flags_off(&base).await {
+                        apply_flags_off(&core, off).await;
+                    }
                     NETWORK_REFRESH
                 }
                 None => NETWORK_RETRY,
@@ -97,6 +100,42 @@ pub fn watch_network(core: &Arc<Core>) {
             }
         }
     }));
+}
+
+/// The part of the network only the core reads, which the phone's copy of it leaves out.
+#[derive(serde::Deserialize)]
+struct Switched {
+    flags: crate::accounts::protocol::Flags,
+}
+
+/// The features the accounts server has switched off, read beside the network.
+async fn read_flags_off(base: &str) -> Option<Vec<String>> {
+    let url = format!("{}/v1/network", base.trim_end_matches('/'));
+    let response = crate::accounts::client()
+        .ok()?
+        .get(url)
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .ok()?;
+    Some(response.json::<Switched>().await.ok()?.flags.off)
+}
+
+/// Keeps the features switched off, and shows the account again when they change, since
+/// its flags follow them.
+async fn apply_flags_off(core: &Arc<Core>, off: Vec<String>) {
+    if core.remote().flags_off() == off {
+        return;
+    }
+    let saved = core.remote().change(|stored| {
+        stored.flags_off = off;
+        Ok(())
+    });
+    if let Err(error) = saved {
+        eprintln!("sikemux core: could not save the features switched off: {error}");
+    }
+    crate::server::account::show(core).await;
 }
 
 /// The network came back or changed, or the computer woke: everything that waits
@@ -160,8 +199,6 @@ pub async fn apply_network(core: &Arc<Core>, fetched: Network) {
         (moved, endpoint, required, was_required)
     };
     if relays.is_some() {
-        let flags_off_before = core.remote().flags_off();
-        let flags_moved = flags_off_before != fetched.flags.off;
         let saved = core.remote().change(|stored| {
             if stored.network.as_ref() != Some(&fetched) {
                 stored.network = Some(fetched);
@@ -170,9 +207,6 @@ pub async fn apply_network(core: &Arc<Core>, fetched: Network) {
         });
         if let Err(error) = saved {
             eprintln!("sikemux core: could not save the network: {error}");
-        }
-        if flags_moved {
-            crate::server::account::show(core).await;
         }
     }
     if let (Some((removed, added)), Some(endpoint)) = (moved, endpoint) {
