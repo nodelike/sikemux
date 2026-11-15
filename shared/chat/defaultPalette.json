@@ -121,6 +121,9 @@
     "radius1": 4.0,
     "radius2": 5.0,
     "radius3": 10.0,
-    "radius4": 14.0
+    "radius4": 14.0,
+    "density": 1.0,
+    "border": 1.0,
+    "shadows": 1.0
   }
 }
