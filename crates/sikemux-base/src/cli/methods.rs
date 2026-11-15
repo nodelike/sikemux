@@ -67,7 +67,6 @@ pub const HARNESS_METHODS: &[&str] = &[
     "agent.wait",
     "agent.close",
     "agent.ask",
-    "chat.gif",
     "board.add",
     "board.list",
     "board.claim",

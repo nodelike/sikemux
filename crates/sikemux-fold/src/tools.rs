@@ -7,11 +7,11 @@ use std::borrow::Cow;
 use serde_json::{Map, Value};
 
 use sikemux_view::chat::{
-    DiffLine, DiffSummary, GifRef, McpAppRef, OutputImage, OutputPage, OutputSummary, PageRef,
+    DiffLine, DiffSummary, McpAppRef, OutputImage, OutputPage, OutputSummary, PageRef,
     ToolCall, ToolDetail, ToolDiff, ToolOutput,
 };
 
-use super::tool_rows::{FAMILIES, GESTURES};
+use super::tool_rows::FAMILIES;
 
 /// Past this the transcript is the wrong place to read the change: the row
 /// still names the file, and the diff pane shows the whole thing.
@@ -526,40 +526,6 @@ pub(super) fn started_run(raw: &Map<String, Value>) -> Option<(String, String)> 
         })?
         .trim();
     (!name.is_empty()).then(|| (file.to_owned(), name.to_owned()))
-}
-
-/// One of our tools the chat never draws as a row, such as a GIF.
-pub(super) fn is_gesture(title: &str) -> bool {
-    let title = title.replace("sikemux_tools", "sikemux-tools");
-    let name = sikemux_tool_name(&title);
-    name != title.trim() && GESTURES.contains(&name)
-}
-
-/// What a gesture leaves in the chat once it has finished.
-pub(super) enum Gesture {
-    Gif(GifRef),
-}
-
-pub(super) fn gesture(raw: &Map<String, Value>) -> Option<Gesture> {
-    if text(raw.get("status")) != Some("completed") {
-        return None;
-    }
-    let answer = printed(raw.get("rawOutput"), raw.get("content"))?;
-    let gif = answer.get("gif")?;
-    let dimension = |key: &str| {
-        gif.get(key)
-            .and_then(Value::as_u64)
-            .and_then(|value| u32::try_from(value).ok())
-    };
-    Some(Gesture::Gif(GifRef {
-        id: text(gif.get("id"))?.to_owned(),
-        url: text(gif.get("url"))
-            .filter(|url| url.starts_with("https://"))?
-            .to_owned(),
-        width: dimension("width")?,
-        height: dimension("height")?,
-        title: text(gif.get("title")).unwrap_or_default().to_owned(),
-    }))
 }
 
 /// The page a finished `page_show` call put in the reply, read from what it printed.

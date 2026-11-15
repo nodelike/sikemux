@@ -4576,7 +4576,7 @@ struct McpAppRef: Codable, Hashable, Sendable {
     var id: String
 }
 
-/// A GIF an agent sent with `gif_send`, which clients load from `url`.
+/// A GIF an agent asked for in its reply, which clients load from `url`.
 struct GifRef: Codable, Hashable, Sendable {
     var id: String
     var url: String

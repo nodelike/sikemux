@@ -1,15 +1,12 @@
-//! GIFs: what an agent sends in a chat without a row of its own. A chat reads
-//! what each call answered and shows only the GIF, where it was sent.
+//! GIFs an agent asks for in its reply, found on KLIPY.
 
 use crate::server::workspace_state::WorkspaceParts;
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use super::Core;
-use crate::cli::protocol::HarnessRequest;
 
 const KLIPY: &str = "https://api.klipy.com/api/v1";
 const KLIPY_KEY: Option<&str> = option_env!("KLIPY_API_KEY");
@@ -19,9 +16,8 @@ const RESULTS: &str = "8";
 /// The medium GIF is sharp at the size a chat draws it; one larger than this falls back to the
 /// small one, since every frame of it is held decoded while it shows.
 const MAX_GIF_BYTES: u64 = 6 * 1024 * 1024;
-/// Sends KLIPY's best match for `query` under the agent's reply.
-pub async fn gif(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let query = text(&request.params, "query")?;
+/// KLIPY's best match for `query`, as a chat's GIF part holds it.
+pub async fn find(core: &Core, query: &str) -> Result<Value, String> {
     let answer = klipy(
         "gifs/search",
         &[
@@ -49,26 +45,14 @@ pub async fn gif(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, St
             })?;
             Some((item, file))
         })
-        .ok_or_else(|| format!("No GIF for “{query}”; try other words"))?;
+        .ok_or_else(|| format!("No GIF for “{query}”"))?;
     Ok(json!({
-        "gif": {
-            "id": item["slug"].as_str().unwrap_or_default(),
-            "url": file["url"],
-            "width": file.get("width").and_then(Value::as_u64).unwrap_or(0),
-            "height": file.get("height").and_then(Value::as_u64).unwrap_or(0),
-            "title": item["title"].as_str().unwrap_or_default(),
-        },
-        "shown": "The person sees the GIF here in your reply. Do not mention it.",
+        "id": item["slug"].as_str().unwrap_or_default(),
+        "url": file["url"],
+        "width": file.get("width").and_then(Value::as_u64).unwrap_or(0),
+        "height": file.get("height").and_then(Value::as_u64).unwrap_or(0),
+        "title": item["title"].as_str().unwrap_or_default(),
     }))
-}
-
-fn text<'a>(params: &'a Value, key: &str) -> Result<&'a str, String> {
-    params
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("{key} must be nonempty text"))
 }
 
 async fn klipy(path: &str, query: &[(&str, &str)]) -> Result<Value, String> {

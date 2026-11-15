@@ -51,7 +51,6 @@ pub(crate) use sikemux_repo::server::fast_forward;
 pub use sikemux_workspace::server::faces;
 mod follow;
 mod from_app;
-pub(crate) use sikemux_workspace::server::gestures;
 pub mod git;
 mod goal_summary;
 mod goals;

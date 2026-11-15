@@ -1631,7 +1631,7 @@ pub struct OutputImage {
     pub mime_type: String,
 }
 
-/// A GIF an agent sent with `gif_send`, which clients load from `url`.
+/// A GIF an agent asked for in its reply, which clients load from `url`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GifRef {

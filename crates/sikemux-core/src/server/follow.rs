@@ -370,10 +370,6 @@ fn build(said: Vec<(u64, bool, Said)>) -> Vec<Turn> {
             }
         }
     }
-    for turn in &mut turns {
-        turn.tools
-            .retain(|(_, title, _)| !title.as_deref().is_some_and(sikemux_fold::is_gesture));
-    }
     turns
 }
 

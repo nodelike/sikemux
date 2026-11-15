@@ -1881,8 +1881,6 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
     ),
 ];
 
-pub(super) const GESTURES: &[&str] = &["gif"];
-
 pub(super) const FAMILIES: &[&str] = &[
     "sim",
     "aws",

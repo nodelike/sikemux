@@ -30,6 +30,7 @@ use super::states::Subagent;
 use sikemux_fold::{AgentNeed, Fold, PageOf, PAGE_BYTES as ROW_BYTES};
 use sikemux_fold::{ChatEventKind, Place, UpdateKind};
 
+mod gifs;
 pub mod replay;
 mod residency;
 mod subscribers;
@@ -104,6 +105,13 @@ pub struct Inner {
     reach: Option<(String, Reach)>,
     /// The CLI's record of the session holds more before what the chat holds.
     has_earlier: bool,
+    gif_cut: gifs::Cut,
+}
+
+/// A GIF the agent asked for, which the event at `slot` holds the place of.
+pub struct GifAsk {
+    pub slot: u64,
+    pub ask: String,
 }
 
 /// A feed as plain data, for a core that takes the chat over. Clients that
@@ -288,6 +296,7 @@ impl Feed {
                 waits_for_person: false,
                 reach: None,
                 has_earlier: false,
+                gif_cut: gifs::Cut::default(),
             }),
         }))
     }
@@ -379,6 +388,7 @@ impl Feed {
                 waits_for_person: false,
                 reach: state.reach,
                 has_earlier: false,
+                gif_cut: gifs::Cut::default(),
             }),
         }));
         feed.account(&feed.inner.locked());
@@ -521,30 +531,50 @@ impl Feed {
     }
 
     /// Streamed updates go out once a frame; anything else goes out at once,
-    /// after what streamed before it.
-    pub fn emit(self: &Arc<Self>, kind: ChatEventKind, mut payload: Value) {
+    /// after what streamed before it. Answers the GIFs the reply asked for, each by the index of
+    /// the event that holds its place and what it asked.
+    pub fn emit(self: &Arc<Self>, kind: ChatEventKind, payload: Value) -> Vec<GifAsk> {
         self.heard
             .store(epoch_ms(), std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.locked();
+        let pieces = inner.gif_cut.take(kind, payload);
+        let mut asks = Vec::new();
+        for piece in pieces {
+            match piece {
+                gifs::Piece::Event(kind, payload) => {
+                    self.emit_locked(&mut inner, kind, payload);
+                }
+                gifs::Piece::Ask { session, ask } => {
+                    let payload = json!({ "sessionId": session, "ask": ask });
+                    let slot = self.emit_locked(&mut inner, ChatEventKind::Gif, payload);
+                    asks.push(GifAsk { slot, ask });
+                }
+            }
+        }
+        asks
+    }
+
+    fn emit_locked(self: &Arc<Self>, inner: &mut Inner, kind: ChatEventKind, mut payload: Value) -> u64 {
         if is_kept(kind) {
             stamp(&mut payload);
         }
         let index = inner.replay.push(kind, &payload);
-        self.account(&inner);
-        self.settle_later(&mut inner);
+        self.account(inner);
+        self.settle_later(inner);
         if let Some(title) = session_title(&payload) {
             inner.title = Some(title);
         }
         if let Some(cost) = reported_cost(&payload) {
             inner.cost_usd = Some(cost);
         }
-        self.fold_in(&mut inner, index, kind, &payload);
+        self.fold_in(inner, index, kind, &payload);
         if kind == ChatEventKind::SessionUpdate {
-            self.flush_later(&mut inner);
-            return;
+            self.flush_later(inner);
+        } else {
+            self.flush_locked(inner);
+            self.let_go(inner);
         }
-        self.flush_locked(&mut inner);
-        self.let_go(&mut inner);
+        index
     }
 
     pub fn heard_at(&self) -> u64 {

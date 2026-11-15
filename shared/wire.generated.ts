@@ -2922,7 +2922,7 @@ export interface McpAppRef {
     id: string;
 }
 
-/** A GIF an agent sent with `gif_send`, which clients load from `url`. */
+/** A GIF an agent asked for in its reply, which clients load from `url`. */
 export interface GifRef {
     id: string;
     url: string;

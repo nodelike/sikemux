@@ -20,6 +20,9 @@ pub enum ChatEventKind {
     /// ended: `from` the event the call was made at, `until` the turn's end, `checked` the links
     /// it checked, and `chips` what each that holds names.
     Sourced,
+    /// A GIF the agent asked for in its reply: first `sessionId` and `ask` where it was asked,
+    /// then `slot`, that event's index, with the `gif` found, or none.
+    Gif,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -5,7 +5,7 @@ pub mod cli_install;
 pub mod diagrams;
 pub mod drafts;
 pub mod faces;
-pub mod gestures;
+pub mod gifs;
 pub mod model_providers;
 pub mod names;
 pub mod new_project;

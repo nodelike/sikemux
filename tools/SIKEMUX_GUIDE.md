@@ -246,8 +246,8 @@ colours, fonts and radius as fixed values and paints its own background.
 
 ### GIFs
 
-`gif` puts a GIF where you call it. The person never sees the call, so never
-mention or describe it.
+Write `[gif: your own reaction]` in your reply where a GIF should go. Sikemux
+takes it out of the text and shows the GIF there, so never mention or describe it.
 
 ## browser-reading: Reading a page
 

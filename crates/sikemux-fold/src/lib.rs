@@ -37,10 +37,10 @@ use sikemux_view::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
     ChiefAway, Compactions, ContentBlock, ContextUsage, FailureKind, GuestMessage, KeptRule,
-    LetterKind, MoveReason, NoticeSeverity, NoticeState, OverruledDecision, PermissionAsk,
+    GifRef, LetterKind, MoveReason, NoticeSeverity, NoticeState, OverruledDecision, PermissionAsk,
     PermissionKind, PermissionOption, PlanEntry, QueuedMessage, RestoredPart, Retrying, RuleChange,
     SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState,
-    TaskUsage, ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkflowAgent,
+    TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkflowAgent,
     WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
@@ -83,12 +83,6 @@ pub fn plan_in(kind: ChatEventKind, payload: &Value) -> Option<Vec<PlanEntry>> {
         return None;
     }
     plan_entries(update)
-}
-
-/// Whether a call is one of our gestures, such as a GIF, which a chat shows
-/// only by what it did.
-pub fn is_gesture(title: &str) -> bool {
-    tools::is_gesture(title)
 }
 
 /// The change a call made and what it printed, from everything said of it.
@@ -210,6 +204,13 @@ impl Row {
     fn next_part_id(&self) -> String {
         format!("{}.{}", self.msg.id, self.msg.parts.len())
     }
+}
+
+/// A GIF the reply asked for, by the event that holds its place, and what came after it.
+struct GifWait {
+    slot: u64,
+    within: Within,
+    after: Vec<(u64, ChatEventKind, Value, u64)>,
 }
 
 /// The rows of the chat itself or of one subagent.
@@ -338,8 +339,12 @@ pub struct Fold {
     subs: HashMap<String, Transcript>,
     cards: HashMap<String, CardPlace>,
     tools: HashMap<(Option<String>, String), ToolPlace>,
-    /// Gesture calls by id: what has come of one still running, or nothing once it has finished.
-    gestures: HashMap<(Option<String>, String), Option<Raw>>,
+    /// The GIF the reply asked for that has not come yet, and what the reply said after it,
+    /// which waits for it so the GIF shows where it was asked for.
+    gif_waits: Option<GifWait>,
+    /// GIFs that stopped being waited for, by the event that held their place, and where each
+    /// goes should it come.
+    late_gifs: HashMap<u64, Within>,
     details: Details,
     notices: HashSet<String>,
     /// The compactions already counted, as an agent may say one has finished more than once.
@@ -619,7 +624,6 @@ fn workflow_agents(value: &Value) -> Option<Vec<WorkflowAgent>> {
 
 /// Which transcript an update lands in: the chat's own, or a subagent's.
 type Within = Option<String>;
-type Raw = Map<String, Value>;
 
 impl Fold {
     /// Makes the paths the agent names whole against `folder`, and numbers the lines of
@@ -641,7 +645,8 @@ impl Fold {
             subs: HashMap::new(),
             cards: HashMap::new(),
             tools: HashMap::new(),
-            gestures: HashMap::new(),
+            gif_waits: None,
+            late_gifs: HashMap::new(),
             details: Details::default(),
             notices: HashSet::new(),
             compacted: HashSet::new(),
@@ -938,7 +943,25 @@ impl Fold {
     }
 
     fn take_in(&mut self, index: u64, kind: ChatEventKind, payload: &Value, at: u64) {
+        if let Some(wait) = self.gif_waits.as_mut() {
+            match kind {
+                ChatEventKind::SessionUpdate => {
+                    wait.after.push((index, kind, payload.clone(), at));
+                    return;
+                }
+                ChatEventKind::Gif if payload.get("ask").is_some() => {
+                    wait.after.push((index, kind, payload.clone(), at));
+                    return;
+                }
+                ChatEventKind::Gif
+                | ChatEventKind::Status
+                | ChatEventKind::Sourced
+                | ChatEventKind::PermissionRequest => {}
+                _ => self.stop_waiting_for_gif(),
+            }
+        }
         match kind {
+            ChatEventKind::Gif => self.gif(index, payload),
             ChatEventKind::Status => self.status(payload, at),
             ChatEventKind::Sourced => self.sourced(payload),
             ChatEventKind::Ready => {
@@ -1704,11 +1727,6 @@ impl Fold {
             .unwrap_or_default()
             .to_owned();
         let key = (within.clone(), id);
-        if self.gestures.contains_key(&key)
-            || text_of(update.get("title")).is_some_and(tools::is_gesture)
-        {
-            return self.gesture(index, within, key, update, merge);
-        }
         if let Some(place) = self.tools.get_mut(&key) {
             let patch = update.iter().filter(|(key, value)| {
                 !(value.is_null() || key.as_str() == "title" && value.as_str() == Some(""))
@@ -1795,51 +1813,87 @@ impl Fold {
         true
     }
 
-    /// A gesture shows nothing while it runs, and once it has finished only what it did.
-    fn gesture(
-        &mut self,
-        index: u64,
-        within: &Within,
-        key: (Within, String),
-        update: &Map<String, Value>,
-        merge: bool,
-    ) -> bool {
-        let slot = self.gestures.entry(key).or_insert_with(|| Some(Map::new()));
-        let Some(held) = slot.as_mut() else {
-            return false;
-        };
-        if !merge {
-            held.clear();
+    /// A GIF the reply asked for holds its place, or one asked for came, or could not be found.
+    fn gif(&mut self, index: u64, payload: &Value) {
+        if let Some(session) = text_of(payload.get("sessionId")) {
+            let main = self.head.session_id.as_deref() == Some(session);
+            let within = (!main && self.subs.contains_key(session)).then(|| session.to_owned());
+            self.gif_waits = Some(GifWait {
+                slot: index,
+                within,
+                after: Vec::new(),
+            });
+            return;
         }
-        for (field, value) in update {
-            if !value.is_null() {
-                held.insert(field.clone(), value.clone());
+        let Some(slot) = payload.get("slot").and_then(Value::as_u64) else {
+            return;
+        };
+        let gif = payload
+            .get("gif")
+            .and_then(|gif| GifRef::deserialize(gif).ok())
+            .filter(|gif| gif.url.starts_with("https://"));
+        let waited = self.gif_waits.take_if(|wait| wait.slot == slot);
+        let within = match &waited {
+            Some(wait) => Some(wait.within.clone()),
+            None => self.late_gifs.remove(&slot),
+        };
+        if let (Some(within), Some(gif)) = (within, gif) {
+            let replying = waited.is_some()
+                || self.transcript(&within).is_some_and(|transcript| {
+                    (transcript.rows.last())
+                        .is_some_and(|row| row.msg.role == ChatRole::Assistant && !row.local)
+                });
+            if replying {
+                self.show_gif(index, &within, slot, gif);
             }
         }
-        if tools::running(text_of(held.get("status"))) {
-            return false;
+        if let Some(wait) = waited {
+            self.go_on_after_gif(wait.after);
         }
-        let Some(raw) = slot.take() else {
-            return false;
+    }
+
+    fn show_gif(&mut self, index: u64, within: &Within, slot: u64, gif: GifRef) {
+        let call = ToolCall {
+            tool_call_id: format!("gif-{slot}"),
+            title: "gif".to_owned(),
+            ..ToolCall::default()
         };
-        match tools::gesture(&raw) {
-            Some(tools::Gesture::Gif(gif)) => {
-                let call = tools::root_call(self.folder.as_deref(), tools::call(&raw));
-                let part = |id| ChatPart::Tool {
-                    id,
-                    tool: call,
-                    diff: None,
-                    output: None,
-                    page: None,
-                    app: None,
-                    gif: Some(gif),
-                    failure: None,
-                    started_at: None,
-                    ended_at: None,
-                };
-                self.append_part(index, within, part, false).is_some()
+        self.append_part(
+            index,
+            within,
+            |id| ChatPart::Tool {
+                id,
+                tool: call,
+                diff: None,
+                output: None,
+                page: None,
+                app: None,
+                gif: Some(gif),
+                failure: None,
+                started_at: None,
+                ended_at: None,
+            },
+            false,
+        );
+    }
+
+    /// Something other than the reply came, such as its turn's end, so what waited for a GIF
+    /// shows now, and the GIF after it should it still come.
+    fn stop_waiting_for_gif(&mut self) {
+        if let Some(wait) = self.gif_waits.take() {
+            self.late_gifs.insert(wait.slot, wait.within);
+            self.go_on_after_gif(wait.after);
+        }
+    }
+
+    fn go_on_after_gif(&mut self, after: Vec<(u64, ChatEventKind, Value, u64)>) {
+        let mut after = after.into_iter();
+        while let Some((index, kind, payload, at)) = after.next() {
+            self.take_in(index, kind, &payload, at);
+            if let Some(wait) = self.gif_waits.as_mut() {
+                wait.after.extend(after);
+                return;
             }
-            None => false,
         }
     }
 

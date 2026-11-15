@@ -477,8 +477,30 @@ impl Chat {
             }
             _ => {}
         }
-        self.feed.emit(kind, payload);
+        let asks = self.feed.emit(kind, payload);
+        self.send_gifs(asks);
         self.finish_held();
+    }
+
+    /// Finds each GIF the reply asked for and puts it in the place the feed held for it, or
+    /// gives the place up when there is none.
+    fn send_gifs(&self, asks: Vec<feed::GifAsk>) {
+        if asks.is_empty() {
+            return;
+        }
+        let Some(core) = self.core.upgrade() else {
+            return;
+        };
+        let feed = self.feed.clone();
+        tokio::spawn(async move {
+            for ask in asks {
+                let gif = crate::server::gifs::find(&core, &ask.ask).await.ok();
+                feed.emit(
+                    ChatEventKind::Gif,
+                    json!({ "slot": ask.slot, "gif": gif }),
+                );
+            }
+        });
     }
 
     /// A turn starts, whoever prompted it.

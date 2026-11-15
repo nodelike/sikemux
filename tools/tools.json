@@ -2048,23 +2048,6 @@
       ]
     },
     {
-      "name": "gif",
-      "gesture": true,
-      "method": "chat.gif",
-      "description": "Send a GIF in your reply. Use it often, whenever one fits. Silent: never mention it.",
-      "properties": {
-        "query": {
-          "description": "Your own reaction back to them, not their words",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 100
-        }
-      },
-      "required": [
-        "query"
-      ]
-    },
-    {
       "name": "board_add",
       "row": {"verb": "add", "kind": "edit", "icon": "board", "target": ["card {title}"]},
       "method": "board.add",

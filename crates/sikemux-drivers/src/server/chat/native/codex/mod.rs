@@ -556,12 +556,15 @@ impl Backend for Codex {
             .as_ref()
             .map(config::configured_servers)
             .unwrap_or_default();
+        let tools = servers::tool_servers(launch);
+        let personality = servers::offers_sikemux_tools(&tools)
+            .then_some(crate::server::gestures::PERSONALITY);
+        let lines: Vec<&str> = personality.into_iter().chain(brief).collect();
         let instructions = read
             .as_ref()
-            .zip(brief)
-            .map(|(read, brief)| config::developer_instructions(read, brief));
-        let session_config =
-            config::session_config(&cwd, &servers::tool_servers(launch), &configured);
+            .filter(|_| !lines.is_empty())
+            .map(|read| config::developer_instructions(read, &lines.join("\n\n")));
+        let session_config = config::session_config(&cwd, &tools, &configured);
         let servers: Vec<String> = session_config["mcp_servers"]
             .as_object()
             .map(|servers| servers.keys().cloned().collect())

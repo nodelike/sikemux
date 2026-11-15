@@ -28,9 +28,6 @@ pub struct Tool {
     /// `screenshot` or `image`.
     #[serde(default)]
     pub answer: Option<String>,
-    /// A GIF, which an agent should have to hand without looking it up.
-    #[serde(default)]
-    gesture: bool,
     /// How the app shows a call of it, which says whether it changes anything.
     #[serde(default)]
     row: Row,
@@ -418,16 +415,12 @@ impl Tool {
     }
 
     pub fn declaration(&self) -> Value {
-        let mut declared = declaration(
+        declaration(
             &self.name,
             &self.description,
             &self.properties,
             &self.required,
-        );
-        if self.gesture {
-            declared["_meta"] = json!({ "anthropic/alwaysLoad": true });
-        }
-        declared
+        )
     }
 
     /// The wording matches what the agent used to read from the Python server,
