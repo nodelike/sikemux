@@ -6,6 +6,8 @@
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+mod no_engine;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,6 +18,8 @@ use std::time::{Duration, Instant};
 use linux as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+use no_engine as platform;
 use platform::{Picture, Writer};
 
 use crate::manager::BrowserManager;
@@ -42,6 +46,7 @@ impl Drop for Session {
     }
 }
 
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
 struct Frame {
     image: Picture,
     at: Duration,

@@ -22,6 +22,8 @@ use crate::linux::page;
 use crate::macos;
 #[cfg(target_os = "macos")]
 use crate::macos as page;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+use crate::no_engine::page;
 use crate::recording;
 pub(crate) use crate::strip::{TabPage, TabStrip};
 use crate::tab_events::{OpenedBy, TabListener};
@@ -1223,7 +1225,7 @@ impl BrowserManager {
         #[cfg(target_os = "macos")]
         dispatch2::DispatchQueue::main()
             .exec_async(move || page::install_shortcuts(move |shortcut| host.shortcut(shortcut)));
-        #[cfg(target_os = "linux")]
+        #[cfg(not(target_os = "macos"))]
         page::install_shortcuts(move |shortcut| host.shortcut(shortcut));
     }
 

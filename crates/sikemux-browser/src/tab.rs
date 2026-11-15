@@ -2,7 +2,7 @@
 //! on; the handle can be held and cloned on any thread, and everything it does to the page
 //! runs on that one.
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
@@ -14,7 +14,7 @@ use objc2_app_kit::NSView;
 #[cfg(target_os = "macos")]
 use objc2_web_kit::{WKWebView, WKWebViewConfiguration};
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "macos")]
 use crate::TabEvents;
 
 /// The window view tabs are added to: an `NSView` on macOS, the window's X11 id on Linux.
@@ -281,58 +281,5 @@ impl Tab {
 #[cfg(target_os = "linux")]
 pub use crate::linux::Tab;
 
-/// Elsewhere there is no browser engine yet, so no tab can be made.
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-#[derive(Clone)]
-pub struct Tab(Never);
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-#[derive(Clone)]
-enum Never {}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-impl Tab {
-    pub fn open(
-        _parent: ParentView,
-        _spec: TabSpec<'_>,
-        _events: Arc<dyn TabEvents>,
-    ) -> Result<Tab, String> {
-        Err("browser tabs need macOS or Linux".into())
-    }
-
-    pub fn id(&self) -> &str {
-        match self.0 {}
-    }
-
-    pub fn show(&self) {
-        match self.0 {}
-    }
-
-    pub fn hide(&self) {
-        match self.0 {}
-    }
-
-    pub fn close(&self) {
-        match self.0 {}
-    }
-
-    pub fn set_zoom(&self, _zoom: f64) {
-        match self.0 {}
-    }
-
-    pub fn reload(&self) {
-        match self.0 {}
-    }
-
-    pub fn navigate(&self, _url: &str) {
-        match self.0 {}
-    }
-
-    pub fn set_bounds(&self, _frame: (f64, f64, f64, f64), _sides: (f64, f64)) {
-        match self.0 {}
-    }
-
-    pub async fn eval(&self, _script: &str) -> Result<String, String> {
-        match self.0 {}
-    }
-}
+pub use crate::no_engine::Tab;

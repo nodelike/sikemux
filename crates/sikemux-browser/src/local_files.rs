@@ -507,6 +507,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_symlink_out_of_the_folder_is_refused() {
         let (_dir, folder) = folder();

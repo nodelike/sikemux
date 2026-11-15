@@ -11,6 +11,11 @@ use crate::linux::input;
 use crate::linux::page::{call_async, World};
 #[cfg(target_os = "macos")]
 use crate::macos::{answer_dialog as answer_on_page, call_async, World};
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+use crate::no_engine::{
+    answer as answer_on_page, input,
+    page::{call_async, World},
+};
 use crate::Tab;
 
 #[cfg(target_os = "macos")]
@@ -26,6 +31,8 @@ const SLOW_ANSWER: Duration = Duration::from_secs(1);
 type PageView = objc2_web_kit::WKWebView;
 #[cfg(target_os = "linux")]
 type PageView = webkit2gtk::WebView;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+type PageView = crate::no_engine::Page;
 
 /// Runs `act` against the tab's native view on the thread that owns it.
 async fn on_tab<T: Send + 'static>(
@@ -51,7 +58,7 @@ pub async fn key(view: &Tab, name: &str) -> Result<(), String> {
     on_tab(view, move |tab| input::key(tab, &stroke)).await
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "macos"))]
 pub async fn key(view: &Tab, name: &str) -> Result<(), String> {
     crate::keys::parse(name)?;
     let name = name.to_owned();
@@ -82,6 +89,11 @@ pub async fn reload_from_origin(view: &Tab) -> Result<(), String> {
         Ok(())
     })
     .await
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub async fn reload_from_origin(view: &Tab) -> Result<(), String> {
+    on_tab(view, |page| match *page {}).await
 }
 
 pub async fn answer_dialog(
