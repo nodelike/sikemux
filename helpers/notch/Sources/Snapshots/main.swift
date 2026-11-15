@@ -314,7 +314,7 @@ let full = DeviceView(
     workspace: standing(decoded.workspace, agents: agents, calls: (decoded.calls ?? []) + demoCalls),
     attentions: decoded.attentions,
     inbox: Inbox(items: decoded.inbox.items.filter { $0.kind != .hostAlert }, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
-    calls: (decoded.calls ?? []) + demoCalls, faceStyle: decoded.faceStyle, load: nil
+    calls: (decoded.calls ?? []) + demoCalls, now: decoded.now, faceStyle: decoded.faceStyle, load: nil
 )
 
 let overloaded = HostLoad(overloaded: true, loadAverage: 180, cores: 10, builds: [
@@ -335,7 +335,7 @@ func view(keeping ids: Set<String>?, load: HostLoad? = nil) -> DeviceView {
             agents: agents,
             rollup: AgentRollup(subagents: agents.reduce(0) { $0 + $1.subagents }, tasks: agents.reduce(0) { $0 + $1.tasks })
         ),
-        calls: calls, faceStyle: full.faceStyle, load: load
+        calls: calls, now: full.now, faceStyle: full.faceStyle, load: load
     )
 }
 
