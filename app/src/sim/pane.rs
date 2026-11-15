@@ -37,6 +37,7 @@ use crate::workbench::Workbench;
 
 /// Frames are reported read in batches this size, so the helper keeps sending.
 const READ_BATCH: u64 = 4;
+const RECHECK_AFTER: std::time::Duration = std::time::Duration::from_secs(1);
 const NAMED_KEYS: [&str; 8] = [
     "Enter",
     "Escape",
@@ -62,6 +63,9 @@ pub struct Simulators {
     booting: HashSet<String>,
     /// The devices shutting down, by udid.
     stopping: HashSet<String>,
+    /// The agents whose screen stopped streaming, held back from streaming again until their
+    /// device is checked, so a device that went away shows as off rather than black.
+    rechecking: HashSet<String>,
     /// Why the last listing or start of a device failed.
     problem: Option<SharedString>,
     acting: HashSet<String>,
@@ -202,6 +206,7 @@ impl Simulators {
             listing: false,
             booting: HashSet::new(),
             stopping: HashSet::new(),
+            rechecking: HashSet::new(),
             problem: None,
             acting: HashSet::new(),
             progress: None,
@@ -352,9 +357,10 @@ impl Simulators {
                     .filter(|(_, screen)| screen.watch.load(Ordering::SeqCst) == id)
                     .map(|(agent, _)| agent.clone())
                     .collect();
-                for agent in ended {
-                    self.screens.remove(&agent);
+                for agent in &ended {
+                    self.screens.remove(agent);
                 }
+                self.recheck(ended, cx);
             }
         }
         cx.notify();
@@ -623,12 +629,46 @@ impl Simulators {
         }
     }
 
+    /// Asks whether the agents' devices are still on after their screens stopped streaming, a
+    /// moment later, so one that is on streams again and one that went away shows as off.
+    fn recheck(&mut self, agents: Vec<String>, cx: &mut Context<Self>) {
+        if agents.is_empty() {
+            return;
+        }
+        self.rechecking.extend(agents.iter().cloned());
+        let engine = Arc::clone(&self.engine);
+        cx.spawn(async move |sims, cx| {
+            cx.background_executor().timer(RECHECK_AFTER).await;
+            let asked = Map::from_iter([("type".to_owned(), Value::from("devices"))]);
+            let answer = crate::desk::run(async move { engine.window_call(asked).await }).await;
+            let _ = sims.update(cx, |sims, cx| {
+                if let Some(Ok(answer)) = answer {
+                    let listed = listed_devices(&answer);
+                    for agent in &agents {
+                        let Some(device) = sims.attached.get_mut(agent) else {
+                            continue;
+                        };
+                        if let Some(now) = listed.iter().find(|now| now.udid == device.udid) {
+                            device.booted = now.booted;
+                        }
+                    }
+                    sims.devices = Some(listed);
+                }
+                for agent in &agents {
+                    sims.rechecking.remove(agent);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Starts showing the agent's device: its screen streams, and its size is read for touches.
     pub(crate) fn start_screen(&mut self, agent: &str, cx: &mut Context<Self>) {
         let Some(device) = self.attached.get(agent).cloned() else {
             return;
         };
-        if self.screens.contains_key(agent) {
+        if self.screens.contains_key(agent) || self.rechecking.contains(agent) {
             return;
         }
         let engine = Arc::clone(&self.engine);
