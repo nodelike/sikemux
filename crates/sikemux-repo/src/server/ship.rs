@@ -513,7 +513,20 @@ fn call_for(
         .then(|| Git::quick(cwd).trimmed(&["log", "-1", "--format=%s"]).ok())
         .flatten()
         .filter(|subject| !subject.is_empty());
-    let github = github_write(&ship.what);
+    let here = || {
+        let remote = Git::quick(cwd)
+            .trimmed(&["remote", "get-url", "origin"])
+            .ok()?;
+        let (owner, name) = super::credential::owner_and_name(&remote)?;
+        Some(format!("{owner}/{name}"))
+    };
+    let tag = match &ship.target {
+        Some(Target::Tag { name }) if !name.is_empty() => Some(format!("Publish {name}")),
+        Some(Target::Tag { .. }) => Some("Publish these tags".to_owned()),
+        _ => None,
+    };
+    let github = (tag.map(|tag| format!("{tag} to {}", place.name())))
+        .or_else(|| github_write(&ship.what, here));
     let option = |id: &str, label: String| CallOption {
         id: id.to_owned(),
         label,
@@ -561,8 +574,9 @@ fn call_for(
 }
 
 /// What a `gh api` command writes on GitHub, in the words the person would use for it, such
-/// as "Comment on owner/repo#12".
-fn github_write(what: &str) -> Option<String> {
+/// as "Comment on owner/repo#12". `here` names the checkout's repository, which gh puts in
+/// for `{owner}/{repo}`.
+fn github_write(what: &str, here: impl FnOnce() -> Option<String>) -> Option<String> {
     let command = what.rsplit(" && ").next()?;
     let words: Vec<&str> = command.split_whitespace().collect();
     let ["gh", "api", args @ ..] = words.as_slice() else {
@@ -614,7 +628,10 @@ fn github_write(what: &str) -> Option<String> {
     let ["repos", owner, repo, rest @ ..] = parts.as_slice() else {
         return Some("Write to GitHub as you".to_owned());
     };
-    let repo = format!("{owner}/{repo}");
+    let repo = match (*owner, *repo) {
+        ("{owner}", _) | (_, "{repo}") => here().unwrap_or_else(|| "this repository".to_owned()),
+        _ => format!("{owner}/{repo}"),
+    };
     let said = match (method.as_str(), rest) {
         ("POST", ["issues" | "pulls", number, "comments", ..]) => {
             format!("Comment on {repo}#{number}")
@@ -636,6 +653,20 @@ fn github_write(what: &str) -> Option<String> {
         }
         ("POST", ["releases"]) => format!("Publish a release of {repo}"),
         ("DELETE", []) => format!("Delete {repo}"),
+        ("PATCH", []) => format!("Change the settings of {repo}"),
+        ("POST", ["pages"]) => format!("Turn on GitHub Pages for {repo}"),
+        ("PUT", ["pages"]) => format!("Change GitHub Pages for {repo}"),
+        ("DELETE", ["pages"]) => format!("Turn off GitHub Pages for {repo}"),
+        ("POST", ["pages", "builds"]) => format!("Rebuild GitHub Pages for {repo}"),
+        (method, rest @ [_, ..]) if !rest.iter().any(|part| part.starts_with('{')) => {
+            let verb = match method {
+                "POST" => "Add",
+                "PUT" => "Set",
+                "DELETE" => "Delete",
+                _ => "Change",
+            };
+            format!("{verb} {} on {repo}", rest.join("/"))
+        }
         _ => format!("Change {repo} on GitHub"),
     };
     Some(said)
@@ -1730,8 +1761,13 @@ mod tests {
                 "Move branch add-sikemux in nodelike/awesome-opencode",
             ),
             ("gh api -X POST repos/owner/repo/forks", "Fork owner/repo"),
+            (
+                "gh api -X POST repos/{owner}/{repo}/pages -f build_type=workflow",
+                "Turn on GitHub Pages for nodelike/sikemux",
+            ),
         ] {
-            assert_eq!(super::github_write(what).as_deref(), Some(said), "{what}");
+            let here = || Some("nodelike/sikemux".to_owned());
+            assert_eq!(super::github_write(what, here).as_deref(), Some(said), "{what}");
         }
     }
 }

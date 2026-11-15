@@ -172,7 +172,7 @@ pub async fn merge(
     Ok(json!({ "said": said }))
 }
 
-fn owner_and_name(remote: &str) -> Option<(String, String)> {
+pub(crate) fn owner_and_name(remote: &str) -> Option<(String, String)> {
     let https = identity::https_of(remote)?;
     let path = https.strip_prefix("https://")?.split_once('/')?.1;
     let path = path.trim_end_matches('/');
