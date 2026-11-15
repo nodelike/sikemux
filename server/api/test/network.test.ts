@@ -27,6 +27,7 @@ describe("GET /v1/network", () => {
         ios: { nightly: "0.0.0", stable: "0.0.0" },
         android: { nightly: "0.0.0", stable: "0.0.0" },
       },
+      flags: { off: [] },
     });
   });
 
@@ -66,6 +67,7 @@ describe("GET /v1/network", () => {
         ios: { nightly: "0.2.0-nightly.4", stable: "0.0.0" },
         android: { nightly: "0.0.0", stable: "0.0.0" },
       },
+      flags: { off: [] },
     });
   });
 

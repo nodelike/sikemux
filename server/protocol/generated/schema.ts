@@ -22,8 +22,9 @@ export const schema = {
           type: "integer",
           minimum: 1,
         },
+        staff: { $ref: "#/$defs/Staff" },
       },
-      required: ["status", "restorableDays"],
+      required: ["status", "restorableDays", "staff"],
       additionalProperties: false,
     },
     AccountDeletion: {
@@ -117,8 +118,9 @@ export const schema = {
         email: { type: ["string", "null"], maxLength: 320 },
         name: { type: ["string", "null"], maxLength: 256 },
         imageUrl: { type: ["string", "null"], format: "uri", maxLength: 2048 },
+        staff: { $ref: "#/$defs/Staff" },
       },
-      required: ["email", "name", "imageUrl"],
+      required: ["email", "name", "imageUrl", "staff"],
       additionalProperties: false,
     },
     AccountStatus: {
@@ -331,6 +333,25 @@ export const schema = {
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
       },
       required: ["platform", "token", "app", "nonce", "signature"],
+      additionalProperties: false,
+    },
+    Flags: {
+      description:
+        "Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release.",
+      type: "object",
+      properties: {
+        off: {
+          description:
+            "The names of the features switched off, such as staffFeed.",
+          type: "array",
+          items: {
+            type: "string",
+            pattern: "^[a-z][A-Za-z0-9]*$",
+            maxLength: 64,
+          },
+        },
+      },
+      required: ["off"],
       additionalProperties: false,
     },
     Health: {
@@ -1324,7 +1345,7 @@ export const schema = {
     },
     Network: {
       description:
-        "How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.",
+        "How hosts and phones reach each other, the oldest app the server still serves, and the features it has switched off. Apps read it when they start, so changing any of them needs no app release.",
       type: "object",
       properties: {
         relays: {
@@ -1335,8 +1356,9 @@ export const schema = {
           items: { $ref: "#/$defs/Relay" },
         },
         minimumVersions: { $ref: "#/$defs/MinimumVersions" },
+        flags: { $ref: "#/$defs/Flags" },
       },
-      required: ["relays", "minimumVersions"],
+      required: ["relays", "minimumVersions", "flags"],
       additionalProperties: false,
     },
     PendingHost: {
@@ -1901,6 +1923,11 @@ export const schema = {
       },
       required: ["type", "share"],
       additionalProperties: false,
+    },
+    Staff: {
+      description:
+        "The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.",
+      type: "boolean",
     },
     StashAdd: {
       description:

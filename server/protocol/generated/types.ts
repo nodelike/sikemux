@@ -8,6 +8,7 @@ export interface Account {
   deletesAt?: string;
   /** How many days a deleted account can still be restored: deletesAt is this long after the deletion. */
   restorableDays: number;
+  staff: Staff;
 }
 
 /** Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it. */
@@ -75,6 +76,7 @@ export interface AccountProfile {
   email: string | null;
   name: string | null;
   imageUrl: string | null;
+  staff: Staff;
 }
 
 /** Active, or deleting: deleted on request and still restorable until deletesAt. */
@@ -214,6 +216,12 @@ export interface FcmTokenRegistration {
   app: PushApp;
   nonce: string;
   signature: string;
+}
+
+/** Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release. */
+export interface Flags {
+  /** The names of the features switched off, such as staffFeed. */
+  off: string[];
 }
 
 /** Whether the API can serve requests, and which build is answering. */
@@ -705,11 +713,12 @@ export interface ModStored {
   seq: ModSeq;
 }
 
-/** How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release. */
+/** How hosts and phones reach each other, the oldest app the server still serves, and the features it has switched off. Apps read it when they start, so changing any of them needs no app release. */
 export interface Network {
   /** The relays to use, best first. A host connects to every one; a phone dials a host through the relay the host says it is on. */
   relays: Relay[];
   minimumVersions: MinimumVersions;
+  flags: Flags;
 }
 
 /** The host waiting behind a user code, for the person to check before approving it. */
@@ -1053,6 +1062,9 @@ export interface ShareWantsSnapshot {
   share: ShareId;
 }
 
+/** The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it. */
+export type Staff = boolean;
+
 /** A link, text or prompt to stash. A file is sent as its bytes instead, with Content-Type, X-Stash-Name (URI-encoded), and optionally X-Stash-Note and X-Stash-Target (URI-encoded JSON of a StashTarget), or X-Stash-Prompt with a prompt's id to attach it to that prompt. A file signed with SikemuxHost or SikemuxDevice also sends X-Body-Sha256, the body's SHA-256 in lowercase hex, which the signature covers in place of hashing the body. */
 export type StashAdd = StashAddLink | StashAddText | StashAddPrompt;
 
@@ -1341,6 +1353,7 @@ export interface Definitions {
   ErrorDetail: ErrorDetail;
   EventId: EventId;
   FcmTokenRegistration: FcmTokenRegistration;
+  Flags: Flags;
   Health: Health;
   HealthStatus: HealthStatus;
   Hook: Hook;
@@ -1458,6 +1471,7 @@ export interface Definitions {
   ShareViewerProof: ShareViewerProof;
   ShareViewers: ShareViewers;
   ShareWantsSnapshot: ShareWantsSnapshot;
+  Staff: Staff;
   StashAdd: StashAdd;
   StashAddLink: StashAddLink;
   StashAddPrompt: StashAddPrompt;

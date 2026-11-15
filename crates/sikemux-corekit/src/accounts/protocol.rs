@@ -15,6 +15,7 @@ pub struct Account {
     pub deletes_at: Option<String>,
     /// How many days a deleted account can still be restored: deletesAt is this long after the deletion.
     pub restorable_days: i64,
+    pub staff: Staff,
 }
 
 /// Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it.
@@ -103,6 +104,7 @@ pub struct AccountProfile {
     pub email: Option<String>,
     pub name: Option<String>,
     pub image_url: Option<String>,
+    pub staff: Staff,
 }
 
 /// Active, or deleting: deleted on request and still restorable until deletesAt.
@@ -664,6 +666,9 @@ pub struct PushTokenState {
     pub updated_at: String,
 }
 
+/// The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.
+pub type Staff = bool;
+
 /// A link, text or prompt to stash. A file is sent as its bytes instead, with Content-Type, X-Stash-Name (URI-encoded), and optionally X-Stash-Note and X-Stash-Target (URI-encoded JSON of a StashTarget), or X-Stash-Prompt with a prompt's id to attach it to that prompt. A file signed with SikemuxHost or SikemuxDevice also sends X-Body-Sha256, the body's SHA-256 in lowercase hex, which the signature covers in place of hashing the body.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -921,6 +926,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PushResult" => through::<PushResult>(json),
         "PushTokenRegistration" => through::<PushTokenRegistration>(json),
         "PushTokenState" => through::<PushTokenState>(json),
+        "Staff" => through::<Staff>(json),
         "StashAdd" => through::<StashAdd>(json),
         "StashAddLink" => through::<StashAdd>(json),
         "StashAddPrompt" => through::<StashAdd>(json),

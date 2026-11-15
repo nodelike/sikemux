@@ -2323,9 +2323,10 @@
             "description": "How many days a deleted account can still be restored: deletesAt is this long after the deletion.",
             "type": "integer",
             "minimum": 1
-          }
+          },
+          "staff": { "$ref": "#/components/schemas/Staff" }
         },
-        "required": ["status", "restorableDays"],
+        "required": ["status", "restorableDays", "staff"],
         "additionalProperties": false
       },
       "AccountDeletion": {
@@ -2413,9 +2414,10 @@
             "type": ["string", "null"],
             "format": "uri",
             "maxLength": 2048
-          }
+          },
+          "staff": { "$ref": "#/components/schemas/Staff" }
         },
-        "required": ["email", "name", "imageUrl"],
+        "required": ["email", "name", "imageUrl", "staff"],
         "additionalProperties": false
       },
       "AccountStatus": {
@@ -2626,6 +2628,23 @@
           "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
         },
         "required": ["platform", "token", "app", "nonce", "signature"],
+        "additionalProperties": false
+      },
+      "Flags": {
+        "description": "Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release.",
+        "type": "object",
+        "properties": {
+          "off": {
+            "description": "The names of the features switched off, such as staffFeed.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]*$",
+              "maxLength": 64
+            }
+          }
+        },
+        "required": ["off"],
         "additionalProperties": false
       },
       "Health": {
@@ -3565,7 +3584,7 @@
         "additionalProperties": false
       },
       "Network": {
-        "description": "How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.",
+        "description": "How hosts and phones reach each other, the oldest app the server still serves, and the features it has switched off. Apps read it when they start, so changing any of them needs no app release.",
         "type": "object",
         "properties": {
           "relays": {
@@ -3574,9 +3593,10 @@
             "minItems": 1,
             "items": { "$ref": "#/components/schemas/Relay" }
           },
-          "minimumVersions": { "$ref": "#/components/schemas/MinimumVersions" }
+          "minimumVersions": { "$ref": "#/components/schemas/MinimumVersions" },
+          "flags": { "$ref": "#/components/schemas/Flags" }
         },
-        "required": ["relays", "minimumVersions"],
+        "required": ["relays", "minimumVersions", "flags"],
         "additionalProperties": false
       },
       "PendingHost": {
@@ -4102,6 +4122,10 @@
         },
         "required": ["type", "share"],
         "additionalProperties": false
+      },
+      "Staff": {
+        "description": "The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.",
+        "type": "boolean"
       },
       "StashAdd": {
         "description": "A link, text or prompt to stash. A file is sent as its bytes instead, with Content-Type, X-Stash-Name (URI-encoded), and optionally X-Stash-Note and X-Stash-Target (URI-encoded JSON of a StashTarget), or X-Stash-Prompt with a prompt's id to attach it to that prompt. A file signed with SikemuxHost or SikemuxDevice also sends X-Body-Sha256, the body's SHA-256 in lowercase hex, which the signature covers in place of hashing the body.",

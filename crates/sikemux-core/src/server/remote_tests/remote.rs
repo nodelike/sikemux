@@ -630,6 +630,7 @@ fn network_allowing(version: &str) -> Network {
             "ios": any,
             "android": any,
         },
+        "flags": { "off": [] },
     }))
     .unwrap()
 }

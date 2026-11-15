@@ -1,4 +1,5 @@
 {
   "status": "active",
-  "restorableDays": 30
+  "restorableDays": 30,
+  "staff": true
 }

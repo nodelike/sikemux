@@ -10,6 +10,7 @@ struct WireAccount: Codable, Hashable, Sendable {
     var deletesAt: String?
     /// How many days a deleted account can still be restored: deletesAt is this long after the deletion.
     var restorableDays: Int
+    var staff: Staff
 }
 
 /// What the phone may send when it deletes an account. The body can be left out.
@@ -163,6 +164,12 @@ struct FcmTokenRegistration: Codable, Hashable, Sendable {
     var app: PushApp
     var nonce: String
     var signature: String
+}
+
+/// Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release.
+struct Flags: Codable, Hashable, Sendable {
+    /// The names of the features switched off, such as staffFeed.
+    var off: [String]
 }
 
 /// Which host on the account the phone wants to join.
@@ -361,11 +368,12 @@ struct MinimumVersions: Codable, Hashable, Sendable {
     var android: ChannelVersions
 }
 
-/// How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.
+/// How hosts and phones reach each other, the oldest app the server still serves, and the features it has switched off. Apps read it when they start, so changing any of them needs no app release.
 struct WireNetwork: Codable, Hashable, Sendable {
     /// The relays to use, best first. A host connects to every one; a phone dials a host through the relay the host says it is on.
     var relays: [Relay]
     var minimumVersions: MinimumVersions
+    var flags: Flags
 }
 
 /// The host waiting behind a user code, for the person to check before approving it.
@@ -812,6 +820,9 @@ struct ShareWantsSnapshot: Codable, Hashable, Sendable {
     var type = "snapshot"
     var share: ShareId
 }
+
+/// The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.
+typealias Staff = Bool
 
 /// Something the person shared into Sikemux, kept on their account until they use it.
 struct StashItem: Codable, Hashable, Sendable {

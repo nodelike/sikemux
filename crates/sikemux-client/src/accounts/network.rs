@@ -242,6 +242,7 @@ mod tests {
                 ios: versions("0.0.0", "0.0.0"),
                 android: versions("0.0.0", "0.0.0"),
             },
+            flags: crate::accounts::protocol::Flags { off: Vec::new() },
         };
         assert_eq!(usable_relays(&network(vec![])), None);
         assert_eq!(usable_relays(&network(vec![relay("nope", None)])), None);

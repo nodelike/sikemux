@@ -8,6 +8,7 @@ import { notFound, readOptionalBody } from "../http.ts";
 import { perUser } from "../limits.ts";
 import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
+import { isStaff } from "./staff.ts";
 
 export function accountRoutes({
   database: { db },
@@ -26,7 +27,7 @@ export function accountRoutes({
       const { userId } = c.get("identity");
       const user = await db
         .selectFrom("users")
-        .select(["deleted_at", "purge_after"])
+        .select(["deleted_at", "purge_after", "staff"])
         .where("id", "=", userId)
         .executeTakeFirst();
       const body: Account =
@@ -35,8 +36,13 @@ export function accountRoutes({
               status: "deleting",
               deletesAt: user.purge_after.toISOString(),
               restorableDays: PURGE_AFTER_DAYS,
+              staff: user.staff,
             }
-          : { status: "active", restorableDays: PURGE_AFTER_DAYS };
+          : {
+              status: "active",
+              restorableDays: PURGE_AFTER_DAYS,
+              staff: user?.staff ?? false,
+            };
       return c.json(body);
     })
     .post("/restore", perUser(limiter, "restore-account", 10), async (c) => {
@@ -49,6 +55,7 @@ export function accountRoutes({
       const body: Account = {
         status: "active",
         restorableDays: PURGE_AFTER_DAYS,
+        staff: await isStaff(db, identity.userId),
       };
       return c.json(body);
     })

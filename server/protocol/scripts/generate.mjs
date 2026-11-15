@@ -39,6 +39,7 @@ const PHONE_RUST = new Set([
   "AppVersion",
   "ChannelVersions",
   "DeviceKey",
+  "Flags",
   "JoinTicket",
   "MinimumVersions",
   "Network",

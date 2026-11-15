@@ -17,6 +17,14 @@ pub struct ChannelVersions {
 /// A device's iroh public key: 32 bytes of Ed25519, in lowercase hex.
 pub type DeviceKey = String;
 
+/// Features the server has switched off, whatever their default, so a risky change can be stopped everywhere without a release.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Flags {
+    /// The names of the features switched off, such as staffFeed.
+    pub off: Vec<String>,
+}
+
 /// The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,13 +60,14 @@ pub struct MinimumVersions {
     pub android: ChannelVersions,
 }
 
-/// How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.
+/// How hosts and phones reach each other, the oldest app the server still serves, and the features it has switched off. Apps read it when they start, so changing any of them needs no app release.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Network {
     /// The relays to use, best first. A host connects to every one; a phone dials a host through the relay the host says it is on.
     pub relays: Vec<Relay>,
     pub minimum_versions: MinimumVersions,
+    pub flags: Flags,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -94,6 +103,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "AppVersion" => through::<AppVersion>(json),
         "ChannelVersions" => through::<ChannelVersions>(json),
         "DeviceKey" => through::<DeviceKey>(json),
+        "Flags" => through::<Flags>(json),
         "JoinTicket" => through::<JoinTicket>(json),
         "MinimumVersions" => through::<MinimumVersions>(json),
         "Network" => through::<Network>(json),

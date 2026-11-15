@@ -10,6 +10,7 @@ Table users {
   purge_after timestamptz
   events_pruned_through bigint [not null, default: 0]
   stash_seen_at timestamptz
+  staff boolean [not null, default: `false`]
 
   indexes {
     clerk_retry_at [name: 'users_awaiting_clerk', note: 'where ((deleted_at IS NOT NULL) AND (clerk_deleted_at IS NULL))']

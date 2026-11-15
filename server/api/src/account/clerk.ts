@@ -4,7 +4,7 @@ import type { AccountProfile } from "@sikemux/protocol";
 export interface ClerkBackend {
   deleteUser(userId: string): Promise<void>;
   /** The name, primary email and picture the user signed in with; all null once the user is gone. */
-  profile(userId: string): Promise<AccountProfile>;
+  profile(userId: string): Promise<Omit<AccountProfile, "staff">>;
   revokeSession(sessionId: string): Promise<void>;
   /** The access tokens Clerk holds from the user's web sign-ins with Apple; none for the phone's. */
   appleAccessTokens(userId: string): Promise<string[]>;

@@ -1,5 +1,6 @@
 {
   "status": "deleting",
   "deletesAt": "2026-11-02T09:30:00.000Z",
-  "restorableDays": 30
+  "restorableDays": 30,
+  "staff": false
 }

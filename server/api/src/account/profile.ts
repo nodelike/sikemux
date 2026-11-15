@@ -1,9 +1,11 @@
 import type { Services } from "../app.ts";
+import type { AccountProfile } from "@sikemux/protocol";
 import { Hono } from "hono";
 
 import { requireIdentity, type AuthEnv } from "../auth.ts";
 import { ApiFailure } from "../http.ts";
 import { perUser } from "../limits.ts";
+import { isStaff } from "./staff.ts";
 
 /** GET /v1/account/profile: who a host belongs to, for the host to show, read from Clerk. */
 export function profileRoutes({
@@ -23,7 +25,13 @@ export function profileRoutes({
           "unavailable",
           "The account's profile cannot be read right now.",
         );
-      return c.json(await clerk.profile(c.get("identity").userId));
+      const { userId } = c.get("identity");
+      const [profile, staff] = await Promise.all([
+        clerk.profile(userId),
+        isStaff(db, userId),
+      ]);
+      const body: AccountProfile = { ...profile, staff };
+      return c.json(body);
     },
   );
 }
