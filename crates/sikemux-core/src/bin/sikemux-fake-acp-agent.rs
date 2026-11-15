@@ -422,6 +422,30 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
             say(&said);
             "end_turn"
         }
+        // A row for one of our tools called with these arguments, without calling it.
+        "call" => {
+            let rest = line.trim_start().trim_start_matches("call").trim();
+            let (tool, input) = rest.split_once(' ').unwrap_or((rest, "{}"));
+            let input: Value = serde_json::from_str(input).unwrap_or_default();
+            let title = format!("mcp__sikemux-tools__{tool}");
+            let id = format!(
+                "call-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            );
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call", "toolCallId": id, "title": title, "kind": "other", "status": "in_progress", "rawInput": input }),
+            );
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed" }),
+            );
+            say("called");
+            "end_turn"
+        }
         "tool" => {
             let rest = line.trim_start().trim_start_matches("tool").trim();
             let (method, params) = rest.split_once(' ').unwrap_or((rest, "{}"));

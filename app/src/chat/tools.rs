@@ -672,6 +672,33 @@ fn row(
 
 /// Where the call reached, in its row: a file it names opens as a file the chat names does,
 /// and a page it names as a link does, without opening or closing the row.
+/// The agents the call reached, each as the chip prose draws it, when the app knows them all.
+fn agent_pills(row: &ToolRow, looks: &Drawn, cx: &App) -> Option<Div> {
+    if row.agents.is_empty() {
+        return None;
+    }
+    let bench = looks.bench.upgrade()?;
+    let agents = (row.agents.iter())
+        .map(|id| bench.read(cx).agent_by_id(id))
+        .collect::<Option<Vec<_>>>()?;
+    let pills = (agents.iter()).map(|agent| super::agent_pill(agent, TEXT_2XS, &looks.bench, cx));
+    Some(
+        div()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .children(pills)
+            .children(row.detail.clone().map(|detail| {
+                div()
+                    .ml(px(MONO_CHAR))
+                    .truncate()
+                    .text_color(looks.quiet)
+                    .child(detail)
+            })),
+    )
+}
+
 fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Div {
     let ink = if running { looks.quiet } else { looks.ink };
     let text = row.target.as_str();
@@ -680,6 +707,9 @@ fn target(row: &ToolRow, running: bool, id: &str, looks: &Drawn, cx: &App) -> Di
             .min_w_0()
             .flex()
             .child(shimmer(format!("target:{id}:live"), text.to_owned()));
+    }
+    if let Some(pills) = agent_pills(row, looks, cx) {
+        return pills;
     }
     let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
     let opens: Option<(std::ops::Range<usize>, Opens)> = match &row.path {

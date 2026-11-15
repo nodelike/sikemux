@@ -365,6 +365,22 @@ impl Names {
             .map(|entry| entry.name.clone())
     }
 
+    /// The id and name of the agent `named` names by its id or its name, a name read first among
+    /// the agents of `near`'s project.
+    pub fn called(&self, named: &str, near: &str) -> Option<(String, String)> {
+        let book = self.book.locked();
+        let project = (book.agents.iter())
+            .find(|entry| entry.agent_id == near)
+            .map(|entry| entry.project.as_str());
+        let by_id = book.agents.iter().find(|entry| entry.agent_id == named);
+        let by_name = || {
+            (book.agents.iter())
+                .filter(|entry| entry.name.eq_ignore_ascii_case(named))
+                .max_by_key(|entry| Some(entry.project.as_str()) == project)
+        };
+        (by_id.or_else(by_name)).map(|entry| (entry.agent_id.clone(), entry.name.clone()))
+    }
+
     pub fn get(&self, agent_id: &str) -> Option<AgentName> {
         self.book
             .locked()

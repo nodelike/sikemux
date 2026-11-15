@@ -532,6 +532,10 @@ impl Chats {
             feed.offer_effort();
         }
         feed.work_in(launch.cwd.clone());
+        let (named_by, caller) = (Arc::downgrade(core), launch.agent_id.clone());
+        feed.know_agents(Arc::new(move |named: &str| {
+            named_by.upgrade()?.names().called(named, &caller)
+        }));
         feed.set_handoff(self.handoffs.shown(&launch.agent_id));
         (core.chat_above().triggers_seed)(core, &feed, &launch.agent_id);
         let chief = core.workspaces().is_chief(&launch.agent_id);

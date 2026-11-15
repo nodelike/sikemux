@@ -99,6 +99,9 @@ pub fn detail_of(raw: &Map<String, Value>, work: Option<(&Path, &Place)>) -> Too
 /// path the agent gave and that text; none unless it is there exactly once.
 pub type Place = std::sync::Arc<dyn Fn(&str, &str) -> Option<u64> + Send + Sync>;
 
+/// The id and name of the agent a call named, by its id or its name.
+pub type Agents = std::sync::Arc<dyn Fn(&str) -> Option<(String, String)> + Send + Sync>;
+
 /// A picture bigger than the transcript can reasonably hold onto is kept by
 /// name instead of by its bytes: the row still says what it was.
 const MAX_IMAGE_DATA_CHARS: usize = 2 * 1024 * 1024;
@@ -369,6 +372,7 @@ pub struct Fold {
     folder: Option<PathBuf>,
     /// Where a finished edit's lines sit in its file, so they carry the file's numbers.
     place: Option<Place>,
+    agents: Option<Agents>,
     /// The label each process run was started under, by its id, so a row names a run by it.
     runs: HashMap<String, String>,
     /// How many bytes each row's JSON is as a client opening the chat is sent it, by row id,
@@ -633,6 +637,17 @@ impl Fold {
         self.place = Some(place);
     }
 
+    pub fn know_agents(&mut self, agents: Agents) {
+        self.agents = Some(agents);
+    }
+
+    /// A call made whole for its row: its paths against the chat's folder, its agents by name.
+    fn settled_call(&self, call: sikemux_view::chat::ToolCall) -> sikemux_view::chat::ToolCall {
+        let mut call = tools::root_call(self.folder.as_deref(), call);
+        row::name_agents(&mut call, self.agents.as_ref());
+        call
+    }
+
     pub fn new(permission_mode: PermissionMode) -> Self {
         Self {
             head: ChatHead {
@@ -660,6 +675,7 @@ impl Fold {
             offers_effort: false,
             folder: None,
             place: None,
+            agents: None,
             runs: HashMap::new(),
             sent_bytes: RefCell::default(),
             decided_in_turn: Vec::new(),
@@ -1035,8 +1051,8 @@ impl Fold {
             }
             ChatEventKind::PermissionRequest => {
                 if let Some(mut ask) = permission_ask(payload) {
+                    ask.tool_call = self.settled_call(ask.tool_call);
                     let folder = self.folder.as_deref();
-                    ask.tool_call = tools::root_call(folder, ask.tool_call);
                     if let Some(diff) = ask.diff.as_mut() {
                         diff.path = tools::rooted(folder, std::mem::take(&mut diff.path));
                     }
@@ -2075,6 +2091,7 @@ impl Fold {
         patch: &Map<String, Value>,
     ) {
         let folder = self.folder.clone();
+        let agents = self.agents.clone();
         let runs = self.runs.clone();
         self.replace_tool(within, row, part, |part| {
             let ChatPart::Tool { tool, .. } = part else {
@@ -2102,6 +2119,7 @@ impl Fold {
             row::name_run(&mut call, &runs);
             call.row.times = times;
             *tool = tools::root_call(folder.as_deref(), call);
+            row::name_agents(tool, agents.as_ref());
         });
     }
 
@@ -2166,7 +2184,7 @@ impl Fold {
     fn shown_call(&self, raw: &Map<String, Value>) -> sikemux_view::chat::ToolCall {
         let mut call = tools::call(raw);
         row::name_run(&mut call, &self.runs);
-        tools::root_call(self.folder.as_deref(), call)
+        self.settled_call(call)
     }
 
     /// A subagent's card counts its calls and names the last one; a change to

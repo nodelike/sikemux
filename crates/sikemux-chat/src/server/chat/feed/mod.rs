@@ -28,7 +28,7 @@ use super::history::{History, HistoryState, Page, MAX_HISTORY_BYTES};
 use super::queue::{batch_len, Queued, MAX_QUEUED};
 use super::states::Subagent;
 use sikemux_fold::{AgentNeed, Fold, PageOf, PAGE_BYTES as ROW_BYTES};
-use sikemux_fold::{ChatEventKind, Place, UpdateKind};
+use sikemux_fold::{Agents, ChatEventKind, Place, UpdateKind};
 
 mod gifs;
 pub mod replay;
@@ -99,6 +99,7 @@ pub struct Inner {
     /// The folder the chat's agent works in, and where its edits sit in their files,
     /// for each fold made for it.
     work: Option<(PathBuf, Place)>,
+    agents: Option<Agents>,
     /// A new chat whose agent waits for the person: clients take it up before it starts.
     waits_for_person: bool,
     /// The session the history follows, and how far into its CLI's record it reaches.
@@ -187,8 +188,12 @@ fn new_fold(
     permission_mode: PermissionMode,
     offers_effort: bool,
     work: Option<&(PathBuf, Place)>,
+    agents: Option<&Agents>,
 ) -> Fold {
     let mut fold = Fold::new(permission_mode);
+    if let Some(agents) = agents {
+        fold.know_agents(agents.clone());
+    }
     if offers_effort {
         fold.offer_effort();
     }
@@ -293,6 +298,7 @@ impl Feed {
                 away: None,
                 needs: Vec::new(),
                 work: None,
+                agents: None,
                 waits_for_person: false,
                 reach: None,
                 has_earlier: false,
@@ -385,6 +391,7 @@ impl Feed {
                 away: None,
                 needs: Vec::new(),
                 work: None,
+                agents: None,
                 waits_for_person: false,
                 reach: state.reach,
                 has_earlier: false,
@@ -440,6 +447,7 @@ impl Feed {
                 inner.permission_mode,
                 inner.offers_effort,
                 inner.work.as_ref(),
+                inner.agents.as_ref(),
             );
             if let Some(start) = &inner.start {
                 fold.apply(
@@ -950,6 +958,15 @@ impl Feed {
             fold.work_in(cwd.clone(), place.clone());
         }
         inner.work = Some((cwd, place));
+    }
+
+    /// Names the agents its agent's calls reach by their names, as `agents` finds them.
+    pub fn know_agents(&self, agents: Agents) {
+        let mut inner = self.inner.locked();
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.know_agents(agents.clone());
+        }
+        inner.agents = Some(agents);
     }
 
     /// Whether the chat holds anything said, as one read back from disk may.

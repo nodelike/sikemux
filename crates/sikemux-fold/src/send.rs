@@ -781,6 +781,7 @@ impl Fold {
     ) -> ChatPage {
         let mut fold = Fold::new(self.head.permission_mode);
         fold.head.session_id = self.head.session_id.clone();
+        fold.agents = self.agents.clone();
         for (index, event) in events {
             let at = event
                 .payload

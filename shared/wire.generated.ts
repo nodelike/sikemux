@@ -2391,6 +2391,8 @@ export interface ToolRow {
     subject?: string;
     /** The folder a search looked in, when it says. */
     within?: string;
+    /** The agents `target` names by `@name`, by id in the same order, so a client can draw each. */
+    agents?: string[];
 }
 
 export type ToolAction = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "mcp" | "other";

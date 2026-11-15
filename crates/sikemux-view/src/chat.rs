@@ -1458,6 +1458,9 @@ pub struct ToolRow {
     /// The folder a search looked in, when it says.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub within: Option<String>,
+    /// The agents `target` names by `@name`, by id in the same order, so a client can draw each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<String>,
 }
 
 impl ToolRow {

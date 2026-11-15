@@ -58,6 +58,50 @@ pub(super) fn row(tool: &ToolCall) -> ToolRow {
     row
 }
 
+/// Names each agent one of our agent tools reached by its `@name`, keeping their ids for clients
+/// that draw the agent, when every one it named is an agent the core knows.
+pub(super) fn name_agents(tool: &mut ToolCall, agents: Option<&super::Agents>) {
+    let Some(agents) = agents else {
+        return;
+    };
+    let args = arguments(tool.raw_input.as_ref());
+    let ours = spec(&sikemux_tool(&tool.title, &args)).is_some();
+    if !ours || !matches!(tool.row.family, ToolFamily::Agents | ToolFamily::Waiting) {
+        return;
+    }
+    let named: Vec<&str> = ["to", "agent", "agents", "resume", "name"]
+        .iter()
+        .filter_map(|key| args.get(*key))
+        .flat_map(|value| match value {
+            Value::String(text) => text.split(',').collect(),
+            Value::Array(items) => items.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        })
+        .map(|named| named.trim().trim_start_matches('@'))
+        .filter(|named| !named.is_empty())
+        .collect();
+    let Some(found) = named
+        .iter()
+        .map(|named| agents(named))
+        .collect::<Option<Vec<_>>>()
+        .filter(|found| !found.is_empty())
+    else {
+        return;
+    };
+    let target = found
+        .iter()
+        .map(|(_, name)| format!("@{name}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let row = &mut tool.row;
+    if let Some(verb) = &row.verb {
+        row.activity = Some(activity(verb, &target));
+    }
+    row.subject = Some(target.clone());
+    row.target = target;
+    row.agents = found.into_iter().map(|(id, _)| id).collect();
+}
+
 /// The lines a read asked for, as `first-last`, when it gave where to start and how many.
 fn read_lines(args: &Map<String, Value>) -> Option<String> {
     let number = |key: &str| args.get(key).and_then(Value::as_u64);

@@ -3683,6 +3683,8 @@ struct ToolRow: Codable, Hashable, Sendable {
     var subject: String?
     /// The folder a search looked in, when it says.
     var within: String?
+    /// The agents `target` names by `@name`, by id in the same order, so a client can draw each.
+    var agents: [String]?
 }
 
 enum ToolAction: String, Codable, Hashable, Sendable {
