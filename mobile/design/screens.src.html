@@ -240,6 +240,28 @@
   .qa .kept { color: var(--text-tertiary); }
   code.chip { font-family: var(--mono); font-size: .86em; padding: 1px 5px; border-radius: 5px; background: var(--acc-soft); color: color-mix(in oklab, var(--acc) 74%, var(--ink)); }
   .prose { color: var(--ink); font-size: 14.5px; line-height: 1.7; margin: 6px 0 8px; }
+  /* an agent the transcript names, as the Mac's chip: its mark and name on a grey lift, opening its chat */
+  .apill { display: inline-flex; align-items: center; gap: 5px; height: 1.5em; padding: 0 6px 0 4px; border-radius: 5px; background: var(--surface-chosen, rgba(231,229,239,.10)); color: var(--ink); white-space: nowrap; vertical-align: -0.3em; font-weight: 500; }
+  .apill > span { display: grid; width: 1.05em; height: 1.05em; }
+  .apill > span svg { width: 100%; height: 100%; }
+  .apill .chief { color: var(--acc); }
+  .crumbs { display: flex; align-items: center; gap: 4px; flex: none; font-size: 12.5px; }
+  .crumbs .sep { color: var(--ink-faint); display: grid; }
+  .crumbs .sep svg { width: 9px; height: 9px; }
+  /* a worker's finished work, in its lead's chat */
+  .result-card { display: flex; align-items: center; gap: 8px; height: 36px; margin: 8px 0 4px; padding: 0 10px 0 12px; border-radius: 9px; background: var(--surface-raised); font-size: 12.5px; }
+  .result-card b { font-weight: 600; color: var(--ink); flex: none; }
+  .result-card em { font-style: normal; color: var(--ink-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .result-card .facts { display: flex; align-items: center; gap: 5px; color: var(--ink-dim); flex: none; }
+  .result-card .facts i { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); }
+  .result-card .ch { color: var(--ink-dim); display: grid; }
+  /* a chat's first screen, as the Mac's: Sikemux's mark in dots of the accent, asking what is being made */
+  .welcome-mark { width: 96px; height: 96px; color: var(--acc); opacity: .9; -webkit-mask-image: radial-gradient(circle, #000 0.6px, transparent 0.7px), linear-gradient(#000, rgba(0,0,0,.35)); -webkit-mask-size: 2px 2px, 100% 100%; -webkit-mask-composite: source-in; mask-image: radial-gradient(circle, #000 0.6px, transparent 0.7px), linear-gradient(#000, rgba(0,0,0,.35)); mask-size: 2px 2px, 100% 100%; mask-composite: intersect; }
+  .welcome-mark svg { width: 100%; height: 100%; }
+  .welcome-ask { display: flex; align-items: center; justify-content: center; font-size: 19px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+  .welcome-ask .f { color: var(--live); display: grid; margin: 0 5px 0 7px; }
+  .welcome-ask .f svg { width: 15px; height: 15px; }
+  .welcome-ask code { font-family: var(--mono); font-size: 16px; }
   .prose a, .md-list a { color: color-mix(in srgb, var(--acc) 50%, var(--ink)); text-decoration: underline; text-decoration-color: color-mix(in srgb, color-mix(in srgb, var(--acc) 50%, var(--ink)) 40%, transparent); text-underline-offset: 2px; }
   .prose a svg, .md-list a svg { display: inline-block; width: 12px; height: 12px; vertical-align: -1px; margin-right: 4px; }
   .md-h2 { margin: 22px 0 4px; font-size: 18px; line-height: 1.3; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); }
@@ -384,8 +406,8 @@
   /* ---------- composer ---------- */
   .composer-wrap { flex: none; padding: 8px 10px 30px; }
   .composer { --box: color-mix(in oklab, var(--surface-raised) 55%, var(--surface-sunken)); padding: 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--box); }
-  /* YOLO edges the box in its rainbow, as the Mac's composer does */
-  .composer:has(.yolo.on) { border-color: transparent; background: linear-gradient(var(--box), var(--box)) padding-box, linear-gradient(90deg, color-mix(in oklab, var(--acc) 45%, var(--box)), color-mix(in oklab, var(--cmd) 45%, var(--box)), color-mix(in oklab, var(--danger) 45%, var(--box)), color-mix(in oklab, var(--warn) 45%, var(--box)), color-mix(in oklab, var(--live) 45%, var(--box)), color-mix(in oklab, var(--acc) 45%, var(--box))) border-box; }
+  /* YOLO edges the box in the accent at half strength, as the Mac's composer does; the rainbow stays in the word */
+  .composer:has(.yolo.on) { border-color: color-mix(in oklab, var(--acc) 50%, transparent); }
   /* a picture's tag in the words, where the host puts it, as the Mac's chip for it */
   .composer .ta .img-tag { padding: 1px 4px; border-radius: 5px; background: var(--surface-active); color: var(--ink); }
   .attachments .num { position: absolute; left: 3px; bottom: 3px; padding: 1px 4px; border-radius: 4px; background: color-mix(in oklab, var(--surface-sunken) 72%, transparent); font: 9.5px var(--mono); color: var(--ink); }
@@ -2489,14 +2511,14 @@
           <div class="tools">
             <span class="tools-sum">3 tool calls <span class="time">7s</span>{{IconChevron:11}}</span>
           </div>
-          <div class="turn-line"><span class="tl-mark"><span class="dot acc"></span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">committed</span><i>·</i><span class="p2">checks pass</span></span><span class="step go">Push</span></div>
+          <div class="turn-line"><span class="tl-mark"><span class="codex">{{IconCodex:17}}</span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">committed</span><i>·</i><span class="p2">checks pass</span></span><span class="step go">Push</span></div>
           <div class="turn-states">
-            <div class="turn-line"><span class="tl-mark"><span class="tl-timer">{{IconTimer:14}}</span></span><span class="turn-words"><b class="wait">Waiting on CI</b><i>·</i><span class="p1">4 of ~7 min</span></span></div>
-            <div class="turn-line"><span class="tl-mark"><span class="tl-timer">{{IconTimer:14}}</span></span><span class="turn-words"><b class="wait">cargo test</b><i>·</i><span class="p1">2nd in line</span><i>·</i><span class="p2">about 4 min</span></span></div>
-            <div class="turn-line"><span class="tl-mark"><span class="tl-timer">{{IconTimer:14}}</span></span><span class="turn-words"><b class="wait">Waiting for iPhone 16</b><i>·</i><span class="p1">in use by @Maple</span><i>·</i><span class="p2">12 min</span></span></div>
-            <div class="turn-line"><span class="tl-mark"><span class="dot acc"></span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">landed</span><i>·</i><span class="p2">checks pass</span></span><span class="step go">Deploy to staging</span></div>
-            <div class="turn-line"><span class="tl-mark"><span class="dot acc"></span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">on staging</span></span><span class="step">Ship to production…</span></div>
-            <div class="turn-line"><span class="tl-mark"><span class="dot hollow"></span></span><span class="turn-words"><b class="stopped">Stopped</b><i>·</i><span class="p1">nothing set to wake it</span></span><span class="step">Carry on</span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="codex">{{IconCodex:17}}</span></span><span class="turn-words"><b class="wait">Waiting on CI</b><i>·</i><span class="p1">4 of ~7 min</span></span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="codex">{{IconCodex:17}}</span></span><span class="turn-words"><b class="wait">cargo test</b><i>·</i><span class="p1">2nd in line</span><i>·</i><span class="p2">about 4 min</span></span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="codex">{{IconCodex:17}}</span></span><span class="turn-words"><b class="wait">Waiting for iPhone 16</b><i>·</i><span class="p1">in use by @Maple</span><i>·</i><span class="p2">12 min</span></span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="codex">{{IconCodex:17}}</span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">landed</span><i>·</i><span class="p2">checks pass</span></span><span class="step go">Deploy to staging</span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="codex">{{IconCodex:17}}</span></span><span class="turn-words"><b class="done">Done</b><i>·</i><span class="p1">on staging</span></span><span class="step">Ship to production…</span></div>
+            <div class="turn-line"><span class="tl-mark"><span class="codex">{{IconCodex:17}}</span></span><span class="turn-words"><b class="stopped">Stopped</b><i>·</i><span class="p1">nothing set to wake it</span></span><span class="step">Carry on</span></div>
           </div>
         </div>
         <div class="composer-wrap">
@@ -2513,7 +2535,49 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>The turn's last line</b><div class="note">A chat's last line is how its turn stands, in the Mac's words, after the state's mark, one set everywhere (the agent's working squares, the pink timer of a wait, the amber dot of a call, the purple dot once done, a hollow ring once stopped): Done · committed · checks pass; Waiting on CI · 4 of ~7 min; cargo test · 2nd in line · about 4 min, while a heavy command waits its turn on the host; Waiting for iPhone 16 · in use by @Maple · 12 min, while something used one at a time is in use, naming who holds it; Waiting on @Otter; Waiting until 14:30; Needs you · the question · 12 min; Stopped · nothing set to wake it. The word takes its mark's colour (purple done, pink waiting, amber needs you, grey stopped, the ink for Working, which shows only while the agent names the step it is on; while it names none, the live line says what it is doing, as before). The next step sits on the same row as a button, the one the core marks primary filled: Commit, Push, Deploy to staging, Roll back, Try it; Stopped offers Carry on, and Needs you offers Look. A step to production, Ship to production…, raises its call, which docks on the chat to be answered. A failed turn's line is the trouble card's, as before. The rows under the first line here show the other states one after another; a chat shows one. A watching phone shows the line without its buttons.</div></figcaption>
+      <figcaption><b>The turn's last line</b><div class="note">A chat's last line is how its turn stands, in the Mac's words, after the agent's own mark, as the Mac's line draws it (Sikemux's S on a project's chief, its buddy while buddies are on, else its CLI's logo): Done · committed · checks pass; Waiting on CI · 4 of ~7 min; cargo test · 2nd in line · about 4 min, while a heavy command waits its turn on the host; Waiting for iPhone 16 · in use by @Maple · 12 min, while something used one at a time is in use, naming who holds it; Waiting on @Otter, with @Otter drawn as its chip, which opens its chat; Waiting until 14:30; Needs you · the question · 12 min; Stopped · nothing set to wake it. The word takes its state's colour (purple done, pink waiting, amber needs you, grey stopped, the ink for Working, which shows only while the agent names the step it is on; while it names none, the live line says what it is doing, as before). The next step sits on the same row as a button, the one the core marks primary filled: Commit, Push, Deploy to staging, Roll back, Try it; Stopped offers Carry on, and Needs you offers Look. A step to production, Ship to production…, raises its call, which docks on the chat to be answered. A failed turn's line is the trouble card's, as before. The rows under the first line here show the other states one after another; a chat shows one. A watching phone shows the line without its buttons.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="chief" style="color:var(--acc)">{{Logo:14}}</span><span class="named"><b>@Chief</b><i>·</i><em>Ship nightly.22</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="work"><span class="work-sum"><span style="color:var(--acc)">{{Logo:15}}</span>Worked for 11s <span class="calls">· 6 tool calls</span>{{IconChevron:10}}</span></div>
+          <div class="prose">Nightly.22 is tagged, and its release build is queued. <span class="apill"><span data-buddy="buddies mochi 0 idle"></span>@Turles</span> sends the release link when the build finishes.</div>
+          <div class="prose">I started <span class="apill"><span data-buddy="buddies bean 1 idle"></span>@Yuzu</span> on the hosts screen.</div>
+          <div class="result-card"><span data-buddy="buddies ghostie 2 idle" style="width:17px;height:17px;display:grid"></span><b>@Zetsu</b><em>Land queue slimming</em><span class="facts"><i></i>no changes</span><span class="ch">{{IconChevron:11}}</span></div>
+          <div class="work"><span class="work-sum"><span style="color:var(--acc)">{{Logo:15}}</span>Thought for 5s{{IconChevron:10}}</span></div>
+          <div class="prose">The fix is on main now. <span class="apill"><span data-buddy="buddies ghostie 2 idle"></span>@Zetsu</span> is watching CI on it.</div>
+          <div class="turn-line"><span class="tl-mark"><span style="color:var(--acc)">{{Logo:15}}</span></span><span class="turn-words"><b class="wait">Waiting on</b> <span class="apill"><span data-buddy="buddies bean 1 idle"></span>@Yuzu</span><i>·</i><span class="p2">1 min</span></span></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Tell @Chief what you want, or type / for commands</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>A chief's chat</b><div class="note">As the Mac draws it. The chief's own rows wear Sikemux's S, never its CLI's logo: its work's line, its live line and its turn's last line. Each agent of the host that its words name by @name is drawn in the line as the Mac's chip, its mark and name on a grey lift, and a tap opens its chat; the phone matches only the names its host lists. A worker's finished work sits after the message it finished behind, as the host sends it: its mark, @name, what it worked on, a dot and where its work is, Try it and Undo when the core offers them, and a chevron that opens its chat. Waiting on another agent names it with the same chip.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="crumbs"><span class="apill"><span class="chief">{{Logo:13}}</span>@Chief</span><span class="sep">{{IconChevron:9}}</span><span class="apill"><span data-buddy="buddies mochi 0 idle"></span>@Hazamada</span><span class="sep">{{IconChevron:9}}</span></span><span data-buddy="buddies bean 1 working" style="width:17px;height:17px;display:grid;flex:none"></span><span class="named"><b>@Ymir</b><i>·</i><em>Fix the iOS hosts list</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="prose">The list scrolls again: the sheet held its height fixed, so the rows past the fold never got room.</div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>A teammate's header</b><div class="note">The Mac's breadcrumbs, at the phone's size: the project's chief and the lead heading the team, each a chip that opens it, then the agent's own mark, its title and its name. Short of room, the crumbs give way from the left, the chief first, behind an ellipsis, so the title keeps at least a few words. A chat with no title of its own yet shows its name in the title's place.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -4693,9 +4757,9 @@ expected 1 write, got 2</div>
     <figure><div class="phone"><div class="island"></div>
       <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
       <div class="screen">
-        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@New Claude chat</b></span></span><span class="end"></span></div>
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="crumbs"><span class="apill"><span class="chief">{{Logo:13}}</span>@Chief</span><span class="sep">{{IconChevron:9}}</span></span><span class="claude">{{IconClaude:17}}</span><span class="named"><b>New chat</b></span></span><span class="end"></span></div>
         <div class="welcome-chat">
-          <div class="wc-head"><span class="claude">{{IconClaude:30}}</span><b>New chat</b><span class="wc-sub">Claude Code on MacBook Pro</span><span class="wc-pick"><span class="h"><span class="claude">{{IconClaude:12}}</span><b>Personal</b><i>Smart pick</i></span><span class="sm">Its week ends soonest, with 40% still unused</span></span></div>
+          <div class="wc-head"><span class="welcome-mark">{{Logo:96}}</span><span class="welcome-ask">What are we making in<span class="f">{{IconFolder:15}}</span><code>sikemux</code>?</span><span class="wc-pick"><span class="h"><span class="claude">{{IconClaude:12}}</span><b>Personal</b><i>Smart pick</i></span><span class="sm">Its week ends soonest, with 40% still unused</span></span></div>
         </div>
         <div class="composer-wrap">
           <div class="composer">
@@ -4714,7 +4778,7 @@ expected 1 write, got 2</div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>New chat</b><div class="note">The Mac's new-chat welcome, cut to what reads at a glance and set just above the composer, so nothing floats mid-screen: the agent's mark, New chat, and which agent it starts on which host. When the agent has two or more accounts and smart accounts would pick one, a quiet line under the project names the account the chat will start on, marked Smart pick, and why, as the host's core works it out before anything is sent; an account chosen in the chat's settings shows none. The composer takes the keyboard as the screen opens, so the first message can be typed at once. Where it will run is the line under the box, as on the Mac's new chat: the host, a slash, then the project with its chevron, which opens the project picker, and the worktree switch at the right; the agent is chosen from the model picker. The box's edge takes the accent while it has the keyboard, and YOLO's rainbow while YOLO is on. Its header is the chat's own, with no rule under it, and the first message turns it into that chat in place, with no slide. Send draws the message at once, dimmed with Sending… and Starting under it while the agent comes up; if the chat can't start, the message goes back into the composer with the reason.</div></figcaption>
+      <figcaption><b>New chat</b><div class="note">The Mac's new-chat welcome, set just above the composer, so nothing floats mid-screen: Sikemux's mark in dots of the accent, their dither churning slowly inside the mark as the Mac's does (still when the phone asks for less motion), and the Mac's words, What are we making in, then the project's folder and name in the code face. The header holds the agent: its project's chief as a chip, a chevron, then the chosen agent's mark and New chat. When the agent has two or more accounts and smart accounts would pick one, a quiet line under the project names the account the chat will start on, marked Smart pick, and why, as the host's core works it out before anything is sent; an account chosen in the chat's settings shows none. The composer takes the keyboard as the screen opens, so the first message can be typed at once. Where it will run is the line under the box, as on the Mac's new chat: the host, a slash, then the project with its chevron, which opens the project picker, and the worktree switch at the right; the agent is chosen from the model picker. The box's edge takes the selection colour while it has the keyboard, and the accent at half strength while YOLO is on, as the Mac's; the rainbow stays in the word YOLO. Its header is the chat's own, with no rule under it, and the first message turns it into that chat in place, with no slide. Send draws the message at once, dimmed with Sending… and Starting under it while the agent comes up; if the chat can't start, the message goes back into the composer with the reason.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

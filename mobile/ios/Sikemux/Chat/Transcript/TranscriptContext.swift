@@ -6,6 +6,8 @@ import SwiftUI
 final class TranscriptContext {
     /// Whose marks the rows draw; a chat just started learns it once the host lists the chat.
     var provider: String
+    /// The chat is its project's chief, whose rows wear Sikemux's S.
+    var chief = false
     /// The host the chat is on, which keeps the files it names; nil where none can be read.
     let core: String?
     let agentId: String?

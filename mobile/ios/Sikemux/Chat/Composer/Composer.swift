@@ -151,10 +151,8 @@ struct Composer: View {
         .padding(6)
         .background(composerShape.fill(palette.composer))
         .overlay {
-            // YOLO edges the box in its rainbow, as the Mac's composer does.
             if session.permissionMode == .bypass {
-                composerShape.strokeBorder(YoloToggle.rainbow(palette, along: .edge), lineWidth: 1)
-                    .opacity(palette.isLight ? 0.6 : 0.45)
+                composerShape.strokeBorder(palette.accent.opacity(YoloToggle.edge), lineWidth: 1)
             } else {
                 composerShape.strokeBorder(focused ? palette.borderSelected : palette.border, lineWidth: 1)
             }

@@ -75,6 +75,7 @@ struct TranscriptRow: View {
                 }
             }
             if !look.hidden { TranscriptMessage(message: entry.message, look: look) }
+            ForEach(look.results, id: \.agentId) { ResultCard(row: $0) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -482,7 +483,7 @@ struct WorkSummary: View {
                 onToggle()
             } label: {
                 HStack(spacing: 8) {
-                    AgentMark(provider: context.provider, size: 17)
+                    OwnMark(agentId: context.agentId, provider: context.provider, chief: context.chief, size: 17)
                     Text(worked)
                     if calls > 0 {
                         Text("·").padding(.horizontal, -2)

@@ -539,11 +539,13 @@ struct ActivityLine: View {
     let provider: String
     let doing: Doing
     let since: Date
+    var agentId: String?
+    var chief = false
     @State private var breath = false
 
     var body: some View {
         HStack(spacing: 8) {
-            AgentMark(provider: provider, size: 20)
+            OwnMark(agentId: agentId, provider: provider, chief: chief, size: 20)
                 .opacity(breath ? 0.5 : 1)
                 .onAppear {
                     guard !still else { return }

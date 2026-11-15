@@ -93,8 +93,8 @@ private struct NewChatContent: View {
                 title: {
                     if let launcher {
                         ChatTitle(
-                            agentId: nil, provider: launcher.provider, name: nil,
-                            title: String(localized: "New \(Catalog.label(launcher.provider, core: core)) chat"))
+                            agentId: nil, provider: launcher.provider, name: nil, title: String(localized: "New chat"),
+                            crumbs: Crew.crumbs(of: nil, project: project?.id, in: live.view))
                     }
                 },
                 end: {
@@ -121,12 +121,8 @@ private struct NewChatContent: View {
                         PromptGlyph(icon: Icons.agentLine, small: true)
                     } else if live.isOpen, workspace != nil, project == nil {
                         PromptGlyph(icon: Icons.folder, small: true)
-                    } else if let launcher {
-                        AgentFaceView(agentId: project?.id, provider: launcher.provider, size: 38, logoSize: 40)
-                    }
-                    Text("New chat").font(Theme.ui(17, .semibold)).tracking(-0.4).foregroundStyle(palette.ink)
-                    if let launcher, !noAgents, problem == nil, blocked == nil {
-                        Text("\(Catalog.label(launcher.provider, core: core)) on \(hostName)").metaStyle(palette)
+                    } else if let project {
+                        Welcome(project: project.name).padding(.bottom, 14)
                     }
                     if noAgents { Text("No agents on the host.").metaStyle(palette).multilineTextAlignment(.center) }
                     if let problem {
@@ -309,8 +305,7 @@ private struct NewChatContent: View {
             .overlay {
                 let box = RoundedRectangle(cornerRadius: 10, style: .continuous)
                 if (chosenMode ?? launcher?.permissionMode) == .bypass {
-                    box.strokeBorder(YoloToggle.rainbow(palette, along: .edge), lineWidth: 1)
-                        .opacity(palette.isLight ? 0.6 : 0.45)
+                    box.strokeBorder(palette.accent.opacity(YoloToggle.edge), lineWidth: 1)
                 } else {
                     box.strokeBorder(focused ? palette.borderSelected : palette.border, lineWidth: 1)
                 }

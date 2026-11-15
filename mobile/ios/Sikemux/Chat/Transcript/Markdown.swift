@@ -68,6 +68,8 @@ struct Inline {
     var cursor: FindCursor?
     /// The `why` links the core checked in this answer.
     var why: [WhyChip] = []
+    /// The host's agents, whose `@name` the words draw as their chip.
+    var crew: Crew?
 
     func string(_ nodes: [MdNode]) -> AttributedString {
         var out = AttributedString()
@@ -91,13 +93,24 @@ struct Inline {
         return run
     }
 
+    /// Words with each agent they name by `@name` drawn as its chip; the find bar still counts the name as written.
+    private func named(_ text: String) -> AttributedString {
+        guard let crew, text.contains("@") else { return plain(text) }
+        var out = AttributedString()
+        for (words, agent) in crew.split(text) {
+            let run = plain(words)
+            out += agent.map { AgentChip.run($0, palette: palette, size: style.size) } ?? run
+        }
+        return out
+    }
+
     private func inner(_ paths: Bool) -> Inline {
-        Inline(palette: palette, style: style, paths: paths, marks: marks, cursor: cursor, why: why)
+        Inline(palette: palette, style: style, paths: paths, marks: marks, cursor: cursor, why: why, crew: crew)
     }
 
     private func string(_ node: MdNode) -> AttributedString {
         switch node {
-        case .text(let text): return plain(text)
+        case .text(let text): return named(text)
         case .element(let element): return string(element)
         }
     }
@@ -266,9 +279,12 @@ struct BlockView: View, Equatable {
     }
 
     @Environment(\.whyChips) private var why
+    @Environment(\.crew) private var crew
 
     private var inline: Inline {
-        Inline(palette: palette, style: style, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why)
+        Inline(
+            palette: palette, style: style, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why,
+            crew: crew)
     }
 
     var body: some View {
@@ -307,7 +323,8 @@ struct BlockView: View, Equatable {
                 lead ? ProseStyle(size: style.size * 1.07, lineHeight: style.lineHeight, color: style.color) : style
             Prose(
                 text: Inline(
-                    palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why
+                    palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why,
+                    crew: crew
                 )
                 .string(paragraph.c).fading(fading, color: set.color), style: set)
         default:
@@ -319,6 +336,7 @@ struct BlockView: View, Equatable {
 /// A heading at its level's size against the text's: ## stands larger with room above, ### is a spaced-capital label.
 private struct HeadingBlock: View {
     @Environment(\.whyChips) private var why
+    @Environment(\.crew) private var crew
     let heading: MdElement.H
     let style: ProseStyle
     let palette: Palette
@@ -338,8 +356,11 @@ private struct HeadingBlock: View {
         let words =
             label
             ? AttributedString(visibleText(heading.c).uppercased())
-            : Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why)
-                .string(heading.c).fading(fading, color: set.color)
+            : Inline(
+                palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }, why: why,
+                crew: crew
+            )
+            .string(heading.c).fading(fading, color: set.color)
         Prose(
             text: words.settingAttributes(AttributeContainer().font(Theme.ui(size, .semibold)).tracking(tracking)),
             style: set
@@ -377,6 +398,7 @@ private func isBlock(_ node: MdNode) -> Bool {
 /// An item's or a footnote's contents: runs of words as one line, blocks under them.
 struct Contents: View {
     @Environment(\.whyChips) private var why
+    @Environment(\.crew) private var crew
     let nodes: [MdNode]
     let style: ProseStyle
     let palette: Palette
@@ -415,7 +437,7 @@ struct Contents: View {
                     Prose(
                         text: Inline(
                             palette: palette, style: style, marks: marks?.from(start),
-                            cursor: marks.map { _ in FindCursor(start) }, why: why
+                            cursor: marks.map { _ in FindCursor(start) }, why: why, crew: crew
                         ).string(run), style: style)
                 case .block(let block, let start):
                     BlockView(block: block, style: style, palette: palette, marks: marks?.from(start), depth: depth)
@@ -616,6 +638,7 @@ enum ServiceMark {
 private struct TableBlock: View {
     @Environment(\.palette) private var palette
     @Environment(\.whyChips) private var why
+    @Environment(\.crew) private var crew
     let table: MdElement.Table
     let style: ProseStyle
 
@@ -673,7 +696,7 @@ private struct TableBlock: View {
                 let words =
                     head
                     ? AttributedString(visibleText(nodes).uppercased())
-                    : Inline(palette: palette, style: set, why: why).string(nodes)
+                    : Inline(palette: palette, style: set, why: why, crew: crew).string(nodes)
                 Text(words)
                     .font(head ? Theme.ui(12, .semibold) : set.font)
                     .tracking(head ? 0.6 : 0)
@@ -753,6 +776,8 @@ enum FileGlyph: AttributedStringKey {
         let size: CGFloat
         /// The colour drawn into a mark that keeps its own; nil takes the line's ink.
         let tint: Color?
+        /// An agent's own mark, drawn in place of the icon.
+        var agent: Crew.Named?
     }
 
     typealias Value = Glyph
@@ -767,6 +792,13 @@ enum FileGlyph: AttributedStringKey {
     static func mark(icon: String, size: CGFloat, tint: Color?) -> AttributedString {
         var mark = AttributedString("\u{FFFC}")
         mark[FileGlyph.self] = Glyph(icon: icon, size: size, tint: tint)
+        return mark
+    }
+
+    /// A place for `agent`'s own mark inside a run of words.
+    static func agent(_ agent: Crew.Named, accent: Color, size: CGFloat) -> AttributedString {
+        var mark = AttributedString("\u{FFFC}")
+        mark[FileGlyph.self] = Glyph(icon: "", size: size, tint: accent, agent: agent)
         return mark
     }
 
@@ -798,9 +830,15 @@ enum FileGlyph: AttributedStringKey {
     @MainActor private static func image(_ glyph: Glyph, scale: CGFloat) -> UIImage? {
         let key = Drawn(glyph: glyph, scale: scale)
         if let found = drawn[key] { return found }
-        guard let icon = Icons.named(glyph.icon) else { return nil }
-        let renderer = ImageRenderer(
-            content: IconView(icon: icon, size: glyph.size).foregroundStyle(glyph.tint ?? .black))
+        let renderer: ImageRenderer<AnyView>
+        if let agent = glyph.agent {
+            renderer = ImageRenderer(
+                content: AnyView(NamedMark(agent: agent, accent: glyph.tint ?? .black, size: glyph.size)))
+        } else {
+            guard let icon = Icons.named(glyph.icon) else { return nil }
+            renderer = ImageRenderer(
+                content: AnyView(IconView(icon: icon, size: glyph.size).foregroundStyle(glyph.tint ?? .black)))
+        }
         renderer.scale = scale
         guard let image = renderer.uiImage else { return nil }
         let shown = glyph.tint == nil ? image.withRenderingMode(.alwaysTemplate) : image

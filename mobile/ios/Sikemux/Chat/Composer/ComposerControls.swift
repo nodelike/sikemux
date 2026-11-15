@@ -43,21 +43,22 @@ struct YoloToggle: View {
                 .font(Theme.ui(11, .semibold))
                 .tracking(0.9)
                 .foregroundStyle(
-                    on ? AnyShapeStyle(Self.rainbow(palette, along: .word)) : AnyShapeStyle(palette.inkFaint))
+                    on ? AnyShapeStyle(Self.rainbow(palette)) : AnyShapeStyle(palette.inkFaint))
         }
         .padding(.horizontal, 8)
         .frame(height: 34)
         .contentShape(Rectangle())
     }
 
-    enum Run { case word, edge }
+    /// How strongly the accent edges the composer while YOLO is on, as the Mac's does.
+    static let edge = 0.5
 
-    /// YOLO's rainbow. Over the word it runs twice the word's width, as the Mac draws it, so the word shows the
-    /// first half; along the composer's edge it runs once.
-    static func rainbow(_ palette: Palette, along run: Run) -> LinearGradient {
+    /// YOLO's rainbow over the word. It runs twice the word's width, as the Mac draws it, so the word shows the first
+    /// half.
+    static func rainbow(_ palette: Palette) -> LinearGradient {
         LinearGradient(
             colors: [palette.accent, palette.cmd, palette.danger, palette.warn, palette.live, palette.accent],
-            startPoint: .leading, endPoint: run == .word ? UnitPoint(x: 2, y: 0.5) : .trailing
+            startPoint: .leading, endPoint: UnitPoint(x: 2, y: 0.5)
         )
     }
 }

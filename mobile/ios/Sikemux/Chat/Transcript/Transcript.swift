@@ -4,6 +4,7 @@ import SwiftUI
 /// what the screen puts below the last. The chat screen and a shared chat draw the same one.
 struct Transcript<Footer: View>: View {
     @Environment(\.palette) private var palette
+    @Environment(\.crew) private var crew
     let rows: ChatRows
     /// Counts each change to the rows, so a redraw that changed nothing is skipped.
     let drawn: Int
@@ -24,7 +25,8 @@ struct Transcript<Footer: View>: View {
         TranscriptList(
             order: shown.order, entries: shown.entries, drawn: drawn, touched: touched, scroll: scroll,
             hasEarlier: hasEarlier && earlier == .idle, loadEarlier: loadEarlier,
-            environment: { [palette, context] view in AnyView(view.environment(\.palette, palette).environment(context))
+            environment: { [palette, context, crew] view in
+                AnyView(view.environment(\.palette, palette).environment(\.crew, crew).environment(context))
             },
             header: {
                 TranscriptHeader(
@@ -38,7 +40,7 @@ struct Transcript<Footer: View>: View {
     }
 
     private func opened(_ url: URL) -> OpenURLAction.Result {
-        if let agent = WhyLink.agent(url) {
+        if let agent = WhyLink.agent(url) ?? AgentChip.agent(url) {
             if let core = context.core { Router.shared.push(.chat(core: core, agent: agent)) }
             return .handled
         }
@@ -56,13 +58,17 @@ struct Transcript<Footer: View>: View {
             folds.isOpen(Folds.teamAll(id), false) ? .all : folds.isOpen(Folds.team(id), false) ? .open : .closed
         }
         let liveId = rows.running ? messages.last?.id : nil
+        let results = ResultRow.placed(rows.head.results ?? [], in: messages)
         var order: [String] = []
         var entries: [String: RowEntry] = [:]
         for (index, message) in messages.enumerated() {
             let run = runs[message.id]
             let fold = ShownRows.fold(message, { folds.isOpen(Folds.work($0), false) }, run)
             // A folded row that draws nothing stays out of the list, so it costs nothing to measure.
-            guard !fold.hidden || fold.summary != nil || run?.head != nil else { continue }
+            guard !fold.hidden || fold.summary != nil || run?.head != nil else {
+                if let after = results[index], let last = order.last { entries[last]?.look.results += after }
+                continue
+            }
             var look = RowLook()
             look.live = message.id == liveId
             look.kept = fold.kept
@@ -76,6 +82,7 @@ struct Transcript<Footer: View>: View {
                 look.teamAll = folds.isOpen(Folds.teamAll(run.id), false)
             }
             if index == 0, !hasEarlier { look.worktree = worktree }
+            look.results = results[index] ?? []
             if message.plainlySent {
                 look.followsOwn = index > 0 && messages[index - 1].plainlySent
                 look.followedByOwn = index + 1 < messages.count && messages[index + 1].plainlySent

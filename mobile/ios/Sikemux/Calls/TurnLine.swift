@@ -5,9 +5,12 @@ import SwiftUI
 /// card's. With the call it waits on docked right under it, the line says only how long it has waited.
 struct TurnLine: View {
     @Environment(\.palette) private var palette
+    @Environment(\.crew) private var crew
     let core: String
     let agentId: String
     let provider: String
+    /// The project's chief, which wears Sikemux's S.
+    let chief: Bool
     let turn: TurnState
     let canAct: Bool
     /// The call the turn waits on is docked on this chat.
@@ -23,7 +26,7 @@ struct TurnLine: View {
             {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        mark.frame(width: 16, height: 16)
+                        OwnMark(agentId: agentId, provider: provider, chief: chief, turn: turn, size: 18)
                         words(docked ? CallWords.docked(said, waiting: turn.call?.count ?? 1) : said).frame(
                             maxWidth: .infinity, alignment: .leading)
                         if canAct { buttons }
@@ -43,24 +46,12 @@ struct TurnLine: View {
 
     private static var minuteStart: Date { Calendar.current.dateInterval(of: .minute, for: .now)?.start ?? .now }
 
-    /// The state's mark, one set everywhere: the agent's working squares, the pink timer of a wait, the amber dot of a
-    /// call, the purple dot once done, a hollow ring once stopped.
-    @ViewBuilder
-    private var mark: some View {
-        switch turn.state {
-        case .working: Working()
-        case .waiting: IconView(icon: Icons.timer, size: 14).foregroundStyle(palette.cmd)
-        case .needsYou: Dot(color: palette.warn, size: 8)
-        case .done: Dot(color: palette.accent, size: 8)
-        case .stopped: Dot(color: palette.secondary, size: 8, hollow: true)
-        case .failed: Dot(color: palette.danger, size: 8)
-        case .unknown: EmptyView()
-        }
-    }
-
     private func words(_ said: CallWords.Said) -> some View {
         HStack(spacing: 6) {
-            if said.phase == .waiting {
+            if said.phase == .waiting, turn.wait?.kind == .agent, let agent = crew?.agent(turn.wait?.agent) {
+                Text("Waiting on").font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).fixedSize()
+                AgentPill(agent: agent, size: 12.5).fixedSize()
+            } else if said.phase == .waiting {
                 // A wait's place, holder and minutes matter more than its long name, which gives way first.
                 Text(said.word).font(Theme.ui(13, .medium)).foregroundStyle(tint(said.phase)).lineLimit(1)
                     .layoutPriority(-1)

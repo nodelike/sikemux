@@ -76,12 +76,14 @@ private struct ChatPane: View {
 
     var body: some View {
         let rows = session.rows
-        let title = rows.head.title ?? listed?.title ?? Catalog.label(provider, core: core)
+        let own = rows.head.title ?? (listed?.titled == true ? listed?.title : nil)
+        let title = own ?? (info?.name == nil ? listed?.title ?? Catalog.label(provider, core: core) : nil)
         Screen {
             Nav(back: nil, onBack: nil) {
                 ChatTitle(
                     agentId: agentId, turn: rows.head.turn, provider: provider, name: info?.name, title: title,
-                    chief: rows.head.chief == true)
+                    chief: rows.head.chief == true,
+                    crumbs: Crew.crumbs(of: agentId, project: listed?.project, in: live.view))
             } end: {
                 Button {
                     menu = true
@@ -148,6 +150,7 @@ private struct ChatPane: View {
                 onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
         .onChange(of: provider) { _, provider in context.provider = provider }
+        .onChange(of: session.rows.head.chief, initial: true) { _, chief in context.chief = chief == true }
         .onChange(of: rows.subagentRows) { _, rows in context.subagentRows = rows }
         .onChange(of: rows.running, initial: true) { was, running in
             if was && !running { Haptics.success() }
@@ -411,10 +414,13 @@ private struct TranscriptFooter: View {
             if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
             if let away = rows.head.away { AwayCard(core: core, away: away, full: full) }
             if let activity {
-                ActivityLine(provider: provider, doing: activity, since: session.turnSince)
+                ActivityLine(
+                    provider: provider, doing: activity, since: session.turnSince, agentId: agentId,
+                    chief: rows.head.chief == true)
             } else if let turn = rows.head.turn {
                 TurnLine(
-                    core: core, agentId: agentId, provider: provider, turn: turn, canAct: reachable,
+                    core: core, agentId: agentId, provider: provider, chief: rows.head.chief == true, turn: turn,
+                    canAct: reachable,
                     docked: HostCalls.of(core).waiting(for: agentId) != nil, onLook: { focus.request() })
             }
             Trouble(session: session, provider: provider, hostName: hostName, canAct: reachable)

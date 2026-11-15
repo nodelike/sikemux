@@ -152,6 +152,7 @@ struct HostScoped<Content: View>: View {
             .preferredColorScheme(palette.isLight ? .light : .dark)
             .environment(\.hostBackdrop, HostLook.backdrop(live, device))
             .environment(\.faces, Faces(live.view))
+            .environment(\.crew, Crew(live.view))
             .onChange(of: live.view?.workspace, initial: true) { HostLook.keep(live, hub.device(core)) }
             .onChange(of: device == nil) { _, gone in
                 if gone, hub.loaded { Router.shared.root() }
