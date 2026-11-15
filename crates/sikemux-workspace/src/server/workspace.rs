@@ -1746,6 +1746,12 @@ impl super::part::Part for Workspaces {
 mod tests {
     use super::*;
 
+    const PROJECT_PATH: &str = if cfg!(windows) {
+        r"C:\Users\me\sikemux"
+    } else {
+        "/Users/me/sikemux"
+    };
+
     fn launcher() -> Launcher {
         Launcher {
             id: "claude:work".into(),
@@ -1782,7 +1788,7 @@ mod tests {
         ProjectInfo {
             id: "sess-1".into(),
             name: "sikemux".into(),
-            path: "/Users/me/sikemux".into(),
+            path: PROJECT_PATH.into(),
             pinned: false,
             added_at: 0,
             space: None,
@@ -1869,7 +1875,7 @@ mod tests {
         let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         let launch = launch(&workspaces, choice()).unwrap();
-        assert_eq!(launch.cwd, PathBuf::from("/Users/me/sikemux"));
+        assert_eq!(launch.cwd, PathBuf::from(PROJECT_PATH));
         assert_eq!(launch.program, PathBuf::from("/usr/local/bin/claude"));
         assert_eq!(launch.permission_mode, PermissionMode::Bypass);
         assert_eq!(launch.model.as_deref(), Some("opus"));
@@ -1897,8 +1903,8 @@ mod tests {
         offer(&workspaces, vec![launcher()]);
         workspaces.set_recent(
             vec![
-                recent("s1", "/Users/me/sikemux"),
-                recent("s2", "/Users/me/sikemux"),
+                recent("s1", PROJECT_PATH),
+                recent("s2", PROJECT_PATH),
                 recent("s3", "/Users/me/closed"),
             ],
             HashMap::new(),
@@ -1923,7 +1929,7 @@ mod tests {
             name: None,
             provider: "claude".into(),
             title: None,
-            cwd: "/Users/me/sikemux".into(),
+            cwd: PROJECT_PATH.into(),
             session_id: Some("s1".into()),
             state: ChatState::Ready,
             running: false,
@@ -1958,7 +1964,7 @@ mod tests {
         let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         workspaces.set_recent(
-            vec![recent("s1", "/Users/me/sikemux")],
+            vec![recent("s1", PROJECT_PATH)],
             HashMap::new(),
             HashMap::new(),
         );
@@ -1967,7 +1973,7 @@ mod tests {
             .unwrap();
         let launch = launch(&workspaces, choice).unwrap();
         assert_eq!(launch.resume_id.as_deref(), Some("s1"));
-        assert_eq!(launch.cwd, PathBuf::from("/Users/me/sikemux"));
+        assert_eq!(launch.cwd, PathBuf::from(PROJECT_PATH));
         assert_eq!(launch.provider, "claude");
         assert_eq!(launch.permission_mode, PermissionMode::Bypass);
     }
@@ -1977,7 +1983,7 @@ mod tests {
         let workspaces = Workspaces::new(None, None);
         offer(&workspaces, vec![launcher()]);
         workspaces.set_recent(
-            vec![recent("s1", "/Users/me/sikemux")],
+            vec![recent("s1", PROJECT_PATH)],
             HashMap::new(),
             HashMap::new(),
         );
@@ -1991,7 +1997,7 @@ mod tests {
         assert!(workspaces
             .resume_choice(resuming("claude:s1"), &[], &Vec::new())
             .is_err());
-        let mut elsewhere = recent("s2", "/Users/me/sikemux");
+        let mut elsewhere = recent("s2", PROJECT_PATH);
         elsewhere.launcher = "codex".into();
         workspaces.set_recent(vec![elsewhere], HashMap::new(), HashMap::new());
         assert!(workspaces
