@@ -37,6 +37,9 @@ use sikemux_wire::protocol::BuildChannel;
 
 const FIRST_CHECK: Duration = Duration::from_secs(4);
 const CHECK_EVERY: Duration = Duration::from_secs(30 * 60);
+/// Nightlies are tagged several times a day, and the feed is a small file, so their
+/// channel looks far more often and a fix reaches the person within minutes of its tag.
+const NIGHTLY_CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
 const BLOCKERS_EVERY: Duration = Duration::from_secs(2);
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 /// How long a host's core waits after `sikemux update` hears what root put in
@@ -259,8 +262,15 @@ impl Updates {
     }
 }
 
-/// Checks a little after the core starts and every half hour after, while the
-/// core runs in an app that can update.
+fn check_every(core: &Core) -> Duration {
+    match channel(core) {
+        UpdateChannel::Nightly => NIGHTLY_CHECK_EVERY,
+        UpdateChannel::Stable => CHECK_EVERY,
+    }
+}
+
+/// Checks a little after the core starts and then every five minutes on nightly
+/// or half hour on stable, while the core runs in an app that can update.
 pub(crate) async fn serve(core: Arc<Core>) {
     let running_since = epoch_ms();
     let asking = core.clone();
@@ -299,7 +309,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
         if check(&core).await.is_ok() {
             update_host_when_quiet(&core).await;
         }
-        let _ = tokio::time::timeout(CHECK_EVERY, core.updates().wake.notified()).await;
+        let _ = tokio::time::timeout(check_every(&core), core.updates().wake.notified()).await;
     }
 }
 
@@ -324,7 +334,7 @@ async fn update_host_when_quiet(core: &Arc<Core>) {
     {
         return;
     }
-    let until = tokio::time::Instant::now() + CHECK_EVERY;
+    let until = tokio::time::Instant::now() + check_every(core);
     loop {
         let rested = core.updates().quiet.notified();
         if core.chats().in_turn() == 0 || core.remote().too_old() {

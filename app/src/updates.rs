@@ -1,10 +1,12 @@
 //! How updating this app stands: the rail's note, the screen an update that must be taken puts
 //! over the window, and installing it.
 
+use std::time::{Duration, Instant};
+
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, ClipboardItem, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Styled,
+    div, px, AnyElement, App, ClipboardItem, Context, FontWeight, Global, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Styled,
 };
 use sikemux_calls::params::NoParams;
 use sikemux_view::prefs::UpdateChannel;
@@ -21,6 +23,32 @@ use sikemux_calls::call;
 use sikemux_calls::updates::UpdateInstallParams;
 
 /// The update the core found for this app, while one is there to install.
+/// How long the person's keys must rest before an update restarts the windows under them.
+const KEYS_REST: Duration = Duration::from_secs(3);
+
+/// When the person last pressed a key in any window.
+pub(crate) struct LastKey(pub Instant);
+
+impl Global for LastKey {}
+
+/// Restarts into the installed update once the person's keys have rested, so the windows never
+/// close under a word being typed.
+pub(crate) fn restart_when_keys_rest(cx: &mut App) {
+    cx.spawn(async move |cx| loop {
+        let rested = cx.update(|cx| cx.try_global::<LastKey>().map(|key| key.0.elapsed()));
+        match rested {
+            Some(rested) if rested < KEYS_REST => {
+                cx.background_executor().timer(KEYS_REST - rested).await;
+            }
+            _ => {
+                cx.update(|cx| cx.restart());
+                return;
+            }
+        }
+    })
+    .detach();
+}
+
 pub(crate) fn pending(bench: &Workbench) -> Option<&UpdateStatus> {
     bench.reads.update.as_ref().filter(|update| {
         (update.updates || update.install_command.is_some()) && update.available.is_some()

@@ -353,7 +353,7 @@ impl Workbench {
                         crate::core::force_next_core_update();
                     }
                     // Restarting runs the restart hooks, which update this workbench.
-                    cx.defer(|cx| cx.restart());
+                    cx.defer(crate::updates::restart_when_keys_rest);
                 }
             }
             Read::Questions => {

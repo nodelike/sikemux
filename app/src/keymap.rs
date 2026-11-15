@@ -227,6 +227,7 @@ pub fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
         used: asks,
     });
     cx.observe_keystrokes(|event, _, cx| {
+        cx.set_global(crate::updates::LastKey(std::time::Instant::now()));
         if let Some(action) = &event.action {
             count(action.name(), cx);
         }
