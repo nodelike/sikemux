@@ -10,8 +10,6 @@ description = "What the core and its clients send each other"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-
-[target.'cfg(unix)'.dependencies]
 tokio = { version = "1", features = ["io-util"] }
 
 [dev-dependencies]
