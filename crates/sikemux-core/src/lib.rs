@@ -15,7 +15,6 @@ use sikemux_corekit::{backoff, flights, text};
 pub use sikemux_corekit::{
     build, cli, frozen, fuzzy, host_update, release_feed, releases, tasks, trailers,
 };
-#[cfg(unix)]
 pub use sikemux_corekit::{client, join, push, timeout, waiting};
 pub use sikemux_corekit::{default_socket_path, SOCKET_ENV};
 #[cfg(unix)]
