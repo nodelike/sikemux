@@ -6,8 +6,10 @@
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 mod no_engine;
+#[cfg(windows)]
+mod windows;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,9 +20,11 @@ use std::time::{Duration, Instant};
 use linux as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 use no_engine as platform;
 use platform::{Picture, Writer};
+#[cfg(windows)]
+use windows as platform;
 
 use crate::manager::BrowserManager;
 use serde_json::{json, Value};

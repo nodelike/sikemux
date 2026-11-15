@@ -11,9 +11,15 @@ use crate::linux::input;
 use crate::linux::page::{call_async, World};
 #[cfg(target_os = "macos")]
 use crate::macos::{answer_dialog as answer_on_page, call_async, World};
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 use crate::no_engine::{
     answer as answer_on_page, input,
+    page::{call_async, World},
+};
+#[cfg(windows)]
+use crate::windows::{
+    dialogs::answer as answer_on_page,
+    input,
     page::{call_async, World},
 };
 use crate::Tab;
@@ -31,7 +37,9 @@ const SLOW_ANSWER: Duration = Duration::from_secs(1);
 type PageView = objc2_web_kit::WKWebView;
 #[cfg(target_os = "linux")]
 type PageView = webkit2gtk::WebView;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(windows)]
+type PageView = crate::windows::Page;
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 type PageView = crate::no_engine::Page;
 
 /// Runs `act` against the tab's native view on the thread that owns it.
@@ -91,7 +99,22 @@ pub async fn reload_from_origin(view: &Tab) -> Result<(), String> {
     .await
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+/// Reloads skipping the cache, so a stale script or stylesheet is fetched again.
+#[cfg(windows)]
+pub async fn reload_from_origin(view: &Tab) -> Result<(), String> {
+    on_tab(view, |page| {
+        crate::windows::devtools(
+            page,
+            "Page.reload",
+            &serde_json::json!({ "ignoreCache": true }),
+            |_| {},
+        );
+        Ok(())
+    })
+    .await
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 pub async fn reload_from_origin(view: &Tab) -> Result<(), String> {
     on_tab(view, |page| match *page {}).await
 }

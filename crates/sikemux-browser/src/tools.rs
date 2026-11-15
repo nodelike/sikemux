@@ -1520,8 +1520,10 @@ pub(crate) async fn screenshot(
     use crate::linux::page;
     #[cfg(target_os = "macos")]
     use crate::macos as page;
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     use crate::no_engine::page;
+    #[cfg(windows)]
+    use crate::windows::page;
 
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let sender = std::sync::Mutex::new(Some(sender));
