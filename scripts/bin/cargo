@@ -243,6 +243,9 @@ def main():
         slot = take_slot(run_is_final(name))
     except KeyboardInterrupt:
         return 130
+    # Sikemux's own cargo, which this one stands in front of, marks its runs the same way, so
+    # the git a build or its tests start is the build's own and not the agent's to guard.
+    env["SIKEMUX_BUILD_TURN"] = "1"
     return run(command, env, slot, name in COMPILING_THEN_RUNNING)
 
 
