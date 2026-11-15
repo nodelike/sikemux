@@ -21,10 +21,17 @@ const MAX_TITLE_CHARS: usize = 120;
 /// The most of a page a reply draws, in points.
 pub const MAX_HEIGHT: u32 = 4000;
 
+/// A path names no scheme, so it holds no `:`, except after a Windows drive letter.
+const DRIVE: &str = if cfg!(windows) {
+    r"(?:[A-Za-z]:[\\/])?"
+} else {
+    ""
+};
+
 static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r#"(["'(])\s*([^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf))\s*(["')])"#,
-    )
+    Regex::new(&format!(
+        r#"(["'(])\s*({DRIVE}[^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf))\s*(["')])"#,
+    ))
     .expect("local file pattern")
 });
 
