@@ -42,8 +42,6 @@ pub fn new_agent_id() -> String {
 const STARTING_MS: u64 = 10 * 60 * 1000;
 const MAX_NAME_CHARS: usize = 24;
 const MAX_ROLE_CHARS: usize = 200;
-/// How many agents below one the person started may start agents of their own.
-pub const MAX_SPAWNED_PER_PROJECT: usize = 64;
 /// How many closed agents' sessions are kept, newest first.
 const MAX_CLOSED_SESSIONS: usize = 4096;
 const MAX_TITLE_CHARS: usize = 200;
@@ -483,13 +481,6 @@ impl Names {
         if book.remove(|entry| entry.agent_id == agent_id) {
             self.save(&book);
         }
-    }
-
-    /// How many more agents the project may have open that agents or Auto started.
-    pub fn room_for_started(&self, project: &str, open: HashSet<String>) -> usize {
-        let book = self.book.locked();
-        let open = self.open_with(open);
-        MAX_SPAWNED_PER_PROJECT.saturating_sub(book.started_open(project, &open))
     }
 
     pub fn count_as_started(&self, agent_id: &str) {
@@ -1017,13 +1008,6 @@ impl Book {
         self.agents
             .iter_mut()
             .find(|entry| entry.agent_id == agent_id)
-    }
-
-    fn started_open(&self, project: &str, open: &HashSet<String>) -> usize {
-        (self.agents.iter())
-            .filter(|entry| open.contains(&entry.agent_id) && entry.project == project)
-            .filter(|entry| entry.parent.is_some() || entry.by_auto || entry.blind)
-            .count()
     }
 
     /// The agent's name, and whether the book changed to give it.
