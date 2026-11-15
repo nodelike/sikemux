@@ -271,3 +271,122 @@ jobs:
           name: aur-proof
           path: out
           if-no-files-found: warn
+
+  omarchy-pkgs:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: proof
+          sparse-checkout: proof
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: omacom/omarchy-pkgs
+          ref: 574da542516d6dc29b8dcdfb0d423461bc33b178
+          path: pkgs
+          persist-credentials: false
+      - name: Apply the sikemux-bin recipe and run the repository's package checks
+        working-directory: pkgs
+        run: |
+          set -euxo pipefail
+          git -c user.name=proof -c user.email=proof@localhost am ../proof/proof/omarchy-pkgs.patch
+          sudo apt-get install -y -qq jq zstd >/dev/null
+          for t in package-metadata pinned-sources pkgname-unique pgp-keys-vendored; do bash tests/$t.sh; done
+      - name: Point the recipe at this nightly, since no stable release carries the tarball yet
+        working-directory: pkgs/pkgbuilds/sikemux-bin
+        run: |
+          set -euxo pipefail
+          version=${NIGHTLY#v}
+          sed -i -e "s/^pkgver=.*/pkgver=${version//-/}/" \
+            -e "s|download/v\${pkgver}/Sikemux_\${pkgver}_|download/$NIGHTLY/Sikemux_${version}_|" \
+            -e "s|\"Sikemux_\${pkgver}_|\"Sikemux_${version}_|g" PKGBUILD
+          for a in amd64 arm64; do
+            sum=$(curl -fsSL "https://github.com/nodelike/sikemux/releases/download/$NIGHTLY/Sikemux_${version}_$a.tar.gz" | sha256sum | cut -d' ' -f1)
+            [ $a = amd64 ] && sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('$sum')/" PKGBUILD
+            [ $a = arm64 ] && sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$sum')/" PKGBUILD
+          done
+          cat PKGBUILD
+      - name: Build it with the repository's own builder
+        working-directory: pkgs
+        run: |
+          set -euxo pipefail
+          arch=x86_64; [ "$(uname -m)" = aarch64 ] && arch=aarch64
+          bin/build --package sikemux-bin --arch $arch
+          ls -la build-output/*/*/
+          bash tests/package-owners.sh || true
+          pkg=$(ls build-output/*/$arch/sikemux-bin-*.pkg.tar.zst | head -1)
+          tar -tvf "$pkg" | awk '{print $2}' | sort | uniq -c
+          echo "PKG=$PWD/$pkg" >>"$GITHUB_ENV"
+      - name: Install the built package in Arch and check the store
+        if: matrix.runner == 'ubuntu-24.04'
+        run: |
+          docker run --rm -v "$(dirname "$PKG"):/p:ro" archlinux:latest bash -euxc '
+            pacman -Syu --noconfirm -q >/dev/null
+            pacman -U --noconfirm /p/sikemux-bin-*.pkg.tar.zst
+            stat -c "%a %U:%G %n" /usr/lib/sikemux/sikemux-host /var/lib/sikemux
+            [ "$(stat -c "%a %U:%G" /usr/lib/sikemux/sikemux-host)" = "2755 root:sikemux" ]
+            [ "$(stat -c "%a %U:%G" /var/lib/sikemux)" = "770 root:sikemux" ]
+            sikemux-host --version
+          '
+
+  omarchy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      SITE: https://nightly.omarchy.org
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: proof
+          sparse-checkout: proof
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: omacom/omarchy
+          ref: 9e989357f377fe3165aa15c61902963a888ed4b4
+          path: src/omarchy
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: omacom/omarchy-pkgs
+          ref: 574da542516d6dc29b8dcdfb0d423461bc33b178
+          path: src/omarchy-pkgs
+          persist-credentials: false
+      - run: git -C src/omarchy -c user.name=proof -c user.email=proof@localhost am "$PWD/proof/proof/omarchy.patch"
+      - name: Fetch Omarchy's VM image, as their Tests workflow does
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends aria2 jq
+          mkdir -p /dev/shm/image && cd /dev/shm/image
+          curl -fsS --retry 3 -o latest.json "$SITE/stable/latest.json"
+          unpacked=$(jq -r .vm.unpacked latest.json)
+          for file in vmlinuz initrd cmdline; do curl -fsS --retry 3 -o "$file" "$unpacked$file"; done
+          aria2c --quiet -x 16 -s 16 -o base.qcow2 "$(jq -r .vm.url latest.json)"
+          echo "$(jq -r .vm.sha256 latest.json)  base.qcow2" | sha256sum -c -
+      - name: Run Omarchy's tests in the VM with the patch applied
+        run: |
+          sudo chmod 0666 /dev/kvm
+          docker run --rm --device /dev/kvm -v "$PWD:/w" -v /dev/shm/image:/image:ro -w /w -e VM_STATE_DIR=/tmp -e MEM=6G \
+            ghcr.io/archlinux/archlinux:latest bash -euo pipefail -c '
+              if ! grep -qw landlock /sys/kernel/security/lsm 2>/dev/null; then
+                printf "#!/bin/sh\nexec /usr/bin/pacman --disable-sandbox \"\$@\"\n" >/usr/local/bin/pacman
+                chmod 0755 /usr/local/bin/pacman
+              fi
+              pacman -Syu --noconfirm --needed qemu-system-x86 qemu-hw-display-virtio-gpu qemu-hw-display-virtio-vga qemu-img openssh >/dev/null
+              src/omarchy/test/ci-vm /image src out
+            '
+      - if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" out 2>/dev/null || true
+          grep -n -i 'sikemux\|FAIL' out/run.log | head -60 || true
+          sed -n '/^Skipped checks in/,$p' out/run.log || true
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: omarchy-tests
+          path: out
+          if-no-files-found: warn
