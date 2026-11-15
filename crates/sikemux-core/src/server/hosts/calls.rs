@@ -13,8 +13,8 @@ use super::super::Core;
 use super::link::{Answer, Kind, Received, Refusal};
 use super::receipts::Stands;
 use super::{
-    answered, chat_move, code, copies, introduction, machine, not_linked, open, reopen, route,
-    spawn, transfer,
+    answered, chat_move, code, copies, introduction, machine, not_linked, open, rehome, reopen,
+    route, spawn, transfer,
 };
 
 /// One ask between hosts: what it is called and what it carries, shared by the host asking
@@ -63,6 +63,7 @@ host_asks! {
     Receipt "receipt" ReceiptParams;
     Workers "workers" route::WorkersParams;
     Machine "machine" machine::MachineParams;
+    LeadMoved "leadMoved" rehome::LeadMovedParams;
 }
 
 /// Asks what became of the call `call`.
@@ -136,6 +137,9 @@ async fn work(
 ) -> Result<Value, Refusal> {
     if method == Commits::METHOD || method == CommitsReady::METHOD {
         return code::land(core, host, read::<Commits>(params)?, body).await;
+    }
+    if method == LeadMoved::METHOD {
+        return rehome::lead_moved_here(core, host, read::<LeadMoved>(params)?);
     }
     dispatch(core, host, method, params, body)
         .await

@@ -273,6 +273,42 @@ impl Outbox {
         waited
     }
 
+    /// Takes out what waits for `host` that `wanted` picks, in the order it was sent.
+    pub(crate) fn take(&self, host: &str, wanted: impl Fn(&Post) -> bool) -> Vec<Post> {
+        let mut record = self.record.locked();
+        let Some(posts) = record.posts.get_mut(host) else {
+            return Vec::new();
+        };
+        let (taken, kept): (VecDeque<Post>, VecDeque<Post>) = std::mem::take(posts)
+            .into_iter()
+            .partition(|post| wanted(post));
+        *posts = kept;
+        if posts.is_empty() {
+            record.posts.remove(host);
+        }
+        self.kept.save(&*record);
+        taken.into()
+    }
+
+    /// Queues `posts`, taken from what waited for another host, to go to `host` after what waits
+    /// for it already.
+    pub(crate) fn put(&self, host: &str, posts: Vec<Post>) {
+        if posts.is_empty() {
+            return;
+        }
+        let mut record = self.record.locked();
+        for mut post in posts {
+            record.next += 1;
+            post.seq = record.next;
+            record
+                .posts
+                .entry(host.to_owned())
+                .or_default()
+                .push_back(post);
+        }
+        self.kept.save(&*record);
+    }
+
     pub(crate) fn forget(&self, host: &str) {
         let mut record = self.record.locked();
         if let Some(posts) = record.posts.remove(host) {

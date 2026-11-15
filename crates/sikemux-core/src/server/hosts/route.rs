@@ -562,7 +562,7 @@ pub(super) fn notice(core: &Core, to: String, text: String) {
 }
 
 /// The agents here whose lead is `lead`, an agent on another host.
-fn workers_of(core: &Core, lead: &str) -> Vec<String> {
+pub(super) fn workers_of(core: &Core, lead: &str) -> Vec<String> {
     core.running_agents()
         .into_iter()
         .filter(|agent_id| {

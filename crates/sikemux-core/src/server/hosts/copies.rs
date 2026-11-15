@@ -111,6 +111,29 @@ impl Copies {
             .unwrap_or_default()
     }
 
+    /// The chiefs `host` said it holds: each one's repository, agent id and count.
+    pub(super) fn chiefs_on(&self, host: &str) -> Vec<(String, String, u32)> {
+        (self.heard.locked().get(host).into_iter().flatten())
+            .filter_map(|held| {
+                Some((
+                    held.identity.clone()?,
+                    held.chief.clone()?,
+                    held.chief_count,
+                ))
+            })
+            .collect()
+    }
+
+    /// The linked hosts that said they hold the repository `identity`.
+    pub(super) fn holders(&self, identity: &str) -> Vec<String> {
+        (self.heard.locked().iter())
+            .filter(|(_, held)| {
+                (held.iter()).any(|held| held.identity.as_deref() == Some(identity))
+            })
+            .map(|(host, _)| host.clone())
+            .collect()
+    }
+
     /// Whether `host` said it holds any project.
     pub(super) fn holds(&self, host: &str) -> bool {
         self.heard

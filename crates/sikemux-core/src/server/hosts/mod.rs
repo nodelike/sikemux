@@ -22,6 +22,7 @@ pub mod open;
 mod outbox;
 pub(crate) mod probe;
 mod receipts;
+mod rehome;
 pub(crate) mod reopen;
 pub(crate) mod route;
 pub(crate) mod spawn;

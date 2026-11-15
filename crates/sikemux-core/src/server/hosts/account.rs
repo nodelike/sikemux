@@ -28,8 +28,15 @@ const BUSY: Duration = Duration::from_secs(60);
 /// Forgets the linked hosts that `hosts`, the account's, no longer holds.
 pub(crate) fn forget_hosts_off_account(core: &Core, hosts: &DeviceList) -> CoreResult<()> {
     let keys: Vec<String> = hosts.devices.iter().map(|host| host.key.clone()).collect();
+    let names: Vec<(String, String)> = (core.remote().links().into_iter())
+        .map(|link| (link.id, link.name))
+        .collect();
     let gone = core.remote().forget_links_off(&keys)?;
     for host in &gone {
+        let name = (names.iter())
+            .find(|(id, _)| id == host)
+            .map_or(host.as_str(), |(_, name)| name);
+        super::rehome::host_removed(core, host, name);
         super::unlinked(core, host, "it was removed from your account");
     }
     if !gone.is_empty() {
