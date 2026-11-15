@@ -140,6 +140,10 @@ private struct NewChatContent: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .contentShape(Rectangle())
                 .onTapGesture(perform: Keyboard.dismiss)
+                .gesture(
+                    DragGesture(minimumDistance: 12).onEnded { drag in
+                        if drag.translation.height > 24 { Keyboard.dismiss() }
+                    })
             }
             composer(launcher: launcher, project: project, worktree: worktree, sendable: sendable, starting: starting)
         }
