@@ -117,7 +117,7 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
         false => "",
     };
     Ok(Queued {
-        note: format!("Queued: Sikemux checks it with the lands beside it, building only the crates they change, and puts it on {base}{pushed} when that passes. If the check fails because of it, it comes back to you as a message; until then your checkout keeps its commits, and you need not run the final checks yourself."),
+        note: format!("Queued: Sikemux checks it with the lands beside it, running Clippy on the crates they change, and puts it on {base}{pushed} when that passes. If the check fails because of it, it comes back to you as a message; until then your checkout keeps its commits, and you need not run the final checks yourself."),
         branch: base,
         commits: laid.listed,
         ahead,
@@ -571,9 +571,9 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
 }
 
 /// The check for what changed from `from` to `to`, read in `checkout` at `to`,
-/// with what to call it: Clippy and the tests of the crates it changes or whose
-/// files they read, and of every crate that depends on those; of every crate
-/// when it changes how they all build; none when it changes no Rust.
+/// with what to call it: Clippy on the crates it changes or whose files they
+/// read; on every crate when it changes how they all build; none when it
+/// changes no Rust. GitHub's CI on the branch runs the tests.
 fn rust_check(
     repo: &Path,
     checkout: &Path,
@@ -610,16 +610,6 @@ fn rust_check(
     if !every && names.is_empty() {
         return Ok(None);
     }
-    let mut grew = true;
-    while grew {
-        grew = false;
-        for member in &members {
-            if !names.contains(&member.name) && member.deps.iter().any(|dep| names.contains(dep)) {
-                names.insert(member.name.clone());
-                grew = true;
-            }
-        }
-    }
     let (scope, of) = match every {
         true => ("--workspace".to_owned(), "every crate".to_owned()),
         false => (
@@ -631,8 +621,8 @@ fn rust_check(
         ),
     };
     Ok(Some((
-        format!("Clippy and the tests of {of}"),
-        format!("cargo clippy {scope} --all-targets --all-features -- -D warnings && cargo test {scope} --all-features"),
+        format!("Clippy on {of}"),
+        format!("cargo clippy {scope} --all-targets --all-features -- -D warnings"),
     )))
 }
 
@@ -644,8 +634,6 @@ struct Member {
     name: String,
     /// Its folder from the workspace's root, empty for the root itself.
     dir: String,
-    /// The workspace's crates it depends on.
-    deps: Vec<String>,
 }
 
 /// The workspace's crates, as cargo reads them in `checkout`.
@@ -678,10 +666,6 @@ fn members(checkout: &Path) -> Result<Vec<Member>, String> {
         .filter_map(serde_json::Value::as_str)
         .collect();
     let packages = metadata["packages"].as_array().cloned().unwrap_or_default();
-    let names: BTreeSet<&str> = (packages.iter())
-        .filter(|package| (package["id"].as_str()).is_some_and(|id| in_workspace.contains(id)))
-        .filter_map(|package| package["name"].as_str())
-        .collect();
     Ok(packages
         .iter()
         .filter(|package| (package["id"].as_str()).is_some_and(|id| in_workspace.contains(id)))
@@ -691,17 +675,9 @@ fn members(checkout: &Path) -> Result<Vec<Member>, String> {
                 .and_then(|dir| dir.strip_prefix(&root).ok())
                 .map(|dir| dir.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            let deps = (package["dependencies"].as_array())
-                .into_iter()
-                .flatten()
-                .filter_map(|dep| dep["name"].as_str())
-                .filter(|dep| names.contains(dep))
-                .map(str::to_owned)
-                .collect();
             Member {
                 name: package["name"].as_str().unwrap_or_default().to_owned(),
                 dir,
-                deps,
             }
         })
         .collect())

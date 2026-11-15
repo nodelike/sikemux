@@ -1224,12 +1224,13 @@ bash; `timeout` works as GNU's does. In a checkout of your own, `sync: true`
 brings it up to the branch it was cut from, your commits made again on its tip
 and what you have not committed merged in; use it rather than `git rebase`.
 `land: true` queues your commits for that branch and returns at once; do not
-run the final Clippy and tests yourself first. Sikemux stacks the queued lands
-on the branch's tip in order, runs Clippy and the tests once for the batch,
-only for the crates it changes or whose files it changes and the crates that
-depend on them (a batch that changes no Rust is not built),
-and puts the whole batch on the branch when that passes, the branch staying a
-straight line. When the check fails, Sikemux finds the land that broke it and
+run the final Clippy yourself first. Sikemux stacks the queued lands on the
+branch's tip in order, runs Clippy once for the batch, only on the crates it
+changes or whose files it changes, or on every crate when it changes
+`Cargo.lock` or how the workspace builds (a batch that changes no Rust is not
+built), and puts the whole batch on the branch when that passes, the branch
+staying a straight line. CI on the branch runs the tests, so run the ones your
+change touches before you land. When the check fails, Sikemux finds the land that broke it and
 sends it back to its agent as a message with the error; the others stay in
 line. A clash with the branch is refused at once. A file someone changed in the
 project's checkout and has not committed takes the landed lines merged in, and
