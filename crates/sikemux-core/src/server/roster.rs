@@ -4,7 +4,7 @@
 use crate::server::agent_now::AgentNowCore;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
-use crate::server::workspace_state::WorkspaceParts;
+use crate::server::workspace_state::{WorkspaceCore, WorkspaceParts};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -38,6 +38,40 @@ pub(crate) fn terminal_folder(core: &Core, session: &SessionInfo) -> Option<std:
 }
 
 pub(crate) use super::listed::{Listed, Reach};
+
+/// Who hears what the core has to say about an agent: a stall, work it left behind, a report.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Hears {
+    /// The agent that started it, while that one is open, asleep or not.
+    Lead(String),
+    /// Its project's chief, with no lead open.
+    Chief(String),
+    /// Nobody but the person, in a project with no chief.
+    Person,
+}
+
+impl Hears {
+    pub(crate) fn agent(&self) -> Option<&str> {
+        match self {
+            Hears::Lead(agent) | Hears::Chief(agent) => Some(agent),
+            Hears::Person => None,
+        }
+    }
+}
+
+pub(crate) fn hears_of(core: &Core, agent_id: &str) -> Hears {
+    let named = core.names().get(agent_id);
+    let lead = named.as_ref().and_then(|named| named.parent.clone());
+    if let Some(lead) = lead.filter(|lead| core.open_agents().contains(lead)) {
+        return Hears::Lead(lead);
+    }
+    let chief = match core.workspaces().agent(agent_id) {
+        Some(_) => super::chief::chief_over(core, agent_id),
+        None => (named.and_then(|named| super::chief::chief_at(core, &named.project)))
+            .filter(|chief| chief != agent_id && core.workspaces().agent(chief).is_some()),
+    };
+    chief.map_or(Hears::Person, Hears::Chief)
+}
 
 /// An agent's status, with one at rest that has a task or messages waiting
 /// for it counted as about to start its next turn.
@@ -304,7 +338,7 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         _ => return Err("agents must list the agents to close".into()),
     };
     let (here, request, caller_id) = (core.clone(), request.clone(), caller.clone());
-    let (mut closed, remote, mut refused) = blocking(move || {
+    let (mut closed, left, remote, mut refused) = blocking(move || {
         let (core, caller) = (here, caller_id);
         let project = super::caller::project_of(&core, &request);
         let agents = listed(&core);
@@ -323,11 +357,14 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             }
         }
         let ids: Vec<String> = closing.iter().map(|(id, _)| id.clone()).collect();
+        let left: Vec<String> = (closing.iter())
+            .filter_map(|(id, name)| super::left_behind::left_by_close(&core, id, name))
+            .collect();
         if !ids.is_empty() {
             super::workspace::close(&core, &ids)?;
         }
         let closed: Vec<String> = closing.into_iter().map(|(_, name)| name).collect();
-        Ok((closed, remote, refused))
+        Ok((closed, left, remote, refused))
     })
     .await
     .map_err(|error| error.to_string())?;
@@ -338,6 +375,9 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         }
     }
     let mut result = json!({ "closed": closed });
+    if !left.is_empty() {
+        result["left"] = left.into();
+    }
     if !refused.is_empty() {
         result["refused"] = refused.into();
     }

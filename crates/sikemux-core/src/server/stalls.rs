@@ -1,12 +1,12 @@
 //! Agents at work that have called no tool for a long while, such as one stuck
-//! behind a queued build. Its lead hears of it once; with no lead awake to
-//! hear, the person sees it with what else needs them.
+//! behind a queued build. Whoever hears of the agent ([`roster::hears_of`]) is told
+//! once; in a project with no chief, the person sees it with what else needs them.
 
 use crate::server::changed::ChangedCore;
 use crate::server::device_view::DeviceViewCore;
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use sikemux_process::clock::epoch_ms;
@@ -14,8 +14,7 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::AgentStatus;
 
 use super::changed::What;
-use super::connection::blocking;
-use super::roster::{self, Reach};
+use super::roster::{self, Hears};
 use super::{messages, settling, Core};
 
 /// How long an agent at work may go without calling a tool before it counts as stalled.
@@ -29,7 +28,7 @@ pub(crate) struct Stalls(Mutex<HashMap<String, Stall>>);
 pub(crate) struct Stall {
     pub agent_id: String,
     pub since: u64,
-    /// Whether it waits on the person, as no lead was awake to tell.
+    /// Whether it waits on the person, as nobody else hears of it.
     pub for_person: bool,
 }
 
@@ -51,8 +50,8 @@ impl Stalls {
     }
 }
 
-/// Marks the agents at work that stalled since the last look and tells each one's lead,
-/// or the person, once. Runs with the core's regular sweep over its agents.
+/// Marks the agents at work that stalled since the last look and tells whoever hears of each,
+/// once. Runs with the core's regular sweep over its agents.
 pub(crate) async fn look(core: &Arc<Core>, now: u64) {
     let (chats, _) = core.ranked_infos();
     let working: HashMap<&str, u64> = (chats.iter())
@@ -85,31 +84,19 @@ pub(crate) async fn look(core: &Arc<Core>, now: u64) {
         }
         return;
     }
-    let owner = core.clone();
-    let awake: HashSet<String> = blocking(move || {
-        Ok((roster::listed(&owner).into_iter())
-            .filter(|agent| matches!(agent.reach, Reach::Chat | Reach::Terminal))
-            .map(|agent| agent.agent_id)
-            .collect())
-    })
-    .await
-    .unwrap_or_default();
     let mut for_person = forgot;
     for (agent_id, since) in new {
-        let lead = (core.names().get(&agent_id))
-            .and_then(|named| named.parent)
-            .filter(|lead| awake.contains(lead));
-        let told = match lead {
-            Some(lead) => {
+        let hears = roster::hears_of(core, &agent_id);
+        let why = match hears {
+            Hears::Lead(_) => "because a worker of yours has stalled",
+            _ => "because an agent of the project you are chief of has stalled",
+        };
+        let told = match hears.agent() {
+            Some(to) => {
                 let text = note(core, &agent_id, since, now);
-                messages::work_from_sikemux(
-                    core,
-                    lead,
-                    text,
-                    "because a worker of yours has stalled",
-                )
-                .await
-                .is_ok()
+                messages::work_from_sikemux(core, to.to_owned(), text, why)
+                    .await
+                    .is_ok()
             }
             None => false,
         };
