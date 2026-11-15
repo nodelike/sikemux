@@ -2,5 +2,20 @@
   "attribution": {
     "commit": "",
     "pr": ""
+  },
+  "skillOverrides": {
+    "bitbucket-rest": "off",
+    "brandkit": "off",
+    "design-taste-frontend-v1": "off",
+    "image-to-code": "off",
+    "imagegen-frontend-mobile": "off",
+    "imagegen-frontend-web": "off",
+    "minimalist-ui": "off",
+    "pr-generation": "off",
+    "ship-ticket": "off",
+    "swishx-api-docs": "off",
+    "swishx-infra": "off",
+    "swishx-rundeck-ops": "off",
+    "work-log": "off"
   }
 }
