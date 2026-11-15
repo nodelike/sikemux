@@ -540,6 +540,7 @@ pub fn carry_on(
     );
 }
 
+#[cfg(unix)]
 /// Takes up a chat an earlier core handed over whole, its agent still
 /// running on `pipes`. Answers with why it could not be.
 pub fn adopt(

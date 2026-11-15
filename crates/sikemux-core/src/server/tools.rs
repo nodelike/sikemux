@@ -6,6 +6,7 @@
 use crate::server::parts::Parts;
 use crate::server::serving::ServeParts;
 use std::net::{Ipv4Addr, SocketAddrV4};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd, RawFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -40,6 +41,7 @@ const OPEN_ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) struct ToolEndpoint {
     path: PathBuf,
     token: String,
+    #[cfg(unix)]
     fd: RawFd,
     open: Arc<AtomicUsize>,
     task: JoinHandle<()>,
@@ -85,6 +87,7 @@ impl ToolEndpoint {
         Ok(Self::serve(core, listener, path, port, token))
     }
 
+    #[cfg(unix)]
     /// Keeps serving a listener an earlier core handed over, with its port and
     /// token, and publishes it again if the endpoint file no longer says so.
     pub(crate) async fn adopt(
@@ -119,6 +122,7 @@ impl ToolEndpoint {
         port: u16,
         token: String,
     ) -> Self {
+        #[cfg(unix)]
         let fd = listener.as_raw_fd();
         let secret: Arc<str> = token.clone().into();
         let open = Arc::new(AtomicUsize::new(0));
@@ -149,6 +153,7 @@ impl ToolEndpoint {
         Self {
             path,
             token,
+            #[cfg(unix)]
             fd,
             open,
             task,
@@ -163,6 +168,7 @@ impl ToolEndpoint {
         &self.token
     }
 
+    #[cfg(unix)]
     pub(crate) fn fd(&self) -> RawFd {
         self.fd
     }

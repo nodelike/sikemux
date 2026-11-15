@@ -3,7 +3,6 @@
 //! up again by itself and carries on a turn that was cut short.
 
 use crate::server::workspace_state::WorkspaceParts;
-use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -192,10 +191,11 @@ fn set_aside(path: &Path, why: &str) {
 /// that nothing reads from.
 pub fn unreadable_place(path: &Path) -> std::io::Result<PathBuf> {
     let folder = path.with_file_name(UNREADABLE);
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&folder)?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&folder)?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     Ok(folder.join(format!("{}-{name}", epoch_ms())))
 }

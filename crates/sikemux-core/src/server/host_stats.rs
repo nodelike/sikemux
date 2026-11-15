@@ -1044,7 +1044,6 @@ fn disk_parts(projects: &[PathBuf]) -> Vec<DiskPart> {
 
 /// What the files under `folder` take on the disk, not following links.
 pub(crate) fn size_of_folder(folder: &Path) -> u64 {
-    use std::os::unix::fs::MetadataExt;
     let mut total = 0;
     let mut folders = vec![folder.to_path_buf()];
     while let Some(folder) = folders.pop() {
@@ -1055,7 +1054,11 @@ pub(crate) fn size_of_folder(folder: &Path) -> u64 {
             if metadata.is_dir() {
                 folders.push(entry.path());
             } else {
-                total += metadata.blocks() * 512;
+                #[cfg(unix)]
+                let taken = std::os::unix::fs::MetadataExt::blocks(&metadata) * 512;
+                #[cfg(windows)]
+                let taken = metadata.len();
+                total += taken;
             }
         }
     }

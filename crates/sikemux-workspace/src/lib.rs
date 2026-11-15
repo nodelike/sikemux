@@ -4,8 +4,6 @@
 //! over it; what it asks of them it asks through
 //! [`WorkspaceAbove`](server::workspace_above::WorkspaceAbove), which the core fills.
 
-#![cfg(unix)]
-
 pub mod server;
 
 use sikemux_agents::{acp, agent_accounts, agent_catalog, git, launch, sessions};

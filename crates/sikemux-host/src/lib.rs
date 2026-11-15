@@ -4,16 +4,13 @@
 
 pub mod account;
 pub mod cli_client;
-#[cfg(unix)]
 pub mod headless;
 pub mod plugins;
 mod problems;
 mod style;
-#[cfg(unix)]
 pub mod update;
 
 pub use plugins::provide_to_core;
-#[cfg(unix)]
 pub use sikemux_hostkit::core_start;
 pub use sikemux_hostkit::{
     cli_paths, crash_reports, environment, hang_reports, install_tls_crypto, login_item,

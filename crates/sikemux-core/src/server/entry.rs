@@ -1,14 +1,21 @@
+#[cfg(unix)]
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::fd::RawFd;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(unix)]
 use sikemux_process::vars;
+#[cfg(unix)]
 use sikemux_pty::launch::OPTIONAL_PTY_ENV;
 
 use crate::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};
-use sikemux_wire::protocol::{BuildIdentity, SessionId};
+use sikemux_wire::protocol::BuildIdentity;
+#[cfg(unix)]
+use sikemux_wire::protocol::SessionId;
 
+#[cfg(unix)]
 use super::handover::{self, Recovery};
 use super::{ServerConfig, ServerError, DEFAULT_IDLE_EXIT, NEVER_IDLE_EXIT};
 
@@ -25,12 +32,19 @@ struct CoreArgs {
     upgrade_info: bool,
     #[cfg(target_os = "macos")]
     watch_handover: Option<PathBuf>,
+    #[cfg(unix)]
     resume: Option<PathBuf>,
+    #[cfg(unix)]
     listener_fd: Option<RawFd>,
+    #[cfg(unix)]
     lock_fd: Option<RawFd>,
+    #[cfg(unix)]
     tools_fd: Option<RawFd>,
+    #[cfg(unix)]
     model_proxy_fd: Option<RawFd>,
+    #[cfg(unix)]
     sessions: Vec<(SessionId, RawFd, Option<u32>)>,
+    #[cfg(unix)]
     chat_fds: Vec<RawFd>,
 }
 
@@ -40,6 +54,7 @@ fn number<T: std::str::FromStr>(value: Option<String>, flag: &str) -> Result<T, 
         .ok_or_else(|| format!("{flag} needs a whole number"))
 }
 
+#[cfg(unix)]
 fn handed_over_session(value: Option<String>) -> Result<(SessionId, RawFd, Option<u32>), String> {
     let value = value.ok_or("--session needs id:fd:pid")?;
     let mut parts = value.split(':');
@@ -94,16 +109,23 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CoreArgs, String
                     "--update-patience-ms",
                 )?));
             }
+            #[cfg(unix)]
             "--resume" => {
                 parsed.resume = Some(args.next().ok_or("--resume needs a directory")?.into());
             }
+            #[cfg(unix)]
             "--listen-fd" => parsed.listener_fd = Some(number(args.next(), "--listen-fd")?),
+            #[cfg(unix)]
             "--lock-fd" => parsed.lock_fd = Some(number(args.next(), "--lock-fd")?),
+            #[cfg(unix)]
             "--tools-fd" => parsed.tools_fd = Some(number(args.next(), "--tools-fd")?),
+            #[cfg(unix)]
             "--model-proxy-fd" => {
                 parsed.model_proxy_fd = Some(number(args.next(), "--model-proxy-fd")?)
             }
+            #[cfg(unix)]
             "--session" => parsed.sessions.push(handed_over_session(args.next())?),
+            #[cfg(unix)]
             "--chat-fd" => parsed.chat_fds.push(number(args.next(), "--chat-fd")?),
             flag if flag == UPGRADE_INFO_ARG => parsed.upgrade_info = true,
             #[cfg(target_os = "macos")]
@@ -175,6 +197,7 @@ pub fn main(
         });
     }
     super::updates::roll_back_a_failing_update(&build.version);
+    #[cfg(unix)]
     if let Some(directory) = args.resume {
         let mut recovery = Recovery {
             directory,

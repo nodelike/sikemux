@@ -10624,7 +10624,9 @@ dependencies = [
  "sikemux-wire",
  "tempfile",
  "thiserror 1.0.69",
+ "tokio",
  "url",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 
@@ -10744,6 +10746,7 @@ dependencies = [
  "sikemux-view",
  "sikemux-wire",
  "tokio",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 

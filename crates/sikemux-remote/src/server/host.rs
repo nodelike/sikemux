@@ -208,12 +208,12 @@ mod os {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod os {
-    use super::Platform;
+    use super::{non_empty, Platform};
 
     pub const PLATFORM: Platform = Platform::Unknown;
 
     pub fn name() -> Option<String> {
-        None
+        non_empty(&std::env::var("COMPUTERNAME").ok()?)
     }
 
     pub fn may_be_renamed() -> bool {

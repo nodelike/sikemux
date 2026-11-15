@@ -3,8 +3,6 @@
 //! hosts or the other features built over it; what it asks of them it asks through
 //! [`BoardAbove`](server::board_above::BoardAbove), which the core fills.
 
-#![cfg(unix)]
-
 pub mod server;
 
 use sikemux_agents::git;
