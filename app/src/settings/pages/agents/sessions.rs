@@ -115,8 +115,8 @@ const BUILD_RUNS: [u32; 9] = [0, 1, 2, 3, 4, 6, 8, 12, 16];
 
 /// The themes new agents' names come from: the core's word, and how the menu shows it.
 const NAMES: [(NameTheme, &str); 2] = [
-    (NameTheme::Nature, n!("Nature: Otter, Maple, Flint")),
     (NameTheme::Anime, n!("Anime: Luffy, Gojo, Frieren")),
+    (NameTheme::Nature, n!("Nature: Otter, Maple, Flint")),
 ];
 
 /// Asks the core what new agents are called, and offers the themes once it says.

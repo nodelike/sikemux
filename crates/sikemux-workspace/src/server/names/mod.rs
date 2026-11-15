@@ -33,6 +33,8 @@ use words::{ANIME, NATURE};
 pub const CHIEF: &str = "Chief";
 
 const FILE: &str = "agent-names.json";
+/// Raised with each change to how the book is kept that its saved copy needs carried over.
+const VERSION: u32 = 1;
 
 pub fn new_agent_id() -> String {
     format!("agent-{}", uuid::Uuid::new_v4().simple())
@@ -109,6 +111,8 @@ impl Entry {
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Book {
+    #[serde(default)]
+    version: u32,
     agents: Vec<Entry>,
     /// The lead of each closed agent that an agent still named was started
     /// under, so the chain of leads stays whole after a lead in it closes.
@@ -229,8 +233,17 @@ pub struct Names {
 impl Names {
     pub fn new(data_dir: Option<&Path>) -> Self {
         let file = Kept::new(data_dir, FILE);
+        let mut book: Book = file.load();
+        let upgraded = book.version < VERSION;
+        if book.version < 1 {
+            book.theme = NameTheme::Anime;
+        }
+        book.version = VERSION;
+        if upgraded {
+            file.save(&book);
+        }
         Self {
-            book: Mutex::new(file.load()),
+            book: Mutex::new(book),
             file,
             pinned: Mutex::new(HashSet::new()),
         }
