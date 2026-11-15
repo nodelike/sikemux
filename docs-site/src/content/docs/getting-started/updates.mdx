@@ -27,7 +27,14 @@ If Sikemux's servers stop working with the version you have, **Update Sikemux** 
 
 The AppImage updates like the Mac app, when you click **Install**: its core asks root for each signed release, which replaces the core and the app unpacked beside it together.
 
-The `.deb` and `.rpm` are updated by the installer that put them in place. When a new release is out, **Settings → About** shows it with **Copy command**. Run the copied line in a terminal:
+The `.deb` and, on Fedora and the RHEL 9 family, the `.rpm` add Sikemux's package repository for their channel, so they update with the rest of the system. When a new release is out, **Settings → About** shows it with **Copy command**, which copies the package manager's line:
+
+```bash
+sudo apt update && sudo apt install --only-upgrade sikemux   # Debian, Ubuntu
+sudo dnf upgrade --refresh sikemux                           # Fedora, RHEL 9 and its rebuilds
+```
+
+On openSUSE the `.rpm` adds no repository, because zypper cannot read it, and is updated by the installer that put it in place. The same goes for a package whose repository is for the other channel: choosing nightly in Settings gives the installer line, and the nightly package it installs moves the repository to nightly. The copied line is then:
 
 ```bash
 curl -fsSL https://sikemux.com/install | sh -s -- --app

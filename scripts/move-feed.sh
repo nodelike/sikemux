@@ -32,3 +32,4 @@ else
     --title "$TITLE" --notes "$NOTES" --prerelease "$MANIFEST"
 fi
 echo "✓ The $FEED feed now points at v$VERSION"
+[[ "$FEED" == staff ]] || gh workflow run packages.yml -f suite=nightly

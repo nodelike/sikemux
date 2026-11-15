@@ -39,6 +39,7 @@ jobs:
       group: nightly-feed
       cancel-in-progress: false
     permissions:
+      actions: write
       contents: write
     steps:
       - name: Checkout

@@ -71,6 +71,24 @@ chmod +x Sikemux_<version>_amd64.AppImage                      # any other distr
 
 A nightly's Arch package is `sikemux-nightly-bin`, with the version's hyphen left out, such as `sikemux-nightly-bin-0.6.1nightly.7-1-x86_64.pkg.tar.zst`.
 
+### Adding the repository by hand
+
+The `.deb` and the Fedora and RHEL `.rpm` add Sikemux's repository themselves. To add it before installing, so apt or dnf installs Sikemux as well as updating it, fetch the key that signs it and point the package manager at the stable suite, or `packages-nightly` for nightly:
+
+```bash
+# Debian 12, Ubuntu 22.04 and newer
+sudo curl -fsSLo /usr/share/keyrings/sikemux-archive.asc https://nodelike.github.io/sikemux/sikemux-archive.asc
+printf 'Types: deb\nURIs: https://github.com/nodelike/sikemux/releases/download\nSuites: packages-stable/\nSigned-By: /usr/share/keyrings/sikemux-archive.asc\n' | sudo tee /etc/apt/sources.list.d/sikemux.sources
+sudo apt update && sudo apt install sikemux
+
+# Fedora, RHEL 9 and its rebuilds
+sudo curl -fsSLo /etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux https://nodelike.github.io/sikemux/sikemux-archive.asc
+printf '[sikemux]\nname=Sikemux\nbaseurl=https://nodelike.github.io/sikemux/packages-stable/\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux\n' | sudo tee /etc/yum.repos.d/sikemux.repo
+sudo dnf install sikemux
+```
+
+The package takes these files over once installed, and removing it removes them.
+
 ## Next
 
 Open Sikemux and follow [First launch](/getting-started/first-launch/).

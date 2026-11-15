@@ -52,7 +52,8 @@ HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
 APPIMAGE_SIGS=("${APPIMAGES[@]/%/.sig}")
 PACMAN_PACKAGE="${PACMAN_PACKAGES[0]}"
 INSTALLER="$ROOT/scripts/install.sh"
-for file in "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "$MANIFEST"; do
+PACKAGES_INDEX="$ROOT/target/packages/packages-index-$VERSION.tar"
+for file in "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "$MANIFEST"; do
   [[ -s "$file" ]] || fail "$file is missing or empty"
 done
 [[ "$(node -p "require('$MANIFEST').version")" == "$VERSION" ]] || fail "$MANIFEST is not for v$VERSION"
@@ -84,10 +85,12 @@ for file in sys.argv[1:]:
 path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
-RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
+RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
 if [[ "$CHANNEL" == "stable" ]]; then
   echo "→ Publishing stable v$VERSION"
   "${RELEASE_CMD[@]}" "$MANIFEST"
+  gh workflow run packages.yml -f suite=stable
+  gh workflow run packages.yml -f suite=nightly
   echo "✓ Released stable v$VERSION"
 else
   echo "→ Publishing nightly v$VERSION"

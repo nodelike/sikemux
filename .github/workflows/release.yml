@@ -902,6 +902,24 @@ jobs:
           if-no-files-found: error
           path: target/release/bundle/appimage/*.AppImage.sig
 
+      - name: Install the package signing tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends rpm createrepo-c apt-utils >/dev/null
+
+      - name: Sign the rpms and write the repository indexes
+        env:
+          PACKAGES_SIGNING_KEY: ${{ secrets.PACKAGES_SIGNING_KEY }}
+          PACKAGES_SIGNING_KEY_PASSWORD: ${{ secrets.PACKAGES_SIGNING_KEY_PASSWORD }}
+        run: ./scripts/sign-packages.sh "${{ needs.plan.outputs.version }}" target/release/bundle
+
+      - name: Keep the signed rpms and the indexes on the run
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-packages-signed-${{ github.ref_name }}
+          if-no-files-found: error
+          path: |
+            target/release/bundle/rpm/*.rpm
+            target/packages/packages-index-*.tar
+
   # Holds the Sentry token, so it runs nothing a build does. Sentry names the frames of a
   # release's crashes from these files, so they go before the release does.
   sentry:
@@ -997,6 +1015,12 @@ jobs:
           pattern: sikemux-linux-*-${{ github.ref_name }}
           merge-multiple: true
           path: target/release/bundle
+
+      - name: Fetch the signed rpms and the repository indexes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-packages-signed-${{ github.ref_name }}
+          path: target
 
       - name: Fetch the Arch package
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

@@ -42,6 +42,8 @@ const releaseWorkflow = fs.readFileSync(".github/workflows/release.yml", "utf8")
 const pkgbuild = fs.readFileSync("packaging/arch/PKGBUILD", "utf8");
 const ciWorkflow = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 const hakari = fs.readFileSync(".config/hakari.toml", "utf8");
+const moveFeed = fs.readFileSync("scripts/move-feed.sh", "utf8");
+const soakWorkflow = fs.readFileSync(".github/workflows/nightly-soak.yml", "utf8");
 const fail = (message) => { throw new Error(message); };
 
 const backups = fs.readFileSync("server/deploy/backup-database", "utf8");
@@ -103,6 +105,11 @@ if (!releaseWorkflow.includes("scripts/package-host.sh")) fail("the Release work
 if (!publish.includes('"${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}"')) fail("releases do not publish the Linux host core and its signatures");
 if (!publish.includes('"${HOST_SIGS[@]}" "$INSTALLER"')) fail("releases do not publish the installer made for their files");
 if (!releaseWorkflow.includes("scripts/sign-host.sh")) fail("the Release workflow does not sign the Linux host core");
+if (!releaseWorkflow.includes('./scripts/sign-packages.sh "${{ needs.plan.outputs.version }}" target/release/bundle')) fail("the Release workflow does not sign the rpms and the repository indexes");
+if (!publish.includes('"$PACKAGES_INDEX" "$DMG"')) fail("releases do not carry the signed package indexes their suites copy");
+if (!publish.includes("gh workflow run packages.yml -f suite=stable") || !publish.includes("gh workflow run packages.yml -f suite=nightly")) fail("a stable release does not move both package suites");
+if (!moveFeed.includes("gh workflow run packages.yml -f suite=nightly")) fail("moving the nightly feed does not move the nightly package suite");
+if (!/promote:[\s\S]*?actions: write/.test(soakWorkflow)) fail("the soak's promote job cannot start the package suite move");
 if (!signHost.includes('"${HOSTS[@]}" "${APPIMAGES[@]}"')) fail("releases do not sign the AppImages with the updater key");
 if (!publish.includes('"$INSTALLER" "${APPIMAGE_SIGS[@]}"')) fail("releases do not publish the AppImage's update signature");
 if (!publish.includes('"${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}"')) fail("releases do not publish the Mac dSYMs that name a crash's frames");
