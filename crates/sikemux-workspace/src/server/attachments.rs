@@ -22,23 +22,22 @@ const MAX_EXTENSION_CHARS: usize = 10;
 
 pub const TOO_LARGE: &str = "a file sent to a chat can be at most 10 MB";
 
-/// The app's `pasted` folder: its cache folder carries the same name as the
-/// data folder it hands the core.
+/// The app's `pasted` folder, in the cache folder that goes with the data folder it
+/// hands the core.
 pub fn pasted_dir(data_dir: &Path) -> Option<PathBuf> {
-    Some(cache_root()?.join(data_dir.file_name()?).join("pasted"))
+    Some(cache_dir(data_dir)?.join("pasted"))
 }
 
-fn cache_root() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")
-        .filter(|home| !home.is_empty())
-        .map(PathBuf::from);
-    if cfg!(target_os = "macos") {
-        return Some(home?.join("Library/Caches"));
-    }
-    std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .filter(|dir| dir.is_absolute())
-        .or_else(|| Some(home?.join(".cache")))
+/// The cache folders sit side by side under one root, each named like its data folder.
+#[cfg(not(windows))]
+fn cache_dir(data_dir: &Path) -> Option<PathBuf> {
+    let root = sikemux_process::paths::cache_dir()?.parent()?.to_path_buf();
+    Some(root.join(data_dir.file_name()?))
+}
+
+#[cfg(windows)]
+fn cache_dir(data_dir: &Path) -> Option<PathBuf> {
+    Some(data_dir.join("cache"))
 }
 
 /// Writes the file into `dir` under a cleaned-up `name`, never over another
