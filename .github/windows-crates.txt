@@ -10,6 +10,7 @@ sikemux-browser
 sikemux-buildinfo
 sikemux-chat
 sikemux-fold
+sikemux-gpui
 sikemux-grid
 sikemux-hostkit
 sikemux-kernel
