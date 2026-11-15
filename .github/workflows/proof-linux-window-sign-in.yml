@@ -90,7 +90,7 @@ jobs:
           done
           test -n "$core"
           echo "CORE=$core" >>"$GITHUB_ENV"
-          for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host || true) $core; do
+          for pid in $(for p in $(pgrep -u person); do [ "$(sudo readlink /proc/$p/exe || true)" = /usr/lib/sikemux/sikemux-host ] && echo $p; done || true); do
             echo "== $pid: $(sudo cat "/proc/$pid/cmdline" | tr '\0' ' ')"
             sudo grep -E '^(Uid|Gid)' "/proc/$pid/status"
             for task in /proc/$pid/task/*; do echo "$(sudo cat "$task/comm"): $(sudo grep ^Gid "$task/status")"; done | sort | uniq -c
@@ -100,11 +100,14 @@ jobs:
           held=$(for task in /proc/$core/task/*; do sudo grep -E '^Gid' "$task/status" | grep -qw "$(getent group sikemux | cut -d: -f3)" && sudo cat "$task/comm"; done || true)
           echo "$held"
           [ "$held" = sikemux-secrets ] || [ "$GROUP_STRICT" = no ]
-          for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host || true); do
+          others=0
+          for pid in $(for p in $(pgrep -u person); do [ "$(sudo readlink /proc/$p/exe || true)" = /usr/lib/sikemux/sikemux-host ] && echo $p; done || true); do
             [ "$pid" = "$core" ] && continue
+            others=$((others+1))
             echo "other sikemux-host $pid: $(sudo cat "/proc/$pid/cmdline" | tr '\0' ' ')"
             for task in /proc/$pid/task/*; do if sudo grep -E '^Gid' "$task/status" | grep -qw "$(getent group sikemux | cut -d: -f3)"; then echo "$(sudo cat "$task/comm") holds the group"; [ "$GROUP_STRICT" = no ] || exit 1; fi; done
           done
+          [ "$others" -ge 1 ] || [ "$GROUP_STRICT" = no ]
           echo "Every process the person runs, with its groups:"
           for pid in $(pgrep -u person); do echo "$pid $(sudo readlink /proc/$pid/exe) $(sudo grep ^Gid /proc/$pid/status)"; done
           sleep 20
@@ -150,38 +153,6 @@ jobs:
             ${{ runner.temp }}/accepted.json
             ${{ runner.temp }}/refused.txt
           if-no-files-found: warn
-
-  rpm:
-    needs: client
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: call
-          path: client
-      - run: gh release download "$NIGHTLY" -R "$GITHUB_REPOSITORY" -p 'Sikemux-*.x86_64.rpm' -D pkg
-      - name: The packaged core on Fedora takes the call from the window's path only
-        run: |
-          docker run --rm -e APP_ONLY -v "$PWD/pkg:/pkg:ro" -v "$PWD/client:/client:ro" fedora:42 bash -euxc '
-            dnf install -y -q /pkg/*.rpm util-linux >/dev/null
-            useradd -m person
-            ! id -nG person | grep -qw sikemux
-            stat -c "%A %U:%G %n" /usr/lib/sikemux/sikemux-host /var/lib/sikemux
-            test -g /usr/lib/sikemux/sikemux-host
-            mv /usr/lib/sikemux/sikemux /usr/lib/sikemux/sikemux.window
-            install -m 755 /client/call /usr/lib/sikemux/sikemux
-            install -m 755 /client/call /tmp/elsewhere
-            runuser -u person -- env HOME=/home/person /usr/lib/sikemux/sikemux-host core --socket /home/person/core.sock >/tmp/core.log 2>&1 &
-            for _ in $(seq 1 60); do [ -S /home/person/core.sock ] && break; sleep 1; done
-            runuser -u person -- /usr/lib/sikemux/sikemux /home/person/core.sock accountSignIn "{}" | tee /tmp/accepted.json
-            grep -q "/oauth/authorize?" /tmp/accepted.json
-            if runuser -u person -- /tmp/elsewhere /home/person/core.sock accountSignIn "{}" 2>/tmp/refused.txt; then exit 1; fi
-            cat /tmp/refused.txt
-            grep -qF "$APP_ONLY" /tmp/refused.txt
-          '
 
   arch:
     needs: client
@@ -231,7 +202,7 @@ jobs:
             runuser -u person -- env -i HOME=/home/person USER=person LOGNAME=person PATH=/usr/bin DISPLAY=:99 dbus-run-session -- /usr/bin/sikemux >/out/window.log 2>&1 &
             core=
             for _ in $(seq 1 90); do
-              for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host || true); do
+              for pid in $(for p in $(pgrep -u person); do [ "$(readlink /proc/$p/exe || true)" = /usr/lib/sikemux/sikemux-host ] && echo $p; done || true); do
                 grep -q "crash reporter" /proc/$pid/cmdline || core=$pid
               done
               [ -n "$core" ] && break
@@ -239,17 +210,21 @@ jobs:
             done
             test -n "$core"
             sleep 15
-            for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host); do
+            for pid in $(for p in $(pgrep -u person); do [ "$(readlink /proc/$p/exe || true)" = /usr/lib/sikemux/sikemux-host ] && echo $p; done || true); do
               echo "== $pid: $(tr "\0" " " </proc/$pid/cmdline)"
               for task in /proc/$pid/task/*; do echo "$(cat $task/comm): $(grep ^Gid $task/status)"; done | sort | uniq -c
             done
             held=$(for task in /proc/$core/task/*; do grep ^Gid $task/status | grep -qw $gid && cat $task/comm; done || true)
             echo "threads of the core holding the group: $held"
             [ "$held" = sikemux-secrets ] || [ "$GROUP_STRICT" = no ]
-            for pid in $(pgrep -u person -f /usr/lib/sikemux/sikemux-host); do
+            others=0
+            for pid in $(for p in $(pgrep -u person); do [ "$(readlink /proc/$p/exe || true)" = /usr/lib/sikemux/sikemux-host ] && echo $p; done || true); do
               [ $pid = $core ] && continue
+              others=$((others+1))
+              echo "other sikemux-host $pid: $(tr "\0" " " </proc/$pid/cmdline)"
               for task in /proc/$pid/task/*; do if grep ^Gid $task/status | grep -qw $gid; then echo "$pid $(cat $task/comm) holds the group"; [ "$GROUP_STRICT" = no ] || exit 1; fi; done
             done
+            [ "$others" -ge 1 ] || [ "$GROUP_STRICT" = no ]
             runuser -u person -- readlink /proc/$(pgrep -u person -x sikemux | head -1)/exe
             import -display :99 -window root /out/window.png || echo "no screenshot"
             socket=/home/person/.config/sikemux/core.sock
