@@ -14,6 +14,9 @@ struct ConfigSheet: View {
     let effort: ConfigPicker?
     let speed: ConfigPicker?
     var usage: ContextUsage?
+    /// Why the agent could not say its models, while the chat has not started.
+    var unread: ChatFailure?
+    var hostName = ""
     var expiredCache: ExpiredCache?
     var onSummarise: (Bool) -> Void = { _ in }
     let onPick: (ConfigPicker, String) -> Void
@@ -60,6 +63,16 @@ struct ConfigSheet: View {
                 }
                 .padding(.horizontal, 4)
                 .padding(.bottom, 12)
+            }
+            if let unread {
+                Text(
+                    unread.kind == .signIn
+                        ? String(localized: "\(name) isn't signed in on \(hostName). Sign in there, then its models show here.")
+                        : unread.details.map { String(localized: "Couldn't ask \(name) for its models: \($0)") }
+                            ?? String(localized: "Couldn't ask \(name) for its models.")
+                )
+                .font(Theme.ui(13)).lineSpacing(3).foregroundStyle(palette.secondary)
+                .padding(.horizontal, 4).padding(.bottom, 12)
             }
             if let model {
                 Field(

@@ -39,6 +39,7 @@
     "projectEntries",
     "promptChat",
     "questions",
+    "readModels",
     "recentChats",
     "removeStash",
     "requireApproval",

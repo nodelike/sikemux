@@ -1364,6 +1364,11 @@ impl Fold {
                 self.set_config_options(
                     update.get("configOptions").cloned().unwrap_or(Value::Null),
                 );
+                let unread = failure_of(update);
+                if self.head.models_unread != unread {
+                    self.head.models_unread = unread;
+                    self.set_head("modelsUnread");
+                }
             }
             UpdateKind::UsageUpdate => {
                 if let Some(usage) = context_usage(update) {

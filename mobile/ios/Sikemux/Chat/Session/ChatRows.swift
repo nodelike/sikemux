@@ -234,6 +234,7 @@ extension ChatRows {
     var changingMode: Bool { head.changingMode == true }
     var draft: ChatDraft? { head.draft }
     var model: ConfigPicker? { head.model }
+    var modelsUnread: ChatFailure? { head.connection == .ready ? nil : head.modelsUnread }
     var effort: ConfigPicker? { head.effort }
     var speed: ConfigPicker? { head.speed }
     var usage: ContextUsage? { head.usage }

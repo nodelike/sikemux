@@ -803,5 +803,10 @@
   "Speed": "Скорость",
   "{size} context": "контекст {size}",
   "${input}/${output} per 1M": "${input}/${output} за 1M",
-  "{route} · local": "{route} · локально"
+  "{route} · local": "{route} · локально",
+  "Signed out": "Вход не выполнен",
+  "No models": "Нет моделей",
+  "{agent} isn't signed in on {host}. Sign in there, then its models show here.": "{agent} не выполнил вход на {host}. Войдите там, и его модели появятся здесь.",
+  "Couldn't ask {agent} for its models: {details}": "Не удалось узнать у {agent} его модели: {details}",
+  "Couldn't ask {agent} for its models.": "Не удалось узнать у {agent} его модели."
 }

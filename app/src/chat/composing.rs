@@ -16,6 +16,7 @@ use gpui_kit::{
 use sikemux_calls::call;
 use sikemux_calls::chat::QueuedMessageParams as QueuedMessage;
 use sikemux_calls::chat::QueuedParams;
+use sikemux_view::chat::{ChatFailure, FailureKind};
 use sikemux_view::prefs::MidTurnSend;
 use sikemux_wire::protocol::PermissionMode;
 
@@ -544,6 +545,50 @@ pub fn with_stash(
     (composer.stash(fresh, open, toggle).tray(tray), open)
 }
 
+/// Why `agent`'s models could not be read, in the person's words, with the account to sign in
+/// to when this host can.
+fn models_unread(
+    bench: &Workbench,
+    agent: &AgentRow,
+    saved: &WorkspaceAgent,
+    failure: &ChatFailure,
+) -> crate::chat::model_picker::Unread {
+    let name = bench.agent_name(&agent.provider);
+    let host = match &agent.place {
+        crate::hosts::Place::Account(key) => Some(bench.host_name(key)),
+        crate::hosts::Place::This => None,
+    };
+    let said = match (failure.kind, host) {
+        (FailureKind::SignIn, Some(host)) => {
+            t!(
+                "{agent} isn't signed in on {host}",
+                agent = name,
+                host = host
+            )
+        }
+        (FailureKind::SignIn, None) => t!("{agent} isn't signed in", agent = name),
+        (_, _) => match &failure.details {
+            Some(details) => t!(
+                "Couldn't ask {agent} for its models: {details}",
+                agent = name,
+                details = details
+            ),
+            None => t!("Couldn't ask {agent} for its models", agent = name),
+        },
+    };
+    let account = (failure.account.as_deref())
+        .or(saved.profile_id.as_deref())
+        .and_then(|id| bench.accounts.profile(id))
+        .or_else(|| bench.accounts.current(&agent.provider))
+        .map(|profile| profile.id.clone());
+    crate::chat::model_picker::Unread {
+        said: said.into(),
+        sign_in: account.filter(|_| {
+            failure.kind == FailureKind::SignIn && agent.place == crate::hosts::Place::This
+        }),
+    }
+}
+
 pub(super) fn composer(
     bench: &Workbench,
     agent: &AgentRow,
@@ -662,6 +707,10 @@ pub(super) fn composer(
                 (false, true) => Some(t!("Reading the models…")),
                 (false, false) => Some(t!("Models show once the agent starts")),
             },
+            unread: head
+                .and_then(|head| head.models_unread.as_ref())
+                .filter(|_| !started)
+                .map(|failure| models_unread(bench, agent, saved, failure)),
             set: pick.clone(),
             moving,
             target: bench.chat_target(&agent.id),
@@ -674,6 +723,9 @@ pub(super) fn composer(
             let (this, agent) = (this.clone(), agent.id.clone());
             Rc::new(move |open: bool, cx: &mut App| {
                 this.update(cx, |bench, cx| {
+                    if open && !started {
+                        bench.read_models(&agent);
+                    }
                     if let Some(composing) = bench.composing_mut(&agent) {
                         composing.model_open = open;
                         cx.notify();

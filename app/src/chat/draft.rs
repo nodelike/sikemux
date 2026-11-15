@@ -192,6 +192,17 @@ impl Workbench {
         );
     }
 
+    /// Asks a new chat's agent again which models it offers, when the core's list may be out of
+    /// date. A host whose core predates this does not know the method, which nobody needs to hear.
+    pub fn read_models(&self, agent: &str) {
+        drop(
+            self.chat_target(agent)
+                .request_typed::<call::ReadModels>(AgentParams {
+                    agent_id: agent.to_owned(),
+                }),
+        );
+    }
+
     /// Quotes the answer `message` of `agent`'s chat in its draft, in place of any quote there,
     /// and puts the keys in the draft.
     pub fn reply_to(

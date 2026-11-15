@@ -179,6 +179,7 @@ enum PhoneCall {
     enum ProjectEntries {}
     enum PromptChat {}
     enum Questions {}
+    enum ReadModels {}
     enum RecentChats {}
     enum RemoveStash {}
     enum RequireApproval {}
@@ -430,6 +431,12 @@ extension PhoneCall.Questions: PhoneCallable {
     static let method = "questions"
     typealias Params = NoParams
     typealias Answer = [AgentQuestion]
+}
+
+extension PhoneCall.ReadModels: PhoneCallable {
+    static let method = "readModels"
+    typealias Params = AgentParams
+    typealias Answer = WireNull
 }
 
 extension PhoneCall.RecentChats: PhoneCallable {
@@ -3124,6 +3131,9 @@ struct ChatHead: Codable, Hashable, Sendable {
     var setup: JSONValue
     /// The model the session runs on, and the ones it can switch to.
     var model: ConfigPicker?
+    /// Why the agent could not be asked which models it offers, the last time a chat waiting
+    /// for its first message asked.
+    var modelsUnread: ChatFailure?
     /// How hard the model thinks. An agent that always offers it has one
     /// with no choices until its session says them.
     var effort: ConfigPicker?

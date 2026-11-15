@@ -112,6 +112,7 @@ crate::calls! {
     "sleepIdleChats" SleepIdleChats (crate::params::NoParams) -> serde_json::Value;
     "commandUsed" CommandUsed (crate::activity_log::CommandUsed) -> ();
     "composing" Composing (crate::params::AgentParams) -> ();
+    "readModels" ReadModels (crate::params::AgentParams) -> ();
     "startChat" StartChat (crate::launching::StartParams) -> ();
     "resumeSession" ResumeSession (crate::workspace::SessionChoice) -> crate::launching::SessionTaken;
     "reopenAgent" ReopenAgent (crate::params::AgentParams) -> crate::launching::SessionTaken;

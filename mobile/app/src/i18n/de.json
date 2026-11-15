@@ -803,5 +803,10 @@
   "Speed": "Tempo",
   "{size} context": "{size} Kontext",
   "${input}/${output} per 1M": "${input}/${output} pro 1 Mio.",
-  "{route} · local": "{route} · lokal"
+  "{route} · local": "{route} · lokal",
+  "Signed out": "Abgemeldet",
+  "No models": "Keine Modelle",
+  "{agent} isn't signed in on {host}. Sign in there, then its models show here.": "{agent} ist auf {host} nicht angemeldet. Melde dich dort an, dann erscheinen seine Modelle hier.",
+  "Couldn't ask {agent} for its models: {details}": "{agent} konnte nicht nach seinen Modellen gefragt werden: {details}",
+  "Couldn't ask {agent} for its models.": "{agent} konnte nicht nach seinen Modellen gefragt werden."
 }

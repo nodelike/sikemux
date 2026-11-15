@@ -24305,6 +24305,8 @@
         }
       }
     },
+    "Couldn't ask {agent} for its models": {},
+    "Couldn't ask {agent} for its models: {details}": {},
     "Couldn't load the picture": {
       "localizations": {
         "es": {
@@ -146115,6 +146117,8 @@
         }
       }
     },
+    "{agent} isn't signed in": {},
+    "{agent} isn't signed in on {host}": {},
     "{agent} saved the skill {name} in its own folder, so only {agent} has it, outside Sikemux too.": {
       "localizations": {
         "es": {

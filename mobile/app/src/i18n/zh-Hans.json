@@ -803,5 +803,10 @@
   "Speed": "速度",
   "{size} context": "{size} 上下文",
   "${input}/${output} per 1M": "每 100 万 ${input}/${output}",
-  "{route} · local": "{route} · 本地"
+  "{route} · local": "{route} · 本地",
+  "Signed out": "未登录",
+  "No models": "无模型",
+  "{agent} isn't signed in on {host}. Sign in there, then its models show here.": "{agent} 未在 {host} 上登录。在那里登录后，它的模型会显示在这里。",
+  "Couldn't ask {agent} for its models: {details}": "无法向 {agent} 获取模型：{details}",
+  "Couldn't ask {agent} for its models.": "无法向 {agent} 获取模型。"
 }

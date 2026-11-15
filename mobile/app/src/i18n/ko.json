@@ -803,5 +803,10 @@
   "Speed": "속도",
   "{size} context": "컨텍스트 {size}",
   "${input}/${output} per 1M": "${input}/${output} / 1M",
-  "{route} · local": "{route} · 로컬"
+  "{route} · local": "{route} · 로컬",
+  "Signed out": "로그아웃됨",
+  "No models": "모델 없음",
+  "{agent} isn't signed in on {host}. Sign in there, then its models show here.": "{host}에서 {agent}에 로그인되어 있지 않습니다. 그곳에서 로그인하면 여기에 모델이 표시됩니다.",
+  "Couldn't ask {agent} for its models: {details}": "{agent}에 모델을 물어볼 수 없습니다: {details}",
+  "Couldn't ask {agent} for its models.": "{agent}에 모델을 물어볼 수 없습니다."
 }

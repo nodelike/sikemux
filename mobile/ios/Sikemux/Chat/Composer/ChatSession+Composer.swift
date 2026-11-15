@@ -199,6 +199,15 @@ extension ChatSession {
         }
     }
 
+    /// Asks the agent of a chat that has not started again which models it offers, as its picker opens, in case
+    /// it was updated or signed in since. A host whose core predates this does not know the call.
+    func readModels() {
+        guard rows.head.connection != .ready else { return }
+        Task {
+            _ = try? await openConnection().call(PhoneCall.ReadModels.self, AgentParams(agentId: agentId))
+        }
+    }
+
     /// Whether the chat is summarised before its next message, while its prompt cache has expired.
     func setSummarise(_ on: Bool) {
         notice = nil

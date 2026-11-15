@@ -7,7 +7,7 @@ import { unknownCommand } from '@shared/chat/composerInput';
 import { currentLabel, useAgents } from '@/chat/sessionConfig';
 import { ModelChip } from '@/chat/ModelChip';
 import type { ChatRows } from '@shared/chat/rows';
-import type { ChatCommandInfo, ExpiredCache, PermissionAsk } from '@shared/wire.generated';
+import type { ChatCommandInfo, ChatFailure, ExpiredCache, PermissionAsk } from '@shared/wire.generated';
 import { problem } from '@/core/problem';
 import { useT } from '@/i18n';
 import { haptics } from '@/ui/haptics';
@@ -74,6 +74,7 @@ export const Composer = memo(function Composer({
   running,
   steers,
   model,
+  modelsUnread,
   effort,
   speed,
   usage,
@@ -104,6 +105,8 @@ export const Composer = memo(function Composer({
   /** Sending while the turn runs steers into it rather than waiting behind it. */
   steers: boolean;
   model: ChatRows['model'];
+  /** Why the agent could not say its models, while the chat has not started. */
+  modelsUnread?: ChatFailure;
   effort: ChatRows['effort'];
   speed: ChatRows['speed'];
   usage: ChatRows['usage'];
@@ -151,7 +154,12 @@ export const Composer = memo(function Composer({
   const ownInput = useRef<TextInput>(null);
   const input = inputRef ?? ownInput;
   const [sheet, setSheet] = useState(false);
-  const modelLabel = currentLabel(model);
+  const modelLabel =
+    currentLabel(model) ?? (modelsUnread ? (modelsUnread.kind === 'signIn' ? t('Signed out') : t('No models')) : undefined);
+  const openSheet = () => {
+    setSheet(true);
+    session.readModels();
+  };
   const effortLabel = currentLabel(effort);
   const agents = useAgents(core);
   const pulls = !draft && onRecent !== undefined;
@@ -303,7 +311,7 @@ export const Composer = memo(function Composer({
           <StashButton onPress={() => setAdding('stash')} />
           <YoloToggle core={core} mode={permissionMode} provider={provider} locked={modeLocked} onToggle={session.setPermissionMode} />
           {modelLabel || effortLabel ? (
-            <ModelChip provider={provider} model={modelLabel} effort={effortLabel} onPress={() => setSheet(true)} />
+            <ModelChip provider={provider} model={modelLabel} effort={effortLabel} onPress={openSheet} />
           ) : null}
           {usage ? (
             <ContextRing
@@ -367,6 +375,8 @@ export const Composer = memo(function Composer({
           session.handOff(agent);
         }}
         model={model}
+        unread={modelsUnread}
+        hostName={hostName}
         effort={effort}
         speed={speed}
         usage={usage}

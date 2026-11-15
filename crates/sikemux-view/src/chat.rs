@@ -279,6 +279,10 @@ pub struct ChatHead {
     /// The model the session runs on, and the ones it can switch to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<crate::workspace::ConfigPicker>,
+    /// Why the agent could not be asked which models it offers, the last time a chat waiting
+    /// for its first message asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models_unread: Option<ChatFailure>,
     /// How hard the model thinks. An agent that always offers it has one
     /// with no choices until its session says them.
     #[serde(default, skip_serializing_if = "Option::is_none")]

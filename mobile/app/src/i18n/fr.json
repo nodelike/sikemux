@@ -803,5 +803,10 @@
   "Speed": "Vitesse",
   "{size} context": "contexte de {size}",
   "${input}/${output} per 1M": "${input}/${output} par 1M",
-  "{route} · local": "{route} · local"
+  "{route} · local": "{route} · local",
+  "Signed out": "Déconnecté",
+  "No models": "Aucun modèle",
+  "{agent} isn't signed in on {host}. Sign in there, then its models show here.": "{agent} n'est pas connecté sur {host}. Connectez-vous là-bas, puis ses modèles s'afficheront ici.",
+  "Couldn't ask {agent} for its models: {details}": "Impossible de demander ses modèles à {agent} : {details}",
+  "Couldn't ask {agent} for its models.": "Impossible de demander ses modèles à {agent}."
 }

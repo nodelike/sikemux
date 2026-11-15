@@ -2016,6 +2016,11 @@ export interface ChatHead {
     /** The model the session runs on, and the ones it can switch to. */
     model?: ConfigPicker;
     /**
+     * Why the agent could not be asked which models it offers, the last time a chat waiting
+     * for its first message asked.
+     */
+    modelsUnread?: ChatFailure;
+    /**
      * How hard the model thinks. An agent that always offers it has one
      * with no choices until its session says them.
      */
@@ -5728,6 +5733,7 @@ export interface CoreCalls {
     projectEntries: { params: ProjectEntriesParams; answer: ProjectEntry[] };
     promptChat: { params: PromptChatParams; answer: null };
     questions: { params: NoParams; answer: AgentQuestion[] };
+    readModels: { params: AgentParams; answer: null };
     recentChats: { params: RecentChatsParams; answer: RecentChats };
     removeStash: { params: StashItemParams; answer: null };
     requireApproval: { params: NoParams; answer: ApprovalSetting };

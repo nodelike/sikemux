@@ -160,6 +160,16 @@ pub struct Saved {
     model_picks: BTreeMap<String, ModelPick>,
 }
 
+/// How the last ask of a launcher's agent for what it offers went.
+#[derive(Clone, Debug)]
+pub struct OfferRead {
+    /// The agent's program and sign-in as they stood when it was asked, so a later look can
+    /// tell whether either changed since.
+    pub asked_of: String,
+    /// Why it could not say, as a chat failure; None when it said.
+    pub unread: Option<Value>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ModelPick {
     pub model: Option<String>,
@@ -465,6 +475,7 @@ pub struct Workspaces {
     recent_stale: Notify,
     /// The launchers whose agents are being asked what they offer.
     offers_asking: Mutex<HashSet<String>>,
+    offers_read: Mutex<HashMap<String, OfferRead>>,
 }
 
 /// The project among `projects` that `folder` lies in, a worktree of one counting as in it.
@@ -522,6 +533,7 @@ impl Workspaces {
             wake: Wake::default(),
             recent_stale: Notify::new(),
             offers_asking: Mutex::default(),
+            offers_read: Mutex::default(),
         };
         if upgraded {
             workspaces.file.save(&workspaces.published.locked().saved);

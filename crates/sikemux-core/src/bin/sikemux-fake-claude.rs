@@ -765,7 +765,6 @@ fn main() {
     if args.iter().any(|arg| arg == "--print") {
         let mut asked = String::new();
         let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut asked);
-        let _ = std::fs::write("fake-claude-asked.txt", &asked);
         let initialize = asked
             .lines()
             .filter_map(|line| serde_json::from_str::<Value>(line).ok())
@@ -776,7 +775,9 @@ fn main() {
                 "{}",
                 json!({ "type": "control_response", "response": answer })
             );
+            return;
         }
+        let _ = std::fs::write("fake-claude-asked.txt", &asked);
         println!(
             "{}",
             json!({ "type": "result", "subtype": "success", "result": "{}" })

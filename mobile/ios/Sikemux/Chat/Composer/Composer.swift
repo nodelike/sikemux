@@ -171,6 +171,7 @@ struct Composer: View {
                     session.handOff(to: agent)
                 },
                 model: rows.model, effort: rows.effort, speed: rows.speed, usage: rows.usage,
+                unread: rows.modelsUnread, hostName: hostName,
                 expiredCache: session.expiredCache, onSummarise: session.setSummarise
             ) { picker, value in
                 session.setConfig(picker.id, value)
@@ -180,7 +181,11 @@ struct Composer: View {
     }
 
     private func bar(rows: ChatRows, sendable: Bool, uploading: Bool, room: Int) -> some View {
-        let model = Self.label(rows.model)
+        let model =
+            Self.label(rows.model)
+            ?? rows.modelsUnread.map {
+                $0.kind == .signIn ? String(localized: "Signed out") : String(localized: "No models")
+            }
         let effort = Self.label(rows.effort)
         return HStack(spacing: 2) {
             Button {
@@ -199,7 +204,10 @@ struct Composer: View {
                 locked: modeLocked, onToggle: session.setPermissionMode)
             if model != nil || effort != nil {
                 Capped(width: 240) {
-                    ModelChip(provider: provider, model: model, effort: effort) { configuring = true }
+                    ModelChip(provider: provider, model: model, effort: effort) {
+                        configuring = true
+                        session.readModels()
+                    }
                 }
                 .layoutPriority(1)
             }

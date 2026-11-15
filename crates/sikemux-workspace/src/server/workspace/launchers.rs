@@ -511,8 +511,15 @@ impl Workspaces {
         self.offers_asking.locked().insert(launcher.to_owned())
     }
 
-    pub fn offer_read(&self, launcher: &str) {
+    /// Ends the ask of `launcher`'s agent, which went as `read` says.
+    pub fn offer_read(&self, launcher: &str, read: OfferRead) {
+        self.offers_read.locked().insert(launcher.to_owned(), read);
         self.offers_asking.locked().remove(launcher);
+    }
+
+    /// How the last ask of `launcher`'s agent since the core started went.
+    pub fn last_offer_read(&self, launcher: &str) -> Option<OfferRead> {
+        self.offers_read.locked().get(launcher).cloned()
     }
 
     /// The `configOptions` the launcher's last session offered, once one has.

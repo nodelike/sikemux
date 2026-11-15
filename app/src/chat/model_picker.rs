@@ -105,10 +105,18 @@ pub struct Picked {
     pub locked: bool,
     /// What the list says while the agent's models have not come yet.
     pub pending: Option<&'static str>,
+    /// Why the agent could not say its models, and the account to sign in to when that is why.
+    pub unread: Option<Unread>,
     pub set: Set,
     pub moving: Move,
     /// The core of the host the chat runs on, whose providers it can pay with.
     pub target: core::Target,
+}
+
+#[derive(Clone)]
+pub struct Unread {
+    pub said: SharedString,
+    pub sign_in: Option<String>,
 }
 
 type Route = ModelRoute;
@@ -135,6 +143,8 @@ enum Act {
     Fold,
     /// Updates the chat's agent on its host, for the models its newest release brings.
     Update,
+    /// Signs in to the account the chat's agent is signed out of.
+    SignIn(String),
 }
 
 #[derive(Clone)]
@@ -385,6 +395,18 @@ impl Menu {
         if let Some(update) = self.update_row(bench) {
             options.push(update);
         }
+        if let Some(account) =
+            (self.picked.unread.as_ref()).and_then(|unread| unread.sign_in.clone())
+        {
+            options.push(Row {
+                group: 0,
+                mark: None,
+                label: t!("Sign in to {agent}", agent = bench.agent_name(own)),
+                meta: None,
+                current: false,
+                act: Act::SignIn(account),
+            });
+        }
         if folded && query.is_empty() {
             options.push(Row {
                 group: 0,
@@ -448,15 +470,17 @@ impl Menu {
             });
         }
         options.retain(|option| {
-            matches!(option.act, Act::AddProvider | Act::Fold | Act::Update)
-                || format!(
-                    "{} {} {}",
-                    option.label,
-                    option.meta.as_deref().unwrap_or_default(),
-                    groups[option.group]
-                )
-                .to_lowercase()
-                .contains(&query)
+            matches!(
+                option.act,
+                Act::AddProvider | Act::Fold | Act::Update | Act::SignIn(_)
+            ) || format!(
+                "{} {} {}",
+                option.label,
+                option.meta.as_deref().unwrap_or_default(),
+                groups[option.group]
+            )
+            .to_lowercase()
+            .contains(&query)
         });
         (groups, options)
     }
@@ -486,6 +510,13 @@ impl Menu {
                 if let Some(bench) = self.bench.upgrade() {
                     bench.update(cx, |bench, cx| {
                         crate::agents::setup::update(bench, place, vec![kind], cx)
+                    });
+                }
+            }
+            Act::SignIn(account) => {
+                if let Some(bench) = self.bench.upgrade() {
+                    bench.update(cx, |bench, cx| {
+                        crate::accounts::sign_in(bench, &account, cx)
                     });
                 }
             }
@@ -711,7 +742,10 @@ impl Menu {
     ) -> AnyElement {
         let t = Tokens::get(cx);
         let (menu, act) = (this.clone(), row.act.clone());
-        let adds = matches!(row.act, Act::AddProvider | Act::Fold | Act::Update);
+        let adds = matches!(
+            row.act,
+            Act::AddProvider | Act::Fold | Act::Update | Act::SignIn(_)
+        );
         let key = nth.map(|nth| ui::keycap(numbered(nth), cx));
         div()
             .id(("model-option", at))
@@ -746,6 +780,7 @@ impl Menu {
                         match row.act {
                             Act::Fold => Icon::Chevron,
                             Act::Update => Icon::Download,
+                            Act::SignIn(_) => Icon::User,
                             _ => Icon::Plus,
                         },
                         13.,
@@ -1033,17 +1068,21 @@ impl Render for Menu {
         );
         let this = cx.entity();
         let empty_own = options.iter().all(|row| row.group != 0);
+        let unread = (self.picked.unread.as_ref())
+            .filter(|_| typed.is_empty())
+            .map(|unread| unread.said.clone());
         let note = match (typed.is_empty(), self.picked.pending) {
+            _ if unread.is_some() => unread,
             (false, _)
                 if options
                     .iter()
                     .all(|row| matches!(row.act, Act::AddProvider)) =>
             {
-                Some(t!("No matches"))
+                Some(t!("No matches").into())
             }
             (true, _) if !empty_own || self.picked.model_provider.is_some() => None,
-            (true, Some(pending)) => Some(pending),
-            (true, None) => Some(t!("This agent offers no models to pick")),
+            (true, Some(pending)) => Some(pending.into()),
+            (true, None) => Some(t!("This agent offers no models to pick").into()),
             (false, _) => None,
         };
         let add = options
@@ -1076,7 +1115,7 @@ impl Render for Menu {
                         .into_any_element(),
                 );
             }
-            if let Some(note) = note.filter(|_| noted) {
+            if let Some(note) = note.clone().filter(|_| noted) {
                 list.push(
                     div()
                         .flex_none()

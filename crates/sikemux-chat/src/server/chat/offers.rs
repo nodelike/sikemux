@@ -1,7 +1,8 @@
 //! What a chat offers to pick before its agent starts.
 
+use crate::agent_accounts::sign_in;
 use crate::server::chat_state::ChatParts;
-use crate::server::workspace::{launcher_of, ModelPick};
+use crate::server::workspace::{launcher_of, ModelPick, OfferRead};
 use crate::server::workspace_state::WorkspaceParts;
 use sikemux_view::workspace::ConfigPicker;
 
@@ -85,34 +86,106 @@ pub fn offer_options(core: &Arc<Core>, chat: &Arc<Chat>) {
     if let Some(options) = waiting_options(core, chat) {
         tell_options(chat, options);
     }
+    ask_offers(core, launcher, chat.current_launch());
+}
+
+/// Asks a waiting chat's agent again what it offers, when the last ask failed or its program
+/// or sign-in changed since, as the person opens its model picker.
+pub fn read_models(core: &Arc<Core>, agent_id: &str) {
+    let Some(chat) = core.chats().get(agent_id).filter(|chat| chat.unstarted()) else {
+        return;
+    };
+    let Some(launcher) = chat.origin.launcher.clone() else {
+        return;
+    };
+    let launch = chat.current_launch();
+    let current = core
+        .workspaces()
+        .last_offer_read(&launcher)
+        .is_some_and(|read| read.unread.is_none() && read.asked_of == asked_of(&launch));
+    if !current {
+        ask_offers(core, launcher, launch);
+    }
+}
+
+fn ask_offers(core: &Arc<Core>, launcher: String, launch: ChatLaunch) {
     if !core.workspaces().start_offer_read(&launcher) {
         return;
     }
-    let (core, launch) = (core.clone(), chat.current_launch());
+    let core = core.clone();
     tokio::spawn(async move {
+        let asked = asked_of(&launch);
         let read = native::read_options(&launch).await;
-        core.workspaces().offer_read(&launcher);
-        match read {
-            Ok(options) => core.workspaces().note_config_options(&launcher, &options),
-            Err(error) => {
-                return eprintln!("sikemux core: {launcher} offered nothing to pick: {error}")
-            }
+        let unread = unread(&launch, read.as_ref().err());
+        match &read {
+            Ok(options) => core.workspaces().note_config_options(&launcher, options),
+            Err(error) => eprintln!("sikemux core: {launcher} offered nothing to pick: {error}"),
         }
+        core.workspaces().offer_read(
+            &launcher,
+            OfferRead {
+                asked_of: asked,
+                unread,
+            },
+        );
         let waiting = core.chats().all().into_iter().filter(|chat| {
             chat.unstarted() && chat.origin.launcher.as_deref() == Some(launcher.as_str())
         });
         for chat in waiting {
-            if let Some(options) = waiting_options(&core, &chat) {
-                tell_options(&chat, options);
-            }
+            let options = waiting_options(&core, &chat).unwrap_or(Value::Array(Vec::new()));
+            tell_options(&chat, options);
         }
     });
 }
 
+/// The environment `launch`'s agent runs in, its account's included.
+fn account_env(launch: &ChatLaunch) -> std::collections::BTreeMap<String, String> {
+    let mut env = launch.env.clone();
+    if let Some(account) = &launch.account {
+        env.extend(account.env.clone());
+    }
+    env
+}
+
+/// The program `launch` runs and the account it is signed in to, as they stand now.
+fn asked_of(launch: &ChatLaunch) -> String {
+    let program = std::fs::canonicalize(&launch.program).unwrap_or_else(|_| launch.program.clone());
+    let changed = std::fs::metadata(&program)
+        .and_then(|file| file.modified())
+        .ok();
+    let signed_in = sign_in::signed_in(&launch.provider, &account_env(launch));
+    format!("{} {changed:?} {signed_in:?}", program.display())
+}
+
+/// Why `launch`'s agent cannot say what it offers, or cannot run what it says, as a failure:
+/// signed out, or the ask's `error`.
+fn unread(launch: &ChatLaunch, error: Option<&String>) -> Option<Value> {
+    let signed_out = sign_in::signed_in(&launch.provider, &account_env(launch))
+        == Some(sign_in::SignIn::SignedOut);
+    let kind = match (signed_out, error) {
+        (true, _) => "signIn",
+        (false, Some(_)) => "other",
+        (false, None) => return None,
+    };
+    Some(serde_json::json!({
+        "kind": kind,
+        "details": error,
+        "account": launch.account.as_ref().map(|account| &account.id),
+    }))
+}
+
+/// Tells `chat` what it offers to pick, and why its agent could not say, if it could not.
 pub fn tell_options(chat: &Chat, options: Value) {
+    let unread = (chat.core.upgrade())
+        .zip(chat.origin.launcher.as_deref())
+        .and_then(|(core, launcher)| core.workspaces().last_offer_read(launcher)?.unread);
     tell_update(
         chat,
-        serde_json::json!({ "sessionUpdate": UpdateKind::ConfigOptionUpdate, "configOptions": options }),
+        serde_json::json!({
+            "sessionUpdate": UpdateKind::ConfigOptionUpdate,
+            "configOptions": options,
+            "failure": unread,
+        }),
     );
 }
 

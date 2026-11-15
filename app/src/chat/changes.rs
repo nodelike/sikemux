@@ -179,6 +179,7 @@ named_fields!(head_field, ChatHead {
     "capabilities" => capabilities,
     "setup" => setup,
     "model" => model,
+    "modelsUnread" => models_unread,
     "effort" => effort,
     "speed" => speed,
     "permissions" => permissions,

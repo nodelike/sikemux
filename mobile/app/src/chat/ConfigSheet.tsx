@@ -4,7 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-nat
 import { contextShare, money, tokenCount } from '@shared/chat/contextUsage';
 import type { ChatRows } from '@shared/chat/rows';
 import { formatAgo } from '@shared/lib/format';
-import type { ExpiredCache, ModelRoute } from '@shared/wire.generated';
+import type { ChatFailure, ExpiredCache, ModelRoute } from '@shared/wire.generated';
 import { agentLabel, agentMaker, useAgentBrand } from '@shared/agents/catalog';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Field, Track } from '@/ui/controls';
@@ -20,6 +20,12 @@ function expiredLine(cache: ExpiredCache, t: Translate): string {
     ago: formatAgo(cache.at, Date.now(), t),
     tokens: tokenCount(cache.tokens),
   });
+}
+
+function unreadLine(unread: ChatFailure, agent: string, host: string, t: Translate): string {
+  if (unread.kind === 'signIn') return t("{agent} isn't signed in on {host}. Sign in there, then its models show here.", { agent, host });
+  if (unread.details) return t("Couldn't ask {agent} for its models: {details}", { agent, details: unread.details });
+  return t("Couldn't ask {agent} for its models.", { agent });
 }
 
 type Picker = NonNullable<ChatRows['model']>;
@@ -64,6 +70,8 @@ export function ConfigSheet({
   agents = [],
   onAgent,
   model,
+  unread,
+  hostName,
   effort,
   speed,
   usage,
@@ -81,6 +89,9 @@ export function ConfigSheet({
   agents?: string[];
   onAgent?: (agent: string) => void;
   model: ChatRows['model'];
+  /** Why the agent could not say its models, while the chat has not started. */
+  unread?: ChatFailure;
+  hostName: string;
   effort: ChatRows['effort'];
   speed: ChatRows['speed'];
   usage?: ChatRows['usage'];
@@ -146,6 +157,7 @@ export function ConfigSheet({
           <Text style={styles.sheetTitle}>{name}</Text>
         </View>
       )}
+      {unread ? <Text style={styles.unread}>{unreadLine(unread, agentLabel(provider), hostName, t)}</Text> : null}
       {model ? (
         <>
           <Field
@@ -315,6 +327,7 @@ export function ConfigSheet({
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     cost: { marginTop: 8, fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
+    unread: { paddingTop: 16, paddingHorizontal: 4, fontFamily: fonts.ui, fontSize: 13, lineHeight: 19, color: colors.secondary },
     sheetHead: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4 },
     sheetTitle: { fontFamily: fonts.uiSemibold, fontSize: 17, letterSpacing: -0.35, color: colors.ink },
     strip: { gap: 6, paddingBottom: 10 },

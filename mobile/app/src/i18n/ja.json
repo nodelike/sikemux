@@ -803,5 +803,10 @@
   "Speed": "速度",
   "{size} context": "{size} コンテキスト",
   "${input}/${output} per 1M": "100万あたり ${input}/${output}",
-  "{route} · local": "{route} · ローカル"
+  "{route} · local": "{route} · ローカル",
+  "Signed out": "未サインイン",
+  "No models": "モデルなし",
+  "{agent} isn't signed in on {host}. Sign in there, then its models show here.": "{agent} は {host} でサインインしていません。そちらでサインインすると、ここにモデルが表示されます。",
+  "Couldn't ask {agent} for its models: {details}": "{agent} にモデルを問い合わせられませんでした: {details}",
+  "Couldn't ask {agent} for its models.": "{agent} にモデルを問い合わせられませんでした。"
 }

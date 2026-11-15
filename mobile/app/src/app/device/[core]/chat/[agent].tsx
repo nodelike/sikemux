@@ -457,6 +457,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   running={state.running && !chat.stoppingTurn}
                   steers={steers}
                   model={state.model}
+                  modelsUnread={state.connection === 'ready' ? undefined : state.modelsUnread}
                   effort={state.effort}
                   speed={state.speed}
                   usage={state.usage}
