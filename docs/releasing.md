@@ -68,7 +68,16 @@ Stable is cut from a `release/<major.minor>` branch and nightly from `main`. A n
 
 ## Version numbers
 
-Nightlies tag themselves. A board trigger on the owner's Mac runs `scripts/nightly.sh check` every half hour, and once `main` has commits since the last nightly, that nightly is at least 12 hours old (`SIKEMUX_NIGHTLY_HOURS`), the newest finished push run of CI, Mobile CI, Server and Docs on `main` passed and no Release run is going, its card starts an agent that writes the notes and runs `scripts/nightly.sh tag --notes <file>`. That commits the version bump and the notes on `origin/main`'s tip from a temporary index, pushes it and tags it. `--dry-run` prints the bump and the notes instead. The tag is pushed from the Mac because a tag pushed by a workflow's `GITHUB_TOKEN` starts no other workflow. Stable releases stay by hand.
+Nightlies ship themselves, in two steps, so a nightly goes out from the newest commit that passed rather than whatever was pushed last. A board trigger on the owner's Mac runs `scripts/nightly.sh check` every half hour, and its card starts an agent each time the answer changes:
+
+1. `bump <version>`: `main` has commits since the last nightly and that nightly is at least 12 hours old (`SIKEMUX_NIGHTLY_HOURS`). The agent writes the notes and runs `scripts/nightly.sh tag --notes <file>`, which commits the version bump and the notes on `origin/main`'s tip from a temporary index and pushes it.
+2. `tag <version> <commit>`: a commit from that bump on passed CI, and the newest finished push run of Mobile CI, Server and Docs at or before it passed too. The agent runs `scripts/nightly.sh tag`, which tags that commit, the newest one that qualifies. Work pushed after the bump ships in it but is missing from its notes.
+
+Neither step runs while a Release run is going. `scripts/nightly.sh why` says what is next or what it waits for, and `--dry-run` prints the bump and the notes, or the commit it would tag, instead. A step that has nothing to do refuses, so running it twice tags once. The tag is pushed from the Mac because a tag pushed by a workflow's `GITHUB_TOKEN` starts no other workflow. Stable releases stay by hand.
+
+To hold nightlies back, for instance until a batch of work has landed, run `scripts/nightly.sh hold "<reason>"` on the owner's Mac, and `scripts/nightly.sh unhold` to let them go again. To ship one before the 12 hours are up, run `SIKEMUX_NIGHTLY_HOURS=0 scripts/nightly.sh tag --notes <file>`; the tag follows by itself once a commit from the bump passes.
+
+CI on `main` never cancels a run that has started, so each run that starts gives a verdict, and of the pushes that arrive while it runs only the newest is checked next. A run takes about five macOS runners at once, as many as the account may run together, so checking every push would queue them behind each other and delay the newest verdict, which is the one a nightly needs.
 
 A nightly is a prerelease of the next stable release. After a stable `0.x.y`, `main`'s nightlies are `0.x.(y+1)-nightly.N`, or `0.(x+1).0-nightly.N` when the next release is a bigger one. Stable releases come every few days, each a promoted nightly.
 

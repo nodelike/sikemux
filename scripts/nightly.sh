@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
-# Tags the next nightly from origin/main, as docs/releasing.md describes.
-#   nightly.sh check            prints the next nightly's version once one is due, else the last answer
-#   nightly.sh tag [--dry-run] [--notes FILE]
-# A nightly is due when main has commits since the last nightly, that nightly is at least
-# SIKEMUX_NIGHTLY_HOURS (12) old, every push workflow's newest finished run on main passed
-# and no Release run is going. tag commits the version bump and notes on origin/main's tip
-# from a temporary index, so no checkout moves, then pushes it and the tag that starts Release.
+# Ships the next nightly from main in two steps, as docs/releasing.md describes.
+#   nightly.sh check              prints the next step once one can run, else the last answer
+#   nightly.sh why                prints the next step, or why none can run now
+#   nightly.sh tag [--dry-run] [--notes FILE]   runs the next step
+#   nightly.sh hold [REASON] | unhold
+# First a bump: once main has commits since the last nightly and that nightly is at least
+# SIKEMUX_NIGHTLY_HOURS (12) old, the version bump and notes are committed on origin/main's tip
+# from a temporary index, so no checkout moves. Then the tag: the newest commit since the bump
+# that passed CI, with every other push workflow's newest verdict before it green, gets the tag
+# that starts Release.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 REPO=nodelike/sikemux
 HOURS="${SIKEMUX_NIGHTLY_HOURS:-12}"
 WORKFLOWS=(ci.yml mobile-ci.yml server.yml docs.yml)
+HOLD="${XDG_CONFIG_HOME:-$HOME/.config}/sikemux/release/nightly-hold"
 
 fetch() {
   git fetch --quiet origin main
@@ -22,43 +26,76 @@ last_tag() {
   git tag -l 'v*-nightly.*' --sort=-v:refname | head -1
 }
 
+version_at() {
+  git show "$1:package.json" | node -pe 'JSON.parse(require("fs").readFileSync(0)).version'
+}
+
+tagged() {
+  git rev-parse -q --verify "refs/tags/v$1" >/dev/null
+}
+
+pending_version() {
+  local current
+  current="$(version_at origin/main)"
+  if [[ "$current" == *-nightly.* ]] && ! tagged "$current"; then echo "$current"; fi
+}
+
 next_version() {
-  local current core n
-  current="$(git show origin/main:package.json | node -pe 'JSON.parse(require("fs").readFileSync(0)).version')"
+  local current core
+  current="$(version_at origin/main)"
   core="${current%%-*}"
-  if git rev-parse -q --verify "refs/tags/v$core" >/dev/null; then
+  if tagged "$core"; then
     IFS=. read -r major minor patch <<<"$core"
     echo "$major.$minor.$((patch + 1))-nightly.1"
   elif [[ "$current" != *-nightly.* ]]; then
     echo "$core-nightly.1"
-  elif git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
-    n="${current##*.}"
-    echo "$core-nightly.$((n + 1))"
   else
-    echo "$current"
+    echo "$core-nightly.$((${current##*.} + 1))"
   fi
 }
 
-why_not_due() {
-  local last age
-  last="$(last_tag)"
-  [[ -n "$(git rev-list -1 "$last..origin/main")" ]] || { echo "main has nothing since $last"; return; }
-  age=$(($(date +%s) - $(git log -1 --format=%ct "$last^{commit}")))
-  ((age >= HOURS * 3600)) || { echo "$last is only $((age / 3600))h old"; return; }
-  for workflow in "${WORKFLOWS[@]}"; do
-    local result
-    result="$(gh run list -R "$REPO" --branch main --event push --workflow "$workflow" --status completed \
-      --limit 10 --json conclusion --jq '[.[] | select(.conclusion != "cancelled" and .conclusion != "skipped")][0].conclusion // "success"')"
-    [[ "$result" == success ]] || { echo "$workflow's newest run on main ended $result"; return; }
-  done
+newest_green_since() {
+  local bump="$1" revs runs
+  revs="$(git rev-list --first-parent -n 400 origin/main | jq -Rsc 'split("\n") | map(select(length > 0))')"
+  runs="$(for workflow in "${WORKFLOWS[@]}"; do
+    gh run list -R "$REPO" --branch main --event push --workflow "$workflow" --limit 60 \
+      --json headSha,status,conclusion --jq ".[] + {workflow: \"$workflow\"}"
+  done | jq -sc .)"
+  jq -nr --argjson revs "$revs" --argjson runs "$runs" --arg bump "$bump" '
+    ($revs | to_entries | map({key: .value, value: .key}) | from_entries) as $at
+    | [$runs[] | select($at[.headSha] != null and .conclusion != "cancelled" and .conclusion != "skipped")
+        | .at = $at[.headSha]] as $verdicts
+    | first(range(0; $at[$bump] + 1) as $i
+        | select(any($verdicts[]; .workflow == "ci.yml" and .at == $i and .conclusion == "success"))
+        | select(all($verdicts | map(select(.workflow != "ci.yml" and .at >= $i)) | group_by(.workflow)[];
+            min_by(.at).conclusion == "success"))
+        | $revs[$i]) // empty'
+}
+
+next_step() {
+  if [[ -e "$HOLD" ]]; then echo "wait: held, $(cat "$HOLD")"; return; fi
   [[ "$(gh run list -R "$REPO" --workflow release.yml --limit 5 --json status \
-    --jq '[.[] | select(.status != "completed")] | length')" == 0 ]] || echo "a Release run is going"
+    --jq '[.[] | select(.status != "completed")] | length')" == 0 ]] || { echo "wait: a Release run is going"; return; }
+  local version bump green last age
+  version="$(pending_version)"
+  if [[ -n "$version" ]]; then
+    bump="$(git log -1 --format=%H -S"\"version\": \"$version\"" origin/main -- package.json)"
+    green="$(newest_green_since "$bump")"
+    if [[ -n "$green" ]]; then echo "tag $version $green"; else echo "wait: nothing since the v$version bump has passed its checks yet"; fi
+    return
+  fi
+  last="$(last_tag)"
+  [[ -n "$(git rev-list -1 "$last..origin/main")" ]] || { echo "wait: main has nothing since $last"; return; }
+  age=$(($(date +%s) - $(git log -1 --format=%ct "$last^{commit}")))
+  ((age >= HOURS * 3600)) || { echo "wait: $last is only $((age / 3600))h old"; return; }
+  echo "bump $(next_version)"
 }
 
 check() {
-  local answer="${TMPDIR:-/tmp}/sikemux-nightly-last"
-  if fetch 2>/dev/null && [[ -z "$(why_not_due)" ]]; then
-    next_version | tee "$answer"
+  local answer="${TMPDIR:-/tmp}/sikemux-nightly-last" step=""
+  fetch 2>/dev/null && step="$(next_step)"
+  if [[ "$step" == bump* || "$step" == tag* ]]; then
+    echo "$step" | tee "$answer"
   else
     cat "$answer" 2>/dev/null || true
   fi
@@ -76,8 +113,35 @@ notes() {
     "$last" "$version" "$REPO" "$last" "$version"
 }
 
+bump() {
+  local version="$1" dry="$2" notes_file="$3" index base from last commit
+  index="$(mktemp)"
+  base="$(git rev-parse origin/main)"
+  from="$(version_at "$base")"
+  last="$(last_tag)"
+  put() { git update-index --add --cacheinfo "100644,$(git hash-object -w --stdin),$1"; }
+  export GIT_INDEX_FILE="$index"
+  git read-tree "$base"
+  git show "$base:package.json" | sed "s/\"version\": \"$from\"/\"version\": \"$version\"/" | put package.json
+  for file in Cargo.toml Cargo.lock; do
+    git show "$base:$file" | sed "s/^version = \"$from\"$/version = \"$version\"/" | put "$file"
+  done
+  if [[ -n "$notes_file" ]]; then put RELEASE_NOTES.md <"$notes_file"; else notes "$version" "$last" | put RELEASE_NOTES.md; fi
+  commit="$(git commit-tree "$(git write-tree)" -p "$base" -m "chore(release): prepare v$version")"
+  unset GIT_INDEX_FILE
+  rm -f "$index"
+  if [[ "$dry" == 1 ]]; then
+    git --no-pager diff --stat "$base" "$commit"
+    git --no-pager show "$commit:RELEASE_NOTES.md"
+    echo "dry run: would push $commit to main; v$version is tagged once a commit from it on passes its checks"
+    return
+  fi
+  git push --quiet --no-verify origin "$commit:refs/heads/main" || return 1
+  echo "v$version bump pushed as $commit; it is tagged once a commit from it on passes its checks"
+}
+
 tag() {
-  local dry=0 notes_file=""
+  local dry=0 notes_file="" step version sha
   while (($#)); do
     case "$1" in
       --dry-run) dry=1 ;;
@@ -86,43 +150,22 @@ tag() {
     esac
     shift
   done
-  local index
-  index="$(mktemp)"
-  trap 'rm -f "$index"' RETURN
   for _ in 1 2 3; do
     fetch
-    local base version from last bump
-    base="$(git rev-parse origin/main)"
-    version="$(next_version)"
-    from="$(git show "$base:package.json" | node -pe 'JSON.parse(require("fs").readFileSync(0)).version')"
-    last="$(last_tag)"
-    if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-      echo "v$version exists already" >&2
-      exit 1
-    fi
-    put() { git update-index --add --cacheinfo "100644,$(git hash-object -w --stdin),$1"; }
-    export GIT_INDEX_FILE="$index"
-    git read-tree "$base"
-    git show "$base:package.json" | sed "s/\"version\": \"$from\"/\"version\": \"$version\"/" | put package.json
-    for file in Cargo.toml Cargo.lock; do
-      git show "$base:$file" | sed "s/^version = \"$from\"$/version = \"$version\"/" | put "$file"
-    done
-    if [[ -n "$notes_file" ]]; then put RELEASE_NOTES.md <"$notes_file"; else notes "$version" "$last" | put RELEASE_NOTES.md; fi
-    bump="$(git commit-tree "$(git write-tree)" -p "$base" -m "chore(release): prepare v$version")"
-    unset GIT_INDEX_FILE
-    if ((dry)); then
-      git --no-pager diff --stat "$base" "$bump"
-      git --no-pager show "$bump:RELEASE_NOTES.md"
-      echo "dry run: would push $bump to main and tag v$version"
-      return
-    fi
-    if git push --quiet --no-verify origin "$bump:refs/heads/main"; then
-      git tag "v$version" "$bump"
-      git push --quiet --no-verify origin "v$version"
-      [[ "$(git ls-remote origin "refs/tags/v$version" | cut -f1)" == "$bump" ]] || { echo "v$version did not reach origin" >&2; exit 1; }
-      echo "v$version tagged on $bump"
-      return
-    fi
+    step="$(next_step)"
+    case "$step" in
+      bump*)
+        bump "${step#bump }" "$dry" "$notes_file" && return ;;
+      tag*)
+        read -r _ version sha <<<"$step"
+        if ((dry)); then echo "dry run: would tag v$version on $sha"; return; fi
+        git tag "v$version" "$sha"
+        git push --quiet --no-verify origin "v$version"
+        [[ "$(git ls-remote origin "refs/tags/v$version" | cut -f1)" == "$sha" ]] || { echo "v$version did not reach origin" >&2; exit 1; }
+        echo "v$version tagged on $sha"
+        return ;;
+      *) echo "${step#wait: }" >&2; exit 1 ;;
+    esac
   done
   echo "main kept moving; run it again" >&2
   exit 1
@@ -130,7 +173,9 @@ tag() {
 
 case "${1:-}" in
   check) check ;;
-  why) fetch && why_not_due ;;
+  why) fetch && next_step ;;
   tag) shift && tag "$@" ;;
-  *) echo "Usage: $0 check|why|tag [--dry-run] [--notes FILE]" >&2; exit 2 ;;
+  hold) mkdir -p "$(dirname "$HOLD")" && echo "${2:-by hand} since $(date '+%F %R')" >"$HOLD" ;;
+  unhold) rm -f "$HOLD" ;;
+  *) echo "Usage: $0 check|why|tag [--dry-run] [--notes FILE]|hold [REASON]|unhold" >&2; exit 2 ;;
 esac

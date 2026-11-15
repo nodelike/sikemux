@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 15
     concurrency:
       group: server-check-${{ github.ref }}
-      cancel-in-progress: true
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     services:
       postgres:
         image: postgres:17
