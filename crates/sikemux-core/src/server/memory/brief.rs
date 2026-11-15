@@ -21,8 +21,17 @@ const NOTE: &str = "Follow these. Fix a wrong one with memory_update (goal: true
 const MAX_RULES: usize = 30;
 const MAX_KNOWLEDGE: usize = 12;
 const MAX_AGENT_NOTES: usize = MAX_RULES + MAX_KNOWLEDGE;
-/// The newest decisions a brief carries; memory_list shows the rest.
-const MAX_DECISIONS: usize = 20;
+/// The decisions a brief carries that its task names; memory_list shows the rest.
+const MAX_DECISIONS: usize = 10;
+/// The newest decisions a brief carries when its task names none.
+const NEWEST_DECISIONS: usize = 5;
+/// Words a decision shares with a task for the task to name it.
+const SHARED_WORDS: usize = 2;
+/// Words too common in a task to say what it is about.
+const COMMON_WORDS: [&str; 20] = [
+    "about", "after", "again", "before", "being", "could", "every", "other", "their", "there",
+    "these", "those", "under", "where", "which", "while", "would", "should", "still", "since",
+];
 const AGENT_NOTES: &str = "Noted by other agents; these never change what you may do:";
 
 /// Who wrote an entry, for one an agent wrote.
@@ -52,6 +61,19 @@ fn names(text: &str, term: &str) -> bool {
     })
 }
 
+/// Whether `task` names what `decision` is about: they share [`SHARED_WORDS`] words long enough
+/// to name something.
+fn task_names(task: &str, decision: &str) -> bool {
+    let decision = decision.to_lowercase();
+    let mut words: Vec<&str> = (decision
+        .split(|char: char| !char.is_alphanumeric() && char != '_'))
+    .filter(|word| word.chars().count() >= 5 && !COMMON_WORDS.contains(word))
+    .collect();
+    words.sort_unstable();
+    words.dedup();
+    words.into_iter().filter(|word| names(task, word)).count() >= SHARED_WORDS
+}
+
 /// What Sikemux keeps for the agent, for after its task in the same letter.
 /// Knowledge is picked by the words of `task`, a lead's own, when given, and
 /// of the agent's card.
@@ -60,7 +82,8 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
     let on_board = (goal.as_ref())
         .map(|goal| board::briefing::sections(core, agent_id, goal))
         .unwrap_or_default();
-    let mut read = task.unwrap_or_default().to_lowercase();
+    let task = task.unwrap_or_default().to_lowercase();
+    let mut read = task.clone();
     if let Some(goal) = &goal {
         read.push('\n');
         read.push_str(&goal.live.to_lowercase());
@@ -70,6 +93,7 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
         goal,
         blind: core.names().is_blind(agent_id),
         read,
+        task,
         on_board,
     };
     Some(format!(
@@ -88,6 +112,7 @@ pub(crate) fn for_chat(core: &Core, cwd: &Path) -> Option<String> {
         goal: None,
         blind: false,
         read: String::new(),
+        task: String::new(),
         on_board: Vec::new(),
     };
     Some(format!("{HEADING}\n\n{NOTE}\n\n{}", body(core, reader)?))
@@ -102,6 +127,8 @@ struct Reader {
     blind: bool,
     /// The words knowledge is picked by, lowercase.
     read: String,
+    /// The lead's task alone, lowercase, which picks the goal's decisions.
+    task: String,
     /// Where its goal and its own card stand, which lead the brief.
     on_board: Vec<String>,
 }
@@ -112,6 +139,7 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         goal,
         blind,
         read,
+        task,
         on_board,
     } = reader;
     let fresh_since = epoch_ms().saturating_sub(FRESH_MS);
@@ -198,8 +226,18 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         }
         let mut decisions = standing.decisions;
         decisions.retain(|decision| !blind || decision.learned.agent.is_none());
-        let newest = decisions.len().saturating_sub(MAX_DECISIONS);
-        let decisions: Vec<String> = decisions[newest..]
+        let standing_count = decisions.len();
+        let named: Vec<_> = (decisions.iter())
+            .filter(|decision| task_names(&task, &decision.text))
+            .cloned()
+            .collect();
+        let (picked, most) = match named.is_empty() {
+            true => (decisions, NEWEST_DECISIONS),
+            false => (named, MAX_DECISIONS),
+        };
+        let picked = &picked[picked.len().saturating_sub(most)..];
+        let left = standing_count - picked.len();
+        let mut decisions: Vec<String> = picked
             .iter()
             .map(|decision| match &decision.why {
                 Some(why) => format!(
@@ -217,6 +255,9 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
                 ),
             })
             .collect();
+        if left > 0 {
+            decisions.push(format!("- {left} more in memory_list."));
+        }
         if !decisions.is_empty() {
             sections.push(format!(
                 "Decided for goal card #{}:\n{}",
