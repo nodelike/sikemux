@@ -22,15 +22,12 @@ crc32fast = { version = "1" }
 crypto-common-6f8ce4dd05d13bba = { package = "crypto-common", version = "0.2", default-features = false, features = ["rand_core"] }
 crypto-common-c65f7effa3be6d31 = { package = "crypto-common", version = "0.1", default-features = false, features = ["std"] }
 data-encoding = { version = "2" }
-derive_more = { version = "2", features = ["add", "add_assign", "debug", "deref", "deref_mut", "display", "from", "from_str", "into_iterator", "try_into"] }
 digest = { version = "0.11", features = ["alloc", "mac", "oid", "rand_core"] }
-fastrand = { version = "2" }
 flate2 = { version = "1" }
 form_urlencoded = { version = "1" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-core = { version = "0.3" }
 futures-io = { version = "0.3" }
-futures-lite = { version = "2" }
 futures-sink = { version = "0.3" }
 futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
@@ -69,7 +66,6 @@ zeroize = { version = "1", features = ["derive"] }
 [build-dependencies]
 cc = { version = "1", default-features = false, features = ["parallel"] }
 data-encoding = { version = "2", default-features = false, features = ["alloc"] }
-derive_more-impl = { version = "2", features = ["add", "add_assign", "debug", "deref", "deref_mut", "display", "from", "from_str", "into_iterator", "try_into"] }
 digest = { version = "0.11", features = ["alloc", "oid"] }
 once_cell = { version = "1" }
 proc-macro2 = { version = "1" }

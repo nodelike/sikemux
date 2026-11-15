@@ -343,8 +343,7 @@ pub fn claude_plugin(data_dir: &Path) -> std::io::Result<PathBuf> {
     let link = plugin.join("skills");
     if fs::read_link(&link).ok().as_deref() != Some(skills.as_path()) {
         let _ = fs::remove_file(&link);
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&skills, &link)?;
+        crate::os::symlink(&skills, &link)?;
     }
     Ok(plugin)
 }

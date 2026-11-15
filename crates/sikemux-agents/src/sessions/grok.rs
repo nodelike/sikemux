@@ -292,15 +292,8 @@ pub(super) fn rename_grok_session(
 }
 
 /// Grok takes this lock around every change to a session's summary; it is released when the file closes.
-#[cfg(unix)]
 fn lock_exclusive(file: &fs::File) -> Result<(), String> {
-    rustix::fs::flock(file, rustix::fs::FlockOperation::LockExclusive)
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(not(unix))]
-fn lock_exclusive(_file: &fs::File) -> Result<(), String> {
-    Ok(())
+    file.lock().map_err(|error| error.to_string())
 }
 
 /// The file a Grok session's conversation is read from.

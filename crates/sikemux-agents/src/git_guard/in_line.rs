@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::io::{Read, Write};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -88,8 +88,7 @@ pub(super) fn run(
         key: Some(heavy.key),
         before_commit: heavy.before_commit,
         watched: heavy.watched,
-        // SAFETY: isatty only asks about the descriptor.
-        copies_output: unsafe { libc::isatty(libc::STDOUT_FILENO) } == 0,
+        copies_output: !std::io::stdout().is_terminal(),
         asked_at: Some(sikemux_process::clock::epoch_ms()),
         execution_id: task,
         needs: heavy.needs.clone(),
@@ -157,7 +156,7 @@ pub(super) fn run(
         let _ = copier.join();
     }
     let code = match status {
-        Ok(status) => exit_code(status),
+        Ok(status) => crate::os::exit_code(status),
         Err(error) => {
             eprintln!("{program}: {error}");
             1
@@ -229,7 +228,7 @@ fn told_stop(mut session: Session, why: &Mutex<Option<String>>) {
 /// started. The core sends the command away only when that is the agent's own program, so a
 /// command a script, a make file or a package runner started waits where it is.
 fn started_by() -> Option<(u32, u64)> {
-    let parent = std::os::unix::process::parent_id();
+    let parent = crate::os::parent_id();
     let shell = sikemux_process::procs::name(parent)
         .is_some_and(|name| SHELLS.contains(&name.trim_start_matches('-')));
     let by = match shell {
@@ -245,13 +244,6 @@ fn utility_priority() -> Option<(&'static str, &'static [&'static str])> {
     const TASKPOLICY: &str = "/usr/sbin/taskpolicy";
     (cfg!(target_os = "macos") && Path::new(TASKPOLICY).exists())
         .then_some((TASKPOLICY, &["-c", "utility"][..]))
-}
-
-fn exit_code(status: std::process::ExitStatus) -> i32 {
-    use std::os::unix::process::ExitStatusExt;
-    status
-        .code()
-        .unwrap_or_else(|| 128 + status.signal().unwrap_or_default())
 }
 
 /// Waits for the core to give the command its turn, saying so while it waits. With no core at
@@ -403,9 +395,7 @@ fn start_alone() {
     else {
         return;
     };
-    use std::os::fd::AsRawFd;
-    // SAFETY: flock only locks the open file, which lives until this returns.
-    unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+    let _ = file.lock();
     let since = std::fs::metadata(&marker)
         .and_then(|meta| meta.modified())
         .ok()

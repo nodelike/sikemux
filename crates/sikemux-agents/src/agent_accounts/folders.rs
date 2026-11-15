@@ -125,7 +125,7 @@ fn link_into(provider: &str, account: &Path, shared: &Path) {
         if target.symlink_metadata().is_ok() {
             continue;
         }
-        if let Err(error) = std::os::unix::fs::symlink(entry.path(), &target) {
+        if let Err(error) = crate::os::symlink(&entry.path(), &target) {
             eprintln!("Could not share {name} with the account in {account:?}: {error}");
         }
     }

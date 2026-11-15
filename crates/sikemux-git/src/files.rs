@@ -16,6 +16,13 @@ use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ErrorKind;
 
+#[cfg(unix)]
+#[path = "files/unix.rs"]
+mod platform;
+#[cfg(windows)]
+#[path = "files/windows.rs"]
+mod platform;
+
 /// Folders one `files.list` may name: every folder the person has open in a tree.
 const MAX_DIRS: usize = 512;
 /// Entries one `files.list` answers with across its folders; a folder cut
@@ -297,7 +304,7 @@ pub fn read(params: FileReadParams, piece: u64) -> Result<FilePiece> {
         text,
         next,
         size,
-        stamp: stamp(&meta),
+        stamp: platform::stamp(&meta),
         version,
     })
 }
@@ -500,29 +507,12 @@ fn conflict(message: String) -> Error {
     }
 }
 
-fn stamp(meta: &fs::Metadata) -> String {
-    use std::os::unix::fs::MetadataExt;
-    format!(
-        "{}-{}.{}-{}",
-        meta.len(),
-        meta.mtime(),
-        meta.mtime_nsec(),
-        meta.ino()
-    )
-}
-
 fn content_version(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-/// Opening without blocking turns a named pipe away instead of hanging until
-/// something writes to it.
 fn open_regular(path: &Path) -> Result<fs::File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(path)?;
+    let file = platform::open_for_reading(path)?;
     if !file.metadata()?.is_file() {
         return Err(format!("fs: {} is not a regular file", path.display()).into());
     }
@@ -783,7 +773,6 @@ pub struct FileRenameParams {
 
 /// Moves an entry, never over one already at `to`.
 pub fn rename(params: FileRenameParams) -> Result<()> {
-    use rustix::fs::{renameat_with, RenameFlags, CWD};
     let from = absolute(&params.from)?;
     let to = absolute(&params.to)?;
     if fs::symlink_metadata(from).is_err() {
@@ -792,14 +781,11 @@ pub fn rename(params: FileRenameParams) -> Result<()> {
     if let Some(parent) = to.parent() {
         fs::create_dir_all(parent)?;
     }
-    renameat_with(CWD, from, CWD, to, RenameFlags::NOREPLACE).map_err(|error| {
-        let error = std::io::Error::from(error);
-        match error.kind() {
-            std::io::ErrorKind::AlreadyExists => {
-                Error::from(format!("fs: destination already exists: {}", to.display()))
-            }
-            _ => error.into(),
+    platform::rename_no_replace(from, to).map_err(|error| match error.kind() {
+        std::io::ErrorKind::AlreadyExists => {
+            Error::from(format!("fs: destination already exists: {}", to.display()))
         }
+        _ => error.into(),
     })
 }
 
@@ -862,8 +848,9 @@ mod tests {
         })
     }
 
+    #[cfg(unix)]
     #[test]
-    fn text_reads_refuse_pipes_devices_and_folders_without_blocking() {
+    fn text_reads_refuse_pipes_and_devices_without_blocking() {
         let dir = tempfile::tempdir().expect("tempdir");
         let pipe = dir.path().join("pipe");
         let name = std::ffi::CString::new(pipe.to_string_lossy().as_bytes()).unwrap();
@@ -871,6 +858,17 @@ mod tests {
         assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
         assert!(read_text_of(&pipe, 1024).is_err());
         assert!(read_text_of(Path::new("/dev/zero"), 1024).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn text_reads_refuse_devices_without_blocking() {
+        assert!(read_text_of(Path::new(r"\\.\NUL"), 1024).is_err());
+    }
+
+    #[test]
+    fn text_reads_refuse_folders_and_files_over_the_limit() {
+        let dir = tempfile::tempdir().expect("tempdir");
         assert!(read_text_of(dir.path(), 1024).is_err());
 
         let file = dir.path().join("big");
@@ -986,7 +984,19 @@ mod tests {
     }
 
     #[test]
-    fn a_save_keeps_the_file_readable_and_keeps_its_permissions() {
+    fn a_save_keeps_the_file_readable() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("notes.txt");
+        fs::write(&path, b"old").expect("seed");
+
+        call("files.write", json!({ "path": path, "text": "new" })).expect("save");
+
+        assert_eq!(fs::read(&path).expect("read back"), b"new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_save_keeps_the_files_permissions() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("script.sh");
@@ -995,7 +1005,6 @@ mod tests {
 
         call("files.write", json!({ "path": path, "text": "new" })).expect("save");
 
-        assert_eq!(fs::read(&path).expect("read back"), b"new");
         let mode = fs::metadata(&path).expect("metadata").permissions().mode();
         assert_eq!(mode & 0o777, 0o755);
     }

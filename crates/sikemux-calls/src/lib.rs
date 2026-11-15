@@ -2,8 +2,6 @@
 //! and what it answers. A client in Rust calls them typed without linking the core, which
 //! keeps only what each method runs.
 
-#![cfg(unix)]
-
 /// Declares methods as `"method" Marker (Params) -> Answer;`.
 macro_rules! calls {
     ($($name:literal $marker:ident ($takes:ty) -> $gives:ty;)*) => {

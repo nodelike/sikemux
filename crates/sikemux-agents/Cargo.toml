@@ -5,35 +5,34 @@ edition = "2021"
 publish = false
 
 [dependencies]
+sikemux-base = { path = "../sikemux-base" }
+sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-fold = { path = "../sikemux-fold" }
+sikemux-git = { path = "../sikemux-git" }
+sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-process = { path = "../sikemux-process" }
 sikemux-pty = { path = "../sikemux-pty" }
 sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 agent-client-protocol = { version = "2.0.0", features = ["unstable_session_notices"] }
 hex = "0.4"
-serde = { version = "1", features = ["derive", "rc"] }
-serde_json = { version = "1", features = ["preserve_order"] }
-sha2 = "0.11"
-time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
-url = "2"
-uuid = { version = "1", features = ["v4", "v7"] }
-
-[target.'cfg(unix)'.dependencies]
-sikemux-base = { path = "../sikemux-base" }
-sikemux-corekit = { path = "../sikemux-corekit" }
-sikemux-git = { path = "../sikemux-git" }
-sikemux-keychain = { path = "../sikemux-keychain" }
-libc = "0.2"
 notify = "8"
 rayon = "1"
 reqwest = { version = "0.13", default-features = false, features = ["form", "gzip", "json", "query", "rustls-no-provider", "stream"] }
 rusqlite = { version = "0.41", features = ["bundled"] }
-rustix = { version = "1", features = ["fs"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.11"
 tempfile = "3"
+time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 toml = "1"
+url = "2"
+uuid = { version = "1", features = ["v4", "v7"] }
 zstd = { version = "0.14.3", default-features = false }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 sikemux-git = { path = "../sikemux-git", features = ["testing"] }

@@ -1,7 +1,6 @@
 //! Private copies of an agent's home, for Sikemux to change its config without
 //! touching the person's own.
 
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::agent_catalog::{AgentKind, Home, PrivateHome};
@@ -62,8 +61,8 @@ fn copy_home(
     } else if !config.is_file() {
         std::fs::write(&config, empty_config)?;
     }
-    std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700))?;
-    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600))
+    crate::os::make_private_folder(home)?;
+    crate::os::make_private_file(&config)
 }
 
 /// Makes the store an agent keeps its sessions in inside its real home, if it
@@ -90,7 +89,7 @@ fn link_entry(source: &Path, destination: &Path) -> std::io::Result<()> {
     if std::fs::symlink_metadata(destination).is_ok() {
         return Ok(());
     }
-    std::os::unix::fs::symlink(source, destination)
+    crate::os::symlink(source, destination)
 }
 
 #[cfg(test)]

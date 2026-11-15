@@ -8,7 +8,6 @@
 
 use std::ffi::OsString;
 use std::io::Read;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -94,7 +93,7 @@ fn link(folder: &Path, name: &str) -> std::io::Result<()> {
     }
     let fresh = folder.join(format!("{name}.{}", std::process::id()));
     let _ = std::fs::remove_file(&fresh);
-    std::os::unix::fs::symlink(&binary, &fresh)?;
+    crate::os::symlink(&binary, &fresh)?;
     std::fs::rename(&fresh, &path)
 }
 
@@ -492,7 +491,7 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
     if program == "cargo" {
         command.env("PATH", super::heavy::path_with(&real));
     }
-    let error = command.args(&args).exec();
+    let error = crate::os::exec(command.args(&args));
     eprintln!("{program}: {}: {error}", real.display());
     126
 }
@@ -750,7 +749,7 @@ fn run(args: Vec<OsString>) -> i32 {
             _ => {}
         }
     }
-    let error = command.args(&args).exec();
+    let error = crate::os::exec(command.args(&args));
     eprintln!("git: {}: {error}", git.display());
     126
 }

@@ -1,5 +1,3 @@
-#![cfg(unix)]
-
 pub mod blame;
 pub mod branches;
 pub mod changes;
@@ -524,33 +522,60 @@ mod tests {
         assert!(ignored_paths(&repo_arg(outside.path()), &[loose]).is_empty());
     }
 
-    #[cfg(unix)]
     fn run(command: &mut Command, input: Option<&[u8]>) -> Result<Output, String> {
         let wait = Duration::from_secs(60);
         sikemux_process::run(command, input, wait, MAX_COMMAND_OUTPUT_BYTES, None)
             .map_err(|error| error.to_string())
     }
 
+    /// A child that writes `megabytes` of output and then, if asked, reads all its input.
+    #[cfg(unix)]
+    fn flood(megabytes: usize, then_read_input: bool) -> Command {
+        let mut command = sikemux_process::user_environment::command("sh");
+        let read = if then_read_input {
+            "; cat >/dev/null"
+        } else {
+            ""
+        };
+        command.args([
+            "-c",
+            &format!("dd if=/dev/zero bs=1048576 count={megabytes} 2>/dev/null{read}"),
+        ]);
+        command
+    }
+
+    #[cfg(windows)]
+    fn flood(megabytes: usize, then_read_input: bool) -> Command {
+        let mut command = sikemux_process::user_environment::command("powershell");
+        let read = if then_read_input {
+            "; [void][Console]::In.ReadToEnd()"
+        } else {
+            ""
+        };
+        command.args([
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "$o = [Console]::OpenStandardOutput(); $b = New-Object byte[] 1048576; \
+                 for ($i = 0; $i -lt {megabytes}; $i++) {{ $o.Write($b, 0, $b.Length) }}; $o.Flush(){read}"
+            ),
+        ]);
+        command
+    }
+
     #[test]
     fn subprocess_drains_output_before_child_reads_stdin() {
         let input = vec![b'i'; 2 * 1024 * 1024];
-        let mut command = sikemux_process::user_environment::command("sh");
-        command.args([
-            "-c",
-            "dd if=/dev/zero bs=1048576 count=2 2>/dev/null; cat >/dev/null",
-        ]);
-        let out = run(&mut command, Some(&input))
+        let out = run(&mut flood(2, true), Some(&input))
             .expect("concurrent stdin/stdout handling must not deadlock");
         assert!(out.status.success());
         assert_eq!(out.stdout.len(), 2 * 1024 * 1024);
     }
 
-    #[cfg(unix)]
     #[test]
     fn subprocess_output_is_bounded() {
-        let mut command = sikemux_process::user_environment::command("sh");
-        command.args(["-c", "dd if=/dev/zero bs=1048576 count=33 2>/dev/null"]);
-        let error = run(&mut command, None).expect_err("oversized output must be rejected");
+        let error =
+            run(&mut flood(33, false), None).expect_err("oversized output must be rejected");
         assert!(error.contains("output exceeds"), "{error}");
     }
 

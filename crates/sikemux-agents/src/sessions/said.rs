@@ -133,11 +133,7 @@ fn connect(path: &Path) -> rusqlite::Result<Connection> {
              text, tokenize = 'unicode61 remove_diacritics 2', detail = none
          );",
     )?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    }
+    let _ = crate::os::make_private_file(path);
     Ok(connection)
 }
 

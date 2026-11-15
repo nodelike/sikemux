@@ -13,7 +13,6 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -158,8 +157,7 @@ fn hooks_for(folder: &Path, theirs: &Path) -> std::io::Result<PathBuf> {
         .flatten()
         .filter_map(Result::ok)
         .filter(|entry| {
-            std::fs::metadata(entry.path())
-                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            std::fs::metadata(entry.path()).is_ok_and(|meta| crate::os::is_executable(&meta))
         })
         .filter_map(|entry| entry.file_name().into_string().ok())
         .filter(|name| !name.contains('.'))
@@ -182,7 +180,7 @@ fn hooks_for(folder: &Path, theirs: &Path) -> std::io::Result<PathBuf> {
     for name in &names {
         let path = fresh.join(name);
         std::fs::write(&path, &script)?;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+        crate::os::make_executable(&path)?;
     }
     if std::fs::rename(&fresh, &hooks).is_err() {
         let _ = std::fs::remove_dir_all(&fresh);
@@ -248,7 +246,7 @@ pub(super) fn run(args: Vec<OsString>) -> i32 {
 fn sign(hook: &OsString, file: &OsString, note_file: Option<&Path>) {
     let mut unanswered = file.clone();
     unanswered.push(".sikemux-unanswered");
-    let git = std::os::unix::process::parent_id().to_string();
+    let git = crate::os::parent_id().to_string();
     if hook == "commit-msg" {
         let asked = std::fs::read_to_string(&unanswered).is_ok_and(|pid| pid == git);
         let _ = std::fs::remove_file(&unanswered);

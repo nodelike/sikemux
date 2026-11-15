@@ -123,11 +123,7 @@ fn connect(path: &Path) -> rusqlite::Result<Connection> {
              PRIMARY KEY (agent, path)
          ) WITHOUT ROWID;",
     )?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    }
+    let _ = crate::os::make_private_file(path);
     Ok(connection)
 }
 
