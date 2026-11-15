@@ -4,7 +4,12 @@ const [a, b] = process.argv.slice(2);
 const order = (version) => {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-nightly\.(\d+))?$/.exec(version ?? "");
   if (!match) throw new Error(`${version} is not a release version`);
-  return [+match[1], +match[2], +match[3], match[4] === undefined ? Infinity : +match[4]];
+  return [
+    +match[1],
+    +match[2],
+    +match[3],
+    match[4] === undefined ? Infinity : +match[4],
+  ];
 };
 const [x, y] = [order(a), order(b)];
 const later = x.findIndex((part, i) => part !== y[i]);

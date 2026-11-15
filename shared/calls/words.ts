@@ -281,7 +281,7 @@ export const CHIEF_OFFLINE = "Not connected to this host yet, so its chief can't
 export const TAKE_OVER = "Take over here";
 /** Under the chief's row while the host it lives on is out of reach, since `at`. */
 export const chiefAway = (at: number, now = Date.now(), say: Say = english) =>
-  say("Out of reach since {time}", { time: clockLabel(at, now, undefined, say) });
+    say("Out of reach since {time}", { time: clockLabel(at, now, undefined, say) });
 /** The composer's words in a worker's chat whose project's chief hears what is typed there. */
 export const sendToTold = (name: string, say: Say = english) => say("Send to @{name} · @Chief is told", { name });
 
