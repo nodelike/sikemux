@@ -653,6 +653,131 @@ fn new_chats(run: &mut Run, driver: &Arc<Driver>) {
     }
 }
 
+fn quantiles(mut values: Vec<f64>) -> Value {
+    values.sort_by(f64::total_cmp);
+    let at = |q: f64| {
+        values
+            .get(((values.len().max(1) - 1) as f64 * q).round() as usize)
+            .copied()
+            .unwrap_or(0.)
+    };
+    json!({ "n": values.len(), "p50": at(0.5), "p95": at(0.95), "p99": at(0.99), "max": at(1.) })
+}
+
+/// Grows one project to each count in `STRESS_SCALE` (10, 50, 100, 250, 500 by default) of chats,
+/// or with `terminals` of terminals, each in its own tab behind the first, which stays in front.
+/// At each count it times opening one more, the window idle, typing in the front chat, and the
+/// same with ten chats streaming, or with ten of the terminals flooding, printing one JSON line.
+fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
+    let counts: Vec<usize> = std::env::var("STRESS_SCALE")
+        .unwrap_or_else(|_| "10,50,100,250,500".into())
+        .split(',')
+        .filter_map(|count| count.trim().parse().ok())
+        .collect();
+    let front = driver.chat();
+    run.until(30, |run| run.front_chat().is_some());
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut opened: Vec<String> = Vec::new();
+    let mut busy = 0;
+    for count in counts {
+        let (mut starts, mut tabs, mut refused) = (Vec::new(), Vec::new(), Vec::new());
+        while opened.len() < count {
+            let began = Instant::now();
+            let target = if terminals {
+                driver
+                    .runtime
+                    .block_on(driver.client.spawn(
+                        LaunchIdentity {
+                            version: "0.0.0-stress".into(),
+                            ..LaunchIdentity::default()
+                        },
+                        SpawnTarget::Terminal(TerminalSpawn {
+                            cols: 120,
+                            rows: 40,
+                            cwd: Some(driver.folder.to_string_lossy().into_owned()),
+                            ..TerminalSpawn::default()
+                        }),
+                    ))
+                    .map(|id| id.to_string())
+                    .map_err(|error| error.to_string())
+            } else {
+                driver
+                    .runtime
+                    .block_on(
+                        driver
+                            .client
+                            .start_chat("opencode:fake".into(), PROJECT.into(), None),
+                    )
+                    .map(|(chat, _)| chat)
+                    .map_err(|error| error.to_string())
+            };
+            let target = match target {
+                Ok(target) => target,
+                Err(error) => {
+                    refused.push(error);
+                    break;
+                }
+            };
+            starts.push(began.elapsed().as_secs_f64() * 1e3);
+            let began = Instant::now();
+            let kind = if terminals { "terminal" } else { "agent" };
+            let tab = driver.runtime.block_on(driver.client.call(
+                "openTab",
+                json!({ "project": PROJECT, "kind": kind, "target": target, "behind": true }),
+            ));
+            match tab {
+                Ok(_) => tabs.push(began.elapsed().as_secs_f64() * 1e3),
+                Err(error) => refused.push(error.to_string()),
+            }
+            opened.push(target);
+            if opened.len() % 10 == 0 {
+                run.frames(2);
+            }
+        }
+        run.frames(240);
+        let idle = run.steps(240, |_, _| {});
+        let idle_typing = run.typing(60).unwrap_or_default();
+        while busy < 10.min(opened.len()) {
+            if terminals {
+                let flood = b"while :; do cat /usr/share/dict/words; done\r";
+                if let Ok(id) = opened[busy].parse() {
+                    driver.runtime.block_on(driver.client.write(id, flood)).ok();
+                }
+            } else {
+                driver.keep_busy(opened[busy].clone(), 2_500, stop.clone());
+            }
+            busy += 1;
+        }
+        run.frames(120);
+        let loaded = run.measure(10., |_, _| {});
+        let loaded_typing = run.typing(60).unwrap_or_default();
+        let (app, core) = run.memory();
+        let shown = run
+            .bench
+            .read_with(&run.cx, |bench, _| bench.strip().map_or(0, |strip| bench.tabs(&strip).len()));
+        let loaded_fps = loaded.frames.len() as f64 / loaded.wall;
+        run.shot(&format!("scale-{}-{count}", if terminals { "terminals" } else { "chats" }));
+        println!(
+            "scale {}",
+            json!({
+                "what": if terminals { "terminals" } else { "chats" },
+                "count": opened.len(), "tabsShown": shown, "front": front,
+                "openMs": quantiles(starts), "tabMs": quantiles(tabs), "refused": refused,
+                "idleFrameMs": quantiles(idle.frames), "idleBusy": idle.busy,
+                "idleTypingMs": quantiles(idle_typing),
+                "loadedFrameMs": quantiles(loaded.frames), "loadedBusy": loaded.busy,
+                "loadedFps": loaded_fps,
+                "loadedTypingMs": quantiles(loaded_typing),
+                "appMb": app, "coreMb": core,
+            })
+        );
+        if !refused.is_empty() {
+            break;
+        }
+    }
+    stop.store(true, Ordering::Relaxed);
+}
+
 /// Keeps drawing for `minutes`, printing the app's and the core's memory each
 /// minute, and whether the app's last half held flat.
 fn soak(run: &mut Run, minutes: f64) {
@@ -1263,6 +1388,8 @@ fn main() -> anyhow::Result<()> {
             flood(&mut run, &driver, &log)
         }
         "repo" => repo(&mut run, &driver),
+        "scale" => scale(&mut run, &driver, false),
+        "scale-terminals" => scale(&mut run, &driver, true),
         other => anyhow::bail!("no scenario named {other}"),
     }
     let (app, core) = run.memory();
