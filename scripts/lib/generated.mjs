@@ -1,5 +1,5 @@
-// What the generators do alike: `--check` fails on an output that is out of date
-// instead of writing it.
+// What the generators do alike: `--check` fails on a committed output that is out of
+// date instead of writing it.
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { createServer } from "vite";
@@ -12,14 +12,25 @@ export function stale(path) {
 }
 
 export async function emit(path, contents) {
+  if (await unchanged(path, contents)) return;
+  if (check) throw stale(path);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, contents);
+}
+
+/** Writes build output, which is not committed, so `--check` never compares it. */
+export async function write(path, contents) {
+  if (await unchanged(path, contents)) return;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, contents);
+}
+
+async function unchanged(path, contents) {
   const actual = await readFile(path, "utf8").catch((error) => {
     if (error?.code !== "ENOENT") throw error;
     return null;
   });
-  if (actual === contents) return;
-  if (check) throw stale(path);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, contents);
+  return actual === contents;
 }
 
 /** A Vite server for loading the shared TypeScript a generator reads. */

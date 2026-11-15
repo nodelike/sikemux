@@ -2,12 +2,12 @@
 // Writes the notch helper's icons, which the phone's share extension draws too,
 // from the app's own: the line icons in shared/ui/Icons.tsx and the agent marks
 // beside them. The iPhone app builds the notch's file and adds the rest of the
-// icons it draws from a second one. `--check` fails when either Swift file is out
-// of date instead of writing it.
+// icons it draws from a second one. Both are build output: the notch's build and
+// mobile/ios/scripts/build-core.sh run this first.
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { emit, typescriptLoader } from "./lib/generated.mjs";
+import { typescriptLoader, write } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const iconsPath = resolve(root, "shared/ui/Icons.tsx");
@@ -341,7 +341,7 @@ ${marks.join("\n")}
 }
 `;
 
-await emit(outputPath, swift);
+await write(outputPath, swift);
 
 /** The icons the phone draws, by the name shared/ui/Icons.tsx exports each under. */
 const PHONE_ICONS = [
@@ -867,4 +867,4 @@ ${named.join("\n")}
 }
 `;
 
-await emit(phoneOutputPath, phoneSwift);
+await write(phoneOutputPath, phoneSwift);

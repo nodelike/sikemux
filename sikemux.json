@@ -27,20 +27,12 @@
       ]
     },
     {
-      "label": "the notch icons and sources check",
-      "command": "node scripts/generate-notch-icons.mjs --check && node scripts/generate-notch-sources.mjs --check",
+      "label": "pnpm notch-sources:check",
+      "command": "node scripts/generate-notch-sources.mjs --check",
       "when": [
-        "shared/ui/**",
-        "shared/assets/agent-logos/**",
-        "shared/buddies/**",
-        "brand/mark/**",
-        "app/assets/icons/**",
-        "crates/sikemux-core/src/assets/agent-catalog.json",
-        "crates/sikemux-view/src/notch.rs",
         "helpers/notch/settings.json",
-        "helpers/notch/Sources/NotchKit/*.generated.swift",
-        "mobile/ios/Sikemux/UI/PhoneIcons.generated.swift",
-        "scripts/generate-notch-{icons,sources}.mjs",
+        "crates/sikemux-view/src/notch.rs",
+        "scripts/generate-notch-sources.mjs",
         "scripts/lib/generated.mjs"
       ]
     },

@@ -43,3 +43,11 @@ docs/research/
 /mobile/ios/Shared/Notify/Card.generated.swift
 /mobile/ios/Shared/Glance/Glance.generated.swift
 /mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt
+
+# Written by scripts/generate-notch-{icons,sources}.mjs, which the notch's build and
+# mobile/ios/scripts/build-core.sh run first.
+/helpers/notch/Sources/NotchKit/Icons.generated.swift
+/helpers/notch/Sources/NotchKit/Settings.generated.swift
+/helpers/notch/Sources/NotchKit/Theme.generated.swift
+/helpers/notch/Sources/NotchKit/Buddies.generated.swift
+/mobile/ios/Sikemux/UI/PhoneIcons.generated.swift

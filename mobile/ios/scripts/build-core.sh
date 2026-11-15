@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the core's phone client (crates/sikemux-mobile) for iOS: the static
 # library as an xcframework, and its Swift bindings, into mobile/ios/build, and
-# the wire types the app's Swift reads.
+# the wire types and icons the app's Swift reads. The icons need the root's
+# pnpm install.
 #   build-core.sh [--profile debug|mobile] [--sim-only|--device-only]
 set -euo pipefail
 
@@ -23,6 +24,8 @@ done
 
 cd "$repo"
 node scripts/generate-wire-types.mjs
+node scripts/generate-notch-icons.mjs
+node scripts/generate-notch-sources.mjs
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 profile_dir="$profile"
 [ "$profile" = dev ] && profile_dir=debug

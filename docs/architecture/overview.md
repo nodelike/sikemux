@@ -319,7 +319,7 @@ matching `:generate` script and commit what it writes:
 | `grammars:check`, `syntax:check` | The grammar list and the GPUI app's highlighting bundle                                                                                 |
 | `faces:check`                    | The agents' faces, from the art in `shared/buddies`                                                                                     |
 | `file-icons:check`               | The file icons the app and the web app draw                                                                                             |
-| `notch-sources:check`            | The settings, colours and faces the notch helper shares with the app                                                                    |
+| `notch-sources:check`            | The core's Rust copy of the notch helper's settings against `helpers/notch/settings.json`                                               |
 
 `release:check` runs offline checks of the release configuration, which reads the app's name,
 identifiers and version from the GPUI crate's `Cargo.toml`. `pnpm check:rust` covers the Rust,

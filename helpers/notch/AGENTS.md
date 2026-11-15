@@ -7,11 +7,13 @@ The root `AGENTS.md` applies here too.
   running after the app quits.
 - A new island state is mocked up in `helpers/notch/design/screens.html` before it is built;
   view it by serving the repo root (`python3 -m http.server`) and opening
-  `/helpers/notch/design/screens.html`.
-- Its icons come from `shared/ui/Icons.tsx`, the agent marks and `brand/`. After changing one it
-  uses, run `node scripts/generate-notch-icons.mjs`; the release checks fail on a stale copy.
+  `/helpers/notch/design/screens.html`, after `node scripts/generate-notch-sources.mjs` has
+  written the buddies it draws.
+- Its icons come from `shared/ui/Icons.tsx`, the agent marks and `brand/`. Its Swift icons,
+  settings, colours and buddies are build output, which `scripts/build-notch-helper.mjs`
+  writes before it builds.
 - Its agent rows are laid out like the app's tab rail rows (`app/src/agents/mod.rs`):
   the task with how long ago, the project, then the name, counts and state together at the end.
   When the rail's row changes, change the island's to match.
 - `swift run --package-path helpers/notch notch-snapshots <dir>` renders every state to PNGs,
-  for comparing with the design.
+  for comparing with the design, once the helper's build has written its generated Swift.

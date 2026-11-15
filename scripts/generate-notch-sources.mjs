@@ -2,8 +2,8 @@
 // Writes what the notch helper shares with the app: its settings from
 // helpers/notch/settings.json, for the core's Rust and the helper's Swift,
 // its colours from shared/ui/palette.css, and the app's buddies from
-// shared/buddies, which the helper runs to draw them. `--check` fails when one is
-// out of date instead of writing it.
+// shared/buddies, which the helper runs to draw them. The Swift is build output;
+// `--check` fails when the committed Rust is out of date instead of writing it.
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -113,7 +113,7 @@ const swiftType = ([key, setting]) => (setting.choices ? pascal(key) : "Bool");
 const swiftValue = ([, setting]) =>
   setting.choices ? `.${setting.default}` : String(setting.default);
 
-await emit(
+await write(
   settingsSwiftPath,
   `// ${banner("helpers/notch/settings.json")}
 
@@ -182,7 +182,7 @@ function swiftColour(variable) {
   return `Color(hex: "#${hex(red)}${hex(green)}${hex(blue)}").opacity(${Number(alpha)})`;
 }
 
-await emit(
+await write(
   themeSwiftPath,
   `// ${banner("shared/ui/palette.css")}
 
@@ -197,7 +197,7 @@ ${Object.entries(COLOURS)
 }
 `,
 );
-import { emit } from "./lib/generated.mjs";
+import { emit, write } from "./lib/generated.mjs";
 
 const [bundle] = await build({
   root,
@@ -213,7 +213,7 @@ const buddiesScript = bundle.output[0].code.trim();
 if (buddiesScript.includes('"""#'))
   throw new Error("the buddies script ends the Swift string it is kept in");
 
-await emit(
+await write(
   buddiesSwiftPath,
   `// ${banner("shared/buddies")}
 

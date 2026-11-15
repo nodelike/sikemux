@@ -9,9 +9,9 @@ The root `AGENTS.md` applies here too.
   `uniffi-bindgen` bin behind its `bindgen` feature, which the phone never links. Run it
   before the first Xcode build and after any change to the Rust the phone links. It also
   writes the core's types and the phone's calls into `Wire.generated.swift` with
-  `scripts/generate-wire-types.mjs`; that file and the other wire types are build output,
-  not committed. The icons are generated into `PhoneIcons.generated.swift` by
-  `scripts/generate-notch-icons.mjs`; never hand-edit it. The app compiles the notch's
+  `scripts/generate-wire-types.mjs`, and the icons into `PhoneIcons.generated.swift` with
+  `scripts/generate-notch-icons.mjs`, which needs the root's `pnpm install`. Both are build
+  output, not committed. The app compiles the notch's
   `IconView.swift` by path rather than copying it.
 - The Android app is in `mobile/app` (Expo) with the core's Rust client bridged in
   `mobile/native`. `mobile/` is its own pnpm workspace: never add it to the root install,

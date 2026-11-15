@@ -15,7 +15,6 @@ node --check scripts/build-core.mjs
 node --check scripts/smoke-core.mjs
 node --check scripts/build-voice-helper.mjs
 node --check scripts/build-notch-helper.mjs
-node scripts/generate-notch-icons.mjs --check
 node --check scripts/build-sim-helper.mjs
 python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' packaging/Info.plist
 

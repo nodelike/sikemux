@@ -121,7 +121,7 @@ jobs:
           }
           area rust '^(app/|crates/|plugins/|packaging/linux/build-packages\.txt$|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
           area simulator '^(helpers/sim/|crates/sikemux-simulator/|crates/sikemux-base/|crates/helper_build\.rs$|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|scripts/lib/build\.mjs$|rust-toolchain\.toml$)'
-          area helpers '^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-(notch-icons|notch-sources|wire-types)\.mjs$|crates/sikemux-(wire|view)/src/|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
+          area helpers '^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-(notch-icons|notch-sources|wire-types)\.mjs$|crates/sikemux-(wire|view)/src/|shared/(ui|buddies|assets/agent-logos)/|brand/mark/|app/assets/icons/|crates/sikemux-core/src/assets/agent-catalog\.json$|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
           area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/smoke-core\.mjs$|scripts/app-metadata\.mjs$|scripts/lib/build\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-agents/resources/sikemux_pi_tools\.ts$)'
 
   # The same check as `pnpm deps:audit`: any vulnerability fails it, and so does any unsound or

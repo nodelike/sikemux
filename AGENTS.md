@@ -34,8 +34,7 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 - Never write a test that restates the implementation: same branches, same constants,
   mocks of everything it calls.
 - Keep the checks that hold things we decided: the stale-output checks in `pnpm check`
-  (`grammars:check`, `file-icons:check`, `release:check`, the notch icons,
-  the server protocol), contract tests such as `mobile/app/test/updatePaths.test.ts`,
+  (`grammars:check`, `file-icons:check`, `release:check`, the server protocol), contract tests such as `mobile/app/test/updatePaths.test.ts`,
   and the end-to-end runs. Do not weaken or delete them to get a change through.
 - When a change breaks an existing test, decide whether the behaviour it pins was meant
   to change. Update the test only if so; otherwise fix the code.

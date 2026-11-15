@@ -37,8 +37,8 @@ if (target !== "aarch64-apple-darwin")
   fail(`${name} needs a Mac with Apple Silicon, not ${target}`);
 
 run("node", [join(root, "scripts", "generate-wire-types.mjs")]);
-run("node", [join(root, "scripts", "generate-notch-icons.mjs"), "--check"]);
-run("node", [join(root, "scripts", "generate-notch-sources.mjs"), "--check"]);
+run("node", [join(root, "scripts", "generate-notch-icons.mjs")]);
+run("node", [join(root, "scripts", "generate-notch-sources.mjs")]);
 
 const swiftArgs = [
   "build",
