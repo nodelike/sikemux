@@ -35806,6 +35806,7 @@
         }
       }
     },
+    "For a host you also use for work. Each new sign-in stays out of the vault until you move it in.": {},
     "For the team": {
       "localizations": {
         "es": {
@@ -45746,6 +45747,7 @@
         }
       }
     },
+    "Keep here only": {},
     "Keep in Downloads": {
       "localizations": {
         "es": {
@@ -45850,6 +45852,7 @@
         }
       }
     },
+    "Keep new sign-ins on this host": {},
     "Keep the side rail open": {
       "localizations": {
         "es": {
@@ -46268,6 +46271,7 @@
         }
       }
     },
+    "Kept on this host, out of the vault": {},
     "Kept private": {
       "localizations": {
         "es": {
@@ -51625,6 +51629,7 @@
         }
       }
     },
+    "Move into vault": {},
     "Move one tab left along the strip": {
       "localizations": {
         "es": {
@@ -52093,6 +52098,7 @@
         }
       }
     },
+    "Moved into the vault, allowed on this host": {},
     "Moved to": {
       "localizations": {
         "es": {
@@ -54279,6 +54285,8 @@
         }
       }
     },
+    "New sign-ins go into the vault": {},
+    "New sign-ins stay on this host": {},
     "New skill": {
       "localizations": {
         "es": {
@@ -152719,6 +152727,8 @@
         }
       }
     },
+    "{hosts} lose this sign-in. It leaves the vault and stays on this host alone.": {},
+    "{hosts} loses this sign-in. It leaves the vault and stays on this host alone.": {},
     "{host} has room.": {
       "localizations": {
         "es": {
@@ -154073,6 +154083,7 @@
         }
       }
     },
+    "{label} · on this host only, out of the vault": {},
     "{label}: not checked": {
       "localizations": {
         "es": {
