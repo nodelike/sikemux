@@ -108317,6 +108317,7 @@
         }
       }
     },
+    "Update to v{to} undone: {reason}. Back on v{from}; running terminals stopped, chats picked up again.": {},
     "Update to v{version}": {
       "localizations": {
         "es": {

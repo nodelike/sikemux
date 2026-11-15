@@ -31,7 +31,8 @@ use crate::release_feed::{self, Newest};
 use crate::releases::bundled_credits;
 use sikemux_view::prefs::UpdateChannel;
 use sikemux_view::updates::{
-    UpdateBlocker, UpdateCheck, UpdateOutcomeState, UpdateRelease, UpdateState, UpdateStatus,
+    UpdateBlocker, UpdateCheck, UpdateOutcome, UpdateOutcomeState, UpdateRelease, UpdateState,
+    UpdateStatus,
 };
 use sikemux_wire::protocol::BuildChannel;
 
@@ -282,13 +283,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
         true => Some(blocking(|| Ok(read_switch())).await.unwrap_or(true)),
         false => None,
     };
-    let outcome = match is_host() {
-        true => blocking(|| Ok(host_update::read_outcome()))
-            .await
-            .ok()
-            .flatten(),
-        false => None,
-    };
+    let outcome = blocking(|| Ok(read_outcome())).await.ok().flatten();
     core.updates().edit(&core, |held| {
         held.status.updates = own_app().is_some();
         held.status.current = core.config().build.version.clone();
@@ -298,8 +293,14 @@ pub(crate) async fn serve(core: Arc<Core>) {
         held.status.automatic = automatic;
         held.status.outcome = outcome;
     });
-    if is_host() {
-        tokio::spawn(settle_own_update(core.clone()));
+    match own_app() {
+        Some(OwnApp::Host) => drop(tokio::spawn(settle_own_update(core.clone()))),
+        #[cfg(target_os = "macos")]
+        Some(OwnApp::Bundle(_)) => drop(tokio::spawn(super::rollback::settle(
+            core.clone(),
+            READY_AFTER,
+        ))),
+        _ => {}
     }
     if !core.updates().status().updates && by_installer.is_none() {
         return;
@@ -381,8 +382,15 @@ pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
         Ok(newest) => (Some(newest), None),
         Err(error) => (None, Some(error)),
     };
-    let release = newest.filter(|newest| newest.version > current).and_then(
-        |Newest { feed, raw, .. }| {
+    let put_back = status
+        .outcome
+        .as_ref()
+        .filter(|outcome| outcome.state == UpdateOutcomeState::RolledBack)
+        .and_then(|outcome| outcome.to.clone());
+    let release = newest
+        .filter(|newest| newest.version > current)
+        .filter(|newest| put_back.as_deref() != Some(newest.version.to_string().as_str()))
+        .and_then(|Newest { feed, raw, .. }| {
             let found = feed.platforms.get(&own_platform()).map(|asset| Found {
                 url: asset.url.clone(),
                 signature: asset.signature.clone(),
@@ -400,8 +408,7 @@ pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
                 },
                 found,
             ))
-        },
-    );
+        });
     core.updates().edit(core, |held| {
         held.status.checked = Some(UpdateCheck {
             at: epoch_ms(),
@@ -532,12 +539,19 @@ async fn restart_into_installed(core: &Arc<Core>) {
     });
 }
 
-/// Reads again how the last update ended, as root recorded it.
+/// How the last update ended: as root recorded it on a host, or this core in the Mac app.
+fn read_outcome() -> Option<UpdateOutcome> {
+    match own_app()? {
+        OwnApp::Host => host_update::read_outcome(),
+        #[cfg(target_os = "macos")]
+        OwnApp::Bundle(_) => super::rollback::read_outcome(),
+        _ => None,
+    }
+}
+
+/// Reads again how the last update ended.
 async fn refresh_outcome(core: &Core) {
-    let outcome = blocking(|| Ok(host_update::read_outcome()))
-        .await
-        .ok()
-        .flatten();
+    let outcome = blocking(|| Ok(read_outcome())).await.ok().flatten();
     core.updates()
         .edit(core, |held| held.status.outcome = outcome);
 }
@@ -826,6 +840,8 @@ async fn put_in_place(
     }
     core.updates()
         .edit(core, |held| held.status.state = UpdateState::Installing);
+    #[cfg(target_os = "macos")]
+    let bundle = matches!(app, OwnApp::Bundle(_));
     let (app, unpack) = (app.clone(), archive.clone());
     let swapped = blocking(move || {
         match &app {
@@ -838,8 +854,38 @@ async fn put_in_place(
     .await;
     let _ = std::fs::remove_file(&archive);
     swapped.map_err(|error| error.to_string())?;
+    #[cfg(target_os = "macos")]
+    if bundle {
+        expect_the_new_core(core).await;
+    }
     core.updates().edit(core, |held| held.installed = true);
     Ok(())
+}
+
+/// Writes down the update just put in place of the Mac app, so the core it brought can say it
+/// started well, and this core watches it take over.
+#[cfg(target_os = "macos")]
+async fn expect_the_new_core(core: &Core) {
+    let status = core.updates().status();
+    let outcome = UpdateOutcome {
+        id: status
+            .id
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+        state: UpdateOutcomeState::Pending,
+        from: status.current,
+        to: status.available.map(|release| release.version),
+        at: epoch_ms(),
+        reason: None,
+        evidence: None,
+    };
+    let written = outcome.clone();
+    let _ = blocking(move || {
+        super::rollback::write_outcome(&written);
+        Ok(())
+    })
+    .await;
+    core.updates()
+        .edit(core, |held| held.status.outcome = Some(outcome));
 }
 
 /// Says the update is ready once no chat would lose work to the restart, at once when the
@@ -897,9 +943,14 @@ fn replace_appimage(file: &Path, download: &Path) -> Result<(), String> {
     std::fs::rename(download, file).map_err(cannot)
 }
 
-/// Puts the app in `archive` in place of `bundle`, keeping the old one until
-/// the new one is there, so a failure leaves the app as it was.
-pub(crate) fn swap(bundle: &Path, archive: &Path) -> Result<(), String> {
+/// The app an update replaced, kept beside it until the new one starts well.
+pub(crate) fn previous_bundle(bundle: &Path) -> Option<PathBuf> {
+    beside(bundle, "previous").ok()
+}
+
+/// Puts the app in `archive` in place of `bundle`, keeping the old one beside it to go back
+/// to, so a failure leaves the app as it was.
+fn swap(bundle: &Path, archive: &Path) -> Result<(), String> {
     let parent = bundle.parent().ok_or("the app is not in a folder")?;
     let name = bundle
         .file_name()
@@ -909,7 +960,7 @@ pub(crate) fn swap(bundle: &Path, archive: &Path) -> Result<(), String> {
     let cannot =
         |error: std::io::Error| format!("Sikemux cannot write to {}: {error}", parent.display());
     let staging = parent.join(format!(".{name}.update"));
-    let old = parent.join(format!(".{name}.old"));
+    let old = previous_bundle(bundle).ok_or("the app has no name")?;
     let _ = std::fs::remove_dir_all(&staging);
     let _ = std::fs::remove_dir_all(&old);
     std::fs::create_dir(&staging).map_err(cannot)?;
@@ -935,7 +986,6 @@ pub(crate) fn swap(bundle: &Path, archive: &Path) -> Result<(), String> {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(cannot(error));
     }
-    let _ = std::fs::remove_dir_all(&old);
     let _ = std::fs::remove_dir_all(&staging);
     Ok(())
 }

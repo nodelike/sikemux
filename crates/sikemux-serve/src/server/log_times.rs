@@ -66,6 +66,19 @@ pub fn before_exec() {
     give_back(&mut held);
 }
 
+/// The log file stderr ends in, for a process that should keep writing there after this one.
+pub fn log_file() -> Option<std::fs::File> {
+    let held = stamping();
+    let fd = held
+        .as_ref()
+        .map_or(libc::STDERR_FILENO, |stamping| stamping.log);
+    // SAFETY: duplicating a descriptor this process holds; the copy is owned by the File.
+    unsafe {
+        let copy = libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3);
+        (copy >= 0).then(|| std::os::fd::FromRawFd::from_raw_fd(copy))
+    }
+}
+
 fn flush_on_panic() {
     static HOOKED: std::sync::Once = std::sync::Once::new();
     HOOKED.call_once(|| {

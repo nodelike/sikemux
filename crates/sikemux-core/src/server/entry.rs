@@ -23,6 +23,8 @@ struct CoreArgs {
     cli_endpoint: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     upgrade_info: bool,
+    #[cfg(target_os = "macos")]
+    watch_handover: Option<PathBuf>,
     resume: Option<PathBuf>,
     listener_fd: Option<RawFd>,
     lock_fd: Option<RawFd>,
@@ -104,6 +106,11 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CoreArgs, String
             "--session" => parsed.sessions.push(handed_over_session(args.next())?),
             "--chat-fd" => parsed.chat_fds.push(number(args.next(), "--chat-fd")?),
             flag if flag == UPGRADE_INFO_ARG => parsed.upgrade_info = true,
+            #[cfg(target_os = "macos")]
+            flag if flag == super::rollback::WATCH_ARG => {
+                parsed.watch_handover =
+                    Some(args.next().ok_or("--watch-handover needs the app")?.into());
+            }
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -149,6 +156,23 @@ pub fn main(
                 1
             }
         };
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(bundle) = args.watch_handover {
+        let Some(socket) = args.socket else {
+            eprintln!(
+                "sikemux core: {} needs --socket",
+                super::rollback::WATCH_ARG
+            );
+            return 2;
+        };
+        return super::rollback::watch(super::rollback::Watch {
+            bundle,
+            socket,
+            cli_endpoint: args.cli_endpoint,
+            data_dir: args.data_dir,
+            idle_exit: args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
+        });
     }
     super::updates::roll_back_a_failing_update(&build.version);
     if let Some(directory) = args.resume {

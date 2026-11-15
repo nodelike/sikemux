@@ -115,6 +115,8 @@ pub(crate) use sikemux_repo::server::repo_events;
 pub(crate) use sikemux_repo::server::repo_state;
 pub(crate) use sikemux_serve::server::reaper;
 mod requests;
+#[cfg(target_os = "macos")]
+mod rollback;
 mod roster;
 pub(crate) use sikemux_remote::server::runtime_file;
 pub mod saved;

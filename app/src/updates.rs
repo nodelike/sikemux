@@ -10,7 +10,7 @@ use gpui_kit::{
 };
 use sikemux_calls::params::NoParams;
 use sikemux_view::prefs::UpdateChannel;
-use sikemux_view::updates::{UpdateState, UpdateStatus};
+use sikemux_view::updates::{UpdateOutcomeState, UpdateState, UpdateStatus};
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -102,6 +102,45 @@ pub(crate) fn running(update: &UpdateStatus) -> String {
             ago = crate::ui::time::ago(since)
         ),
     }
+}
+
+/// The core went back to the build before this app's, as this build's core stopped right after
+/// it took over, so this app starts again as the one put back.
+pub(crate) fn put_back_from_here(update: &UpdateStatus) -> bool {
+    let own = env!("CARGO_PKG_VERSION");
+    update.current != own
+        && update.outcome.as_ref().is_some_and(|outcome| {
+            outcome.state == UpdateOutcomeState::RolledBack && outcome.to.as_deref() == Some(own)
+        })
+}
+
+/// Says once, on the build put back, which update was undone and why.
+pub(crate) fn tell_put_back(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let Some(outcome) = (bench.reads.update.as_ref())
+        .and_then(|update| update.outcome.as_ref())
+        .filter(|outcome| {
+            outcome.state == UpdateOutcomeState::RolledBack
+                && outcome.from == env!("CARGO_PKG_VERSION")
+        })
+    else {
+        return;
+    };
+    let Some(told) = sikemux_process::paths::config_file("update-told", "") else {
+        return;
+    };
+    if std::fs::read_to_string(&told).is_ok_and(|id| id == outcome.id) {
+        return;
+    }
+    if let Err(error) = sikemux_process::files::write_atomic(&told, outcome.id.as_bytes(), true) {
+        eprintln!("sikemux: the undone update is told again next time: {error}");
+    }
+    let said = t!(
+        "Update to v{to} undone: {reason}. Back on v{from}; running terminals stopped, chats picked up again.",
+        to = outcome.to.as_deref().unwrap_or("?"),
+        from = outcome.from,
+        reason = outcome.reason.as_deref().unwrap_or_default()
+    );
+    bench.notify(crate::toast::error(said), cx);
 }
 
 /// The rail's note that an update is out, or how its install is going, which opens this

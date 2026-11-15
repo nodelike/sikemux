@@ -355,6 +355,8 @@ async fn hand_over(core: &Arc<Core>, binary: PathBuf) -> String {
     let replaced = blocking(move || {
         let mut chats = chats;
         replacing.flush_parts();
+        #[cfg(target_os = "macos")]
+        super::rollback::watch_the_handover(&replacing);
         let error = handover::replace_process(&replacing, &binary, &mut chats);
         Ok((error, chats))
     })

@@ -330,6 +330,8 @@ impl Workbench {
                             != Some(env!("CARGO_PKG_VERSION"))
                 };
                 let already = self.reads.update.as_ref().is_some_and(ready);
+                let was_put_back =
+                    (self.reads.update.as_ref()).is_some_and(crate::updates::put_back_from_here);
                 if !keep_decoded(&mut self.reads.update, value, "update status") {
                     return;
                 }
@@ -337,6 +339,13 @@ impl Workbench {
                 if self.over_shown() {
                     self.parts.redraw(&self.parts.over, cx);
                 }
+                if (self.reads.update.as_ref()).is_some_and(crate::updates::put_back_from_here) {
+                    if !was_put_back {
+                        cx.defer(|cx| cx.restart());
+                    }
+                    return;
+                }
+                crate::updates::tell_put_back(self, cx);
                 if now && !already {
                     // The core put the update in place of this app; opening the app again starts it.
                     // An AppImage runs from a mount that goes with this process, and an unpacked one
