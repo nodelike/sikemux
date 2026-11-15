@@ -7,7 +7,7 @@ use serde_json::{json, Map, Value};
 use sikemux_corekit::cli::manifest::GUIDE;
 use sikemux_corekit::themes::{checked, custom_id, find, ink_reads, summaries, MOST_CUSTOM_THEMES};
 use sikemux_view::prefs::{PreferenceChange, Preferences, Scrollbars};
-use sikemux_view::theme::{Theme, ThemeSource};
+use sikemux_view::theme::{Theme, ThemeChanges, ThemeSource};
 
 use crate::cli::protocol::HarnessRequest;
 use crate::server::parts::Parts;
@@ -15,10 +15,6 @@ use crate::server::workspace_state::WorkspaceParts;
 use crate::server::Core;
 
 const TOPIC: &str = "## theme:";
-
-/// The parts of a theme an agent may change when saving one, and the style values it may set.
-const PARTS: [&str; 6] = ["dark", "chrome", "editor", "highlight", "terminal", "style"];
-const STYLE: [&str; 1] = ["corners"];
 
 pub(crate) fn read(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let preferences = core.preferences().get();
@@ -60,7 +56,7 @@ pub(crate) fn read(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
 #[serde(deny_unknown_fields)]
 struct SetParams {
     theme: Option<String>,
-    save: Option<Map<String, Value>>,
+    save: Option<ThemeChanges>,
     adjust: Option<Adjust>,
 }
 
@@ -136,48 +132,21 @@ pub(crate) async fn set(core: &Arc<Core>, request: HarnessRequest) -> Result<Val
 fn saved(
     preferences: &Preferences,
     omarchy: Option<&Theme>,
-    mut save: Map<String, Value>,
+    mut save: ThemeChanges,
 ) -> Result<(Theme, Vec<String>), String> {
-    let mut text = |key: &str| {
-        save.remove(key)
-            .and_then(|value| value.as_str().map(str::to_owned))
-    };
-    let name = text("name").ok_or("save needs a name for the new theme")?;
-    let base_id = text("base").unwrap_or_else(|| preferences.theme_id.clone());
-    let base = find(preferences, omarchy, &base_id)
+    let name = save
+        .name
+        .take()
+        .ok_or("save needs a name for the new theme")?;
+    let base_id = save
+        .base
+        .take()
+        .unwrap_or_else(|| preferences.theme_id.clone());
+    let mut theme = find(preferences, omarchy, &base_id)
         .ok_or_else(|| format!("there is no theme {base_id} to start from"))?;
-    let mut theme = serde_json::to_value(base).map_err(|error| error.to_string())?;
-    if let Some(fields) = theme.as_object_mut() {
-        fields.entry("style").or_insert_with(|| json!({}));
-    }
-    for (part, changes) in save {
-        if !PARTS.contains(&part.as_str()) {
-            return Err(format!(
-                "save takes base, name and {}, not {part}",
-                PARTS.join(", ")
-            ));
-        }
-        match (&mut theme[&part], changes) {
-            (Value::Object(fields), Value::Object(changes)) => {
-                for (key, value) in changes {
-                    let known = match part.as_str() {
-                        "style" => STYLE.contains(&key.as_str()),
-                        _ => fields.contains_key(&key),
-                    };
-                    if !known {
-                        return Err(format!("{part} has no {key}"));
-                    }
-                    fields.insert(key, value);
-                }
-            }
-            (slot @ Value::Bool(_), dark @ Value::Bool(_)) => *slot = dark,
-            _ => return Err(format!("{part} is not given as the guide says")),
-        }
-    }
-    theme["id"] = custom_id(&name).into();
-    theme["name"] = name.into();
-    let theme: Theme =
-        serde_json::from_value(theme).map_err(|error| format!("that is not a theme: {error}"))?;
+    save.lay_over(&mut theme);
+    theme.id = custom_id(&name);
+    theme.name = name;
     let (theme, clamped) = checked(theme)?;
     ink_reads(&theme)?;
     Ok((theme, clamped))
