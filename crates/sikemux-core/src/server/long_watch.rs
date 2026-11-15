@@ -1,4 +1,4 @@
-//! Tells whoever hears about an agent, once per watch, that it has waited over two hours on a
+//! Tells whoever hears about an agent, once per watch, that it has waited over an hour on a
 //! repeating check it set, which has no end of its own.
 
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use sikemux_view::turn::{TurnPhase, TurnState, TurnWaitKind};
 
 use super::Core;
 
-const LONG_MS: u64 = 2 * 60 * 60 * 1000;
+const LONG_MS: u64 = 60 * 60 * 1000;
 
 pub(crate) struct Long {
     agent: String,
@@ -52,9 +52,9 @@ pub(crate) fn read(
             agent: agent_id.clone(),
             to,
             text: format!(
-                "It has watched for \"{}\" for {} hours. If that is not coming, tell it to remove the trigger and what to do instead.",
-                wait.what,
-                (now - wait.started_at) / (60 * 60 * 1000)
+                "has watched for \"{}\" for {} minutes; if that is not coming, tell it to remove the trigger and what to do instead",
+                crate::text::one_line(&wait.what).replace('"', "'"),
+                (now - wait.started_at) / 60_000
             ),
         });
     }
@@ -62,13 +62,13 @@ pub(crate) fn read(
 }
 
 pub(crate) fn tell(core: &Arc<Core>, long: Vec<Long>) {
-    for long in long {
-        super::messages::report_from_sikemux(
-            core,
-            long.agent,
-            long.to,
-            long.text,
-            "has waited long on a repeating check it set, and this is a note from Sikemux, sent once per watch.",
-        );
+    if long.is_empty() {
+        return;
     }
+    let core = core.clone();
+    tokio::spawn(async move {
+        for long in long {
+            super::messages::report_calm(&core, long.agent, long.to, long.text).await;
+        }
+    });
 }

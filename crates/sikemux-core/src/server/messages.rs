@@ -834,7 +834,7 @@ pub(crate) fn task(
     let lead = called(lead_name, lead_id);
     let answer = if reports {
         format!(
-            "When your turn ends, your final answer goes to {lead} by itself, unless you end it on something set to wake you, such as a trigger or a land in line, and ask nothing: then {lead} hears only how your land went. An answer of only a dash is not sent either. Message it with agent_send if you need to ask it something first."
+            "When your turn ends, your final answer goes to {lead} by itself, unless you end it on something set to wake you, such as a trigger, a land in line or a worker of yours still at work, and ask nothing: then {lead} hears only how your land went, so send it a milestone meanwhile with agent_send. An answer of only a dash is not sent either. Message it with agent_send if you need to ask it something first."
         )
     } else {
         format!("Your answers do not go to {lead} by themselves: send it what it needs with agent_send when you are done.")
@@ -1842,31 +1842,16 @@ pub(crate) fn report_left(core: &Arc<Core>, worker: String, to: String, text: St
     });
 }
 
-/// Hands `to` a note from Sikemux about `worker`, which is introduced as its name then `about`.
-pub(crate) fn report_from_sikemux(
-    core: &Arc<Core>,
-    worker: String,
-    to: String,
-    text: String,
-    about: &'static str,
-) {
+/// Hands `to` how CI went after the push of a `worker` that has closed.
+pub(crate) fn report_ci(core: &Arc<Core>, worker: String, to: String, text: String) {
     let name = core.names().name(&worker);
     let core = core.clone();
     tokio::spawn(async move {
-        let note = move |called: &str| format!("{called} {about}");
+        let note = |called: &str| {
+            format!("{called} has closed, and CI failed after its push. Sikemux watched it and sends this to you in its place: fix it or hand it on.")
+        };
         report_noted(&core, worker, name, to, text, false, note).await;
     });
-}
-
-/// Hands `to` how CI went after the push of a `worker` that has closed.
-pub(crate) fn report_ci(core: &Arc<Core>, worker: String, to: String, text: String) {
-    report_from_sikemux(
-        core,
-        worker,
-        to,
-        text,
-        "has closed, and CI failed after its push. Sikemux watched it and sends this to you in its place: fix it or hand it on.",
-    );
 }
 
 /// [`report`] for a worker that may be gone, under the name it had.
