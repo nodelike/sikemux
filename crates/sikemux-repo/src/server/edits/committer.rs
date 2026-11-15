@@ -122,6 +122,7 @@ mod tests {
             mine: true,
             by: String::new(),
             subject: String::new(),
+            waits: false,
         };
         let signing = Signing {
             key: Some(key),
