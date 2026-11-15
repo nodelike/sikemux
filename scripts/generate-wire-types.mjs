@@ -1672,7 +1672,7 @@ ${variants.map((v) => `        case .${swiftIdent(v.swift)}(let value):\n       
   const callNames = calls.map((call) => upperFirst(call.method));
   unique(callNames, "PhoneCall");
   const callTable = `/// A call the phone makes: the core's method, what it takes and what it answers.
-protocol PhoneCallable {
+protocol PhoneCallable: Sendable {
     associatedtype Params: Encodable & Sendable
     associatedtype Answer: Decodable & Sendable
     static var method: String { get }
