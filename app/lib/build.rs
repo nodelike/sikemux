@@ -7,16 +7,8 @@ fn main() {
 }
 
 /// The languages the app speaks besides English, as the catalog tags them, each named in itself.
-const LANGUAGES: [(&str, &str); 8] = [
-    ("es", "Español"),
-    ("zh-Hans", "简体中文"),
-    ("de", "Deutsch"),
-    ("fr", "Français"),
-    ("ja", "日本語"),
-    ("ko", "한국어"),
-    ("ru", "Русский"),
-    ("pt-BR", "Português (Brasil)"),
-];
+/// A language comes back here once someone has reviewed its translation.
+const LANGUAGES: [(&str, &str); 0] = [];
 
 /// Turns the string catalog into a table per language of each English string and what it
 /// says there, sorted by the English for `i18n::tr`'s binary search.

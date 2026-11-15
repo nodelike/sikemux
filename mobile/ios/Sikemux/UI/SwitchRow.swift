@@ -26,30 +26,6 @@ struct SwitchRow<Detail: View>: View {
     }
 }
 
-/// A boxed row like `SwitchRow` that shows a setting's value and opens where it is changed.
-struct ValueRow: View {
-    @Environment(\.palette) private var palette
-    let icon: IconDef
-    let title: String
-    let value: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                IconView(icon: icon, size: 18).foregroundStyle(palette.secondary)
-                Text(LocalizedStringKey(title)).font(Theme.ui(15, .medium)).tracking(-0.15).foregroundStyle(palette.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text(value).font(Theme.ui(15)).foregroundStyle(palette.secondary)
-            }
-            .rowBox(palette)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressFade())
-        .accessibilityAddTraits(.isLink)
-    }
-}
-
 extension View {
     fileprivate func rowBox(_ palette: Palette) -> some View {
         padding(.horizontal, 10)

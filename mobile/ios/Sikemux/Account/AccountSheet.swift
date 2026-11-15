@@ -51,7 +51,6 @@ extension View {
 
 struct AccountSheet: View {
     @Environment(\.palette) private var palette
-    @Environment(\.openURL) private var openURL
     @Binding var shown: Bool
     @State private var leaving = false
     @State private var unconfirmed: String?
@@ -65,9 +64,6 @@ struct AccountSheet: View {
             phone
             NotificationsRow()
             LockRow()
-            ValueRow(icon: Icons.text, title: "Language", value: Self.language) {
-                if let settings = URL(string: UIApplication.openSettingsURLString) { openURL(settings) }
-            }
             SwitchRow(icon: Icons.shield, title: "Share crash reports", isOn: Bindable(CrashReports.shared).on) {
                 Text(Self.crashReports).font(Theme.meta).foregroundStyle(palette.tertiary).lineLimit(1)
             }
@@ -184,12 +180,6 @@ struct AccountSheet: View {
             shown = false
         }
     }
-
-    /// The language the app speaks, in itself; iOS keeps the choice in the app's own Settings page.
-    private static let language: String = {
-        let code = Bundle.main.preferredLocalizations.first ?? "en"
-        return Locale(identifier: code).localizedString(forIdentifier: code)?.capitalized ?? code
-    }()
 
     private static let crashReports = String(
         localized:

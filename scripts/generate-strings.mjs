@@ -9,7 +9,7 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 const catalogPath = join(root, "app/locales/Localizable.xcstrings");
 const check = process.argv.includes("--check");
-const languages = ["es", "zh-Hans", "de", "fr", "ja", "ko", "ru", "pt-BR"];
+const languages = [];
 
 function* rustFiles(dir) {
   for (const name of readdirSync(dir)) {

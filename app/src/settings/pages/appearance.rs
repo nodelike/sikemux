@@ -54,12 +54,6 @@ pub(in crate::settings) const INTERFACE: &[Entry] = &[
     row(
         Interface,
         "Text",
-        "Language",
-        "language locale translation español deutsch français 中文 日本語 한국어 русский português",
-    ),
-    row(
-        Interface,
-        "Text",
         "Text size",
         "font zoom scale larger smaller accessibility",
     ),
@@ -249,7 +243,6 @@ pub struct Fields {
     inks: Vec<Entity<ColorPickerState>>,
     opacity: Entity<SliderState>,
     blur: Entity<SliderState>,
-    language: rows::Choice,
     pub editor: Option<super::theme_editor::Editor>,
     /// The picture a theme is being drawn from, while it is read.
     pub reading: Option<super::theme_editor::Picture>,
@@ -381,33 +374,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         preferences.window_blur.min(60.) as f32,
         cx,
     );
-    let languages = crate::i18n::LANGUAGES;
-    let labels = [t!("Same as the system"), "English"]
-        .into_iter()
-        .chain(languages.iter().map(|language| language.name))
-        .collect::<Vec<_>>();
-    let chosen = match preferences.language.as_deref() {
-        None => 0,
-        Some(code) => (languages.iter())
-            .position(|language| language.code == code)
-            .map_or(1, |at| at + 2),
-    };
-    let language = rows::Choice::new(
-        labels,
-        chosen,
-        move |bench, at, _| {
-            let code = match at {
-                0 => None,
-                1 => Some("en".to_owned()),
-                at => Some(languages[at - 2].code.to_owned()),
-            };
-            crate::settings::set(bench, PreferenceChange::Language(code))
-        },
-        window,
-        cx,
-    );
     let fields = Fields {
-        language,
         search,
         query: SharedString::default(),
         tone: Tone::All,
@@ -1245,12 +1212,6 @@ pub fn render(
             )
     };
     let text = div()
-        .child(rows::row(
-            t!("Language"),
-            Some(t!("The language Sikemux's own words are in. What agents write stays as they wrote it.")),
-            fields.language.view(),
-            cx,
-        ))
         .child(rows::row(
             t!("Text size"),
             Some(t!("Scales labels and controls without loosening the layout.")),

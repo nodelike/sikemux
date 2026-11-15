@@ -16,7 +16,6 @@ import { shortKey } from '@/devices/paired';
 import { versionFromBuild } from '@/network/versions';
 import { phoneName } from '@/phone/name';
 import { LockRow } from '@/lock/LockRow';
-import { LanguageRow } from '@/i18n/LanguageRow';
 import { type Translate, useT } from '@/i18n';
 import { NotificationsRow } from '@/notify/NotificationsRow';
 import { stopPush } from '@/notify/token';
@@ -118,7 +117,6 @@ export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: 
       </View>
       <NotificationsRow />
       <LockRow />
-      <LanguageRow />
       {unconfirmed ? (
         <>
           <Text style={styles.noteTitle}>{unconfirmed}</Text>
