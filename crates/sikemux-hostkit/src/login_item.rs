@@ -591,4 +591,60 @@ mod tests {
         write_if_changed(&path, "two").unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "two");
     }
+
+    #[cfg(windows)]
+    fn run_value(label: &str) -> Option<String> {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::System::Registry::{
+            RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_SZ,
+        };
+        let wide = |text: &str| {
+            std::ffi::OsStr::new(text)
+                .encode_wide()
+                .chain([0])
+                .collect::<Vec<u16>>()
+        };
+        let mut value = vec![0u16; 4096];
+        let mut size = (value.len() * 2) as u32;
+        // SAFETY: the strings are nul-terminated UTF-16 and `size` is the buffer's length in bytes.
+        let read = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                wide(r"Software\Microsoft\Windows\CurrentVersion\Run").as_ptr(),
+                wide(label).as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                value.as_mut_ptr().cast(),
+                &mut size,
+            )
+        };
+        (read == 0).then(|| String::from_utf16_lossy(&value[..size as usize / 2 - 1]))
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn signing_in_runs_the_app_beside_the_core_until_removed() {
+        let identifier = "com.nodelike.sikemux.login-item-test";
+        let dir = tempfile::tempdir().unwrap();
+        let launch = CoreLaunch {
+            binary: dir.path().join("sikemux-host.exe"),
+            socket: dir.path().join("core.sock"),
+            log: dir.path().join("logs").join("core.log"),
+            args: Vec::new(),
+        };
+        let file = install(identifier, &launch).unwrap();
+        let saved = std::fs::read_to_string(&file).unwrap();
+        assert!(saved.contains("sikemux-host.exe"));
+        assert_eq!(
+            run_value(&label(identifier)),
+            Some(format!(
+                "\"{}\" {START_CORE_ARG} \"{}\"",
+                dir.path().join("sikemux.exe").display(),
+                file.display()
+            ))
+        );
+        assert!(remove(identifier).unwrap());
+        assert_eq!(run_value(&label(identifier)), None);
+        assert!(!file.exists());
+    }
 }
