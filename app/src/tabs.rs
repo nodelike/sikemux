@@ -8,6 +8,7 @@ use sikemux_calls::call;
 use sikemux_calls::layout::TabParams;
 use sikemux_calls::layout::TabsParams;
 use sikemux_view::layout::At;
+use sikemux_view::layout::Layout;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::ProjectLayout;
 use std::collections::HashMap;
@@ -34,7 +35,7 @@ use crate::theme::{
 };
 use crate::toast;
 use crate::ui::{self, IconButton, Tab};
-use crate::workbench::{Strip, Workbench};
+use crate::workbench::{Strip, StripRef, Workbench};
 
 /// The bar across the window's top, under the window buttons.
 const BAR_HEIGHT: f32 = 36.;
@@ -72,6 +73,15 @@ fn strip_with_tabs(bench: &Workbench) -> Option<Strip> {
     bench.strip().filter(|strip| !bench.tabs(strip).is_empty())
 }
 
+/// The tabs of `strip` in `layout`, which may be any host's.
+pub(crate) fn strip_layout<'a>(layout: &'a Layout, strip: &Strip) -> Option<&'a ProjectLayout> {
+    match strip {
+        Strip::Project(id) => layout.projects.get(id),
+        Strip::Host(alias) => layout.hosts.get(alias),
+        Strip::Terminals => Some(&layout.terminals),
+    }
+}
+
 /// The bar, holding the window buttons, where the window is and the chips, then the
 /// project's tabs on a row of their own from the window's left edge to its right.
 pub fn top_bar(
@@ -106,6 +116,7 @@ pub fn top_bar(
         .when(cfg!(target_os = "macos"), |bar| {
             bar.child(div().w(px(80.)).flex_none())
         })
+        .child(crate::visits::arrows(bench, cx))
         .child(div().flex_1())
         .child(crate::hosts::top_place::view(
             bench,
@@ -920,29 +931,26 @@ impl Workbench {
     /// The strip in front: the terminals or SSH host shown instead of a project, else the
     /// project in front.
     pub fn strip(&self) -> Option<Strip> {
+        self.strip_ref().map(StripRef::owned)
+    }
+
+    pub(crate) fn strip_ref(&self) -> Option<StripRef<'_>> {
         let layout = &self.shown()?.layout;
         if layout.terminals_in_front {
-            return Some(Strip::Terminals);
+            return Some(StripRef::Terminals);
         }
         match layout
             .active_host
             .as_ref()
             .filter(|host| layout.hosts.contains_key(*host))
         {
-            Some(host) => Some(Strip::Host(host.clone())),
-            None => self
-                .project()
-                .map(|project| Strip::Project(project.id.clone())),
+            Some(host) => Some(StripRef::Host(host)),
+            None => self.project().map(|project| StripRef::Project(&project.id)),
         }
     }
 
     pub(crate) fn layout_of(&self, strip: &Strip) -> Option<&ProjectLayout> {
-        let layout = &self.shown()?.layout;
-        match strip {
-            Strip::Project(id) => layout.projects.get(id),
-            Strip::Host(alias) => layout.hosts.get(alias),
-            Strip::Terminals => Some(&layout.terminals),
-        }
+        strip_layout(&self.shown()?.layout, strip)
     }
 
     pub fn tabs(&self, strip: &Strip) -> &[LayoutTab] {

@@ -12284,6 +12284,7 @@
         }
       }
     },
+    "Back — {keys}": {},
     "Backend": {
       "localizations": {
         "es": {
@@ -35966,6 +35967,7 @@
         }
       }
     },
+    "Forward — {keys}": {},
     "Found": {
       "localizations": {
         "es": {
@@ -37475,6 +37477,7 @@
         }
       }
     },
+    "Go back": {},
     "Go back in the active embedded browser tab, while it has the keys": {
       "localizations": {
         "es": {
@@ -37527,58 +37530,7 @@
         }
       }
     },
-    "Go back to the chat you had in front before this one; on a browser page, go back in the page": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Volver al chat que tenías al frente antes de este; en una página del navegador, retroceder en la página"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "返回到此前位于前方的聊天；在浏览器页面上则在页面中后退"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zum Chat zurückgehen, der vorher im Vordergrund war; auf einer Browserseite in der Seite zurückgehen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Revenir au chat que vous aviez au premier plan avant celui-ci ; sur une page de navigateur, revenir en arrière dans la page"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "この前に前面にあったチャットに戻る。ブラウザページではページ内で戻る"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 채팅 전에 보던 채팅으로 돌아가기. 브라우저 페이지에서는 페이지 뒤로 이동"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вернуться к чату, открытому перед этим; на странице браузера — назад на странице"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Voltar ao chat que estava em primeiro plano antes deste; em uma página do navegador, voltar na página"
-          }
-        }
-      }
-    },
+    "Go back to the tab you had in front before this one, in any project or host; on a browser page, go back in the page": {},
     "Go first": {
       "localizations": {
         "es": {
@@ -37631,58 +37583,8 @@
         }
       }
     },
-    "Go forward again through the chats you went back from; on a browser page, go forward in the page": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Avanzar de nuevo por los chats de los que retrocediste; en una página del navegador, avanzar en la página"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在你后退过的聊天中再次前进；在浏览器页面上则在页面中前进"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wieder vorwärts durch die Chats, von denen du zurückgegangen bist; auf einer Browserseite in der Seite vorwärts"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Avancer à nouveau parmi les chats d'où vous êtes revenu ; sur une page de navigateur, avancer dans la page"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "戻ったチャットを再び進む。ブラウザページではページ内で進む"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "돌아왔던 채팅으로 다시 앞으로 가기. 브라우저 페이지에서는 페이지 앞으로 이동"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Снова вперёд по чатам, из которых вы вернулись; на странице браузера — вперёд на странице"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Avançar de novo pelos chats de onde você voltou; em uma página do navegador, avançar na página"
-          }
-        }
-      }
-    },
+    "Go forward": {},
+    "Go forward again through the tabs you went back from; on a browser page, go forward in the page": {},
     "Go forward in the active embedded browser tab, while it has the keys": {
       "localizations": {
         "es": {
@@ -54705,58 +54607,6 @@
         }
       }
     },
-    "Next chat": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat siguiente"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "下一个聊天"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nächster Chat"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat suivant"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "次のチャット"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다음 채팅"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Следующий чат"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Próximo chat"
-          }
-        }
-      }
-    },
     "Next match": {
       "localizations": {
         "es": {
@@ -69058,58 +68908,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Área anterior"
-          }
-        }
-      }
-    },
-    "Previous chat": {
-      "localizations": {
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat anterior"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "上一个聊天"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vorheriger Chat"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat précédent"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "前のチャット"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이전 채팅"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Предыдущий чат"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chat anterior"
           }
         }
       }

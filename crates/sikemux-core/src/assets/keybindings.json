@@ -425,18 +425,18 @@
         "other": "Ctrl+Alt+KeyU"
     },
     {
-        "id": "chat.back",
-        "label": "Previous chat",
-        "detail": "Go back to the chat you had in front before this one; on a browser page, go back in the page",
+        "id": "navigation.back",
+        "label": "Go back",
+        "detail": "Go back to the tab you had in front before this one, in any project or host; on a browser page, go back in the page",
         "category": "Navigation",
         "mac": "Meta+BracketLeft",
         "other": "Ctrl+BracketLeft",
         "otherInTerminal": "Ctrl+Shift+BracketLeft"
     },
     {
-        "id": "chat.forward",
-        "label": "Next chat",
-        "detail": "Go forward again through the chats you went back from; on a browser page, go forward in the page",
+        "id": "navigation.forward",
+        "label": "Go forward",
+        "detail": "Go forward again through the tabs you went back from; on a browser page, go forward in the page",
         "category": "Navigation",
         "mac": "Meta+BracketRight",
         "other": "Ctrl+BracketRight",

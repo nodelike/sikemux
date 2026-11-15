@@ -19,8 +19,8 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     canvas, deferred, div, px, AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context,
     DragMoveEvent, Entity, ExternalPaths, FocusHandle, Image, InteractiveElement, IntoElement,
-    ParentElement, Pixels, Render, SharedString, StyleRefinement, Styled, Subscription, Task,
-    WeakEntity, Window,
+    MouseButton, NavigationDirection, ParentElement, Pixels, Render, SharedString, StyleRefinement,
+    Styled, Subscription, Task, WeakEntity, Window,
 };
 use sikemux_view::device::DeviceView;
 use sikemux_view::prefs::Preferences;
@@ -109,6 +109,7 @@ pub struct Workbench {
     /// The project or host in front, and the one in front before it.
     pub place: Option<Strip>,
     pub last_place: Option<Strip>,
+    pub(crate) visits: crate::visits::Visits,
     pub rails: crate::rail::Rails,
     pub(crate) strip: crate::tabs::StripMotion,
     /// Tabs asked to close that the layout still lists, and when, so a second click or ⌘W
@@ -189,6 +190,32 @@ impl Strip {
             Strip::Project(project) => At::project(project),
             Strip::Host(alias) => At::host(alias),
             Strip::Terminals => At::terminals(),
+        }
+    }
+
+    pub(crate) fn borrowed(&self) -> StripRef<'_> {
+        match self {
+            Strip::Project(project) => StripRef::Project(project),
+            Strip::Host(alias) => StripRef::Host(alias),
+            Strip::Terminals => StripRef::Terminals,
+        }
+    }
+}
+
+/// A [`Strip`] read from the layout without copying its name.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StripRef<'a> {
+    Project(&'a str),
+    Host(&'a str),
+    Terminals,
+}
+
+impl StripRef<'_> {
+    pub(crate) fn owned(self) -> Strip {
+        match self {
+            StripRef::Project(project) => Strip::Project(project.to_owned()),
+            StripRef::Host(alias) => Strip::Host(alias.to_owned()),
+            StripRef::Terminals => Strip::Terminals,
         }
     }
 }
@@ -341,6 +368,7 @@ impl Workbench {
             chat_drag: None,
             place: None,
             last_place: None,
+            visits: Default::default(),
             rails,
             strip: Default::default(),
             closing_tabs: Default::default(),
@@ -868,6 +896,14 @@ impl Render for Workbench {
             .relative()
             .size_full()
             .capture_any_mouse_down(|_, _, _| keyboard_back())
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|bench, _, _, cx| bench.step_visit(-1, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Forward),
+                cx.listener(|bench, _, _, cx| bench.step_visit(1, cx)),
+            )
             .on_drop(cx.listener(|bench, dropped: &ExternalPaths, window, cx| {
                 bench.take_stray_drop(dropped.paths(), window, cx)
             }))

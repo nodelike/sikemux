@@ -624,7 +624,8 @@ fn here(bench: &Workbench, cx: &App) -> Option<OpenAt> {
     })
 }
 
-/// Goes back to where the editor was before its last jump, or forward again.
+/// Goes back to where the editor was before its last jump, or forward again, or with no jump
+/// left, to the tab visited before or after this one.
 fn step(bench: &mut Workbench, back: bool, cx: &mut Context<Workbench>) {
     let here = here(bench, cx);
     let taken = bench.editors.update(cx, |editors, _| {
@@ -636,8 +637,9 @@ fn step(bench: &mut Workbench, back: bool, cx: &mut Context<Workbench>) {
         to.extend(here);
         Some(taken)
     });
-    if let Some(to) = taken {
-        show(bench, to, cx);
+    match taken {
+        Some(to) => show(bench, to, cx),
+        None => bench.step_visit(if back { -1 } else { 1 }, cx),
     }
 }
 

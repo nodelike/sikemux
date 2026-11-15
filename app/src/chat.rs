@@ -93,7 +93,6 @@ pub(crate) use shown::{take as take_step, turn_picture, turn_picture_held};
 pub(crate) mod status;
 mod team;
 mod tools;
-mod visits;
 pub(crate) use installing::installs_moved;
 
 mod worktree;
@@ -588,7 +587,6 @@ pub struct Chats {
     /// Lets go of the chats out of sight once they have been for a while, counted from when
     /// the chat now in front came there.
     pub(crate) resting: Option<(Option<String>, gpui_kit::Task<()>)>,
-    pub(crate) visits: visits::Visits,
 }
 
 /// A chat the window shows: its rows in a transcript, how it stands, its

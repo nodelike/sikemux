@@ -92,6 +92,7 @@ mod trust;
 mod turn_line;
 mod ui;
 mod updates;
+mod visits;
 mod voice;
 pub mod workbench;
 mod worktrees;

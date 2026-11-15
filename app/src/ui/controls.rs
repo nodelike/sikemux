@@ -84,6 +84,12 @@ impl IconButton {
         self
     }
 
+    /// Drawn in the text's tertiary ink rather than the quieter icon ink, to match words beside it.
+    pub fn quiet(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
+        self
+    }
+
     /// The 18px add and edit buttons beside a group's header.
     pub fn small(mut self) -> Self {
         self.size = 18.;
