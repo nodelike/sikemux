@@ -78,6 +78,7 @@ function shown() {
         subagents: 0,
         tasks: 0,
         busy: group !== 'idle',
+        failed: false,
         background: false,
         activeAt: Date.now(),
         turn: TURNS[chat.agentId],
@@ -97,6 +98,7 @@ function inbox() {
     project: chat.project,
     title: chat.title,
     feed: chat.agentId,
+    heading: chat.title,
     recordings: [],
   });
   const chat = (agentId: string) => CHATS.find((known) => known.agentId === agentId) ?? CHATS[0];
@@ -154,6 +156,8 @@ function inbox() {
     agentMessages: {},
     remoteAgents: [],
     agents: shown(),
+    projects: {},
+    needs: {},
   };
 }
 
@@ -176,6 +180,7 @@ function view() {
     workspace: {
       projects: PROJECTS.map((project) => ({
         ...project,
+        codeHost: project.codeHost && { ...project.codeHost, plugin: 'sikemux.github', label: 'GitHub' },
         agents: CHATS.filter((chat) => !chat.unlisted && chat.project === project.id).length || undefined,
         ...standingOf(project),
       })),
@@ -188,7 +193,7 @@ function view() {
         title: chat.title,
         permissionMode: chat.permissionMode,
       })),
-      launchers: LAUNCHERS,
+      launchers: LAUNCHERS.map((launcher) => ({ ...launcher, configOptions: null })),
       palette: {},
       backdrop: { texture: true, image: 'pane' },
     },
@@ -198,9 +203,17 @@ function view() {
       running: true,
       cols: 120,
       rows: 34,
+      attached: 0,
       project: session.project,
-      task: session.task,
+      task: session.task && {
+        ...session.task,
+        executionId: `run-${session.id}`,
+        terminalKey: `task-${session.id}`,
+        taskId: session.task.label,
+        source: 'project',
+      },
       killed: false,
+      unread: false,
     })),
     chats: CHATS.map((chat) => ({
       agentId: chat.agentId,
@@ -214,6 +227,7 @@ function view() {
       launcher: chat.provider,
       permissionMode: chat.permissionMode,
       asleep: chat.asleep ?? false,
+      unread: false,
       group: QUESTIONS.some((question) => question.agentId === chat.agentId && question.blocked) ? 'blocked' : undefined,
     })),
     attentions: CHATS.flatMap((chat) => {
@@ -222,6 +236,7 @@ function view() {
         ? [
             {
               id: `ask-${chat.agentId}`,
+              kind: 'permission',
               agentId: chat.agentId,
               provider: chat.provider,
               cwd: projectPath(chat.project),
@@ -241,6 +256,9 @@ function view() {
       activeAt: Date.now() - chat.hours * 3_600_000,
     })),
     inbox: inbox(),
+    layout: {},
+    account: null,
+    faceStyle: { on: false, pack: 'all', shape: 'mixed', motion: true },
   };
 }
 
@@ -257,7 +275,7 @@ async function withTrees(rows: ChatMessage[]): Promise<ChatMessage[]> {
 
 /** What the pretend host answers, by the core's own call names, so a renamed call fails the typecheck. */
 const HOST_CALLS: { [M in keyof CoreCalls]?: (params: CoreCalls[M]['params']) => unknown } = {
-  questions: () => QUESTIONS,
+  questions: () => QUESTIONS.map((question) => ({ ...question, multi: false })),
   agentCatalog: () => AGENT_CATALOG,
   chatToolDetail: ({ agentId, toolCallId }) => RECORDED.find((chat) => chat.agentId === agentId)?.recorded?.details[toolCallId] ?? {},
   closedAgents: () => [],

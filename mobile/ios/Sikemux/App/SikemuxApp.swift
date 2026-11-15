@@ -65,6 +65,9 @@ struct RootView: View {
             Task { _ = await Network.shared.relays() }
             await account.load()
             await hub.reloadDevices()
+            #if DEBUG
+                if let url = Showcase.opening { Router.shared.open(url) }
+            #endif
         }
         .notificationsOffer()
         .task(id: account.isSignedIn) {

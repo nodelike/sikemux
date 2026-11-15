@@ -127,6 +127,9 @@ final class Hub {
     func reloadDevices() async {
         let store = PairedStore.shared
         devices = await store.all()
+        #if DEBUG
+            if let showcase = Showcase.current { devices = showcase.paired }
+        #endif
         problem = await store.damaged ? Self.damagedProblem : nil
         loaded = true
         HostJoins.shared.joinNew()
@@ -262,8 +265,15 @@ final class Hub {
         found.current = box
         let connection: Connection
         do {
-            let device = try await Identity.shared.device()
-            connection = try await device.connect(core: found.core, listener: box)
+            #if DEBUG
+                if let showcase = Showcase.current {
+                    connection = ShowcaseConnection(showcase, listener: box)
+                } else {
+                    connection = try await Identity.shared.device().connect(core: found.core, listener: box)
+                }
+            #else
+                connection = try await Identity.shared.device().connect(core: found.core, listener: box)
+            #endif
         } catch {
             if found.current === box { drop(found, reason: Sikemux.problem(error), error: error) }
             return

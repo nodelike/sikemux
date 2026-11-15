@@ -40,6 +40,13 @@ final class Account {
     var sessionId: String? { session }
 
     func load() async {
+        #if DEBUG
+            if Showcase.current != nil {
+                user = Showcase.user
+                state = .signedIn(userId: Showcase.user.id)
+                return
+            }
+        #endif
         let saved: Saved?
         do {
             saved =

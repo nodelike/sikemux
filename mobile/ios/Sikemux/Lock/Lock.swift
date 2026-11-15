@@ -100,6 +100,9 @@ final class Lock {
 
     /// Nil when the Keychain refuses, as it does while the phone is locked; the app then stays locked.
     private static func chosen() -> Bool? {
+        #if DEBUG
+            if Showcase.current != nil { return false }
+        #endif
         do {
             return try Keychain.app.read(item) == "on"
         } catch {

@@ -431,7 +431,10 @@ waits its turn. Nothing on it is lost (the app installed and its data), but it
 shuts down three minutes after nobody holds it, and element numbers and log
 cursors start over. Inside a turn, a device idle for ten minutes goes to an
 agent waiting for room; `sim detach` one you are done with. A device the person
-picked on your desk stays there when your turn ends.
+picked on your desk stays there when your turn ends. For pictures of an app,
+use a build that runs on its own data, as the project's AGENTS.md says, rather
+than a device signed in to the person's account; never ask them to sign one in
+for a picture.
 
 `sim state` reads the screen: the frontmost `app` (`Home Screen`, or `System`
 for alerts, Control Center or the lock screen) and numbered `elements` with
