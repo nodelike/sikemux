@@ -43,7 +43,7 @@ use gpui_transcript::Row as _;
 use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;
 use sikemux_gpui::workbench::actions::{self, CommandId};
-use sikemux_gpui::workbench::{Edge, Workbench};
+use sikemux_gpui::workbench::{Rail, Workbench};
 use sikemux_gpui::{core, icons, memory, theme, WINDOW_SIZE};
 use sikemux_view::layout::Pane;
 use sikemux_wire::protocol::{ChatAttachment, LaunchIdentity, SpawnTarget, TerminalSpawn};
@@ -638,7 +638,7 @@ fn resize(run: &mut Run, driver: &Arc<Driver>) {
         run.cx
             .update_window(run.window, |_, window, cx| {
                 bench.update(cx, |bench, cx| {
-                    bench.resize_rail(Edge::Start, width, window, cx)
+                    bench.resize_rail(Rail::Side, width, window, cx)
                 })
             })
             .ok();

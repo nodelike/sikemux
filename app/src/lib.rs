@@ -72,6 +72,7 @@ mod send_to;
 pub mod settings;
 mod share;
 mod sim;
+mod skeleton;
 mod skills_added;
 mod snapshot;
 mod space_editor;

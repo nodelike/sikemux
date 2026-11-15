@@ -32,7 +32,7 @@ use crate::agents::menu::AgentMenu;
 use crate::agents::rows::AgentRow;
 use crate::icons::Icon;
 use crate::motion;
-use crate::rail::{Edge, RailWidth};
+use crate::rail::{Rail, RailWidth};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_6, TEXT_2XS,
     TEXT_3XS, TEXT_SM, TEXT_XS,
@@ -66,9 +66,9 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let frame = bench.rails.frame.clone();
     let rail = ui::panel(cx)
         .relative()
-        .w(px(bench.rail_width(Edge::End)))
+        .w(px(bench.rail_width(Rail::Agents)))
         .flex_none();
-    crate::rail::keyed_rail(rail, Edge::End, bench, cx)
+    crate::rail::keyed_rail(rail, Rail::Agents, bench, cx)
         .child(
             canvas(
                 |_, _, _| {},
@@ -458,7 +458,7 @@ fn header_frame(
                                 t!("Keep agents rail open")
                             },
                         )
-                        .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Edge::End, cx))),
+                        .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Rail::Agents, cx))),
                     ),
                 ),
         )
@@ -705,7 +705,7 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
                     .on_click(on(delete_recent)),
             )
         }));
-    (bench.rails.keyed(Edge::End)).row(keyed_id, label, row, cx)
+    (bench.rails.keyed(Rail::Agents)).row(keyed_id, label, row, cx)
 }
 
 /// The foot of Recent, which brings the next page of older chats once it scrolls into view.
@@ -1273,7 +1273,7 @@ fn agent_row(
                 _ => popup,
             }
         }));
-    (bench.rails.keyed(Edge::End)).row(keyed_id, label, row, cx)
+    (bench.rails.keyed(Rail::Agents)).row(keyed_id, label, row, cx)
 }
 
 /// The projects a list of every project shows, each led by its @Chief: those with a chief's chat

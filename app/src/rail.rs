@@ -12,9 +12,9 @@ use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::menu::{ContextMenuExt, DropdownMenu, PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, App, AppContext, ClickEvent, Context, Div, Entity, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity, Window,
+    div, px, Anchor, AnyElement, App, ClickEvent, Context, Div, DragMoveEvent, Entity, FontWeight,
+    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
+    StyleRefinement, Styled, WeakEntity, Window,
 };
 use sikemux_calls::hosts::Found as HostFound;
 use sikemux_calls::hosts::HostRow;
@@ -37,14 +37,31 @@ use crate::theme::{
 };
 use crate::ui::{Button, Group, IconButton, Row, Tone, Variant};
 use crate::workbench::{Strip, Workbench};
-use crate::{agents, keymap, motion, rail, tabs, ui};
+use crate::{keymap, motion, tabs, ui};
 use sikemux_calls::call;
 use sikemux_calls::workspace::UpdateProjectParams;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// The two rails: the side rail of projects, and the tab rail of agents and chats.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rail {
+    Side,
+    Agents,
+}
+
+impl Rail {
+    pub fn widths(self) -> RailWidth {
+        match self {
+            Rail::Side => SIDE_RAIL,
+            Rail::Agents => crate::agents::TAB_RAIL,
+        }
+    }
+}
+
+/// The window's edge a closed rail comes out from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Edge {
-    Start,
-    End,
+    Left,
+    Right,
 }
 
 /// How wide a rail can be dragged, and how wide it starts.
@@ -56,19 +73,11 @@ pub struct RailWidth {
 }
 
 /// A rail's handle while it is dragged.
-pub(crate) struct DraggedRail(pub(crate) Edge);
+#[derive(Clone)]
+pub(crate) struct DraggedRail(pub(crate) Rail);
 
 /// How far past its own width a peeking rail starts and ends, out of sight beyond the window.
 const PEEK_GAP: f32 = 10.;
-
-impl Render for DraggedRail {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        gpui_kit::Empty
-    }
-}
-
-/// The handle between a docked rail and the stage.
-const RESIZER_WIDTH: f32 = 10.;
 
 /// How long a peeking rail stays after the pointer leaves it.
 const PEEK_CLOSE: Duration = Duration::from_millis(180);
@@ -88,6 +97,7 @@ impl Rails {
             tab_open: true,
             side_width: SIDE_RAIL.initial,
             tab_width: crate::agents::TAB_RAIL.initial,
+            drawn: [SIDE_RAIL.initial, crate::agents::TAB_RAIL.initial],
             resizers: [cx.focus_handle(), cx.focus_handle()],
             peeking: None,
             unpeek: None,
@@ -109,8 +119,8 @@ impl Rails {
         }
     }
 
-    pub(crate) fn keyed(&self, edge: Edge) -> &KeyedRows {
-        &self.keyed[edge as usize]
+    pub(crate) fn keyed(&self, rail: Rail) -> &KeyedRows {
+        &self.keyed[rail as usize]
     }
 
     /// Opens, sizes and pages the rails as the person's preferences keep them.
@@ -128,6 +138,13 @@ impl Rails {
             .clone_from(&preferences.folded_rail_groups);
     }
 
+    pub(crate) fn open(&self, rail: Rail) -> bool {
+        match rail {
+            Rail::Side => self.side_open,
+            Rail::Agents => self.tab_open,
+        }
+    }
+
     pub(crate) fn folded(&self, group: &str) -> bool {
         self.folded_groups.iter().any(|folded| folded == group)
     }
@@ -141,9 +158,11 @@ pub struct Rails {
     pub(crate) tab_open: bool,
     pub(crate) side_width: f32,
     pub(crate) tab_width: f32,
+    /// How wide each rail was last drawn, by [`Rail`]: as kept, unless the window is narrow.
+    pub(crate) drawn: [f32; 2],
     /// The handles beside the rails, which arrow keys move once focused.
     pub(crate) resizers: [gpui_kit::FocusHandle; 2],
-    pub(crate) peeking: Option<Edge>,
+    pub(crate) peeking: Option<Rail>,
     pub(crate) unpeek: Option<gpui_kit::Task<()>>,
     /// Which of its pages the tab rail shows.
     pub page: TabRailPage,
@@ -195,9 +214,9 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
         None => t!("no projects").to_owned(),
     };
     let rail = ui::panel(cx)
-        .w(px(bench.rail_width(Edge::Start)))
+        .w(px(bench.rail_width(Rail::Side)))
         .flex_none();
-    keyed_rail(rail, Edge::Start, bench, cx)
+    keyed_rail(rail, Rail::Side, bench, cx)
         .child(masthead(bench, cx))
         .child(
             div()
@@ -207,7 +226,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                 .pt(SPACE_2H)
                 .px(SPACE_2H)
                 .pb(SPACE_4)
-                .track_scroll(&bench.rails.keyed(Edge::Start).scroll)
+                .track_scroll(&bench.rails.keyed(Rail::Side).scroll)
                 .overflow_y_scroll()
                 .child(
                     Group::new(t!("Projects"), empty)
@@ -861,7 +880,7 @@ fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> 
                 }))
                 .mark(16., ui::icon(Icon::Terminal, 13.).text_color(live))
                 .quiet();
-            let keyed = bench.rails.keyed(Edge::Start);
+            let keyed = bench.rails.keyed(Rail::Side);
             keyed.row(format!("terminal-{}", session.id), name, row, cx)
         })
         .collect()
@@ -917,7 +936,7 @@ fn masthead(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement 
                         t!("Keep the side rail open")
                     },
                 )
-                .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Edge::Start, cx))),
+                .on_click(cx.listener(|bench, _, _, cx| bench.toggle_rail(Rail::Side, cx))),
             ),
         )
 }
@@ -1058,7 +1077,7 @@ fn project_tree(
         .context_menu(ui::menu(menu))
         .child(row)
         .children(close);
-    let row = (bench.rails.keyed(Edge::Start)).row(format!("project-{key}"), name, row, cx);
+    let row = (bench.rails.keyed(Rail::Side)).row(format!("project-{key}"), name, row, cx);
     div().flex().flex_col().child(row).when(active, |tree| {
         tree.pb(SPACE_1)
             .child(surfaces(bench, lit_surface(bench), cx))
@@ -1254,7 +1273,7 @@ fn surfaces(
     front: Option<PaneKind>,
     cx: &Context<Workbench>,
 ) -> impl IntoElement {
-    let keyed = workbench.rails.keyed(Edge::Start);
+    let keyed = workbench.rails.keyed(Rail::Side);
     let bench = cx.entity().downgrade();
     let surfaces = crate::pane_kind::SURFACES
         .into_iter()
@@ -1485,7 +1504,7 @@ fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 space.name.clone().into(),
             )
         }));
-    let width = bench.rail_width(Edge::Start) - 20.;
+    let width = bench.rail_width(Rail::Side) - 20.;
     div()
         .mb(SPACE_1H)
         .child(track)
@@ -1623,7 +1642,7 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         ),
     ];
     let sign_out = act(|bench, _, _| bench.sign_out());
-    let menu_width = px(bench.rail_width(Edge::Start)) - SPACE_2H * 2. - px(2.);
+    let menu_width = px(bench.rail_width(Rail::Side)) - SPACE_2H * 2. - px(2.);
     let menu = ui::menu_button(
         "account-menu",
         Anchor::BottomLeft,
@@ -1788,39 +1807,44 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
 }
 
 /// `rail` taking the keys, whose arrows walk the rows it lists.
-pub(crate) fn keyed_rail(rail: Div, edge: Edge, bench: &Workbench, cx: &Context<Workbench>) -> Div {
+pub(crate) fn keyed_rail(
+    rail: Div,
+    which: Rail,
+    bench: &Workbench,
+    cx: &Context<Workbench>,
+) -> Div {
     fn on<A: gpui_kit::Action>(
-        edge: Edge,
+        which: Rail,
         cx: &Context<Workbench>,
     ) -> impl Fn(&A, &mut Window, &mut App) + use<A> {
         let this = cx.weak_entity();
         move |key: &A, window: &mut Window, cx: &mut App| {
             this.update(cx, |bench, cx| {
-                if bench.rails.keyed[edge as usize].key(key, window, cx) {
-                    bench.redraw_rail(edge, cx);
+                if bench.rails.keyed[which as usize].key(key, window, cx) {
+                    bench.redraw_rail(which, cx);
                 }
             })
             .ok();
         }
     }
-    rail.track_focus(&bench.rails.keyed(edge).focus)
+    rail.track_focus(&bench.rails.keyed(which).focus)
         .key_context(keyed::CONTEXT)
-        .on_action(on::<keyed::Previous>(edge, cx))
-        .on_action(on::<keyed::Next>(edge, cx))
-        .on_action(on::<keyed::First>(edge, cx))
-        .on_action(on::<keyed::Last>(edge, cx))
-        .on_action(on::<keyed::Open>(edge, cx))
-        .on_action(on::<keyed::ShowMenu>(edge, cx))
+        .on_action(on::<keyed::Previous>(which, cx))
+        .on_action(on::<keyed::Next>(which, cx))
+        .on_action(on::<keyed::First>(which, cx))
+        .on_action(on::<keyed::Last>(which, cx))
+        .on_action(on::<keyed::Open>(which, cx))
+        .on_action(on::<keyed::ShowMenu>(which, cx))
         .on_action(
             cx.listener(|bench, _: &keyed::Leave, window, cx| bench.keys_to_stage(window, cx)),
         )
 }
 
 impl Workbench {
-    pub(crate) fn redraw_rail(&self, edge: Edge, cx: &mut App) {
-        let part = match edge {
-            Edge::Start => &self.parts.rail,
-            Edge::End => &self.parts.tabs,
+    pub(crate) fn redraw_rail(&self, rail: Rail, cx: &mut App) {
+        let part = match rail {
+            Rail::Side => &self.parts.side,
+            Rail::Agents => &self.parts.agents,
         };
         self.parts.redraw(part, cx);
     }
@@ -1833,36 +1857,34 @@ impl Workbench {
         }
     }
 
-    /// Moves the keys `by` one area along the window's: the side rail, the view in front and
-    /// the tab rail, leaving out a closed rail, and around.
+    /// Moves the keys `by` one area along the window's, in the order the skeleton reads them,
+    /// leaving out a closed rail, and around.
     pub(crate) fn step_area(&mut self, by: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let areas: Vec<Option<Edge>> = [
-            (Some(Edge::Start), self.rails.side_open),
-            (None, true),
-            (Some(Edge::End), self.rails.tab_open),
-        ]
-        .into_iter()
-        .filter_map(|(area, open)| open.then_some(area))
-        .collect();
-        let now = [Edge::Start, Edge::End]
+        let areas: Vec<Option<Rail>> = (self.skeleton.areas())
+            .filter(|area| area.is_none_or(|rail| self.rails.open(rail)))
+            .collect();
+        if areas.is_empty() {
+            return;
+        }
+        let now = [Rail::Side, Rail::Agents]
             .into_iter()
-            .find(|edge| self.rails.keyed(*edge).focus.contains_focused(window, cx));
+            .find(|rail| self.rails.keyed(*rail).focus.contains_focused(window, cx));
         let at = areas.iter().position(|area| *area == now).unwrap_or(0);
         let to = areas[(at as isize + by).rem_euclid(areas.len() as isize) as usize];
         match to {
-            Some(edge) => {
-                self.rails.keyed[edge as usize].take_keys(window, cx);
-                self.redraw_rail(edge, cx);
+            Some(rail) => {
+                self.rails.keyed[rail as usize].take_keys(window, cx);
+                self.redraw_rail(rail, cx);
             }
             None => self.keys_to_stage(window, cx),
         }
     }
 
     /// Keeps a rail open, or closes it; a peeking rail that is kept stays where it is.
-    pub fn toggle_rail(&mut self, edge: Edge, cx: &mut Context<Self>) {
-        let open = match edge {
-            Edge::Start => &mut self.rails.side_open,
-            Edge::End => &mut self.rails.tab_open,
+    pub fn toggle_rail(&mut self, rail: Rail, cx: &mut Context<Self>) {
+        let open = match rail {
+            Rail::Side => &mut self.rails.side_open,
+            Rail::Agents => &mut self.rails.tab_open,
         };
         *open = !*open;
         self.rails.peeking = None;
@@ -1870,24 +1892,30 @@ impl Workbench {
         cx.notify();
     }
 
-    pub fn rail_width(&self, edge: Edge) -> f32 {
-        match edge {
-            Edge::Start => self.rails.side_width,
-            Edge::End => self.rails.tab_width,
+    /// How wide `rail` is drawn, which a narrow window can make less than the width kept.
+    pub fn rail_width(&self, rail: Rail) -> f32 {
+        self.rails.drawn[rail as usize]
+    }
+
+    fn kept_width(&self, rail: Rail) -> f32 {
+        match rail {
+            Rail::Side => self.rails.side_width,
+            Rail::Agents => self.rails.tab_width,
         }
     }
 
     /// Sets a rail's width, within what that rail allows, and draws it at once.
     pub fn resize_rail(
         &mut self,
-        edge: Edge,
+        rail: Rail,
         width: f32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (kept, range) = match edge {
-            Edge::Start => (&mut self.rails.side_width, rail::SIDE_RAIL),
-            Edge::End => (&mut self.rails.tab_width, agents::TAB_RAIL),
+        let range = rail.widths();
+        let kept = match rail {
+            Rail::Side => &mut self.rails.side_width,
+            Rail::Agents => &mut self.rails.tab_width,
         };
         let width = width.clamp(range.min, range.max).round();
         if *kept != width {
@@ -1897,53 +1925,46 @@ impl Workbench {
         }
     }
 
-    /// Moves the edge between a rail and the stage `by` points to the right.
+    /// Moves `rail`'s edge beside the stage `by` points to the right.
     pub(crate) fn nudge_rail(
         &mut self,
-        edge: Edge,
+        rail: Rail,
         by: f32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let outward = match edge {
-            Edge::Start => by,
-            Edge::End => -by,
+        let outward = match self.skeleton.peek_edge(rail) {
+            Edge::Left => by,
+            Edge::Right => -by,
         };
-        self.resize_rail(edge, self.rail_width(edge) + outward, window, cx);
+        self.resize_rail(rail, self.kept_width(rail) + outward, window, cx);
     }
 
     /// The handle between a rail and the stage, dragged or moved by arrow keys to resize the rail.
-    pub(crate) fn rail_resizer(&self, edge: Edge, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(crate) fn rail_resizer(&self, rail: Rail, cx: &mut Context<Self>) -> impl IntoElement {
         use crate::keymap::{EdgeFarLeft, EdgeFarRight, EdgeLeft, EdgeRight};
-        div()
-            .id(match edge {
-                Edge::Start => "resize-side-rail",
-                Edge::End => "resize-tab-rail",
-            })
-            .flex_none()
-            .w(px(RESIZER_WIDTH))
-            .h_full()
-            .cursor_col_resize()
+        let id = match rail {
+            Rail::Side => "resize-side-rail",
+            Rail::Agents => "resize-tab-rail",
+        };
+        crate::panes::handle(id, DraggedRail(rail), true)
             .key_context("RailResizer")
-            .track_focus(&self.rails.resizers[edge as usize])
+            .track_focus(&self.rails.resizers[rail as usize])
             .clicks_keep_cursor(cx.listener(move |bench, _, window, cx| {
-                bench.rails.resizers[edge as usize].focus(window, cx)
+                bench.rails.resizers[rail as usize].focus(window, cx)
             }))
             .on_action(cx.listener(move |bench, _: &EdgeLeft, window, cx| {
-                bench.nudge_rail(edge, -16., window, cx)
+                bench.nudge_rail(rail, -16., window, cx)
             }))
             .on_action(cx.listener(move |bench, _: &EdgeRight, window, cx| {
-                bench.nudge_rail(edge, 16., window, cx)
+                bench.nudge_rail(rail, 16., window, cx)
             }))
             .on_action(cx.listener(move |bench, _: &EdgeFarLeft, window, cx| {
-                bench.nudge_rail(edge, -40., window, cx)
+                bench.nudge_rail(rail, -40., window, cx)
             }))
             .on_action(cx.listener(move |bench, _: &EdgeFarRight, window, cx| {
-                bench.nudge_rail(edge, 40., window, cx)
+                bench.nudge_rail(rail, 40., window, cx)
             }))
-            .on_drag(DraggedRail(edge), |rail, _, _, cx| {
-                cx.new(|_| DraggedRail(rail.0))
-            })
     }
 
     /// Takes the rails as the person last left them, from the core's preferences.
@@ -2037,11 +2058,11 @@ impl Workbench {
 
     /// Shows a closed rail over the stage while the pointer is at its edge or over it, and puts
     /// it away a moment after the pointer leaves.
-    pub(crate) fn peek(&mut self, edge: Edge, inside: bool, cx: &mut Context<Self>) {
+    pub(crate) fn peek(&mut self, rail: Rail, inside: bool, cx: &mut Context<Self>) {
         if inside {
             self.rails.unpeek = None;
-            if self.rails.peeking != Some(edge) {
-                self.rails.peeking = Some(edge);
+            if self.rails.peeking != Some(rail) {
+                self.rails.peeking = Some(rail);
                 cx.notify();
             }
             return;
@@ -2049,7 +2070,7 @@ impl Workbench {
         self.rails.unpeek = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(PEEK_CLOSE).await;
             let _ = this.update(cx, |bench, cx| {
-                if bench.rails.peeking == Some(edge) {
+                if bench.rails.peeking == Some(rail) {
                     bench.rails.peeking = None;
                     cx.notify();
                 }
@@ -2057,54 +2078,77 @@ impl Workbench {
         }));
     }
 
-    /// A docked rail and its handle, `tuck` of the way under the stage. It keeps its width as
-    /// it goes, so nothing in it wraps again; the stage takes the room it gives up.
+    /// A docked rail and its handle, `tuck` of the way under the stage, the handle after it
+    /// when `handle_after`. It keeps its width as it goes, so nothing in it wraps again; the
+    /// stage takes the room it gives up.
     pub(crate) fn docked_rail(
         &self,
-        edge: Edge,
+        rail: Rail,
         tuck: f32,
+        handle_after: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (part, width) = match edge {
-            Edge::Start => (&self.parts.rail, self.rails.side_width),
-            Edge::End => (&self.parts.tabs, self.rails.tab_width),
-        };
-        let rail = crate::settings::leaves(div().h_full().flex_none(), cx).child(
-            part.clone()
+        let width = self.rail_width(rail);
+        let drawn = crate::settings::leaves(div().h_full().flex_none(), cx).child(
+            self.rail_part(rail)
+                .clone()
                 .cached(StyleRefinement::default().w(px(width)).h_full().flex_none()),
         );
         let drawer = div()
+            .id(match rail {
+                Rail::Side => "side-rail-drawer",
+                Rail::Agents => "tab-rail-drawer",
+            })
             .flex_none()
             .h_full()
-            .w(px((width + RESIZER_WIDTH) * (1. - tuck)))
+            .w(px((width + crate::panes::GAP) * (1. - tuck)))
             .overflow_hidden()
             .flex()
-            .opacity(1. - tuck);
-        match edge {
-            Edge::Start => drawer.child(rail).child(self.rail_resizer(edge, cx)),
-            Edge::End => drawer
+            .opacity(1. - tuck)
+            .on_drag_move(cx.listener(
+                move |bench, event: &DragMoveEvent<DraggedRail>, window, cx| {
+                    if event.drag(cx).0 != rail {
+                        return;
+                    }
+                    let (x, bounds) = (event.event.position.x, event.bounds);
+                    let width = match handle_after {
+                        true => x - bounds.left(),
+                        false => bounds.right() - x,
+                    };
+                    let width = f32::from(width) - crate::panes::GAP / 2.;
+                    bench.resize_rail(rail, width, window, cx);
+                },
+            ));
+        match handle_after {
+            true => drawer.child(drawn).child(self.rail_resizer(rail, cx)),
+            false => drawer
                 .justify_end()
-                .child(self.rail_resizer(edge, cx))
-                .child(rail),
+                .child(self.rail_resizer(rail, cx))
+                .child(drawn),
+        }
+    }
+
+    fn rail_part(&self, rail: Rail) -> &Entity<crate::workbench::Part> {
+        match rail {
+            Rail::Side => &self.parts.side,
+            Rail::Agents => &self.parts.agents,
         }
     }
 
     /// A closed rail's edge of the window, which brings the rail out over the stage.
     pub(crate) fn rail_edge(
         &self,
-        edge: Edge,
+        rail: Rail,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (part, width) = match edge {
-            Edge::Start => (&self.parts.rail, self.rails.side_width),
-            Edge::End => (&self.parts.tabs, self.rails.tab_width),
-        };
-        let peeking = self.rails.peeking == Some(edge);
+        let width = self.kept_width(rail);
+        let edge = self.skeleton.peek_edge(rail);
+        let peeking = self.rails.peeking == Some(rail);
         let shown = motion::follow(
-            match edge {
-                Edge::Start => "peek-start-shown",
-                Edge::End => "peek-end-shown",
+            match rail {
+                Rail::Side => "peek-side-shown",
+                Rail::Agents => "peek-agents-shown",
             },
             if peeking { 1. } else { 0. },
             if peeking {
@@ -2117,37 +2161,38 @@ impl Workbench {
         );
         let away = (width + PEEK_GAP) * (1. - shown);
         let zone = div()
-            .id(match edge {
-                Edge::Start => "peek-start",
-                Edge::End => "peek-end",
+            .id(match rail {
+                Rail::Side => "peek-side",
+                Rail::Agents => "peek-agents",
             })
             .absolute()
-            .top(px(tabs::top_height(self) + 4.))
-            .bottom(px(10.))
+            .top(px(tabs::top_height(self) + crate::skeleton::UNDER_BAR))
+            .bottom(px(crate::skeleton::INSET))
             .w(px(if shown > 0. { width + 20. } else { PEEK_REACH }))
             .px(SPACE_2H)
-            .on_hover(cx.listener(move |bench, inside: &bool, _, cx| bench.peek(edge, *inside, cx)))
+            .on_hover(cx.listener(move |bench, inside: &bool, _, cx| bench.peek(rail, *inside, cx)))
             .when(shown > 0., |zone| {
                 zone.child(
                     div()
                         .h_full()
                         .relative()
                         .left(px(match edge {
-                            Edge::Start => -away,
-                            Edge::End => away,
+                            Edge::Left => -away,
+                            Edge::Right => away,
                         }))
                         .opacity(shown)
                         .child(
                             crate::settings::leaves(div().h_full(), cx).child(
-                                part.clone()
+                                self.rail_part(rail)
+                                    .clone()
                                     .cached(StyleRefinement::default().w(px(width)).h_full()),
                             ),
                         ),
                 )
             });
         match edge {
-            Edge::Start => zone.left_0(),
-            Edge::End => zone.right_0(),
+            Edge::Left => zone.left_0(),
+            Edge::Right => zone.right_0(),
         }
     }
 }

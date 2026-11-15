@@ -263,7 +263,7 @@ impl Workbench {
                 settle(self, moved, |bench: &mut Self| &mut bench.rails.slide, cx);
             }
         }
-        self.parts.redraw(&self.parts.tabs, cx);
+        self.parts.redraw(&self.parts.agents, cx);
         true
     }
 

@@ -68,7 +68,7 @@ impl Workbench {
             _events: events,
         });
         self.parts.redraw_stage(cx);
-        self.parts.redraw(&self.parts.rail, cx);
+        self.parts.redraw(&self.parts.side, cx);
     }
 
     pub fn finish_retitle(&mut self, save: bool, cx: &mut Context<Self>) {
@@ -94,6 +94,6 @@ impl Workbench {
             ));
         }
         self.parts.redraw_stage(cx);
-        self.parts.redraw(&self.parts.rail, cx);
+        self.parts.redraw(&self.parts.side, cx);
     }
 }

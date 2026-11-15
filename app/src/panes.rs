@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, px, relative, AnyElement, App, AppContext, Bounds, Context, CursorStyle,
+    canvas, div, px, relative, AnyElement, App, AppContext, Bounds, Context, CursorStyle, Div,
     DragMoveEvent, EmptyView, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window,
+    Pixels, Point, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
 };
 use sikemux_view::layout::{Pane, PaneKind, SplitDir, Tab};
 
@@ -664,7 +664,7 @@ pub(crate) fn handle<T: Clone + 'static>(
     id: impl Into<SharedString>,
     value: T,
     across: bool,
-) -> impl IntoElement {
+) -> Stateful<Div> {
     div()
         .id(id.into())
         .flex_none()
@@ -921,7 +921,7 @@ impl Workbench {
         let was = self.desk_file(cx);
         self.panes.focused = Some(id);
         if self.desk_file(cx) != was {
-            self.parts.redraw(&self.parts.tabs, cx);
+            self.parts.redraw(&self.parts.agents, cx);
         }
     }
 

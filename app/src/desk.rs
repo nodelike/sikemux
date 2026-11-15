@@ -2059,7 +2059,7 @@ pub fn pane(
                 cx.listener(move |bench, _, _, cx| {
                     bench.close_desk_item(&close_agent, close_item.clone(), cx);
                     bench.parts.redraw_stage(cx);
-                    bench.parts.redraw(&bench.parts.tabs, cx);
+                    bench.parts.redraw(&bench.parts.agents, cx);
                 }),
                 cx,
             )
@@ -2068,7 +2068,7 @@ pub fn pane(
                 bench.desks.update(cx, |desks, cx| {
                     desks.bring_front(&pick_agent, pick_item.clone(), cx)
                 });
-                bench.parts.redraw(&bench.parts.tabs, cx);
+                bench.parts.redraw(&bench.parts.agents, cx);
             }))
             .context_menu(ui::menu(tab_menu(
                 cx.weak_entity(),

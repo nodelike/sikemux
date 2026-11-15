@@ -406,7 +406,7 @@ impl Workbench {
                 self.files_retry.answered();
                 let listed = decoded(value, "file list").unwrap_or_default();
                 self.files.listed(listed, &self.target());
-                return self.parts.redraw(&self.parts.tabs, cx);
+                return self.parts.redraw(&self.parts.agents, cx);
             }
             Read::GitProjectRepo => {
                 let was = self.git_repo();
@@ -428,8 +428,8 @@ impl Workbench {
                 if let Some(overview) = overview {
                     self.git.overview(overview, in_front, cx);
                 }
-                self.parts.redraw(&self.parts.top, cx);
-                return self.parts.redraw(&self.parts.tabs, cx);
+                self.parts.redraw_top(cx);
+                return self.parts.redraw(&self.parts.agents, cx);
             }
             Read::ProjectFiles => {
                 let answered = decoded(value, "project files")
@@ -523,7 +523,7 @@ impl Workbench {
                 if !read.is_some_and(|read| keep(kept, Some(read))) {
                     return;
                 }
-                self.parts.redraw(&self.parts.rail, cx);
+                self.parts.redraw(&self.parts.side, cx);
             }
             Read::Themes => {
                 if !keep_decoded(&mut self.reads.themes, value, "themes") {

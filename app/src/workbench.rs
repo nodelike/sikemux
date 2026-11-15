@@ -1,6 +1,5 @@
 use crate::keyboard::Keyboard;
-use crate::rail::DraggedRail;
-pub use crate::rail::Edge;
+pub use crate::rail::Rail;
 use crate::trust::Trust;
 use sikemux_calls::call;
 use sikemux_view::layout::At;
@@ -17,10 +16,10 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, deferred, div, px, AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context,
-    DragMoveEvent, Entity, ExternalPaths, FocusHandle, Image, InteractiveElement, IntoElement,
-    MouseButton, NavigationDirection, ParentElement, Pixels, Render, SharedString, StyleRefinement,
-    Styled, Subscription, Task, WeakEntity, Window,
+    canvas, deferred, div, AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context, Entity,
+    ExternalPaths, FocusHandle, Image, InteractiveElement, IntoElement, MouseButton,
+    NavigationDirection, ParentElement, Pixels, Render, SharedString, StyleRefinement, Styled,
+    Subscription, Task, WeakEntity, Window,
 };
 use sikemux_view::device::DeviceView;
 use sikemux_view::prefs::Preferences;
@@ -37,7 +36,7 @@ use crate::overlays::{Layer, Overlays};
 use crate::pickers::finder::ProjectFiles;
 use crate::reads::{Read, Reads};
 use crate::search::SearchPane;
-use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
+use crate::theme::{self, Tokens, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
 use sikemux_calls::agent_accounts::AccountUsage;
@@ -120,6 +119,8 @@ pub struct Workbench {
     pub agent_card: crate::agents::card::Card,
     /// Where the stage was last drawn, for what rises over the stage alone.
     pub stage_frame: Rc<Cell<Bounds<Pixels>>>,
+    /// Where the window's parts sit.
+    pub(crate) skeleton: crate::skeleton::Skeleton,
     /// The space whose projects the rail shows, else every project.
     pub space: Option<String>,
     pub git: crate::git::GitTab,
@@ -330,7 +331,7 @@ impl Workbench {
             }),
         ];
         let rails = crate::rail::Rails::new(cx);
-        for edge in [crate::rail::Edge::Start, crate::rail::Edge::End] {
+        for edge in [crate::rail::Rail::Side, crate::rail::Rail::Agents] {
             cx.on_blur(&rails.keyed(edge).focus, window, move |bench, _, cx| {
                 bench.redraw_rail(edge, cx)
             })
@@ -375,6 +376,7 @@ impl Workbench {
             closing_tabs: Default::default(),
             agent_card: crate::agents::card::Card::default(),
             stage_frame: Rc::default(),
+            skeleton: crate::skeleton::Skeleton::default(),
             space: None,
             feeds: Default::default(),
             track: crate::track::Slide::default(),
@@ -419,7 +421,7 @@ impl Workbench {
         bench.desk_news.follow(&bench.desks, &bench.sims, cx);
         bench.parts.stage_follows(&bench.editors, cx);
         bench.parts.stage_follows(&bench.settings, cx);
-        bench.parts.top.update(cx, |part, cx| {
+        bench.parts.bar.update(cx, |part, cx| {
             part.stores
                 .push(cx.observe(&bench.calls, |_, _, cx| cx.notify()))
         });
@@ -754,10 +756,13 @@ impl Render for Part {
 /// touches one part, such as a terminal's, draws only that one.
 #[derive(Clone)]
 pub struct Parts {
-    pub top: Entity<Part>,
-    pub rail: Entity<Part>,
-    pub stage: Entity<Part>,
+    pub bar: Entity<Part>,
+    /// The row of the place's tabs under the bar.
     pub tabs: Entity<Part>,
+    pub side: Entity<Part>,
+    /// The tab rail, of agents and chats.
+    pub agents: Entity<Part>,
+    pub stage: Entity<Part>,
     pub finder: Entity<Part>,
     /// The welcome or the release notes over the whole window.
     pub over: Entity<Part>,
@@ -777,13 +782,17 @@ impl Parts {
                 })
             };
         Self {
-            top: part(
-                |bench, window, cx| tabs::top_bar(bench, window, cx).into_any_element(),
+            bar: part(
+                |bench, window, cx| tabs::bar(bench, window, cx).into_any_element(),
                 true,
             ),
-            rail: part(
+            tabs: part(
+                |bench, _, cx| tabs::tab_row(bench, cx).unwrap_or_else(|| div().into_any_element()),
+                true,
+            ),
+            side: part(
                 |bench, window, cx| {
-                    bench.rails.keyed(rail::Edge::Start).begin(window);
+                    bench.rails.keyed(rail::Rail::Side).begin(window);
                     rail::side_rail(bench, cx).into_any_element()
                 },
                 false,
@@ -810,9 +819,9 @@ impl Parts {
                 },
                 false,
             ),
-            tabs: part(
+            agents: part(
                 |bench, window, cx| {
-                    bench.rails.keyed(rail::Edge::End).begin(window);
+                    bench.rails.keyed(rail::Rail::Agents).begin(window);
                     bench.accounts.limits.drawing_rail();
                     let rail = agents::tab_rail(bench, cx);
                     bench.settle_limits();
@@ -844,6 +853,12 @@ impl Parts {
     /// again, and GPUI aborts on an update of an entity it is already updating.
     pub fn redraw(&self, part: &Entity<Part>, cx: &mut App) {
         cx.notify(part.entity_id());
+    }
+
+    /// Draws the bar again, and the row of tabs under it.
+    pub fn redraw_top(&self, cx: &mut App) {
+        self.redraw(&self.bar, cx);
+        self.redraw(&self.tabs, cx);
     }
 
     /// Draws the stage again whenever `store` says it changed.
@@ -889,6 +904,10 @@ impl Render for Workbench {
         });
         let t = Tokens::get(cx);
         window.set_ground(Some(crate::see_through::ground(t.surface_sunken, cx)));
+        self.fit_rails(
+            f32::from(window.viewport_size().width),
+            [side_tuck, tab_tuck],
+        );
         let parts = &self.parts;
         div()
             .id("shell")
@@ -928,57 +947,17 @@ impl Render for Workbench {
             .text_size(crate::theme::ui_text(TEXT_SM))
             .line_height(crate::theme::ui_text(13. * 1.45))
             .text_color(t.text_secondary)
-            .child(
-                parts.top.clone().cached(
-                    StyleRefinement::default()
-                        .w_full()
-                        .h(px(tabs::top_height(self)))
-                        .flex_none(),
-                ),
-            )
-            .child(
-                div()
-                    .id("shell-row")
-                    .flex()
-                    .flex_1()
-                    .min_h_0()
-                    .pt(SPACE_1)
-                    .px(SPACE_2H)
-                    .pb(SPACE_2H)
-                    .on_drag_move(cx.listener(
-                        |bench, event: &DragMoveEvent<DraggedRail>, window, cx| {
-                            let edge = event.drag(cx).0;
-                            let (x, bounds) = (event.event.position.x, event.bounds);
-                            let width = match edge {
-                                Edge::Start => x - bounds.left(),
-                                Edge::End => bounds.right() - x,
-                            };
-                            bench.resize_rail(edge, f32::from(width) - 15., window, cx);
-                        },
-                    ))
-                    .when(side_tuck < 1., |row| {
-                        row.child(self.docked_rail(Edge::Start, side_tuck, cx))
-                    })
-                    .child(
-                        parts
-                            .stage
-                            .clone()
-                            .cached(StyleRefinement::default().flex_1().min_w_0().h_full()),
-                    )
-                    .when(tab_tuck < 1., |row| {
-                        row.child(self.docked_rail(Edge::End, tab_tuck, cx))
-                    }),
-            )
+            .child(self.draw_skeleton([side_tuck, tab_tuck], cx))
             // Web pages cover all GPUI draws but deferred layers, so what floats goes here.
             .child(deferred(
                 div()
                     .absolute()
                     .inset_0()
                     .when(!self.rails.side_open, |above| {
-                        above.child(self.rail_edge(Edge::Start, window, cx))
+                        above.child(self.rail_edge(Rail::Side, window, cx))
                     })
                     .when(!self.rails.tab_open, |above| {
-                        above.child(self.rail_edge(Edge::End, window, cx))
+                        above.child(self.rail_edge(Rail::Agents, window, cx))
                     })
                     .children(asked)
                     .children(crate::overlays::dialogs(self, cx))

@@ -183,7 +183,7 @@ impl Workbench {
                     self.this_view().map(|shown| &shown.account) != Some(&view.account);
                 self.feeds.this.view = Some(view);
                 if account_moved {
-                    self.parts.redraw(&self.parts.rail, cx);
+                    self.parts.redraw(&self.parts.side, cx);
                 }
                 self.forget_departed(cx);
                 self.show_pins(cx);
@@ -323,7 +323,7 @@ impl Workbench {
             let root = (self.files.root.as_ref()).map(|root| root.to_string_lossy().into_owned());
             if project.is_none() || project == root.as_deref() {
                 if self.files.changed(paths) {
-                    self.parts.redraw(&self.parts.tabs, cx);
+                    self.parts.redraw(&self.parts.agents, cx);
                 }
                 if self.overlays.finder.is_some() {
                     self.project_files.read(root.as_deref(), &self.target());

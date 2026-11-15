@@ -29,7 +29,7 @@ use sikemux_view::workspace::LauncherInfo;
 
 use crate::core::Target;
 use crate::icons::Icon;
-use crate::rail::Edge;
+use crate::rail::Rail;
 use crate::theme::{
     radius_1, radius_2, radius_3, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS,
     TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H,
@@ -1397,7 +1397,7 @@ fn settle_hover(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             if wanted && reading_is_old(bench, ui::time::now_ms()) {
                 start_reading(bench, cx);
             }
-            bench.parts.redraw(&bench.parts.tabs, cx);
+            bench.parts.redraw(&bench.parts.agents, cx);
         });
     }));
 }
@@ -1420,8 +1420,8 @@ impl Reveal {
 
 /// Draws what shows the plan limits again: the rail's panel and the top bar's popover.
 pub(crate) fn redraw(bench: &Workbench, cx: &mut App) {
-    bench.parts.redraw(&bench.parts.tabs, cx);
-    bench.parts.redraw(&bench.parts.top, cx);
+    bench.parts.redraw(&bench.parts.agents, cx);
+    bench.parts.redraw_top(cx);
 }
 
 /// Reads the limits again when the window comes to the front with them on screen and the last
@@ -1595,7 +1595,7 @@ impl Workbench {
     /// Whether the rail is up and its last draw held the panel. On an SSH host the
     /// rail draws something else, and a peeking rail draws it with the rail kept closed.
     fn limits_panel_shown(&self) -> bool {
-        (self.rails.tab_open || self.rails.peeking == Some(Edge::End))
+        (self.rails.tab_open || self.rails.peeking == Some(Rail::Agents))
             && self.accounts.limits.panel_drawn.get()
     }
 
