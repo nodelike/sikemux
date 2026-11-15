@@ -285,9 +285,12 @@ impl Session {
 
     pub fn shell_at_prompt(&self) -> bool {
         self.is_running()
-            && self
-                .pid
-                .is_some_and(|pid| sikemux_pty::process::shell_at_prompt(self.fd(), pid))
+            && self.pid.is_some_and(|pid| {
+                sikemux_pty::process::shell_at_prompt(
+                    sikemux_pty::process::Terminal::from_fd(self.fd()),
+                    pid,
+                )
+            })
     }
 
     pub fn has_subscribers(&self) -> bool {
@@ -472,7 +475,8 @@ pub fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreResult<Pen
         .map_err(CoreError::pty)?;
     let shell_metadata_enabled = shell_integration.is_some() || ssh;
 
-    let child = pair.slave.spawn_command(command).map_err(CoreError::pty)?;
+    let child = sikemux_process::spawn_hearing_ctrl_c(|| pair.slave.spawn_command(command))
+        .map_err(CoreError::pty)?;
     let pid = child.process_id();
     if let Some(pid) = pid {
         sikemux_process::cgroups::move_into_own_cgroup(pid);

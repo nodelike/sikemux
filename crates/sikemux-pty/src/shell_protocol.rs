@@ -594,4 +594,59 @@ mod tests {
         assert_eq!(value["phase"], "unknown");
         assert!(value.get("exitCode").is_none());
     }
+
+    /// The prompt Sikemux gives PowerShell must reach the parser through a pseudoconsole,
+    /// which drops escape sequences it does not pass on.
+    #[cfg(windows)]
+    #[test]
+    fn powershell_reports_its_folder_and_prompt_through_the_pseudoconsole() {
+        use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+        use std::time::{Duration, Instant};
+
+        let root = tempfile::tempdir().expect("shell root");
+        let cwd = root.path().join("repo root");
+        std::fs::create_dir(&cwd).expect("shell cwd");
+        let pair = NativePtySystem::default()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 200,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("open pty");
+        let mut command = CommandBuilder::new("powershell.exe");
+        command.arg("-NoProfile");
+        command.cwd(&cwd);
+        let _integration =
+            crate::shell::configure_shell_integration(&mut command, "powershell.exe")
+                .expect("configure PowerShell")
+                .expect("PowerShell is supported");
+        let arrivals = crate::pseudoconsole_output::pseudoconsole_output(&*pair.master);
+        let mut child = pair.slave.spawn_command(command).expect("spawn PowerShell");
+        drop(pair.slave);
+
+        let mut parser = ShellProtocolParser::default();
+        let mut seen = Vec::new();
+        let mut reported = None;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while reported.is_none() && Instant::now() < deadline {
+            let Ok(chunk) = arrivals.recv_timeout(Duration::from_millis(200)) else {
+                continue;
+            };
+            seen.extend_from_slice(&chunk);
+            reported = parser
+                .process(&chunk)
+                .latest
+                .and_then(|update| update.metadata.cwd);
+        }
+        let _ = crate::process::kill_and_reap_child(&mut child, None);
+        drop(pair.master);
+        let reported = reported
+            .unwrap_or_else(|| panic!("no folder reported: {:?}", String::from_utf8_lossy(&seen)));
+        // The temporary folder may be named by its short 8.3 form, which the shell spells out.
+        assert_eq!(
+            std::fs::canonicalize(&reported).expect("reported folder exists"),
+            std::fs::canonicalize(&cwd).expect("shell cwd exists"),
+        );
+    }
 }

@@ -76,18 +76,56 @@ pub fn configure_interactive_command(
         .collect::<Vec<_>>()
         .join(" ");
     if let Some(folder) = path_first {
-        let folder = quote_shell_word(&folder.to_string_lossy(), kind);
+        let folder = folder.to_string_lossy();
+        #[cfg(windows)]
+        let folder = match kind {
+            Some(ShellKind::Bash | ShellKind::Zsh | ShellKind::Fish) => posix_path(&folder).into(),
+            _ => folder,
+        };
+        let separator = if cfg!(windows) { ';' } else { ':' };
         let put_first = match kind {
-            Some(ShellKind::Fish) => format!("set -gx PATH {folder} $PATH; "),
-            Some(ShellKind::PowerShell) => format!("$env:PATH = {folder} + ':' + $env:PATH; "),
-            _ => format!("export PATH={folder}:\"$PATH\"; "),
+            Some(ShellKind::Fish) => {
+                format!("set -gx PATH {} $PATH; ", quote_shell_word(&folder, kind))
+            }
+            Some(ShellKind::PowerShell) => format!(
+                "$env:PATH = {} + '{separator}' + $env:PATH; ",
+                quote_shell_word(&folder, kind)
+            ),
+            None if cfg!(windows) => format!("set \"PATH={folder};%PATH%\" & "),
+            _ => format!(
+                "export PATH={}:\"$PATH\"; ",
+                quote_shell_word(&folder, kind)
+            ),
         };
         invocation.insert_str(0, &put_first);
     }
     #[cfg(unix)]
     command.args(["-l", "-i", "-c", &invocation]);
     #[cfg(windows)]
-    command.args(["-NoLogo", "-NoExit", "-Command", &format!("& {invocation}")]);
+    match kind {
+        Some(ShellKind::PowerShell) => {
+            command.args(["-NoLogo", "-Command", &format!("& {invocation}")]);
+        }
+        Some(ShellKind::Bash | ShellKind::Zsh | ShellKind::Fish) => {
+            command.args(["-l", "-i", "-c", &invocation]);
+        }
+        None => {
+            command.args(["/D", "/S", "/C", &format!("\"{invocation}\"")]);
+        }
+    }
+}
+
+/// `C:\Users\me` as Git Bash names it, `/c/Users/me`.
+#[cfg(windows)]
+fn posix_path(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    let mut characters = path.chars();
+    match (characters.next(), characters.next()) {
+        (Some(drive), Some(':')) if drive.is_ascii_alphabetic() => {
+            format!("/{}{}", drive.to_ascii_lowercase(), characters.as_str())
+        }
+        _ => path,
+    }
 }
 
 fn quote_shell_word(value: &str, kind: Option<ShellKind>) -> String {
@@ -96,7 +134,7 @@ fn quote_shell_word(value: &str, kind: Option<ShellKind>) -> String {
             format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
         }
         Some(ShellKind::PowerShell) => format!("'{}'", value.replace('\'', "''")),
-        _ if cfg!(windows) => format!("'{}'", value.replace('\'', "''")),
+        None if cfg!(windows) => format!("\"{}\"", value.replace('"', "\"\"")),
         _ => sikemux_process::single_quoted(value),
     }
 }
