@@ -41,7 +41,8 @@ fn a_path_in_a_folder_of_repositories_is_found_one_level_down() {
 
     let (dir, paths) = checkout_for(&named("lib/only.ts")).unwrap();
     assert_eq!(dir, folder.join("api"));
-    assert_eq!(paths, named("api/lib/only.ts"));
+    let as_paths = |paths: &[String]| paths.iter().map(PathBuf::from).collect::<Vec<_>>();
+    assert_eq!(as_paths(&paths), as_paths(&named("api/lib/only.ts")));
 
     let several = checkout_for(&named("shared.ts")).unwrap_err();
     assert!(

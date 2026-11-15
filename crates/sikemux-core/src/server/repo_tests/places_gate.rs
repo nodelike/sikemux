@@ -552,7 +552,7 @@ async fn from_now_on_counts_as_the_person_confirming_that_place() {
 async fn a_tag_pushed_with_the_branch_still_meets_the_landing_rule() {
     let dir = repo();
     let (cwd, _) = work_of(&dir);
-    let cwd = sikemux_repo::real_path(cwd).unwrap();
+    let cwd = std::fs::canonicalize(cwd).unwrap();
     let project = cwd.to_string_lossy().into_owned();
     git(&cwd, &["tag", "marker"]);
     let release = TAG_RELEASES;
@@ -590,7 +590,7 @@ async fn a_tag_pushed_with_the_branch_still_meets_the_landing_rule() {
 async fn a_push_from_another_repository_reaches_none_of_the_projects_places() {
     let (ours, theirs) = (repo(), repo());
     let (cwd, _) = work_of(&ours);
-    let project = sikemux_repo::real_path(&cwd).unwrap();
+    let project = std::fs::canonicalize(&cwd).unwrap();
     let project = project.to_string_lossy().into_owned();
     let release = TAG_RELEASES;
     let found = {

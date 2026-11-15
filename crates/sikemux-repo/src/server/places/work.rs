@@ -97,6 +97,7 @@ mod tests {
             &["init", "--bare", "-b", "main", origin.to_str().unwrap()],
         );
         git(&work, &["init", "-b", "main"]);
+        git(&work, &["config", "core.autocrlf", "false"]);
         std::fs::write(work.join("app.txt"), "one\ntwo\nthree\n").unwrap();
         std::fs::write(work.join("other.txt"), "a\n").unwrap();
         git(&work, &["add", "."]);
