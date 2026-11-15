@@ -12,6 +12,7 @@ mod client;
 mod common;
 mod config;
 mod error;
+mod feed;
 mod images;
 mod inbox;
 mod issues;
@@ -31,10 +32,10 @@ use sikemux_plugin_api::account::{as_account, named_in};
 use sikemux_plugin_api::codehost::asks::*;
 use sikemux_plugin_api::codehost::{self, CodeHost};
 use sikemux_plugin_api::codehost::{
-    Annotation, Artifact, Attached, ChangedFile, Check, Comment, CommitAuthor, Issue, IssuePage,
-    JobLog, JobSummary, LogExcerpt, Notification, PendingApproval, Pull, PullCommit, PullCounts,
-    Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming,
-    TimelineItem, Workflow, WorkflowFile,
+    Annotation, Artifact, Attached, ChangedFile, Check, CiMoved, Comment, CommitAuthor, Issue,
+    IssuePage, JobLog, JobSummary, LogExcerpt, Notification, PendingApproval, Pull, PullCommit,
+    PullCounts, Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage,
+    RunTiming, TimelineItem, Workflow, WorkflowFile,
 };
 use sikemux_plugin_api::credential::{Acting, Ask, Credential};
 use sikemux_plugin_api::host_work;
@@ -161,6 +162,10 @@ impl Github {
 }
 
 impl CodeHost for Github {
+    fn ci_event<'a>(&'a self, _dir: &'a Path, ask: CiEvent) -> PluginFuture<'a, Option<CiMoved>> {
+        Box::pin(async move { Ok(feed::take(ask)?) })
+    }
+
     fn resolve_remote<'a>(&'a self, dir: &'a Path, ask: RemoteQuery) -> PluginFuture<'a, Resolved> {
         Box::pin(async move { Ok(resolve(dir, ask)) })
     }
@@ -177,6 +182,7 @@ impl CodeHost for Github {
         dispatch_workflow(dir, ask: Dispatch) -> () = workflows::dispatch(dir, ask);
         runs(dir, ask: RunQuery) -> RunPage = runs::list(dir, ask);
         run(dir, ask: RunRef) -> RunDetail = runs::detail(dir, ask);
+        add_ci_hook(dir, ask: CiHookAdd) -> String = feed::add_hook(dir, ask);
         run_attempt(dir, ask: AttemptRef) -> RunDetail = runs::attempt(dir, ask);
         run_timing(dir, ask: RunRef) -> RunTiming = runs::timing(dir, ask);
         rerun(dir, ask: Rerun) -> () = runs::rerun(dir, ask);

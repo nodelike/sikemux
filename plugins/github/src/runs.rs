@@ -2,9 +2,7 @@
 // them. Times are passed through as GitHub wrote them, so whoever shows them
 // decides how to phrase "3 minutes ago".
 
-use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{LazyLock, Mutex};
 
 use reqwest::Method;
 use serde::Deserialize;
@@ -15,18 +13,11 @@ use sikemux_plugin_api::codehost::{
     Billable, Job, Outcome, Run, RunDetail, RunPage, RunTiming, Step,
 };
 
-use sikemux_plugin_api::account::chosen;
-
 use crate::client;
 use crate::common::LIST_PAGES;
 use crate::error::{GithubError, GithubResult};
+use crate::feed;
 use crate::repo::RepoPath;
-
-/// Runs whose last read is kept, so reading one again while it is unchanged
-/// costs nothing against the rate limit.
-const FOLLOWED_AT_MOST: usize = 32;
-
-static FOLLOWED: LazyLock<Mutex<HashMap<String, Followed>>> = LazyLock::new(Default::default);
 
 const DEFAULT_PER_PAGE: u32 = 30;
 const MAX_PER_PAGE: u32 = 100;
@@ -43,14 +34,14 @@ struct PullRequestRef {
 }
 
 #[derive(Deserialize)]
-struct RunRow {
+pub(crate) struct RunRow {
     id: u64,
     name: Option<String>,
     display_title: Option<String>,
     workflow_id: u64,
     path: Option<String>,
     run_number: u64,
-    run_attempt: Option<u64>,
+    pub(crate) run_attempt: Option<u64>,
     event: String,
     status: Option<String>,
     conclusion: Option<String>,
@@ -157,11 +148,14 @@ pub fn job_path(job: &JobRef, rest: &str) -> GithubResult<String> {
 /// interchangeably; `head_sha` keeps only one commit's runs, which is how a pull
 /// request's checks are found.
 pub async fn list(data_dir: &Path, input: RunQuery) -> GithubResult<RunPage> {
-    let workflow_id = input.workflow_id.as_deref().map(numeric).transpose()?;
     let per_page = input
         .per_page
         .unwrap_or(DEFAULT_PER_PAGE)
         .clamp(1, MAX_PER_PAGE);
+    if let Some(page) = feed::runs(&input, per_page) {
+        return Ok(page);
+    }
+    let workflow_id = input.workflow_id.as_deref().map(numeric).transpose()?;
     let page = input.page.unwrap_or(1).max(1);
     let mut query = vec![
         ("per_page", per_page.to_string()),
@@ -221,6 +215,7 @@ pub async fn list(data_dir: &Path, input: RunQuery) -> GithubResult<RunPage> {
     };
     let list: RunList = client::API.get(data_dir, &path, &query).await?;
     let runs: Vec<Run> = list.workflow_runs.into_iter().map(Run::from).collect();
+    feed::listed(&input.repo, &runs);
     let seen = u64::from(page.saturating_sub(1)) * u64::from(per_page) + runs.len() as u64;
     Ok(RunPage {
         next_page: (seen < list.total_count && !runs.is_empty()).then(|| page + 1),
@@ -240,8 +235,8 @@ struct StepRow {
 }
 
 #[derive(Deserialize)]
-struct JobRow {
-    id: u64,
+pub(crate) struct JobRow {
+    pub(crate) id: u64,
     name: String,
     status: Option<String>,
     conclusion: Option<String>,
@@ -256,8 +251,6 @@ struct JobRow {
 
 #[derive(Deserialize)]
 struct JobList {
-    #[serde(default)]
-    total_count: u64,
     jobs: Vec<JobRow>,
 }
 
@@ -309,97 +302,23 @@ fn latest() -> [(&'static str, String); 1] {
     [("filter", "latest".to_string())]
 }
 
-/// A run and its jobs. The core reads a run that is going every few seconds,
-/// so each read asks GitHub only for what changed since the last.
+/// A run and its jobs, from what its repository's events told when that still holds.
 pub async fn detail(data_dir: &Path, input: RunRef) -> GithubResult<RunDetail> {
-    let key = format!("{}|{}", chosen().unwrap_or_default(), run_path(&input, "")?);
-    let taken = FOLLOWED
-        .lock()
-        .ok()
-        .and_then(|mut followed| followed.remove(&key));
-    let mut held = taken.unwrap_or_default();
-    let (detail, _) = follow(data_dir, &input, &mut held).await?;
-    if let Ok(mut followed) = FOLLOWED.lock() {
-        if followed.len() >= FOLLOWED_AT_MOST {
-            let evicted = followed.keys().next().cloned();
-            if let Some(evicted) = evicted {
-                followed.remove(&evicted);
-            }
-        }
-        followed.insert(key, held);
+    if let Some(detail) = feed::detail(&input.repo, numeric(&input.run_id)?) {
+        return Ok(detail);
     }
-    Ok(detail)
-}
-
-/// What the last read of a run returned, so an unchanged run costs nothing.
-#[derive(Default)]
-struct Followed {
-    run: Option<(Run, Option<String>)>,
-    jobs: Option<(Vec<Job>, Option<String>)>,
-}
-
-impl Followed {
-    fn last(&self) -> (Option<Run>, Vec<Job>) {
-        (
-            self.run.as_ref().map(|(run, _)| run.clone()),
-            self.jobs
-                .as_ref()
-                .map(|(jobs, _)| jobs.clone())
-                .unwrap_or_default(),
-        )
-    }
-}
-
-/// The run and its jobs as they are now, and how many requests GitHub will
-/// still take this hour.
-async fn follow(
-    data_dir: &Path,
-    input: &RunRef,
-    held: &mut Followed,
-) -> GithubResult<(RunDetail, Option<u64>)> {
-    let run_etag = held.run.as_ref().and_then(|(_, etag)| etag.clone());
-    let jobs_etag = held.jobs.as_ref().and_then(|(_, etag)| etag.clone());
-    let jobs_query = [
-        ("per_page", MAX_PER_PAGE.to_string()),
-        ("filter", "latest".to_string()),
-    ];
-    let paged = held
-        .jobs
-        .as_ref()
-        .is_some_and(|(jobs, _)| jobs.len() >= MAX_PER_PAGE as usize);
-    let jobs_path = run_path(input, "/jobs")?;
-    let run_path = run_path(input, "")?;
-    let (run, jobs) = futures::future::join(
-        client::get_if_changed::<RunRow>(data_dir, &run_path, &[], run_etag.as_deref()),
-        client::get_if_changed::<JobList>(data_dir, &jobs_path, &jobs_query, jobs_etag.as_deref()),
+    let jobs_path = run_path(&input, "/jobs")?;
+    let (row, jobs) = futures::future::join(
+        client::API.get::<RunRow>(data_dir, &run_path(&input, "")?, &[]),
+        job_rows(data_dir, &jobs_path, &latest()),
     )
     .await;
-    let (run, jobs) = (run?, jobs?);
-    if let Some(row) = run.value {
-        held.run = Some((Run::from(row), run.etag));
-    }
-    // Past a hundred jobs the first page no longer shows every change, so
-    // the whole list is read again.
-    match jobs.value {
-        Some(list) if list.total_count <= list.jobs.len() as u64 => {
-            held.jobs = Some((list.jobs.into_iter().map(Job::from).collect(), jobs.etag));
-        }
-        Some(_) => held.jobs = Some((job_rows(data_dir, &jobs_path, &latest()).await?, jobs.etag)),
-        None if paged => {
-            let all = job_rows(data_dir, &jobs_path, &latest()).await?;
-            if let Some(held) = held.jobs.as_mut() {
-                held.0 = all;
-            }
-        }
-        None => {}
-    }
-    let remaining = match (run.remaining, jobs.remaining) {
-        (Some(a), Some(b)) => Some(a.min(b)),
-        (a, b) => a.or(b),
+    let detail = RunDetail {
+        run: Run::from(row?),
+        jobs: jobs?,
     };
-    let (run, jobs) = held.last();
-    let run = run.ok_or_else(|| GithubError::Response("GitHub sent no run".into()))?;
-    Ok((RunDetail { run, jobs }, remaining))
+    feed::read(&input.repo, &detail);
+    Ok(detail)
 }
 
 pub async fn rerun(data_dir: &Path, input: Rerun) -> GithubResult<()> {

@@ -163,65 +163,6 @@ pub async fn get_all<P: DeserializeOwned, T>(
     .await
 }
 
-/// An answer to a conditional read. GitHub does not count a "nothing changed"
-/// answer against the rate limit, which is what lets a run be watched closely.
-pub struct Conditional<T> {
-    /// Absent when nothing changed since `etag`.
-    pub value: Option<T>,
-    pub etag: Option<String>,
-    /// Requests left before the rate limit, when GitHub said.
-    pub remaining: Option<u64>,
-}
-
-pub async fn get_if_changed<T: DeserializeOwned>(
-    data_dir: &Path,
-    path: &str,
-    query: &[(&str, String)],
-    etag: Option<&str>,
-) -> GithubResult<Conditional<T>> {
-    let (bytes, etag, remaining) = fetch_if_changed(data_dir, path, query, etag).await?;
-    Ok(Conditional {
-        value: bytes
-            .as_deref()
-            .map(http::parse)
-            .transpose()
-            .map_err(GithubError::from)?,
-        etag,
-        remaining,
-    })
-}
-
-async fn fetch_if_changed(
-    data_dir: &Path,
-    path: &str,
-    query: &[(&str, String)],
-    etag: Option<&str>,
-) -> GithubResult<(Option<Vec<u8>>, Option<String>, Option<u64>)> {
-    let session = Session::current(data_dir).await?;
-    let mut request = api_request(HTTP.client()?, &session, Method::GET, path, JSON).query(query);
-    if let Some(etag) = etag {
-        request = request.header("If-None-Match", etag);
-    }
-    let answer = HTTP
-        .exchange(&session.account.id, request, Read::ALL)
-        .await?;
-    if answer.status == StatusCode::UNAUTHORIZED {
-        Github::turned_down(&session).await;
-    }
-    let header = |name: &str| {
-        answer
-            .headers
-            .get(name)
-            .and_then(|value| value.to_str().ok())
-    };
-    let remaining = header("x-ratelimit-remaining").and_then(|value| value.trim().parse().ok());
-    if answer.status == StatusCode::NOT_MODIFIED {
-        return Ok((None, etag.map(str::to_string), remaining));
-    }
-    let etag = header("etag").map(str::to_string);
-    Ok((Some(answer.succeeded()?.bytes), etag, remaining))
-}
-
 /// Logs, artifacts and release files are served as a redirect to storage,
 /// which is followed without the token: the signed address carries its own
 /// permission, and storage refuses a request that sends both.

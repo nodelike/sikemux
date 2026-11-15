@@ -172,6 +172,15 @@ pub struct Run {
     pub url: String,
 }
 
+/// The repository a CI event was about, and whether one of its runs moved rather than only a job.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CiMoved {
+    pub owner: String,
+    pub name: String,
+    pub run_moved: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunPage {

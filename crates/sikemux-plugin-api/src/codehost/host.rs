@@ -94,6 +94,10 @@ code_host! {
     dispatch_workflow "dispatch" (Dispatch) -> ();
     runs "runs" read (RunQuery) -> RunPage;
     run "run" read (RunRef) -> RunDetail;
+    /// Takes in a CI event the host's webhook sent, which `runs` and `run` then answer from.
+    ci_event "ciEvent" read (CiEvent) -> Option<CiMoved>;
+    /// Has the host send a repository's CI events to an address; answers the hook's id.
+    add_ci_hook "addCiHook" (CiHookAdd) -> String;
     run_attempt "runAttempt" read (AttemptRef) -> RunDetail;
     run_timing "runTiming" read (RunRef) -> RunTiming;
     rerun "rerun" (Rerun) -> ();

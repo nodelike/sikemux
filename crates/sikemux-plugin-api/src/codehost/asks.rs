@@ -123,6 +123,29 @@ pub struct RunQuery {
     pub per_page: Option<u32>,
 }
 
+/// A request a code host's webhook sent about CI, with the secret the hook was made with.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CiEvent {
+    /// What the host says the request is about, such as GitHub's `X-GitHub-Event`.
+    pub event: String,
+    /// The host's signature of the body, such as GitHub's `X-Hub-Signature-256`.
+    #[serde(default)]
+    pub signature: Option<String>,
+    pub secret: String,
+    pub body: String,
+}
+
+/// Has a repository's CI events sent to `url`, signed with `secret`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CiHookAdd {
+    #[serde(flatten)]
+    pub repo: RepoRef,
+    pub url: String,
+    pub secret: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RunRef {
