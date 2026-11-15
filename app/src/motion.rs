@@ -11,11 +11,36 @@ use std::time::{Duration, Instant};
 use gpui_kit::base::animation::cubic_bezier;
 use gpui_kit::base::motion::Interpolate;
 use gpui_kit::prelude::FluentBuilder;
+use sikemux_view::prefs::Motion;
 use gpui_kit::{
-    div, px, radians, Animation, AnyElement, App, Bounds, Div, Element, ElementId, GlobalElementId,
+    div, px, radians, Animation, AnyElement, App, Bounds, Div, Element, ElementId, Global,
+    GlobalElementId,
     Hsla, InspectorElementId, InteractiveElement, IntoElement, LayoutId, ParentElement, Pixels,
     Point, Rgba, SharedString, Styled, Svg, Transformation, Window,
 };
+
+/// The person's Motion choice in Appearance, over macOS's own.
+struct Chosen(Motion);
+
+impl Global for Chosen {}
+
+/// Moves the interface as the person chose: as macOS says, less, or not at all.
+pub fn set_motion(motion: Motion, cx: &mut App) {
+    if cx.try_global::<Chosen>().is_some_and(|chosen| chosen.0 == motion) {
+        return;
+    }
+    cx.set_global(Chosen(motion));
+    crate::ui::grain::follow_reduced_motion(cx);
+}
+
+/// Whether the interface moves less than macOS says, or the same.
+pub fn chosen(cx: &App) -> Motion {
+    cx.try_global::<Chosen>().map_or(Motion::System, |chosen| chosen.0)
+}
+
+fn nothing_moves(cx: &App) -> bool {
+    chosen(cx) == Motion::Off
+}
 
 /// How a value moves to a new target: over how long, on which curve, and whether it moves
 /// while macOS asks for less motion.
@@ -54,6 +79,11 @@ impl Ease {
     pub const fn moves_when_reduced(mut self) -> Self {
         self.moves_when_reduced = true;
         self
+    }
+
+    /// Whether this moves now, as macOS and the person's Motion choice allow.
+    pub fn moves(self, cx: &App) -> bool {
+        !cx.reduce_motion() || (self.moves_when_reduced && !nothing_moves(cx))
     }
 
     /// Where the curve is a share `t` of the way through.
@@ -191,7 +221,7 @@ fn follow_over<T: Interpolate + PartialEq + 'static>(
         over: Duration::ZERO,
     });
     if state.read(cx).to != target {
-        let still = cx.reduce_motion() && !ease.moves_when_reduced;
+        let still = !ease.moves(cx);
         let shown = state.read(cx).at(now, ease);
         let from = if still { target.clone() } else { shown };
         let over = over(&from, &target);
@@ -373,7 +403,7 @@ impl<K: PartialEq + Clone + 'static> Element for Replay<K> {
         let kept = key.clone();
         let state = window.use_keyed_state(self.id.clone(), cx, |_, _| (kept, None::<Instant>));
         if state.read(cx).0 != key {
-            let moves = !cx.reduce_motion() || ease.moves_when_reduced;
+            let moves = ease.moves(cx);
             let since = moves.then(Instant::now);
             state.update(cx, |state, _| *state = (key, since));
         }

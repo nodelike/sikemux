@@ -441,7 +441,7 @@ calls! { core, client, method, params;
     "openSshTerminal" = OpenSshTerminal: Full, counted => super::spare::open_ssh_terminal(&core, params).await?,
     "takeSpareShell": NoDevice => answer(super::spare::take(&core, parse(params)?)),
     "themes" = Themes: Watch => super::themes::listed(&core),
-    "themePalette" = ThemePalette: Watch => super::themes::palette_of(params.theme),
+    "themePalette" = ThemePalette: Watch => super::themes::palette_of(params.theme, core.preferences().get().contrast),
     "themeFromColours": Watch => answer(super::themes::built_from_colours(parse(params)?)?),
     "themeFromPixels" = ThemeFromPixels: Watch, counted => super::wallpaper::theme_from_pixels(params)?,
     "codeHostPulls" = CodeHostPulls: Watch => super::codehost::pulls(&core, client.id, params).await,

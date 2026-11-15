@@ -68,6 +68,10 @@ pub struct Preferences {
     pub ui_text_scale: f64,
     /// When scroll bars show, whatever the theme.
     pub scrollbars: Scrollbars,
+    /// How far greys and borders stand from the ground, whatever the theme.
+    pub contrast: Contrast,
+    /// How much the interface moves, whatever the theme.
+    pub motion: Motion,
     pub terminal_font_size: u32,
     pub chat_text_scale: f64,
     /// How wide a chat's messages and composer grow on a wide window.
@@ -233,6 +237,8 @@ preference_changes! {
     ChiefRotation chief_rotation: bool,
     UiTextScale ui_text_scale: f64,
     Scrollbars scrollbars: Scrollbars,
+    Contrast contrast: Contrast,
+    Motion motion: Motion,
     TerminalFontSize terminal_font_size: u32,
     ChatTextScale chat_text_scale: f64,
     ChatWidth chat_width: ChatWidth,
@@ -392,6 +398,27 @@ pub enum Scrollbars {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum Contrast {
+    #[default]
+    Normal,
+    /// Greys nearer the ink and borders that stand out, for eyes that need it.
+    More,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Motion {
+    /// As macOS's Reduce motion says.
+    #[default]
+    System,
+    /// Only what shows where something went, as with Reduce motion on.
+    Reduced,
+    /// Nothing moves.
+    Off,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum RailDensity {
     #[default]
     Comfortable,
@@ -427,6 +454,8 @@ impl Default for Preferences {
             chief_rotation: false,
             ui_text_scale: UI_TEXT_SCALES[0],
             scrollbars: Scrollbars::default(),
+            contrast: Contrast::default(),
+            motion: Motion::default(),
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             chat_text_scale: DEFAULT_TEXT_SCALE,
             chat_width: ChatWidth::default(),

@@ -466,6 +466,7 @@ impl Workbench {
                     crate::ui::grain::set(&preferences, cx);
                     crate::theme::set_text_scale(preferences.ui_text_scale as f32, cx);
                     crate::theme::set_scrollbars(preferences.scrollbars, cx);
+                    crate::motion::set_motion(preferences.motion, cx);
                     if crate::i18n::speak(preferences.language.as_deref()) {
                         cx.refresh_windows();
                     }

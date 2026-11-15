@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use base64::Engine;
 use sikemux_grid::TerminalColors;
-use sikemux_view::prefs::{Preferences, DEFAULT_THEME_ID};
+use sikemux_view::prefs::{Contrast, Preferences, DEFAULT_THEME_ID};
 use sikemux_view::theme::{
     Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSource, ThemeStyle,
     ThemeSummary, ThemeTerminal, UiStyle, UiTokens,
@@ -61,7 +61,7 @@ pub fn default_palette() -> Palette {
 }
 
 pub fn palette(preferences: &Preferences, omarchy: Option<&Theme>) -> Palette {
-    palette_of(resolve(preferences, omarchy))
+    palette_of(resolve(preferences, omarchy), preferences.contrast)
 }
 
 /// The theme with `id` among every theme to pick from.
@@ -89,8 +89,10 @@ fn style(theme: &Theme) -> UiStyle {
 
 /// The tokens DESIGN.md names, worked out from a theme's colours as the Mac's
 /// stylesheet and theme code work them out.
-fn tokens(theme: &Theme) -> UiTokens {
+fn tokens(theme: &Theme, contrast: Contrast) -> UiTokens {
     let (c, h) = (&theme.chrome, &theme.highlight);
+    let more = contrast == Contrast::More;
+    let step = |normal: f64, stronger: f64| if more { stronger } else { normal };
     let (ink, bg, acc, bg_dim, ink_dim, line) = (
         rgba(&c.ink),
         rgba(&c.bg),
@@ -100,7 +102,8 @@ fn tokens(theme: &Theme) -> UiTokens {
         rgba(&c.line),
     );
     let gray = |percent: f64| mix_oklab(ink, bg, percent / 100.);
-    let readable_on = |color: &str, grounds: &[&str]| readable_css(color, grounds, &c.ink, 4.6);
+    let least = step(4.6, 7.);
+    let readable_on = |color: &str, grounds: &[&str]| readable_css(color, grounds, &c.ink, least);
     let grounds = [c.bg.as_str(), c.bg_dim.as_str(), c.bg_raised.as_str()];
     let near = [c.bg.as_str(), c.bg_raised.as_str()];
     let seed = |dark: &str, light: &str| {
@@ -124,24 +127,24 @@ fn tokens(theme: &Theme) -> UiTokens {
         overlay: show(gray(4.)),
         composer: show(gray(5.)),
         surface_composer: show(mix_srgb(gray(7.), bg_dim, 0.55)),
-        hover: show(with_alpha(ink, 0.06)),
+        hover: show(with_alpha(ink, step(0.06, 0.1))),
         chosen: show(with_alpha(ink, 0.09)),
         active: show(with_alpha(ink, 0.10)),
         selected: show(with_alpha(acc, 0.14)),
         tooltip: show(mix_srgb([1., 1., 1., 1.], gray(7.), 0.06 / 1.03)),
-        border: show(gray(11.)),
-        border_strong: show(gray(22.)),
+        border: show(gray(step(11., 26.))),
+        border_strong: show(gray(step(22., 42.))),
         border_selected: show(with_alpha(acc, 0.42)),
         line: show(line),
         line_soft: show(rgba(&c.bg_raised)),
         ink: show(ink),
-        secondary: show(gray(76.)),
+        secondary: show(gray(step(76., 88.))),
         tertiary: muted.clone(),
-        disabled: show(gray(32.)),
+        disabled: show(gray(step(32., 52.))),
         ink_dim: show(ink_dim),
         ink_faint: muted.clone(),
-        rest: show(gray(32.)),
-        icon_quiet: show(gray(42.)),
+        rest: show(gray(step(32., 52.))),
+        icon_quiet: show(gray(step(42., 62.))),
         accent: show(acc),
         accent_soft: show(with_alpha(acc, 0.10)),
         on_accent: show(bg_dim),
@@ -317,9 +320,9 @@ pub fn by_name(palette: &Palette) -> std::collections::BTreeMap<String, String> 
 }
 
 /// The palette a theme draws with, saved or not, as a theme editor previews it.
-pub fn palette_of(theme: Theme) -> Palette {
+pub fn palette_of(theme: Theme, contrast: Contrast) -> Palette {
     Palette {
-        tokens: tokens(&theme),
+        tokens: tokens(&theme, contrast),
         style: style(&theme),
         theme,
     }

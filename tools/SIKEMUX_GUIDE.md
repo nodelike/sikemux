@@ -231,7 +231,9 @@ one you name with `theme`.
   same name again replaces your earlier save.
   `{"base": "aura-noir", "name": "Square Noir", "style": {"corners": 0}}`
 - `adjust` — the person's own settings, which stay whatever theme is worn:
-  `scrollbars` is `scrolling` (shown while a list moves), `hover` or `always`.
+  `scrollbars` is `scrolling` (shown while a list moves), `hover` or `always`;
+  `contrast` is `normal` or `more` (greys nearer the text, firmer borders);
+  `motion` is `system` (as macOS says), `reduced` or `off`.
 
 Colours are `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` or `transparent`; anything
 else is refused. `chrome.ink` must read at 4.5:1 on `chrome.bg`. Style:

@@ -163,8 +163,8 @@ impl Workbench {
         });
     }
 
-    /// What an agent's `theme_set` changed, said with Undo, which wears the theme and scroll
-    /// bars from before.
+    /// What an agent's `theme_set` changed, said with Undo, which wears the theme, scroll
+    /// bars, contrast and motion from before.
     pub(crate) fn theme_set(
         &mut self,
         request: HarnessRequest,
@@ -183,6 +183,9 @@ impl Workbench {
             serde_json::from_value(undo["theme"].clone()).map(PreferenceChange::ThemeId),
             serde_json::from_value(undo["adjust"]["scrollbars"].clone())
                 .map(PreferenceChange::Scrollbars),
+            serde_json::from_value(undo["adjust"]["contrast"].clone())
+                .map(PreferenceChange::Contrast),
+            serde_json::from_value(undo["adjust"]["motion"].clone()).map(PreferenceChange::Motion),
         ]
         .into_iter()
         .flatten()

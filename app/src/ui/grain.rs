@@ -15,7 +15,7 @@ use gpui::{
     canvas, div, relative, AnyElement, App, AppContext, Context, Global, Hsla, IntoElement,
     ParentElement, RawShaderProgram, RenderImage, Rgba, Styled, Task, Window,
 };
-use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern, Preferences};
+use sikemux_view::prefs::{Motion, PaneColours, PaneCoverage, PanePattern, Preferences};
 
 use crate::theme::{self, radius_3, Tokens};
 
@@ -718,10 +718,13 @@ pub fn drive_state(window: &Window, cx: &App) -> serde_json::Value {
     })
 }
 
-/// Takes the system's ask for less motion again. macOS changes it in System Settings, so reading
+/// Takes the system's ask for less motion again, or the person's Motion choice over it. macOS changes it in System Settings, so reading
 /// it each time the window comes back to the front follows it; Linux also says when it changes.
-fn follow_reduced_motion(cx: &mut App) {
-    let reduce = test_motion().unwrap_or_else(system_reduces_motion);
+pub(crate) fn follow_reduced_motion(cx: &mut App) {
+    let reduce = test_motion().unwrap_or_else(|| match crate::motion::chosen(cx) {
+        Motion::System => system_reduces_motion(),
+        Motion::Reduced | Motion::Off => true,
+    });
     if cx.reduce_motion() != reduce {
         cx.set_reduce_motion(reduce);
         cx.refresh_windows();

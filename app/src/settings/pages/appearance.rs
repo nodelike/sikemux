@@ -16,7 +16,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use sikemux_view::prefs::{ChatWidth, PaneColours, PaneCoverage, PanePattern};
+use sikemux_view::prefs::{ChatWidth, Contrast, Motion, PaneColours, PaneCoverage, PanePattern};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
 use crate::core::Target;
@@ -62,6 +62,18 @@ pub(in crate::settings) const INTERFACE: &[Entry] = &[
         "Text",
         "Chat width",
         "column wide full screen messages reading measure line length",
+    ),
+    row(
+        Interface,
+        "Text",
+        "Contrast",
+        "increase contrast greys borders readable accessibility",
+    ),
+    row(
+        Interface,
+        "Text",
+        "Motion",
+        "reduce motion animation still accessibility",
     ),
     section(Interface, "Panes", ""),
     row(
@@ -1142,6 +1154,46 @@ pub fn render(
             })
         })
     };
+    let contrast = {
+        let this = this.clone();
+        let levels = [Contrast::Normal, Contrast::More];
+        ui::Segmented::new(
+            "contrast",
+            vec![
+                (Icon::Contrast, SharedString::from(t!("Normal"))),
+                (Icon::Contrast, SharedString::from(t!("More"))),
+            ],
+            usize::from(preferences.contrast == Contrast::More),
+        )
+        .on_select(move |chosen, _, cx| {
+            let contrast = levels[*chosen];
+            this.update(cx, |bench, _| {
+                crate::settings::set(bench, PreferenceChange::Contrast(contrast))
+            })
+        })
+    };
+    let motion = {
+        let this = this.clone();
+        let choices = [Motion::System, Motion::Reduced, Motion::Off];
+        ui::Segmented::new(
+            "motion",
+            vec![
+                (Icon::Move, SharedString::from(t!("As macOS"))),
+                (Icon::Move, SharedString::from(t!("Reduced"))),
+                (Icon::Move, SharedString::from(t!("Off"))),
+            ],
+            choices
+                .iter()
+                .position(|motion| *motion == preferences.motion)
+                .unwrap_or(0),
+        )
+        .on_select(move |chosen, _, cx| {
+            let motion = choices[*chosen];
+            this.update(cx, |bench, _| {
+                crate::settings::set(bench, PreferenceChange::Motion(motion))
+            })
+        })
+    };
     let image = {
         let (choose, remove) = (this.clone(), this.clone());
         div()
@@ -1226,6 +1278,20 @@ pub fn render(
                 "How wide a chat's messages and composer grow on a wide window."
             )),
             chat_width,
+            cx,
+        ))
+        .child(rows::row(
+            t!("Contrast"),
+            Some(t!(
+                "Greys nearer the text and borders that stand out, in every theme."
+            )),
+            contrast,
+            cx,
+        ))
+        .child(rows::row(
+            t!("Motion"),
+            Some(t!("How much the interface moves, in every theme.")),
+            motion,
             cx,
         ));
     let interface = div()

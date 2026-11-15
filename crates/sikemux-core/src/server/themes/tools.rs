@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_corekit::cli::manifest::GUIDE;
 use sikemux_corekit::themes::{checked, custom_id, find, ink_reads, summaries, MOST_CUSTOM_THEMES};
-use sikemux_view::prefs::{PreferenceChange, Preferences, Scrollbars};
+use sikemux_view::prefs::{Contrast, Motion, PreferenceChange, Preferences, Scrollbars};
 use sikemux_view::theme::{Theme, ThemeChanges, ThemeSource};
 
 use crate::cli::protocol::HarnessRequest;
@@ -42,7 +42,11 @@ pub(crate) fn read(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
     };
     Ok(json!({
         "wearing": core.look().palette().theme.id,
-        "adjust": { "scrollbars": preferences.scrollbars },
+        "adjust": {
+            "scrollbars": preferences.scrollbars,
+            "contrast": preferences.contrast,
+            "motion": preferences.motion,
+        },
         "themes": themes,
         "ghostty": format!(
             "{ghostty} more from Ghostty's catalogue, each with the id ghostty- and its name in kebab case"
@@ -64,6 +68,8 @@ struct SetParams {
 #[serde(deny_unknown_fields)]
 struct Adjust {
     scrollbars: Option<Scrollbars>,
+    contrast: Option<Contrast>,
+    motion: Option<Motion>,
 }
 
 pub(crate) async fn set(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, String> {
@@ -100,6 +106,8 @@ pub(crate) async fn set(core: &Arc<Core>, request: HarnessRequest) -> Result<Val
     changes.extend(wear.map(PreferenceChange::ThemeId));
     let adjust = params.adjust.unwrap_or_default();
     changes.extend(adjust.scrollbars.map(PreferenceChange::Scrollbars));
+    changes.extend(adjust.contrast.map(PreferenceChange::Contrast));
+    changes.extend(adjust.motion.map(PreferenceChange::Motion));
     if changes.is_empty() {
         return Err("give a theme to wear, one to save, or an adjustment".into());
     }
@@ -109,7 +117,11 @@ pub(crate) async fn set(core: &Arc<Core>, request: HarnessRequest) -> Result<Val
     let worn = core.look().palette().theme;
     let undo = json!({
         "theme": before.theme_id,
-        "adjust": { "scrollbars": before.scrollbars },
+        "adjust": {
+            "scrollbars": before.scrollbars,
+            "contrast": before.contrast,
+            "motion": before.motion,
+        },
     });
     let agent = (request.agent_id.as_deref()).map(|agent| core.names().name_or_id(agent));
     let mut notice = request;
