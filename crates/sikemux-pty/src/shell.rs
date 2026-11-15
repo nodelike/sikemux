@@ -342,10 +342,11 @@ mod tests {
         // zsh is deliberately left alone: hooking it means owning ZDOTDIR, and
         // a user's config derives real paths from that.
         let mut zsh = CommandBuilder::new("/bin/zsh");
+        let original_zdotdir = env(&zsh, "ZDOTDIR");
         assert!(configure_shell_integration(&mut zsh, "/bin/zsh")
             .expect("configure zsh")
             .is_none());
-        assert_eq!(env(&zsh, "ZDOTDIR"), None);
+        assert_eq!(env(&zsh, "ZDOTDIR"), original_zdotdir);
         assert_eq!(env(&zsh, "SIKEMUX_SHELL_INTEGRATION"), None);
         #[cfg(unix)]
         assert!(shell_wants_login_flag("/bin/zsh"));
