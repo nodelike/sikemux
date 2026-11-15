@@ -3,7 +3,6 @@
 # package's channel, so the package updates with the system. A package of the
 # other channel rewrites it, which is how the installer switches channel.
 RELEASES=https://github.com/nodelike/sikemux/releases/download
-PAGES=https://nodelike.github.io/sikemux
 SUITE=@SUITE@
 
 if [ -f /usr/share/keyrings/sikemux-archive.asc ] && [ -d /etc/apt/sources.list.d ]; then

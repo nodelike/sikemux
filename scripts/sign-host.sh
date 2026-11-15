@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sign the Linux host cores and the AppImages with the updater key, so a host or
+# Sign the Linux host cores and the AppImage with the updater key, so a host or
 # an AppImage updating itself installs only what Sikemux signed. It runs only a pinned Tauri CLI, never
 # the build's dependencies, and never runs what it signs.
 set -euo pipefail
@@ -25,7 +25,7 @@ HOSTS=("$ROOT"/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
 APPIMAGES=("$ROOT"/target/release/bundle/appimage/Sikemux_"$VERSION"_*.AppImage)
 shopt -u nullglob
 [[ ${#HOSTS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 host cores, found ${#HOSTS[@]}"
-[[ ${#APPIMAGES[@]} -eq 2 ]] || fail "expected the amd64 and arm64 AppImages, found ${#APPIMAGES[@]}"
+[[ ${#APPIMAGES[@]} -eq 1 ]] || fail "expected the amd64 AppImage, found ${#APPIMAGES[@]}"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

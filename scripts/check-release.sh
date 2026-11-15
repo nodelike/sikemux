@@ -87,7 +87,7 @@ if (!macBuild.includes('--entitlements "$ROOT/packaging/Entitlements.plist"')) f
 if (pkg.scripts?.["build:linux"] !== "scripts/build-linux.sh") fail("pnpm build:linux does not run scripts/build-linux.sh");
 if (!linuxBuild.includes("node scripts/build-core.mjs")) fail("Linux build does not build the core");
 if (!linuxBuild.includes("cargo build --release --locked --bin sikemux")) fail("Linux build does not build the GPUI app");
-for (const name of ["Sikemux_${VERSION}_${DEB_ARCH}.deb", "Sikemux-${VERSION}-1.${ARCH}.rpm", "Sikemux_${VERSION}_${DEB_ARCH}.AppImage"]) {
+for (const name of ["Sikemux_${VERSION}_${DEB_ARCH}.deb", "Sikemux_${VERSION}_${DEB_ARCH}.AppImage"]) {
   if (!linuxBuild.includes(name)) fail(`Linux build does not make ${name}`);
   if (!installer.includes(name)) fail(`the installer does not download ${name}`);
 }
@@ -99,12 +99,12 @@ if (!releaseWorkflow.includes("packaging/arch/build-release.sh")) fail("the Rele
 if (!publish.includes('"${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")')) fail("releases do not publish the Linux tarball and the Arch package");
 if (/TAURI_SIGNING|signer sign/.test(linuxBuild)) fail("Linux builds must not require updater credentials");
 if (!releaseWorkflow.includes("run: pnpm build:linux")) fail("the Release workflow does not build the Linux packages");
-if (!publish.includes('"${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}"')) fail("releases do not publish the Linux packages");
+if (!publish.includes('"${DEBS[@]}" "${APPIMAGES[@]}"')) fail("releases do not publish the Linux packages");
 if (!releaseWorkflow.includes("scripts/package-host.sh")) fail("the Release workflow does not build the Linux host core");
 if (!publish.includes('"${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}"')) fail("releases do not publish the Linux host core and its signatures");
 if (!publish.includes('"${HOST_SIGS[@]}" "$INSTALLER"')) fail("releases do not publish the installer made for their files");
 if (!releaseWorkflow.includes("scripts/sign-host.sh")) fail("the Release workflow does not sign the Linux host core");
-if (!releaseWorkflow.includes('./scripts/sign-packages.sh "${{ needs.plan.outputs.version }}" target/release/bundle')) fail("the Release workflow does not sign the rpms and the repository indexes");
+if (!releaseWorkflow.includes('./scripts/sign-packages.sh "${{ needs.plan.outputs.version }}" target/release/bundle')) fail("the Release workflow does not sign the apt indexes");
 if (!publish.includes('"$PACKAGES_INDEX" "$DMG"')) fail("releases do not carry the signed package indexes their suites copy");
 const ship = fs.readFileSync("scripts/ship-release.sh", "utf8");
 if (!ship.includes("gh workflow run packages.yml -f suite=stable") || !ship.includes("gh workflow run packages.yml -f suite=nightly")) fail("shipping a stable release does not move both package suites");
@@ -113,12 +113,12 @@ const shipWorkflow = fs.readFileSync(".github/workflows/ship.yml", "utf8");
 if (!/ship:[\s\S]*?needs: \[find, gate\]\n\s*if: needs\.gate\.outputs\.ready == 'true'/.test(shipWorkflow)) fail("Ship publishes without its gate passing");
 if (!moveFeed.includes("gh workflow run packages.yml -f suite=nightly")) fail("moving the nightly feed does not move the nightly package suite");
 if (!/promote:[\s\S]*?actions: write/.test(soakWorkflow)) fail("the soak's promote job cannot start the package suite move");
-if (!signHost.includes('"${HOSTS[@]}" "${APPIMAGES[@]}"')) fail("releases do not sign the AppImages with the updater key");
+if (!signHost.includes('"${HOSTS[@]}" "${APPIMAGES[@]}"')) fail("releases do not sign the AppImage with the updater key");
 if (!publish.includes('"$INSTALLER" "${APPIMAGE_SIGS[@]}"')) fail("releases do not publish the AppImage's update signature");
 if (!publish.includes('"${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}"')) fail("releases do not publish the Mac dSYMs that name a crash's frames");
 if (!releaseWorkflow.includes('run: scripts/sentry-release.sh "$VERSION" target/symbols')) fail("the Release workflow does not send Sentry the symbols that name a crash's frames");
 if ((releaseWorkflow.match(/scripts\/keep-linux-symbols\.sh/g) ?? []).length !== 3) fail("the Release workflow does not keep the symbols of each Linux binary it builds");
-if (!publish.includes('manifest["platforms"][f"linux-{arch}"]')) fail("the update feed does not offer the AppImage");
+if (!publish.includes('manifest["platforms"]["linux-x86_64"]')) fail("the update feed does not offer the AppImage");
 if (!publish.includes('manifest["platforms"][f"host-linux-{arch}"]')) fail("the update feed does not offer the host cores");
 if (!releaseWorkflow.includes("scripts/smoke-host-install.sh")) fail("the Release workflow does not install the host core with its own installer");
 const helpers = fs.readFileSync("scripts/release-shape.sh", "utf8").match(/^PUBLISHED_HELPERS=\((.*)\)$/m)?.[1].split(" ") ?? [];

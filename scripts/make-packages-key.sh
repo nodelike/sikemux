@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Makes the OpenPGP key that signs Sikemux's apt and rpm repositories, once, on the
+# Makes the OpenPGP key that signs Sikemux's apt repository, once, on the
 # owner's Mac. The primary key and its revocation certificate stay in
 # ~/.config/sikemux/release for the owner to back up, and the passphrase goes in the
 # Keychain. Only the signing subkey, which expires, goes to the release environment.

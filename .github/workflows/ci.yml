@@ -610,7 +610,7 @@ jobs:
 
       # These packages only prove the packing works, so they skip the release build's whole-program
       # LTO, which tripled the compile. The Release workflow's Linux jobs still build with it.
-      - name: Pack the deb, rpm and AppImage
+      - name: Pack the deb, tarball and AppImage
         if: needs.changes.outputs.packaging == 'true'
         env:
           CARGO_PROFILE_RELEASE_LTO: "off"
@@ -638,7 +638,6 @@ jobs:
           if-no-files-found: error
           path: |
             target/release/bundle/deb/*.deb
-            target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
 
   simulator-helper:

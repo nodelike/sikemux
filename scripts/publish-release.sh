@@ -31,7 +31,6 @@ fi
 shopt -s nullglob
 DMGS=("$BUNDLE"/dmg/*.dmg)
 DEBS=("$BUNDLE"/deb/*.deb)
-RPMS=("$BUNDLE"/rpm/*.rpm)
 APPIMAGES=("$BUNDLE"/appimage/*.AppImage)
 TARBALLS=("$BUNDLE"/tar/*.tar.gz)
 PACMAN_PACKAGES=("$BUNDLE"/arch/*.pkg.tar.zst)
@@ -40,8 +39,7 @@ SYMBOLS=("$ROOT"/target/symbols/Sikemux_"$VERSION"_*.dSYM.zip)
 shopt -u nullglob
 [[ ${#DMGS[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMGS[@]}"
 [[ ${#DEBS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 debs, found ${#DEBS[@]}"
-[[ ${#RPMS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 rpms, found ${#RPMS[@]}"
-[[ ${#APPIMAGES[@]} -eq 2 ]] || fail "expected the amd64 and arm64 AppImages, found ${#APPIMAGES[@]}"
+[[ ${#APPIMAGES[@]} -eq 1 ]] || fail "expected the amd64 AppImage, found ${#APPIMAGES[@]}"
 [[ ${#TARBALLS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 Linux tarballs, found ${#TARBALLS[@]}"
 [[ ${#PACMAN_PACKAGES[@]} -eq 1 ]] || fail "expected exactly one Arch package, found ${#PACMAN_PACKAGES[@]}"
 [[ ${#HOSTS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 host cores, found ${#HOSTS[@]}"
@@ -53,14 +51,14 @@ APPIMAGE_SIGS=("${APPIMAGES[@]/%/.sig}")
 PACMAN_PACKAGE="${PACMAN_PACKAGES[0]}"
 INSTALLER="$ROOT/scripts/install.sh"
 PACKAGES_INDEX="$ROOT/target/packages/packages-index-$VERSION.tar"
-for file in "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "$MANIFEST"; do
+for file in "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "$MANIFEST"; do
   [[ -s "$file" ]] || fail "$file is missing or empty"
 done
 [[ "$(node -p "require('$MANIFEST').version")" == "$VERSION" ]] || fail "$MANIFEST is not for v$VERSION"
 for signed in "${HOSTS[@]}" "${APPIMAGES[@]}"; do
   node scripts/verify-updater-signature.mjs "$signed" "$signed.sig" || fail "$signed is not signed by the updater key"
 done
-# The Linux app updates itself only as an AppImage, so only the AppImages join the
+# The Linux app updates itself only as an AppImage, so only the AppImage joins the
 # feed the macOS build wrote, beside each host core, which root installs on a host.
 RELEASE_URL="https://github.com/nodelike/sikemux/releases/download/v$VERSION" \
   MANIFEST="$MANIFEST" python3 - "${APPIMAGES[@]}" "${HOSTS[@]}" <<'PY'
@@ -77,15 +75,14 @@ def entry(file):
 
 for file in sys.argv[1:]:
     if file.endswith(".AppImage"):
-        arch = {"amd64": "x86_64", "arm64": "aarch64"}[re.search(r"_([a-z0-9]+)\.AppImage$", file).group(1)]
-        manifest["platforms"][f"linux-{arch}"] = entry(file)
+        manifest["platforms"]["linux-x86_64"] = entry(file)
     else:
         arch = re.search(r"-linux-([a-z0-9_]+)\.tar\.gz$", file).group(1)
         manifest["platforms"][f"host-linux-{arch}"] = entry(file)
 path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
-RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
+RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$PACKAGES_INDEX" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
 # The staff feed takes a nightly unless it serves a newer build, or a stable candidate that
 # has not shipped yet: staff machines keep running the candidate the owner is asked about.
 staff_feed_takes() {

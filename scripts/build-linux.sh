@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build the Linux desktop packages for this machine's architecture: the GPUI app with its core beside it, as
-# a deb, an rpm, an AppImage and the tarball the Arch package is made from, named as
+# a deb, the tarball the Arch package is made from and, on x86_64, an AppImage, named as
 # every release has named them, since the installer downloads them by name. They
 # carry no updater signature.
 set -euo pipefail
@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
 VERSION="$(node -p "require('./package.json').version")"
-# apt and dnf rank 0.6.0-nightly.1 above 0.6.0 and 0.6.0~nightly.1 below it, so the
+# apt ranks 0.6.0-nightly.1 above 0.6.0 and 0.6.0~nightly.1 below it, so the
 # packages say ~ to let a stable release overtake its nightlies.
 PACKAGE_VERSION="${VERSION/-/\~}"
 SUMMARY="$(node scripts/app-metadata.mjs description)"
@@ -30,9 +30,6 @@ case "$(uname -m)" in
   aarch64)
     ARCH=aarch64
     DEB_ARCH=arm64
-    LINUXDEPLOY_SHA256=620095110d693282b8ebeb244a95b5e911cf8f65f76c88b4b47d16ae6346fcff
-    APPIMAGETOOL_SHA256=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
-    RUNTIME_SHA256=00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
     ;;
   *) fail "x86_64 or aarch64 is required, not $(uname -m)" ;;
 esac
@@ -49,7 +46,6 @@ RUNTIME_URL=https://github.com/AppImage/type2-runtime/releases/download/20251108
 
 # Libraries the app opens while it runs rather than links, which no dependency scan finds.
 DEB_OPENED="libvulkan1, libegl1, libwayland-client0, libx11-6, libxext6"
-RPM_OPENED=(libvulkan.so.1 libEGL.so.1 libwayland-client.so.0 libX11.so.6 libXext.so.6)
 # GStreamer plugins browser recording loads by name: appsrc, videoconvert, the queue and caps
 # elements, VP8 in WebM, and MP4. Packages ask for the sets holding them, and suggest the one
 # with an H.264 encoder, without which a recording is WebM. The AppImage carries the whole of
@@ -57,22 +53,20 @@ RPM_OPENED=(libvulkan.so.1 libEGL.so.1 libwayland-client.so.0 libX11.so.6 libXex
 # through them too.
 DEB_PLUGINS="gstreamer1.0-plugins-base, gstreamer1.0-plugins-good"
 DEB_H264=gstreamer1.0-plugins-ugly
-RPM_PLUGINS=("(gstreamer1-plugins-base or gstreamer-plugins-base)" "(gstreamer1-plugins-good or gstreamer-plugins-good)")
-RPM_H264="(gstreamer1-plugins-ugly or gstreamer-plugins-ugly)"
 RECORDING_PLUGINS=(coreelements app videoconvertscale vpx matroska isomp4)
 GSTREAMER_SETS=(gstreamer1.0-plugins-base gstreamer1.0-plugins-good)
 GSTREAMER_DIR=/usr/lib/$ARCH-linux-gnu/gstreamer-1.0
 
 [[ -n "$SUMMARY" ]] || fail "the app has no description in app/Cargo.toml"
-for command in cargo node dpkg-deb dpkg-shlibdeps rpmbuild patchelf curl sha256sum; do
+for command in cargo node dpkg-deb dpkg-shlibdeps patchelf curl sha256sum; do
   command -v "$command" >/dev/null || fail "missing required command: $command"
 done
 
 BUNDLE="$ROOT/target/release/bundle"
 WORK="$ROOT/target/release/linux"
 TOOLS="$WORK/tools"
-rm -rf "$WORK" "$BUNDLE/deb" "$BUNDLE/rpm" "$BUNDLE/appimage" "$BUNDLE/tar"
-mkdir -p "$TOOLS" "$BUNDLE/deb" "$BUNDLE/rpm" "$BUNDLE/appimage" "$BUNDLE/tar"
+rm -rf "$WORK" "$BUNDLE/deb" "$BUNDLE/appimage" "$BUNDLE/tar"
+mkdir -p "$TOOLS" "$BUNDLE/deb" "$BUNDLE/appimage" "$BUNDLE/tar"
 
 fetch() {
   local url="$1" sha="$2" file="$TOOLS/$3"
@@ -182,53 +176,18 @@ install -m 755 "$POSTRM" "$DEB_ROOT/DEBIAN/postrm"
 chmod 755 "$DEB_ROOT/DEBIAN/postinst"
 dpkg-deb --root-owner-group -Zxz --build "$DEB_ROOT" "$BUNDLE/deb/Sikemux_${VERSION}_${DEB_ARCH}.deb" >/dev/null
 
-echo "→ Packing the rpm"
-RPM_TOP="$WORK/rpm"
-mkdir -p "$RPM_TOP/SPECS"
-{
-  cat <<SPEC
-Name: sikemux
-Version: $PACKAGE_VERSION
-Release: 1
-Summary: $SUMMARY
-License: MIT
-BuildArch: $ARCH
-AutoReqProv: yes
-SPEC
-  for library in "${RPM_OPENED[@]}"; do echo "Requires: $library()(64bit)"; done
-  for plugins in "${RPM_PLUGINS[@]}"; do echo "Requires: $plugins"; done
-  echo "Recommends: $RPM_H264"
-  cat <<SPEC
-%global debug_package %{nil}
-%global __strip /bin/true
-%global _build_id_links none
-
-%description
-$SUMMARY
-
-%install
-cp -a "$PACKAGE"/. %{buildroot}/
-install -D -m 644 "$ARCHIVE_KEY" %{buildroot}/etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux
-
-%post
-$(after_install | sed '1{/^#!/d}')
-
-%postun
-$(sed '1{/^#!/d}' "$POSTRM")
-
-%files
-/usr/lib/sikemux
-/usr/bin/sikemux
-/usr/bin/sikemux-host
-/usr/share/applications/$APP_IDENTIFIER.desktop
-/usr/share/icons/hicolor/*/apps/sikemux.png
-/etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux
-SPEC
-} >"$RPM_TOP/SPECS/sikemux.spec"
-rpmbuild --quiet --define "_topdir $RPM_TOP" -bb "$RPM_TOP/SPECS/sikemux.spec"
-RPMS=("$RPM_TOP/RPMS/$ARCH"/*.rpm)
-[[ ${#RPMS[@]} -eq 1 ]] || fail "rpmbuild made ${#RPMS[@]} packages"
-mv "${RPMS[0]}" "$BUNDLE/rpm/Sikemux-${VERSION}-1.${ARCH}.rpm"
+PACKAGES=("$BUNDLE/tar/Sikemux_${VERSION}_${DEB_ARCH}.tar.gz" "$BUNDLE/deb/Sikemux_${VERSION}_${DEB_ARCH}.deb")
+report() {
+  for package in "${PACKAGES[@]}"; do
+    [[ -s "$package" ]] || fail "missing $package"
+    echo "✓ $(basename "$package") ($(du -h "$package" | cut -f1))"
+  done
+}
+# The AppImage is built for x86_64 only, until arm64 downloads ask for it.
+if [[ "$ARCH" != x86_64 ]]; then
+  report
+  exit 0
+fi
 
 echo "→ Packing the AppImage"
 # The tools are AppImages themselves, and a build machine may have no FUSE to mount them.
@@ -298,7 +257,5 @@ chmod 755 "$APPDIR/AppRun"
     "$APPDIR" "$BUNDLE/appimage/Sikemux_${VERSION}_${DEB_ARCH}.AppImage"
 )
 
-for package in "$BUNDLE/tar/Sikemux_${VERSION}_${DEB_ARCH}.tar.gz" "$BUNDLE/deb/Sikemux_${VERSION}_${DEB_ARCH}.deb" "$BUNDLE/rpm/Sikemux-${VERSION}-1.${ARCH}.rpm" "$BUNDLE/appimage/Sikemux_${VERSION}_${DEB_ARCH}.AppImage"; do
-  [[ -s "$package" ]] || fail "missing $package"
-  echo "✓ $(basename "$package") ($(du -h "$package" | cut -f1))"
-done
+PACKAGES+=("$BUNDLE/appimage/Sikemux_${VERSION}_${DEB_ARCH}.AppImage")
+report

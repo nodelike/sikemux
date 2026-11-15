@@ -281,17 +281,10 @@ install_linux() {
     download "Sikemux_${VERSION}_${DEB_ARCH}.deb" "the app"
     step "Installing with apt" as_root apt-get install -y "$TMP/Sikemux_${VERSION}_${DEB_ARCH}.deb"
     done_step "Installed Sikemux" "with apt"
-  elif command -v dnf >/dev/null 2>&1; then
-    download "Sikemux-${VERSION}-1.${ARCH}.rpm" "the app"
-    step "Installing with dnf" as_root dnf install -y "$TMP/Sikemux-${VERSION}-1.${ARCH}.rpm"
-    done_step "Installed Sikemux" "with dnf"
-  elif command -v zypper >/dev/null 2>&1; then
-    download "Sikemux-${VERSION}-1.${ARCH}.rpm" "the app"
-    # zypper does not know the key the .rpm is signed with; it came from the release over HTTPS.
-    step "Installing with zypper" as_root zypper --non-interactive --no-gpg-checks install --allow-unsigned-rpm "$TMP/Sikemux-${VERSION}-1.${ARCH}.rpm"
-    done_step "Installed Sikemux" "with zypper"
-  # Arch publishes no arm64 image to build the pacman package in, so arm64 takes the AppImage.
-  elif [ "$ARCH" = x86_64 ] && command -v pacman >/dev/null 2>&1; then
+  # Releases carry an AppImage and a pacman package for x86_64 only, so arm64 needs apt.
+  elif [ "$ARCH" != x86_64 ]; then
+    fail "the desktop app on arm64 comes as a .deb, for apt; add --host for the core"
+  elif command -v pacman >/dev/null 2>&1; then
     # packaging/arch/PKGBUILD names it: pacman sorts 0.6.1nightly.6 below 0.6.1.
     case "$VERSION" in
       *-*) name=sikemux-nightly-bin ;;

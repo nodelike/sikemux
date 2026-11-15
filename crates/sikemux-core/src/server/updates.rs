@@ -57,19 +57,10 @@ const UPDATES_OFF: &str =
 const PACMAN_PACKAGES: [&str; 3] = ["sikemux-bin", "sikemux-nightly-bin", "sikemux"];
 /// Where pacman records each installed package and the files it owns.
 const PACMAN_INSTALLED: &str = "/var/lib/pacman/local";
-/// The package repository files the .deb and .rpm write, each naming the
-/// suite it follows as `packages-stable` or `packages-nightly`, with the
-/// command that updates from it.
-const REPOSITORIES: [(&str, &str); 2] = [
-    (
-        "/etc/apt/sources.list.d/sikemux.sources",
-        "sudo apt update && sudo apt install --only-upgrade sikemux",
-    ),
-    (
-        "/etc/yum.repos.d/sikemux.repo",
-        "sudo dnf upgrade --refresh sikemux",
-    ),
-];
+/// The apt source the .deb writes, naming the suite it follows as
+/// `packages-stable` or `packages-nightly`, and the command that updates from it.
+const APT_SOURCE: &str = "/etc/apt/sources.list.d/sikemux.sources";
+const APT_UPGRADE: &str = "sudo apt update && sudo apt install --only-upgrade sikemux";
 /// How long a new host core runs before it says it started well, and how often
 /// it may stop before that until the one it replaced is put back.
 const READY_AFTER: Duration = Duration::from_secs(30);
@@ -241,10 +232,10 @@ fn own_platform() -> String {
     }
 }
 
-/// What updates a published Linux app that is a deb, an rpm or a pacman
-/// package: a system upgrade when a repository the system syncs from carries
-/// the package on this channel, otherwise the installer, which also moves a
-/// deb or rpm to the channel's repository. Asks pacman, so it blocks.
+/// What updates a published Linux app that is a deb or a pacman package: a
+/// system upgrade when a repository the system syncs from carries the package
+/// on this channel, otherwise the installer, which also moves a deb to the
+/// channel's repository. Asks pacman, so it blocks.
 fn installer_command(channel: UpdateChannel) -> Option<String> {
     if !cfg!(target_os = "linux") || !super::usage::Install::App.published() || own_app().is_some()
     {
@@ -257,11 +248,8 @@ fn installer_command(channel: UpdateChannel) -> Option<String> {
         UpdateChannel::Stable => "packages-stable",
         UpdateChannel::Nightly | UpdateChannel::Staff => "packages-nightly",
     };
-    let follows = |file: &str| {
-        std::fs::read_to_string(file).is_ok_and(|repository| repository.contains(suite))
-    };
-    if let Some((_, command)) = REPOSITORIES.iter().find(|(file, _)| follows(file)) {
-        return Some((*command).into());
+    if std::fs::read_to_string(APT_SOURCE).is_ok_and(|source| source.contains(suite)) {
+        return Some(APT_UPGRADE.into());
     }
     let channel = match channel {
         UpdateChannel::Stable => "",

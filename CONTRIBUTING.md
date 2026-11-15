@@ -4,7 +4,7 @@ Thanks for taking the time to contribute. Sikemux is a Rust desktop app drawn wi
 
 ## Getting started
 
-**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the packages in `packaging/linux/build-packages.txt`, and `pnpm build:linux` also needs those in `pack-packages.txt` beside it to make a `.deb`, an `.rpm` and an AppImage. Published releases ship an Apple Silicon DMG and x86_64 and arm64 Linux packages. Windows is a target too: no release ships for it yet, and its `cfg(windows)` code stays.
+**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the packages in `packaging/linux/build-packages.txt`, and `pnpm build:linux` also needs those in `pack-packages.txt` beside it to make a `.deb`, a tarball and, on x86_64, an AppImage. Published releases ship an Apple Silicon DMG and x86_64 and arm64 Linux packages. Windows is a target too: no release ships for it yet, and its `cfg(windows)` code stays.
 
 ```bash
 git clone git@github.com:nodelike/sikemux.git
@@ -106,10 +106,10 @@ make check            # CI's gates, apart from those listed below
 
 CI also runs what `make check` leaves out:
 
-- The Linux compile, tests and packages, and **GPUI on Linux in a real window**, which need Linux.
+- The Linux compile, tests and packages, which need Linux. Pushes check x86_64; the daily run checks aarch64 too.
 - The **iOS Simulator helper**, which boots a real simulator.
 
-One CI job stays out of every push: **GPUI in a real window**. It runs daily and when CI is started by hand with `window` checked; start it that way if you touched how the app draws or launches.
+**GPUI in a real window**, on the Mac and on Linux, stays out of every push. Both run daily and when CI is started by hand with `window` checked; start it that way if you touched how the app draws or launches. The Windows workflow also runs daily, and by hand on the crates you name.
 
 `cargo audit` reads a database that changes daily, so a push that was clean can go red later with no code change. That is the advisory database moving, not your commit.
 
