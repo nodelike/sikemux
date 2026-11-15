@@ -592,6 +592,7 @@ fn keep_work(core: &Arc<Core>, agent_id: &str) {
     if core.inbox().keep_work(agent_id, work) {
         core.changed(What::View);
     }
+    super::now::work_moved(core, agent_id);
     let Some((project, changes)) = shows else {
         return;
     };

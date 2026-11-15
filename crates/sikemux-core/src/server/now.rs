@@ -2,18 +2,21 @@
 //! since when, read off the turn states the device view works out anyway, and the agents closed
 //! lately, which closing writes in. Agents read the same strip as one compact text.
 
+use crate::git::Git;
 use crate::server::parts::Parts;
+use crate::server::serving::ServeParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::FailureKind;
 use sikemux_view::now::{
-    ClosedWhy, FixAt, NowClosed, NowFact, NowGroup, NowRelease, NowRow, ProjectNow,
+    CiStand, ClosedWhy, FixAt, NowClosed, NowFact, NowGroup, NowRelease, NowRow, ProjectNow,
 };
 use sikemux_view::turn::{ChecksStand, TurnPhase, TurnState, TurnWaitKind, WorkAt};
 
@@ -28,6 +31,10 @@ const MOST_CLOSED: usize = 30;
 pub(crate) struct Now {
     kept: Kept,
     state: Mutex<Saved>,
+    /// By agent, for agents whose work landed; read again on events, never per build.
+    fixes: Mutex<HashMap<String, Fix>>,
+    /// By project path.
+    reads: Mutex<HashMap<String, Read>>,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -41,7 +48,12 @@ impl Now {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let kept = Kept::new(data_dir, FILE);
         let state = Mutex::new(kept.load());
-        Self { kept, state }
+        Self {
+            kept,
+            state,
+            fixes: Mutex::default(),
+            reads: Mutex::default(),
+        }
     }
 
     fn change(&self, change: impl FnOnce(&mut Saved)) {
@@ -54,6 +66,13 @@ impl Now {
 impl super::part::Part for Now {
     fn flush(&self) {
         self.kept.flush();
+    }
+
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        for project in core.workspaces().projects() {
+            refs_moved(core, &project.path.to_string_lossy());
+        }
+        Vec::new()
     }
 }
 
@@ -125,19 +144,36 @@ pub(crate) fn projects<'a>(
             });
     }
     let closed = core.now().state.locked().closed.clone();
+    {
+        let fixes = core.now().fixes.locked();
+        for row in strips.values_mut().flatten() {
+            let (NowFact::Work { at, release, .. }, Some(fix)) =
+                (&mut row.fact, fixes.get(&row.agent))
+            else {
+                continue;
+            };
+            if *at == FixAt::Landed {
+                (*at, *release) = (fix.at, fix.release.clone());
+            }
+        }
+    }
+    let reads = core.now().reads.locked();
     let mut projects: Vec<ProjectNow> = (workspace.projects().into_iter())
         .filter_map(|project| {
             let mut rows = strips.remove(&project.id).unwrap_or_default();
             rows.sort_by_key(|row| (row.group, row.since));
             let closed = closed.get(&project.id).cloned().unwrap_or_default();
-            (!rows.is_empty() || !closed.is_empty()).then_some(ProjectNow {
+            let release =
+                (reads.get(&*project.path.to_string_lossy())).and_then(|read| read.release.clone());
+            (!rows.is_empty() || !closed.is_empty() || release.is_some()).then_some(ProjectNow {
                 project: project.id,
                 rows,
-                release: None,
+                release,
                 closed,
             })
         })
         .collect();
+    drop(reads);
     projects.sort_by(|a, b| a.project.cmp(&b.project));
     projects
 }
@@ -156,10 +192,11 @@ pub(crate) fn of_path(core: &Core, path: &str) -> Option<ProjectNow> {
             turn: turns.get(agent),
         });
     let strip = (self::projects(core, open).into_iter()).find(|now| now.project == project.id);
+    let release = (core.now().reads.locked().get(path)).and_then(|read| read.release.clone());
     Some(strip.unwrap_or(ProjectNow {
         project: project.id,
         rows: Vec::new(),
-        release: None,
+        release,
         closed: Vec::new(),
     }))
 }
@@ -401,4 +438,260 @@ pub(crate) fn text_of_path(core: &Arc<Core>, path: &str) -> Option<String> {
         |agent| names.name(agent).unwrap_or_else(|| agent.to_owned()),
         epoch_ms(),
     ))
+}
+
+/// How far one agent's landed work has gone past the branch, as last read.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Fix {
+    /// The commit that has its work: its newest own landed commit, else its checkout's head.
+    commit: String,
+    at: FixAt,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    release: Option<String>,
+}
+
+/// What a project's branch reads, kept as last read on a move of its refs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Read {
+    release: Option<NowRelease>,
+    /// The branch's tip when its CI was last asked, so a code host is asked only once per tip.
+    ci_asked: Option<String>,
+}
+
+/// How long a CI run or a release run that was going waits before it is asked about again.
+const CI_AGAIN: Duration = Duration::from_secs(60);
+
+/// The branch of the project at `path` moved, or a tag came: its release row is read again off
+/// the caller's thread, and when its newest tag or the app's build moved, where every one of
+/// its agents' fixes is.
+pub(crate) fn refs_moved(core: &Arc<Core>, path: &str) {
+    let (core, path) = (core.clone(), path.to_owned());
+    tokio::spawn(async move {
+        let read = {
+            let (core, path) = (core.clone(), path.clone());
+            tokio::task::spawn_blocking(move || release_of(&core, &path)).await
+        };
+        let Ok(Some((mut release, tip))) = read else {
+            return;
+        };
+        let before = core
+            .now()
+            .reads
+            .locked()
+            .get(&path)
+            .cloned()
+            .unwrap_or_default();
+        let ask_ci = before.ci_asked.as_deref() != Some(tip.as_str())
+            || before
+                .release
+                .as_ref()
+                .is_some_and(|kept| kept.releasing || kept.ci == Some(CiStand::Running));
+        if ask_ci {
+            (release.ci, release.releasing) = ci_of(&core, &path, &release, &tip).await;
+        } else if let Some(kept) = &before.release {
+            (release.ci, release.releasing) = (kept.ci, kept.releasing);
+        }
+        let tag_moved = before
+            .release
+            .as_ref()
+            .map(|kept| (&kept.tag, &kept.running))
+            != Some((&release.tag, &release.running));
+        let going = release.releasing || release.ci == Some(CiStand::Running);
+        let changed = before.release.as_ref() != Some(&release);
+        core.now().reads.locked().insert(
+            path.clone(),
+            Read {
+                release: Some(release),
+                ci_asked: Some(tip),
+            },
+        );
+        if tag_moved {
+            let (core, path) = (core.clone(), path.clone());
+            let _ = tokio::task::spawn_blocking(move || refix_project(&core, &path)).await;
+        }
+        if changed {
+            core.changed(What::View);
+        }
+        if going {
+            let weak = Arc::downgrade(&core);
+            tokio::spawn(async move {
+                tokio::time::sleep(CI_AGAIN).await;
+                if let Some(core) = weak.upgrade() {
+                    refs_moved(&core, &path);
+                }
+            });
+        }
+    });
+}
+
+/// The project's newest tag on its branch and what the branch has since, with the branch's tip.
+fn release_of(core: &Core, path: &str) -> Option<(NowRelease, String)> {
+    let repo = Path::new(path);
+    let branch = super::landing::project_branch(repo)?;
+    let tip_ref = super::turn_state::landing_tip(core, path, repo)?;
+    let tip = Git::quick(repo).trimmed(&["rev-parse", &tip_ref]).ok()?;
+    let tag = Git::quick(repo)
+        .trimmed(&["describe", "--tags", "--abbrev=0", &tip])
+        .ok()
+        .filter(|tag| !tag.is_empty());
+    let tagged_at = tag.as_deref().and_then(|tag| {
+        Git::quick(repo)
+            .trimmed(&[
+                "for-each-ref",
+                "--format=%(creatordate:unix)",
+                &format!("refs/tags/{tag}"),
+            ])
+            .ok()?
+            .parse::<u64>()
+            .ok()
+            .map(|seconds| seconds * 1000)
+    });
+    let range = match &tag {
+        Some(tag) => format!("{tag}..{tip}"),
+        None => tip.clone(),
+    };
+    let since_tag = Git::quick(repo)
+        .trimmed(&["rev-list", "--count", &range])
+        .ok()
+        .and_then(|count| count.parse().ok())
+        .unwrap_or(0);
+    let running = running_build(core, repo).map(|build| {
+        Git::quick(repo)
+            .trimmed(&["tag", "--points-at", &build])
+            .ok()
+            .and_then(|tags| tags.lines().last().map(str::to_owned))
+            .unwrap_or(build)
+    });
+    let release = NowRelease {
+        branch,
+        tag,
+        tagged_at,
+        since_tag,
+        ci: None,
+        releasing: false,
+        running,
+    };
+    Some((release, tip))
+}
+
+/// The commit the app the person runs was built at, while that commit is in `repo`.
+fn running_build(core: &Core, repo: &Path) -> Option<String> {
+    let commit = &core.build().commit;
+    let known = !commit.is_empty()
+        && commit.chars().all(|c| c.is_ascii_hexdigit())
+        && Git::quick(repo)
+            .output(&["cat-file", "-e", &format!("{commit}^{{commit}}")])
+            .is_ok_and(|output| output.status.success());
+    known.then(|| commit.clone())
+}
+
+/// How CI stands on the branch's tip, and whether a run on its newest tag is going, as its code
+/// host says; none of either where it cannot be read.
+async fn ci_of(
+    core: &Arc<Core>,
+    path: &str,
+    release: &NowRelease,
+    tip: &str,
+) -> (Option<CiStand>, bool) {
+    use super::codehost::repo::{self as codehost, Checks};
+    let Ok(repo) = codehost::of_project(core, path).await else {
+        return (None, false);
+    };
+    let ci = match codehost::commit_checks(&repo, Some(&release.branch), tip, &[]).await {
+        Ok(Checks::Passed) => Some(CiStand::Passed),
+        Ok(Checks::Running { .. }) => Some(CiStand::Running),
+        Ok(Checks::Failed(_)) => Some(CiStand::Failed),
+        Ok(Checks::None | Checks::Stopped(_)) | Err(_) => None,
+    };
+    let releasing = match &release.tag {
+        Some(tag) => codehost::runs(&repo, tag, None, false)
+            .await
+            .is_ok_and(|runs| {
+                runs.iter().any(|run| {
+                    run["status"]
+                        .as_str()
+                        .is_some_and(|status| status != "completed")
+                })
+            }),
+        None => false,
+    };
+    (ci, releasing)
+}
+
+/// Where `agent`'s landed work is, read again: on a land, a push or a new turn of it.
+pub(crate) fn work_moved(core: &Core, agent: &str) {
+    let fix = fix_of(core, agent);
+    let changed = {
+        let mut fixes = core.now().fixes.locked();
+        match fix {
+            Some(fix) => fixes.insert(agent.to_owned(), fix.clone()) != Some(fix),
+            None => fixes.remove(agent).is_some(),
+        }
+    };
+    if changed {
+        core.changed(What::View);
+    }
+}
+
+/// Every agent's fix in the project at `path`, read again since its newest tag or the app's
+/// build moved.
+fn refix_project(core: &Core, path: &str) {
+    let Some(project) = (core.workspaces().projects().into_iter())
+        .find(|project| project.path.to_string_lossy() == path)
+    else {
+        return;
+    };
+    let agents = core.workspaces().agent_projects();
+    for (agent, _) in agents.iter().filter(|(_, of)| **of == project.id) {
+        work_moved(core, agent);
+    }
+}
+
+fn fix_of(core: &Core, agent: &str) -> Option<Fix> {
+    let work = core.inbox().ending(agent)?.work?;
+    if work.changes != WorkAt::Landed {
+        return None;
+    }
+    let repo_path = (core.workspaces().agent(agent))
+        .and_then(|agent| agent.worktree.map(|worktree| worktree.repo))
+        .unwrap_or_else(|| PathBuf::from(&work.project));
+    let repo = repo_path.as_path();
+    let commit = (work.own.first())
+        .and_then(|own| own.split_whitespace().next().map(str::to_owned))
+        .or(work.head)?;
+    let contains = |tip: &str| {
+        Git::quick(repo)
+            .output(&["merge-base", "--is-ancestor", &commit, tip])
+            .is_ok_and(|output| output.status.success())
+    };
+    if running_build(core, repo).is_some_and(|build| contains(&build)) {
+        return Some(Fix {
+            commit,
+            at: FixAt::Running,
+            release: None,
+        });
+    }
+    let kept = core.now().fixes.locked().get(agent).cloned();
+    let newest = (core.now().reads.locked().get(&work.project))
+        .and_then(|read| read.release.as_ref()?.tag.clone());
+    let tag = match kept.and_then(|kept| (kept.commit == commit).then_some(kept.release)?) {
+        Some(tag) => Some(tag),
+        None => newest.filter(|newest| contains(newest)).map(|newest| {
+            Git::quick(repo)
+                .trimmed(&["describe", "--tags", "--contains", &commit])
+                .ok()
+                .and_then(|name| name.split(['~', '^']).next().map(str::to_owned))
+                .filter(|tag| !tag.is_empty())
+                .unwrap_or(newest)
+        }),
+    };
+    Some(Fix {
+        commit,
+        at: match tag {
+            Some(_) => FixAt::Released,
+            None => FixAt::Landed,
+        },
+        release: tag,
+    })
 }

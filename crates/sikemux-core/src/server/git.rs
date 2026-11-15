@@ -441,6 +441,7 @@ fn refresh_host_now(core: &Arc<Core>, project: String) {
     read_hosts(core, vec![project.clone()]);
     super::codehost::refs_moved(core, std::slice::from_ref(&project));
     core.checks().refs_moved(&project);
+    super::now::refs_moved(core, &project);
     let weak = Arc::downgrade(core);
     tokio::spawn(async move {
         tokio::time::sleep(HOST_REFRESH_GAP).await;
