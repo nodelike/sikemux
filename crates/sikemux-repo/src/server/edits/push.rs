@@ -49,6 +49,9 @@ pub struct Pushed {
     sent_back: Vec<String>,
     #[serde(skip)]
     pub blocked: Vec<Blocked>,
+    /// The newest commit it sent, when it sent any.
+    #[serde(skip)]
+    pub tip: Option<String>,
 }
 
 /// A commit of the branch that does not apply onto the remote's newest commits, so the push
@@ -149,6 +152,9 @@ pub fn push(core: &Core, dir: &Path, agents: &[String], remote: &str) -> Result<
         };
     }
     (core.repo_above().pushed)(core);
+    if let Some(tip) = &pushed.tip {
+        (core.repo_above().triggers_pushed)(core, dir, agents, tip);
+    }
     if !pushed.held.is_empty() {
         workflows::ask(core, dir, remote, agents, &pushed.held);
     }
@@ -271,6 +277,7 @@ fn push_once(
             held: Vec::new(),
             sent_back: Vec::new(),
             blocked: Vec::new(),
+            tip: Some(head),
         });
     }
     let cannot_go_alone = || {
@@ -351,6 +358,7 @@ fn push_once(
             })
             .collect(),
         blocked,
+        tip: None,
     };
     if going.is_empty() && pushed.blocked.is_empty() {
         return Ok(pushed);
@@ -369,6 +377,7 @@ fn push_once(
         "{branch} moved while pushing, so it still holds your pushed commits as they were; run git pull --rebase in this checkout to drop them"
     ));
     Ok(Pushed {
+        tip: Some(tip),
         note: match (moving, pushed.note.clone()) {
             (Some(moving), Some(waits)) => Some(format!("{waits} {moving}")),
             (moving, waits) => moving.or(waits),

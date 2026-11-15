@@ -1001,6 +1001,10 @@ two hours unless `timeout` says otherwise. When it already happened,
 failure names the failing runs, which `who_wrote` takes; no run within three
 minutes fires saying so.
 
+After `git_commit` pushes, by itself or through a land, Sikemux watches that
+push's CI with no trigger: a failure wakes you, or your lead once you have
+closed, and a pass is only a notice. Set no `ci` trigger for your own push.
+
 Each firing is a turn in the person's chat, so never repeat only to answer "no
 change". Give `every` or `daily` a `check`: a shell command that fires the
 trigger only when the end of its output changes, so keep that output free of

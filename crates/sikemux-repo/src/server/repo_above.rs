@@ -80,6 +80,9 @@ pub struct RepoAbove {
     /// The agent committed or its commits landed, so where its turn's work is is read again.
     /// Commits went to a remote, so what is on its branches moved.
     pub pushed: fn(&Core),
+    /// Commits the agents made went to the remote from the checkout, the newest given, so
+    /// its CI is watched for them.
+    pub triggers_pushed: fn(&Core, &Path, &[String], &str),
     pub turn_state_committed: fn(&Core, &str),
     /// The project's check passed on the `covered` commits, so the pages of the turns whose
     /// work is at one of them are taken.

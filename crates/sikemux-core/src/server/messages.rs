@@ -1717,6 +1717,18 @@ pub(crate) fn report_unlanded(core: &Arc<Core>, worker: String, to: String, text
     });
 }
 
+/// Hands `to` how CI went after the push of a `worker` that has closed.
+pub(crate) fn report_ci(core: &Arc<Core>, worker: String, to: String, text: String) {
+    let name = core.names().name(&worker);
+    let core = core.clone();
+    tokio::spawn(async move {
+        let note = |called: &str| {
+            format!("{called} has closed, and CI failed after its push. Sikemux watched it and sends this to you in its place: fix it or hand it on.")
+        };
+        report_noted(&core, worker, name, to, text, note).await;
+    });
+}
+
 /// [`report`] for a worker that may be gone, under the name it had.
 pub(crate) async fn report_as(
     core: &Arc<Core>,

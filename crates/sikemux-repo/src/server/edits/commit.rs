@@ -257,6 +257,7 @@ fn push_or_tell(
     let runtime = tokio::runtime::Handle::try_current().ok();
     let (owner, agent) = (core.clone(), agent.to_owned());
     std::thread::spawn(move || {
+        let _entered = runtime.as_ref().map(tokio::runtime::Handle::enter);
         let pushed = super::push::push(&owner, &from, std::slice::from_ref(&agent), "origin");
         let Err(std::sync::mpsc::SendError(pushed)) = answer.send(pushed) else {
             return;

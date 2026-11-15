@@ -377,6 +377,7 @@ pub(super) fn repo_above() -> RepoAbove {
         foreign_status: |core, agent| core.hosts().team.get(agent).map(|foreign| foreign.status),
         turn_state_wrote: turn_state::wrote,
         pushed: finished::moved,
+        triggers_pushed: triggers::pushed,
         turn_state_committed: |core, agent| {
             core.inbox().committed(agent);
             turn_state::read_work(core, agent);

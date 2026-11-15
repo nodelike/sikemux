@@ -3,7 +3,7 @@
 //! is on, and stays until it is removed. A webhook trigger fires on each request to its address
 //! instead of at a time, and one on a mod's collection when a document there is added or changed.
 //! A chat's triggers pause while it is closed and go on when it is taken up
-//! again.
+//! again. The core also watches CI after each push an agent makes, with no trigger_add.
 
 use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
@@ -123,9 +123,17 @@ impl Trigger {
         self.park.as_ref().is_some_and(park::Park::waits_in_line)
     }
 
-    /// Whether it prompts the open chat `agent_id`.
+    /// Whether it prompts the open chat `agent_id`. The core's watch after a push is none of the
+    /// chat's own, so it neither keeps the chat open nor counts as a wait the chat set.
     fn prompts(&self, agent_id: &str) -> bool {
-        self.board.is_none() && self.paused.is_none() && self.agent_id == agent_id
+        self.board.is_none()
+            && self.paused.is_none()
+            && self.agent_id == agent_id
+            && !self.after_push()
+    }
+
+    fn after_push(&self) -> bool {
+        self.ci.as_ref().is_some_and(ci::CiWatch::after_push)
     }
 
     fn shown(&self) -> ChatTrigger {
@@ -590,9 +598,14 @@ pub(crate) fn settle(core: &Arc<Core>) {
         .collect();
     if !gone.is_empty() {
         let closed = core.triggers().change(|state| {
-            let (closed, kept) = std::mem::take(&mut state.triggers)
-                .into_iter()
-                .partition(|trigger| trigger.board.is_none() && gone.contains(&trigger.agent_id));
+            let (closed, kept) =
+                std::mem::take(&mut state.triggers)
+                    .into_iter()
+                    .partition(|trigger| {
+                        trigger.board.is_none()
+                            && !trigger.after_push()
+                            && gone.contains(&trigger.agent_id)
+                    });
             state.triggers = kept;
             closed
         });
@@ -1233,6 +1246,78 @@ pub(crate) fn mod_removed(core: &Arc<Core>, mod_id: &str) {
         gone
     });
     gone.iter().for_each(|trigger| show(core, trigger));
+}
+
+/// Commits `agents` made went to the remote from `dir`, with `tip` the newest, so the core
+/// watches the CI on it for them.
+pub(crate) fn pushed(core: &super::Core, dir: &std::path::Path, agents: &[String], tip: &str) {
+    let (Some(core), Ok(runtime)) = (core.arc(), tokio::runtime::Handle::try_current()) else {
+        return;
+    };
+    let (dir, agents, tip) = (
+        dir.to_string_lossy().into_owned(),
+        agents.to_vec(),
+        tip.to_owned(),
+    );
+    runtime.spawn(async move {
+        if let Some(watch) = ci::after_push(&core, dir, agents, tip).await {
+            watch_after_push(&core, watch);
+        }
+    });
+}
+
+/// Keeps one watch per pushed run, and one per agent: a newer push of an agent's stands for
+/// the CI of its older ones.
+fn watch_after_push(core: &Arc<Core>, watch: ci::CiWatch) {
+    let now = epoch_ms();
+    core.triggers().change(|state| {
+        let mut same_run = None;
+        for (at, trigger) in state.triggers.iter_mut().enumerate() {
+            let Some(other) = trigger.ci.as_mut().filter(|other| other.after_push()) else {
+                continue;
+            };
+            match other.same_run(&watch) {
+                true => same_run = Some(at),
+                false if other.same_repo(&watch) => other.forget(watch.pushed_by()),
+                false => {}
+            }
+        }
+        match same_run {
+            Some(at) => {
+                if let Some(other) = state.triggers[at].ci.as_mut() {
+                    other.join(watch.pushed_by());
+                }
+            }
+            None if state.triggers.len() < MAX_TRIGGERS => {
+                state.next_id += 1;
+                state.triggers.push(Trigger {
+                    id: state.next_id,
+                    agent_id: watch.pushed_by()[0].clone(),
+                    board: None,
+                    title: format!("CI after the push of {}", watch.shown()),
+                    prompt: String::new(),
+                    when: TriggerWhen::Ci { on: watch.shown() },
+                    next_at: Some(now + watch.look_again_ms()),
+                    hook_id: None,
+                    paused: None,
+                    ci: Some(watch),
+                    park: None,
+                    check: None,
+                    watch: None,
+                    stopped: None,
+                    set: None,
+                    held: Vec::new(),
+                    dropped: 0,
+                });
+            }
+            None => {}
+        }
+        state.triggers.retain(|trigger| {
+            !(trigger.ci.as_ref()).is_some_and(|ci| ci.after_push() && ci.pushed_by().is_empty())
+        });
+    });
+    core.changed(What::Read(super::changed::Topic::Playbook));
+    super::codehost::ci::start(core);
 }
 
 /// Removes trigger `id` at the person's word, saying whether there was one.

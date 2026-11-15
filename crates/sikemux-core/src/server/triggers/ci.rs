@@ -5,6 +5,7 @@
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 use crate::server::serving::ServeParts;
+use crate::server::workspace_state::{WorkspaceCore, WorkspaceParts};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -13,7 +14,7 @@ use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use super::{fire, remove_where, Firing, Trigger};
+use super::{fire, messages, remove_where, Firing, Trigger};
 use crate::git::Git;
 use crate::server::codehost::ci::Shown;
 use crate::server::codehost::repo::{self as codehost, Checks, Conclusion, CI_START_WAIT_MS};
@@ -47,6 +48,9 @@ pub(super) struct CiWatch {
     /// Its repository's CI webhook tells the core when its runs move.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     fed: bool,
+    /// The agents whose push it watches, when the core set it rather than an agent.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pushed_by: Vec<String>,
 }
 
 fn is_zero(count: &u32) -> bool {
@@ -84,6 +88,41 @@ impl CiWatch {
             CiOn::Run(id) => id_text(id),
         };
         format!("{} {on}", self.repo.id)
+    }
+
+    pub(super) fn after_push(&self) -> bool {
+        !self.pushed_by.is_empty()
+    }
+
+    pub(super) fn pushed_by(&self) -> &[String] {
+        &self.pushed_by
+    }
+
+    pub(super) fn same_repo(&self, other: &CiWatch) -> bool {
+        self.repo == other.repo
+    }
+
+    pub(super) fn same_run(&self, other: &CiWatch) -> bool {
+        self.run() == other.run()
+    }
+
+    pub(super) fn forget(&mut self, agents: &[String]) {
+        self.pushed_by.retain(|agent| !agents.contains(agent));
+    }
+
+    pub(super) fn join(&mut self, agents: &[String]) {
+        for agent in agents {
+            if !self.pushed_by.contains(agent) {
+                self.pushed_by.push(agent.clone());
+            }
+        }
+    }
+
+    pub(super) fn shown(&self) -> String {
+        match &self.on {
+            CiOn::Commit(sha) => sha.chars().take(SHORT_SHA).collect(),
+            CiOn::Run(id) => format!("run {}", id_text(id)),
+        }
     }
 
     /// What its wait is kept under, so the next wait on CI in the same repository has an
@@ -141,8 +180,33 @@ pub(super) async fn watch(
         since: epoch_ms(),
         running_since: None,
         unread: 0,
+        pushed_by: Vec::new(),
     };
     Ok((watch, shown))
+}
+
+/// A watch on the CI of `sha`, which `agents` pushed from `dir`; none where no code host with
+/// CI holds the repository.
+pub(super) async fn after_push(
+    core: &Arc<Core>,
+    dir: String,
+    agents: Vec<String>,
+    sha: String,
+) -> Option<CiWatch> {
+    if agents.is_empty() {
+        return None;
+    }
+    let repo = codehost::of_project(core, &dir).await.ok()?;
+    Some(CiWatch {
+        dir,
+        fed: crate::server::codehost::ci::is_fed(core, &repo.id()),
+        repo: repo.watched(),
+        on: CiOn::Commit(sha),
+        since: epoch_ms(),
+        running_since: None,
+        unread: 0,
+        pushed_by: agents,
+    })
 }
 
 fn commit_of(dir: &Path, on: &str) -> Option<String> {
@@ -306,6 +370,10 @@ pub(super) async fn look(core: Arc<Core>, id: u64) {
         core.waits()
             .took(&watch.waits_on(), epoch_ms().saturating_sub(since));
     }
+    if watch.after_push() {
+        tell_pushers(&core, &watch, said, how).await;
+        return;
+    }
     core.notify().send(Signal::CiEnded {
         agent_id: trigger.agent_id.clone(),
         run: watch.run(),
@@ -335,4 +403,68 @@ fn watched(core: &Core, id: u64, change: impl FnOnce(&mut CiWatch)) {
             change(watch);
         }
     });
+}
+
+const AFTER_PUSH: &str = "Sikemux watches CI after each push, so this needs no trigger_add.";
+
+/// Tells each agent whose push the watch was for how its CI ended. A failure wakes it, or its
+/// lead once it has closed; any other end is only a notice it reads if it is at work.
+async fn tell_pushers(core: &Arc<Core>, watch: &CiWatch, said: String, how: CiEnded) {
+    let run = watch.run();
+    for agent in &watch.pushed_by {
+        if watches_itself(core, agent, &run) {
+            continue;
+        }
+        let open = !core.workspaces().closed(agent);
+        let told = match (how, open) {
+            (CiEnded::Failed, true) => {
+                core.notify().send(Signal::CiEnded {
+                    agent_id: agent.clone(),
+                    run: run.clone(),
+                    what: format!("CI after the push of {}", watch.shown()),
+                    how,
+                });
+                let text = format!("After your push: {said}");
+                messages::from_trigger(core, agent.clone(), text, AFTER_PUSH.to_owned())
+                    .await
+                    .map(drop)
+            }
+            (CiEnded::Failed, false) => {
+                if let Some(to) = lead_now(core, agent) {
+                    messages::report_ci(core, agent.clone(), to, said.clone());
+                }
+                Ok(())
+            }
+            (_, true) => {
+                messages::from_sikemux(core, agent.clone(), format!("After your push: {said}"))
+                    .await
+                    .map(drop)
+            }
+            (_, false) => Ok(()),
+        };
+        if let Err(error) = told {
+            eprintln!("sikemux core: CI after a push did not reach {agent}: {error}");
+        }
+    }
+}
+
+/// Whether the agent set a CI trigger of its own on the same run, which tells it already.
+fn watches_itself(core: &Core, agent: &str, run: &str) -> bool {
+    let state = core.triggers().state.locked();
+    (state.triggers.iter()).any(|trigger| {
+        trigger.agent_id == agent
+            && (trigger.ci.as_ref()).is_some_and(|watch| !watch.after_push() && watch.run() == run)
+    })
+}
+
+/// Who hears for a closed agent: the lead that started it while that lead is open, else the
+/// chief of its project.
+fn lead_now(core: &Core, agent: &str) -> Option<String> {
+    let closed = core.workspaces().closed_agent(agent)?;
+    if let Some(lead) = closed.lead.filter(|lead| core.open_agents().contains(lead)) {
+        return Some(lead);
+    }
+    crate::server::chief::seated(core)
+        .remove(&closed.project)
+        .filter(|chief| chief != agent)
 }
