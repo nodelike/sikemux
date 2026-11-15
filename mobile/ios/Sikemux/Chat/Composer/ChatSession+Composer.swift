@@ -17,6 +17,17 @@ extension ChatSession {
     /// Adds what was picked for the next message, leaving out what the host would refuse.
     func attach(_ picked: [Attachment], at caret: Int? = nil) {
         notice = draft.attach(picked, at: caret)
+        putPicked()
+    }
+
+    /// Puts newly picked files on the host at once, so the draft the Mac and other phones read holds them too.
+    private func putPicked() {
+        let waiting = draft.attachments.filter { $0.path == nil && $0.upload == nil }
+        guard let connection, !waiting.isEmpty else { return }
+        Task {
+            _ = try? await outbox.put(connection, waiting) { id, change in self.draft.patch(id, change) }
+            draft.edited()
+        }
     }
 
     /// Has the host put stash items in this chat's draft: files beside it, links and text as chips, notes in its words.

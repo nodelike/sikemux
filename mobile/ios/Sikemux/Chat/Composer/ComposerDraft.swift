@@ -244,7 +244,7 @@ final class ComposerDraft {
         let edits = self.edits
         let paths = Uploads.paths(attachments)
         let extra = DraftExtra(
-            tokens: tokens.isEmpty ? nil : Mentions.kept(text, tokens),
+            tokens: tokens.isEmpty ? nil : Mentions.kept(text, hostTokens),
             attachments: paths.isEmpty ? nil : paths,
             context: chips.isEmpty ? nil : chips,
             tracked: liveTracked.isEmpty ? nil : liveTracked
@@ -263,6 +263,18 @@ final class ComposerDraft {
         takeIn()
     }
 
+    /// The tags as the host names them, a picture by where the host keeps it; one not there yet stays plain words.
+    private var hostTokens: [TextToken] {
+        tokens.compactMap { token in
+            guard token.id.hasPrefix(Mentions.image) else { return token }
+            let id = token.id.dropFirst(Mentions.image.count)
+            guard let path = attachments.first(where: { $0.id == id })?.path else { return nil }
+            var named = token
+            named.id = Mentions.image + path
+            return named
+        }
+    }
+
     private var liveTracked: [String: ChatContext] {
         tracked.filter { entry in tokens.contains { $0.id == entry.key } }
     }
@@ -278,10 +290,20 @@ final class ComposerDraft {
             uniquingKeysWith: { a, _ in a })
         rev = host?.rev
         text = host?.text ?? ""
-        tokens = Mentions.tokens(text, extra?.tokens)
         tracked = extra?.tracked ?? [:]
         chips = extra?.context ?? []
         attachments = (extra?.attachments ?? []).map { kept[$0] ?? .onHost($0) } + attachments.filter { $0.path == nil }
+        let byPath = Dictionary(
+            attachments.compactMap { attachment in attachment.path.map { ($0, attachment.id) } },
+            uniquingKeysWith: { a, _ in a })
+        tokens = Mentions.tokens(text, extra?.tokens).map { token in
+            guard token.id.hasPrefix(Mentions.image),
+                let id = byPath[String(token.id.dropFirst(Mentions.image.count))]
+            else { return token }
+            var named = token
+            named.id = Mentions.image + id
+            return named
+        }
         emit()
     }
 
