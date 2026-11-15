@@ -1,0 +1,61 @@
+name: Windows window probe
+
+on:
+  push:
+    branches: [win/window-probe]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_TERM_COLOR: always
+  DEPS_OPT_LEVEL: 1
+
+jobs:
+  probe:
+    name: GPUI window on Windows ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x86_64
+          - runner: windows-11-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: git config --global core.longpaths true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
+      - name: Build the probe
+        run: cargo build --locked -p gpui-windows-probe
+      - name: Open the window and take a picture
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path shots | Out-Null
+          $p = Start-Process -FilePath target\debug\gpui-windows-probe.exe -PassThru -RedirectStandardError shots\stderr.txt -RedirectStandardOutput shots\stdout.txt
+          Start-Sleep -Seconds 15
+          Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          $g = [System.Drawing.Graphics]::FromImage($bmp)
+          $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $bmp.Save("shots\screen-${{ matrix.arch }}.png")
+          "running: $(-not $p.HasExited)" | Out-File shots\state.txt
+          Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion | Out-File -Append shots\state.txt
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id }
+          Get-Content shots\stderr.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: probe-${{ matrix.arch }}
+          path: shots
