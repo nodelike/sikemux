@@ -818,6 +818,11 @@ impl Backend for Codex {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    const PICTURE: (&str, &str) = ("file:///w/shot.PNG", "/w/shot.PNG");
+    #[cfg(windows)]
+    const PICTURE: (&str, &str) = ("file:///C:/w/shot.PNG", r"C:\w\shot.PNG");
+
     #[test]
     fn prompt_parts_become_codex_input() {
         let parts = || {
@@ -833,7 +838,7 @@ mod tests {
                 },
                 Part::File {
                     name: "shot.PNG".into(),
-                    uri: "file:///w/shot.PNG".into(),
+                    uri: PICTURE.0.into(),
                 },
             ]
         };
@@ -847,13 +852,10 @@ mod tests {
             "https://github.com/o/r/issues/1\n<context ref=\"https://github.com/o/r/issues/1\">\nIssue\n</context>"
         );
         assert_eq!(said[2]["text"], "[@a.txt](file:///w/a.txt)");
-        assert_eq!(
-            said[3],
-            json!({ "type": "localImage", "path": "/w/shot.PNG" })
-        );
+        assert_eq!(said[3], json!({ "type": "localImage", "path": PICTURE.1 }));
         assert_eq!(
             input(parts(), false)[3]["text"],
-            "[@shot.PNG](file:///w/shot.PNG)"
+            format!("[@shot.PNG]({})", PICTURE.0)
         );
     }
 }

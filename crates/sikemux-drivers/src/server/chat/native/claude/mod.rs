@@ -1136,12 +1136,17 @@ mod tests {
         assert_eq!(mcp_config(&[]), None);
     }
 
+    #[cfg(unix)]
+    const ATTACHED: (&str, &str) = ("/tmp/a.rs", "[@a.rs](file:///tmp/a.rs)");
+    #[cfg(windows)]
+    const ATTACHED: (&str, &str) = (r"C:\tmp\a.rs", "[@a.rs](file:///C:/tmp/a.rs)");
+
     #[test]
     fn files_go_as_links_and_handed_text_after_the_message() {
         let prompt = Prompt {
             message_id: None,
             text: "look".into(),
-            paths: vec!["/tmp/a.rs".into()],
+            paths: vec![ATTACHED.0.into()],
             context: vec![sikemux_wire::protocol::ChatContext {
                 uri: "jira://X-1".into(),
                 title: "X-1".into(),
@@ -1156,7 +1161,7 @@ mod tests {
             .map(|block| block["text"].as_str().unwrap())
             .collect();
         assert_eq!(texts[0], "look");
-        assert!(texts.contains(&"[@a.rs](file:///tmp/a.rs)"));
+        assert!(texts.contains(&ATTACHED.1));
         assert!(texts
             .last()
             .unwrap()

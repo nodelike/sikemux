@@ -1451,15 +1451,19 @@ fn text_content(text: Value) -> Value {
 fn display_path(file_path: &str, cwd: &Path) -> String {
     let resolved_cwd = normalize(cwd, cwd);
     let resolved_file = normalize(cwd, Path::new(file_path));
-    let cwd_text = resolved_cwd.to_string_lossy();
-    let file_text = resolved_file.to_string_lossy();
-    if file_text == cwd_text {
-        return String::new();
-    }
-    match file_text.strip_prefix(&format!("{cwd_text}/")) {
-        Some(relative) => relative.to_string(),
-        None => file_path.to_string(),
-    }
+    let Ok(relative) = resolved_file.strip_prefix(&resolved_cwd) else {
+        return file_path.to_string();
+    };
+    let separator = if file_path.contains(std::path::MAIN_SEPARATOR) {
+        std::path::MAIN_SEPARATOR_STR
+    } else {
+        "/"
+    };
+    relative
+        .iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(separator)
 }
 
 fn normalize(base: &Path, path: &Path) -> PathBuf {

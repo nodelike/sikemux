@@ -231,6 +231,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[cfg(unix)]
+    const ATTACHED: &str = "/tmp/a.txt";
+    #[cfg(windows)]
+    const ATTACHED: &str = r"C:\tmp\a.txt";
+
     #[test]
     fn prompt_rejects_relative_attachment_paths() {
         let error = prompt_blocks(String::new(), vec!["relative.txt".into()], Vec::new(), true)
@@ -250,7 +255,7 @@ mod tests {
     fn prompt_embeds_context_when_the_agent_takes_it() {
         let blocks = prompt_blocks(
             "fix this".into(),
-            vec!["/tmp/a.txt".into()],
+            vec![ATTACHED.into()],
             vec![issue_context()],
             true,
         )
