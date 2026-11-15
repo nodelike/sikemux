@@ -16,7 +16,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common::{spread, thread_cpu_ms, Pace, Timed, DRAWS};
+use common::usage::{peak_resident_mb, thread_cpu_ms};
+use common::{spread, Pace, Timed, DRAWS};
 use gpui::{
     div, point, px, relative, size, AnyElement, AnyWindowHandle, AppContext, Bounds, Context,
     Entity, HeadlessAppContext, IntoElement, Keystroke, MouseButton, MouseDownEvent,
@@ -258,13 +259,6 @@ impl Run {
     }
 }
 
-/// The most memory this process has held, in MB.
-fn peak_rss_mb() -> f64 {
-    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
-    usage.ru_maxrss as f64 / 1024. / 1024.
-}
-
 fn spawn(runtime: &tokio::runtime::Runtime, client: &CoreClient, script: &str) -> SessionId {
     let target = SpawnTarget::Terminal(TerminalSpawn {
         cols: 120,
@@ -451,6 +445,6 @@ fn main() {
         run.frame();
     }
     run.shot(&shots, "dracula");
-    println!("app peak RSS {:.0} MB", peak_rss_mb());
+    println!("app peak RSS {:.0} MB", peak_resident_mb());
     drop(client);
 }

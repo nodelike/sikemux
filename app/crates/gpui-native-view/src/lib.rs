@@ -20,6 +20,8 @@ pub mod document;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(windows)]
+mod windows;
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -32,6 +34,8 @@ use gpui::{
 
 #[cfg(target_os = "linux")]
 pub use linux::window_x11;
+#[cfg(windows)]
+pub use windows::window_hwnd;
 #[cfg(target_os = "macos")]
 pub use macos::{stand_in_for_offscreen, window_view, OwnedView};
 #[cfg(target_os = "macos")]

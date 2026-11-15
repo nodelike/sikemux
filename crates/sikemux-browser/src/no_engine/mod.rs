@@ -12,6 +12,18 @@ pub const NOT_HERE: &str = "the browser is not on this system yet";
 
 pub enum Page {}
 
+pub enum PageView {}
+
+impl PageView {
+    pub fn show(&self, _html: &str) {
+        match *self {}
+    }
+
+    pub fn run_script(&self, _script: &str) {
+        match *self {}
+    }
+}
+
 #[derive(Clone)]
 pub struct Tab(Never);
 

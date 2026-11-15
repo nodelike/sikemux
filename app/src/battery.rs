@@ -24,6 +24,58 @@ pub use mac::{read, watch};
 #[cfg(target_os = "linux")]
 pub use linux::{read, watch};
 
+#[cfg(windows)]
+pub use windows::{read, watch};
+
+/// Windows says how the battery stands when asked, and only to a window when it changes, so a
+/// thread of its own asks once a minute.
+#[cfg(windows)]
+mod windows {
+    use std::time::Duration;
+
+    use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+
+    use super::Battery;
+
+    const NO_BATTERY: u8 = 128;
+    const UNKNOWN: u8 = 255;
+
+    pub fn read() -> Option<Battery> {
+        let mut status = SYSTEM_POWER_STATUS::default();
+        // SAFETY: the call only writes the struct it is handed.
+        if unsafe { GetSystemPowerStatus(&mut status) } == 0
+            || status.BatteryFlag & NO_BATTERY != 0
+            || status.BatteryFlag == UNKNOWN
+            || status.BatteryLifePercent == UNKNOWN
+        {
+            return None;
+        }
+        let charging = status.ACLineStatus == 1;
+        Some(Battery {
+            percent: status.BatteryLifePercent.min(100),
+            charging,
+            minutes: (!charging && status.BatteryLifeTime != u32::MAX)
+                .then_some(status.BatteryLifeTime / 60),
+        })
+    }
+
+    /// Calls `changed`, from a thread of its own, whenever the battery reads differently.
+    pub fn watch(changed: impl Fn() + Send + 'static) {
+        let _ = std::thread::Builder::new()
+            .name("battery".into())
+            .spawn(move || {
+                let mut last = read();
+                loop {
+                    std::thread::sleep(Duration::from_secs(60));
+                    let now = read();
+                    if now != std::mem::replace(&mut last, now) {
+                        changed();
+                    }
+                }
+            });
+    }
+}
+
 /// UPower's summary of the batteries, which it keeps on the system bus.
 #[cfg(target_os = "linux")]
 mod linux {

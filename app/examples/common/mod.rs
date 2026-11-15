@@ -3,6 +3,13 @@
 //! example uses only some of it.
 #![allow(dead_code)]
 
+#[cfg(unix)]
+#[path = "usage/unix.rs"]
+pub mod usage;
+#[cfg(windows)]
+#[path = "usage/windows.rs"]
+pub mod usage;
+
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
@@ -91,17 +98,6 @@ fn add_to_draw(began: Instant) {
             *draw += began.elapsed().as_secs_f64() * 1e3;
         }
     });
-}
-
-/// The time this thread has run, which other processes busy on the machine do not inflate.
-pub fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime only writes the struct it is handed.
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
 }
 
 pub fn spread(mut values: Vec<f64>) -> String {

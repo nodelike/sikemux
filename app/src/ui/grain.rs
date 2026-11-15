@@ -758,6 +758,20 @@ fn system_reduces_motion() -> bool {
     linux::reduces_motion()
 }
 
+/// Windows' "Animation effects" switch, off when the person asks for less motion.
+#[cfg(windows)]
+fn system_reduces_motion() -> bool {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION,
+    };
+    let mut animates = 1i32;
+    // SAFETY: this setting writes one BOOL into the integer it is handed.
+    let read = unsafe {
+        SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&raw mut animates).cast(), 0)
+    };
+    read != 0 && animates == 0
+}
+
 /// The desktop's animation setting, read through the desktop portal: GNOME's "enable
 /// animations" switch, or KDE's animation speed set to instant.
 #[cfg(target_os = "linux")]

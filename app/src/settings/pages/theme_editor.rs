@@ -764,9 +764,10 @@ mod wallpaper {
     /// How many pixels across the wallpaper is shrunk to before its colours are read.
     const SIZE: u32 = 160;
 
-    /// Whether this desktop says where its wallpaper is: the Mac does, and on Linux GNOME.
+    /// Whether this desktop says where its wallpaper is: the Mac and Windows do, and on Linux
+    /// GNOME.
     pub fn offered() -> bool {
-        cfg!(target_os = "macos")
+        cfg!(any(target_os = "macos", windows))
             || (cfg!(target_os = "linux")
                 && std::env::var("XDG_CURRENT_DESKTOP")
                     .is_ok_and(|desktop| desktop.split(':').any(|name| name == "GNOME")))
@@ -786,6 +787,31 @@ mod wallpaper {
         {
             gnome::path()
         }
+        #[cfg(windows)]
+        {
+            windows_path()
+        }
+    }
+
+    #[cfg(windows)]
+    fn windows_path() -> Option<PathBuf> {
+        use std::os::windows::ffi::OsStringExt;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SystemParametersInfoW, SPI_GETDESKWALLPAPER,
+        };
+        let mut path = [0u16; 260];
+        // SAFETY: the call writes at most as many UTF-16 units as it is told the buffer holds.
+        let read = unsafe {
+            SystemParametersInfoW(
+                SPI_GETDESKWALLPAPER,
+                path.len() as u32,
+                path.as_mut_ptr().cast(),
+                0,
+            )
+        };
+        let length = path.iter().position(|&unit| unit == 0)?;
+        (read != 0 && length > 0)
+            .then(|| PathBuf::from(std::ffi::OsString::from_wide(&path[..length])))
     }
 
     /// GNOME keeps a light and a dark wallpaper, worn by the colour scheme it is set to.

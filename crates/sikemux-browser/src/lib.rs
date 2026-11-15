@@ -23,7 +23,6 @@ mod manager;
 mod native;
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod no_engine;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod page_view;
 mod person;
 pub mod pins;

@@ -44,6 +44,7 @@ impl World {
             &ssh,
             "#!/bin/sh\nfor host; do :; done\nprintf '\\033]6973;ssh;connected\\007'\nprintf 'Last login: Mon Nov  2 09:12:44 2026\\r\\n%s ~ $ ' \"$host\"\nexec /bin/sleep 86400\n",
         )?;
+        #[cfg(unix)]
         std::fs::set_permissions(&ssh, std::os::unix::fs::PermissionsExt::from_mode(0o755))?;
         std::fs::write(
             home.join(".zshrc"),
@@ -105,8 +106,7 @@ impl World {
             .env("FAKE_CLAUDE_MODEL", SEEDED_MODEL)
             .stdin(Stdio::null())
             .stdout(log.try_clone()?)
-            .stderr(log)
-            .process_group(0);
+            .stderr(log);
         if let Some(replies) = &replies {
             command.env("FAKE_CLAUDE_SCRIPT", replies);
         }
@@ -115,7 +115,7 @@ impl World {
         if !args.stills.as_ref().is_some_and(Vec::is_empty) {
             command.env("FAKE_CLAUDE_CLOCK", clock);
         }
-        let core = command.spawn().context("starting the core")?;
+        let core = sikemux_process::spawn_tree(&mut command).context("starting the core")?;
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .enable_all()
@@ -683,8 +683,7 @@ pub(super) fn expand_home(value: &Value) -> Value {
 
 impl Drop for World {
     fn drop(&mut self) {
-        let group = -(self.core.id() as i32);
-        unsafe { libc::kill(group, libc::SIGTERM) };
+        sikemux_process::terminate_tree(self.core.id(), false);
         let started = Instant::now();
         while started.elapsed() < Duration::from_secs(5) {
             if matches!(self.core.try_wait(), Ok(Some(_))) {
@@ -692,7 +691,7 @@ impl Drop for World {
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        unsafe { libc::kill(group, libc::SIGKILL) };
+        sikemux_process::terminate_tree(self.core.id(), true);
         let _ = self.core.wait();
         let _ = std::fs::remove_file(&self.socket);
     }

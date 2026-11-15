@@ -31,7 +31,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common::{spread, thread_cpu_ms, Pace, Timed, DRAWS};
+use common::usage::{thread_cpu_ms, uptime_ns};
+use common::{spread, Pace, Timed, DRAWS};
 use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Bounds, Context, Entity, Focusable,
     HeadlessAppContext, IntoElement, Keystroke, ParentElement, Pixels, PlatformInput, Render,
@@ -787,16 +788,6 @@ fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
         }
     }
     stop.store(true, Ordering::Relaxed);
-}
-
-/// The clock ADEMark's replay server stamps its request log with.
-fn uptime_ns() -> u64 {
-    const CLOCK_UPTIME_RAW: libc::clockid_t = 8;
-    extern "C" {
-        fn clock_gettime_nsec_np(clock: libc::clockid_t) -> u64;
-    }
-    // SAFETY: reads a clock, with no pointer passed.
-    unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 }
 
 /// When ADEMark's replay server first heard the session `session` after `after`, from its log.

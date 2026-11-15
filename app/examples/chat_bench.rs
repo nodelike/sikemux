@@ -19,7 +19,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common::thread_cpu_ms;
+use common::usage::{peak_resident_mb, thread_cpu_ms};
 use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Entity, HeadlessAppContext, Modifiers,
     PlatformInput, ScrollDelta, ScrollEvent, ScrollSource, TouchPhase,
@@ -356,16 +356,6 @@ impl Folded {
             None,
         )
     }
-}
-
-fn peak_resident_mb() -> f64 {
-    // SAFETY: getrusage only writes the struct it is handed.
-    let usage = unsafe {
-        let mut usage = std::mem::zeroed::<libc::rusage>();
-        libc::getrusage(libc::RUSAGE_SELF, &mut usage);
-        usage
-    };
-    usage.ru_maxrss as f64 / 1024. / 1024.
 }
 
 #[derive(Default)]

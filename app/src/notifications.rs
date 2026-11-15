@@ -366,6 +366,8 @@ fn show_badge(count: usize) {
     }
     #[cfg(target_os = "linux")]
     linux::show_badge(count);
+    #[cfg(windows)]
+    let _ = count;
 }
 
 /// The count docks such as GNOME's and KDE's draw on a launcher: Unity's launcher entry

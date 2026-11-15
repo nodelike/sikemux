@@ -62,7 +62,6 @@ use scene::*;
 use sikemux_wire::protocol::ask;
 use std::cell::RefCell;
 use std::io::Write;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Stdio};
 use std::rc::Rc;

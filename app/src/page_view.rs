@@ -103,6 +103,11 @@ pub(crate) fn open(
     }
 }
 
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub(crate) fn open(_: &str, _: Room, _: Events, _: &Window, _: &App) -> Option<View> {
+    None
+}
+
 /// Where a view that parks sits out of sight: in the window, shown, at no size.
 #[cfg(target_os = "macos")]
 fn parked() -> gpui_native_view::Frame {
