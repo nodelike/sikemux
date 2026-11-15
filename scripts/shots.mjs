@@ -79,18 +79,25 @@ function run(command, args, cwd, env = {}) {
   return (Date.now() - started) / 1000;
 }
 
+function running(pid) {
+  try {
+    return process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+}
+
 /** One shooter at a time: the checkout and its builds are shared. */
 function lock() {
   mkdirSync(home, { recursive: true });
   const file = join(home, "lock");
-  try {
-    const holder = Number(readFileSync(file, "utf8"));
-    process.kill(holder, 0);
+  const holder = existsSync(file) ? Number(readFileSync(file, "utf8")) : 0;
+  if (holder && running(holder)) {
     console.error(
       `another shooter (pid ${holder}) is taking pictures; run again once it ends`,
     );
     process.exit(1);
-  } catch {}
+  }
   writeFileSync(file, String(process.pid));
   process.on("exit", () => rmSync(file, { force: true }));
 }
