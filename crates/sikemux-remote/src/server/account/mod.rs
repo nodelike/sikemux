@@ -557,7 +557,6 @@ pub async fn host_registration(
     let (key, signature) = core.remote().sign_registration(nonce, user_id)?;
     let (host, name) =
         super::connection::blocking(|| Ok((super::host::info(), super::host::name()))).await?;
-    devices::remember_first_name_sent(core, &name).await;
     Ok(HostRegistration {
         key,
         name,

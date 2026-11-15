@@ -206,6 +206,7 @@ impl live::Account for HostAccount {
                 if let Err(error) = forgotten {
                     eprintln!("sikemux core: could not check the account's phones: {error}");
                 }
+                crate::server::account::devices::keep_name_current(&reconciling).await;
             });
             (core.remote_above().hosts_relink)(&core);
             core.vault().wake();

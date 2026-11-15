@@ -181,21 +181,10 @@ pub async fn remember_name_sent(core: &Core, name: &str) {
     .await;
 }
 
-/// Notes the name this host registers under when it signs in for the first time. Signing
-/// in again keeps the name the account has, so the one noted before still says whether
-/// someone chose that name.
-pub async fn remember_first_name_sent(core: &Core, name: &str) {
-    let Some(path) = name_sent_path(core) else {
-        return;
-    };
-    if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
-        remember_name_sent(core, name).await;
-    }
-}
-
 /// Gives the account this computer's new name after the person renames it, unless the
 /// account's name for this host is no longer the one it last sent, since then someone
-/// chose that name and it stays.
+/// chose that name and it stays. Signing in again keeps the account's old name, so with no
+/// name noted as sent, the account's is taken as this host's own.
 pub async fn keep_name_current(core: &Core) {
     let (Some(path), Some(_)) = (name_sent_path(core), core.remote().owner()) else {
         return;
@@ -216,7 +205,8 @@ pub async fn keep_name_current(core: &Core) {
     let Some(on_account) = hosts.devices.into_iter().find(|known| known.key == key) else {
         return;
     };
-    if on_account.name != current && sent.as_deref() == Some(on_account.name.as_str()) {
+    let sent_last = sent.as_deref().unwrap_or(&on_account.name);
+    if on_account.name != current && sent_last == on_account.name {
         let renamed = rename_device(
             core,
             DeviceParams {
