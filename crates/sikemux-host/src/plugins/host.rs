@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 use sikemux_plugin_api::codehost::asks::Merge;
-use sikemux_plugin_api::credential::{Actor, Ask, Credential};
+use sikemux_plugin_api::credential::{Acting, Ask, Credential};
 use sikemux_plugin_api::{
     vault, FailureCategory, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
 };
@@ -249,7 +249,7 @@ impl PluginHost {
         .map_err(|error| failure(id, error))
     }
 
-    pub fn acts_as(&self, remote: &str) -> Option<Actor> {
+    pub fn acts_as(&self, remote: &str) -> Option<Acting> {
         self.enabled()
             .find_map(|(_, loaded)| loaded.plugin.acts_as(&loaded.context, remote))
     }

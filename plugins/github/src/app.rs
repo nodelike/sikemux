@@ -329,7 +329,6 @@ async fn token(
         username: USERNAME.to_owned(),
         secret: minted.token,
         expires_at: minted.expires_at,
-        actor: app.actor(),
     };
     if keep {
         MINTED.locked().insert(held_as, credential.clone());

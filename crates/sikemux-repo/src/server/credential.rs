@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use sikemux_agents::callers::{self, Asker};
 use sikemux_plugin_api::codehost::asks::{Merge, PullRef, RepoRef};
-use sikemux_plugin_api::credential::{Ask, Credential, Reach};
+use sikemux_plugin_api::credential::{Acting, Ask, Credential, Reach};
 use sikemux_plugin_api::vault::{as_caller, Caller};
 
 use crate::cli::protocol::HarnessRequest;
@@ -23,7 +23,9 @@ pub fn provide(core: &Arc<Core>) {
     let core = Arc::downgrade(core);
     identity::provide(move |remote| {
         let core = core.upgrade()?;
-        let actor = crate::server::plugged::acts_as(&core, remote)?;
+        let Acting::Agents(actor) = crate::server::plugged::acts_as(&core, remote)? else {
+            return None;
+        };
         Some(identity::Actor {
             name: actor.name,
             email: actor.email,

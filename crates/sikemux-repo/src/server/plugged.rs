@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_calls::plugins::PluginFailure;
 use sikemux_plugin_api::codehost::asks::Merge;
-use sikemux_plugin_api::credential::{Actor, Ask, Credential};
+use sikemux_plugin_api::credential::{Acting, Ask, Credential};
 use sikemux_plugin_api::FailureCategory;
 
 pub mod manifest;
@@ -77,9 +77,8 @@ pub trait Plugins: Send + Sync {
     fn merge_as_agents<'a>(&'a self, _remote: &'a str, _merge: Merge) -> Answer<'a, bool> {
         Box::pin(async { Ok(false) })
     }
-    /// Who commits to `remote` carry as committer when agents have an identity of their own
-    /// there. Answers at once.
-    fn acts_as(&self, _remote: &str) -> Option<Actor> {
+    /// Who the core pushes to `remote` as, when a plugin can push there. Answers at once.
+    fn acts_as(&self, _remote: &str) -> Option<Acting> {
         None
     }
     /// Each plugin's sign-ins, for the account vault, with the folder the plugin keeps them in.
@@ -167,7 +166,7 @@ pub async fn merge_as_agents(
     }
 }
 
-pub fn acts_as(core: &Core, remote: &str) -> Option<Actor> {
+pub fn acts_as(core: &Core, remote: &str) -> Option<Acting> {
     provided(core)?.0.acts_as(remote)
 }
 

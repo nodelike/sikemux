@@ -130,9 +130,9 @@ pub trait Plugin: Manifested + Send + Sync {
         Box::pin(async { Ok(false) })
     }
 
-    /// Who commits to `remote` would carry as committer, when this plugin has an identity of
-    /// the agents' own there. Asked on hot paths, so it answers from what it has, never the network.
-    fn acts_as(&self, _ctx: &PluginContext, _remote: &str) -> Option<credential::Actor> {
+    /// Who the core pushes to `remote` as, when this plugin can push there. Asked on hot paths,
+    /// so it answers from what it has, never the network.
+    fn acts_as(&self, _ctx: &PluginContext, _remote: &str) -> Option<credential::Acting> {
         None
     }
 

@@ -33,6 +33,17 @@ pub struct Actor {
     pub email: String,
 }
 
+/// Who the core pushes to a remote as.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Acting {
+    /// The agents' own identity, the committer of their commits. Agents get tokens of their own
+    /// that cannot write contents, and the core pushes with one minted for that push.
+    Agents(Actor),
+    /// The person's own sign-in, which only the core holds. Agents get no token, and commits
+    /// still show the person.
+    Person,
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Credential {
@@ -40,7 +51,6 @@ pub struct Credential {
     pub secret: String,
     /// Milliseconds since the Unix epoch.
     pub expires_at: u64,
-    pub actor: Actor,
 }
 
 impl std::fmt::Debug for Credential {
@@ -49,7 +59,6 @@ impl std::fmt::Debug for Credential {
             .debug_struct("Credential")
             .field("username", &self.username)
             .field("expires_at", &self.expires_at)
-            .field("actor", &self.actor)
             .finish_non_exhaustive()
     }
 }

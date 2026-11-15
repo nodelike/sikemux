@@ -36,7 +36,7 @@ use sikemux_plugin_api::codehost::{
     Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming,
     TimelineItem, Workflow, WorkflowFile,
 };
-use sikemux_plugin_api::credential::{Actor, Ask, Credential};
+use sikemux_plugin_api::credential::{Acting, Ask, Credential};
 use sikemux_plugin_api::host_work;
 use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
@@ -119,8 +119,8 @@ impl Plugin for Github {
         Box::pin(async move { Ok(app::merge(ctx.data_dir(), remote, merge).await?) })
     }
 
-    fn acts_as(&self, ctx: &PluginContext, remote: &str) -> Option<Actor> {
-        app::acts_as(ctx, remote)
+    fn acts_as(&self, ctx: &PluginContext, remote: &str) -> Option<Acting> {
+        app::acts_as(ctx, remote).map(Acting::Agents)
     }
 
     fn call<'a>(
