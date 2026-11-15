@@ -1,23 +1,30 @@
 name: Release
-run-name: Release ${{ github.ref_name }}
+run-name: Release ${{ github.event_name == 'workflow_run' && format('nightly from {0}', github.event.workflow_run.head_sha) || github.ref_name }}
 
-# A release only ever starts from a v* tag, and only the owner may push one.
+# A stable release starts from a v* tag, which only the owner may push. A nightly is built from
+# every push to main that CI passes, and goes to the staff feed at once and to nightly after a soak.
 on:
   push:
     tags: ["v*"]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
 
 permissions:
   actions: read
   contents: read
   checks: write
 
+# Of the pushes to main that wait for a run, only the newest gets one.
 concurrency:
-  group: release
+  group: release-${{ github.event_name }}
   cancel-in-progress: false
 
 # Published builds send crashes to these Sentry projects; the addresses are public client keys.
 # The binaries this workflow starts to check them send nothing.
 env:
+  RELEASE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
   SIKEMUX_SENTRY_DSN: https://f980bd76fa1efc1c3446bbebf4ef1a69@o4512409824919552.ingest.de.sentry.io/4512409865814096
   SIKEMUX_NOTCH_SENTRY_DSN: https://6bd8fd04db6ded3d067200c485966e66@o4512409824919552.ingest.de.sentry.io/4512409865945168
   DO_NOT_TRACK: "1"
@@ -25,7 +32,7 @@ env:
 jobs:
   approve:
     name: Approve the stable release
-    if: ${{ !contains(github.ref_name, '-nightly.') }}
+    if: ${{ github.event_name == 'push' && !contains(github.ref_name, '-nightly.') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: approval
@@ -35,6 +42,8 @@ jobs:
 
   pushed-checks:
     name: Checks already run on this commit
+    needs: plan
+    if: ${{ needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -47,7 +56,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&head_sha=$GITHUB_SHA"
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=push&head_sha=$RELEASE_SHA"
           while :; do
             run="$(gh api "$runs" --jq '.workflow_runs | sort_by(.created_at) | last | "\(.status) \(.conclusion)"')"
             case "$run" in
@@ -61,13 +70,19 @@ jobs:
 
   checks:
     name: Checks
-    needs: pushed-checks
-    # Also when the wait above timed out, so a slow CI run costs time, never the release.
-    if: ${{ !cancelled() && needs.pushed-checks.outputs.passed != 'true' }}
+    needs: [plan, pushed-checks]
+    # Also when the wait above timed out, so a slow CI run costs time, never the release. A nightly
+    # from main has only CI's verdict: a red one ends it, and the next push gets its own build.
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.plan.result == 'success' && needs.pushed-checks.outputs.passed != 'true' }}
     uses: ./.github/workflows/ci.yml
 
   plan:
     name: Plan the release
+    # Only pushes to main of this repository, while nightlies are not held by `scripts/nightly.sh hold`.
+    if: >-
+      github.event_name == 'push' || (github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository && vars.NIGHTLY_HOLD == '')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -79,7 +94,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
+          fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
+
+      - name: Give a push to main its nightly version and notes
+        if: github.event_name == 'workflow_run'
+        run: scripts/stamp-nightly.sh
 
       - name: Resolve version, channel, and notes
         id: plan
@@ -87,17 +109,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(node -p "require('./package.json').version")"
-          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package version $version"
-            exit 1
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match package version $version"
+              exit 1
+            fi
+            if [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/v$version" --jq .sha)" != "$RELEASE_SHA" ]]; then
+              echo "::error::The remote tag v$version is not on $RELEASE_SHA"
+              exit 1
+            fi
           fi
           heading="$(head -n 1 RELEASE_NOTES.md)"
           if [[ "$heading" != "# Sikemux v$version" ]]; then
             echo "::error::RELEASE_NOTES.md is headed '$heading', not '# Sikemux v$version'"
-            exit 1
-          fi
-          if [[ "$(gh api "repos/$GITHUB_REPOSITORY/commits/v$version" --jq .sha)" != "$GITHUB_SHA" ]]; then
-            echo "::error::The remote tag v$version is not on $GITHUB_SHA"
             exit 1
           fi
           if gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -114,7 +138,19 @@ jobs:
           esac
           echo "version=$version" >>"$GITHUB_OUTPUT"
           echo "channel=$channel" >>"$GITHUB_OUTPUT"
-          echo "Releasing $channel v$version from $GITHUB_SHA" >>"$GITHUB_STEP_SUMMARY"
+          echo "Releasing $channel v$version from $RELEASE_SHA" >>"$GITHUB_STEP_SUMMARY"
+
+      # Every job builds and describes the release from these, so a push's version reaches them all.
+      - name: Keep the version and notes
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-plan
+          if-no-files-found: error
+          path: |
+            package.json
+            Cargo.toml
+            Cargo.lock
+            RELEASE_NOTES.md
 
   # Nothing that builds holds signing material, and nothing that signs runs the
   # build's dependencies or what it signs. The app is compiled with the hashes of
@@ -131,8 +167,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+
+      - &plan_files
+        name: Take the planned version and notes
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-plan
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -183,8 +226,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -240,6 +286,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Setup Node
@@ -299,8 +346,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -402,6 +452,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Setup Node
@@ -458,8 +509,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           fetch-depth: 0
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -508,8 +562,8 @@ jobs:
   # The packages' core builds beside their app, as the Mac's does, on the same machines with the same libraries.
   linux-core:
     name: Build the core of the Linux packages (${{ matrix.arch }})
-    needs: approve
-    if: &approved ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    needs: [approve, plan]
+    if: *approved_plan
     strategy:
       matrix:
         include: &linux_machines
@@ -527,7 +581,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -562,8 +619,8 @@ jobs:
 
   build-linux:
     name: Build Linux packages (${{ matrix.arch }})
-    needs: approve
-    if: *approved
+    needs: [approve, plan]
+    if: *approved_plan
     strategy:
       matrix:
         include: *linux_machines
@@ -576,7 +633,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -654,6 +714,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Fetch the Linux packages
@@ -677,8 +738,8 @@ jobs:
 
   build-host:
     name: Build the Linux host core (${{ matrix.arch }})
-    needs: approve
-    if: *approved
+    needs: [approve, plan]
+    if: *approved_plan
     strategy:
       matrix:
         include:
@@ -697,7 +758,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+
+      - *plan_files
 
       - *keep_symbols
 
@@ -741,6 +805,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Setup Node
@@ -799,6 +864,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Setup Node
@@ -848,12 +914,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      # Makes a nightly's tag and starts its soak.
+      actions: write
       contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
+
+      - *plan_files
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -940,6 +1011,7 @@ jobs:
         if: steps.token.outputs.configured == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Download the published DMG
@@ -982,6 +1054,7 @@ jobs:
         if: steps.key.outputs.configured == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ env.RELEASE_SHA }}
           persist-credentials: false
 
       - name: Fetch the AUR recipe

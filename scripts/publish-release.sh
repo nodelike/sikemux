@@ -85,23 +85,17 @@ path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
 RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
-POINTER_NOTES="Update feed for the nightly channel.
-
-The installable build for this feed is [v$VERSION](https://github.com/nodelike/sikemux/releases/tag/v$VERSION).
-
-This release carries only \`latest.json\`. Its \`nightly\` tag is a fixed URL anchor that shipped clients resolve against, not a source revision — do not attach builds here."
 if [[ "$CHANNEL" == "stable" ]]; then
   echo "→ Publishing stable v$VERSION"
   "${RELEASE_CMD[@]}" "$MANIFEST"
   echo "✓ Released stable v$VERSION"
 else
   echo "→ Publishing nightly v$VERSION"
-  "${RELEASE_CMD[@]}" --prerelease
-  if gh release view nightly >/dev/null 2>&1; then
-    gh release upload nightly "$MANIFEST" --clobber
-    gh release edit nightly --title "Nightly feed (v$VERSION)" --notes "$POINTER_NOTES" --prerelease
-  else
-    gh release create nightly --target "$(git rev-parse HEAD)" --title "Nightly feed (v$VERSION)" --notes "$POINTER_NOTES" --prerelease "$MANIFEST"
-  fi
-  echo "✓ Released nightly v$VERSION; nightly feed now points at v$VERSION"
+  # A push to main brings no tag, so Release makes it; the owner may still push one by hand.
+  gh api "repos/{owner}/{repo}/git/ref/tags/v$VERSION" >/dev/null 2>&1 ||
+    gh api -X POST "repos/{owner}/{repo}/git/refs" -f "ref=refs/tags/v$VERSION" -f "sha=$(git rev-parse HEAD)" >/dev/null
+  "${RELEASE_CMD[@]}" "$MANIFEST" --prerelease
+  scripts/move-feed.sh staff "$VERSION"
+  gh workflow run nightly-soak.yml -f "version=$VERSION"
+  echo "✓ Released nightly v$VERSION to staff; the nightly feed follows once it has soaked"
 fi

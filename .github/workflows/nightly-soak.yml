@@ -1,0 +1,55 @@
+name: Nightly soak
+run-name: Soak v${{ inputs.version }}
+
+# Release starts this once a nightly reaches the staff feed. The nightly feed takes the same
+# build after it has run on staff machines for a while, unless `scripts/nightly.sh pull` stopped it.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The published nightly, such as 0.6.1-nightly.2486
+        required: true
+        type: string
+      minutes:
+        description: How long it runs on staff machines first
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    name: Run on staff machines
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Wait
+        env:
+          MINUTES: ${{ inputs.minutes }}
+        run: sleep "$((MINUTES * 60))"
+
+  promote:
+    name: Move the nightly feed
+    needs: soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only one moves the feed at a time; of those waiting, only the newest build goes.
+    concurrency:
+      group: nightly-feed
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Point the nightly feed at the build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          scripts/nightly.sh promote "$VERSION"
+          echo "Nightly feed: $(gh release view nightly --json name --jq .name)" >>"$GITHUB_STEP_SUMMARY"

@@ -152,8 +152,8 @@ grep -Fq 'releases/download/nightly/latest.json' crates/sikemux-corekit/src/rele
   exit 1
 }
 # shellcheck disable=SC2016
-grep -Fq 'gh release upload nightly "$MANIFEST" --clobber' scripts/publish-release.sh || {
-  echo "nightly feed no longer repoints its latest.json" >&2
+grep -Fq 'gh release upload "$FEED" "$MANIFEST" --clobber' scripts/move-feed.sh || {
+  echo "the update feeds no longer repoint their latest.json" >&2
   exit 1
 }
 # shellcheck disable=SC2016
@@ -162,8 +162,8 @@ grep -Fq 'RELEASE_CMD=(gh release create "v$VERSION"' scripts/publish-release.sh
   exit 1
 }
 # shellcheck disable=SC2016
-if grep -E 'gh release (create|upload|edit) nightly' scripts/publish-release.sh | grep -qE '\$(DMG|TAR|SIG)'; then
-  echo "nightly channel still attaches builds to the moving pointer release" >&2
+if grep -E 'gh release (create|upload|edit) ("\$FEED"|nightly|staff)' scripts/publish-release.sh scripts/move-feed.sh | grep -qE '\$(DMG|TAR|SIG)'; then
+  echo "an update feed attaches builds to its moving pointer release" >&2
   exit 1
 fi
 # shellcheck disable=SC2016
