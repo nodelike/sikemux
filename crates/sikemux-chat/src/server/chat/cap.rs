@@ -46,7 +46,7 @@ fn cache_ms() -> u64 {
     })
 }
 /// Below this a cold start costs a chief less than a compaction would save.
-const IDLE_COMPACT_CHIEF_TOKENS: u64 = 40_000;
+const IDLE_COMPACT_CHIEF_TOKENS: u64 = 100_000;
 /// Any other chat keeps its whole session unless it is this big: most never wake again, so
 /// compacting a smaller one costs more than its next cold start would.
 const IDLE_COMPACT_TOKENS: u64 = 150_000;
