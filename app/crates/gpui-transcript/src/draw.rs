@@ -735,9 +735,12 @@ impl Element for Code {
         let line_height = *line_height;
         let starts = &self.starts;
         let view = window.content_mask().bounds;
-        let line_at = |y: Pixels| ((y - bounds.top()) / line_height).max(0.) as usize;
+        let line_at = |y: Pixels| {
+            let line = ((y - bounds.top()) / line_height).max(0.) as usize;
+            line.min(starts.len().saturating_sub(1))
+        };
         let first = line_at(view.top()) / CODE_CHUNK;
-        let last = line_at(view.bottom()).min(starts.len().saturating_sub(1)) / CODE_CHUNK;
+        let last = line_at(view.bottom()) / CODE_CHUNK;
         if view.bottom() < bounds.top() || view.top() > bounds.bottom() {
             return Vec::new();
         }
