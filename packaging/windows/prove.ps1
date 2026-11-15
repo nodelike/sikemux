@@ -15,6 +15,7 @@ $Shortcut = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Sikemux.lnk"
 $Uninstall = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{6D6F1A52-3B1C-4B7E-9C55-5A3E2D8B7C41}_is1"
 $Preferences = "$env:LOCALAPPDATA\sikemux\preferences.json"
 $CliCopy = "$env:APPDATA\sikemux\bin"
+$SignIn = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 
 function Check($Holds, $What) {
   if (-not $Holds) { throw "failed: $What" }
@@ -64,6 +65,8 @@ Run-Setup ($Silent + "/relaunch=1") "update.log"
 $Window = Wait-Window 60
 Check ($Window -and $Window.Id -ne $Before) "a silent reinstall over the running app starts it again"
 
+# What the core writes when it is set to start at sign-in.
+Set-ItemProperty $SignIn "com.nodelike.sikemux.core" "`"$App`" --start-core"
 & "$Dir\unins000.exe" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/LOG=$Out\uninstall.log" | Out-Null
 # The uninstaller hands its work to a copy of itself and returns at once.
 $Deadline = (Get-Date).AddSeconds(60)
@@ -72,5 +75,6 @@ Check (-not (Test-Path $Dir)) "the install folder is gone"
 Check (-not (Test-Path $Shortcut)) "the Start menu entry is gone"
 Check (-not (Test-Path $Uninstall)) "Apps & features no longer lists it"
 Check (-not (Test-Path $CliCopy)) "the agents' sikemux command is gone"
+Check (-not (Get-ItemProperty $SignIn -Name "com.nodelike.sikemux.core" -ErrorAction SilentlyContinue)) "the core no longer starts at sign-in"
 Check ((Installed-Running).Count -eq 0) "nothing runs from the install folder"
 Check (Test-Path $Preferences) "the person's data stays"

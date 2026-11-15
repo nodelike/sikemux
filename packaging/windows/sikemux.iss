@@ -151,6 +151,15 @@ begin
   SaveStringToFile(Preferences(), '{' + Fields + '}', False);
 end;
 
+{ The core's sign-in entry names the exe being removed, so it goes with it. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then begin
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'com.nodelike.sikemux.core');
+    DeleteFile(ExpandConstant('{localappdata}\sikemux\com.nodelike.sikemux.core.json'));
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if (CurStep = ssInstall) and not WebView2Present() then

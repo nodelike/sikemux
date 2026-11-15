@@ -19,6 +19,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  DEPS_OPT_LEVEL: 1
   SIKEMUX_SENTRY_DSN: https://f980bd76fa1efc1c3446bbebf4ef1a69@o4512409824919552.ingest.de.sentry.io/4512409865814096
   DO_NOT_TRACK: "1"
 
