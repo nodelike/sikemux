@@ -101,7 +101,16 @@ CORE="$ROOT/packaging/binaries/sikemux-host-$TRIPLE"
 APP="$ROOT/target/release/sikemux"
 [[ -x "$APP" ]] || fail "the app is not compiled; run BUILD_STEP=compile first"
 PI_TOOLS="$ROOT/crates/sikemux-agents/resources/sikemux_pi_tools.ts"
-POSTINST="$ROOT/packaging/linux/postinst.sh"
+ARCHIVE_KEY="$ROOT/packaging/linux/sikemux-archive.asc"
+[[ -f "$ARCHIVE_KEY" ]] || fail "$ARCHIVE_KEY, the repository's public key, is missing"
+POSTRM="$ROOT/packaging/linux/postrm.sh"
+SUITE=packages-stable
+[[ "$VERSION" == *-nightly.* ]] && SUITE=packages-nightly
+
+after_install() {
+  cat "$ROOT/packaging/linux/postinst.sh"
+  sed -e '1{/^#!/d}' -e "s|@SUITE@|$SUITE|" "$ROOT/packaging/linux/repository.sh"
+}
 
 desktop_entry() {
   cat <<DESKTOP
@@ -167,7 +176,10 @@ Depends: $LINKED, $DEB_OPENED, $DEB_PLUGINS
 Recommends: $DEB_H264
 Description: $SUMMARY
 CONTROL
-install -m 755 "$POSTINST" "$DEB_ROOT/DEBIAN/postinst"
+install -D -m 644 "$ARCHIVE_KEY" "$DEB_ROOT/usr/share/keyrings/sikemux-archive.asc"
+after_install >"$DEB_ROOT/DEBIAN/postinst"
+install -m 755 "$POSTRM" "$DEB_ROOT/DEBIAN/postrm"
+chmod 755 "$DEB_ROOT/DEBIAN/postinst"
 dpkg-deb --root-owner-group -Zxz --build "$DEB_ROOT" "$BUNDLE/deb/Sikemux_${VERSION}_${DEB_ARCH}.deb" >/dev/null
 
 echo "→ Packing the rpm"
@@ -196,9 +208,13 @@ $SUMMARY
 
 %install
 cp -a "$PACKAGE"/. %{buildroot}/
+install -D -m 644 "$ARCHIVE_KEY" %{buildroot}/etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux
 
 %post
-$(sed '1{/^#!/d}' "$POSTINST")
+$(after_install | sed '1{/^#!/d}')
+
+%postun
+$(sed '1{/^#!/d}' "$POSTRM")
 
 %files
 /usr/lib/sikemux
@@ -206,6 +222,7 @@ $(sed '1{/^#!/d}' "$POSTINST")
 /usr/bin/sikemux-host
 /usr/share/applications/$APP_IDENTIFIER.desktop
 /usr/share/icons/hicolor/*/apps/sikemux.png
+/etc/pki/rpm-gpg/RPM-GPG-KEY-sikemux
 SPEC
 } >"$RPM_TOP/SPECS/sikemux.spec"
 rpmbuild --quiet --define "_topdir $RPM_TOP" -bb "$RPM_TOP/SPECS/sikemux.spec"
