@@ -581,4 +581,36 @@ mod tests {
             patch.display()
         )));
     }
+
+    #[test]
+    fn a_conflicted_file_can_be_staged_to_finish_a_rebase() {
+        let top = tempfile::tempdir().unwrap();
+        let top = top.path();
+        let git = |args: &[&str]| {
+            let mut git = sikemux_process::user_environment::command("git");
+            git.args(["-c", "user.name=t", "-c", "user.email=t@t"]);
+            git.args(args)
+                .current_dir(top)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        };
+        git(&["init", "-q", "-b", "main"]);
+        std::fs::write(top.join("store.ts"), "x\n").unwrap();
+        git(&["add", "store.ts"]);
+        git(&["commit", "-qm", "store"]);
+        git(&["checkout", "-qb", "side"]);
+        std::fs::write(top.join("store.ts"), "y\n").unwrap();
+        git(&["commit", "-qam", "y"]);
+        git(&["checkout", "-q", "main"]);
+        std::fs::write(top.join("store.ts"), "z\n").unwrap();
+        git(&["commit", "-qam", "z"]);
+        assert!(!git(&["rebase", "side"]));
+        let others = |_: &Path, _: &[String]| Some(vec!["Cowslip".to_owned()]);
+        let refused = |command: &str| refusal(command, top, &others).is_some();
+        assert!(!refused("git add store.ts"));
+        std::fs::write(top.join("other.ts"), "o\n").unwrap();
+        assert!(refused("git add store.ts other.ts"));
+    }
 }
