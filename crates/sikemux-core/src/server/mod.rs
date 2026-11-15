@@ -145,6 +145,7 @@ mod tools;
 pub mod triage;
 pub mod triggers;
 pub mod turn_state;
+mod update_reports;
 pub mod updates;
 pub(crate) use sikemux_repo::server::trust_ask;
 pub(crate) use sikemux_serve::server::updating;

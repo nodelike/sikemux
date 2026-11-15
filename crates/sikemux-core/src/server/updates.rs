@@ -25,7 +25,7 @@ use tokio::sync::Notify;
 
 use super::changed::Topic;
 use super::connection::blocking;
-use super::{upgrade, Core, CoreError, CoreResult};
+use super::{update_reports, upgrade, Core, CoreError, CoreResult};
 use crate::host_update::{self, HostAction, HostRequest, HostUpdate, UpdateStep, INSTALLED_CORE};
 use crate::release_feed::{self, Newest};
 use crate::releases::bundled_credits;
@@ -276,13 +276,18 @@ impl Updates {
     }
 
     fn edit(&self, core: &Core, change: impl FnOnce(&mut Held)) {
-        {
+        let failed = {
             let mut held = self.held.locked();
             let before = held.status.state;
             change(&mut held);
             if held.status.state != before {
                 held.since = Some(Instant::now());
             }
+            (held.status.state == UpdateState::Failed && before != UpdateState::Failed)
+                .then(|| (before, held.status.clone()))
+        };
+        if let Some((before, status)) = failed {
+            report_failure(core, before, &status);
         }
         core.changed(What::Read(Topic::Update));
         if is_host() {
@@ -335,12 +340,16 @@ pub(crate) async fn serve(core: Arc<Core>) {
     match own_app() {
         Some(OwnApp::Host) => drop(tokio::spawn(settle_own_update(core.clone()))),
         #[cfg(target_os = "macos")]
-        Some(OwnApp::Bundle(_)) => drop(tokio::spawn(super::rollback::settle(
-            core.clone(),
-            READY_AFTER,
-        ))),
+        Some(OwnApp::Bundle(_)) => {
+            let core = core.clone();
+            drop(tokio::spawn(async move {
+                super::rollback::settle(core.clone(), READY_AFTER).await;
+                refresh_outcome(&core).await;
+            }))
+        }
         _ => {}
     }
+    report_outcome(&core).await;
     if !core.updates().status().updates && by_installer.is_none() {
         return;
     }
@@ -593,6 +602,43 @@ async fn refresh_outcome(core: &Core) {
     let outcome = blocking(|| Ok(read_outcome())).await.ok().flatten();
     core.updates()
         .edit(core, |held| held.status.outcome = outcome);
+    report_outcome(core).await;
+}
+
+/// Reports the last update once its written outcome is final.
+async fn report_outcome(core: &Core) {
+    let Some(outcome) = core.updates().status().outcome else {
+        return;
+    };
+    let channel = channel(core);
+    let _ = blocking(move || {
+        let platform = own_platform();
+        if let Some(ended) = update_reports::of_outcome(&outcome, channel, &platform, is_host()) {
+            update_reports::send(ended);
+        }
+        Ok(())
+    })
+    .await;
+}
+
+/// Reports an update that just failed at the step it was at `before`.
+fn report_failure(core: &Core, before: UpdateState, status: &UpdateStatus) {
+    let Some(id) = status.id.as_deref() else {
+        return;
+    };
+    update_reports::send(update_reports::Ended {
+        id,
+        from: &status.current,
+        to: status
+            .available
+            .as_ref()
+            .map(|release| release.version.as_str()),
+        channel: channel(core),
+        platform: &own_platform(),
+        result: update_reports::EndedAs::Failed,
+        step: update_reports::step_of(before),
+        reason: status.error.as_deref(),
+    });
 }
 
 /// A new update gets an id, which root records its outcome under.
