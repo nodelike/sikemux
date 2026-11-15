@@ -212,7 +212,7 @@
         "label": "Split pane into tabs",
         "detail": "Create a pane in the same place, reached by tab",
         "category": "Panes",
-        "mac": "Meta+Alt+KeyD",
+        "mac": "Meta+Alt+Shift+KeyD",
         "other": "Ctrl+Alt+Shift+KeyD"
     },
     {
