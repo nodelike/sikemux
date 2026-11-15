@@ -1199,7 +1199,7 @@ async fn show_asleep_chat(core: &CoreProcess, client: &CoreClient, program: &str
         "profiles": [{
             "id": "fake",
             "name": "Fake",
-            "provider": "opencode",
+            "provider": "omp",
             "accent": "#a277ff",
             "executablePath": program,
         }],
@@ -1216,7 +1216,7 @@ async fn show_asleep_chat(core: &CoreProcess, client: &CoreClient, program: &str
     let agent_id = "agent-held".to_owned();
     let agent = json!({
         "id": agent_id,
-        "provider": "opencode",
+        "provider": "omp",
         "project": "held",
         "cwd": core.project,
         "title": "Saved",
