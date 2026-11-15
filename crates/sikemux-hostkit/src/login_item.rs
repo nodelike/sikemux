@@ -1,8 +1,8 @@
 //! While remote access is on, the background core starts when the person logs
 //! in, so a paired device reaches this host after a restart without Sikemux
-//! being opened. A LaunchAgent on macOS, or a systemd user service elsewhere,
-//! runs the same command the app starts the core with; turning remote access
-//! off removes it.
+//! being opened. A LaunchAgent on macOS, a systemd user service on Linux, or a
+//! Run entry on Windows runs the same command the app starts the core with;
+//! turning remote access off removes it.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -15,15 +15,19 @@ use sikemux_corekit::client::wait_for_core;
 
 #[cfg(target_os = "macos")]
 use launchd as service;
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+use run_entry as service;
+#[cfg(windows)]
+pub use run_entry::{start_at_sign_in, START_CORE_ARG};
+#[cfg(all(unix, not(target_os = "macos")))]
 use systemd as service;
 
 const SERVICE_PROBE: Duration = Duration::from_secs(1);
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", windows))]
 const SERVICE_START: Duration = Duration::from_secs(5);
 /// How long systemd may take to bring the core up, which the first start
 /// after an update can take a while to do.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 const SERVICE_START: Duration = Duration::from_secs(60);
 
 /// How the app starts the core, which the login item repeats.
@@ -144,11 +148,11 @@ pub fn start_core(identifier: &str, launch: &CoreLaunch) -> Result<CoreHello, Cl
         }
         start(identifier).map_err(ClientError::Core)?;
         let started = wait_for_core(&launch.socket, SERVICE_START);
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         if let Ok(hello) = started {
             return Ok(hello);
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(unix, not(target_os = "macos")))]
         return started.map_err(|error| match error {
             ClientError::StartTimeout(_) => ClientError::Core(format!(
                 "its service did not start the core within {}s; see `systemctl --user status {}` and {}",
@@ -309,7 +313,7 @@ mod launchd {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod systemd {
     use std::path::{Path, PathBuf};
 
@@ -410,6 +414,129 @@ WantedBy=default.target
 
     pub(super) fn forgotten(label: &str) {
         quiet("systemctl", &["--user", "disable", &unit(label)]);
+    }
+}
+
+/// A console program started at sign-in opens a console window, so the Run entry starts the
+/// app, which has none, with [`START_CORE_ARG`]; it starts the core detached as it always
+/// does and exits. The file the entry names holds how.
+#[cfg(windows)]
+mod run_entry {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::{Path, PathBuf};
+    use std::time::Duration;
+
+    use serde::{Deserialize, Serialize};
+    use sikemux_corekit::client::{ensure_running, frozen_request};
+    use sikemux_corekit::frozen::FrozenRequest;
+    use windows_sys::Win32::System::Registry::{
+        RegDeleteKeyValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ,
+    };
+
+    use super::CoreLaunch;
+
+    pub const START_CORE_ARG: &str = "--start-core";
+
+    const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+    const APP: &str = "sikemux.exe";
+    const STOP_WAIT: Duration = Duration::from_secs(10);
+
+    #[derive(Serialize, Deserialize)]
+    struct Saved {
+        binary: PathBuf,
+        socket: PathBuf,
+        log: PathBuf,
+        args: Vec<OsString>,
+    }
+
+    fn wide(text: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {
+        text.as_ref().encode_wide().chain([0]).collect()
+    }
+
+    pub(super) fn path(label: &str) -> Option<PathBuf> {
+        Some(super::data_dir()?.join(format!("{label}.json")))
+    }
+
+    /// The core's own environment at sign-in is the person's, so it needs no PATH of its own.
+    pub(super) fn render(_label: &str, launch: &CoreLaunch, _path_env: Option<&str>) -> String {
+        serde_json::to_string_pretty(&Saved {
+            binary: launch.binary.clone(),
+            socket: launch.socket.clone(),
+            log: launch.log.clone(),
+            args: launch.args.clone(),
+        })
+        .unwrap_or_default()
+    }
+
+    fn read(path: &Path) -> Option<Saved> {
+        serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+    }
+
+    /// The app sits beside the core in the install folder.
+    pub(super) fn installed(label: &str) {
+        let Some(path) = path(label) else {
+            return;
+        };
+        let Some(saved) = read(&path) else {
+            return;
+        };
+        let app = saved.binary.with_file_name(APP);
+        let command = format!(
+            "\"{}\" {START_CORE_ARG} \"{}\"",
+            app.display(),
+            path.display()
+        );
+        let value = wide(&command);
+        // SAFETY: every string is nul-terminated UTF-16 that lives for the call, and the size
+        // is the value's length in bytes, its nul included.
+        let set = unsafe {
+            RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                wide(RUN).as_ptr(),
+                wide(label).as_ptr(),
+                REG_SZ,
+                value.as_ptr().cast(),
+                (value.len() * 2) as u32,
+            )
+        };
+        if set != 0 {
+            eprintln!(
+                "Sikemux could not start its core at sign-in: {}",
+                std::io::Error::from_raw_os_error(set as i32)
+            );
+        }
+    }
+
+    pub(super) fn forgotten(label: &str) {
+        // SAFETY: both strings are nul-terminated UTF-16 that live for the call.
+        unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, wide(RUN).as_ptr(), wide(label).as_ptr()) };
+    }
+
+    pub(super) fn start(_label: &str, path: &Path) -> Result<(), String> {
+        let saved = read(path).ok_or_else(|| format!("{} cannot be read", path.display()))?;
+        ensure_running(&saved.socket, &saved.binary, &saved.log, &saved.args)
+            .map(drop)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Stops the core it started, with everything running in it, and leaves sign-in alone.
+    pub(super) fn stop(label: &str) {
+        forgotten(label);
+        if let Some(saved) = path(label).as_deref().and_then(read) {
+            let _ = frozen_request(&saved.socket, &FrozenRequest::StopEverything, STOP_WAIT);
+        }
+    }
+
+    /// What the app runs when started with [`START_CORE_ARG`] and `file`. Returns its exit code.
+    pub fn start_at_sign_in(file: &Path) -> i32 {
+        match start("", file) {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("Sikemux could not start its core at sign-in: {error}");
+                1
+            }
+        }
     }
 }
 
