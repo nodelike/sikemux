@@ -495,10 +495,7 @@ impl Chat {
         tokio::spawn(async move {
             for ask in asks {
                 let gif = crate::server::gifs::find(&core, &ask.ask).await.ok();
-                feed.emit(
-                    ChatEventKind::Gif,
-                    json!({ "slot": ask.slot, "gif": gif }),
-                );
+                feed.emit(ChatEventKind::Gif, json!({ "slot": ask.slot, "gif": gif }));
             }
         });
     }

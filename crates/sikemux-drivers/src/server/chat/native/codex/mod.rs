@@ -557,8 +557,8 @@ impl Backend for Codex {
             .map(config::configured_servers)
             .unwrap_or_default();
         let tools = servers::tool_servers(launch);
-        let personality = servers::offers_sikemux_tools(&tools)
-            .then_some(crate::server::gestures::PERSONALITY);
+        let personality =
+            servers::offers_sikemux_tools(&tools).then_some(crate::server::gestures::PERSONALITY);
         let lines: Vec<&str> = personality.into_iter().chain(brief).collect();
         let instructions = read
             .as_ref()

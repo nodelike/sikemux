@@ -7,8 +7,8 @@ use std::borrow::Cow;
 use serde_json::{Map, Value};
 
 use sikemux_view::chat::{
-    DiffLine, DiffSummary, McpAppRef, OutputImage, OutputPage, OutputSummary, PageRef,
-    ToolCall, ToolDetail, ToolDiff, ToolOutput,
+    DiffLine, DiffSummary, McpAppRef, OutputImage, OutputPage, OutputSummary, PageRef, ToolCall,
+    ToolDetail, ToolDiff, ToolOutput,
 };
 
 use super::tool_rows::FAMILIES;

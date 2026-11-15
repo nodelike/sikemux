@@ -554,7 +554,12 @@ impl Feed {
         asks
     }
 
-    fn emit_locked(self: &Arc<Self>, inner: &mut Inner, kind: ChatEventKind, mut payload: Value) -> u64 {
+    fn emit_locked(
+        self: &Arc<Self>,
+        inner: &mut Inner,
+        kind: ChatEventKind,
+        mut payload: Value,
+    ) -> u64 {
         if is_kept(kind) {
             stamp(&mut payload);
         }

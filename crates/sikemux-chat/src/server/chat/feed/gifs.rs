@@ -15,7 +15,10 @@ const LONGEST_ASK: usize = 100;
 pub enum Piece {
     Event(ChatEventKind, Value),
     /// A GIF the agent asked for in `session`.
-    Ask { session: String, ask: String },
+    Ask {
+        session: String,
+        ask: String,
+    },
 }
 
 /// The end of a reply chunk that may be the start of an ask, kept by session until the
@@ -124,4 +127,3 @@ fn unfinished_ask(text: &str) -> usize {
         text.len()
     }
 }
-
