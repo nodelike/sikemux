@@ -448,6 +448,7 @@ async fn ssh_shell(core: &Arc<Core>, host: &str) -> CoreResult<SessionId> {
 }
 
 /// Stops the shell started ahead, as before the core hands itself over.
+#[cfg(unix)]
 pub(crate) fn discard(core: &Arc<Core>) {
     let spare = core.spares().held.locked().spare.take();
     if let Some(spare) = spare {

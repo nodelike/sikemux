@@ -43,6 +43,7 @@ pub(crate) struct ToolEndpoint {
     token: String,
     #[cfg(unix)]
     fd: RawFd,
+    #[cfg(unix)]
     open: Arc<AtomicUsize>,
     task: JoinHandle<()>,
 }
@@ -155,15 +156,18 @@ impl ToolEndpoint {
             token,
             #[cfg(unix)]
             fd,
+            #[cfg(unix)]
             open,
             task,
         }
     }
 
+    #[cfg(unix)]
     pub(crate) fn path(&self) -> &std::path::Path {
         &self.path
     }
 
+    #[cfg(unix)]
     pub(crate) fn token(&self) -> &str {
         &self.token
     }
@@ -174,6 +178,7 @@ impl ToolEndpoint {
     }
 
     /// How many calls are being answered right now.
+    #[cfg(unix)]
     pub(crate) fn open_calls(&self) -> Arc<AtomicUsize> {
         self.open.clone()
     }

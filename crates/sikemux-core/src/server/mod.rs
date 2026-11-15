@@ -355,6 +355,7 @@ pub(crate) trait ServerCore {
     /// Resolves the person's theme again, for apps, devices and programs' colour queries.
     fn theme_changed(&self);
 
+    #[cfg(unix)]
     fn manifest_dir(&self) -> Option<PathBuf>;
 
     fn manifest_report(&self) -> ManifestReloadReport;
@@ -576,6 +577,7 @@ impl ServerCore for Core {
         self.changed(What::View);
     }
 
+    #[cfg(unix)]
     fn manifest_dir(&self) -> Option<PathBuf> {
         self.manifest_folder().locked().clone()
     }
