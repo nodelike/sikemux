@@ -991,3 +991,111 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
     let questions: Vec<String> = (0..200).map(|turn| format!("question {turn}")).collect();
     assert_eq!(asked, questions);
 }
+
+const FAKE_OPENCODE: &str = env!("CARGO_BIN_EXE_sikemux-fake-opencode");
+
+fn opencode_launch(agent_id: &str, home: &Path) -> ChatLaunch {
+    ChatLaunch {
+        provider: "opencode".into(),
+        program: PathBuf::from(FAKE_OPENCODE),
+        env: BTreeMap::new(),
+        model: Some("fake/fake-model".into()),
+        ..claude_launch(agent_id, home)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_chat_streams_a_turn_on_the_effort_its_model_offers() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-a").await;
+    let start = client
+        .acp_start(opencode_launch("opencode-a", home.path()))
+        .await
+        .expect("start");
+    let options = start.setup["configOptions"].as_array().expect("options");
+    assert_eq!(options[0]["currentValue"], "fake/fake-model");
+    assert!(options
+        .iter()
+        .any(|option| option["category"] == "thought_level" && option["currentValue"] == "high"));
+
+    prompt(&client, "opencode-a", &message_id(), "stream 5").await;
+    assert_eq!(chat.turn_ended().await, Some(StopReason::EndTurn));
+    assert_eq!(chat.text(), "w0 w1 w2 w3 w4 ");
+
+    let options = client
+        .ask(ask::AcpSetConfig {
+            agent_id: "opencode-a".into(),
+            config_id: "model".into(),
+            value: "fake/plain".into(),
+        })
+        .await
+        .expect("set model");
+    let rows = options["configOptions"].as_array().expect("rows");
+    assert_eq!(rows[0]["currentValue"], "fake/plain");
+    assert!(
+        !rows.iter().any(|row| row["category"] == "thought_level"),
+        "a model with no efforts offers none: {rows:?}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_command_waits_for_the_persons_answer() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-b").await;
+    client
+        .acp_start(opencode_launch("opencode-b", home.path()))
+        .await
+        .expect("start");
+
+    prompt(&client, "opencode-b", &message_id(), "ask").await;
+    let (request, allow) = allow_once(&until_asked(&mut chat).await);
+    client
+        .ask(ask::AcpPermissionReply {
+            agent_id: "opencode-b".into(),
+            request_id: request,
+            option_id: Some(allow),
+        })
+        .await
+        .expect("reply");
+    chat.turn_ended().await;
+    assert!(chat.text().ends_with("allowed"), "{}", chat.text());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stopped_opencode_turn_ends_cancelled() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-c").await;
+    client
+        .acp_start(opencode_launch("opencode-c", home.path()))
+        .await
+        .expect("start");
+    prompt(&client, "opencode-c", &message_id(), "hold 10000").await;
+    chat.until(|chat| chat.text().contains("holding")).await;
+    client
+        .ask(ask::AcpCancel {
+            agent_id: "opencode-c".into(),
+        })
+        .await
+        .expect("cancel");
+    assert_eq!(chat.turn_ended().await, Some(StopReason::Cancelled));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_opencode_turn_that_cannot_sign_in_says_so() {
+    let home = tempfile::tempdir().expect("home");
+    let core = TestCore::start();
+    let (client, mut chat) = core.connect("opencode-d").await;
+    client
+        .acp_start(opencode_launch("opencode-d", home.path()))
+        .await
+        .expect("start");
+    prompt(&client, "opencode-d", &message_id(), "fail").await;
+    let failed = until_failed(&mut chat).await;
+    assert_eq!(
+        failed.head().failure.as_ref().map(|failure| failure.kind),
+        Some(FailureKind::SignIn)
+    );
+}

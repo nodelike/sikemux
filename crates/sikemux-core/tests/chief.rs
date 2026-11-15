@@ -158,7 +158,7 @@ async fn only_the_chief_retires_a_persons_rule_as_now_a_check_and_agents_only_on
     let accounts = json!({ "profiles": [{
         "id": "fake",
         "name": "Fake",
-        "provider": "opencode",
+        "provider": "omp",
         "accent": "#a277ff",
         "executablePath": FAKE_AGENT,
     }] });
@@ -208,7 +208,7 @@ async fn only_the_chief_retires_a_persons_rule_as_now_a_check_and_agents_only_on
     let mut chief = Agent::open(&socket, &chief_id).await;
     chief.chat.until(|chat| chat.turns_ended() >= 1).await;
     let (worker_id, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
@@ -330,7 +330,7 @@ async fn why_answers_a_broad_question_with_the_newest_decisions_and_a_specific_m
     let accounts = json!({ "profiles": [{
         "id": "fake",
         "name": "Fake",
-        "provider": "opencode",
+        "provider": "omp",
         "accent": "#a277ff",
         "executablePath": FAKE_AGENT,
     }] });
@@ -344,7 +344,7 @@ async fn why_answers_a_broad_question_with_the_newest_decisions_and_a_specific_m
     .await
     .expect("the project");
     let (worker_id, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
@@ -396,7 +396,7 @@ async fn an_overrule_undone_while_the_chief_sleeps_after_a_restart_shows_undone_
     let accounts = json!({ "profiles": [{
         "id": "fake",
         "name": "Fake",
-        "provider": "opencode",
+        "provider": "omp",
         "accent": "#a277ff",
         "executablePath": FAKE_AGENT,
     }] });
@@ -417,7 +417,7 @@ async fn an_overrule_undone_while_the_chief_sleeps_after_a_restart_shows_undone_
     let mut boss = Agent::open(&socket, &chief).await;
     boss.chat.until(|chat| chat.turns_ended() >= 1).await;
     let (worker_id, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
@@ -481,7 +481,7 @@ async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undo
     let accounts = json!({ "profiles": [{
         "id": "fake",
         "name": "Fake",
-        "provider": "opencode",
+        "provider": "omp",
         "accent": "#a277ff",
         "executablePath": FAKE_AGENT,
     }] });
@@ -495,7 +495,7 @@ async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undo
     .await
     .expect("the project");
     let (worker_id, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
@@ -698,7 +698,7 @@ async fn a_rule_holding_words_the_person_did_not_say_is_kept_as_the_agents_note(
     let accounts = json!({ "profiles": [{
         "id": "fake",
         "name": "Fake",
-        "provider": "opencode",
+        "provider": "omp",
         "accent": "#a277ff",
         "executablePath": FAKE_AGENT,
     }] });
@@ -712,7 +712,7 @@ async fn a_rule_holding_words_the_person_did_not_say_is_kept_as_the_agents_note(
     .await
     .expect("the project");
     let (worker_id, _) = app
-        .start_chat("opencode:fake".into(), "pi".into(), None)
+        .start_chat("omp:fake".into(), "pi".into(), None)
         .await
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
@@ -759,7 +759,7 @@ async fn a_kept_rule_the_person_removes_reads_undone_in_its_chat_and_its_agent_h
     let accounts = json!({ "profiles": [{
         "id": "fake",
         "name": "Fake",
-        "provider": "opencode",
+        "provider": "omp",
         "accent": "#a277ff",
         "executablePath": FAKE_AGENT,
     }] });
@@ -773,7 +773,7 @@ async fn a_kept_rule_the_person_removes_reads_undone_in_its_chat_and_its_agent_h
     .await
     .expect("the project");
     let (worker_id, _) = app
-        .start_chat("opencode:fake".into(), "pi".into(), None)
+        .start_chat("omp:fake".into(), "pi".into(), None)
         .await
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;

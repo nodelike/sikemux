@@ -191,7 +191,7 @@ pub(super) async fn rename_opencode_session(
         )
         .await;
     server.close().await;
-    renamed.map(|_| ())
+    renamed.map(drop).map_err(String::from)
 }
 
 fn session_directory(db: &Path, session_id: &str) -> Option<PathBuf> {

@@ -486,7 +486,7 @@ async fn publish_fake_agent(app: &CoreClient) {
         "profiles": [{
             "id": "fake",
             "name": "Fake",
-            "provider": "opencode",
+            "provider": "omp",
             "accent": "#a277ff",
             "executablePath": FAKE_AGENT,
         }],
@@ -505,7 +505,7 @@ async fn publish_fake_agent(app: &CoreClient) {
 async fn keep_agent(app: &CoreClient, agent_id: &str, title: &str, asleep: bool) {
     let agent = json!({
         "id": agent_id,
-        "provider": "opencode",
+        "provider": "omp",
         "project": "sess-tmp",
         "cwd": std::env::temp_dir(),
         "title": title,
@@ -554,7 +554,7 @@ async fn a_prompt_reaches_everyone_watching_and_stays_in_the_replay() {
         .await
         .expect("the phone connects");
     let (agent_id, _) = client
-        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
+        .start_chat("omp:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("the phone starts a chat");
     let mut watching = Chat::new(app_events, &agent_id);
@@ -693,7 +693,7 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
         .await
         .expect("the phone connects");
     let (agent_id, _) = client
-        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
+        .start_chat("omp:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("the phone starts a chat");
 
@@ -847,7 +847,7 @@ async fn ready_after_writing(app: &CoreClient, agent_id: &str) -> bool {
 async fn a_sleeping_chat_shows_its_history_and_wakes_when_the_person_writes() {
     let claude_config = tempfile::tempdir().expect("claude config");
     let accounts = json!({ "profiles": [
-        { "id": "fake", "name": "Fake", "provider": "opencode", "accent": "#a277ff",
+        { "id": "fake", "name": "Fake", "provider": "omp", "accent": "#a277ff",
           "executablePath": FAKE_AGENT },
         { "id": "claude", "name": "Claude", "provider": "claude", "accent": "#d97757",
           "executablePath": FAKE_CLAUDE, "configPath": claude_config.path() },
@@ -869,7 +869,7 @@ async fn a_sleeping_chat_shows_its_history_and_wakes_when_the_person_writes() {
     let (app, _events) = open(&core).await;
 
     let (acp, _) = app
-        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
+        .start_chat("omp:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("a chat");
     app.ask(ask::AcpPrompt {
@@ -972,7 +972,7 @@ async fn closing_a_tab_already_closed_does_nothing() {
 fn fake_launch(agent_id: &str) -> ChatLaunch {
     ChatLaunch {
         agent_id: agent_id.into(),
-        provider: "opencode".into(),
+        provider: "omp".into(),
         cwd: std::env::temp_dir(),
         program: FAKE_AGENT.into(),
         args: vec!["acp".into()],
@@ -1006,15 +1006,15 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
     let fake = workspace
         .launchers
         .iter()
-        .find(|launcher| launcher.id == "opencode:fake");
+        .find(|launcher| launcher.id == "omp:fake");
     assert_eq!(
         fake.map(|launcher| launcher.label.as_str()),
-        Some("OpenCode")
+        Some("OMP")
     );
     assert!(!format!("{workspace:?}").contains(FAKE_AGENT));
 
     let (agent_id, start) = client
-        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
+        .start_chat("omp:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("the phone starts a chat");
     // Its agent starts with the first message, so the chat has no session yet.
@@ -1029,8 +1029,8 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
         }
     };
     assert_eq!(begun.agent_id, agent_id);
-    assert_eq!(begun.launcher.as_deref(), Some("opencode:fake"));
-    assert_eq!(begun.permission_mode, PermissionMode::WorkspaceWrite);
+    assert_eq!(begun.launcher.as_deref(), Some("omp:fake"));
+    assert_eq!(begun.permission_mode, PermissionMode::Bypass);
     assert_eq!(begun.started_by, Some(phone.id()));
     client
         .ask(ask::AcpPrompt {
@@ -1073,7 +1073,7 @@ async fn a_watching_device_cannot_start_a_chat() {
         .expect("the watcher connects");
     assert_eq!(workspace_of(&client).await.projects.len(), 1);
     let refused = client
-        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
+        .start_chat("omp:fake".into(), "sess-tmp".into(), None)
         .await;
     assert!(refusal(refused).contains("watch"));
     assert!(refusal(
@@ -1098,7 +1098,7 @@ async fn a_device_sends_a_file_for_a_chat_and_the_agent_is_given_its_path() {
         .await
         .expect("the phone connects");
     let (agent_id, _) = client
-        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
+        .start_chat("omp:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("the phone starts a chat");
     let mut app_chat = Chat::new(app_events, &agent_id);
@@ -1241,7 +1241,13 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
         .await
         .expect("the phone connects");
     let (agent_id, _) = driver
-        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
+        .ask(ask::StartChat {
+            launcher: "omp:fake".into(),
+            project: "sess-tmp".into(),
+            permission_mode: Some(PermissionMode::WorkspaceWrite),
+            model: None,
+            effort: None,
+        })
         .await
         .expect("start");
     driver
@@ -1312,7 +1318,7 @@ async fn a_device_is_sent_its_view_on_connecting_and_again_when_it_changes() {
         .workspace
         .launchers
         .iter()
-        .any(|launcher| launcher.id == "opencode:fake"));
+        .any(|launcher| launcher.id == "omp:fake"));
 
     tokio::time::sleep(Duration::from_secs(1)).await;
     let mut last = changed;
@@ -1351,7 +1357,7 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
         .await
         .expect("the phone connects");
     let (agent_id, _) = first
-        .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
+        .start_chat("omp:fake".into(), "sess-tmp".into(), None)
         .await
         .expect("start");
     app.acp_attach(agent_id.clone())

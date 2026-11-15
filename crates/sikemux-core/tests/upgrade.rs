@@ -743,7 +743,7 @@ fn chat_launch(core: &CoreProcess, agent_id: &str) -> ChatLaunch {
     std::fs::create_dir_all(&history).expect("history");
     ChatLaunch {
         agent_id: agent_id.into(),
-        provider: "opencode".into(),
+        provider: "omp".into(),
         cwd: core.project.clone(),
         program: PathBuf::from(FAKE_AGENT),
         args: vec!["acp".into()],
@@ -858,7 +858,7 @@ async fn attached(client: &CoreClient, agent_id: &str, since: Option<ChatMark>) 
 async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     let core = CoreProcess::start("first");
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let providers = ["opencode", "claude", "codex"];
+    let providers = ["omp", "claude", "codex"];
     let asking: Vec<String> = providers.iter().map(|p| format!("{p}-ask")).collect();
     let holding: Vec<String> = providers.iter().map(|p| format!("{p}-hold")).collect();
     let mut sessions = HashMap::new();
@@ -997,9 +997,9 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
 async fn an_update_scrubs_words_kept_as_hidden_and_the_chat_reads_on() {
     let core = CoreProcess::start("first");
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
-    let agent_id = "opencode-words".to_owned();
+    let agent_id = "omp-words".to_owned();
     client
-        .acp_start(agent_launch(&core, "opencode", &agent_id))
+        .acp_start(agent_launch(&core, "omp", &agent_id))
         .await
         .unwrap_or_else(|error| panic!("start: {error}\n{}", core.log()));
     let words = "the passphrase is correct horse battery staple, and the vault is staging";
@@ -1088,7 +1088,7 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     let mut core = CoreProcess::start("first");
     let (client, mut events) = CoreClient::connect(&core.socket).await.expect("connect");
     let mut chats = Vec::new();
-    for provider in ["opencode", "claude", "codex"] {
+    for provider in ["omp", "claude", "codex"] {
         let agent_id = format!("{provider}-crash");
         client
             .acp_start(agent_launch(&core, provider, &agent_id))

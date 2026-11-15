@@ -5078,7 +5078,7 @@ export interface CatalogAgent {
     chat: ChatDriver | null;
 }
 
-export type ChatDriver = "claude" | "codex" | "muse" | "pi" | "acp";
+export type ChatDriver = "claude" | "codex" | "muse" | "pi" | "opencode" | "acp";
 
 export interface Draft {
     text: string;

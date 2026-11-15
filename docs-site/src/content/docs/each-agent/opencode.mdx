@@ -39,9 +39,9 @@ With neither, OpenCode still runs the free models its own service offers, with n
 
 ## How Sikemux runs it
 
-A chat runs `opencode acp`, OpenCode's [Agent Client Protocol](https://agentclientprotocol.com) mode. OpenCode has no YOLO mode, so it always runs with its own approvals.
+A chat runs its own `opencode serve`, OpenCode's HTTP server, on a port and password only that chat knows, and follows the server's events as OpenCode works. OpenCode has no YOLO mode, so it always runs with its own approvals.
 
-Before a new chat starts, its model and effort menus list what OpenCode offers, read from a short-lived `opencode serve`. Each model has its own efforts, such as low to max on Claude Opus, and **Default** leaves it to the provider. The effort you pick is kept for your next OpenCode chat on a model that has it.
+Before a new chat starts, its model and effort menus list what OpenCode offers, read from a short-lived server. Each model has its own efforts, such as low to max on Claude Opus, and **Default** leaves it to the provider. The effort you pick is kept for your next OpenCode chat on a model that has it.
 
 On a [model provider](/agents/providers/), Sikemux adds that provider to the inline config it gives the chat, reached through Sikemux so the key stays out of the agent, and your own OpenCode config stays untouched. A reasoning model there offers low, medium and high, and OpenCode knows its context window, so the chat shows how full it is.
 

@@ -144,7 +144,7 @@ async fn publish(app: &CoreClient, project: &Path) {
         "profiles": [{
             "id": "fake",
             "name": "Fake",
-            "provider": "opencode",
+            "provider": "omp",
             "accent": "#a277ff",
             "executablePath": FAKE_AGENT,
         }],
@@ -258,7 +258,7 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
     assert_eq!(studio_links["links"].as_array().map(Vec::len), Some(1));
 
     let (lead, _) = lead_app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("the lead starts");
     let mut said = Chat::new(lead_events, &lead);
@@ -266,7 +266,7 @@ async fn an_agent_starts_a_worker_on_a_linked_host_and_gets_its_commits_back() {
     said.attached(&lead_app.acp_attach(lead.clone()).await.expect("attach"));
     let spawn = json!({
         "host": "studio",
-        "cli": "opencode",
+        "cli": "omp",
         "uncommitted": true,
         "prompt": "run cat b.txt && printf done > c.txt && git add c.txt && git -c user.name=W -c user.email=w@example.com commit -qm worker",
     });

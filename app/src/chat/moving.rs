@@ -106,26 +106,29 @@ impl Workbench {
         });
     }
 
-    /// The model menu of the chat in front, as its composer offers it: the model chosen and
-    /// the ones it lists.
-    pub fn front_models(&self) -> Option<(String, Vec<String>)> {
-        let chat = self.chats.open.get(&self.agent()?.id)?;
-        let model = chat.state.as_ref()?.model.as_ref()?;
-        let offered = model.choices.iter().map(|choice| choice.value.clone());
-        Some((model.current.clone(), offered.collect()))
+    /// The model menu of the chat in front, or its effort menu, as its composer offers it:
+    /// the value chosen and the ones it lists.
+    pub fn front_picker(&self, effort: bool) -> Option<(String, Vec<String>)> {
+        let picker = self.front_config(effort)?;
+        let offered = picker.choices.iter().map(|choice| choice.value.clone());
+        Some((picker.current.clone(), offered.collect()))
     }
 
-    /// Chooses `value` in the model menu of the chat in front, as a click on its row does.
-    pub fn choose_front_model(&self, value: &str) {
+    fn front_config(&self, effort: bool) -> Option<&ConfigPicker> {
+        let state = self.chats.open.get(&self.agent()?.id)?.state.as_ref()?;
+        match effort {
+            true => state.effort.as_ref(),
+            false => state.model.as_ref(),
+        }
+    }
+
+    /// Chooses `value` in the model or effort menu of the chat in front, as a click on its row
+    /// does.
+    pub fn choose_front(&self, effort: bool, value: &str) {
         let Some(agent) = self.agent().map(|agent| agent.id) else {
             return;
         };
-        let Some(config) = self
-            .chats
-            .open
-            .get(&agent)
-            .and_then(|chat| Some(chat.state.as_ref()?.model.as_ref()?.id.clone()))
-        else {
+        let Some(config) = self.front_config(effort).map(|picker| picker.id.clone()) else {
             return;
         };
         self.ask_chat(ChatAsk::Config {
@@ -136,8 +139,13 @@ impl Workbench {
     }
 
     /// Moves the chat in front to `provider` on its chosen account, as the model menu's chip for
-    /// the agent does.
-    pub fn move_front_to(&mut self, provider: &str) {
+    /// the agent does, or to `model` on `model_provider`, as a provider's model row does.
+    pub fn move_front_to(
+        &mut self,
+        provider: &str,
+        model_provider: Option<&str>,
+        model: Option<&str>,
+    ) {
         let Some(agent) = self.agent().map(|agent| agent.id) else {
             return;
         };
@@ -147,8 +155,8 @@ impl Workbench {
                 .accounts
                 .current(provider)
                 .map(|profile| profile.id.clone()),
-            model: None,
-            model_provider: None,
+            model: model.map(str::to_owned),
+            model_provider: model_provider.map(str::to_owned),
         };
         self.move_chat(&agent, to);
     }

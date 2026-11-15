@@ -18,8 +18,8 @@
 //!                                 the window shows (Settings, any modal, the front view, the focus, the tabs,
 //!                                 the chosen host, a trust question, the front chat's tool details held and
 //!                                 open); "activate" brings the window forward, as switching to the app does;
-//!                                 "picker" prints the front chat's model menu, "choose-model <value>" picks a
-//!                                 model in it and "move-to <provider>" its agent, as their rows do;
+//!                                 "picker" prints the front chat's model menu and "efforts" its effort menu,
+//!                                 "choose-model <value>" and "choose-effort <value>" pick in them and "move-to <provider> [model provider] [model]" its agent, as their rows do;
 //!                                 "open-tool" opens the front chat's first tool call; "host this",
 //!                                 "host host:<key>" or "host ssh:<alias>" chooses the host in front, as a
 //!                                 click on its row does; "film N prefix" saves N frames at least 16 ms apart,
@@ -310,24 +310,27 @@ fn main() -> anyhow::Result<()> {
                     }
                     window.draw(cx).clear(cx);
                 }
-                "picker" => {
+                "picker" | "efforts" => {
                     if let Some(bench) = bench.borrow().clone() {
-                        match bench.read(cx).front_models() {
+                        match bench.read(cx).front_picker(verb == "efforts") {
                             Some((current, offered)) => {
-                                println!("picker current={current} offered={}", offered.join(","))
+                                println!("{verb} current={current} offered={}", offered.join(","))
                             }
-                            None => println!("picker none"),
+                            None => println!("{verb} none"),
                         }
                     }
                 }
-                "choose-model" => {
+                "choose-model" | "choose-effort" => {
                     if let Some(bench) = bench.borrow().clone() {
-                        bench.read(cx).choose_front_model(rest);
+                        bench.read(cx).choose_front(verb == "choose-effort", rest);
                     }
                 }
                 "move-to" => {
                     if let Some(bench) = bench.borrow().clone() {
-                        bench.update(cx, |bench, _| bench.move_front_to(rest));
+                        let mut words = rest.split_whitespace();
+                        let provider = words.next().unwrap_or_default();
+                        let (via, model) = (words.next(), words.next());
+                        bench.update(cx, |bench, _| bench.move_front_to(provider, via, model));
                     }
                 }
                 "open-tool" => {

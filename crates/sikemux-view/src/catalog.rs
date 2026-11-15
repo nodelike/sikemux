@@ -10,6 +10,7 @@ pub enum ChatDriver {
     Codex,
     Muse,
     Pi,
+    Opencode,
     Acp,
 }
 

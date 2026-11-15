@@ -49,6 +49,8 @@ pub enum ChatDriver {
     Codex,
     Muse,
     Pi,
+    /// OpenCode's own server, `opencode serve`.
+    Opencode,
     /// The agent's own ACP mode, started with `args`.
     Acp {
         args: &'static [&'static str],
@@ -61,7 +63,7 @@ pub enum ChatDriver {
 impl ChatDriver {
     /// Whether a chat of it picks a reasoning effort, even on a model that names none.
     pub fn offers_effort(&self) -> bool {
-        !matches!(self, Self::Acp { .. })
+        !matches!(self, Self::Acp { .. } | Self::Opencode)
     }
 }
 
@@ -488,11 +490,7 @@ pub const AGENTS: &[AgentEntry] = &[
             resume: Resume::Flag("--session"),
             with_choices: &[],
         },
-        chat: Some(ChatDriver::Acp {
-            args: &["acp"],
-            modes: None,
-            compact: "compact",
-        }),
+        chat: Some(ChatDriver::Opencode),
         providers: Some(ProviderUse::Reads),
         routed: Some(Routed {
             api: RoutedApi::Chat,

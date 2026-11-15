@@ -24,7 +24,8 @@ Each agent's page covers how to install it and sign in, how Sikemux runs it, and
 |---|---|
 | Claude Code | `claude` over its stream-json control protocol, the one Anthropic's Agent SDK uses |
 | Codex | `codex app-server`, Codex's JSON-RPC server |
-| OpenCode, OMP, Hermes | `opencode acp`, `omp acp`, `hermes acp`: the Agent Client Protocol |
+| OpenCode | `opencode serve`, OpenCode's own HTTP server and event stream, one per chat |
+| OMP, Hermes | `omp acp`, `hermes acp`: the Agent Client Protocol |
 | Grok | `grok agent --no-leader stdio`, one process per chat |
 | Muse | `muse serve`, Muse's session protocol |
 | Pi | `pi --mode rpc`, Pi's own RPC mode |

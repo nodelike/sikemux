@@ -15,7 +15,7 @@ const TOOL_PATH: &str = "xd://mcp__";
 /// Makes a `tool_call` or `tool_call_update` of a tool server's tool, under
 /// its agent's own name for it, into that tool's call. `servers` are the tool
 /// servers the chat handed its agent.
-pub(super) fn as_mcp_call(update: &mut Value, servers: &[String]) {
+pub(in super::super) fn as_mcp_call(update: &mut Value, servers: &[String]) {
     if !UpdateKind::of(update).is_some_and(UpdateKind::is_tool) {
         return;
     }

@@ -15,7 +15,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::agent_catalog::{AgentKind, ChatDriver};
+use crate::agent_catalog::ChatDriver;
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::rebind::Outcome;
@@ -75,7 +75,7 @@ pub async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
         }
         Some(ChatDriver::Codex) => codex::read_options(command).await,
         Some(ChatDriver::Pi) => pi::read_options(command).await,
-        Some(ChatDriver::Acp { .. }) if launch.provider == AgentKind::Opencode.as_str() => {
+        Some(ChatDriver::Opencode) => {
             opencode::read_options(
                 command,
                 &launch.cwd,
@@ -116,6 +116,7 @@ pub fn show_saved(chat: &Arc<Chat>) {
         let replayed = match driver(chat.provider()) {
             Some(ChatDriver::Claude) => claude::replay_saved(&chat.launch, &session, &sink),
             Some(ChatDriver::Acp { .. }) => acp::replay_saved(&chat.launch, &session, &sink),
+            Some(ChatDriver::Opencode) => opencode::replay_saved(&chat.launch, &session, &sink),
             Some(ChatDriver::Codex | ChatDriver::Muse | ChatDriver::Pi) | None => Err(format!(
                 "Sikemux reads no saved chat of {} without its agent",
                 chat.provider()
@@ -150,6 +151,9 @@ pub async fn run(
         ChatDriver::Codex => session::run::<codex::Codex>(chat, launch, commands, begin).await,
         ChatDriver::Muse => session::run::<muse::Muse>(chat, launch, commands, begin).await,
         ChatDriver::Pi => session::run::<pi::Pi>(chat, launch, commands, begin).await,
+        ChatDriver::Opencode => {
+            session::run::<opencode::Opencode>(chat, launch, commands, begin).await
+        }
         ChatDriver::Acp { .. } => session::run::<acp::Acp>(chat, launch, commands, begin).await,
     }
 }

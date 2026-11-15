@@ -3,7 +3,7 @@
 //! standard input and output. Their session updates already have the shape
 //! the chat reads, so they pass through as they come.
 
-mod mcp_calls;
+pub(super) mod mcp_calls;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

@@ -110,7 +110,7 @@ async fn attach(client: &CoreClient, agent_id: &str) -> Folded {
 fn chat_launch(agent_id: &str, permission_mode: &str) -> ChatLaunch {
     ChatLaunch {
         agent_id: agent_id.into(),
-        provider: "opencode".into(),
+        provider: "omp".into(),
         cwd: std::env::temp_dir(),
         program: PathBuf::from(FAKE_AGENT),
         args: vec!["acp".into()],

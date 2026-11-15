@@ -7612,6 +7612,7 @@ enum ChatDriver: String, Codable, Hashable, Sendable {
     case codex
     case muse
     case pi
+    case opencode
     case acp
     /// One added after this build.
     case unknown

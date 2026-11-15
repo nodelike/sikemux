@@ -210,7 +210,7 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
         "profiles": [{
             "id": "fake",
             "name": "Fake",
-            "provider": "opencode",
+            "provider": "omp",
             "accent": "#a277ff",
             "executablePath": FAKE_AGENT,
         }],
@@ -224,14 +224,14 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
         .await
         .expect("the defaults");
     let (lead, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("the lead starts");
     let mut lead = Agent::open(&socket, &lead).await;
     let spawned = lead
         .tool(
             "agent.spawn",
-            json!({ "cli": "opencode", "checkout": "own", "prompt": "hello" }),
+            json!({ "cli": "omp", "checkout": "own", "prompt": "hello" }),
         )
         .await
         .expect("a worker");
@@ -368,7 +368,7 @@ async fn an_agent_the_person_set_going_again_wakes_one_held_by_stopping_everythi
         "profiles": [{
             "id": "fake",
             "name": "Fake",
-            "provider": "opencode",
+            "provider": "omp",
             "accent": "#a277ff",
             "executablePath": FAKE_AGENT,
         }],
@@ -379,11 +379,11 @@ async fn an_agent_the_person_set_going_again_wakes_one_held_by_stopping_everythi
     let added = json!({ "id": "widget", "name": "widget", "path": project });
     app.call("addProject", added).await.expect("the project");
     let (lead, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("the lead starts");
     let (held, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("the other starts");
     let _ = app.ask(ask::Shutdown { stop_all: true }).await;
@@ -420,7 +420,7 @@ async fn a_turn_whose_shell_command_wrote_a_file_reads_uncommitted() {
         "profiles": [{
             "id": "fake",
             "name": "Fake",
-            "provider": "opencode",
+            "provider": "omp",
             "accent": "#a277ff",
             "executablePath": FAKE_AGENT,
         }],
@@ -434,11 +434,11 @@ async fn a_turn_whose_shell_command_wrote_a_file_reads_uncommitted() {
         .await
         .expect("the defaults");
     let (writer, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("the writer starts");
     let (onlooker, _) = app
-        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .start_chat("omp:fake".into(), "widget".into(), None)
         .await
         .expect("the onlooker starts");
     let mut writer = Agent::open(&socket, &writer).await;

@@ -43,6 +43,7 @@ pub fn view() -> Vec<CatalogAgent> {
                 ChatDriver::Codex => Driver::Codex,
                 ChatDriver::Muse => Driver::Muse,
                 ChatDriver::Pi => Driver::Pi,
+                ChatDriver::Opencode => Driver::Opencode,
                 ChatDriver::Acp { .. } => Driver::Acp,
             }),
         })
