@@ -46,6 +46,7 @@
 //!   settings PAGE               opens settings at the page of that name
 //!   wait S / mark KIND / still NAME / end [HOLD]
 //!   snap NAME                   saves the window alone as drawn, without the stage or cursor
+//!   toast "TEXT"                shows a toast saying TEXT, as a finished download does
 //!   calls FILE                  puts the calls FILE lists, as the core's view writes them, to
 //!                               the person: each asked by the agent of its asker's name, in the
 //!                               project of its project's name, raised its raisedAt ms ago

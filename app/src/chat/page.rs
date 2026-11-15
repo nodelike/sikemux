@@ -121,8 +121,7 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
     let chip = (DRAWS_OVER_PAGES && pointer.shows_chip()).then(|| {
         let reader = looks.reader.clone();
         let over_chip = pointer.over_chip.clone();
-        gpui_native_view::over(
-            div()
+        div()
                 .id(SharedString::from(format!("page-chip-{}", page.id)))
                 .absolute()
                 .top(px(8.))
@@ -131,13 +130,11 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
                     over_chip.set(*hovered);
                     reader.update(cx, |_, cx| cx.notify());
                 })
-                .child(open_in_tab(page, looks, "page-chip", cx)),
-        )
+                .child(open_in_tab(page, looks, "page-chip", cx))
     });
     let fade = (DRAWS_OVER_PAGES && cut).then(|| {
         let ground = theme::page_ground(t);
-        gpui_native_view::over(
-            div()
+        div()
                 .absolute()
                 .left_0()
                 .right_0()
@@ -147,8 +144,7 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
                     180.,
                     linear_color_stop(gpui_kit::Hsla { a: 0., ..ground }, 0.),
                     linear_color_stop(ground, 0.9),
-                )),
-        )
+                ))
     });
     let drawn = div()
         .relative()

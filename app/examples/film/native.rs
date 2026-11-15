@@ -63,8 +63,14 @@ impl StandIn {
         })
     }
 
-    /// Lays every WebKit view showing in the stand-in over `shot`, where it sits.
-    pub fn lay_over(&self, shot: &mut image::RgbaImage) -> anyhow::Result<()> {
+    /// Lays every WebKit view showing in the stand-in over `shot`, where it sits, under what
+    /// the window drew `above` them, in its own pixels.
+    pub fn lay_over(
+        &self,
+        shot: &mut image::RgbaImage,
+        above: &[gpui::Bounds<gpui::ScaledPixels>],
+    ) -> anyhow::Result<()> {
+        let drawn = shot.clone();
         let height = self.view.frame().size.height;
         let density = f64::from(shot.width()) / self.view.frame().size.width;
         let mut found = Vec::new();
@@ -87,6 +93,12 @@ impl StandIn {
                 (placed.origin.x * density).round() as i64,
                 (top * density).round() as i64,
             );
+        }
+        for bounds in above {
+            let (left, top) = (bounds.origin.x.0 as u32, bounds.origin.y.0 as u32);
+            let (width, height) = (bounds.size.width.0 as u32, bounds.size.height.0 as u32);
+            let kept = image::imageops::crop_imm(&drawn, left, top, width, height).to_image();
+            image::imageops::replace(shot, &kept, i64::from(left), i64::from(top));
         }
         Ok(())
     }

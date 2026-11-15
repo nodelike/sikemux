@@ -441,7 +441,13 @@ impl Director {
                     let mut shot = shot.clone();
                     #[cfg(target_os = "macos")]
                     if let Some(stand_in) = &self.stand_in {
-                        stand_in.lay_over(&mut shot)?;
+                        let above = self
+                            .cx
+                            .update_window(self.window, |_, window, _| {
+                                window.painted_over_native_views().0
+                            })
+                            .map_err(|error| anyhow!("{error}"))?;
+                        stand_in.lay_over(&mut shot, &above)?;
                     }
                     shot.save(&path)?;
                     println!("film: saved {}", path.display());
@@ -889,6 +895,18 @@ impl Director {
                     call.raised_at = now.saturating_sub(call.raised_at);
                 }
                 self.calls = calls;
+            }
+            "toast" => {
+                let said = step.text(0)?.to_owned();
+                self.cx
+                    .update_window(self.window, |_, window, cx| {
+                        gpui_kit::component::WindowExt::push_notification(
+                            window,
+                            sikemux_gpui::toast::success(said),
+                            cx,
+                        )
+                    })
+                    .map_err(|error| anyhow!("{error}"))?;
             }
             "snap" => {
                 self.snap = Some(self.stills.join(format!("{}.png", step.text(0)?)));
