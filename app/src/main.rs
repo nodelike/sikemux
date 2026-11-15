@@ -10,6 +10,8 @@ use sikemux_hostkit::crash_reports::{self, Process};
 fn main() {
     #[cfg(target_os = "linux")]
     hand_cli_to_core();
+    #[cfg(windows)]
+    start_core_at_sign_in();
     let began = std::time::SystemTime::now();
     sikemux_hostkit::panic_reports::record_panics("app", sikemux_buildinfo::COMMIT);
     crash_reports::start(Process::App, None, None);
@@ -98,6 +100,18 @@ fn x11_session() -> gpui_kit::GraphicalEnvironment {
         session.wayland_display = None;
     }
     session
+}
+
+/// Windows' Run entry starts the app, not the core, so a console window does not open at
+/// sign-in; started that way, the app starts the core and exits without a window.
+#[cfg(windows)]
+fn start_core_at_sign_in() {
+    use sikemux_hostkit::login_item::{start_at_sign_in, START_CORE_ARG};
+    if let [arg, file] = &std::env::args_os().skip(1).collect::<Vec<_>>()[..] {
+        if arg == START_CORE_ARG {
+            std::process::exit(start_at_sign_in(file.as_ref()));
+        }
+    }
 }
 
 /// A Linux package puts the window on PATH as `sikemux`, so `sikemux login` and the other
