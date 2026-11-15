@@ -313,7 +313,6 @@ matching `:generate` script and commit what it writes:
 
 | Check                            | What it compares                                                                                                                        |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `wire:check`                     | The types clients read the core's JSON with (TypeScript for the phone and web app, Swift for the notch) against the Rust that writes it |
 | `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `tools/tools.json`                                                                     |
 | `agent-catalog:check`            | The core's Rust copy of the agents' catalog against `sikemux-core/src/assets/agent-catalog.json`                                        |
 | `docs:reference:check`           | The docs site's reference pages against the shortcuts, CLI help and tools                                                               |

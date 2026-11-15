@@ -7,10 +7,11 @@ The root `AGENTS.md` applies here too.
   `mobile/ios/scripts/build-core.sh` builds `crates/sikemux-mobile` into
   `build/SikemuxCore.xcframework` with its Swift bindings, made by the crate's own
   `uniffi-bindgen` bin behind its `bindgen` feature, which the phone never links. Run it
-  before the first Xcode build and after any change to the Rust the phone links. The core's
-  types and the phone's calls are generated into `Wire.generated.swift` by
-  `scripts/generate-wire-types.mjs`, the icons into `PhoneIcons.generated.swift` by
-  `scripts/generate-notch-icons.mjs`; never hand-edit either. The app compiles the notch's
+  before the first Xcode build and after any change to the Rust the phone links. It also
+  writes the core's types and the phone's calls into `Wire.generated.swift` with
+  `scripts/generate-wire-types.mjs`; that file and the other wire types are build output,
+  not committed. The icons are generated into `PhoneIcons.generated.swift` by
+  `scripts/generate-notch-icons.mjs`; never hand-edit it. The app compiles the notch's
   `IconView.swift` by path rather than copying it.
 - The Android app is in `mobile/app` (Expo) with the core's Rust client bridged in
   `mobile/native`. `mobile/` is its own pnpm workspace: never add it to the root install,

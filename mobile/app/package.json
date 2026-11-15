@@ -12,7 +12,7 @@
     "prebuild": "node scripts/run.mjs prebuild",
     "typecheck": "node ../scripts/require-bindings.mjs && node scripts/generate.mjs && tsc --noEmit -p tsconfig.typecheck.json",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "node scripts/generate.mjs && vitest run",
     "format": "prettier --write \"**/*.{ts,tsx,mts,js,mjs}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,mts,js,mjs}\""
   },

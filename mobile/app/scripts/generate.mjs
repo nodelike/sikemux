@@ -1,9 +1,12 @@
-// Writes the two source files the app builds from but does not commit, and skips
+// Writes the source files the app builds from but does not commit, and skips
 // each one while its inputs are unchanged:
+// - the core's wire types, in TypeScript and the notification module's Kotlin,
+//   from the Rust by scripts/generate-wire-types.mjs.
 // - src/ui/icons.generated.ts: the app's icons (shared/ui/Icons.tsx) as SVG markup, so
 //   both apps draw the same icons.
 // - src/ui/vertexShader.generated.ts: the vertex shader the backdrop's fragment shaders
 //   read from, which @paper-design/shaders does not export.
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -109,6 +112,7 @@ async function generateShader() {
 }
 
 export async function generate() {
+  execFileSync(process.execPath, [resolve(shared, '../scripts/generate-wire-types.mjs')], { stdio: 'inherit' });
   await generateShader();
   if (iconsUpToDate()) return;
   try {

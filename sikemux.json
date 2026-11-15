@@ -27,17 +27,6 @@
       ]
     },
     {
-      "label": "pnpm wire:check",
-      "command": "node scripts/generate-wire-types.mjs --check",
-      "when": [
-        "crates/sikemux-{wire,view,core,corekit,git,agents,drivers,plugin-api,markdown,base,calls,client}/src/**",
-        "helpers/notch/wire.json",
-        "mobile/app/wire.json",
-        "**/*.generated.{ts,swift,kt}",
-        "scripts/generate-wire-types.mjs"
-      ]
-    },
-    {
       "label": "the notch icons and sources check",
       "command": "node scripts/generate-notch-icons.mjs --check && node scripts/generate-notch-sources.mjs --check",
       "when": [
@@ -68,15 +57,6 @@
         "label": "Link the app's build outputs",
         "command": "main=\"$(git rev-parse --path-format=absolute --git-common-dir)/..\"; built=packaging/binaries; if [ -e \"$main/$built\" ] && [ ! -e \"$built\" ]; then ln -s \"$main/$built\" \"$built\"; fi"
       }
-    ]
-  },
-  "generate": {
-    "command": "pnpm -s wire:generate",
-    "outputs": [
-      "shared/wire.generated.ts",
-      "helpers/notch/Sources/NotchKit/Wire.generated.swift",
-      "mobile/ios/Shared/Notify/Card.generated.swift",
-      "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt"
     ]
   }
 }

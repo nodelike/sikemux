@@ -259,6 +259,9 @@ const unionOf = (source, type) =>
     ].map(([, value]) => value),
   );
 const icons = unionOf(await readFile(rowIconsPath, "utf8"), "ToolRowIcon");
+execFileSync(process.execPath, [
+  resolve(root, "scripts/generate-wire-types.mjs"),
+]);
 const kinds = unionOf(await readFile(wireTypesPath, "utf8"), "ToolAction");
 // A family is offered as one tool taking an action, so each must have members and
 // no tool may take a family's own name.

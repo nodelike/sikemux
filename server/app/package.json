@@ -3,9 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
+    "wire": "node ../../scripts/generate-wire-types.mjs",
+    "dev": "pnpm wire && vite",
+    "build": "pnpm wire && tsc --noEmit && vite build",
+    "typecheck": "pnpm wire && tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {

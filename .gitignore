@@ -35,3 +35,11 @@ docs/research/
 
 # Scratch renders of film/film.sh
 /film/out/
+
+# Written by scripts/generate-wire-types.mjs, which each client's build runs first.
+/shared/wire.generated.ts
+/helpers/notch/Sources/NotchKit/Wire.generated.swift
+/mobile/ios/Sikemux/Core/Wire.generated.swift
+/mobile/ios/Shared/Notify/Card.generated.swift
+/mobile/ios/Shared/Glance/Glance.generated.swift
+/mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt

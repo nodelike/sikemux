@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the core's phone client (crates/sikemux-mobile) for iOS: the static
-# library as an xcframework, and its Swift bindings, into mobile/ios/build.
+# library as an xcframework, and its Swift bindings, into mobile/ios/build, and
+# the wire types the app's Swift reads.
 #   build-core.sh [--profile debug|mobile] [--sim-only|--device-only]
 set -euo pipefail
 
@@ -21,6 +22,7 @@ while [ $# -gt 0 ]; do
 done
 
 cd "$repo"
+node scripts/generate-wire-types.mjs
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 profile_dir="$profile"
 [ "$profile" = dev ] && profile_dir=debug

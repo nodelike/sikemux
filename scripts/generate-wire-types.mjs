@@ -2,14 +2,13 @@
 // Writes the types clients read the core's JSON with, from the Rust that
 // serializes it: TypeScript for the phone and the web, and Swift for the notch.
 // It reads the serde declarations itself and fails on any it does not know,
-// rather than guess. `--check` fails when an output is out of date.
+// rather than guess. The outputs are build output: each client's build runs this first,
+// and it leaves an output untouched while its contents are the same.
 
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { format, resolveConfig } from "prettier";
 
 const root = resolve(import.meta.dirname, "..");
-const check = process.argv.includes("--check");
 
 const WIRE = "crates/sikemux-wire/src";
 const VIEW = "crates/sikemux-view/src";
@@ -1885,11 +1884,6 @@ function constant(file, name) {
 
 async function emit(path, contents) {
   const full = resolve(root, path);
-  if (path.endsWith(".ts"))
-    contents = await format(contents, {
-      ...(await resolveConfig(full)),
-      filepath: full,
-    });
   let actual = null;
   try {
     actual = await readFile(full, "utf8");
@@ -1897,7 +1891,6 @@ async function emit(path, contents) {
     if (error?.code !== "ENOENT") throw error;
   }
   if (actual === contents) return;
-  if (check) fail(`${path} is stale: run pnpm wire:generate`);
   await mkdir(dirname(full), { recursive: true });
   await writeFile(full, contents);
 }

@@ -9,6 +9,9 @@ on:
       - "crates/sikemux-wire/src/accounts/**"
       # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
       - "shared/**"
+      - "scripts/generate-wire-types.mjs"
+      - "crates/sikemux-wire/src/**"
+      - "crates/sikemux-view/src/**"
       - "brand/mark/**"
       - "crates/sikemux-corekit/src/themes/**"
       - "crates/sikemux-corekit/src/themes.rs"

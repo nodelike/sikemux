@@ -68,7 +68,7 @@ generate() {
 
 parallel_generate() {
   local pids=() status=0
-  for chain in "wire-types agent-tools" "grammars file-icons" agent-catalog docs-reference notch-sources notch-icons faces syntax; do
+  for chain in agent-tools "grammars file-icons" agent-catalog docs-reference notch-sources notch-icons faces syntax; do
     # shellcheck disable=SC2086
     generate $chain >"$logs/gen-${chain%% *}.log" 2>&1 &
     pids+=($!)
