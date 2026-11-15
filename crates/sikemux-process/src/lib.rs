@@ -434,8 +434,12 @@ mod tests {
     }
 
     #[cfg(windows)]
-    fn stops_when_asked() -> bool {
-        let mut child = spawn_tree(shell(&waiting(60)).stdout(Stdio::null())).expect("spawn the tree");
+    fn stops_when_asked(clear: bool) -> bool {
+        use windows_sys::Win32::System::Console::SetConsoleCtrlHandler;
+        if clear { unsafe { SetConsoleCtrlHandler(None, 0) }; }
+        let spawned = spawn_tree(shell(&waiting(60)).stdout(Stdio::null()));
+        if clear { unsafe { SetConsoleCtrlHandler(None, 1) }; }
+        let mut child = spawned.expect("spawn the tree");
         std::thread::sleep(Duration::from_millis(500));
         terminate_tree(child.id(), false);
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -451,9 +455,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn probe() {
-        let plain = stops_when_asked();
-        unsafe { windows_sys::Win32::System::Console::SetConsoleCtrlHandler(None, 0) };
-        let cleared = stops_when_asked();
+        let plain = stops_when_asked(false);
+        let cleared = stops_when_asked(true);
         let log = std::fs::read_to_string(std::env::temp_dir().join("probe.txt")).unwrap_or_default();
         panic!("plain {plain} cleared {cleared}\n{log}");
     }

@@ -156,6 +156,7 @@ static RAISED: AtomicU32 = AtomicU32::new(0);
 static CONSOLE: Mutex<()> = Mutex::new(());
 
 unsafe extern "system" fn swallow_raised(event: u32) -> BOOL {
+    probe(format!("heard event {event}, raised {}", RAISED.load(Ordering::Acquire)));
     let raised = event == CTRL_C_EVENT
         && RAISED
             .try_update(Ordering::AcqRel, Ordering::Acquire, |left| {
