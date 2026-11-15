@@ -723,7 +723,8 @@ impl Chat {
     }
 
     /// Ends held turn `hold` as finished after `wait`, should it still be held then.
-    /// It waits for its subagents unless `giving_up`, which ends them as failed.
+    /// It waits for its subagents unless `giving_up`, which ends them as failed once
+    /// none has been heard from for [`SUBAGENT_WAIT`].
     fn end_held_after(&self, wait: Duration, hold: u64, giving_up: bool) {
         let core = self.core.clone();
         let agent_id = self.agent_id().to_owned();
@@ -735,6 +736,13 @@ impl Chat {
                 return;
             };
             if chat.generation != generation || !giving_up && chat.feed.running_subagents() > 0 {
+                return;
+            }
+            let still_heard = (chat.feed.subagent_heard())
+                .and_then(|heard| SUBAGENT_WAIT.checked_sub(heard.elapsed()))
+                .filter(|left| giving_up && !left.is_zero());
+            if let Some(left) = still_heard {
+                chat.end_held_after(left, hold, true);
                 return;
             }
             {

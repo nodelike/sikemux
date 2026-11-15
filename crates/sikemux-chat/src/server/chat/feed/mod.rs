@@ -1188,6 +1188,11 @@ impl Feed {
         self.inner.locked().replay.work.running_subagents() as u32
     }
 
+    /// When one of the chat's subagents last said or did anything.
+    pub fn subagent_heard(&self) -> Option<std::time::Instant> {
+        self.inner.locked().replay.work.subagent_heard()
+    }
+
     pub fn running_tasks(&self) -> u32 {
         self.inner.locked().replay.work.running_tasks() as u32
     }
@@ -1198,7 +1203,7 @@ impl Feed {
         self.end_work(Work::endings);
     }
 
-    /// The turn waited too long on its subagents, which the chat is told failed.
+    /// The turn's subagents went quiet for too long, which the chat is told failed.
     pub fn give_up_subagents(&self) {
         self.end_work(|work| work.subagent_endings(Subagent::Failed).collect());
     }

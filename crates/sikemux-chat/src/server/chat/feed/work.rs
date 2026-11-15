@@ -1,6 +1,7 @@
 //! The subagents and background tasks a chat's agent has going.
 
 use std::collections::HashSet;
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -28,6 +29,9 @@ pub struct Work {
     tasks: Vec<Going>,
     /// Every subagent's session, whose own updates are not the chat's.
     subagent_sessions: HashSet<String>,
+    /// When a subagent last said or did anything.
+    #[serde(skip)]
+    subagent_heard: Option<Instant>,
 }
 
 impl Work {
@@ -48,6 +52,9 @@ impl Work {
             .unwrap_or_default();
         let nested = self.in_subagent(payload);
         let text = |key: &str| update.get(key).and_then(Value::as_str);
+        if nested || text("subagentSessionId").is_some() {
+            self.subagent_heard = Some(Instant::now());
+        }
         match UpdateKind::of(update) {
             Some(UpdateKind::SubagentSpawned) => {
                 let Some(id) = text("subagentSessionId") else {
@@ -111,6 +118,10 @@ impl Work {
 
     pub fn running_subagents(&self) -> usize {
         self.subagents.iter().filter(|going| !going.nested).count()
+    }
+
+    pub fn subagent_heard(&self) -> Option<Instant> {
+        self.subagent_heard
     }
 
     pub fn running_tasks(&self) -> usize {
