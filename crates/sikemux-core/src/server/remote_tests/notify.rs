@@ -275,6 +275,15 @@ async fn an_answered_request_takes_its_card_off_the_phone() {
 #[tokio::test]
 async fn a_long_turn_finishing_notifies_at_most_every_five_minutes() {
     let host = host(NotifyWhen::Always);
+    let chat = host.core.chats().get("chat-1").unwrap();
+    chat.feed.emit(
+        sikemux_fold::ChatEventKind::SessionUpdate,
+        sikemux_chat::server::chat::feed::replay::testing::text(
+            "agent_message_chunk",
+            Some("answer"),
+            "Done.",
+        ),
+    );
     let turn = |started: u64, took: u64, cancelled: bool| {
         host.signal(
             Signal::TurnStarted {
