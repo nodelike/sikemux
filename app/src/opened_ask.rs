@@ -54,11 +54,14 @@ impl Workbench {
         let Some(ask) = self.ask_of(id) else {
             return self.notify(toast::error(t!("Ask #{id} is no longer open", id = id)), cx);
         };
-        let agent = ask.to.clone();
+        let (agent, ask) = (ask.to.clone(), ask.clone());
+        if self.opened_ask.as_ref().is_some_and(|open| open.agent != agent) {
+            self.close_ask(cx);
+        }
         self.opened_ask = Some(OpenedAsk {
             id,
             agent: agent.clone(),
-            ask: ask.clone(),
+            ask,
             narrowed: true,
             arrived: false,
         });
