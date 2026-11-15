@@ -14,7 +14,7 @@ use gpui_kit::{
 };
 
 use crate::icons::Icon;
-use crate::keymap::{self, Shortcut};
+use crate::keymap::{self, Keeps, Shortcut};
 use crate::settings::index::Page::Keyboard;
 use crate::settings::index::{section, Entry};
 use crate::settings::rows;
@@ -121,6 +121,18 @@ fn keys_label(keys: Option<&str>) -> SharedString {
         .unwrap_or_else(|| t!("Unassigned").into())
 }
 
+/// Every key a command runs by, as the filter reads them.
+fn keys_text(keys: &[String]) -> String {
+    match keys {
+        [] => keys_label(None).to_string(),
+        keys => keys
+            .iter()
+            .map(|keys| keys_label(Some(keys.as_str())).to_string())
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
 /// Binds the recorded command to the keys pressed, unless they cannot take it.
 fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbench>) {
     let recording = super::state(bench, cx).and_then(|pages| pages.keybindings.as_ref());
@@ -176,7 +188,7 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
     let overrides = bench.preferences().keybinding_overrides.clone();
     let taken = keymap::shortcuts()
         .iter()
-        .find(|other| other.id != id && other.keys(&overrides).as_deref() == Some(keys.as_str()))
+        .find(|other| other.id != id && other.keys(&overrides).contains(&keys))
         .map(|other| other.label);
     if let Some(other) = taken {
         return say(
@@ -189,23 +201,25 @@ fn capture(bench: &mut Workbench, keystroke: &Keystroke, cx: &mut Context<Workbe
             cx,
         );
     }
-    let option_only = keys.starts_with("Alt+");
+    let kept = keymap::kept(&keys);
     change(bench, |overrides| {
         overrides.insert(id.to_owned(), Some(keys));
     });
+    let name = crate::i18n::tr(shortcut.label);
     stop(
         bench,
-        match option_only {
-            true => t!(
+        match kept {
+            Some(Keeps::Typing) => t!(
                 "{name} changed to {keys}. It stays with the terminal or text field while you type in one.",
-                name = crate::i18n::tr(shortcut.label),
+                name = name,
                 keys = shown
             ),
-            false => t!(
-                "{name} changed to {keys}.",
-                name = crate::i18n::tr(shortcut.label),
+            Some(Keeps::Shell) => t!(
+                "{name} changed to {keys}. It stays with the terminal while you type in one.",
+                name = name,
                 keys = shown
             ),
+            None => t!("{name} changed to {keys}.", name = name, keys = shown),
         },
         cx,
     );
@@ -282,7 +296,7 @@ pub fn render(
                 "{} {} {}",
                 crate::i18n::tr(shortcut.label),
                 crate::i18n::tr(shortcut.detail),
-                keys_label(shortcut.keys(&overrides).as_deref())
+                keys_text(&shortcut.keys(&overrides))
             )
             .to_lowercase()
             .contains(&query)
@@ -299,6 +313,15 @@ pub fn render(
         let count = listed.len();
         let listed = listed.into_iter().map(|shortcut| {
             let keys = shortcut.keys(&overrides);
+            let in_terminal = keys.get(1).map(|keys| {
+                div()
+                    .text_size(crate::theme::ui_text(TEXT_2XS))
+                    .text_color(t.text_tertiary)
+                    .child(t!(
+                        "{keys} in a terminal",
+                        keys = keys_label(Some(keys.as_str()))
+                    ))
+            });
             let changed = overrides.contains_key(shortcut.id);
             let reset = changed.then(|| {
                 let this = this.clone();
@@ -313,7 +336,7 @@ pub fn render(
                         change(bench, |overrides| {
                             overrides.remove(shortcut.id);
                         });
-                        let restored = keys_label(shortcut.default_keys());
+                        let restored = keys_label(shortcut.default_keys().first().copied());
                         say(
                             bench,
                             t!(
@@ -334,10 +357,11 @@ pub fn render(
                     .flex()
                     .items_center()
                     .gap(SPACE_1)
+                    .children(in_terminal)
                     .children(reset)
                     .child(keycap(
                         shortcut,
-                        keys.as_deref(),
+                        keys.first().map(String::as_str),
                         recording == Some(shortcut.id),
                         this,
                         &t,

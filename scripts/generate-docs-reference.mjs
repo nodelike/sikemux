@@ -24,7 +24,7 @@ const cell = (text) =>
     .replaceAll("\n", " ")
     .replace(/[{}<]/g, (char) => `\\${char}`);
 
-// The app's default shortcuts, from the table GPUI's keymap reads, labelled as a Mac shows them.
+// The app's default shortcuts, from the table GPUI's keymap reads, labelled as each system shows them.
 const keybindings = JSON.parse(
   await readFile(
     resolve(root, "crates/sikemux-core/src/assets/keybindings.json"),
@@ -48,22 +48,34 @@ const KEYS = {
   Semicolon: ";",
   Slash: "/",
 };
-const label = (keys) => {
+const key = (code) => KEYS[code] ?? code.replace(/^(Key|Digit|Arrow)/, "");
+const mac = (keys) => {
   const parts = keys.split("+");
   const code = parts.pop();
-  const key = KEYS[code] ?? code.replace(/^(Key|Digit|Arrow)/, "");
-  return parts.map((part) => MODIFIERS[part] ?? part).join("") + key;
+  return parts.map((part) => MODIFIERS[part] ?? part).join("") + key(code);
 };
+const linux = (keys) => {
+  const parts = keys.split("+");
+  const code = parts.pop();
+  return [...parts, key(code)].join("+");
+};
+const keys = (label, ...each) =>
+  each
+    .filter(Boolean)
+    .map((keys) => `\`${cell(label(keys))}\``)
+    .join(" or ");
 
 const shortcuts = CATEGORIES.map((category) => {
   const rows = keybindings
-    .filter((action) => action.category === category && action.mac)
+    .filter(
+      (action) => action.category === category && (action.mac || action.other),
+    )
     .map(
       (action) =>
-        `| ${cell(action.label)} | \`${label(action.mac)}\` | ${cell(action.detail)} |`,
+        `| ${cell(action.label)} | ${keys(mac, action.mac)} | ${keys(linux, action.other, action.otherInTerminal)} | ${cell(action.detail)} |`,
     );
   if (rows.length === 0) return "";
-  return `## ${category}\n\n| Action | Shortcut | What it does |\n|---|---|---|\n${rows.join("\n")}\n`;
+  return `## ${category}\n\n| Action | Mac | Linux | What it does |\n|---|---|---|---|\n${rows.join("\n")}\n`;
 })
   .filter(Boolean)
   .join("\n");
@@ -71,8 +83,8 @@ await emitPage(
   "keyboard-shortcuts.mdx",
   page(
     "Keyboard shortcuts",
-    "Every default shortcut in Sikemux on a Mac.",
-    `These are the defaults. Change any of them in **Settings → Keyboard**, and search every action with the command deck (\`⌘⇧P\`).\n\n${shortcuts}`,
+    "Every default shortcut in Sikemux, on a Mac and on Linux.",
+    `These are the defaults. Change any of them in **Settings → Keyboard**, and search every action with the command deck (\`⌘⇧P\`, or \`Ctrl+Shift+P\` on Linux).\n\nOn Linux a terminal keeps Ctrl with a letter, \`[\` or \`]\` for its shell while you type in it. A shortcut on one of those keys lists a second key, which runs it from a terminal too.\n\n${shortcuts}`,
   ),
 );
 

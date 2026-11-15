@@ -154839,6 +154839,7 @@
         }
       }
     },
+    "{keys} in a terminal": {},
     "{keys} is already assigned to “{other}”.": {
       "localizations": {
         "es": {
@@ -156869,6 +156870,7 @@
         }
       }
     },
+    "{name} changed to {keys}. It stays with the terminal while you type in one.": {},
     "{name} closed the connection": {
       "localizations": {
         "es": {

@@ -26,9 +26,33 @@ static TABLE: &str = include_str!("../../crates/sikemux-core/src/assets/keybindi
 /// own binding for the same keys, such as the editor's ⌘[, takes them first.
 pub const SHELL: &str = "Workbench";
 
-/// Where the shortcut of command `id` works: the welcome takes even the palettes' keys. Keys
-/// held with Option alone stay with a terminal or text field being typed in, since shells read
-/// Option as Meta and other keyboard layouts type with it.
+/// What keeps a shortcut's keys to itself while it is being typed in.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Keeps {
+    /// A terminal or a text field.
+    Typing,
+    /// A terminal, for its shell.
+    Shell,
+}
+
+/// What keeps `keys` from the app's shortcuts. Option held alone stays with a terminal or text
+/// field, since shells read it as Meta and other keyboard layouts type with it. Ctrl with a
+/// letter or bracket stays with a terminal, whose shell reads each of them.
+pub fn kept(keys: &str) -> Option<Keeps> {
+    let held: Vec<&str> = keys.split('+').collect();
+    let (code, modifiers) = held.split_last()?;
+    let has = |modifier: &str| modifiers.contains(&modifier);
+    if has("Alt") && !has("Meta") && !has("Ctrl") {
+        // Off the Mac a shell moves by word with Ctrl, and Alt with an arrow moves between
+        // panes, as in Windows Terminal and Tilix.
+        let moves_panes = !cfg!(target_os = "macos") && code.starts_with("Arrow");
+        return (!moves_panes).then_some(Keeps::Typing);
+    }
+    let shell_reads = code.starts_with("Key") || code.starts_with("Bracket");
+    (*modifiers == ["Ctrl"] && shell_reads).then_some(Keeps::Shell)
+}
+
+/// Where the shortcut of command `id` works: the welcome takes even the palettes' keys.
 fn context(id: &str, keys: &str) -> String {
     let place = if applies(id, Applies::OnPage) {
         "BrowserPage"
@@ -37,11 +61,10 @@ fn context(id: &str, keys: &str) -> String {
     } else {
         "Workbench && !Modal"
     };
-    let held: Vec<&str> = keys.split('+').collect();
-    let option_only = held.contains(&"Alt") && !held.contains(&"Meta") && !held.contains(&"Ctrl");
-    match option_only {
-        true => format!("{place} && !Terminal && !Input"),
-        false => place.to_owned(),
+    match kept(keys) {
+        Some(Keeps::Typing) => format!("{place} && !Terminal && !Input"),
+        Some(Keeps::Shell) => format!("{place} && !Terminal"),
+        None => place.to_owned(),
     }
 }
 
@@ -74,21 +97,29 @@ pub struct Shortcut {
     pub category: &'static str,
     mac: Option<&'static str>,
     other: Option<&'static str>,
+    /// Off the Mac, where a terminal keeps `other` for its shell: the keys that run it there too.
+    #[serde(rename = "otherInTerminal")]
+    other_in_terminal: Option<&'static str>,
 }
 
 impl Shortcut {
-    pub fn default_keys(&self) -> Option<&'static str> {
+    /// Its default keys, first the ones the app shows.
+    pub fn default_keys(&self) -> Vec<&'static str> {
         match cfg!(target_os = "macos") {
-            true => self.mac,
-            false => self.other,
+            true => self.mac.into_iter().collect(),
+            false => self
+                .other
+                .into_iter()
+                .chain(self.other_in_terminal)
+                .collect(),
         }
     }
 
-    /// The keys the person chose for it, else its default.
-    pub fn keys(&self, overrides: &BTreeMap<String, Option<String>>) -> Option<String> {
+    /// The keys the person chose for it, else its defaults.
+    pub fn keys(&self, overrides: &BTreeMap<String, Option<String>>) -> Vec<String> {
         match overrides.get(self.id) {
-            Some(chosen) => chosen.clone(),
-            None => self.default_keys().map(str::to_owned),
+            Some(chosen) => chosen.iter().cloned().collect(),
+            None => self.default_keys().into_iter().map(str::to_owned).collect(),
         }
     }
 }
@@ -110,9 +141,10 @@ pub fn shortcuts() -> &'static [Shortcut] {
 }
 
 /// The keys each command is bound to now in the table's own spelling, such as `Meta+Shift+KeyP`,
-/// and the keys the project in front's own actions are bound to, by action id.
+/// first the ones the app shows, and the keys the project in front's own actions are bound to,
+/// by action id.
 pub struct Keymap {
-    bound: BTreeMap<String, String>,
+    bound: BTreeMap<String, Vec<String>>,
     actions: BTreeMap<String, String>,
     overrides: Option<BTreeMap<String, Option<String>>>,
     /// Where each command the person runs is told, for the usage report.
@@ -132,7 +164,7 @@ pub struct RunProjectAction {
 /// command's, as on the Mac, and keys an action no longer uses stop doing anything.
 pub fn bind_project_actions(actions: &[(String, String, String)], cx: &mut App) {
     let keymap = cx.global::<Keymap>();
-    let taken = |keys: &str| keymap.bound.values().any(|bound| bound == keys);
+    let taken = |keys: &str| keymap.bound.values().flatten().any(|bound| bound == keys);
     let mut bound = BTreeMap::new();
     let mut bindings = Vec::new();
     for (id, label, keys) in actions {
@@ -217,6 +249,8 @@ pub fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
     } else {
         cx.bind_keys([
             KeyBinding::new("ctrl-q", Quit, None),
+            // A shell reads Ctrl+Q itself. Bound after Quit, this hands a terminal the key.
+            KeyBinding::new("ctrl-q", gpui::NoAction, Some("Terminal")),
             KeyBinding::new("ctrl-alt-q", QuitAndStopEverything, None),
             KeyBinding::new("f11", ToggleFullScreen, None),
         ]);
@@ -245,15 +279,13 @@ pub fn bind(overrides: &BTreeMap<String, Option<String>>, cx: &mut App) {
     if cx.global::<Keymap>().overrides.as_ref() == Some(overrides) {
         return;
     }
-    let mut bound = BTreeMap::new();
+    let mut bound: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut bindings = Vec::new();
     for shortcut in shortcuts() {
-        let Some((keys, gpui_keys)) = shortcut
-            .keys(overrides)
-            .and_then(|keys| Some((keys.clone(), keystroke(&keys)?)))
-        else {
+        let keys = shortcut.keys(overrides);
+        if keys.is_empty() {
             continue;
-        };
+        }
         let Ok(action) = cx.build_action(shortcut.id, None) else {
             eprintln!(
                 "sikemux: the shortcut table names {}, which is no command",
@@ -261,12 +293,18 @@ pub fn bind(overrides: &BTreeMap<String, Option<String>>, cx: &mut App) {
             );
             continue;
         };
-        let context = KeyBindingContextPredicate::parse(&context(shortcut.id, &keys))
-            .ok()
-            .map(Rc::new);
-        if let Ok(binding) = KeyBinding::load(&gpui_keys, action, context, false, None, cx) {
-            bindings.push(binding);
-            bound.insert(shortcut.id.to_owned(), keys);
+        for keys in keys {
+            let Some(gpui_keys) = keystroke(&keys) else {
+                continue;
+            };
+            let context = KeyBindingContextPredicate::parse(&context(shortcut.id, &keys))
+                .ok()
+                .map(Rc::new);
+            let action = action.boxed_clone();
+            if let Ok(binding) = KeyBinding::load(&gpui_keys, action, context, false, None, cx) {
+                bindings.push(binding);
+                bound.entry(shortcut.id.to_owned()).or_default().push(keys);
+            }
         }
     }
     replace(
@@ -275,7 +313,12 @@ pub fn bind(overrides: &BTreeMap<String, Option<String>>, cx: &mut App) {
         cx,
     );
     #[cfg(target_os = "macos")]
-    crate::snapshot::register(bound.get(crate::snapshot::COMMAND).map(String::as_str));
+    crate::snapshot::register(
+        bound
+            .get(crate::snapshot::COMMAND)
+            .and_then(|keys| keys.first())
+            .map(String::as_str),
+    );
     let keymap = cx.global_mut::<Keymap>();
     keymap.bound = bound;
     keymap.overrides = Some(overrides.clone());
@@ -315,7 +358,7 @@ pub fn command_for(keystroke: &Keystroke, cx: &App) -> Option<String> {
     keymap
         .bound
         .iter()
-        .find(|(_, bound)| **bound == keys)
+        .find(|(_, bound)| bound.contains(&keys))
         .map(|(id, _)| id.clone())
 }
 
@@ -332,7 +375,7 @@ pub fn hint(id: CommandId, cx: &App) -> Option<SharedString> {
 
 /// [`hint`] for an id that comes from a table.
 pub fn hint_named(id: &str, cx: &App) -> Option<SharedString> {
-    label(cx.try_global::<Keymap>()?.bound.get(id)?)
+    label(cx.try_global::<Keymap>()?.bound.get(id)?.first()?)
 }
 
 /// Keys in the table's spelling as the app shows them, such as ⌘⇧P.
