@@ -151,9 +151,11 @@ impl World {
                     .map(|(key, value)| (key.clone(), expand_home(value))),
             );
         }
-        for (key, value) in preferences {
-            runtime
-                .block_on(client.call("setPreference", json!({ "key": key, "value": value })))?;
+        for (method, params) in preferences
+            .iter()
+            .flat_map(|(key, value)| setting(key, value))
+        {
+            runtime.block_on(client.call(method, params))?;
         }
         if args.world["faceStyle"].is_object() {
             runtime.block_on(client.call("setFaceStyle", args.world["faceStyle"].clone()))?;
@@ -595,7 +597,9 @@ impl World {
                     }
                     Ok(text) => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
                 };
-                self.call("setPreference", json!({ "key": key, "value": value }))?;
+                for (method, params) in setting(key, &value) {
+                    self.call(method, params)?;
+                }
             }
             "patch" => {
                 let (_, path) = self.project()?.clone();
@@ -702,5 +706,16 @@ impl Drop for World {
         sikemux_process::terminate_tree(self.core.id(), true);
         let _ = self.core.wait();
         let _ = std::fs::remove_file(&self.socket);
+    }
+}
+
+/// The calls that set one preference; the person's own themes are files the core saves.
+fn setting(key: &str, value: &Value) -> Vec<(&'static str, Value)> {
+    match (key, value) {
+        ("customThemes", Value::Array(themes)) => themes
+            .iter()
+            .map(|theme| ("saveTheme", json!({ "theme": theme })))
+            .collect(),
+        _ => vec![("setPreference", json!({ "key": key, "value": value }))],
     }
 }
