@@ -114,14 +114,19 @@ mod tests {
             resolve("rust lifetimes"),
             Address::Search("https://www.google.com/search?q=rust+lifetimes".into())
         );
-        assert_eq!(
-            resolve("file:///tmp/a%20b.html"),
-            Address::Local(PathBuf::from("/tmp/a b.html"))
-        );
-        assert_eq!(
-            resolve("FILE:///tmp/x"),
-            Address::Local(PathBuf::from("/tmp/x"))
-        );
+        let (spaced, upper) = match cfg!(windows) {
+            true => (
+                ("file:///C:/tmp/a%20b.html", r"C:\tmp\a b.html"),
+                ("FILE:///C:/tmp/x", r"C:\tmp\x"),
+            ),
+            false => (
+                ("file:///tmp/a%20b.html", "/tmp/a b.html"),
+                ("FILE:///tmp/x", "/tmp/x"),
+            ),
+        };
+        for (typed, path) in [spaced, upper] {
+            assert_eq!(resolve(typed), Address::Local(PathBuf::from(path)));
+        }
         assert_eq!(resolve(" /tmp/x "), Address::Local(PathBuf::from("/tmp/x")));
         assert!(
             matches!(resolve("~/x"), Address::Local(path) if path.ends_with("x") && path.is_absolute())
