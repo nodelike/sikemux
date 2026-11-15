@@ -1,6 +1,10 @@
 {
   "fields": {
-    "DeviceView": "workspace attentions inbox calls faceStyle load",
+    "DeviceView": "workspace attentions inbox calls now faceStyle load",
+    "ProjectNow": "project rows release closed",
+    "NowRow": "agent group lead since",
+    "NowRelease": "branch tag taggedAt sinceTag ci releasing running",
+    "NowClosed": "agent name at why work lead",
     "HostLoad": "overloaded loadAverage cores builds",
     "AgentBuild": "agentId command",
     "Workspace": "projects launchers",

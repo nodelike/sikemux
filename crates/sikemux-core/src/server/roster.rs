@@ -202,7 +202,8 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let project = super::caller::project_of(&core, &request);
         let caller = request.agent_id.clone().unwrap_or_default();
         let rows = rows(&core, (!all).then_some(project.as_str()), &caller);
-        Ok(json!({ "project": project, "agents": rows }))
+        let now = super::now::text_of_path(&core, &project);
+        Ok(json!({ "project": project, "now": now, "agents": rows }))
     })
     .await
     .map_err(|error| error.to_string())

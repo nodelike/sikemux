@@ -19,8 +19,8 @@ use super::{streams, themes, ServerConfig};
 
 use super::{
     chief, device_view, git, goal_summary, goals, harness, hooks, host_stats, hosts, inbox, layout,
-    lifecycle, line, memory, mods, outside, pictures, pins, remote_image, session_watch, settling,
-    spare, stalls, tasks, tools, triggers, updates, Core,
+    lifecycle, line, memory, mods, now, outside, pictures, pins, remote_image, session_watch,
+    settling, spare, stalls, tasks, tools, triggers, updates, Core,
 };
 
 pub(crate) struct Fields {
@@ -63,6 +63,7 @@ pub(crate) struct Fields {
     pub(super) hosts: hosts::Hosts,
     pub(super) mods: mods::Mods,
     pub(super) chiefs: chief::Chiefs,
+    pub(super) now: now::Now,
 }
 
 pub(crate) trait Parts {
@@ -99,6 +100,7 @@ pub(crate) trait Parts {
     fn hosts(&self) -> &hosts::Hosts;
     fn mods(&self) -> &mods::Mods;
     fn chiefs(&self) -> &chief::Chiefs;
+    fn now(&self) -> &now::Now;
 }
 
 impl Parts for Core {
@@ -233,11 +235,15 @@ impl Parts for Core {
     fn chiefs(&self) -> &chief::Chiefs {
         &self.kept::<Fields>().chiefs
     }
+
+    fn now(&self) -> &now::Now {
+        &self.kept::<Fields>().now
+    }
 }
 
 /// Walking every part of the core.
 pub(crate) trait PartCore {
-    fn parts(&self) -> [&dyn Part; 35];
+    fn parts(&self) -> [&dyn Part; 36];
 
     /// Every feature's tasks, to end when the core stops.
     fn start_parts(self: &Arc<Self>) -> Vec<JoinHandle<()>>;
@@ -249,7 +255,7 @@ pub(crate) trait PartCore {
 }
 
 impl PartCore for Core {
-    fn parts(&self) -> [&dyn Part; 35] {
+    fn parts(&self) -> [&dyn Part; 36] {
         [
             self.harness(),
             self.outside(),
@@ -284,6 +290,7 @@ impl PartCore for Core {
             self.code_host_lists(),
             self.look(),
             self.chiefs(),
+            self.now(),
             &super::lsp::Lsp,
             &super::fast_forward::FastForward,
         ]

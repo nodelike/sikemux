@@ -15,6 +15,7 @@ pub mod inbox;
 pub mod layout;
 pub mod memory;
 pub mod notch;
+pub mod now;
 pub mod owners;
 pub mod pins;
 pub mod places;

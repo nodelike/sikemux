@@ -625,6 +625,12 @@ pub(crate) async fn resume_session(
 /// A session the saved ones no longer list is still taken up from what the agent's record
 /// keeps, and the chat says so if its CLI cannot load it.
 pub(crate) async fn reopen_agent(core: &Arc<Core>, agent_id: String) -> CoreResult<SessionTaken> {
+    let taken = take_up_again(core, agent_id.clone()).await?;
+    super::now::reopened(core, &agent_id);
+    Ok(taken)
+}
+
+async fn take_up_again(core: &Arc<Core>, agent_id: String) -> CoreResult<SessionTaken> {
     let project_of = |agent: &str| core.workspaces().agent_projects().remove(agent);
     if let Some(project) = project_of(&agent_id) {
         return Ok(SessionTaken { agent_id, project });

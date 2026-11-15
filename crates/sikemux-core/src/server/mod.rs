@@ -84,6 +84,7 @@ pub(crate) use sikemux_remote::server::network_watch;
 pub use sikemux_workspace::server::names;
 pub use sikemux_workspace::server::new_project;
 mod notch;
+mod now;
 pub(crate) use sikemux_remote::server::notify;
 pub use sikemux_workspace::server::open_files;
 pub mod outside;
@@ -537,6 +538,7 @@ impl ServerCore for Core {
                     hosts,
                     mods: mods::Mods::new(data_dir),
                     chiefs: chief::Chiefs::new(data_dir),
+                    now: now::Now::new(data_dir),
                 }) as sikemux_kernel::Parts,
             ]
         });

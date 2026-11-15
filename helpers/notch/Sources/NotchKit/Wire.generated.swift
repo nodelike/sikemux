@@ -323,6 +323,8 @@ struct DeviceView: Codable, Hashable {
     /// The calls of every project still open, then those answered lately with what came of
     /// them, newest first. Clients show only the projects they scope to.
     let calls: [PersonCall]?
+    /// Each project's Now strip, by project id, for projects with anything on it.
+    let now: [ProjectNow]?
     let faceStyle: FaceStyle
     /// How busy this host is, while a client that shows it is attached.
     let load: HostLoad?
@@ -1020,6 +1022,125 @@ enum CallResult: String, Codable, Hashable {
 enum CallWhy: String, Codable, Hashable {
     /// Sikemux restarted after the person said yes and before it ran, so the yes lapsed.
     case restarted
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// One project's strip.
+struct ProjectNow: Codable, Hashable {
+    /// The workspace project, by id.
+    let project: String
+    /// In the order of their groups, and within a group the longest standing first.
+    let rows: [NowRow]?
+    /// None for a folder that is not a repository.
+    let release: NowRelease?
+    /// Newest first.
+    let closed: [NowClosed]?
+}
+
+/// One open agent on the strip.
+struct NowRow: Codable, Hashable {
+    let agent: String
+    let group: NowGroup
+    /// The lead it works for when that is not the project's chief, by id: a client folds it
+    /// under that lead's row.
+    let lead: String?
+    /// When the fact came to stand, in Unix milliseconds.
+    let since: Int
+}
+
+/// The groups a strip shows, in the person's order.
+enum NowGroup: String, Codable, Hashable {
+    case waitingOnYou
+    case readyToLook
+    case moving
+    /// Nothing set to wake it and nothing for the person to look at: it may be stuck.
+    case notSure
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// The project's latest release and what its branch has since.
+struct NowRelease: Codable, Hashable {
+    let branch: String
+    /// The newest tag on the branch; none before the first.
+    let tag: String?
+    /// When that tag was made, in Unix milliseconds.
+    let taggedAt: Int?
+    /// Commits on the branch since the tag, or in all before the first.
+    let sinceTag: Int
+    /// How CI stands on the branch's tip; none where none was read.
+    let ci: CiStand?
+    /// A run that publishes a release is going.
+    let releasing: Bool?
+    /// The release tag the app the person runs was built at, or its commit when untagged, while
+    /// that build is of this project.
+    let running: String?
+}
+
+enum CiStand: String, Codable, Hashable {
+    case passed
+    case running
+    case failed
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// An agent closed lately, with what reopening it with `reopenAgent` needs.
+struct NowClosed: Codable, Hashable {
+    /// What `reopenAgent` takes.
+    let agent: String
+    /// What it was called, since a closed agent's name is not on the workspace's agents.
+    let name: String
+    let at: Int
+    let why: ClosedWhy
+    /// How far its work had gone as it closed; none when it changed nothing.
+    let work: FixAt?
+    let lead: String?
+}
+
+enum ClosedWhy: String, Codable, Hashable {
+    /// The core closed it, its work landed.
+    case landed
+    /// The core closed it, it changed nothing.
+    case nothingChanged
+    /// Its lead or another agent closed it.
+    case byAgent
+    case byPerson
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// How far a finished change has gone, in the order it goes. A fix is fixed for the person only
+/// at `Running`, or `Shipped` for a project that deploys.
+enum FixAt: String, Codable, Hashable {
+    case uncommitted
+    /// Committed in its own checkout and not on the project's branch.
+    case committed
+    /// On the project's branch, as the project lands changes.
+    case landed
+    /// In a release tag.
+    case released
+    /// In the build of the app the person runs.
+    case running
+    case staged
+    case shipped
     /// One added after this build.
     case unknown
 

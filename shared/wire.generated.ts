@@ -86,6 +86,8 @@ export interface DeviceView {
      * them, newest first. Clients show only the projects they scope to.
      */
     calls?: PersonCall[];
+    /** Each project's Now strip, by project id, for projects with anything on it. */
+    now?: ProjectNow[];
     /** Every project's pins still open on a page, and those answered, until closed. */
     pins?: Pin[];
     /** Which project is in front, and each project's tabs. */
@@ -1662,6 +1664,128 @@ export interface CallOutcome {
 export type CallResult = "heard" | "shipped" | "notShipped" | "failed" | "mayHaveRun" | "handedBack" | "withdrawn";
 
 export type CallWhy = "restarted";
+
+/** One project's strip. */
+export interface ProjectNow {
+    /** The workspace project, by id. */
+    project: string;
+    /** In the order of their groups, and within a group the longest standing first. */
+    rows?: NowRow[];
+    /** None for a folder that is not a repository. */
+    release?: NowRelease;
+    /** Newest first. */
+    closed?: NowClosed[];
+}
+
+/** One open agent on the strip. */
+export interface NowRow {
+    agent: string;
+    group: NowGroup;
+    /**
+     * The lead it works for when that is not the project's chief, by id: a client folds it
+     * under that lead's row.
+     */
+    lead?: string;
+    fact: NowFact;
+    /** When the fact came to stand, in Unix milliseconds. */
+    since: number;
+}
+
+/** The groups a strip shows, in the person's order. */
+export type NowGroup = "waitingOnYou" | "readyToLook" | "moving" | "notSure";
+
+/** The one thing a row says of its agent. */
+export type NowFact =
+    /** It waits on the person for `count` things: calls and permissions. */
+    | {
+          kind: "asks";
+          count: number;
+      }
+    | {
+          kind: "failed";
+          why: FailureKind;
+      }
+    /** Its turn ended with work left open and nothing set to wake it. */
+    | {
+          kind: "stopped";
+      }
+    | {
+          kind: "working";
+          /** The step of its plan it is on, when it said one. */
+          on?: string;
+      }
+    /** Its turn ended on something set to wake it. */
+    | {
+          kind: "waiting";
+          on: TurnWaitKind;
+          /** What it waits on, in words: a process, a timer's title, an agent's name. */
+          what?: string;
+          /** The agent it waits on, by id. */
+          agent?: string;
+          /** Its place in the host's line, 1 for next. */
+          place?: number;
+          /** How long such a wait usually takes. */
+          expectedMs?: number;
+      }
+    /** Its turn finished with changes, and how far they have gone. */
+    | {
+          kind: "work";
+          at: FixAt;
+          checks: ChecksStand;
+          /** The release tag that has them, once one does, such as `v0.9.3-nightly.22`. */
+          release?: string;
+      }
+    /** Its turn finished and changed nothing. */
+    | {
+          kind: "answered";
+      }
+    /** A value a newer core sends. */
+    | {
+          kind: "unknown";
+      };
+
+/**
+ * How far a finished change has gone, in the order it goes. A fix is fixed for the person only
+ * at `Running`, or `Shipped` for a project that deploys.
+ */
+export type FixAt = "uncommitted" | "committed" | "landed" | "released" | "running" | "staged" | "shipped";
+
+/** The project's latest release and what its branch has since. */
+export interface NowRelease {
+    branch: string;
+    /** The newest tag on the branch; none before the first. */
+    tag?: string;
+    /** When that tag was made, in Unix milliseconds. */
+    taggedAt?: number;
+    /** Commits on the branch since the tag, or in all before the first. */
+    sinceTag: number;
+    /** How CI stands on the branch's tip; none where none was read. */
+    ci?: CiStand;
+    /** A run that publishes a release is going. */
+    releasing?: boolean;
+    /**
+     * The release tag the app the person runs was built at, or its commit when untagged, while
+     * that build is of this project.
+     */
+    running?: string;
+}
+
+export type CiStand = "passed" | "running" | "failed";
+
+/** An agent closed lately, with what reopening it with `reopenAgent` needs. */
+export interface NowClosed {
+    /** What `reopenAgent` takes. */
+    agent: string;
+    /** What it was called, since a closed agent's name is not on the workspace's agents. */
+    name: string;
+    at: number;
+    why: ClosedWhy;
+    /** How far its work had gone as it closed; none when it changed nothing. */
+    work?: FixAt;
+    lead?: string;
+}
+
+export type ClosedWhy = "landed" | "nothingChanged" | "byAgent" | "byPerson";
 
 export interface Pin {
     id: string;

@@ -313,6 +313,16 @@ impl DeviceViewCore for Core {
         super::chief::refresh_away(self, &calls);
         let mut workspace = self.workspace_view();
         stand_projects(self, &mut workspace.projects, &turns, &calls);
+        let now = super::now::projects(
+            self,
+            (inbox.agents.iter()).filter_map(|agent| {
+                Some(super::now::Open {
+                    agent: &agent.agent_id,
+                    project: agent.project.as_deref()?,
+                    turn: agent.turn.as_ref(),
+                })
+            }),
+        );
         let layout = Box::new(layout::view(self, &workspace, &sessions, device));
         let view = DeviceView {
             workspace,
@@ -322,6 +332,7 @@ impl DeviceViewCore for Core {
             recent,
             inbox,
             calls,
+            now,
             pins: super::pins::shown(self),
             layout,
             account: self.account().shown().map(Box::new),
