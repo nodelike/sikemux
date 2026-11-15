@@ -11,11 +11,13 @@ sikemux-browser
 sikemux-buildinfo
 sikemux-calls
 sikemux-chat
+sikemux-corekit
 sikemux-drivers
 sikemux-fold
 sikemux-git
 sikemux-gpui
 sikemux-grid
+sikemux-host
 sikemux-hostkit
 sikemux-kernel
 sikemux-keychain
@@ -39,6 +41,7 @@ sikemux-plugin-vercel
 sikemux-process
 sikemux-pty
 sikemux-remote
+sikemux-serve
 sikemux-simulator
 sikemux-view
 sikemux-voice
