@@ -5,6 +5,7 @@
 use crate::server::chat_state::ChatParts;
 use crate::server::workspace_state::WorkspaceParts;
 use std::ops::ControlFlow;
+#[cfg(unix)]
 use std::os::fd::OwnedFd;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -421,6 +422,7 @@ pub struct Handed {
 }
 
 /// A chat another core let go of, to take up.
+#[cfg(unix)]
 pub struct Adopted {
     pub session: SessionState,
     pub backend: Value,
@@ -437,6 +439,7 @@ pub enum Begin {
         rebind: Option<Box<Rebind>>,
         notice: Option<Value>,
     },
+    #[cfg(unix)]
     Adopt(Box<Adopted>),
 }
 
@@ -525,6 +528,7 @@ pub async fn run<B: Backend>(
             }
             (backend, state, replay)
         }
+        #[cfg(unix)]
         Begin::Adopt(adopted) => {
             let Adopted {
                 session,
