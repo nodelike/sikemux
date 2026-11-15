@@ -60,11 +60,14 @@ async fn a_frame_each_way_with_the_peer_known() {
     let _ = std::fs::remove_file(&path);
 }
 
-#[tokio::test]
-async fn nothing_listening_is_not_found() {
+#[test]
+fn nothing_listening_is_not_found() {
     let path = unused_path("nobody");
-    let error = local::connect(&path).await.unwrap_err();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let error = runtime.block_on(local::connect(&path)).unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
-    let error = local::connect_sync(&path, Duration::from_secs(1)).unwrap_err();
+    let Err(error) = local::connect_sync(&path, Duration::from_secs(1)) else {
+        panic!("connected with nothing listening");
+    };
     assert_eq!(error.kind(), io::ErrorKind::NotFound);
 }
