@@ -55,7 +55,7 @@ pub(super) async fn upgrade(
 /// Restarts this core from its own binary, keeping its terminals and chats,
 /// and tells the client, which hears nothing more when it worked.
 pub(super) async fn restart(core: &Arc<Core>, writer: &mut FrameWriter) {
-    let binary = match std::env::current_exe() {
+    let binary = match own_binary() {
         Ok(binary) => binary,
         Err(error) => {
             reply(
@@ -208,7 +208,7 @@ fn check_binary(
             own.commit,
         ));
     }
-    let same_file = std::env::current_exe().is_ok_and(|own_binary| own_binary == binary);
+    let same_file = own_binary().is_ok_and(|own_binary| own_binary == binary);
     if replacement == Replacement::Update && info.build().same_build(own) && same_file {
         return Err(format!(
             "{} is the build this core already runs",
@@ -216,6 +216,17 @@ fn check_binary(
         ));
     }
     Ok(())
+}
+
+/// The path this core was started from. Once a package manager replaces that file, Linux
+/// names it with a " (deleted)" suffix, while the path itself now holds the new build.
+fn own_binary() -> std::io::Result<PathBuf> {
+    let binary = std::env::current_exe()?;
+    Ok(binary
+        .to_str()
+        .and_then(|path| path.strip_suffix(" (deleted)"))
+        .map(PathBuf::from)
+        .unwrap_or(binary))
 }
 
 /// Runs `<binary> core --upgrade-info`, which also proves the binary starts.
