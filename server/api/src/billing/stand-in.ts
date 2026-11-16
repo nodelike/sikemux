@@ -247,7 +247,6 @@ export class StandInProvider implements BillingProvider {
       ...this.event("subscription.changed"),
       subscription: this.subscriptionOf(held),
     });
-    return true;
   }
 
   async previewChange(

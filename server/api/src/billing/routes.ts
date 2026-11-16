@@ -675,8 +675,8 @@ export function billingRoutes({
             .where("id", "=", row.id)
             .execute();
         if (same) {
-          const dropped = await ready.takeBack(subscription, { ...next, unit });
-          if (orgId && dropped) await claim(null, null);
+          await ready.takeBack(subscription, { ...next, unit });
+          if (orgId) await claim(paid.quantity, new Date());
           return asked;
         }
         const seats =

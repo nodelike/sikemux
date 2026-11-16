@@ -217,12 +217,11 @@ export interface BillingProvider {
   /**
    * Drops a change waiting for renewal, so the subscription renews with what is paid for now. The
    * provider is asked even when no change is known here, since its event may not have arrived.
-   * False when the provider held no change to drop.
    */
   takeBack(
     subscription: HeldSubscription,
     paid: SubscriptionUpdate,
-  ): Promise<boolean>;
+  ): Promise<void>;
   /** Ends this product of the subscription at the end of its period, or with `now`, at once with no credit. */
   cancel(
     subscription: HeldSubscription,

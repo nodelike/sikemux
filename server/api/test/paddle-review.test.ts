@@ -1630,4 +1630,28 @@ describe("the claim, sixth read", () => {
       afterTheOlderSnapshot: 1,
     });
   });
+
+  it("B1: one left by a process that died is lifted by asking for what is paid", async () => {
+    const { orgId, sub, id } = await team(10);
+    await database.db
+      .updateTable("subscriptions")
+      .set({ seats_cut_to: 1, seats_cut_at: ago(10) })
+      .where("id", "=", id ?? "")
+      .execute();
+    const held = await seatLimit(database.db, orgId);
+    const asked = (await change(OWNER, id, { quantity: 10 })).status;
+    const afterAsking = await seatLimit(database.db, orgId);
+    expect(await deliver("subscription.updated", sub)).toBe(204);
+    expect({
+      held,
+      asked,
+      afterAsking,
+      afterAnEvent: await seatLimit(database.db, orgId),
+    }).toEqual({
+      held: 1,
+      asked: 200,
+      afterAsking: 10,
+      afterAnEvent: 10,
+    });
+  });
 });
