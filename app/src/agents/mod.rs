@@ -126,9 +126,11 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         .filter(|agent| agent.chief)
         .map(|agent| agent.id.clone())
         .collect();
+    let mut chief_led = HashSet::new();
     for agent in &mut listed {
         if (agent.lead.as_ref()).is_some_and(|lead| chiefs.contains(lead)) {
             agent.lead = None;
+            chief_led.insert(agent.id.clone());
         }
     }
     let pinned_ids: HashSet<&str> = (pins.iter())
@@ -179,7 +181,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         let at = |project: &str| heads.iter().position(|(id, _)| id == project);
         agents.sort_by_key(|agent| at(home_of(&homes, agent)).unwrap_or(usize::MAX));
     }
-    let (copy, rows) = team_rows(bench, &agents, &homes, heads, cx);
+    let (copy, rows) = team_rows(bench, &agents, &homes, heads, (&chiefs, chief_led), cx);
     let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
     let tagged = bench.rails.tag.is_some();
     let pinned: Vec<_> = pins
@@ -831,12 +833,14 @@ fn new_row(
 pub type RailSeen = crate::motion::ListMemory<AgentRow>;
 
 /// The rows, each lead's workers under it on a tree the lead folds, unless the list is
-/// filtered and a team may have lost its lead.
+/// filtered and a team may have lost its lead. Only the agents a chief started hang under its
+/// head; those the person started stand at the root below it.
 fn team_rows(
     bench: &Workbench,
     agents: &[AgentRow],
     homes: &HashMap<(Place, String), String>,
     heads: Vec<(String, AnyElement)>,
+    (chiefs, mut chief_led): (&HashSet<String>, HashSet<String>),
     cx: &mut Context<Workbench>,
 ) -> (Option<AnyElement>, Vec<AnyElement>) {
     let chosen = bench.agent().map(|agent| agent.id);
@@ -856,6 +860,10 @@ fn team_rows(
                         .cloned()
                         .or_else(|| crate::agents::rows::worker(worker))?;
                     row.lead = worker.shown.lead.clone();
+                    if (row.lead.as_ref()).is_some_and(|lead| chiefs.contains(lead)) {
+                        row.lead = None;
+                        chief_led.insert(row.id.clone());
+                    }
                     Some(row)
                 })
                 .collect();
@@ -864,7 +872,7 @@ fn team_rows(
         }
         false => rows.iter_mut().for_each(|row| row.lead = None),
     }
-    let home: Vec<String> = {
+    let home: Vec<(String, bool)> = {
         let at: HashMap<&str, &AgentRow> = rows.iter().map(|row| (row.id.as_str(), row)).collect();
         (rows.iter())
             .map(|row| {
@@ -875,7 +883,7 @@ fn team_rows(
                         None => break,
                     }
                 }
-                home_of(homes, top).to_owned()
+                (home_of(homes, top).to_owned(), chief_led.contains(&top.id))
             })
             .collect()
     };
@@ -897,10 +905,11 @@ fn team_rows(
     };
     let mut headed = HashSet::new();
     for (project, head) in heads {
-        let team: Vec<AgentRow> = (rows.iter().zip(&home))
-            .filter(|(_, home)| **home == project)
-            .map(|(row, _)| row.clone())
-            .collect();
+        let (team, own): (Vec<_>, Vec<_>) = (rows.iter().zip(&home))
+            .filter(|(_, (home, _))| *home == project)
+            .partition(|(_, (_, chief_led))| *chief_led);
+        let team: Vec<AgentRow> = team.into_iter().map(|(row, _)| row.clone()).collect();
+        let own: Vec<AgentRow> = own.into_iter().map(|(row, _)| row.clone()).collect();
         let placed = tree::tree(&team, 1, folded);
         let head = match placed.is_empty() {
             true => head,
@@ -918,10 +927,11 @@ fn team_rows(
         };
         drawn.push((format!("chief:{project}"), head));
         place(placed, &mut drawn, cx);
+        place(tree::tree(&own, 0, folded), &mut drawn, cx);
         headed.insert(project);
     }
     let loose: Vec<AgentRow> = (rows.iter().zip(&home))
-        .filter(|(_, home)| !headed.contains(*home))
+        .filter(|(_, (home, _))| !headed.contains(home))
         .map(|(row, _)| row.clone())
         .collect();
     place(tree::tree(&loose, 0, folded), &mut drawn, cx);
