@@ -298,6 +298,7 @@ impl Workbench {
                     .min_w(px(STAGE_MIN.0))
                     .min_h(px(STAGE_MIN.1))
             }
+            Node::Part(part) if part.is_bar() => return sized(self.part(*part, tucks, cx)),
             Node::Part(part) => return sized(owed.pad(self.part(*part, tucks, cx))),
             Node::Row(nodes) | Node::Column(nodes) => nodes,
         };

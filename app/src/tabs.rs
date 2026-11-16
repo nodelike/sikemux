@@ -39,7 +39,7 @@ use crate::ui::{self, IconButton, Tab};
 use crate::workbench::{Strip, StripRef, Workbench};
 
 /// The bar across the window's top: the window buttons, the tabs and the chips on one row.
-pub const BAR_HEIGHT: f32 = 40.;
+pub const BAR_HEIGHT: f32 = 36.;
 
 /// How wide the window is, in points, before the overload chip keeps its words.
 const ROOMY_BAR: f32 = 1360.;
@@ -47,9 +47,9 @@ const ROOMY_BAR: f32 = 1360.;
 /// How the strip's tabs share its width: each keeps its own width while all fit, its title
 /// ending at `TITLE_WIDTH`; past that the widest narrow towards one width they all share, and
 /// past `FLOOR` the strip scrolls.
-const TITLE_WIDTH: f32 = 96.;
+const TITLE_WIDTH: f32 = 160.;
 const TAB_GAP: f32 = 4.;
-const FLOOR: f32 = 84.;
+const FLOOR: f32 = 140.;
 /// Under this shared width the tabs drop their agents' @names.
 const NAMED_FROM: f32 = 170.;
 const FADE: f32 = 32.;
