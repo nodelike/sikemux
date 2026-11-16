@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch src/main.ts",
+    "stand-in-clerk": "node dev/stand-in-clerk.ts",
     "migrate": "node --env-file-if-exists=.env src/main.ts migrate",
     "build": "node build.mjs",
     "typecheck": "tsc6 --noEmit",

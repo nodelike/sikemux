@@ -89,6 +89,21 @@ function chatAssets(): Plugin {
   };
 }
 
+/** On `vite` with VITE_STAND_IN_CLERK set, signs in a made-up person from the API's stand-in sign-in instead of Clerk. Never in a build. */
+function standInClerk(): Plugin {
+  const standIn = fileURLToPath(new URL("dev/clerk.tsx", import.meta.url));
+  return {
+    name: "sikemux-stand-in-clerk",
+    apply: (_, { command }) =>
+      command === "serve" && Boolean(process.env.VITE_STAND_IN_CLERK),
+    enforce: "pre",
+    async resolveId(source, importer) {
+      if (source !== "@clerk/react" || importer === standIn) return null;
+      return standIn;
+    },
+  };
+}
+
 /** Sends the release's source maps to Sentry, when CI builds it with the token to. They are never served. */
 function sentrySourceMaps() {
   const authToken = process.env.SENTRY_AUTH_TOKEN;
@@ -107,7 +122,7 @@ function sentrySourceMaps() {
 }
 
 export default defineConfig({
-  plugins: [react(), chatAssets(), sentrySourceMaps()],
+  plugins: [standInClerk(), react(), chatAssets(), sentrySourceMaps()],
   resolve: {
     alias: [{ find: /^@shared\//, replacement: `${join(repo, "shared")}/` }],
     dedupe: ["react", "react-dom"],

@@ -148,14 +148,19 @@ export function loadConfig(
     problems.push("API_ORIGIN is not an origin like https://api.sikemux.com");
 
   const clerkIssuer = text("CLERK_ISSUER");
+  const issuerUrl = clerkIssuer ? URL.parse(clerkIssuer) : null;
+  const standInIssuer =
+    issuerUrl?.protocol === "http:" && issuerUrl.hostname === "127.0.0.1";
   if (
     clerkIssuer &&
-    (URL.parse(clerkIssuer)?.origin !== clerkIssuer ||
-      !clerkIssuer.startsWith("https://"))
+    (issuerUrl?.origin !== clerkIssuer ||
+      (!clerkIssuer.startsWith("https://") && !standInIssuer))
   )
     problems.push(
       "CLERK_ISSUER is not an https origin like https://clerk.sikemux.com",
     );
+  if (standInIssuer && release)
+    problems.push("CLERK_ISSUER on 127.0.0.1 is for development only");
 
   const macClientId = text("CLERK_MAC_CLIENT_ID");
 
