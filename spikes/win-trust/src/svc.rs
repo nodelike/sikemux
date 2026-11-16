@@ -18,7 +18,8 @@ use windows_sys::Win32::System::Services::{
     SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
 };
 use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, GetProcessId, OpenThreadToken, WaitForSingleObject,
+    GetExitCodeProcess, GetProcessId, OpenProcess, OpenThreadToken, TerminateProcess,
+    WaitForSingleObject, PROCESS_TERMINATE,
 };
 
 use crate::pipe::{anon, create_named, disconnect, recv_line, send_line, wait_client};
@@ -44,6 +45,7 @@ static STATUS_HANDLE: AtomicIsize = AtomicIsize::new(0);
 
 #[derive(Default)]
 struct Registry {
+    first_sid: String,
     core_pid: u32,
     core2_pid: u32,
     app_high_pid: u32,
@@ -53,6 +55,7 @@ struct Registry {
     started: bool,
 }
 static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
+    first_sid: String::new(),
     core_pid: 0,
     core2_pid: 0,
     app_high_pid: 0,
@@ -167,6 +170,15 @@ fn handle(pipe: HANDLE, req: &str) {
                 reg.hwnd_medium
             );
             send_line(pipe, &line);
+        }
+        Some("crash") => {
+            let pid = REGISTRY.lock().unwrap().core_pid;
+            let process = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
+            let killed = !process.is_null() && unsafe { TerminateProcess(process, 9) } != 0;
+            if !process.is_null() {
+                unsafe { CloseHandle(process) };
+            }
+            send_line(pipe, if killed { "ok" } else { "fail" });
         }
         Some("secret") => {
             send_line(pipe, "refused");
@@ -352,10 +364,15 @@ fn launch_core(token: SendHandle, sid: &str, gen: u32, with_apps: bool) {
     let pid = unsafe { GetProcessId(core.hProcess) };
     {
         let mut reg = REGISTRY.lock().unwrap();
-        if gen == 1 {
-            reg.core_pid = pid;
-        } else {
-            reg.core2_pid = pid;
+        if with_apps {
+            reg.first_sid = sid.to_string();
+        }
+        if reg.first_sid == sid {
+            if gen == 1 {
+                reg.core_pid = pid;
+            } else {
+                reg.core2_pid = pid;
+            }
         }
     }
     report("svc", &format!("core_pid_gen{gen}"), &pid.to_string());

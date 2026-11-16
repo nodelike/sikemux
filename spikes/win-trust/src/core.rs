@@ -113,14 +113,17 @@ pub fn run(args: &[String]) {
         );
     }
 
-    let med2 = medium_restricted(tok);
-    match crate::conpty::run(med2) {
-        Ok(out) => {
-            let ok = out.contains("Medium Mandatory Level") && out.contains("conpty-ok");
-            report("core", "terminal", if ok { "ok-medium" } else { "partial" });
+    let med2 = SendHandle(medium_restricted(tok));
+    std::thread::spawn(move || {
+        let med2 = med2;
+        match crate::conpty::run(med2.0) {
+            Ok(out) => {
+                let ok = out.contains("Medium Mandatory Level") && out.contains("conpty-ok");
+                report("core", "terminal", if ok { "ok-medium" } else { "partial" });
+            }
+            Err(e) => report("core", "terminal", &format!("err({e})")),
         }
-        Err(e) => report("core", "terminal", &format!("err({e})")),
-    }
+    });
 
     if let Ok(local) = std::env::var("LOCALAPPDATA") {
         let dir = std::path::Path::new(&local).join("SikemuxSpike");

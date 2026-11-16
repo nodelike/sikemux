@@ -97,33 +97,36 @@ pub fn run(medium_token: HANDLE) -> Result<String, String> {
         };
     }
 
-    let mut output = Vec::new();
-    let mut buf = [0u8; 4096];
-    loop {
-        let mut got = 0u32;
-        let ok = unsafe {
-            ReadFile(
-                out_read,
-                buf.as_mut_ptr(),
-                buf.len() as u32,
-                &mut got,
-                null_mut(),
-            )
-        };
-        if ok == 0 || got == 0 {
-            break;
+    let reader = crate::util::SendHandle(out_read);
+    let drain = std::thread::spawn(move || {
+        let reader = reader;
+        let mut output = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let mut got = 0u32;
+            let ok = unsafe {
+                ReadFile(
+                    reader.0,
+                    buf.as_mut_ptr(),
+                    buf.len() as u32,
+                    &mut got,
+                    null_mut(),
+                )
+            };
+            if ok == 0 || got == 0 || output.len() > 1 << 20 {
+                return output;
+            }
+            output.extend_from_slice(&buf[..got as usize]);
         }
-        output.extend_from_slice(&buf[..got as usize]);
-        if output.len() > 1 << 20 {
-            break;
-        }
-    }
+    });
+    // The output pipe only reaches its end once the pseudoconsole is closed.
     unsafe {
-        WaitForSingleObject(info.hProcess, 10_000);
+        WaitForSingleObject(info.hProcess, 15_000);
         ClosePseudoConsole(hpc);
         CloseHandle(in_write);
-        CloseHandle(out_read);
     }
+    let output = drain.join().unwrap_or_default();
+    unsafe { CloseHandle(out_read) };
 
     Ok(String::from_utf8_lossy(&output).into_owned())
 }

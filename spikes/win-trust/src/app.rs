@@ -208,6 +208,12 @@ pub fn run(args: &[String]) {
 
     let hwnd = create_window();
     report(tag(), &key("hwnd"), &(hwnd as isize).to_string());
+    let service = crate::pipe::client(crate::util::SVC_PIPE);
+    if !service.is_null() {
+        send_line(service, &format!("hwnd {} {}", tag(), hwnd as isize));
+        let _ = crate::pipe::recv_line(service);
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(service) };
+    }
     report(tag(), &key("window"), "ok");
     report(tag(), &key("d3d"), &try_d3d());
 
