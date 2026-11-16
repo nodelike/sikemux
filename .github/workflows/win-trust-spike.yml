@@ -2,6 +2,9 @@ name: win-trust-spike
 
 on:
   workflow_dispatch:
+  push:
+    branches: [spike/win-trust]
+    paths: [spikes/win-trust/**, .github/workflows/win-trust-spike.yml]
 
 jobs:
   spike:
