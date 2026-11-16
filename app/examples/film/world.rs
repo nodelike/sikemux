@@ -634,6 +634,9 @@ impl World {
                     .replace("$chat", self.chat.as_deref().unwrap_or_default())
                     .replace("$checkout", self.checkout.as_deref().unwrap_or_default());
                 let answer = self.call(step.text(0)?, serde_json::from_str(&params)?)?;
+                if let (Ok("openChief"), Some(chief)) = (step.text(0), answer["agentId"].as_str()) {
+                    self.named.insert("Chief".to_owned(), chief.to_owned());
+                }
                 if let Some(folder) = answer.pointer("/worktree/path").and_then(Value::as_str) {
                     self.checkout = Some(folder.to_owned());
                 }
