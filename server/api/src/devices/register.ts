@@ -45,6 +45,8 @@ export async function registerDevice(
 ): Promise<{ row: Selectable<Tables["devices"]>; added: boolean }> {
   if (via === "host" && registration.role !== "client")
     throw forbidden("A host may add only its own app to the account.");
+  if (registration.handsOnly && registration.role !== "client")
+    throw badRequest("Only a client is registered as hands only.");
   if ((registration.role === "host") !== (registration.channel !== undefined)) {
     throw badRequest("Hosts say which channel they run; clients do not.");
   }
@@ -120,6 +122,7 @@ export async function registerDevice(
       name: existing?.name ?? name,
       platform: registration.platform,
       channel: registration.channel ?? null,
+      hands_only: Boolean(existing?.hands_only || registration.handsOnly),
       clerk_session_id:
         registration.role === "client" ? (sessionId ?? null) : null,
     };

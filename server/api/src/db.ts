@@ -102,6 +102,8 @@ export interface Tables {
       string | null | undefined,
       string | null
     >;
+    /** Its join tickets say it never signs for the person. */
+    hands_only: ColumnType<boolean, boolean | undefined, boolean>;
   };
   challenges: { nonce: string; user_id: string; expires_at: Date };
   host_sign_ins: {

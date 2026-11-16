@@ -140,6 +140,8 @@ struct DeviceRegistration: Codable, Hashable, Sendable {
     var name: String
     var platform: Platform
     var channel: Channel?
+    /// A client whose join tickets say it never signs for the person. Once set it stays set.
+    var handsOnly: Bool?
     var nonce: String
     var signature: String
 }
@@ -180,7 +182,7 @@ struct JoinRequest: Codable, Hashable, Sendable {
     var host: DeviceKey
 }
 
-/// The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.
+/// The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them, then `|hands-only` when it has handsOnly.
 struct JoinTicket: Codable, Hashable, Sendable {
     /// The ticket's format. Only 1 exists.
     var v: Int
@@ -198,6 +200,8 @@ struct JoinTicket: Codable, Hashable, Sendable {
     var via: DeviceKey?
     /// What the account calls the host in via.
     var viaName: String?
+    /// The joining app drives the host but never signs for the person there. A host too old to know it finds the signature wrong and turns the app away.
+    var handsOnly: Bool?
     var signature: String
 }
 

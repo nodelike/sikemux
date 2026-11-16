@@ -76,6 +76,7 @@ pub async fn device_join_ticket(core: &Core, params: JoinTicketParams) -> CoreRe
         name: params.name.chars().take(NAME_LIMIT).collect(),
         platform: params.platform,
         channel: None,
+        hands_only: None,
         nonce: params.nonce,
         signature: params.signature,
     };

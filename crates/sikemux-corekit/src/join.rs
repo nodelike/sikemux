@@ -67,12 +67,16 @@ pub fn ticket_message(ticket: &JoinTicket) -> String {
         ticket.issued_at,
         ticket.expires_at
     );
-    match &ticket.via {
+    let via = match &ticket.via {
         Some(via) => format!(
             "{base}|{via}|{}",
             ticket.via_name.as_deref().unwrap_or_default()
         ),
         None => base,
+    };
+    match ticket.hands_only {
+        Some(true) => format!("{via}|hands-only"),
+        _ => via,
     }
 }
 

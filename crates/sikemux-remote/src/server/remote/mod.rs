@@ -128,7 +128,8 @@ pub struct Stored {
     /// with approval off.
     #[serde(default)]
     pub removed_here: BTreeMap<String, DeviceAccess>,
-    /// Devices that see and drive this host but never sign for the person, by id.
+    /// Devices that see and drive this host but never sign for the person, by id. Unpairing
+    /// one keeps it here, so its key never comes back as one that signs.
     #[serde(default)]
     pub hands_only: BTreeSet<String>,
 }
@@ -385,7 +386,6 @@ impl Stored {
         self.links.retain(|link| link.id != id);
         self.notifications.remove(id);
         self.joined_through.remove(id);
-        self.hands_only.remove(id);
         let index = self.devices.iter().position(|device| device.id == id)?;
         Some(self.devices.remove(index))
     }
@@ -556,6 +556,14 @@ impl Remote {
     pub fn may_sign(&self, peer: &Peer) -> CoreResult<()> {
         let standing = peer.device_id().and_then(|id| self.standing_of(&id));
         super::access::may_sign(peer, standing)
+    }
+
+    /// Keeps `id` from ever signing for the person here, as its join ticket asks.
+    pub fn keep_hands_only(&self, id: &str) -> CoreResult<()> {
+        self.change(|stored| {
+            stored.hands_only.insert(id.to_owned());
+            Ok(())
+        })
     }
 
     pub fn is_paired(&self, id: &str) -> bool {

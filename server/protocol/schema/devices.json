@@ -49,6 +49,10 @@
         "name": { "type": "string", "minLength": 1, "maxLength": 64 },
         "platform": { "$ref": "#/$defs/Platform" },
         "channel": { "$ref": "#/$defs/Channel" },
+        "handsOnly": {
+          "description": "A client whose join tickets say it never signs for the person. Once set it stays set.",
+          "type": "boolean"
+        },
         "nonce": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "signature": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
       },

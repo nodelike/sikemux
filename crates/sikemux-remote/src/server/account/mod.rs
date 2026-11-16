@@ -535,6 +535,7 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
         name: host.name.chars().take(NAME_LIMIT).collect(),
         platform: super::host::PLATFORM,
         channel: Some(host.channel.into()),
+        hands_only: None,
         nonce: challenge.nonce,
         signature: host.signature,
     };

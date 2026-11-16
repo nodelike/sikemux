@@ -17,7 +17,7 @@ pub struct ChannelVersions {
 /// A device's iroh public key: 32 bytes of Ed25519, in lowercase hex.
 pub type DeviceKey = String;
 
-/// The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.
+/// The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them, then `|hands-only` when it has handsOnly.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JoinTicket {
@@ -39,6 +39,9 @@ pub struct JoinTicket {
     /// What the account calls the host in via.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub via_name: Option<String>,
+    /// The joining app drives the host but never signs for the person there. A host too old to know it finds the signature wrong and turns the app away.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hands_only: Option<bool>,
     pub signature: String,
 }
 

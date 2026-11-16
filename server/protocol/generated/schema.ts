@@ -462,6 +462,11 @@ export const schema = {
         name: { type: "string", minLength: 1, maxLength: 64 },
         platform: { $ref: "#/$defs/Platform" },
         channel: { $ref: "#/$defs/Channel" },
+        handsOnly: {
+          description:
+            "A client whose join tickets say it never signs for the person. Once set it stays set.",
+          type: "boolean",
+        },
         nonce: { type: "string", pattern: "^[0-9a-f]{64}$" },
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
       },
@@ -1030,7 +1035,7 @@ export const schema = {
     },
     JoinTicket: {
       description:
-        "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them.",
+        "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them, then `|hands-only` when it has handsOnly.",
       type: "object",
       properties: {
         v: {
@@ -1075,6 +1080,11 @@ export const schema = {
           description: "What the account calls the host in via.",
           type: "string",
           maxLength: 64,
+        },
+        handsOnly: {
+          description:
+            "The joining app drives the host but never signs for the person there. A host too old to know it finds the signature wrong and turns the app away.",
+          type: "boolean",
         },
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
       },

@@ -34,6 +34,7 @@ Table devices {
   acked_event_id bigint [not null, default: 0]
   clerk_session_id text
   registered_by text
+  hands_only boolean [not null, default: `false`]
 
   indexes {
     (user_id, created_at) [name: 'devices_by_user', note: 'created_at desc']

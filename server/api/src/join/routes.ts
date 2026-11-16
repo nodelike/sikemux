@@ -61,6 +61,7 @@ export function joinRoutes({
         host,
         phone: joiner,
         ...(via && { via: { key: via.key, name: via.name } }),
+        handsOnly: joining.hands_only,
       });
       await audit(db, {
         userId,

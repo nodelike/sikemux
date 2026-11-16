@@ -399,6 +399,9 @@ pub struct DeviceRegistration {
     pub platform: Platform,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<Channel>,
+    /// A client whose join tickets say it never signs for the person. Once set it stays set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hands_only: Option<bool>,
     pub nonce: String,
     pub signature: String,
 }

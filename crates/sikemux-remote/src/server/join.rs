@@ -87,16 +87,25 @@ pub async fn serve(core: Arc<Core>, connection: Connection) {
         refuse(&mut writer, &connection, &phone, Refusal::Unreadable).await;
         return;
     };
-    match core.remote().check_join(&hello.ticket, &phone) {
+    let paired = match core.remote().check_join(&hello.ticket, &phone) {
         Err(refusal) => {
             refuse(&mut writer, &connection, &phone, refusal).await;
             return;
         }
-        Ok(Some(access)) => {
-            finish(&mut writer, &connection, &JoinReply::Allowed { access }).await;
+        Ok(paired) => paired,
+    };
+    if hello.ticket.hands_only == Some(true) {
+        if let Err(error) = core.remote().keep_hands_only(&phone) {
+            let reply = JoinReply::Refused {
+                reason: error.to_string(),
+            };
+            finish(&mut writer, &connection, &reply).await;
             return;
         }
-        Ok(None) => {}
+    }
+    if let Some(access) = paired {
+        finish(&mut writer, &connection, &JoinReply::Allowed { access }).await;
+        return;
     }
     let request = PendingDevice {
         id: uuid::Uuid::new_v4().to_string(),
