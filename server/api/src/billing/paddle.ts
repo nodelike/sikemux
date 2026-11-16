@@ -22,6 +22,7 @@ import {
 import type {
   BillingProvider,
   ChangeOutcome,
+  ChangePreview,
   CheckoutRequest,
   HeldSubscription,
   ProviderEvent,
@@ -90,6 +91,28 @@ interface PaddleTransaction {
     } | null;
   }[];
   checkout: { url: string | null } | null;
+}
+
+interface PreviewTotals {
+  grand_total: string;
+  currency_code: string;
+}
+
+interface PaddlePreview {
+  currency_code: string;
+  immediate_transaction: { details: { totals: PreviewTotals } } | null;
+  next_transaction: {
+    billing_period: { starts_at: string };
+    details: { totals: PreviewTotals };
+  } | null;
+}
+
+/** What the card is charged: after credit from the customer's balance, tax included. */
+function moneyOf(totals: PreviewTotals): Money {
+  return {
+    amount: Number(totals.grand_total),
+    currency: totals.currency_code.toLowerCase(),
+  };
 }
 
 interface PaddleAdjustment {
@@ -382,11 +405,12 @@ export class PaddleProvider implements BillingProvider {
     );
   }
 
-  async change(
+  /** The update `change` sends Paddle for this input. */
+  private async updateFor(
     held: HeldSubscription,
     update: SubscriptionUpdate,
     when: ChangeWhen,
-  ): Promise<ChangeOutcome> {
+  ) {
     const price = await this.priceFor(
       update.product,
       update.interval,
@@ -398,31 +422,47 @@ export class PaddleProvider implements BillingProvider {
     const custom = customerRef ? { customer_ref: customerRef } : {};
     if (when === "renewal") {
       const until = held.currentPeriodEnd.toISOString();
-      await this.api.request("PATCH", `/subscriptions/${sub.id}`, {
-        items,
-        proration_billing_mode: "do_not_bill",
-        custom_data: {
-          ...custom,
-          held: {
-            product: held.product,
-            quantity: held.quantity,
-            interval: held.interval,
-            until,
-          } satisfies Held,
+      return {
+        sub,
+        body: {
+          items,
+          proration_billing_mode: "do_not_bill",
+          custom_data: {
+            ...custom,
+            held: {
+              product: held.product,
+              quantity: held.quantity,
+              interval: held.interval,
+              until,
+            } satisfies Held,
+          },
+          ...(update.interval === held.interval
+            ? {}
+            : { next_billed_at: until }),
         },
-        ...(update.interval === held.interval ? {} : { next_billed_at: until }),
-      });
-      return { taken: true };
+      };
     }
-    if (await this.paysByUpi(sub.id))
-      return { taken: false, why: "needs_renewal" };
-    try {
-      await this.api.request("PATCH", `/subscriptions/${sub.id}`, {
+    return {
+      sub,
+      body: {
         items,
         proration_billing_mode: "prorated_immediately",
         on_payment_failure: "prevent_change",
         custom_data: custom,
-      });
+      },
+    };
+  }
+
+  async change(
+    held: HeldSubscription,
+    update: SubscriptionUpdate,
+    when: ChangeWhen,
+  ): Promise<ChangeOutcome> {
+    const { sub, body } = await this.updateFor(held, update, when);
+    if (when === "now" && (await this.paysByUpi(sub.id)))
+      return { taken: false, why: "needs_renewal" };
+    try {
+      await this.api.request("PATCH", `/subscriptions/${sub.id}`, body);
     } catch (err) {
       if (
         err instanceof PaddleError &&
@@ -432,6 +472,36 @@ export class PaddleProvider implements BillingProvider {
       throw err;
     }
     return { taken: true };
+  }
+
+  async previewChange(
+    held: HeldSubscription,
+    update: SubscriptionUpdate,
+    when: ChangeWhen,
+  ): Promise<ChangePreview> {
+    const { sub, body } = await this.updateFor(held, update, when);
+    if (when === "now" && (await this.paysByUpi(sub.id)))
+      return { refused: "needs_renewal" };
+    const preview = await this.api.request<PaddlePreview>(
+      "PATCH",
+      `/subscriptions/${sub.id}/preview`,
+      body,
+    );
+    const next = preview.next_transaction;
+    return {
+      now: moneyOf(
+        preview.immediate_transaction?.details.totals ?? {
+          grand_total: "0",
+          currency_code: preview.currency_code,
+        },
+      ),
+      renewal: next
+        ? {
+            at: new Date(next.billing_period.starts_at),
+            amount: moneyOf(next.details.totals),
+          }
+        : null,
+    };
   }
 
   async cancel(held: HeldSubscription, when: "period_end" | "now") {

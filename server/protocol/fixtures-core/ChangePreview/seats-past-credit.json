@@ -1,0 +1,7 @@
+{
+  "now": { "amount": 1995, "currency": "usd" },
+  "renewal": {
+    "at": "2026-12-16T03:35:47.986Z",
+    "amount": { "amount": 12000, "currency": "usd" }
+  }
+}

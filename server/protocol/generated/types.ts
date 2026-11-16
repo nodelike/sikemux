@@ -231,6 +231,14 @@ export interface Challenge {
   expiresAt: string;
 }
 
+/** What a change would charge, asked without making it. */
+export interface ChangePreview {
+  /** Charged at once: the prorated difference after any credit, tax included. Zero for a change at renewal or one that lowers the price. */
+  now: Money;
+  /** The next renewal's charge once the change is made. Absent when the subscription ends at the end of its period. */
+  renewal?: RenewalCharge;
+}
+
 /** now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period. */
 export type ChangeWhen = "now" | "renewal";
 export const changeWhenValues: readonly ChangeWhen[] = ["now", "renewal"];
@@ -1149,6 +1157,11 @@ export interface Relay {
   quicPort: number | null;
 }
 
+export interface RenewalCharge {
+  at: string;
+  amount: Money;
+}
+
 /** Why a device left its account: removed from another device or the web, signed out on the device itself, or the account was deleted. */
 export type RevokeReason = "removed" | "signed_out" | "account_deleted";
 export const revokeReasonValues: readonly RevokeReason[] = [
@@ -1744,6 +1757,7 @@ export interface Definitions {
   BillingProductKind: BillingProductKind;
   BillingUnit: BillingUnit;
   Challenge: Challenge;
+  ChangePreview: ChangePreview;
   ChangeWhen: ChangeWhen;
   Channel: Channel;
   ChannelVersions: ChannelVersions;
@@ -1875,6 +1889,7 @@ export interface Definitions {
   PushTokenState: PushTokenState;
   RecoveryKey: RecoveryKey;
   Relay: Relay;
+  RenewalCharge: RenewalCharge;
   RevokeReason: RevokeReason;
   ScheduledChange: ScheduledChange;
   Sealed: Sealed;

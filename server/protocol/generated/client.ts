@@ -10,6 +10,7 @@ import type {
   BillingLink,
   BillingOverview,
   Challenge,
+  ChangePreview,
   Checkout,
   CheckoutRequest,
   Device,
@@ -308,6 +309,16 @@ export function apiClient(send: Send) {
       send<Subscription>(
         "PATCH",
         `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`,
+        body,
+      ),
+    /** What a change would charge now and at the next renewal, changing nothing. */
+    previewSubscriptionChange: (
+      subscriptionId: string,
+      body: SubscriptionChange,
+    ) =>
+      send<ChangePreview>(
+        "POST",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/preview`,
         body,
       ),
     /** End a subscription when its paid period ends. */

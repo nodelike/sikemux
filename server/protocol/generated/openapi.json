@@ -3212,6 +3212,88 @@
         }
       }
     },
+    "/v1/billing/subscriptions/{subscriptionId}/preview": {
+      "post": {
+        "operationId": "previewSubscriptionChange",
+        "summary": "What a change would charge now and at the next renewal, changing nothing",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SubscriptionChange" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The charge now and at renewal, as the provider works them out.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ChangePreview" }
+              }
+            }
+          },
+          "400": {
+            "description": "The change is not one this subscription can make.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended, a refund of it is waiting, or its payment method cannot be charged mid-period.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/billing/subscriptions/{subscriptionId}/cancel": {
       "post": {
         "operationId": "cancelSubscription",
@@ -4054,6 +4136,22 @@
           "expiresAt": { "type": "string", "format": "date-time" }
         },
         "required": ["nonce", "expiresAt"],
+        "additionalProperties": false
+      },
+      "ChangePreview": {
+        "description": "What a change would charge, asked without making it.",
+        "type": "object",
+        "properties": {
+          "now": {
+            "description": "Charged at once: the prorated difference after any credit, tax included. Zero for a change at renewal or one that lowers the price.",
+            "$ref": "#/components/schemas/Money"
+          },
+          "renewal": {
+            "description": "The next renewal's charge once the change is made. Absent when the subscription ends at the end of its period.",
+            "$ref": "#/components/schemas/RenewalCharge"
+          }
+        },
+        "required": ["now"],
         "additionalProperties": false
       },
       "ChangeWhen": {
@@ -5635,6 +5733,15 @@
           }
         },
         "required": ["url", "region", "quicPort"],
+        "additionalProperties": false
+      },
+      "RenewalCharge": {
+        "type": "object",
+        "properties": {
+          "at": { "type": "string", "format": "date-time" },
+          "amount": { "$ref": "#/components/schemas/Money" }
+        },
+        "required": ["at", "amount"],
         "additionalProperties": false
       },
       "RevokeReason": {

@@ -139,6 +139,11 @@ export interface SubscriptionUpdate {
 export type ChangeOutcome =
   { taken: true } | { taken: false; why: "payment_failed" | "needs_renewal" };
 
+/** What a change would charge, or that it would be refused because it cannot be charged mid-period. */
+export type ChangePreview =
+  | { now: Money; renewal: { at: Date; amount: Money } | null }
+  | { refused: "needs_renewal" };
+
 /** A request the provider sent to the API's webhook, as it arrived. */
 export interface ProviderRequest {
   body: string;
@@ -171,6 +176,12 @@ export interface BillingProvider {
     update: SubscriptionUpdate,
     when: ChangeWhen,
   ): Promise<ChangeOutcome>;
+  /** What `change` with the same input would charge now and at the next renewal, changing nothing. */
+  previewChange(
+    subscription: HeldSubscription,
+    update: SubscriptionUpdate,
+    when: ChangeWhen,
+  ): Promise<ChangePreview>;
   /** Ends this product of the subscription at the end of its period, or with `now`, at once with no credit. */
   cancel(
     subscription: HeldSubscription,

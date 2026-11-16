@@ -15,6 +15,7 @@ import { unitPrice } from "./catalog.ts";
 import type {
   BillingProvider,
   ChangeOutcome,
+  ChangePreview,
   CheckoutRequest,
   HeldSubscription,
   ProviderEvent,
@@ -36,6 +37,28 @@ function periodStart(end: Date, interval: BillingInterval): Date {
   if (interval === "month") start.setUTCMonth(start.getUTCMonth() - 1);
   else start.setUTCFullYear(start.getUTCFullYear() - 1);
   return start;
+}
+
+/** What a change now charges for the rest of the period, and whether it starts a new one. */
+function proration(
+  held: HeldSubscription,
+  update: SubscriptionUpdate,
+  now: Date,
+) {
+  const oldUnit = unitPrice(held.product, held.interval)?.amount ?? 0;
+  const oldTotal = oldUnit * held.quantity;
+  const newTotal = update.unit.amount * update.quantity;
+  const start = periodStart(held.currentPeriodEnd, held.interval);
+  const left = Math.max(
+    0,
+    (held.currentPeriodEnd.getTime() - now.getTime()) /
+      (held.currentPeriodEnd.getTime() - start.getTime()),
+  );
+  const restarts = update.interval !== held.interval;
+  const due = restarts
+    ? newTotal - oldTotal * left
+    : (newTotal - oldTotal) * left;
+  return { due, restarts };
 }
 
 function cents(amount: number): Money {
@@ -172,19 +195,7 @@ export class StandInProvider implements BillingProvider {
       });
       return { taken: true };
     }
-    const oldUnit = unitPrice(held.product, held.interval)?.amount ?? 0;
-    const oldTotal = oldUnit * held.quantity;
-    const newTotal = update.unit.amount * update.quantity;
-    const start = periodStart(held.currentPeriodEnd, held.interval);
-    const left = Math.max(
-      0,
-      (held.currentPeriodEnd.getTime() - now.getTime()) /
-        (held.currentPeriodEnd.getTime() - start.getTime()),
-    );
-    const restarts = update.interval !== held.interval;
-    const due = restarts
-      ? newTotal - oldTotal * left
-      : (newTotal - oldTotal) * left;
+    const { due, restarts } = proration(held, update, now);
     const payment = {
       providerPaymentId: `pay_${randomUUID()}`,
       providerSubscriptionId: held.providerSubscriptionId,
@@ -214,6 +225,27 @@ export class StandInProvider implements BillingProvider {
       events.push({ ...this.event("payment.made", now), ...payment });
     await this.send(...events);
     return { taken: true };
+  }
+
+  async previewChange(
+    held: HeldSubscription,
+    update: SubscriptionUpdate,
+    when: ChangeWhen,
+  ): Promise<ChangePreview> {
+    const now = new Date();
+    const renewal = (at: Date) =>
+      held.cancelAtPeriodEnd
+        ? null
+        : { at, amount: cents(update.unit.amount * update.quantity) };
+    if (when === "renewal")
+      return { now: cents(0), renewal: renewal(held.currentPeriodEnd) };
+    const { due, restarts } = proration(held, update, now);
+    return {
+      now: cents(due >= 1 ? due : 0),
+      renewal: renewal(
+        restarts ? periodEnd(now, update.interval) : held.currentPeriodEnd,
+      ),
+    };
   }
 
   private subscriptionOf(held: HeldSubscription) {

@@ -1419,6 +1419,40 @@
     },
     {
       "method": "post",
+      "path": "/v1/billing/subscriptions/{subscriptionId}/preview",
+      "operationId": "previewSubscriptionChange",
+      "summary": "What a change would charge now and at the next renewal, changing nothing",
+      "auth": "session",
+      "request": "SubscriptionChange",
+      "responses": {
+        "200": {
+          "description": "The charge now and at renewal, as the provider works them out.",
+          "body": "ChangePreview"
+        },
+        "400": {
+          "description": "The change is not one this subscription can make.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended, a refund of it is waiting, or its payment method cannot be charged mid-period.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
       "path": "/v1/billing/subscriptions/{subscriptionId}/cancel",
       "operationId": "cancelSubscription",
       "summary": "End a subscription when its paid period ends",

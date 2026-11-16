@@ -312,6 +312,17 @@ pub struct Challenge {
     pub expires_at: String,
 }
 
+/// What a change would charge, asked without making it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangePreview {
+    /// Charged at once: the prorated difference after any credit, tax included. Zero for a change at renewal or one that lowers the price.
+    pub now: Money,
+    /// The next renewal's charge once the change is made. Absent when the subscription ends at the end of its period.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub renewal: Option<RenewalCharge>,
+}
+
 /// now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ChangeWhen {
@@ -1161,6 +1172,13 @@ pub struct PushTokenState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RenewalCharge {
+    pub at: String,
+    pub amount: Money,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScheduledChange {
     pub product: BillingProductId,
     pub interval: BillingInterval,
@@ -1466,6 +1484,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "BillingProductKind" => through::<BillingProductKind>(json),
         "BillingUnit" => through::<BillingUnit>(json),
         "Challenge" => through::<Challenge>(json),
+        "ChangePreview" => through::<ChangePreview>(json),
         "ChangeWhen" => through::<ChangeWhen>(json),
         "Channel" => through::<Channel>(json),
         "Checkout" => through::<Checkout>(json),
@@ -1543,6 +1562,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PushResult" => through::<PushResult>(json),
         "PushTokenRegistration" => through::<PushTokenRegistration>(json),
         "PushTokenState" => through::<PushTokenState>(json),
+        "RenewalCharge" => through::<RenewalCharge>(json),
         "ScheduledChange" => through::<ScheduledChange>(json),
         "ShedBoxes" => through::<ShedBoxes>(json),
         "Staff" => through::<Staff>(json),

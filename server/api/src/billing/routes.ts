@@ -1,6 +1,7 @@
 import type { Services } from "../app.ts";
 import type {
   BillingOverview,
+  ChangePreview,
   PlanPayer,
   Invoice,
   InvoiceList,
@@ -43,7 +44,7 @@ import {
   refundPending,
   type PlanRefund,
 } from "./refunds.ts";
-import { hasOpenSubscriptions, lockSeats } from "./seats.ts";
+import { hasOpenSubscriptions, lockSeats, seatsHeld } from "./seats.ts";
 import { StandInProvider } from "./stand-in.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -514,48 +515,86 @@ export function billingRoutes({
     return c.json(checkout);
   });
 
+  /** The change a request asks of its subscription, refused here for whatever the change would refuse. */
+  const askedChange = async (c: Context<AuthEnv>) => {
+    const row = await subscriptionFor(c);
+    requirePayer(c, row);
+    const change = await readBody(c, "SubscriptionChange");
+    await refusePending(row);
+    const next = {
+      product: change.product ?? row.product,
+      interval: change.interval ?? row.interval,
+      quantity: change.quantity ?? row.quantity,
+    };
+    const from = product(row.product);
+    const to = product(next.product);
+    if (from.kind !== "shed" || to.kind !== "shed") {
+      if (to.id !== from.id)
+        throw badRequest("A plan changes only its quantity or interval.");
+    }
+    const unit = unitPrice(to.id, next.interval);
+    if (!unit)
+      throw badRequest(`${to.name} is not sold by the ${next.interval}.`);
+    if (next.quantity > to.maxQuantity)
+      throw badRequest(`${to.name} is sold up to ${to.maxQuantity} at once.`);
+    const same =
+      next.product === row.product &&
+      next.interval === row.interval &&
+      next.quantity === row.quantity;
+    const orgId = to.id === "team" ? row.org_id : null;
+    return { row, next, unit, same, orgId, when: change.when ?? "now" };
+  };
+
+  const refuseFewerSeats = (held: number, quantity: number) => {
+    if (quantity < held)
+      throw new ApiFailure(
+        409,
+        "conflict",
+        `${held} seats are held by members and pending invites; remove some before paying for fewer.`,
+      );
+  };
+
+  const NOT_MID_PERIOD =
+    "This payment method cannot be charged mid-period. Ask for the change at renewal.";
+
+  app.post(
+    "/subscriptions/:subscriptionId/preview",
+    perUser(limiter, "billing-change", 20),
+    async (c) => {
+      const ready = needProvider(provider);
+      const { row, next, unit, orgId, when } = await askedChange(c);
+      if (orgId) refuseFewerSeats(await seatsHeld(db, orgId), next.quantity);
+      const preview = await ready.previewChange(
+        heldSubscription(row, row.provider_customer_id),
+        { ...next, unit },
+        when,
+      );
+      if ("refused" in preview)
+        throw new ApiFailure(409, "conflict", NOT_MID_PERIOD);
+      const body: ChangePreview = {
+        now: preview.now,
+        ...(preview.renewal
+          ? {
+              renewal: {
+                at: preview.renewal.at.toISOString(),
+                amount: preview.renewal.amount,
+              },
+            }
+          : {}),
+      };
+      return c.json(body);
+    },
+  );
+
   app.patch(
     "/subscriptions/:subscriptionId",
     perUser(limiter, "billing-change", 20),
     async (c) => {
       const ready = needProvider(provider);
-      const row = await subscriptionFor(c);
-      requirePayer(c, row);
-      const change = await readBody(c, "SubscriptionChange");
-      await refusePending(row);
-      const next = {
-        product: change.product ?? row.product,
-        interval: change.interval ?? row.interval,
-        quantity: change.quantity ?? row.quantity,
-      };
-      const from = product(row.product);
-      const to = product(next.product);
-      if (from.kind !== "shed" || to.kind !== "shed") {
-        if (to.id !== from.id)
-          throw badRequest("A plan changes only its quantity or interval.");
-      }
-      const unit = unitPrice(to.id, next.interval);
-      if (!unit)
-        throw badRequest(`${to.name} is not sold by the ${next.interval}.`);
-      if (next.quantity > to.maxQuantity)
-        throw badRequest(`${to.name} is sold up to ${to.maxQuantity} at once.`);
-      const same =
-        next.product === row.product &&
-        next.interval === row.interval &&
-        next.quantity === row.quantity;
-      const when = change.when ?? "now";
+      const { row, next, unit, same, orgId, when } = await askedChange(c);
       if (same) return c.json(await reread(row.id));
-      const orgId = to.id === "team" ? row.org_id : null;
       const take = async (trx: Kysely<Tables>) => {
-        if (orgId) {
-          const held = await lockSeats(trx, orgId);
-          if (next.quantity < held)
-            throw new ApiFailure(
-              409,
-              "conflict",
-              `${held} seats are held by members and pending invites; remove some before paying for fewer.`,
-            );
-        }
+        if (orgId) refuseFewerSeats(await lockSeats(trx, orgId), next.quantity);
         const outcome = await ready.change(
           heldSubscription(row, row.provider_customer_id),
           { ...next, unit },
@@ -567,7 +606,7 @@ export function billingRoutes({
             "conflict",
             outcome.why === "payment_failed"
               ? "The payment for the change did not go through, so nothing changed. Ask for it at renewal instead."
-              : "This payment method cannot be charged mid-period. Ask for the change at renewal.",
+              : NOT_MID_PERIOD,
           );
         if (orgId)
           await trx

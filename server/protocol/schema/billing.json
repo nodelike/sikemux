@@ -403,6 +403,36 @@
       },
       "additionalProperties": false
     },
+    "ChangePreview": {
+      "description": "What a change would charge, asked without making it.",
+      "type": "object",
+      "properties": {
+        "now": {
+          "description": "Charged at once: the prorated difference after any credit, tax included. Zero for a change at renewal or one that lowers the price.",
+          "$ref": "#/$defs/Money"
+        },
+        "renewal": {
+          "description": "The next renewal's charge once the change is made. Absent when the subscription ends at the end of its period.",
+          "$ref": "#/$defs/RenewalCharge"
+        }
+      },
+      "required": ["now"],
+      "additionalProperties": false
+    },
+    "RenewalCharge": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "amount": {
+          "$ref": "#/$defs/Money"
+        }
+      },
+      "required": ["at", "amount"],
+      "additionalProperties": false
+    },
     "ChangeWhen": {
       "description": "now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period.",
       "type": "string",
