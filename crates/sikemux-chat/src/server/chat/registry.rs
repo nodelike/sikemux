@@ -439,6 +439,8 @@ impl Chats {
         if let Some(chat) = self.take(agent_id) {
             Self::halt(&chat);
             self.shelve(&chat);
+            // The workspace saves the close soon after, so the history must be findable first.
+            self.shelf.flush();
         }
         self.resting
             .locked()
