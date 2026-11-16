@@ -46,7 +46,8 @@ use super::edits;
 use super::tools;
 
 use super::{
-    agent_accounts, memory, person_calls, plugins, ports, questions, saved, team_told, turn_state,
+    account_calls, agent_accounts, memory, person_calls, plugins, ports, questions, saved,
+    team_told, turn_state,
 };
 use crate::launch::named_account;
 
@@ -458,6 +459,9 @@ pub(super) fn repo_above() -> RepoAbove {
         plugins_caller_of: plugins::caller_of,
         plugins_run_agent_tool: |core, name, arguments, deploy| {
             Box::pin(plugins::run_agent_tool(core, name, arguments, deploy))
+        },
+        accounts_call_answered: |core, call, key| {
+            Box::pin(account_calls::answered(core, call, key))
         },
     }
 }

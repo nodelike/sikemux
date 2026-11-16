@@ -196,6 +196,9 @@ fn outcome(result: CallResult) -> CallOutcome {
     }
 }
 
+/// The start of the key of a call Sikemux raises for chats an account's provider refused.
+pub const ACCOUNT_REFUSED: &str = "account-refused:";
+
 /// The open calls of `project` raised with a key starting `prefix`, by id, with their keys.
 pub fn open_keyed(core: &Core, project: &str, prefix: &str) -> Vec<(String, String)> {
     (core.person_calls().book.locked().iter())
@@ -955,7 +958,7 @@ pub fn close_left(core: &Core, gone: impl Fn(&str) -> bool) {
         .filter(|kept| kept.source == Source::Raised && kept.call.state == CallState::Open)
         .filter(|kept| {
             let askers = std::iter::once(&kept.call.asker).chain(&kept.call.joined);
-            askers.into_iter().all(|asker| gone(&asker.agent_id))
+            (askers.into_iter()).all(|asker| !asker.agent_id.is_empty() && gone(&asker.agent_id))
         })
         .map(|kept| kept.call.id.clone())
         .collect();
@@ -1187,6 +1190,12 @@ async fn deliver(
             }
         }
         Source::Raised if call.place.is_some() => call_answered(core, call, listed()).await,
+        Source::Raised
+            if key_of(core, &call.id).is_some_and(|key| key.starts_with(ACCOUNT_REFUSED)) =>
+        {
+            let key = key_of(core, &call.id).unwrap_or_default();
+            (core.repo_above().accounts_call_answered)(core, call, &key).await;
+        }
         Source::Raised if key_of(core, &call.id).is_some_and(|key| workflows::is_key(&key)) => {
             let key = key_of(core, &call.id).unwrap_or_default();
             Box::pin(workflows::answered(core, call, &key, listed())).await;

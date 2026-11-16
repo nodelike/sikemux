@@ -707,11 +707,13 @@ pub(super) fn mark_signed_out(core: &Core, account: Account) {
 /// How a turn of a chat on `account`, one of the person's profiles or the default one when
 /// absent, ended: answered, which shows its plan is paid, or refused for its sign-in or plan.
 pub(crate) fn turn_ended(
-    core: &Core,
+    core: &Arc<Core>,
     provider: &str,
     account: Option<&str>,
     refused: Option<FailureKind>,
 ) {
+    let stopped = matches!(refused, Some(FailureKind::SignIn | FailureKind::Payment));
+    super::account_calls::turn_ended(core, stopped);
     if refused.is_none() && !unpaid::any() {
         return;
     }
@@ -762,7 +764,7 @@ pub(super) fn chat_accounts(core: &Core, chat: ChatAccountsParams) -> CoreResult
 
 /// The accounts their provider refuses, each with the chats stranded on it and where they could
 /// carry on, for the person to choose what moves.
-pub(super) fn stranded(core: &Core) -> Vec<Stranded> {
+pub(crate) fn stranded(core: &Core) -> Vec<Stranded> {
     use sikemux_view::chat::FailureKind as Why;
     let named = |account: ChatAccount| NamedAccount {
         id: account.id,

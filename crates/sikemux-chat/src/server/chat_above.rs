@@ -56,7 +56,7 @@ pub struct ChatAbove {
     /// How a turn of a chat on `account` ended: answered, or refused for the account's sign-in
     /// or unpaid plan, which keeps that account off new chats.
     pub agent_accounts_turn_ended:
-        fn(&Core, &str, Option<&str>, Option<crate::acp::failure::FailureKind>),
+        fn(&Arc<Core>, &str, Option<&str>, Option<crate::acp::failure::FailureKind>),
     /// What the agent is told with the person's next message, once.
     pub board_take_note: fn(&Core, &str) -> Option<ChatContext>,
     /// What an agent hears with its next turn of the rules kept from its chat that the person

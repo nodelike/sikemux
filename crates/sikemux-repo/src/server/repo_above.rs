@@ -28,6 +28,7 @@ use super::trust_ask::TrustAsk;
 use super::{Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::tasks::config::ConfigLoad;
+use sikemux_view::calls::PersonCall;
 
 /// A webhook of this host just made, and where senders post to it.
 pub struct NewHook {
@@ -157,4 +158,6 @@ pub struct RepoAbove {
     pub plugins_caller_of: fn(&Core, &HarnessRequest) -> Caller,
     /// Runs the agent tool, for the deploy it is when it is one.
     pub plugins_run_agent_tool: AgentTool,
+    /// The person answered a call about chats an account's provider refused, keyed `key`.
+    pub accounts_call_answered: for<'a> fn(&'a Arc<Core>, &'a PersonCall, &'a str) -> Doing<'a, ()>,
 }
