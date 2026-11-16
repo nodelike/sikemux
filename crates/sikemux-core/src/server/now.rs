@@ -424,7 +424,7 @@ fn asks_words(asks: &[NowAsk], at: u64) -> Vec<String> {
     let mut lines = Vec::new();
     if !nobody.is_empty() {
         lines.push(format!(
-            "The person's asks nobody is on (give one to an agent with agent_spawn's or agent_send's ask): {}",
+            "What the person asked for that nobody is on (give one to an agent with agent_spawn's or agent_send's task): {}",
             nobody.join("; ")
         ));
     }

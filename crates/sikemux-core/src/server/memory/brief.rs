@@ -18,7 +18,7 @@ use super::Core;
 use crate::server::board::{self, GoalRef};
 
 const HEADING: &str = "What Sikemux keeps for this project";
-const NOTE: &str = "Follow these. Fix a wrong one with memory_update (goal: true for a goal's rule) or board_decide for a decision; memory_list has the rest.";
+const NOTE: &str = "Follow these. Fix a wrong one with memory_update (goal: true for a goal's rule) or decide for a decision; memory_list has the rest.";
 const MAX_RULES: usize = 30;
 const MAX_KNOWLEDGE: usize = 12;
 const MAX_AGENT_NOTES: usize = MAX_RULES + MAX_KNOWLEDGE;

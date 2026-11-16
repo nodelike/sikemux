@@ -719,8 +719,8 @@ fn asked_of(asking: &ModAsk) -> (String, String) {
 fn said(write: &str) -> String {
     match write {
         "agents.send" => t!("message agents").into(),
-        "board.add" => t!("add work for agents to pick up").into(),
-        "board.update" => t!("change the work agents pick up").into(),
+        "tasks.add" => t!("add work for agents to pick up").into(),
+        "tasks.update" => t!("change the work agents pick up").into(),
         other => other.to_owned(),
     }
 }

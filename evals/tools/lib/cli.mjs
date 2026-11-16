@@ -11,7 +11,7 @@ const GROUPS = [
   ['pages and panes', (name) => name.startsWith('page_') || name === 'ui_open'],
   ['simulator', (name) => name === 'sim'],
   ['git', (name) => name === 'git_commit'],
-  ['board and memory', (name) => name.startsWith('board_') || name.startsWith('memory_')],
+  ['tasks and memory', (name) => name.startsWith('task_') || name.startsWith('memory_') || name === 'decide'],
   ['Sikemux itself', (name) => ['guide', 'skills', 'app_console', 'gif'].includes(name)],
 ];
 

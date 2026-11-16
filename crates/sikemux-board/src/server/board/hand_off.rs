@@ -276,7 +276,7 @@ async fn hand_task(
         ));
     }
     message.push_str(&format!(
-        "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true, then mark the card done with board_update."
+        "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true, then mark the task done with task_update."
     ));
     if let Some(chat) = core.chats().get(agent) {
         chat.take_brief();

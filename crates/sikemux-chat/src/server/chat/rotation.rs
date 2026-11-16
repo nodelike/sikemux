@@ -397,7 +397,7 @@ pub fn hired_seat(core: &Core, agent_id: &str) -> Option<String> {
     Some(format!(
         "You are @{name}, hired for a standing role in this project under @Chief: {role}. Work in \
          this area comes to you across sessions and weeks; record what you decide with \
-         board_decide, and hand work outside it to @Chief."
+         decide, and hand work outside it to @Chief."
     ))
 }
 

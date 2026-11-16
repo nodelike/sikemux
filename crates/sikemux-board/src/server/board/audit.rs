@@ -249,7 +249,7 @@ async fn start(core: &Arc<Core>, project: &str) -> Result<(), String> {
         None => "This is the project's first audit: read it as a whole, starting where it changes most.".to_owned(),
     };
     let task = format!(
-        "You are a fresh pair of eyes on this codebase, auditing its health; you have no history of the work, on purpose. {reading}\n\nLook for drift: dead code, the same logic written twice, docs and design notes that no longer match the code, rules in your brief the code breaks, checks or tests weakened, and whatever would confuse someone new here. Change nothing.\n\nFile each problem worth fixing as a card with board_add, parent {card}: a one-line title naming the place, and details saying what is wrong and why it matters. When you are through, close card #{card} with board_update, status done, and a result of two or three sentences on the codebase's health. If you find nothing worth fixing, say so there."
+        "You are a fresh pair of eyes on this codebase, auditing its health; you have no history of the work, on purpose. {reading}\n\nLook for drift: dead code, the same logic written twice, docs and design notes that no longer match the code, rules in your brief the code breaks, checks or tests weakened, and whatever would confuse someone new here. Change nothing.\n\nFile each problem worth fixing as a task with task_add, parent {card}: a one-line title naming the place, and details saying what is wrong and why it matters. When you are through, close task #{card} with task_update, status done, and a result of two or three sentences on the codebase's health. If you find nothing worth fixing, say so there."
     );
     chat::prompt(
         core,

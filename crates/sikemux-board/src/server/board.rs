@@ -69,7 +69,7 @@ const MAX_TEXT_BYTES: usize = 16 * 1024;
 const MAX_DEPENDS: usize = 20;
 const MAX_KEY_CHARS: usize = 40;
 const MAX_URL_CHARS: usize = 2048;
-/// How much of a card's details and result `board_list` shows before one
+/// How much of a card's details and result `task_list` shows before one
 /// card is asked for in full.
 const LISTED_TEXT_CHARS: usize = 240;
 const RECENT_DONE: usize = 10;
@@ -710,7 +710,7 @@ fn long_text(key: &str, value: &str) -> Result<String, String> {
 
 fn card_number(id: Option<u64>, key: &str) -> Result<u64, String> {
     id.filter(|id| *id > 0)
-        .ok_or_else(|| format!("{key} must be a card number, such as 3"))
+        .ok_or_else(|| format!("{key} must be a task number, such as 3"))
 }
 
 fn card_id(value: &Value, key: &str) -> Result<u64, String> {
@@ -1238,7 +1238,7 @@ fn board_view(core: &Core, board: &Board) -> ProjectBoard {
     view
 }
 
-/// The card as `board_list` tells an agent of it.
+/// The card as `task_list` tells an agent of it.
 fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     let text = |text: &str| {
         if full {
@@ -1248,7 +1248,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         }
     };
     let mut view = json!({
-        "card": card.id,
+        "task": card.id,
         "title": card.title,
         "status": card.status.words(),
         "owner": card.owner_name(core),
@@ -1272,7 +1272,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     }
     let (done, under) = board.subcards(card.id);
     if under > 0 {
-        fields.insert("subcards".into(), format!("{done}/{under} done").into());
+        fields.insert("subtasks".into(), format!("{done}/{under} done").into());
     }
     if !card.depends_on.is_empty() {
         fields.insert("dependsOn".into(), json!(card.depends_on));
@@ -1303,11 +1303,11 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
             .iter()
             .filter(|other| other.parent == Some(card.id))
             .map(|other| {
-                json!({ "card": other.id, "title": other.title, "status": other.status.words(), "owner": other.owner_name(core), "ownerId": other.owner_id() })
+                json!({ "task": other.id, "title": other.title, "status": other.status.words(), "owner": other.owner_name(core), "ownerId": other.owner_id() })
             })
             .collect();
         if !under.is_empty() {
-            fields.insert("cards".into(), under.into());
+            fields.insert("tasks".into(), under.into());
         }
         if !card.arrivals.is_empty() {
             fields.insert("arrivals".into(), json!(card.arrivals));
@@ -1649,7 +1649,7 @@ fn change_in(
             ));
         }
         if changes.status == Some(CardStatus::Progress) && before.status != CardStatus::Progress {
-            return Err(format!("Claim #{id} with board_claim to start on it"));
+            return Err(format!("Claim #{id} with task_claim to start on it"));
         }
     }
     if let Some(depends_on) = &changes.depends_on {
@@ -1730,7 +1730,7 @@ fn change_in(
             format!("{changer} marked your card {} done.", after.label())
         } else {
             format!(
-                "{changer} changed your card {}; board_list with card {id} shows it as it is now.",
+                "{changer} changed your card {}; task_list with task {id} shows it as it is now.",
                 after.label()
             )
         };
@@ -1813,7 +1813,7 @@ fn unblocked(board: &Board, blocked_before: &[u64], by: &By) -> Vec<Notice> {
     notices.extend(claimable.into_iter().map(|(to, labels)| Notice {
         to,
         text: format!(
-            "Nothing holds up {} any more: what it waits on is done. Claim it with board_claim if it is yours to do.",
+            "Nothing holds up {} any more: what it waits on is done. Claim it with task_claim if it is yours to do.",
             labels.join(", ")
         ),
     }));
@@ -1839,7 +1839,7 @@ fn send_notices(core: &Arc<Core>, notices: Vec<Notice>) {
 }
 
 pub async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = super::caller::agent_of(request, "board_add")?;
+    let agent = super::caller::agent_of(request, "task_add")?;
     let params = &request.params;
     if ["ticket", "key", "url"]
         .iter()
@@ -1869,8 +1869,8 @@ pub async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, St
 }
 
 pub async fn claim(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = super::caller::agent_of(request, "board_claim")?;
-    let id = card_id(request.params.get("card").unwrap_or(&Value::Null), "card")?;
+    let agent = super::caller::agent_of(request, "task_claim")?;
+    let id = card_id(request.params.get("task").unwrap_or(&Value::Null), "task")?;
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
         let project = super::caller::project_of(&core, &request);
@@ -1881,8 +1881,8 @@ pub async fn claim(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, 
 }
 
 pub async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = super::caller::agent_of(request, "board_update")?;
-    let id = card_id(request.params.get("card").unwrap_or(&Value::Null), "card")?;
+    let agent = super::caller::agent_of(request, "task_update")?;
+    let id = card_id(request.params.get("task").unwrap_or(&Value::Null), "task")?;
     let changes = Changes::from_params(&request.params)?;
     let (view, notices) = {
         let (core, request) = (core.clone(), request.clone());
@@ -1898,10 +1898,10 @@ pub async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value,
 }
 
 pub async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = super::caller::agent_of(request, "board_list")?;
-    let one = match request.params.get("card") {
+    let agent = super::caller::agent_of(request, "task_list")?;
+    let one = match request.params.get("task") {
         None | Some(Value::Null) => None,
-        Some(value) => Some(card_id(value, "card")?),
+        Some(value) => Some(card_id(value, "task")?),
     };
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
@@ -1911,7 +1911,7 @@ pub async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             if let Some(id) = one {
                 return Err(format!("There is no card #{id} on this project's board").into());
             }
-            return Ok(json!({ "project": project, "cards": [], "note": "The board is empty; add cards with board_add." }));
+            return Ok(json!({ "project": project, "tasks": [], "note": "The project has no tasks; add one with task_add." }));
         };
         if let Some(id) = one {
             return Ok(agent_view(&core, board, board.card(id)?, true));
@@ -1951,13 +1951,13 @@ pub async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             .map(|card| agent_view(&core, board, card, false))
             .collect();
         board.forget_places();
-        let mut note = "Your cards come first, then your team's. Pass card for one card in full.".to_string();
+        let mut note = "Your tasks come first, then your team's. Pass task for one task in full.".to_string();
         if hidden_done > 0 {
-            note.push_str(&format!(" {hidden_done} older done cards are left out; pass done to list them."));
+            note.push_str(&format!(" {hidden_done} older done tasks are left out; pass done to list them."));
         }
         Ok(json!({
             "project": project,
-            "cards": listed,
+            "tasks": listed,
             "note": note,
         }))
     })

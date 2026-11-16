@@ -3,7 +3,7 @@
 //! over. A chief's turn that hands it to nobody answered it, as did another agent's turn that left
 //! its work where it was. An ask outlives the agents on it: once every one has closed before its
 //! work reached the project's branch, nobody has it. An agent closes one handled without a hand-off
-//! with `ask_done`.
+//! with `task_update`'s `asked`.
 
 use super::*;
 use crate::cli::protocol::HarnessRequest;
@@ -597,20 +597,22 @@ pub(crate) fn told(core: &Core, ids: &[u64]) {
     });
 }
 
-/// `ask_done`: the caller closes one of its project's asks that was handled: in the commit it
+/// `task_update` with `asked`: the caller closes one of its project's asks that was handled: in the commit it
 /// names, which then stands for the ask's work, or with nothing to change, which answered it.
 pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = (request.agent_id.as_deref()).ok_or("ask_done needs the calling agent's id")?;
-    let id = request.params["ask"]
+    let agent = (request.agent_id.as_deref()).ok_or("task_update needs the calling agent's id")?;
+    let id = request.params["asked"]
         .as_u64()
-        .ok_or("ask_done needs the ask's number")?;
+        .ok_or("task_update needs the number of what the person asked for")?;
     let project = (core.workspaces().agent(agent))
-        .ok_or("ask_done answers only an agent Sikemux started")?
+        .ok_or("task_update answers only an agent Sikemux started")?
         .project;
     let ours =
         (core.now().state.locked().asks.iter()).any(|ask| ask.id == id && ask.project == project);
     if !ours {
-        return Err(format!("ask #{id} is not an open ask of this project"));
+        return Err(format!(
+            "#{id} is not open among what the person asked of this project"
+        ));
     }
     let named = (request.params["commit"].as_str())
         .map(str::trim)

@@ -1686,8 +1686,8 @@
       "method": "agent.send",
       "description": "Message a Sikemux agent.",
       "properties": {
-        "ask": {
-          "description": "Number of the person's ask this hands on",
+        "task": {
+          "description": "Number of what the person asked for that this hands on",
           "type": "integer",
           "minimum": 1
         },
@@ -1721,34 +1721,13 @@
       ]
     },
     {
-      "name": "ask_done",
-      "row": {"verb": "close", "kind": "edit", "icon": "message", "target": ["ask #{ask}"], "detail": ["{commit}"]},
-      "method": "ask.done",
-      "description": "Close an ask.",
-      "properties": {
-        "ask": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "commit": {
-          "description": "The commit that did it; omit if it needed no change",
-          "type": "string",
-          "minLength": 4,
-          "maxLength": 64
-        }
-      },
-      "required": [
-        "ask"
-      ]
-    },
-    {
       "name": "agent_spawn",
       "row": {"verb": "start", "kind": "execute", "icon": "square-plus", "target": ["session {resume}", "{cli} agent", "a helper"], "detail": ["{title}"]},
       "method": "agent.spawn",
       "description": "Start a Sikemux agent.",
       "properties": {
-        "ask": {
-          "description": "Number of the person's ask this hands on",
+        "task": {
+          "description": "Number of what the person asked for that this hands on",
           "type": "integer",
           "minimum": 1
         },
@@ -2082,10 +2061,10 @@
       "required": ["question"]
     },
     {
-      "name": "board_add",
-      "row": {"verb": "add", "kind": "edit", "icon": "board", "target": ["card {title}"]},
-      "method": "board.add",
-      "description": "Add a board card.",
+      "name": "task_add",
+      "row": {"verb": "add", "kind": "edit", "icon": "board", "target": ["task {title}"]},
+      "method": "task.add",
+      "description": "Add a task.",
       "properties": {
         "title": {
           "type": "string",
@@ -2097,7 +2076,7 @@
           "maxLength": 16384
         },
         "parent": {
-          "description": "Card it goes under",
+          "description": "Task it goes under",
           "type": "integer",
           "minimum": 1
         },
@@ -2118,12 +2097,12 @@
       ]
     },
     {
-      "name": "board_list",
-      "row": {"verb": "list", "kind": "read", "icon": "board", "target": ["card #{card}", "the board"]},
-      "method": "board.list",
-      "description": "List the board.",
+      "name": "task_list",
+      "row": {"verb": "list", "kind": "read", "icon": "board", "target": ["task #{task}", "tasks"]},
+      "method": "task.list",
+      "description": "List the project's tasks.",
       "properties": {
-        "card": {
+        "task": {
           "type": "integer",
           "minimum": 1
         },
@@ -2134,27 +2113,27 @@
       "required": []
     },
     {
-      "name": "board_claim",
-      "row": {"verb": "claim", "kind": "edit", "icon": "board", "target": ["card #{card}"]},
-      "method": "board.claim",
-      "description": "Claim a card.",
+      "name": "task_claim",
+      "row": {"verb": "claim", "kind": "edit", "icon": "board", "target": ["task #{task}"]},
+      "method": "task.claim",
+      "description": "Claim a task.",
       "properties": {
-        "card": {
+        "task": {
           "type": "integer",
           "minimum": 1
         }
       },
       "required": [
-        "card"
+        "task"
       ]
     },
     {
-      "name": "board_update",
-      "row": {"verb": "update", "kind": "edit", "icon": "board", "target": ["card #{card}"], "detail": ["to {status}", "{result}"]},
-      "method": "board.update",
-      "description": "Change a card.",
+      "name": "task_update",
+      "row": {"verb": "update", "kind": "edit", "icon": "board", "target": ["task #{task}", "asked #{asked}"], "detail": ["to {status}", "{result}", "{commit}"]},
+      "method": "task.update",
+      "description": "Change a task, or close one the person asked for.",
       "properties": {
-        "card": {
+        "task": {
           "type": "integer",
           "minimum": 1
         },
@@ -2190,16 +2169,25 @@
           "description": "0 takes it out from under one",
           "type": "integer",
           "minimum": 0
+        },
+        "asked": {
+          "description": "Instead of task: close what the person asked for, the number agent_send's task takes",
+          "type": "integer",
+          "minimum": 1
+        },
+        "commit": {
+          "description": "With asked: the commit that did it; omit if it needed no change",
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64
         }
       },
-      "required": [
-        "card"
-      ]
+      "required": []
     },
     {
-      "name": "board_decide",
+      "name": "decide",
       "row": {"verb": "decide", "kind": "edit", "icon": "board", "target": ["decision #{decision}", "{text}"]},
-      "method": "board.decide",
+      "method": "decision.keep",
       "description": "Keep project decisions.",
       "properties": {
         "environments": { "type": "array", "items": { "type": "object" }, "description": "Instead: propose the project's, in order, with why; see the guide" },

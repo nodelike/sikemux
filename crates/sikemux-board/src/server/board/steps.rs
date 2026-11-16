@@ -9,7 +9,7 @@ use crate::server::places::{self, Place};
 
 const MAX_WHY_CHARS: usize = 500;
 
-/// `board_decide` with environments: keeps the places an agent proposed for the person to
+/// `decide` with environments: keeps the places an agent proposed for the person to
 /// answer, in place of any it proposed before. It changes nothing else. Each is given as an
 /// environment was, with a name, who passes it and the facts that recognise it.
 pub fn propose(board: &mut Board, given: Vec<Value>, why: &str, by: String) -> Result<(), String> {

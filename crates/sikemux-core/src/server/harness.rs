@@ -623,12 +623,14 @@ async fn dispatch(
         "agent.hire" => super::hire::tool(core, &request).await,
         "agent.wrote" => super::who_wrote::tool(core, &request).await,
         "agent.why" => super::why::tool(core, &request).await,
-        "ask.done" => super::now::asks::done(core, &request),
-        "board.add" => board::add(core, &request).await,
-        "board.list" => board::list(core, &request).await,
-        "board.claim" => board::claim(core, &request).await,
-        "board.update" => board::update(core, &request).await,
-        "board.decide" => board::goal::tool(core, &request).await,
+        "task.add" => board::add(core, &request).await,
+        "task.list" => board::list(core, &request).await,
+        "task.claim" => board::claim(core, &request).await,
+        "task.update" if request.params.get("asked").is_some() => {
+            super::now::asks::done(core, &request)
+        }
+        "task.update" => board::update(core, &request).await,
+        "decision.keep" => board::goal::tool(core, &request).await,
         "memory.add" => super::memory::tool_add(core, &request).await,
         "memory.update" => super::memory::tool_update(core, &request).await,
         "memory.list" => super::memory::tool_list(core, &request).await,
@@ -712,9 +714,9 @@ fn handing(
         .chain(value["sent"].as_array().into_iter().flatten())
         .filter_map(|reached| reached["agentId"].as_str().map(str::to_owned))
         .collect();
-    let named: Vec<u64> = request.params["ask"].as_u64().into_iter().collect();
-    let task = request.params["title"].as_str();
-    super::now::asks::handed(core, from, &reached, &named, task);
+    let named: Vec<u64> = request.params["task"].as_u64().into_iter().collect();
+    let title = request.params["title"].as_str();
+    super::now::asks::handed(core, from, &reached, &named, title);
     answer
 }
 

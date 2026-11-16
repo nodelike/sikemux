@@ -86,7 +86,7 @@ pub fn arrived_again(card: &mut Card, adding: &Adding) -> Option<Notice> {
     Some(Notice {
         to,
         text: format!(
-            "{what}, and it went to {}, which already holds it, rather than a new card. board_list with card {} shows what arrived, under arrivals.",
+            "{what}, and it went to {}, which already holds it, rather than a new task. task_list with task {} shows what arrived, under arrivals.",
             card.label(),
             card.id
         ),

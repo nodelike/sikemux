@@ -1149,7 +1149,7 @@
     "severity": "med",
     "tools": [
       "jira_create",
-      "board_add"
+      "task_add"
     ],
     "prompt": "Do all of this, don't stop halfway: 1) delete the unused legacyExport function from src/export.ts, 2) add a csv connector to config/connectors.json next to the others, 3) rename the plan tiers Bronze, Silver and Gold to Starter, Team and Business in src/tiers.ts, 4) raise a Jira ticket in PROJ to add retries to the csv connector.",
     "fixture": {

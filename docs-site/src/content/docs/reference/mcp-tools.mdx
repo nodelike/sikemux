@@ -123,13 +123,6 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 | `agent_account` | Move agents' chats to another account of their agent, by its name or id; each carries on there. Lists those it refused, with why. |
 | `agent_hire` | @Chief only: hire for a standing role. |
 
-## ask
-
-| Tool | What it does |
-|---|---|
-| `ask_done` | Close an ask. |
-| `ask` | Ask your lead, else the person. |
-
 ## who
 
 | Tool | What it does |
@@ -142,15 +135,26 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 |---|---|
 | `why` | Why something here is as it is. |
 
-## board
+## ask
 
 | Tool | What it does |
 |---|---|
-| `board_add` | Add a board card. |
-| `board_list` | List the board. |
-| `board_claim` | Claim a card. |
-| `board_update` | Change a card. |
-| `board_decide` | Keep project decisions. |
+| `ask` | Ask your lead, else the person. |
+
+## task
+
+| Tool | What it does |
+|---|---|
+| `task_add` | Add a task. |
+| `task_list` | List the project's tasks. |
+| `task_claim` | Claim a task. |
+| `task_update` | Change a task, or close one the person asked for. |
+
+## decide
+
+| Tool | What it does |
+|---|---|
+| `decide` | Keep project decisions. |
 
 ## memory
 

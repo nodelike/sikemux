@@ -20,8 +20,8 @@ use super::{data, read_manifest, Manifest as ModManifest};
 /// Where a name the bridge is asked for goes.
 enum Reach {
     Agents,
-    Board,
     Tasks,
+    Processes,
     Runs,
     Questions,
     Inbox,
@@ -37,8 +37,8 @@ enum Reach {
     /// One of a connector's agent tools, by the name agents know it by.
     Tool(String),
     Send,
-    BoardAdd,
-    BoardUpdate,
+    TaskAdd,
+    TaskUpdate,
 }
 
 struct Asked {
@@ -69,8 +69,8 @@ impl Asked {
 fn asked(core: &Core, name: &str) -> CoreResult<Asked> {
     let core_read = match name {
         "agents" => Some(Reach::Agents),
-        "board" => Some(Reach::Board),
         "tasks" => Some(Reach::Tasks),
+        "processes" => Some(Reach::Processes),
         "runs" => Some(Reach::Runs),
         "questions" => Some(Reach::Questions),
         "inbox" => Some(Reach::Inbox),
@@ -84,8 +84,8 @@ fn asked(core: &Core, name: &str) -> CoreResult<Asked> {
     }
     let core_write = match name {
         "agents.send" => Some(Reach::Send),
-        "board.add" => Some(Reach::BoardAdd),
-        "board.update" => Some(Reach::BoardUpdate),
+        "tasks.add" => Some(Reach::TaskAdd),
+        "tasks.update" => Some(Reach::TaskUpdate),
         _ => None,
     };
     if let Some(reach) = core_write {
@@ -259,11 +259,11 @@ async fn run(
             })
             .await
         }
-        Reach::Board => {
+        Reach::Tasks => {
             let params = super::super::calls::parse(in_project(params, &project)?)?;
             Ok(serde_json::to_value(board::board(core, params).await?)?)
         }
-        Reach::Tasks => {
+        Reach::Processes => {
             let project = in_project(params, &project)?["project"]
                 .as_str()
                 .unwrap_or_default()
@@ -334,13 +334,13 @@ async fn run(
             super::super::chat::calls::prompt_from_mod(core, &agent_id, send.text).await?;
             Ok(Value::Null)
         }
-        Reach::BoardAdd => {
+        Reach::TaskAdd => {
             let params = super::super::calls::parse(in_project(params, &project)?)?;
             Ok(serde_json::to_value(
                 board::person_add(core, params).await?,
             )?)
         }
-        Reach::BoardUpdate => {
+        Reach::TaskUpdate => {
             let params = super::super::calls::parse(in_project(params, &project)?)?;
             Ok(serde_json::to_value(
                 board::person_update(core, params).await?,

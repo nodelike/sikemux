@@ -57,10 +57,10 @@ impl Sandbox {
         .expect("account");
         std::fs::write(root.join("script.json"), json!([
             { "when": "take the totals card", "steps": [
-                { "tool": "mcp__sikemux-tools__board_add", "call": "board.add", "input": { "title": "Totals", "claim": true } },
+                { "tool": "mcp__sikemux-tools__task_add", "call": "task.add", "input": { "title": "Totals", "claim": true } },
                 { "say": "Card taken." } ] },
             { "when": "decide the inbox", "steps": [
-                { "tool": "mcp__sikemux-tools__board_decide", "call": "board.decide", "input": { "text": "Inbox for shared links", "why": "they land untriaged" } },
+                { "tool": "mcp__sikemux-tools__decide", "call": "decision.keep", "input": { "text": "Inbox for shared links", "why": "they land untriaged" } },
                 { "say": "Decided." } ] },
             { "when": "keep my rule", "steps": [
                 { "tool": "mcp__sikemux-tools__memory_add", "call": "memory.add", "input": { "kind": "rule", "person": true, "text": format!("{RULE}.") } },

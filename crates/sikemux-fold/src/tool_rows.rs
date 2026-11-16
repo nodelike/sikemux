@@ -636,17 +636,6 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
-        "ask_done",
-        Spec {
-            verb: "close",
-            kind: "edit",
-            icon: "message",
-            target: &["ask #{ask}"],
-            detail: &["{commit}"],
-            plugin: None,
-        },
-    ),
-    (
         "agent_spawn",
         Spec {
             verb: "start",
@@ -757,51 +746,51 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
-        "board_add",
+        "task_add",
         Spec {
             verb: "add",
             kind: "edit",
             icon: "board",
-            target: &["card {title}"],
+            target: &["task {title}"],
             detail: &[],
             plugin: None,
         },
     ),
     (
-        "board_list",
+        "task_list",
         Spec {
             verb: "list",
             kind: "read",
             icon: "board",
-            target: &["card #{card}", "the board"],
+            target: &["task #{task}", "tasks"],
             detail: &[],
             plugin: None,
         },
     ),
     (
-        "board_claim",
+        "task_claim",
         Spec {
             verb: "claim",
             kind: "edit",
             icon: "board",
-            target: &["card #{card}"],
+            target: &["task #{task}"],
             detail: &[],
             plugin: None,
         },
     ),
     (
-        "board_update",
+        "task_update",
         Spec {
             verb: "update",
             kind: "edit",
             icon: "board",
-            target: &["card #{card}"],
-            detail: &["to {status}", "{result}"],
+            target: &["task #{task}", "asked #{asked}"],
+            detail: &["to {status}", "{result}", "{commit}"],
             plugin: None,
         },
     ),
     (
-        "board_decide",
+        "decide",
         Spec {
             verb: "decide",
             kind: "edit",

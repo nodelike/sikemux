@@ -306,10 +306,10 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
       return { value: { project, roots: [project], processes: [] } };
     case 'ui_open':
       return { value: { opened: args.kind ?? 'file' } };
-    case 'board_list':
-      return { value: { cards: [] } };
-    case 'board_add':
-      return { value: { card: 1, title: args.title, status: 'open' } };
+    case 'task_list':
+      return { value: { tasks: [] } };
+    case 'task_add':
+      return { value: { task: 1, title: args.title, status: 'open' } };
     case 'sim_devices':
       return { value: { devices: [{ udid: 'SIM-EVAL-1', name: 'iPhone 17', state: 'Booted', runtime: 'iOS 26.0' }] } };
     case 'sim_screenshot':

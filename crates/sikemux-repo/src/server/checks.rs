@@ -1151,7 +1151,7 @@ async fn blame(
     }
     let claim = card.map_or_else(String::new, |card| {
         format!(
-            "\nClaim card {} with board_claim while you mend it.",
+            "\nClaim task {} with task_claim while you mend it.",
             card.label
         )
     });

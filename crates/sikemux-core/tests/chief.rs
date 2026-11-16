@@ -214,12 +214,12 @@ async fn only_the_chief_retires_a_persons_rule_as_now_a_check_and_agents_only_on
     let mut worker = Agent::open(&socket, &worker_id).await;
 
     let card = worker
-        .tool("board.add", json!({ "title": "Cache", "claim": true }))
+        .tool("task.add", json!({ "title": "Cache", "claim": true }))
         .await;
-    let card = number_after(&card, "\"card\":").unwrap_or_else(|| panic!("{card}"));
+    let card = number_after(&card, "\"task\":").unwrap_or_else(|| panic!("{card}"));
     let decided = worker
         .tool(
-            "board.decide",
+            "decision.keep",
             json!({ "text": "Keep the cache in sqlite", "why": "It is small" }),
         )
         .await;
@@ -349,11 +349,11 @@ async fn why_answers_a_broad_question_with_the_newest_decisions_and_a_specific_m
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
     worker
-        .tool("board.add", json!({ "title": "Share", "claim": true }))
+        .tool("task.add", json!({ "title": "Share", "claim": true }))
         .await;
     let decided = worker
         .tool(
-            "board.decide",
+            "decision.keep",
             json!({ "text": "Shared links land in Inbox", "why": "The person reads Inbox first" }),
         )
         .await;
@@ -422,11 +422,11 @@ async fn an_overrule_undone_while_the_chief_sleeps_after_a_restart_shows_undone_
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
     worker
-        .tool("board.add", json!({ "title": "Totals", "claim": true }))
+        .tool("task.add", json!({ "title": "Totals", "claim": true }))
         .await;
     for text in ["Use the old path", "Use the staging database"] {
         let decided = worker
-            .tool("board.decide", json!({ "text": text, "why": "faster" }))
+            .tool("decision.keep", json!({ "text": text, "why": "faster" }))
             .await;
         assert!(decided.contains("Decision #"), "{decided}");
     }
@@ -500,7 +500,7 @@ async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undo
         .expect("a worker starts");
     let mut worker = Agent::open(&socket, &worker_id).await;
     worker
-        .tool("board.add", json!({ "title": "Totals", "claim": true }))
+        .tool("task.add", json!({ "title": "Totals", "claim": true }))
         .await;
     let secret = "Deploy with API_KEY=a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6";
     for (text, why) in [
@@ -511,7 +511,7 @@ async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undo
         ),
     ] {
         let decided = worker
-            .tool("board.decide", json!({ "text": text, "why": why }))
+            .tool("decision.keep", json!({ "text": text, "why": why }))
             .await;
         assert!(decided.contains("Decision #"), "{decided}");
     }
