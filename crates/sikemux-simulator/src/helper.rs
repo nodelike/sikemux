@@ -3,10 +3,10 @@
 //! This module starts the helper, sends it one JSON request per line and hands
 //! each answer back to the caller that asked, matched by id.
 
+use sikemux_process::command::{Child, ChildStdin, Stdio};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

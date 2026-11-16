@@ -236,8 +236,9 @@ async fn session_server(executable: &Path, session_id: &str) -> Result<Server, S
         .iter()
         .find_map(|db| session_directory(db, session_id))
         .ok_or("session not found")?;
-    let command =
-        tokio::process::Command::from(sikemux_process::user_environment::agent_command(executable));
+    let command = sikemux_process::command::Command::into_async(
+        sikemux_process::user_environment::agent_command(executable),
+    );
     Server::start(command, &directory).await
 }
 

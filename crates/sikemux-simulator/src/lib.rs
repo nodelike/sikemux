@@ -564,9 +564,9 @@ impl SimulatorManager {
                 .arg("shutdown")
                 .args(&unheld)
                 .env("DEVELOPER_DIR", &dir)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdin(sikemux_process::command::Stdio::null())
+                .stdout(sikemux_process::command::Stdio::null())
+                .stderr(sikemux_process::command::Stdio::null())
                 .spawn();
         }
     }
@@ -1021,8 +1021,8 @@ pub(crate) fn developer_dir() -> Option<PathBuf> {
         .or_else(|| {
             sikemux_process::user_environment::command("/usr/bin/xcode-select")
                 .arg("-p")
-                .stdin(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdin(sikemux_process::command::Stdio::null())
+                .stderr(sikemux_process::command::Stdio::null())
                 .output()
                 .ok()
                 .filter(|output| output.status.success())
@@ -1278,8 +1278,8 @@ pub(crate) fn simctl(developer_dir: &Path, args: &[&str]) -> Option<String> {
     sikemux_process::user_environment::command(developer_dir.join("usr/bin/simctl"))
         .args(args)
         .env("DEVELOPER_DIR", developer_dir)
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .output()
         .ok()
         .filter(|output| output.status.success())

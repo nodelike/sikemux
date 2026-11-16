@@ -10,8 +10,8 @@ pub mod identity;
 mod in_line;
 pub mod shim;
 
+use sikemux_process::command::{Command, Stdio};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 /// The other agents whose work a git command run in a folder would touch:
 /// their uncommitted lines in the paths given there, or with none given,

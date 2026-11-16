@@ -159,7 +159,9 @@ pub struct Codex {
 }
 
 /// The models Codex offers, asked of a short-lived app server with no thread.
-pub async fn read_options(command: tokio::process::Command) -> Result<Value, String> {
+pub async fn read_options(
+    command: sikemux_process::command::AsyncCommand,
+) -> Result<Value, String> {
     let params = json!({ "cursor": null, "limit": null, "includeHidden": false });
     let listed =
         crate::agent_accounts::usage::codex_ask(command, "model/list", params, "models").await?;

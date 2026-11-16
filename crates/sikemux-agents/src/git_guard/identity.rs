@@ -335,11 +335,11 @@ fn remote_urls(dir: &Path) -> Vec<String> {
 }
 
 /// The remotes' addresses `git`, about to run in a repository, finds there.
-pub(super) fn urls_from(mut git: std::process::Command) -> Vec<String> {
+pub(super) fn urls_from(mut git: sikemux_process::command::Command) -> Vec<String> {
     let output = git
         .args(["config", "--get-regexp", r"^remote\..*\.(push)?url$"])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .output();
     let Ok(output) = output else {
         return Vec::new();

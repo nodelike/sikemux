@@ -17,8 +17,8 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::command::{AsyncCommand, Command};
 use sikemux_pty::user_shell::login_shell_environment;
-use tokio::process::Command;
 
 use crate::launch::{account_environment, AgentSpec};
 use sikemux_wire::protocol::ChatAccount;
@@ -322,12 +322,13 @@ pub fn cli(
     program: &Path,
     config_path: Option<&str>,
     providers: BTreeMap<String, String>,
-) -> Command {
+) -> AsyncCommand {
     let spec = AgentSpec {
         config_path: config_path.map(str::to_owned),
         ..AgentSpec::new(provider)
     };
-    let mut command = Command::from(sikemux_process::user_environment::agent_command(program));
+    let mut command =
+        Command::into_async(sikemux_process::user_environment::agent_command(program));
     command
         .envs(login_shell_environment())
         .envs(spec.launch(program.to_path_buf(), providers).env)

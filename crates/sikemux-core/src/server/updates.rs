@@ -186,8 +186,8 @@ fn pacman_owner(installed: &Path, files: &[PathBuf]) -> Option<&'static str> {
 fn in_sync_repository(package: &str) -> bool {
     sikemux_process::user_environment::command("/usr/bin/pacman")
         .args(["-Si", package])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
 }

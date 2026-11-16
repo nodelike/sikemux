@@ -415,9 +415,9 @@ fn unpack(zip: &Path, destination: &Path) -> SimResult<()> {
         unzip
     };
     let status = command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .status()
         .map_err(|error| format!("could not unpack {}: {error}", zip.display()))?;
     if !status.success() {

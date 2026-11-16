@@ -119,8 +119,8 @@ fn write_if_changed(path: &Path, contents: &str) -> std::io::Result<bool> {
 fn quiet(program: &str, args: &[&str]) {
     let _ = sikemux_process::user_environment::command(program)
         .args(args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .status();
 }
 
@@ -415,7 +415,7 @@ WantedBy=default.target
     pub(super) fn start(label: &str, _path: &Path) -> Result<(), String> {
         let output = sikemux_process::user_environment::command("systemctl")
             .args(["--user", "start", &unit(label)])
-            .stdin(std::process::Stdio::null())
+            .stdin(sikemux_process::command::Stdio::null())
             .output()
             .map_err(|error| format!("could not run systemctl: {error}"))?;
         if output.status.success() {

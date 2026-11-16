@@ -5,9 +5,9 @@
 
 use super::repo_state::RepoParts;
 pub(crate) use super::worktree::agent::{command_in, last_line, shell, STEP_TIME};
+use sikemux_process::command::{Child, Stdio};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 

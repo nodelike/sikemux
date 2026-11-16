@@ -7,9 +7,10 @@ use std::time::Duration;
 
 use rayon::prelude::*;
 use serde_json::Value;
+use sikemux_process::command::Command;
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as AsyncBufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::ChildStdin;
 
 use super::context::{last_line_matching, SessionContext};
 use super::index::{indexed, Indexed};
@@ -274,14 +275,15 @@ async fn codex_thread_request(
     params: Value,
     action: &str,
 ) -> Result<(), String> {
-    let mut command = Command::from(sikemux_process::user_environment::agent_command(executable));
+    let mut command =
+        Command::into_async(sikemux_process::user_environment::agent_command(executable));
     apply_login_environment(&mut command);
     command
         .args(["app-server", "--stdio"])
         .kill_on_drop(true)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::piped())
+        .stdout(sikemux_process::command::Stdio::piped())
+        .stderr(sikemux_process::command::Stdio::null());
     apply_process_config(&mut command, "codex", config_path);
     let mut child = command
         .spawn()

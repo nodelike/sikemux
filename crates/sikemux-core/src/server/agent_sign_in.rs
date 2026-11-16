@@ -13,9 +13,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 
+use sikemux_process::command::AsyncCommand;
 use sikemux_process::sync::Locked;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::ChildStdin;
 use tokio::sync::oneshot;
 
 use super::changed::Topic;
@@ -34,7 +35,7 @@ pub(crate) trait AccountExt: Sized {
 
     fn key(&self) -> String;
 
-    async fn command(&self) -> CoreResult<Command>;
+    async fn command(&self) -> CoreResult<AsyncCommand>;
 }
 
 impl AccountExt for Account {
@@ -57,7 +58,7 @@ impl AccountExt for Account {
         )
     }
 
-    async fn command(&self) -> CoreResult<Command> {
+    async fn command(&self) -> CoreResult<AsyncCommand> {
         let program: PathBuf =
             crate::launch::discovery::resolve(self.agent.as_str(), self.executable_path.as_deref())
                 .await?;
@@ -179,9 +180,9 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
     let mut command = account.command().await?;
     command.args(args);
     command
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdin(sikemux_process::command::Stdio::piped())
+        .stdout(sikemux_process::command::Stdio::piped())
+        .stderr(sikemux_process::command::Stdio::piped())
         .kill_on_drop(true);
     let mut child = command
         .spawn()
@@ -316,9 +317,9 @@ pub(super) async fn sign_out(account: Account) -> CoreResult<()> {
     let mut command = account.command().await?;
     command.args(args);
     command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null());
     let status = tokio::time::timeout(SIGN_OUT_TIMEOUT, command.status())
         .await
         .map_err(|_| CoreError::from("Sign-out took too long"))?

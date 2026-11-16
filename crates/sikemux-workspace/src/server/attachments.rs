@@ -103,8 +103,8 @@ pub fn thumbnail(path: &Path, max_edge: u32) -> Option<String> {
         .arg(path)
         .arg("--out")
         .arg(&out)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .status()
         .is_ok_and(|status| status.success());
     let bytes = scaled.then(|| fs::read(&out).ok()).flatten();

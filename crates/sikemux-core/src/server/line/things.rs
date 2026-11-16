@@ -167,8 +167,8 @@ fn listener_of(port: u16) -> Option<String> {
         .find(|lsof| Path::new(lsof).is_file())?;
     let output = sikemux_process::user_environment::command(lsof)
         .args(["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-Fpc"])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .output()
         .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);

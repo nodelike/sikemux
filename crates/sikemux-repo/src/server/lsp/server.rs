@@ -1,6 +1,6 @@
+use sikemux_process::command::Child;
+use sikemux_process::command::ChildStdin;
 use std::collections::HashMap;
-use std::process::Child;
-use std::process::ChildStdin;
 use std::sync::{mpsc, Arc, Mutex};
 
 use super::Publish;
@@ -111,17 +111,17 @@ pub fn shutdown_server(server: ServerHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sikemux_process::command::Stdio;
     use std::io::Write;
-    use std::process::Stdio;
     use std::thread;
     use std::time::Duration;
 
     #[cfg(unix)]
     mod pipe {
+        use sikemux_process::command::ChildStdin;
         use std::os::fd::AsRawFd;
-        use std::process::ChildStdin;
 
-        pub fn idle_child() -> std::process::Command {
+        pub fn idle_child() -> sikemux_process::command::Command {
             let mut command = sikemux_process::user_environment::command("/bin/sleep");
             command.arg("60");
             command
@@ -166,9 +166,9 @@ mod tests {
 
     #[cfg(windows)]
     mod pipe {
-        use std::process::ChildStdin;
+        use sikemux_process::command::ChildStdin;
 
-        pub fn idle_child() -> std::process::Command {
+        pub fn idle_child() -> sikemux_process::command::Command {
             let mut command = sikemux_process::user_environment::command("ping");
             command.args(["-n", "60", "127.0.0.1"]);
             command

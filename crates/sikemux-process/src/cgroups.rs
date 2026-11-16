@@ -2,7 +2,7 @@
 //! memory runs out, systemd-oomd stops the cgroup using the most, so a runaway build then takes
 //! down only what started it, not the app, the core and every other agent with it.
 
-use std::process::Command;
+use crate::command::Command;
 
 /// Puts the core in a systemd unit it may divide, and itself in that unit's `core` cgroup.
 /// Call once at startup, before anything is spawned. Does nothing outside a systemd user session.
@@ -26,9 +26,9 @@ mod platform {
     use std::ffi::{CStr, CString};
     use std::fs;
     use std::os::unix::ffi::OsStringExt;
-    use std::os::unix::process::CommandExt;
     use std::path::{Path, PathBuf};
-    use std::process::{Command, Stdio};
+
+    use crate::command::{Command, Stdio};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -300,7 +300,7 @@ mod platform {
 
 #[cfg(not(target_os = "linux"))]
 mod platform {
-    use std::process::Command;
+    use crate::command::Command;
 
     pub(super) fn take_own_unit() {}
 

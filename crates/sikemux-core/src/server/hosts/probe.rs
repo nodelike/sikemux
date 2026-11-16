@@ -10,8 +10,8 @@ use crate::server::changed::What;
 use crate::server::parts::Parts;
 use crate::server::remote_state::RemoteParts;
 pub use sikemux_calls::hosts::{Found, Unanswered};
+use sikemux_process::command::Stdio;
 use std::collections::{HashMap, HashSet};
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -246,7 +246,9 @@ pub(crate) async fn run_until(
     mut line: impl FnMut(&str),
     stop: impl std::future::Future<Output = ()>,
 ) -> Ran {
-    let mut ssh = tokio::process::Command::from(sikemux_process::user_environment::command("ssh"));
+    let mut ssh = sikemux_process::command::Command::into_async(
+        sikemux_process::user_environment::command("ssh"),
+    );
     ssh.args([
         "-T",
         "-o",

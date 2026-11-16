@@ -61,8 +61,8 @@ pub(crate) fn bundle_id(app: &Path) -> Option<String> {
     let output = sikemux_process::user_environment::command("/usr/bin/plutil")
         .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
         .arg(app.join("Info.plist"))
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .output()
         .ok()
         .filter(|output| output.status.success())?;

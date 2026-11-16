@@ -6,8 +6,8 @@
 
 mod folded;
 
+use sikemux_process::command::{Child, Stdio};
 use std::path::Path;
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use folded::Chat;

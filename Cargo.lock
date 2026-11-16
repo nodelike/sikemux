@@ -10614,6 +10614,7 @@ dependencies = [
  "dunce",
  "libc",
  "tempfile",
+ "tokio",
  "windows-sys 0.61.2",
  "workspace-hack",
 ]
@@ -13910,7 +13911,6 @@ dependencies = [
  "data-encoding",
  "digest 0.11.3",
  "dispatch2",
- "errno",
  "flate2",
  "form_urlencoded",
  "futures-channel",

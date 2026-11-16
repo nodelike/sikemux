@@ -151,7 +151,7 @@ fn fetch_origin(root: &std::path::Path) {
         .env("GIT_ASKPASS", "true")
         .env("SSH_ASKPASS", "true")
         .env("SSH_ASKPASS_REQUIRE", "never")
-        .stdin(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::null());
     let _ = sikemux_process::run(&mut fetch, None, FETCH_TIMEOUT, 4 * 1024 * 1024, None);
 }
 

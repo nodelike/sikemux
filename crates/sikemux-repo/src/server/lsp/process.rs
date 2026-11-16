@@ -1,6 +1,6 @@
+use sikemux_process::command::{Child, Stdio};
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;

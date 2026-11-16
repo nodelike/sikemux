@@ -40,6 +40,6 @@ pub fn open_private_append(path: &Path) -> io::Result<File> {
 
 /// Git for Windows' sh: setup commands are written for sh, and Windows has no login shell
 /// that reads them.
-pub fn login_shell() -> Result<std::process::Command, String> {
+pub fn login_shell() -> Result<sikemux_process::command::Command, String> {
     sikemux_process::user_environment::background_shell()
 }

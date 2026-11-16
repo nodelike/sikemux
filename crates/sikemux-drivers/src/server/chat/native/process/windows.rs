@@ -11,7 +11,7 @@ pub type AgentInput = tokio::process::ChildStdin;
 pub type AgentOutput = Box<dyn AsyncRead + Send + Unpin>;
 
 /// The agent itself, whose exit is waited for on a thread of its own.
-pub struct Exit(std::process::Child);
+pub struct Exit(sikemux_process::command::Child);
 
 pub struct Pipes {
     pub stdin: AgentInput,
@@ -45,7 +45,9 @@ impl Released {
     }
 }
 
-pub fn start(command: &mut std::process::Command) -> std::io::Result<(u32, Pipes, Exit)> {
+pub fn start(
+    command: &mut sikemux_process::command::Command,
+) -> std::io::Result<(u32, Pipes, Exit)> {
     let mut child = sikemux_process::spawn_tree(command)?;
     let pid = child.id();
     let pipes = (|| {

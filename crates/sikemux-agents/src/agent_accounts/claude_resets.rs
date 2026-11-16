@@ -10,8 +10,8 @@ use reqwest::{Client, RequestBuilder, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use sikemux_process::command::Command;
 use sikemux_process::sync::Locked;
-use tokio::process::Command;
 
 use super::folders;
 use super::usage::{ResetKind, ResetOutcome, Resets, Usage, UsageWindow};
@@ -350,7 +350,7 @@ async fn version(program: &Path) -> String {
     if let Some(version) = versions.locked().get(program) {
         return version.clone();
     }
-    let version = Command::from(sikemux_process::user_environment::command(program))
+    let version = Command::into_async(sikemux_process::user_environment::command(program))
         .arg("--version")
         .output()
         .await
@@ -391,7 +391,7 @@ async fn token(config_path: Option<&str>) -> Option<String> {
     let stored = if cfg!(target_os = "macos") {
         let item = keychain_item(folder.as_deref());
         let read = |owner: Option<String>| {
-            let mut security = Command::from(sikemux_process::user_environment::command(
+            let mut security = Command::into_async(sikemux_process::user_environment::command(
                 "/usr/bin/security",
             ));
             security.args(["find-generic-password", "-w", "-s", &item]);

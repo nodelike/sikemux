@@ -4,11 +4,11 @@ use crate::git::Git;
 use crate::server::worktree::build_output::{clear, Outcome, SET_ASIDE};
 use crate::server::Core;
 use crate::server::ServerCore;
+use sikemux_process::command::Child;
 use sikemux_process::user_environment::command;
 use sikemux_view::host_stats::ClearedFor;
 use sikemux_wire::protocol::BuildIdentity;
 use std::path::Path;
-use std::process::Child;
 use std::time::Duration;
 
 const STAND_IN: &str = "SIKEMUX_TEST_STAND_IN";
@@ -95,7 +95,7 @@ fn a_process_running_from_an_idle_worktree_keeps_its_build_output() {
     let by_folder = removed_while(&core, &tree, in_folder);
     let from_script = command("sh")
         .arg(&script)
-        .stdin(std::process::Stdio::piped())
+        .stdin(sikemux_process::command::Stdio::piped())
         .current_dir(parent.path())
         .spawn()
         .unwrap();

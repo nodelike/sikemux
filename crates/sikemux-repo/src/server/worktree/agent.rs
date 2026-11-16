@@ -558,7 +558,7 @@ pub fn command_in(
     command: &str,
     cwd: &Path,
     env: &[(String, String)],
-) -> Result<std::process::Command, String> {
+) -> Result<sikemux_process::command::Command, String> {
     let mut process = crate::os::login_shell()?;
     process.args(["-lc", command]).current_dir(cwd);
     process.envs(env.iter().map(|(key, value)| (key, value)));

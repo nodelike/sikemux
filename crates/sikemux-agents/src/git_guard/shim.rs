@@ -6,10 +6,10 @@
 //! the system's git first, so they also check each shell command before it
 //! runs: this binary again, linked as the hook their harnesses call.
 
+use sikemux_process::command::Command;
 use std::ffi::OsString;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -642,7 +642,7 @@ fn gh_run(words: &[String], cwd: &Path) -> Option<i32> {
     };
     let mut child = sikemux_process::user_environment::command(&jq)
         .args(["-r", &filter])
-        .stdin(std::process::Stdio::piped())
+        .stdin(sikemux_process::command::Stdio::piped())
         .spawn()
         .ok()?;
     if let Some(mut stdin) = child.stdin.take() {
@@ -689,7 +689,7 @@ fn gh_merge(mut view: Command, gh: &GhAsAgents, args: &[&str], cwd: &Path) -> i3
         .args(["pr", "view"])
         .args(&pull)
         .args(["--json", "number,headRefName,headRefOid"])
-        .stderr(std::process::Stdio::inherit())
+        .stderr(sikemux_process::command::Stdio::inherit())
         .output();
     let Some(found) = viewed
         .ok()
@@ -773,8 +773,8 @@ fn gh_remote_urls(cwd: &Path) -> Vec<String> {
     let output = sikemux_process::user_environment::command(&git)
         .current_dir(cwd)
         .args(["config", "--get-regexp", r"^remote\..*\.(url|gh-resolved)$"])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .output();
     let Ok(output) = output else {
         return Vec::new();
@@ -893,8 +893,8 @@ const GUARD_WAIT: Duration = Duration::from_secs(10);
 fn alias_of(git: &Path, name: &str) -> Option<String> {
     let output = sikemux_process::user_environment::command(git)
         .args(["config", "--get", &format!("alias.{name}")])
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .output()
         .ok()
         .filter(|output| output.status.success())?;
