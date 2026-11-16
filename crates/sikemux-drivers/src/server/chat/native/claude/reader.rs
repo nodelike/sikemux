@@ -166,6 +166,9 @@ pub(crate) struct ReaderState {
     task_plan: TaskPlan,
     used: Option<u64>,
     size: u64,
+    /// What the session has cost so far, as its last turn reported it.
+    #[serde(default)]
+    cost: Option<f64>,
     model: Option<String>,
     /// The account folder the chat runs in, which windows are learned for.
     #[serde(default)]
@@ -475,6 +478,7 @@ impl Reader {
                 task_plan: TaskPlan::default(),
                 used: None,
                 size: 200_000,
+                cost: None,
                 model: None,
                 account: None,
                 calls: Vec::new(),
@@ -913,6 +917,9 @@ impl Reader {
             }
             if let Some(used) = inner.get("usage").and_then(usage_total) {
                 self.data.used = Some(used);
+                if !self.quiet() {
+                    self.tell_usage();
+                }
             }
         }
         for meta in message
@@ -1152,15 +1159,8 @@ impl Reader {
                 self.data.size = size;
             }
         }
-        let used = self.data.used;
-        if let Some(used) = used {
-            let mut update = sikemux_fold::update::usage(used, self.data.size);
-            update["compactAt"] = json!(cap::compact_at(self.data.size));
-            if let Some(cost) = result.total_cost_usd {
-                update["cost"] = json!({ "amount": cost, "currency": "USD" });
-            }
-            self.sink.update(&self.data.session_id, update);
-        }
+        self.data.cost = result.total_cost_usd.or(self.data.cost);
+        self.tell_usage();
         self.tally(result);
         let answers = result.user_message_uuid.as_deref();
         let quiet = {
@@ -1263,10 +1263,23 @@ impl Reader {
         self.data.calls.push(call);
     }
 
+    fn tell_usage(&self) {
+        let Some(used) = self.data.used else {
+            return;
+        };
+        let mut update = sikemux_fold::update::usage(used, self.data.size);
+        update["compactAt"] = json!(cap::compact_at(self.data.size));
+        if let Some(cost) = self.data.cost {
+            update["cost"] = json!({ "amount": cost, "currency": "USD" });
+        }
+        self.sink.update(&self.data.session_id, update);
+    }
+
     fn boundary(&mut self, metadata: CompactMetadata) {
         let after = metadata.post_tokens.unwrap_or(0);
         if metadata.post_tokens.is_some() {
             self.data.used = Some(after);
+            self.tell_usage();
         }
         self.sink.compacted(after);
         let trigger = if self.quiet() {

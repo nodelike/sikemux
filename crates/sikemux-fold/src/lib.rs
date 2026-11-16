@@ -1431,7 +1431,9 @@ impl Fold {
                 }
             }
             UpdateKind::UsageUpdate => {
-                if let Some(usage) = context_usage(update) {
+                if let Some(usage) =
+                    context_usage(update).filter(|usage| self.head.usage.as_ref() != Some(usage))
+                {
                     self.head.usage = Some(usage);
                     self.set_head("usage");
                 }
