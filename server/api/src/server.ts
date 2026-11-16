@@ -123,7 +123,6 @@ export function startServer(config: Config, log: Logger) {
         ? new PaddleProvider({
             api: new PaddleApi(billing.paddleKey, log),
             apiOrigin: config.apiOrigin,
-            appOrigin: config.appOrigin,
             log,
           })
         : null;

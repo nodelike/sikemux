@@ -133,10 +133,15 @@ function productOf(price: PaddlePrice): BillingProductId {
 function linesOf(
   items: readonly { quantity: number; price: PaddlePrice }[],
 ): InvoiceLine[] {
-  return items.map((item) => ({
-    product: productOf(item.price),
-    quantity: item.quantity,
-  }));
+  return (
+    items
+      // A change lists what it replaced with a negative quantity.
+      .filter((item) => item.quantity > 0)
+      .map((item) => ({
+        product: productOf(item.price),
+        quantity: item.quantity,
+      }))
+  );
 }
 
 /**
@@ -223,7 +228,6 @@ function signedBy(header: string, body: string, secret: string, nowMs: number) {
 export interface PaddleOptions {
   api: PaddleApi;
   apiOrigin: string;
-  appOrigin: string;
   log: Logger;
   /** The webhook's signing secret, when known without asking Paddle. */
   webhookSecret?: string;
@@ -241,7 +245,6 @@ export class PaddleProvider implements BillingProvider {
   private readonly log: Logger;
   private readonly now: () => number;
   private readonly webhookUrl: string;
-  private readonly payUrl: string;
   private secret: { value: string; at: number } | null;
   private prices: { all: PaddlePrice[]; at: number } | null = null;
   private clientToken: string | null = null;
@@ -251,7 +254,6 @@ export class PaddleProvider implements BillingProvider {
     this.log = options.log;
     this.now = options.now ?? Date.now;
     this.webhookUrl = options.apiOrigin + WEBHOOK_PATH;
-    this.payUrl = `${options.appOrigin}/pay`;
     this.secret = options.webhookSecret
       ? { value: options.webhookSecret, at: Infinity }
       : null;
@@ -353,7 +355,6 @@ export class PaddleProvider implements BillingProvider {
         ...(request.providerCustomerId
           ? { customer_id: request.providerCustomerId }
           : {}),
-        checkout: { url: this.payUrl },
       },
     );
     if (!transaction.checkout?.url)
@@ -546,7 +547,6 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
   const base = { eventId: event.event_id, at };
   switch (event.event_type) {
     case "subscription.updated":
-    case "subscription.activated":
     case "subscription.resumed":
     case "subscription.past_due":
     case "subscription.canceled": {
@@ -580,7 +580,8 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
       const txn = event.data as PaddleTransaction;
       const reason = reasonOf(txn.origin);
       const total = Number(txn.details.totals.grand_total);
-      if (!txn.subscription_id || !reason || !txn.items.length) return [];
+      const lines = linesOf(txn.items);
+      if (!txn.subscription_id || !reason || !lines.length) return [];
       if (total === 0 && reason !== "first_payment") return [];
       const payment: ProviderEvent = {
         ...base,
@@ -590,7 +591,7 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
             : "payment.failed",
         providerPaymentId: txn.id,
         providerSubscriptionId: txn.subscription_id,
-        lines: linesOf(txn.items),
+        lines,
         reason,
         total: {
           amount: total,
