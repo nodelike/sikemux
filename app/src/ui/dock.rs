@@ -322,7 +322,11 @@ impl RenderOnce for DockMenu {
                             true => {
                                 chip.child(Spinner::new().with_size(px(12.)).color(t.text_tertiary))
                             }
-                            false => chip.child(ui_icon(scope.icon, 12.)),
+                            false => chip.child(ui_icon(scope.icon, 12.).text_color(if scope.on {
+                                t.text_primary
+                            } else {
+                                t.text_tertiary
+                            })),
                         })
                         .child(scope.label)
                 }))
