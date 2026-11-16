@@ -150,7 +150,6 @@ icons!(
     Releases => "releases",
     Resize => "resize",
     Rocket => "rocket",
-    RemoteHost => "remote-host",
     Replace => "replace",
     Restore => "restore",
     Resume => "resume",

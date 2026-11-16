@@ -57,7 +57,6 @@ const DRAWN = {
   snip: [ICONS, "IconSnip"],
   pencil: [ICONS, "IconPencil"],
   server: [ICONS, "IconServer"],
-  "remote-host": [ICONS, "IconRemoteHost"],
   window: [ICONS, "IconWindow"],
   claude: [ICONS, "IconClaude"],
   hermes: [ICONS, "IconHermes"],
