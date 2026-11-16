@@ -239,8 +239,7 @@ fn card(
                 .font_weight(FontWeight::MEDIUM)
                 .line_height(px(19.))
                 .text_color(t.text_primary)
-                .line_clamp(2)
-                .child(ask.title.clone()),
+                .child(div().line_clamp(2).child(ask.title.clone())),
         )
         .children(thumbnail(ask, &t))
         .children(links(bench, ask, chief, handle, cx))
