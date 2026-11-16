@@ -55,7 +55,7 @@ pub(super) fn card(
         .block_mouse_except_scroll()
         .bg(linear_gradient(
             180.,
-            linear_color_stop(theme::mix(t.surface_raised, t.text_primary, 0.035), 0.),
+            linear_color_stop(theme::mix(t.text_primary, t.surface_raised, 0.035), 0.),
             linear_color_stop(t.surface_raised, 0.3),
         ))
         .border(crate::theme::border())
