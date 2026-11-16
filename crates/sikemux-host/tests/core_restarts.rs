@@ -60,10 +60,13 @@ fn alive(pid: u32) -> bool {
         .is_ok_and(|listed| String::from_utf8_lossy(&listed.stdout).contains(&pid.to_string()))
 }
 
-/// The `sikemux-host` command line, as the installer and uninstaller run it.
-fn host(command: &str) -> i32 {
+/// The `sikemux-host` command line, as the installer and uninstaller run it, on this test's
+/// folders. An elevated test hands its children the person's environment rather than its own.
+fn host(dir: &Path, command: &str) -> i32 {
     let ran = sikemux_process::user_environment::command(env!("CARGO_BIN_EXE_sikemux-host"))
         .arg(command)
+        .env("LOCALAPPDATA", dir)
+        .env(sikemux_process::vars::CONFIG_DIR, dir.join("config"))
         .output()
         .unwrap();
     ran.status.code().unwrap_or(-1)
@@ -147,15 +150,15 @@ fn a_killed_core_comes_back_and_a_stopped_one_stays_down() {
         )
     });
 
-    assert_eq!(host("status"), 0, "{}", log());
-    assert_eq!(host("stop"), 0, "{}", log());
+    assert_eq!(host(dir.path(), "status"), 0, "{}", log());
+    assert_eq!(host(dir.path(), "stop"), 0, "{}", log());
     assert!(
         stays_down(&launch.socket, sixth),
         "a core stopped by `sikemux-host stop` came back\n{}",
         log()
     );
     assert!(gone(&watching), "{}", log());
-    assert_eq!(host("status"), 3, "{}", log());
+    assert_eq!(host(dir.path(), "status"), 3, "{}", log());
 
     let fifth = login_item::start_core(IDENTIFIER, &launch).unwrap().pid;
     assert!(login_item::remove(IDENTIFIER).unwrap());
