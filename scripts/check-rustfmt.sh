@@ -2,10 +2,12 @@
 # The one Rust format check, shared by pre-push and the land queue's landChecks.
 #   check-rustfmt.sh <revisions as git log takes them>   the newest commit's copy of each Rust file they change
 #   check-rustfmt.sh --files [--write] <file>...         those files as the checkout has them
+#   check-rustfmt.sh --stdin <file>                      formats that file's text from stdin to stdout
 # Each file is formatted with its crate's edition, read from the nearest Cargo.toml.
 set -euo pipefail
 
 rustfmt="$(rustup which rustfmt 2>/dev/null || command -v rustfmt || true)"
+[ -n "$rustfmt" ] || [ "${1:-}" != --stdin ] || exec cat
 [ -n "$rustfmt" ] || { echo "! rustfmt is not installed; Rust formatting is left to CI" >&2; exit 0; }
 
 edition_of() {
@@ -45,6 +47,10 @@ refuse() {
   sed "s|$1/||" >&2
   exit 1
 }
+
+if [ "${1:-}" = --stdin ]; then
+  exec "$rustfmt" --edition "$(edition_of "$2")" --emit stdout
+fi
 
 if [ "${1:-}" = --files ]; then
   shift

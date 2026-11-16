@@ -23,7 +23,9 @@ use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::repo_events::{commit_made, CommitMade};
 use crate::server::Core;
+use crate::tasks::config::{self, ConfigLoad};
 use crate::trailers::Commit;
+use sikemux_wire::protocol::PermissionMode;
 
 const ATTEMPTS: usize = 4;
 /// Files a commit's answer lists as left out; the rest are counted.
@@ -497,7 +499,7 @@ pub fn commit(
             .collect::<Result<Vec<_>, _>>()?;
         let mine = super::owners::standing_for(&owners, core, agent_id);
         let Plan {
-            changes,
+            mut changes,
             left,
             unchanged,
         } = plan(&owners, &diff, mine, &named)?;
@@ -512,6 +514,7 @@ pub fn commit(
         if changes.is_empty() {
             return Err(Refusal::NothingYours(nothing_yours(&left)));
         }
+        let unformatted = format(core, agent_id, &diff.top, &mut changes)?;
         let lacking = unresolved(&diff, &changes)?;
         let warning = (!lacking.is_empty()).then(|| {
             format!(
@@ -557,6 +560,7 @@ pub fn commit(
                 if let Some(signer) = signer.as_ref().filter(|_| !attributed) {
                     committer::record(core, &diff.top, &commit, signer);
                 }
+                tidy(&diff.top, &changes, &unformatted);
                 let note = share(&diff.top, &changes, &blobs).err();
                 let paths: Vec<String> = changes.iter().map(|change| change.path.clone()).collect();
                 commit_made(
@@ -595,6 +599,75 @@ pub fn commit(
     Err(Refusal::Other(
         "the branch kept moving while committing; call this again".into(),
     ))
+}
+
+/// Runs each change through the `format` of the land checks its path matches, giving back what
+/// each change held before when that changed it. A format that fails refuses the commit. Like
+/// a task, it runs unasked for an agent the person let run anything.
+fn format(
+    core: &Core,
+    agent_id: &str,
+    top: &Path,
+    changes: &mut [Change],
+) -> Result<Vec<Option<Vec<u8>>>, Refusal> {
+    let mut before = vec![None; changes.len()];
+    let formats = |config: &config::ProjectConfig| {
+        (config.land_checks.iter()).any(|check| check.format.is_some())
+    };
+    let ConfigLoad::Valid { config, .. } = config::load(top) else {
+        return Ok(before);
+    };
+    let bypass = (core.workspaces().run_of(agent_id))
+        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass);
+    let trusted = || bypass || super::generate::trust_needed_for(core, top, top, formats).is_none();
+    if !formats(&config) || !trusted() {
+        return Ok(before);
+    }
+    for (change, before) in changes.iter_mut().zip(&mut before) {
+        if !change.mode.starts_with("100") {
+            continue;
+        }
+        for check in &config.land_checks {
+            let (Some(format), Some(content)) = (&check.format, &change.content) else {
+                continue;
+            };
+            if !check.when.set.is_match(&change.path) {
+                continue;
+            }
+            let args = [change.path.clone()];
+            let limit = super::queue::LAND_CHECK_LIMIT;
+            let written =
+                super::queue::shell(top, format, &check.label, &args, Some(content), limit)
+                    .map_err(|why| {
+                        Refusal::Other(format!(
+                            "Nothing was committed: {} could not format {}:\n\n{}",
+                            check.label,
+                            change.path,
+                            crate::git::tail(&why)
+                        ))
+                    })?
+                    .into_bytes();
+            if written != *content {
+                before.get_or_insert_with(|| content.clone());
+                change.content = Some(written);
+            }
+        }
+    }
+    Ok(before)
+}
+
+/// Writes the formatted content of each change back to its file, when the file still holds just
+/// what was committed before formatting.
+fn tidy(top: &Path, changes: &[Change], unformatted: &[Option<Vec<u8>>]) {
+    for (change, before) in changes.iter().zip(unformatted) {
+        let (Some(before), Some(content)) = (before, &change.content) else {
+            continue;
+        };
+        let file = top.join(&change.path);
+        if std::fs::read(&file).is_ok_and(|now| now == *before) {
+            let _ = std::fs::write(&file, content);
+        }
+    }
 }
 
 fn nothing_yours(left: &[Left]) -> String {

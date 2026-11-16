@@ -6,6 +6,7 @@
       "label": "rustfmt",
       "command": "scripts/check-rustfmt.sh --files \"$@\"",
       "fix": "scripts/check-rustfmt.sh --files --write \"$@\"",
+      "format": "scripts/check-rustfmt.sh --stdin \"$1\"",
       "when": ["**/*.rs"]
     },
     {

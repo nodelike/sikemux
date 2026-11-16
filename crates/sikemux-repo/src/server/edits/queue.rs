@@ -542,7 +542,7 @@ async fn fixed(core: &Arc<Core>, key: &Key, from: &str, laid: &Laid) -> Option<S
         .is_none();
         for (check, files) in fixes.iter().filter(|_| trusted) {
             let fix = check.fix.as_deref().unwrap_or_default();
-            if shell(&checkout, fix, &check.label, files, LAND_CHECK_LIMIT).is_ok() {
+            if shell(&checkout, fix, &check.label, files, None, LAND_CHECK_LIMIT).is_ok() {
                 ran.push(format!("the fix of {}", check.label));
             }
         }
@@ -1007,6 +1007,7 @@ fn run_land_check(checkout: &Path, check: &LandCheck, files: &[String]) -> Optio
         &check.command,
         &check.label,
         files,
+        None,
         LAND_CHECK_LIMIT,
     )
     .err()?;
@@ -1017,13 +1018,14 @@ fn run_land_check(checkout: &Path, check: &LandCheck, files: &[String]) -> Optio
     ))
 }
 
-/// Runs `script` in `dir` with `args`, its standard output on success and all it wrote when it
-/// fails.
-fn shell(
+/// Runs `script` in `dir` with `args` and `input` on standard input, its standard output on
+/// success and all it wrote when it fails.
+pub(super) fn shell(
     dir: &Path,
     script: &str,
     name: &str,
     args: &[String],
+    input: Option<&[u8]>,
     limit: std::time::Duration,
 ) -> Result<String, String> {
     let mut shell = sikemux_process::user_environment::background_shell()?;
@@ -1032,7 +1034,7 @@ fn shell(
         .args(args)
         .envs(crate::git_guard::shim::environment(None))
         .current_dir(dir);
-    match sikemux_process::run(&mut shell, None, limit, METADATA_OUTPUT_LIMIT, None) {
+    match sikemux_process::run(&mut shell, input, limit, METADATA_OUTPUT_LIMIT, None) {
         Ok(ran) if ran.status.success() => Ok(String::from_utf8_lossy(&ran.stdout).into_owned()),
         Ok(ran) => Err(format!(
             "{}{}",
@@ -1043,7 +1045,7 @@ fn shell(
     }
 }
 
-const LAND_CHECK_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+pub(super) const LAND_CHECK_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The check for what changed from `from` to `to`, read in `checkout` at `to`,
 /// with what to call it: Clippy on the crates it changes or whose files they
