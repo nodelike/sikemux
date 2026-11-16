@@ -14,6 +14,7 @@ type AccountState =
 export function useAccountState(ready: boolean) {
   const { isSignedIn, getToken } = useAuth();
   const [account, setAccount] = useState<AccountState>({ state: "loading" });
+  const [staff, setStaff] = useState(false);
 
   useEffect(() => {
     if (!ready || !isSignedIn) return;
@@ -23,6 +24,7 @@ export function useAccountState(ready: boolean) {
         const token = await signedInToken(getToken, "see your account");
         const read = await api(token).getAccount();
         if (!current) return;
+        setStaff(read.staff);
         setAccount(
           read.status === "deleting" && read.deletesAt
             ? { state: "deleting", deletesAt: read.deletesAt }
@@ -41,7 +43,7 @@ export function useAccountState(ready: boolean) {
     (restorableDays: number) => setAccount({ state: "active", restorableDays }),
     [],
   );
-  return { account, restored };
+  return { account, staff, restored };
 }
 
 export function RestoreAccount({

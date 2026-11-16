@@ -1187,6 +1187,74 @@ a.button {
   font-weight: 600;
 }
 
+.plan-cards.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.plan-card[data-chosen] {
+  border-color: var(--border-strong);
+  background: var(--gray-100);
+}
+
+.plan-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-card h3 > .aside {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font: 400 11px var(--mono);
+}
+
+.plan-card .tag {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.plan-card .runs-on {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.built {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+
+.built[data-built="not built"] {
+  border-color: color-mix(in oklab, var(--warn) 30%, transparent);
+  color: color-mix(in oklab, var(--warn) 80%, var(--text-tertiary));
+}
+
+.staff-only {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.section-lede {
+  max-width: 720px;
+  margin: -2px 0 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 .price {
   color: var(--text-primary);
   font-size: 26px;
@@ -1394,7 +1462,8 @@ a.button {
 }
 
 @media (max-width: 720px) {
-  .plan-cards {
+  .plan-cards,
+  .plan-cards.three {
     grid-template-columns: minmax(0, 1fr);
   }
 

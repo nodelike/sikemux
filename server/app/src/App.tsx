@@ -7,7 +7,12 @@ import {
   type MouseEvent,
 } from "react";
 
-import { IconCreditCard, IconServer, IconUser } from "@shared/ui/Icons";
+import {
+  IconCreditCard,
+  IconServer,
+  IconTag,
+  IconUser,
+} from "@shared/ui/Icons";
 
 import { AccountPage } from "./AccountPage.tsx";
 import { Backdrop } from "./Backdrop.tsx";
@@ -21,6 +26,7 @@ import {
 import { Devices, useDevices } from "./Devices.tsx";
 import { HostApproval } from "./HostApproval.tsx";
 import { useLive } from "./live.ts";
+import { PricingPage } from "./Pricing.tsx";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
@@ -30,6 +36,7 @@ import {
   HOST,
   HOSTS,
   isSharePath,
+  PRICING,
   takeReturn,
   usePath,
 } from "./navigation.ts";
@@ -182,6 +189,7 @@ export function App() {
 const PAGE_TITLES: Record<string, string> = {
   [HOSTS]: "Hosts",
   [BILLING]: "Plan and billing",
+  [PRICING]: "Pricing",
   [DELETE_ACCOUNT]: "Delete your account",
 };
 
@@ -201,7 +209,7 @@ function Account({
   const { user } = useUser();
   const { isSignedIn } = useAuth();
   const email = user?.primaryEmailAddress?.emailAddress;
-  const { account, restored } = useAccountState(ready);
+  const { account, staff, restored } = useAccountState(ready);
   const active = account.state === "active";
   const devices = useDevices(ready && active);
   const signIns = useSignIns(ready && active);
@@ -211,8 +219,11 @@ function Account({
       : undefined;
   const billingShown = useBillingShown(ready && active);
   const [planVersion, setPlanVersion] = useState(0);
-  const page =
-    path in PAGE_TITLES && (path !== BILLING || billingShown) ? path : "/";
+  const shown: Record<string, boolean> = {
+    [BILLING]: billingShown,
+    [PRICING]: staff,
+  };
+  const page = path in PAGE_TITLES && shown[path] !== false ? path : "/";
 
   useEffect(() => {
     document.title = `${PAGE_TITLES[page] ?? "Account"} · Sikemux`;
@@ -259,6 +270,20 @@ function Account({
           },
         ]
       : []),
+    ...(staff
+      ? [
+          {
+            label: "Staff",
+            items: [
+              {
+                path: PRICING,
+                name: "Pricing",
+                icon: <IconTag size={15} />,
+              },
+            ],
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -279,6 +304,8 @@ function Account({
           onBack={() => go("/")}
           onDeleted={onDeleted}
         />
+      ) : page === PRICING ? (
+        <PricingPage />
       ) : page === BILLING ? (
         <BillingPage version={planVersion} />
       ) : page === HOSTS ? (

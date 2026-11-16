@@ -7,9 +7,10 @@ export const CONSENT = "/oauth-consent";
 export const HOST = "/host";
 export const HOSTS = "/hosts";
 export const BILLING = "/billing";
+export const PRICING = "/pricing";
 
 /** The signed-in pages a sign-in can come back to. */
-const PAGES = new Set(["/", HOSTS, BILLING, DELETE_ACCOUNT]);
+const PAGES = new Set(["/", HOSTS, BILLING, PRICING, DELETE_ACCOUNT]);
 
 const RETURN_KEY = "sikemux.returnTo";
 

@@ -4,13 +4,13 @@ import type {
   BillingInterval,
   BillingOverview,
   Invoice,
+  Money,
   Org,
   Subscription,
   SubscriptionChange,
 } from "@sikemux/protocol";
 import { formatDay } from "@shared/lib/format";
 import {
-  IconCheck,
   IconCircleAlert,
   IconCreditCard,
   IconDownload,
@@ -19,6 +19,7 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
+import { PlanCard } from "./PlanCard.tsx";
 import {
   FEATURE_WORDS,
   featuresAdded,
@@ -58,7 +59,7 @@ type Load =
   | { state: "failed"; problem: string }
   | ({ state: "loaded" } & Loaded);
 
-function useClient() {
+export function useClient() {
   const { getToken } = useAuth();
   return useCallback(
     async (what: string) => api(await signedInToken(getToken, what)),
@@ -725,7 +726,7 @@ function Upgrade({
     >
       <div className="plan-cards">
         {pro ? (
-          <PlanCard
+          <PlanOffer
             catalog={catalog}
             plan="pro"
             price={priceOf(pro, interval) ?? proMonth}
@@ -760,10 +761,10 @@ function Upgrade({
             >
               {canBuy ? "Upgrade to Pro" : NOT_OPEN}
             </button>
-          </PlanCard>
+          </PlanOffer>
         ) : null}
         {team ? (
-          <PlanCard
+          <PlanOffer
             catalog={catalog}
             plan="team"
             price={priceOf(team, "month")}
@@ -788,14 +789,14 @@ function Upgrade({
                 {canBuy ? "Start Team" : NOT_OPEN}
               </button>
             )}
-          </PlanCard>
+          </PlanOffer>
         ) : null}
       </div>
     </Section>
   );
 }
 
-function PlanCard({
+function PlanOffer({
   catalog,
   plan,
   price,
@@ -805,36 +806,25 @@ function PlanCard({
 }: {
   catalog: BillingCatalog;
   plan: "pro" | "team";
-  price?: { amount: number; currency: string };
+  price?: Money;
   per: string;
   other?: string;
   children: ReactNode;
 }) {
   const { before, added } = featuresAdded(catalog, plan);
-  const name = catalog.plans.find((each) => each.id === plan)?.name ?? plan;
   return (
-    <div className="plan-card">
-      <h3>{name}</h3>
-      {price ? (
-        <div className="price">
-          {money(price, { cents: false })}{" "}
-          <small>
-            {per}
-            {other ? ` · ${other}` : ""}
-          </small>
-        </div>
-      ) : null}
-      {before ? <div className="plus">Everything in {before}, plus</div> : null}
-      <ul className="features">
-        {added.map((feature) => (
-          <li key={feature}>
-            <IconCheck size={13} />
-            <span>{FEATURE_WORDS[feature]}</span>
-          </li>
-        ))}
-      </ul>
-      <div className="plan-card-foot">{children}</div>
-    </div>
+    <PlanCard
+      name={catalog.plans.find((each) => each.id === plan)?.name ?? plan}
+      price={price}
+      per={other ? `${per} · ${other}` : per}
+      plus={before ? `Everything in ${before}, plus` : undefined}
+      lines={added.map((feature) => ({
+        key: feature,
+        text: FEATURE_WORDS[feature],
+      }))}
+    >
+      {children}
+    </PlanCard>
   );
 }
 

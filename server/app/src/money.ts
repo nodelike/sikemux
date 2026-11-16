@@ -88,3 +88,35 @@ export function priceText(
     .filter(Boolean)
     .join(" ");
 }
+
+export type ShedWords = { tag: string; specs: string[]; runsOn: string };
+
+export const SHED_WORDS: Partial<Record<BillingProductId, ShedWords>> = {
+  shed: {
+    tag: "Sleeps when idle",
+    specs: [
+      "Agents keep working with your laptop shut",
+      "Sleeps when no agent is working and nobody is connected, wakes in about a second",
+      "Up to 8 GiB of memory",
+      "No hours counted",
+    ],
+    runsOn: "Runs on boxd, which bills us on use",
+  },
+  shed_always_on: {
+    tag: "Never sleeps",
+    specs: [
+      "4 vCPU, 8 GB of memory, 75 GB of disk",
+      "For agents that work round the clock",
+      "Dev servers and schedules stay up",
+    ],
+    runsOn: "Runs on a fixed-price VM",
+  },
+  shed_large: {
+    tag: "Never sleeps",
+    specs: [
+      "8 vCPU, 24 GB of memory, 200 GB of disk",
+      "Room for big builds and many agents",
+    ],
+    runsOn: "Runs on a fixed-price VM",
+  },
+};
