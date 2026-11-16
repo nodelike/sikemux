@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orgs.json",
+  "$defs": {
+    "OrgId": {
+      "description": "An org's id, a UUID in lowercase.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "OrgRole": {
+      "description": "What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.",
+      "type": "string",
+      "enum": ["owner", "admin", "user"]
+    }
+  }
+}

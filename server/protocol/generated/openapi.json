@@ -3599,6 +3599,16 @@
         "required": ["relays", "minimumVersions"],
         "additionalProperties": false
       },
+      "OrgId": {
+        "description": "An org's id, a UUID in lowercase.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "OrgRole": {
+        "description": "What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.",
+        "type": "string",
+        "enum": ["owner", "admin", "user"]
+      },
       "PendingHost": {
         "description": "The host waiting behind a user code, for the person to check before approving it.",
         "type": "object",

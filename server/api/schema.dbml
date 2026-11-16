@@ -365,6 +365,45 @@ Table mod_files {
   }
 }
 
+Table orgs {
+  id uuid [pk, default: `gen_random_uuid()`]
+  name text [not null, note: '(length(name) >= 1) AND (length(name) <= 64)']
+  created_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table org_users {
+  org_id uuid [not null]
+  user_id text [not null]
+  role text [not null, note: 'role = ANY (ARRAY[\'owner\', \'admin\', \'user\'])']
+  invited_by text
+  joined_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (org_id, user_id) [pk]
+    user_id [name: 'org_users_by_user']
+  }
+}
+
+Table org_invites {
+  id uuid [pk, default: `gen_random_uuid()`]
+  org_id uuid [not null]
+  role text [not null, note: 'role = ANY (ARRAY[\'owner\', \'admin\', \'user\'])']
+  token_hash text [not null, unique, note: 'token_hash ~ \'^[0-9a-f]{64}$\'']
+  invited_by text [not null]
+  created_at timestamptz [not null, default: `now()`]
+  expires_at timestamptz [not null]
+  accepted_by text
+  accepted_at timestamptz
+  revoked_at timestamptz
+
+  indexes {
+    (org_id, expires_at) [name: 'org_invites_open', note: 'where ((accepted_at IS NULL) AND (revoked_at IS NULL))']
+  }
+
+  Note: '(accepted_at IS NULL) = (accepted_by IS NULL)'
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -385,3 +424,6 @@ Ref: mod_counters.user_id - vaults.user_id [delete: cascade]
 Ref: mod_documents.user_id > mod_counters.user_id [delete: cascade]
 Ref: mod_purges.user_id > mod_counters.user_id [delete: cascade]
 Ref: mod_files.user_id > mod_counters.user_id [delete: cascade]
+Ref: org_users.org_id > orgs.id [delete: cascade]
+Ref: org_users.user_id > users.id [delete: cascade]
+Ref: org_invites.org_id > orgs.id [delete: cascade]

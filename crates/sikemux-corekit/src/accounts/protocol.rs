@@ -573,6 +573,23 @@ pub enum LiveServerMessage {
     Unknown,
 }
 
+/// An org's id, a UUID in lowercase.
+pub type OrgId = String;
+
+/// What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OrgRole {
+    #[serde(rename = "owner")]
+    Owner,
+    #[serde(rename = "admin")]
+    Admin,
+    #[serde(rename = "user")]
+    User,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Platform {
     #[serde(rename = "macos")]
@@ -927,6 +944,8 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "LiveRevoked" => through::<LiveServerMessage>(json),
         "LiveRole" => through::<LiveRole>(json),
         "LiveServerMessage" => through::<LiveServerMessage>(json),
+        "OrgId" => through::<OrgId>(json),
+        "OrgRole" => through::<OrgRole>(json),
         "Platform" => through::<Platform>(json),
         "PushApp" => through::<PushApp>(json),
         "PushKind" => through::<PushKind>(json),

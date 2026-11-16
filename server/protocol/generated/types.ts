@@ -721,6 +721,13 @@ export interface Network {
   flags?: Flags;
 }
 
+/** An org's id, a UUID in lowercase. */
+export type OrgId = string;
+
+/** What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner. */
+export type OrgRole = "owner" | "admin" | "user";
+export const orgRoleValues: readonly OrgRole[] = ["owner", "admin", "user"];
+
 /** The host waiting behind a user code, for the person to check before approving it. */
 export interface PendingHost {
   key: DeviceKey;
@@ -1424,6 +1431,8 @@ export interface Definitions {
   ModsPushed: ModsPushed;
   ModStored: ModStored;
   Network: Network;
+  OrgId: OrgId;
+  OrgRole: OrgRole;
   PendingHost: PendingHost;
   Platform: Platform;
   PluginId: PluginId;

@@ -12,6 +12,7 @@ import type {
   DeviceRole,
   HookHeader,
   HookMethod,
+  OrgRole,
   Platform,
   PushApp,
   PushPlatform,
@@ -278,6 +279,31 @@ export interface Tables {
     mod_id: string;
     purged_by: string;
     purged_at: CreatedAt;
+  };
+  orgs: {
+    id: Generated<string>;
+    name: string;
+    created_by: string;
+    created_at: CreatedAt;
+  };
+  org_users: {
+    org_id: string;
+    user_id: string;
+    role: OrgRole;
+    invited_by: string | null;
+    joined_at: CreatedAt;
+  };
+  org_invites: {
+    id: Generated<string>;
+    org_id: string;
+    role: OrgRole;
+    token_hash: string;
+    invited_by: string;
+    created_at: CreatedAt;
+    expires_at: Date;
+    accepted_by: ColumnType<string | null, never, string>;
+    accepted_at: ColumnType<Date | null, never, Date>;
+    revoked_at: ColumnType<Date | null, never, Date>;
   };
   audit: {
     id: Generated<string>;
