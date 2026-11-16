@@ -1,0 +1,20 @@
+# The rail at the largest text size with agents at work, each row's working mark beside its name.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+prefer uiTextScale 1.25
+project storefront line-shop
+core openChief {"project":"storefront"}
+chat Flint
+title "Fix the rounding in cart totals"
+lead Chief
+say "hold 600000"
+chat Maple
+title "Bundle the storefront"
+lead Chief
+say "hold 600000"
+chat Otter
+title "Check the refund totals"
+say "hold 600000"
+settle 4
+snap rail-working
