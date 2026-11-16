@@ -159,6 +159,10 @@ struct Question {
     /// goes to it rather than arriving as a message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dialog: Option<String>,
+    /// The questions the agent it is about asked its asker, which wait for this one's answer
+    /// rather than going to the person as well.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    holds: Vec<String>,
 }
 
 impl Question {
@@ -962,6 +966,7 @@ fn open(
             from_host: None,
             approval: asked.approval,
             dialog: asked.dialog,
+            holds: Vec::new(),
         })
         .collect();
     let mut state = core.harness().questions.state.locked();
@@ -1021,7 +1026,7 @@ fn for_lead(question: &Question) -> (String, String) {
     }
     let id = &question.agent_id;
     let note = format!(
-        "@{name} ({id}), an agent you started, asks you this. Answer with agent_send to {id}, setting answers to {}. If only the person can answer it, ask them yourself with ask. If your turn ends with neither, it goes to the person.",
+        "@{name} ({id}), an agent you started, asks you this. Answer with agent_send to {id}, setting answers to {}. If only the person can answer it, ask them yourself with ask, setting about to {id}, and their answer reaches @{name} too. If your turn ends with neither, it goes to the person.",
         question.id
     );
     (text, note)
@@ -1117,6 +1122,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         };
         let _ = super::connection::blocking(linked).await;
     }
+    hold_for(core, &question);
     hand_to_lead(core, &question).await;
     let question = core
         .harness()
@@ -1136,6 +1142,29 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         },
         "note": left_off(sent_note(&question), about_wanted.filter(|_| question.about.is_none()), page_wanted.filter(|_| question.page.is_none())),
     }))
+}
+
+/// Has `call` hold the questions the agent it is about asked its asker, so a lead that asks the
+/// person about its worker's question raises one call, whose answer goes to both.
+fn hold_for(core: &Core, call: &Question) {
+    let Some(about) = call.about.as_ref().filter(|_| !call.secret) else {
+        return;
+    };
+    let questions = &core.harness().questions;
+    let mut state = questions.state.locked();
+    let held: Vec<String> = (state.open.iter())
+        .filter(|open| {
+            open.agent_id == about.agent_id && open.lead_id() == Some(call.agent_id.as_str())
+        })
+        .map(|open| open.id.clone())
+        .collect();
+    if held.is_empty() {
+        return;
+    }
+    if let Some(open) = state.open.iter_mut().find(|open| open.id == call.id) {
+        open.holds = held;
+        questions.changed(&mut state);
+    }
 }
 
 /// The note on an asked question, saying which of its hints the card leaves off.
@@ -1617,7 +1646,20 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                 .find(|question| question.id == given.id)
                 .ok_or("That question has been answered already")?;
             let text = answer_text(question, &given)?;
+            let held = (state.open.iter())
+                .filter(|open| question.holds.contains(&open.id))
+                .map(|open| {
+                    let given = AnswerParams {
+                        id: open.id.clone(),
+                        answer: Some(text.clone()),
+                        paths: given.paths.clone(),
+                        ..AnswerParams::default()
+                    };
+                    (open.clone(), given, text.clone())
+                })
+                .collect::<Vec<_>>();
             taken.push((question.clone(), given, text));
+            taken.extend(held);
         }
         state
             .open
@@ -1725,8 +1767,12 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                     paths,
                     private,
                 } = letter;
-                let note = done.clone().unwrap_or_else(|| {
-                    "The person answered the question you asked; go on with it.".to_owned()
+                let note = done.clone().unwrap_or_else(|| match &question.about {
+                    Some(about) if !question.holds.is_empty() => format!(
+                        "The person answered the question you asked; @{} has the answer to its own question too. Go on with it.",
+                        about.name
+                    ),
+                    _ => "The person answered the question you asked; go on with it.".to_owned(),
                 });
                 (
                     answered(question, &question.asked, *private),
@@ -1980,6 +2026,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
             .answered
             .retain(|answered| !gone.contains(&answered.question.agent_id));
         let mut changed = state.open.len() != before || state.answered.len() != answered;
+        let held: HashSet<String> = (state.open.iter())
+            .flat_map(|question| question.holds.iter().cloned())
+            .collect();
         for question in &mut state.open {
             let Stage::Lead {
                 lead_id,
@@ -1989,6 +2038,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
             else {
                 continue;
             };
+            if held.contains(&question.id) {
+                continue;
+            }
             let (reachable, busy) = leads
                 .get(lead_id.as_str())
                 .copied()
@@ -2225,6 +2277,82 @@ mod tests {
         assert_eq!(wait.kind, TurnWaitKind::Agent);
         assert_eq!(wait.what, "Mumen");
         assert_eq!(wait.started_at, 7);
+    }
+
+    /// A lead asked the person about its worker's question, then ended its turn, and the
+    /// person got the worker's question as a second call.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_lead_asking_the_person_about_its_workers_question_raises_one_call() {
+        use crate::server::parts::Parts;
+        use crate::server::workspace::{AddProjectParams, AddProjectParamsExt};
+        use crate::server::workspace_state::WorkspaceParts;
+        use crate::server::{Core, ServerCore};
+
+        let core = Core::new(Default::default(), None).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let git = |args: &[&str]| {
+            let mut all = vec!["-c", "user.name=test", "-c", "user.email=test@localhost"];
+            all.extend(args);
+            crate::git::Git::at(dir.path()).text(&all).expect("git");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["commit", "-q", "--allow-empty", "-m", "start"]);
+        let project = crate::server::workspace::add_project(
+            &core,
+            AddProjectParams::at(dir.path().to_owned()),
+        )
+        .await
+        .expect("the project");
+        for agent in ["worker", "lead"] {
+            let serde_json::Value::Object(draft) = serde_json::json!({
+                "id": agent,
+                "provider": "claude",
+                "project": project.id,
+                "cwd": dir.path(),
+                "title": agent,
+                "permissionMode": "auto",
+            }) else {
+                unreachable!()
+            };
+            core.workspaces().put_agent_draft(draft).expect("the agent");
+        }
+        let workers: Question = serde_json::from_value(serde_json::json!({
+            "id": "question-worker",
+            "agentId": "worker",
+            "name": "Nia",
+            "cli": "claude",
+            "project": "widget",
+            "asked": "Which call page, A, B or C?",
+            "text": "Which call page, A, B or C?",
+            "choices": [],
+            "blocked": true,
+            "at": 7,
+            "stage": { "stage": "lead", "leadId": "lead", "leadName": "Chief", "endedAt": 1 },
+        }))
+        .expect("a question");
+        let mut leads = workers.clone();
+        leads.id = "question-lead".to_owned();
+        leads.agent_id = "lead".to_owned();
+        leads.name = "Chief".to_owned();
+        leads.stage = super::Stage::Person { lead: None };
+        leads.about = Some(super::CallAsker {
+            agent_id: "worker".to_owned(),
+            name: "Nia".to_owned(),
+            cli: "claude".to_owned(),
+            chief: false,
+        });
+        let questions = &core.harness().questions;
+        questions
+            .state
+            .locked()
+            .open
+            .extend([workers, leads.clone()]);
+
+        super::hold_for(&core, &leads);
+        super::settle(&core);
+
+        let for_person: Vec<String> = questions.for_person().into_iter().map(|q| q.id).collect();
+        assert_eq!(for_person, ["question-lead"]);
     }
 
     /// The person's password to an access call showed in the asker's chat, and again in the
