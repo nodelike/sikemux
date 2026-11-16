@@ -546,8 +546,40 @@ pub(crate) fn command_words(words: &[String]) -> Option<&[String]> {
             !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         })
     };
-    let at = words.iter().position(|word| !runner(word))?;
-    Some(&words[at..])
+    let mut at = 0;
+    let mut in_env = false;
+    while let Some(word) = words.get(at) {
+        match word.as_str() {
+            "-C" | "--chdir" | "-u" | "--unset" if in_env => at += 2,
+            option if in_env && option.starts_with('-') => at += 1,
+            word if runner(word) => {
+                in_env = word == "env";
+                at += 1;
+            }
+            _ => return Some(&words[at..]),
+        }
+    }
+    None
+}
+
+/// The folder an `env -C` among the words that start `words`' command moves it to.
+pub(crate) fn env_folder(words: &[String]) -> Option<&str> {
+    let command = command_words(words).map_or(words.len(), |command| words.len() - command.len());
+    let starting = &words[..command];
+    let env = starting.iter().position(|word| word == "env")?;
+    let mut options = starting[env + 1..].iter();
+    let mut folder = None;
+    while let Some(option) = options.next() {
+        match option.as_str() {
+            "-C" | "--chdir" => folder = options.next().map(String::as_str),
+            option => {
+                if let Some(to) = option.strip_prefix("--chdir=") {
+                    folder = Some(to);
+                }
+            }
+        }
+    }
+    folder
 }
 
 pub(crate) fn base_name(word: &str) -> &str {
@@ -561,16 +593,36 @@ fn is_shell(word: &str) -> bool {
 /// The words of each simple command in `line`, split at `;`, `&`, `|`,
 /// brackets, backticks and line breaks outside quotes.
 pub fn segments(line: &str) -> Vec<Vec<String>> {
-    let mut segments = vec![Vec::new()];
+    (pieces(line).into_iter())
+        .filter_map(|piece| match piece {
+            Piece::Words(words) => Some(words),
+            Piece::Open | Piece::Close => None,
+        })
+        .collect()
+}
+
+/// A part of a shell command line: one simple command's words, or where a subshell starts or
+/// ends, which a `cd` inside it does not outlast.
+pub enum Piece {
+    Words(Vec<String>),
+    Open,
+    Close,
+}
+
+/// [`segments`], with where each subshell, `$(…)` or backtick command starts and ends.
+pub fn pieces(line: &str) -> Vec<Piece> {
+    let mut pieces = Vec::new();
+    let mut words: Vec<String> = Vec::new();
     let mut word: Option<String> = None;
+    let mut in_backticks = false;
     let mut chars = line.chars();
-    let end_word = |word: &mut Option<String>, segments: &mut Vec<Vec<String>>| {
-        if let Some(done) = word.take() {
-            if let Some(last) = segments.last_mut() {
-                last.push(done);
+    let end_words =
+        |word: &mut Option<String>, words: &mut Vec<String>, pieces: &mut Vec<Piece>| {
+            words.extend(word.take());
+            if !words.is_empty() {
+                pieces.push(Piece::Words(std::mem::take(words)));
             }
-        }
-    };
+        };
     while let Some(c) = chars.next() {
         match c {
             '\'' => {
@@ -588,17 +640,19 @@ pub fn segments(line: &str) -> Vec<Vec<String>> {
                 }
             }
             '\\' => word.get_or_insert_with(String::new).extend(chars.next()),
-            ';' | '&' | '|' | '(' | ')' | '`' | '\n' | '{' | '}' => {
-                end_word(&mut word, &mut segments);
-                segments.push(Vec::new());
+            '(' | ')' | '`' => {
+                end_words(&mut word, &mut words, &mut pieces);
+                let opens = c == '(' || (c == '`' && !in_backticks);
+                in_backticks ^= c == '`';
+                pieces.push(if opens { Piece::Open } else { Piece::Close });
             }
-            c if c.is_whitespace() => end_word(&mut word, &mut segments),
+            ';' | '&' | '|' | '\n' | '{' | '}' => end_words(&mut word, &mut words, &mut pieces),
+            c if c.is_whitespace() => words.extend(word.take()),
             c => word.get_or_insert_with(String::new).push(c),
         }
     }
-    end_word(&mut word, &mut segments);
-    segments.retain(|words| !words.is_empty());
-    segments
+    end_words(&mut word, &mut words, &mut pieces);
+    pieces
 }
 
 #[cfg(test)]

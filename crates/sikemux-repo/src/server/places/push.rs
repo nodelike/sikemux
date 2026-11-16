@@ -77,7 +77,7 @@ const KEPT_BRANCHES: [&str; 9] = [
 pub fn run_in(what: &str, cwd: &Path) -> PathBuf {
     let words: Vec<&str> = what.split_whitespace().collect();
     let mut dir = cwd.to_path_buf();
-    if words.first() != Some(&"git") {
+    if !words.first().is_some_and(|program| is_git(program)) {
         return dir;
     }
     let mut rest = &words[1..];
@@ -93,12 +93,16 @@ pub fn run_in(what: &str, cwd: &Path) -> PathBuf {
     }
 }
 
+fn is_git(program: &str) -> bool {
+    program.rsplit('/').next() == Some("git")
+}
+
 /// Where the push `what`, run from `cwd`, lands, judged ref by ref: any tag it carries is
 /// judged as a tag pushed alone would be.
 pub fn reach(what: &str, cwd: &Path) -> Reach {
     let unknown = || Reach::Tags(Vec::new());
     let words: Vec<&str> = what.split_whitespace().collect();
-    let Some(("git", rest)) = words.split_first().map(|(git, rest)| (*git, rest)) else {
+    let Some((_, rest)) = words.split_first().filter(|(program, _)| is_git(program)) else {
         return unknown();
     };
     let mut rest = rest;

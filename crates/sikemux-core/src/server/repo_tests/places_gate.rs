@@ -613,6 +613,55 @@ async fn a_push_from_another_repository_reaches_none_of_the_projects_places() {
     assert!(open_calls(&core).is_empty());
 }
 
+/// An agent pushed a scratch clone to its local bare remote with
+/// `S=…; cd $S/r/w && /usr/bin/git push …` and was asked whether to change Sikemux's releases
+/// on GitHub, shown the push without its `cd`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_push_after_a_change_of_folder_is_judged_where_it_runs() {
+    let (ours, theirs) = (repo(), repo());
+    let (cwd, project) = work_of(&ours);
+    let found = {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".github/workflows")).unwrap();
+        std::fs::write(
+            root.path().join(".github/workflows/release.yml"),
+            TAG_RELEASES,
+        )
+        .unwrap();
+        crate::server::places::found::in_files(root.path())
+    };
+    let core = core_at(None, &project, found);
+    let scratch = theirs.path().display();
+    let ships =
+        |line: &str| crate::ship::of_command(line, &[], crate::ship::Looks::Every, &cwd, &|_| None);
+    let elsewhere = [
+        format!("S={scratch}; cd $S/work && /usr/bin/git push --quiet origin HEAD:refs/heads/main"),
+        format!("cd {scratch} && cd work && git push origin --tags"),
+        format!("pushd {scratch}/work && git push origin --tags && popd"),
+        format!("(cd {scratch}/work && git push origin --tags)"),
+        format!("env -C {scratch}/work git push origin --tags"),
+        format!("bash -c 'cd {scratch}/work && git push origin --tags'"),
+    ];
+    for line in &elsewhere {
+        let found = ships(line);
+        assert_eq!(found.len(), 1, "{line}");
+        assert!(
+            found[0].what.contains(&format!("{scratch}/work")),
+            "{line}: {}",
+            found[0].what
+        );
+        let ship = found.into_iter().next().unwrap();
+        assert!(
+            run(&core, ship, &cwd).is_ok_and(|deploy| deploy.is_none()),
+            "{line}"
+        );
+    }
+    assert!(open_calls(&core).is_empty());
+    let here_again = format!("(cd {scratch}/work) && git push origin --tags");
+    let ship = ships(&here_again).into_iter().next().unwrap();
+    assert!(run(&core, ship, &cwd).is_err(), "{here_again}");
+}
+
 /// One stray untracked file in a clean, pushed checkout of main gave every commit the same
 /// fingerprint.
 #[test]

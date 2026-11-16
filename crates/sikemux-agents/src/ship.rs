@@ -5,12 +5,14 @@
 //! shim that stands in for those programs, by the hook that checks a shell
 //! command before it runs, and by the core for its own tools.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sikemux_view::inbox::ShipKind;
 
-use crate::git_guard::{base_name, command_words, git_args, segments, shell_script};
+use crate::git_guard::{
+    base_name, command_words, env_folder, git_args, pieces, shell_script, Piece,
+};
 
 /// An action leaving this machine: what it does, and the exact command or
 /// call, which the person is shown and allowing lets run once.
@@ -1577,8 +1579,9 @@ pub enum Looks {
 /// Every command of a shell command line that leaves this machine, in order,
 /// as each is checked by itself. `extra` are the project's own commands that
 /// do, such as `make deploy`, each matched by its leading words. `env` is what
-/// the line runs under, beneath what it sets itself. A `cd` earlier on the line
-/// leaves where a command lands open.
+/// the line runs under, beneath what it sets itself. A git command the line moved
+/// to another folder says so with `-C`; a move the line can't spell out leaves where a
+/// command lands open, and is shown in front of it.
 pub fn of_command(
     line: &str,
     extra: &[String],
@@ -1586,83 +1589,210 @@ pub fn of_command(
     cwd: &Path,
     env: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<Ship> {
-    let lines = segments(line);
-    let mut here = Some(cwd.to_owned());
+    let mut folder = Folder::new(cwd);
     let mut selected: Vec<String> = Vec::new();
-    lines
-        .iter()
-        .flat_map(|all| {
-            if matches!(all.first().map(String::as_str), Some("cd" | "pushd")) {
-                here = match (here.take(), all.get(1)) {
-                    (Some(at), Some(to))
-                        if all.len() == 2 && !to.contains(['$', '`']) && to != "-" =>
-                    {
-                        let to = match to.strip_prefix('~') {
-                            Some(rest) => env("HOME").map(|home| format!("{home}{rest}")),
-                            None => Some(to.clone()),
-                        };
-                        to.map(|to| at.join(to))
-                    }
-                    _ => None,
-                };
-                return Vec::new();
+    let mut ships = Vec::new();
+    for piece in pieces(line) {
+        let all = match piece {
+            Piece::Open => {
+                folder.open();
+                continue;
             }
-            if selects(all) {
-                selected.push(all.join(" "));
-                return Vec::new();
+            Piece::Close => {
+                folder.close();
+                continue;
             }
-            let Some(words) = command_words(all) else {
-                return Vec::new();
-            };
-            if let Some(script) = shell_script(words) {
-                return of_command(script, extra, looks, cwd, env);
+            Piece::Words(all) => all,
+        };
+        if selects(&all) {
+            selected.push(all.join(" "));
+            continue;
+        }
+        let set_on_line = |name: &str| {
+            (selected.iter().rev())
+                .flat_map(|said| said.split_whitespace())
+                .find_map(|word| word.strip_prefix(name)?.strip_prefix('='))
+                .map(str::to_owned)
+                .or_else(|| env(name))
+        };
+        if folder.moves(&all, &set_on_line) {
+            continue;
+        }
+        let Some(words) = command_words(&all) else {
+            continue;
+        };
+        let here = match env_folder(&all) {
+            Some(to) => folder.after(to, &set_on_line),
+            None => folder.here.clone(),
+        };
+        if let Some(script) = shell_script(words) {
+            let at = here.clone().unwrap_or_else(|| cwd.to_owned());
+            ships.extend(of_command(script, extra, looks, &at, env));
+            continue;
+        }
+        let Some((program, args)) = words.split_first() else {
+            continue;
+        };
+        let shimmed =
+            !program.contains('/') && (program == "git" || PROGRAMS.contains(&program.as_str()));
+        let known = match looks == Looks::PastTheShim && shimmed {
+            true => None,
+            false => of_program(program, args, here.as_deref().unwrap_or(cwd), &|_| None),
+        };
+        let Some(kind) = known.or_else(|| {
+            extra
+                .iter()
+                .any(|listed| leads(listed, words))
+                .then_some(ShipKind::Deploy)
+        }) else {
+            continue;
+        };
+        let set_before = &all[..all.len() - words.len()];
+        let set = |name: &str| {
+            let said = (set_before.iter())
+                .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
+                .next_back();
+            said.map(str::to_owned).or_else(|| env(name))
+        };
+        let at = here.clone().filter(|_| selected.is_empty());
+        let target = match (at, matches!(base_name(program), "curl" | "wget")) {
+            (Some(at), _) => target_of(program, args, &set, &at),
+            (None, true) => target_of(program, args, &set, cwd),
+            (None, false) => None,
+        };
+        if !leaves_machine(program, args, target.as_ref()) {
+            continue;
+        }
+        let git = base_name(program) == "git";
+        let command = match (&here, git) {
+            (Some(here), true) if here != cwd => std::iter::once(program.clone())
+                .chain(["-C".to_owned(), here.to_string_lossy().into_owned()])
+                .chain(args.iter().cloned())
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => words.join(" "),
+        };
+        let configured = git_configured(program, &set);
+        let what: Vec<String> = (configured.into_iter())
+            .chain(
+                (selected.iter())
+                    .filter(|said| !git || said.contains("GIT_"))
+                    .cloned(),
+            )
+            .chain(here.is_none().then(|| folder.unread.join(" && ")))
+            .chain(std::iter::once(command))
+            .collect();
+        ships.push(Ship {
+            kind,
+            what: what.join(" && "),
+            target,
+        });
+    }
+    ships
+}
+
+/// The folder each command of a shell line runs in, as `cd`, `pushd` and `popd` move it, and
+/// a subshell's moves end with the subshell. None once a move the line can't spell out happened.
+struct Folder {
+    here: Option<PathBuf>,
+    /// The moves that could not be read, as written.
+    unread: Vec<String>,
+    pushed: Vec<Option<PathBuf>>,
+    outer: Vec<(Option<PathBuf>, usize, usize)>,
+}
+
+impl Folder {
+    fn new(cwd: &Path) -> Self {
+        Self {
+            here: Some(cwd.to_owned()),
+            unread: Vec::new(),
+            pushed: Vec::new(),
+            outer: Vec::new(),
+        }
+    }
+
+    fn open(&mut self) {
+        (self.outer).push((self.here.clone(), self.unread.len(), self.pushed.len()));
+    }
+
+    fn close(&mut self) {
+        if let Some((here, unread, pushed)) = self.outer.pop() {
+            self.here = here;
+            self.unread.truncate(unread);
+            self.pushed.truncate(pushed);
+        }
+    }
+
+    /// Follows `all` when it is a change of folder, saying whether it was.
+    fn moves(&mut self, all: &[String], set: &dyn Fn(&str) -> Option<String>) -> bool {
+        let Some((verb, rest)) = all.split_first() else {
+            return false;
+        };
+        let to = match (verb.as_str(), rest) {
+            ("cd" | "pushd", []) => set("HOME").map(PathBuf::from),
+            ("cd" | "pushd", [to]) if to != "-" => self.after(to, set),
+            ("popd", []) => self.pushed.pop().flatten(),
+            ("cd" | "pushd" | "popd", _) => None,
+            _ => return false,
+        };
+        if verb == "pushd" {
+            self.pushed.push(self.here.clone());
+        }
+        if to.is_none() {
+            self.unread.push(all.join(" "));
+        }
+        self.here = to;
+        true
+    }
+
+    /// Where moving to `to` from here lands, its `~` and `$NAME`s read through `set`.
+    fn after(&self, to: &str, set: &dyn Fn(&str) -> Option<String>) -> Option<PathBuf> {
+        let to = match to.strip_prefix('~') {
+            Some(rest) => format!("{}{rest}", set("HOME")?),
+            None => to.to_owned(),
+        };
+        let to = PathBuf::from(expanded(&to, set)?);
+        match to.is_absolute() {
+            true => Some(to),
+            false => Some(self.here.as_ref()?.join(to)),
+        }
+    }
+}
+
+/// `text` with each `$NAME` and `${NAME}` read through `set`; none when one is not set, or
+/// the text runs a command.
+fn expanded(text: &str, set: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    if text.contains('`') || text.contains("$(") {
+        return None;
+    }
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find('$') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        let (name, next) = match after.strip_prefix('{') {
+            Some(braced) => {
+                let end = braced.find('}')?;
+                (&braced[..end], &braced[end + 1..])
             }
-            let Some((program, args)) = words.split_first() else {
-                return Vec::new();
-            };
-            let shimmed = !program.contains('/')
-                && (program == "git" || PROGRAMS.contains(&program.as_str()));
-            let known = match looks == Looks::PastTheShim && shimmed {
-                true => None,
-                false => of_program(program, args, here.as_deref().unwrap_or(cwd), &|_| None),
-            };
-            let Some(kind) = known.or_else(|| {
-                extra
-                    .iter()
-                    .any(|listed| leads(listed, words))
-                    .then_some(ShipKind::Deploy)
-            }) else {
-                return Vec::new();
-            };
-            let set_before = &all[..all.len() - words.len()];
-            let set = |name: &str| {
-                let said = (set_before.iter())
-                    .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
-                    .next_back();
-                said.map(str::to_owned).or_else(|| env(name))
-            };
-            let at = here.clone().filter(|_| selected.is_empty());
-            let target = match (at, matches!(base_name(program), "curl" | "wget")) {
-                (Some(at), _) => target_of(program, args, &set, &at),
-                (None, true) => target_of(program, args, &set, cwd),
-                (None, false) => None,
-            };
-            if !leaves_machine(program, args, target.as_ref()) {
-                return Vec::new();
+            None => {
+                let end = (after.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')))
+                    .unwrap_or(after.len());
+                (&after[..end], &after[end..])
             }
-            let what = std::iter::once(words.join(" "));
-            let configured = git_configured(program, &set);
-            let what: Vec<String> = (configured.into_iter())
-                .chain(selected.iter().cloned())
-                .chain(what)
-                .collect();
-            vec![Ship {
-                kind,
-                what: what.join(" && "),
-                target,
-            }]
-        })
-        .collect()
+        };
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return None;
+        }
+        let value = set(name)?;
+        if value.contains('$') || value.contains('`') {
+            return None;
+        }
+        out.push_str(&value);
+        rest = next;
+    }
+    out.push_str(rest);
+    Some(out)
 }
 
 /// Whether a command of a line changes where later commands of that line land: a variable
