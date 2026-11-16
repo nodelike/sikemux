@@ -22,6 +22,23 @@ pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
 
 const PRIVILEGE_NOT_HELD: i32 = 1314;
 
+pub const PATH_LIST_SEPARATOR: char = ';';
+
+/// Where [`symlink`] fell back to a hard link, the link is a plain file.
+pub fn is_link(path: &Path) -> bool {
+    path.is_symlink() || path.is_file()
+}
+
+/// A hard link shares its program's size and times; a copy gets a creation time of its own.
+pub fn is_hard_link_of(path: &Path, program: &Path) -> bool {
+    let (Ok(link), Ok(program)) = (fs::metadata(path), fs::metadata(program)) else {
+        return false;
+    };
+    link.len() == program.len()
+        && link.modified().ok() == program.modified().ok()
+        && link.created().ok() == program.created().ok()
+}
+
 fn junction(target: &Path, link: &Path) -> io::Result<()> {
     let status = sikemux_process::user_environment::command("cmd")
         .arg("/C")

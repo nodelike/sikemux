@@ -41,7 +41,10 @@ static HOOK_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 /// `endpoint`.
 pub fn install(data_dir: &Path, endpoint: Option<&Path>) {
     let folder = data_dir.join(AGENT_BIN);
-    if folder.to_string_lossy().contains(':') {
+    if folder
+        .to_string_lossy()
+        .contains(crate::os::PATH_LIST_SEPARATOR)
+    {
         return;
     }
     if let Err(error) = link(&folder, TIMEOUT) {
@@ -89,14 +92,20 @@ pub fn install(data_dir: &Path, endpoint: Option<&Path>) {
 fn link(folder: &Path, name: &str) -> std::io::Result<()> {
     let binary = std::env::current_exe()?;
     std::fs::create_dir_all(folder)?;
-    let path = folder.join(name);
-    if std::fs::read_link(&path).is_ok_and(|target| target == binary) {
+    let path = folder.join(program_file(name));
+    if std::fs::read_link(&path).is_ok_and(|target| target == binary)
+        || crate::os::is_hard_link_of(&path, &binary)
+    {
         return Ok(());
     }
     let fresh = folder.join(format!("{name}.{}", std::process::id()));
     let _ = std::fs::remove_file(&fresh);
     crate::os::symlink(&binary, &fresh)?;
     std::fs::rename(&fresh, &path)
+}
+
+fn program_file(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
 
 fn hook_folder(data_dir: &Path) -> PathBuf {
@@ -156,7 +165,7 @@ pub fn environment(path: Option<&str>) -> Vec<(String, String)> {
         .map(str::to_owned)
         .or_else(|| sikemux_process::user_environment::var("PATH"));
     let path = match path.filter(|path| !path.is_empty()) {
-        Some(path) => format!("{folder}:{path}"),
+        Some(path) => format!("{folder}{}{path}", crate::os::PATH_LIST_SEPARATOR),
         None => folder.into_owned(),
     };
     let mut env = vec![("PATH".to_owned(), path)];
@@ -203,17 +212,19 @@ pub fn sign_commit(command: &mut Command, dir: &Path) {
 /// `path` without the folder agents find the shim in, which a process started
 /// from an agent's shell inherits. None when it has none.
 pub fn path_without_shim(path: &str) -> Option<String> {
-    let parts: Vec<&str> = path.split(':').collect();
+    let separator = crate::os::PATH_LIST_SEPARATOR;
+    let parts: Vec<&str> = path.split(separator).collect();
     let kept: Vec<&str> = parts
         .iter()
         .copied()
         .filter(|part| !is_shim_folder(Path::new(part)))
         .collect();
-    (kept.len() != parts.len()).then(|| kept.join(":"))
+    (kept.len() != parts.len()).then(|| kept.join(&separator.to_string()))
 }
 
 fn is_shim_folder(folder: &Path) -> bool {
-    folder.file_name().is_some_and(|name| name == AGENT_BIN) && folder.join("git").is_symlink()
+    folder.file_name().is_some_and(|name| name == AGENT_BIN)
+        && crate::os::is_link(&folder.join(program_file("git")))
 }
 
 /// The shim's folder, for a shell to put first on PATH again after its
@@ -237,7 +248,11 @@ pub fn arguments(provider: &str) -> &'static [&'static str] {
 pub fn run_if_git() -> Option<i32> {
     let mut args = std::env::args_os();
     let name = args.next()?;
-    match Path::new(&name).file_name()?.to_str()? {
+    let name = Path::new(&name).file_name()?.to_str()?;
+    match name
+        .strip_suffix(std::env::consts::EXE_SUFFIX)
+        .unwrap_or(name)
+    {
         "git" => Some(run(args.collect())),
         HOOK => Some(run_hook(args.next().is_some_and(|arg| arg == SHIP_ONLY))),
         TIMEOUT => Some(crate::timeout::run(args.collect())),
@@ -261,7 +276,9 @@ fn linked_as(program: &str) -> bool {
         && std::env::var_os("PATH")
             .iter()
             .flat_map(std::env::split_paths)
-            .any(|folder| is_shim_folder(&folder) && folder.join(program).is_symlink())
+            .any(|folder| {
+                is_shim_folder(&folder) && crate::os::is_link(&folder.join(program_file(program)))
+            })
 }
 
 /// Removes from the shim's folder the links to programs this build stands in for no longer,
@@ -273,13 +290,17 @@ fn unlink_others(folder: &Path) {
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let kept = name.to_str().is_some_and(|name| {
-            name == "git"
-                || name == TIMEOUT
-                || stands_in_for(name)
-                || listed.iter().any(|listed| listed == name)
-        });
-        if !kept && entry.path().is_symlink() {
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Some(name) = name.strip_suffix(std::env::consts::EXE_SUFFIX) else {
+            continue;
+        };
+        let kept = name == "git"
+            || name == TIMEOUT
+            || stands_in_for(name)
+            || listed.iter().any(|listed| listed == name);
+        if !kept && crate::os::is_link(&entry.path()) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -889,6 +910,9 @@ fn is_shim(path: &Path) -> bool {
             .ok()
     });
     path.canonicalize().ok() == *shim
+        || shim
+            .as_deref()
+            .is_some_and(|shim| crate::os::is_hard_link_of(path, shim))
 }
 
 /// The program `name` this shim stands in for, the first on PATH that is not
@@ -907,17 +931,19 @@ pub(super) fn real_git() -> Option<PathBuf> {
         .or_else(|| real("git"))
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn a_link_to_a_program_no_longer_stood_in_for_is_removed() {
         let top = tempfile::tempdir().unwrap();
+        let program = top.path().join("program");
+        std::fs::write(&program, "").unwrap();
         let folder = top.path().join(AGENT_BIN);
         std::fs::create_dir(&folder).unwrap();
         for name in ["git", TIMEOUT, "gh", "cargo", "npm", "curl", "tsc"] {
-            crate::os::symlink(Path::new("/usr/bin/true"), &folder.join(name)).unwrap();
+            crate::os::symlink(&program, &folder.join(program_file(name))).unwrap();
         }
         std::fs::write(folder.join(LISTED), r#"{"programs":["tsc"]}"#).unwrap();
 
@@ -928,6 +954,12 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         left.sort();
-        assert_eq!(left, ["cargo", "gh", "git", LISTED, TIMEOUT, "tsc"]);
+        let mut kept: Vec<String> = ["cargo", "gh", "git", TIMEOUT, "tsc"]
+            .map(program_file)
+            .into_iter()
+            .chain([LISTED.to_owned()])
+            .collect();
+        kept.sort();
+        assert_eq!(left, kept);
     }
 }

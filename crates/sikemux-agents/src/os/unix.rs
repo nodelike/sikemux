@@ -5,8 +5,18 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::Path;
 use std::process::{Command, ExitStatus};
 
+pub const PATH_LIST_SEPARATOR: char = ':';
+
 pub fn symlink(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
+}
+
+pub fn is_link(path: &Path) -> bool {
+    path.is_symlink()
+}
+
+pub fn is_hard_link_of(_path: &Path, _program: &Path) -> bool {
+    false
 }
 
 pub fn make_private_folder(path: &Path) -> io::Result<()> {
