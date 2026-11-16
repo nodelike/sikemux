@@ -1422,8 +1422,11 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
         .anchor(Anchor::TopRight)
         .offset(SPACE_1H)
         .trigger_with(move |open, _, _| {
+            use gpui_kit::StatefulInteractiveElement as _;
             div()
                 .id("calls-chip-button")
+                .role(gpui_kit::Role::Button)
+                .aria_label(t!("Calls"))
                 .h(px(22.))
                 .px(SPACE_1H)
                 .flex()
