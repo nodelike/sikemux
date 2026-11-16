@@ -4,3 +4,5 @@ pub use sikemux_git::*;
 
 pub mod ai;
 pub(crate) mod ai_provider;
+
+pub use ai_provider::claude_bare_once;

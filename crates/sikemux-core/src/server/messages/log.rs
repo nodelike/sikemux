@@ -1,7 +1,8 @@
 //! A log of the messages between agents in each project: who sent what kind
 //! to whom, when, and what became of it. One line of JSON each, never the
 //! text, in a file per project that starts over once it fills, keeping the
-//! one before.
+//! one before. Questions asked aside are kept the same way in a log of their own, with
+//! their text.
 
 pub use sikemux_calls::messages::{MessageOutcome, MessageRow, MessageTone};
 use std::collections::BTreeMap;
@@ -9,6 +10,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
@@ -38,18 +40,39 @@ pub(crate) struct MessageEntry {
     pub outcome: MessageOutcome,
 }
 
-pub(crate) struct MessageLog {
+/// A question one agent asked about another and the answer it got, in place of its turns.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AskEntry {
+    pub at: u64,
+    pub from: String,
+    pub from_name: String,
+    pub to: String,
+    pub to_name: String,
+    pub question: String,
+    pub answer: String,
+}
+
+pub(crate) struct MessageLog<T = MessageEntry> {
     folder: Option<PathBuf>,
     /// When each project last logged a message, held while writing.
     latest: Mutex<BTreeMap<String, u64>>,
+    entry: std::marker::PhantomData<T>,
 }
 
 impl MessageLog {
     /// Without a data folder nothing is logged.
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
+        Self::in_folder(data_dir, FOLDER)
+    }
+}
+
+impl<T: Serialize + DeserializeOwned> MessageLog<T> {
+    pub(crate) fn in_folder(data_dir: Option<&Path>, folder: &str) -> Self {
         Self {
-            folder: data_dir.map(|dir| dir.join(FOLDER)),
+            folder: data_dir.map(|dir| dir.join(folder)),
             latest: Mutex::new(BTreeMap::new()),
+            entry: std::marker::PhantomData,
         }
     }
 
@@ -69,7 +92,7 @@ impl MessageLog {
         ))
     }
 
-    pub(crate) fn append(&self, project: &str, entry: &MessageEntry) {
+    pub(crate) fn append(&self, project: &str, at: u64, entry: &T) {
         let Some((current, old)) = self.files(project) else {
             return;
         };
@@ -78,7 +101,7 @@ impl MessageLog {
         };
         line.push(b'\n');
         let mut latest = self.latest.locked();
-        latest.insert(project.to_owned(), entry.at);
+        latest.insert(project.to_owned(), at);
         let full = std::fs::metadata(&current)
             .is_ok_and(|file| file.len() + line.len() as u64 > MAX_FILE_BYTES);
         let written = (|| {
@@ -100,7 +123,7 @@ impl MessageLog {
     }
 
     /// The project's latest entries, newest first, at most `limit`.
-    pub(crate) fn read(&self, project: &str, limit: usize) -> Vec<MessageEntry> {
+    pub(crate) fn read(&self, project: &str, limit: usize) -> Vec<T> {
         let Some((current, old)) = self.files(project) else {
             return Vec::new();
         };
@@ -110,7 +133,7 @@ impl MessageLog {
             let Ok(file) = std::fs::File::open(path) else {
                 continue;
             };
-            let mut lines: Vec<MessageEntry> = std::io::BufReader::new(file)
+            let mut lines: Vec<T> = std::io::BufReader::new(file)
                 .lines()
                 .map_while(Result::ok)
                 .filter_map(|line| serde_json::from_str(&line).ok())

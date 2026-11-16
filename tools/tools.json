@@ -1920,6 +1920,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
         }
       },
       "required": [

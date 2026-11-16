@@ -732,6 +732,33 @@ pub(crate) fn claude_once(
     prompt: &str,
     account: Option<&str>,
 ) -> Result<String, String> {
+    claude_print(repo, model, prompt, account, &["--setting-sources", "user"])
+}
+
+/// Claude Code's answer, printed once with nothing of the person's set up: no settings,
+/// skills, commands, MCP servers, hooks or tools, so nothing runs while it answers.
+pub fn claude_bare_once(
+    dir: &str,
+    model: &str,
+    prompt: &str,
+    account: Option<&str>,
+) -> Result<String, String> {
+    claude_print(
+        dir,
+        model,
+        prompt,
+        account,
+        &["--setting-sources", "", "--disable-slash-commands"],
+    )
+}
+
+fn claude_print(
+    repo: &str,
+    model: &str,
+    prompt: &str,
+    account: Option<&str>,
+    sources: &[&str],
+) -> Result<String, String> {
     run_ai_candidate(AgentKind::Claude.entry().command, |bin| {
         let mut command = sikemux_process::user_environment::agent_command(bin);
         on_account(&mut command, "claude", account);
@@ -747,12 +774,11 @@ pub(crate) fn claude_once(
             "--no-session-persistence",
             "--tools",
             "",
-            "--setting-sources",
-            "user",
             "--settings",
             r#"{"disableAllHooks":true}"#,
             "--strict-mcp-config",
         ]);
+        command.args(sources);
         (
             command,
             Some(prompt.as_bytes().to_vec()),

@@ -834,6 +834,12 @@ says so. `guess` means a test was found by name only.
 what came after. An asleep or closed agent reads from what it kept, without
 waking it. For a terminal agent of another CLI it gives only `screen`.
 
+To learn one thing about a busy agent, pass `question` (up to 1,000
+characters) instead of reading its turns: its own account's quick model
+answers in a few sentences from what it said, and the agent is never told.
+The `answer` is that model's claim, not the agent's; weigh it. The same
+question within 2 minutes gets the first answer. Claude chats on this host only.
+
 `agent_wait` waits up to 30 seconds on up to eight agents until one is `idle`,
 `done`, `needs_you` or does `any` thing; pass back its `cursor`. For longer,
 `trigger_add` with `agent` and `until`, and end your turn.

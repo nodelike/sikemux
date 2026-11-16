@@ -173,7 +173,7 @@ fn cursor_param(params: &Value) -> Result<Option<&str>, String> {
     }
 }
 
-fn cut_bytes(text: &str, max: usize) -> String {
+pub(crate) fn cut_bytes(text: &str, max: usize) -> String {
     let text = text.trim();
     if text.len() <= max {
         return text.to_owned();
@@ -643,6 +643,10 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         .ok_or("agent_read needs the calling agent's id")?;
     let agent = agent_param(&request.params)?;
     let cursor = cursor_param(&request.params)?.map(str::to_owned);
+    let question = super::ask_aside::question_param(&request.params)?;
+    if question.is_some() && cursor.is_some() {
+        return Err("Pass a question or a cursor, not both".into());
+    }
     let target = {
         let (core, request, caller) = (core.clone(), request.clone(), caller.clone());
         blocking(move || {
@@ -662,13 +666,21 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         .map_err(|error| error.to_string())?
     };
     if target.reach == Reach::Remote {
+        if question.is_some() {
+            return Err("An agent on another host can't be asked a question yet. Call agent_read without one to read its turns.".into());
+        }
         return super::hosts::route::read(core, &caller, &target.agent_id, cursor).await;
     }
     take_up_kept(core, &target).await;
     let core = core.clone();
-    blocking(move || read_target(&core, &target, cursor.as_deref()).map_err(Into::into))
-        .await
-        .map_err(|error| error.to_string())
+    blocking(move || match question {
+        Some(question) => {
+            super::ask_aside::answer(&core, &caller, &target, &question).map_err(Into::into)
+        }
+        None => read_target(&core, &target, cursor.as_deref()).map_err(Into::into),
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// What an agent of a team on a linked host reads of `agent_id`, an agent here.

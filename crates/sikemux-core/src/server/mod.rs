@@ -51,6 +51,7 @@ pub use sikemux_workspace::server::drafts;
 mod entry;
 pub(crate) use sikemux_repo::server::fast_forward;
 pub use sikemux_workspace::server::faces;
+mod ask_aside;
 mod finished;
 mod follow;
 mod from_app;

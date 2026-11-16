@@ -469,6 +469,7 @@ pub(crate) struct Mailbox {
     state: Mutex<State>,
     kept: Kept,
     pub(crate) log: MessageLog,
+    pub(crate) asks: super::ask_aside::Asks,
     /// Hands waiting messages on, when an agent comes free.
     pub(crate) wake: Wake,
 }
@@ -496,6 +497,7 @@ impl Mailbox {
             }),
             kept,
             log: MessageLog::new(data_dir),
+            asks: super::ask_aside::Asks::new(data_dir),
             wake: Wake::default(),
         }
     }
@@ -961,6 +963,7 @@ fn log<'a>(
         let from = queued.origin.as_ref().map(|origin| origin.from.clone());
         core.harness().mailbox.log.append(
             &project,
+            at,
             &MessageEntry {
                 at,
                 from_name: from.as_deref().and_then(|from| core.names().name(from)),
