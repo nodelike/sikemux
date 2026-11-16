@@ -830,6 +830,7 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
     case "subscription.past_due":
     case "subscription.canceled": {
       const sub = event.data as PaddleSubscription;
+      if (!ours(sub.items).length) return [];
       if (sub.status === "canceled")
         return [
           {

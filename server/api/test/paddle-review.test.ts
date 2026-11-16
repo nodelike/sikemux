@@ -667,6 +667,32 @@ describe("the webhook", () => {
       tokens: asked("/client-tokens"),
     }).toEqual({ settings: 1, tokens: 1 });
   });
+
+  it("R4: a subscription made by hand in Paddle is acknowledged when it misses a payment or ends", async () => {
+    const byHand: PaddlePrice = {
+      ...paddle.price("pro"),
+      id: "pri_made_in_the_dashboard",
+      billing_cycle: null,
+      custom_data: null,
+    };
+    const sub: PaddleSub = {
+      ...paddleSub("ctm_ofsomeoneelse", "pro", 1),
+      items: [{ status: "active", quantity: 1, price: byHand }],
+    };
+    expect({
+      active: await deliver("subscription.updated", sub, ago(9)),
+      pastDue: await deliver(
+        "subscription.past_due",
+        { ...sub, status: "past_due" },
+        ago(6),
+      ),
+      canceled: await deliver(
+        "subscription.canceled",
+        { ...sub, status: "canceled" },
+        ago(3),
+      ),
+    }).toEqual({ active: 204, pastDue: 204, canceled: 204 });
+  });
 });
 
 describe("a chargeback", () => {
