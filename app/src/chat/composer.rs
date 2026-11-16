@@ -1518,8 +1518,16 @@ fn context_card(
                 .items_center()
                 .justify_between()
                 .child(
-                    ui::text(t!("Context window"), TEXT_XS, FontWeight::NORMAL)
-                        .text_color(t.text_secondary),
+                    ui::text(
+                        if usage.compact_at.is_some() {
+                            t!("Until compaction")
+                        } else {
+                            t!("Context window")
+                        },
+                        TEXT_XS,
+                        FontWeight::NORMAL,
+                    )
+                    .text_color(t.text_secondary),
                 )
                 .child(
                     ui::text(
@@ -1546,6 +1554,19 @@ fn context_card(
                 .flex_col()
                 .gap(px(3.))
                 .child(row(t!("Tokens"), tokens.into_any_element()))
+                .children(usage.compact_at.map(|_| {
+                    row(
+                        t!("Model window"),
+                        ui::text(
+                            crate::ui::numbers::compact(usage.size),
+                            TEXT_2XS_H,
+                            FontWeight::NORMAL,
+                        )
+                        .font_features(theme::tabular())
+                        .text_color(t.text_tertiary)
+                        .into_any_element(),
+                    )
+                }))
                 .children(compactions.map(|compactions| {
                     let ink = match compactions.count {
                         10.. => t.danger,
