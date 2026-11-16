@@ -51,6 +51,23 @@ public static class Grab {
       bmp.Save(path); return ok;
     }
   }
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+  [DllImport("user32.dll")] static extern bool ClientToScreen(IntPtr h, ref POINT p);
+  [DllImport("user32.dll")] static extern uint GetDpiForWindow(IntPtr h);
+  // The share of light pixels in a picture of the window, in an area given in the app's own points.
+  public static double Light(IntPtr h, string path, float x, float y, float w, float h2) {
+    RECT r; GetWindowRect(h, out r);
+    var client = new POINT(); ClientToScreen(h, ref client);
+    float scale = GetDpiForWindow(h) / 96f;
+    int light = 0, all = 0;
+    using (var bmp = new Bitmap(path)) {
+      int left = client.X - r.L + (int)(x * scale), top = client.Y - r.T + (int)(y * scale);
+      int right = Math.Min(bmp.Width, left + (int)(w * scale)), bottom = Math.Min(bmp.Height, top + (int)(h2 * scale));
+      for (int py = Math.Max(0, top); py < bottom; py += 2)
+        for (int px = Math.Max(0, left); px < right; px += 2) { all++; if (bmp.GetPixel(px, py).GetBrightness() > 0.8f) light++; }
+    }
+    return all == 0 ? 0 : (double)light / all;
+  }
   public static void Screen(IntPtr h, string path) {
     RECT r; GetWindowRect(h, out r);
     using (var bmp = new Bitmap(r.R - r.L, r.B - r.T)) {
@@ -146,6 +163,15 @@ Start-Sleep -Seconds 28
 $state = Drive 'what the window holds' 'state'
 if (-not $state.Contains('example.com')) { $failed += "the stand-in's browser tab" }
 Picture 'window'
+# example.com is a light page on the app's dark ground. Laid out at desktop width, it fills the
+# top quarter or so of a narrow pane, and a blank pane has next to no light pixels.
+$bounds = ([regex]::Match($state, '"pageBounds":\[([^\]]+)\]').Groups[1].Value -split ',') | ForEach-Object { [float] $_ }
+if ($bounds.Count -ne 4) { $failed += 'the desk places its page' }
+else {
+    $light = [Grab]::Light($proc.MainWindowHandle, (Join-Path $Out 'window.png'), $bounds[0], $bounds[1], $bounds[2], $bounds[3])
+    "page area: $([int]($light * 100))% light" | Out-File -Append (Join-Path $Out 'steps.txt')
+    if ($light -lt 0.1) { $failed += "the page drawn in its pane" }
+}
 # PrintWindow can miss a page the window composes from another process; the screen shows it.
 [Grab]::Screen($proc.MainWindowHandle, (Join-Path $Out 'window-screen.png'))
 "window: $($proc.MainWindowTitle)" | Out-File (Join-Path $Out 'state.txt')
