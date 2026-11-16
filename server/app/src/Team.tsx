@@ -187,7 +187,9 @@ function OrgView({
                     (each) =>
                       each.product === "team" && each.status !== "ended",
                   );
-                  return sub && overview.canBuy ? { sub, catalog } : undefined;
+                  return sub && overview.canBuy && !sub.refundRequestedAt
+                    ? { sub, catalog }
+                    : undefined;
                 },
                 () => undefined,
               )

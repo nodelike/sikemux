@@ -296,7 +296,7 @@ function Bill({
           </Section>
         ) : null}
         <Refunds
-          invoices={invoices}
+          subs={open}
           readAt={readAt}
           catalog={catalog}
           reload={reload}
@@ -405,6 +405,7 @@ function PlanRows({
   const name = product?.name ?? sub.product;
   const seats = product?.unit === "seat";
   const ends = formatDay(sub.currentPeriodEnd, "long");
+  const refunding = !!sub.refundRequestedAt;
   const [asking, setAsking] = useState<"seats" | "cancel">();
   const action = useAction();
   const resume = async () => {
@@ -429,7 +430,7 @@ function PlanRows({
       <Row
         label="Plan"
         action={
-          seats ? (
+          seats && !refunding ? (
             <button
               type="button"
               className="button small"
@@ -492,7 +493,12 @@ function PlanRows({
           <span className="quiet">· from {ends}</span>
         </Row>
       ) : null}
-      {sub.cancelAtPeriodEnd ? (
+      {refunding ? (
+        <Row label="Ends">
+          <span>When its refund is paid</span>
+          <span className="quiet">· it can't be changed until then</span>
+        </Row>
+      ) : sub.cancelAtPeriodEnd ? (
         <Row
           label="Ends"
           action={
@@ -1119,16 +1125,20 @@ function ShedInterval({
         ) : null
       }
     >
-      <span data-busy={action.busy || undefined}>
-        <Segmented
-          label={`How ${name} is billed`}
-          value={chosen}
-          onChange={pick}
-          options={(["month", "year"] as const)
-            .filter((interval) => priceOf(product, interval))
-            .map(option)}
-        />
-      </span>
+      {sub.refundRequestedAt ? (
+        <span>Ends when its refund is paid</span>
+      ) : (
+        <span data-busy={action.busy || undefined}>
+          <Segmented
+            label={`How ${name} is billed`}
+            value={chosen}
+            onChange={pick}
+            options={(["month", "year"] as const)
+              .filter((interval) => priceOf(product, interval))
+              .map(option)}
+          />
+        </span>
+      )}
       {sub.quantity > 1 ? (
         <span className="quiet">· {sub.quantity} boxes</span>
       ) : null}
@@ -1150,33 +1160,31 @@ function invoiceWhat(invoice: Invoice, catalog: BillingCatalog): string {
 }
 
 function Refunds({
-  invoices,
+  subs,
   readAt,
   catalog,
   reload,
   show,
 }: {
-  invoices: Invoice[];
+  subs: Subscription[];
   readAt: number;
   catalog: BillingCatalog;
   reload: () => void;
   show: Show;
 }) {
-  const open = invoices.filter(
-    (invoice) =>
-      invoice.status === "paid" &&
-      (invoice.refundRequestedAt ||
-        (invoice.refundableUntil &&
-          Date.parse(invoice.refundableUntil) > readAt)),
+  const open = subs.filter(
+    (sub) =>
+      sub.refundRequestedAt ||
+      (sub.refundableUntil && Date.parse(sub.refundableUntil) > readAt),
   );
   if (open.length === 0) return null;
   return (
     <Section label="Refund">
       <Rows>
-        {open.map((invoice) => (
+        {open.map((sub) => (
           <RefundRow
-            key={invoice.id}
-            invoice={invoice}
+            key={sub.id}
+            sub={sub}
             catalog={catalog}
             reload={reload}
             show={show}
@@ -1188,12 +1196,12 @@ function Refunds({
 }
 
 function RefundRow({
-  invoice,
+  sub,
   catalog,
   reload,
   show,
 }: {
-  invoice: Invoice;
+  sub: Subscription;
   catalog: BillingCatalog;
   reload: () => void;
   show: Show;
@@ -1201,26 +1209,28 @@ function RefundRow({
   const client = useClient();
   const [asking, setAsking] = useState(false);
   const action = useAction();
-  const first = invoice.lines[0]?.product;
-  const plan = first ? (productOf(catalog, first)?.name ?? first) : "This plan";
-  const bought = formatDay(invoice.at, "long");
+  const plan = productOf(catalog, sub.product)?.name ?? sub.product;
+  const bought = formatDay(sub.startedAt, "long");
   const name = `${plan}, bought ${bought}`;
+  const amount = sub.refundAmount ? money(sub.refundAmount) : undefined;
+  const again =
+    productOf(catalog, sub.product)?.kind === "shed" ? "a Shed box" : plan;
 
-  if (invoice.refundRequestedAt || !invoice.refundableUntil)
+  if (sub.refundRequestedAt || !sub.refundableUntil)
     return (
       <ItemRow
         glyph={<IconUndo size={16} />}
         name={name}
-        detail={`Refund asked${invoice.refundRequestedAt ? ` on ${formatDay(invoice.refundRequestedAt, "long")}` : ""}. It takes a few days to come back, and the plan ends then.`}
+        detail={`Refund${amount ? ` of ${amount}` : ""} asked${sub.refundRequestedAt ? ` on ${formatDay(sub.refundRequestedAt, "long")}` : ""}. It takes a few days to come back, and ${plan} ends then.`}
       />
     );
 
-  const until = formatDay(invoice.refundableUntil, "long");
+  const until = formatDay(sub.refundableUntil, "long");
   return (
     <ItemRow
       glyph={<IconUndo size={16} />}
       name={name}
-      detail={`Everything paid on it in its first ${catalog.refundDays} days comes back if you ask by ${until}. It's given once.`}
+      detail={`${amount ?? "Everything paid on it so far"} comes back if you ask by ${until}. It's given once.`}
       end={
         <button
           type="button"
@@ -1239,27 +1249,28 @@ function RefundRow({
         <Confirm
           problem={action.problem}
           busy={action.busy}
-          label="Ask for the refund"
+          label={amount ? `Refund ${amount}` : "Ask for the refund"}
           onCancel={() => setAsking(false)}
           onConfirm={() =>
             void action.run(
               async () => {
                 await (
                   await client("ask for a refund")
-                ).refundInvoice(invoice.id);
+                ).refundSubscription(sub.id);
                 setAsking(false);
                 reload();
                 show("Refund asked. It takes a few days to come back.");
               },
-              (error) => `${problemText(error)} Nothing was refunded.`,
+              (error) =>
+                `${problemText(error)} Nothing was refunded. Reload the page to see where ${plan} stands.`,
             )
           }
         >
           <p>
             Ask for a refund of {plan}? Everything paid on it since {bought}
-            comes back. The payment provider takes a few days, and {plan} ends
-            once it has. A refund is given once for each plan, so buying {plan}{" "}
-            again has none.
+            {amount ? `, ${amount},` : ""} comes back. The payment provider
+            takes a few days, and {plan} ends once it has. A refund is given
+            once for each plan, so buying {again} again has none.
           </p>
         </Confirm>
       ) : null}
