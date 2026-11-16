@@ -27,7 +27,8 @@
 //! (beside the script), streamed a word at a time at `perSecond` (30), or
 //! `{ "tool": "Read", "input": {...}, "result": "...", "ms": 600 }`, failing with
 //! `"error": true`, its call named `"id"` when a later step must point at it, or
-//! `{ "send": {...}, "ms": 0 }`, a message sent as it is, such as a task starting or ending. A tool step
+//! `{ "send": {...}, "ms": 0 }`, a message sent as it is, such as a task starting or ending, or
+//! `{ "ask": {...} }`, which asks the AskUserQuestion input given and waits for the answer. A tool step
 //! with `"call": "browser.navigate"` makes that call to Sikemux's own tools with
 //! its input, as the agent's tools server would, and answers with what they said. While
 //! `FAKE_CLAUDE_CLOCK` names a file holding a time in milliseconds, those
@@ -515,6 +516,10 @@ impl Claude {
         for (at, step) in steps.iter().enumerate() {
             let id = format!("{message_id}-{at}");
             let per_second = step["perSecond"].as_f64().unwrap_or(30.).max(1.);
+            if let Some(input) = step.get("ask") {
+                self.ask(json!({ "subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": input, "tool_use_id": format!("toolu-{uuid}-{at}"), "permission_suggestions": [] }));
+                continue;
+            }
             if let Some(message) = step.get("send") {
                 self.send(message.clone());
                 clock.wait(step["ms"].as_f64().unwrap_or(0.));

@@ -2,13 +2,14 @@
 # framed in warn dots along its four inside edges.
 stage 1440 900
 window 1440 900
+replies waiting-edge-replies.json
 project storefront shop
 core saveTheme waiting-edge.json
 prefer themeId custom-mood-rice
 prefer paneBackdrop theme
 chat Wren
 title "Cache the product pages"
-say "question {\"questions\":[{\"question\":\"Which store should the product page cache use?\",\"header\":\"Cache store\",\"options\":[{\"label\":\"Redis (recommended)\",\"description\":\"Fast, shared by every app server, already running in staging\"},{\"label\":\"SQLite\",\"description\":\"No server to keep up, one file per app server\"}]}]}"
+say "Cache the product pages so a page loads without asking the database each time."
 settle 6
 front Wren
 settle 2
