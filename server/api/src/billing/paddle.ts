@@ -291,7 +291,6 @@ export interface PaddleOptions {
   now?: () => number;
 }
 
-/** Paddle's error with its message swapped out, since Paddle may quote the email it was sent. */
 /** The customer Paddle names as already holding an email. */
 function holderIn(err: unknown) {
   return err instanceof PaddleError && err.code === "customer_already_exists"
@@ -299,6 +298,7 @@ function holderIn(err: unknown) {
     : undefined;
 }
 
+/** Paddle's error with its message swapped out, since Paddle may quote the email it was sent. */
 function withoutEmail(err: unknown, message: string) {
   return err instanceof PaddleError
     ? new PaddleError(err.status, err.code, message)
