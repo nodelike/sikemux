@@ -526,8 +526,6 @@ struct Reading {
     teams: HashMap<String, bool>,
     /// The pages the chat's turns changed, as the core took them.
     shown: Vec<sikemux_view::shown::TurnShown>,
-    /// Its workers' finished work.
-    results: Vec<sikemux_view::shown::ResultRow>,
     /// The whole briefs fresh sessions started from that the reader asked to read, by when
     /// each started, or why it could not be read.
     briefs: HashMap<u64, Result<sikemux_view::chat::RotationBrief, String>>,
@@ -1066,12 +1064,10 @@ impl Chat {
             head.capabilities.editing && head.connection == ChatConnection::Ready && !head.running
         });
         let earlier_lost = self.state.as_ref().is_some_and(|head| head.earlier_lost);
-        let (shown, results) = self.state.as_ref().map_or_else(Default::default, |head| {
-            (head.shown.clone(), head.results.clone())
-        });
+        let shown = (self.state.as_ref()).map_or_else(Vec::new, |head| head.shown.clone());
         self.reader.update(cx, |reading, cx| {
-            if reading.shown != shown || reading.results != results {
-                (reading.shown, reading.results) = (shown, results);
+            if reading.shown != shown {
+                reading.shown = shown;
                 cx.notify();
             }
             let now = (running, editable, earlier_lost);

@@ -1,6 +1,5 @@
 //! What finished work shows in a chat: the core's pictures of the page a turn changed, before
-//! and after at a phone's, a tablet's and a desktop's width under the reply that ended it, and in
-//! a lead's chat a row for each worker's finished work with Try it and Undo.
+//! and after at a phone's, a tablet's and a desktop's width under the reply that ended it.
 
 use crate::ui::Clicks;
 use std::collections::HashMap;
@@ -14,14 +13,13 @@ use gpui_kit::{
 use sikemux_calls::call;
 use sikemux_calls::pictures::TurnPictureParams;
 use sikemux_calls::turn_state::TakeStepParams;
-use sikemux_view::shown::{PageShown, Picture as Shown, ResultRow, TurnShown, WidthShown};
-use sikemux_view::turn::{TurnPhase, TurnState, TurnStep};
+use sikemux_view::shown::{PageShown, Picture as Shown, TurnShown, WidthShown};
+use sikemux_view::turn::TurnStep;
 
 use super::{ChatRow, Looks};
-use crate::icons::Icon;
 use crate::picture::Picture;
-use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_5, TEXT_XS_H};
-use crate::ui::{self, Button, Variant};
+use crate::theme::{Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3};
+use crate::ui;
 use crate::workbench::Workbench;
 
 /// How each width's pair is drawn: its name and each picture's size, from the product mockup.
@@ -41,7 +39,6 @@ const WIDTHS: [(u32, &str, f32, f32); 3] = [
     (1440, n!("Desktop"), 150., 94.),
 ];
 const PAIR_GAP: f32 = 8.;
-const ROW_HEIGHT: f32 = 30.;
 /// How many fetched pictures are kept before all are let go and fetched again as needed.
 const FETCHED_KEPT: usize = 240;
 
@@ -213,132 +210,6 @@ pub(crate) fn turn_picture(
     None
 }
 
-/// A worker's finished work: its mark and name, what it did, where its work is and how its
-/// checks stand, Try it and Undo, and a chevron that opens the worker's own chat. Its pages'
-/// pictures sit under it.
-pub(super) fn result_row(row: &ResultRow, looks: &Looks, cx: &mut App) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let key = format!("result:{}:{}", row.agent_id, row.at);
-    let worker = looks
-        .bench
-        .upgrade()
-        .and_then(|bench| bench.read(cx).agent_by_id(&row.agent_id));
-    let maker = crate::turn_line::maker(
-        worker
-            .as_ref()
-            .map_or(&looks.provider, |worker| &worker.provider),
-    );
-    let turn = TurnState {
-        state: TurnPhase::Done,
-        since: row.at,
-        on: None,
-        wait: None,
-        call: None,
-        done: Some(row.done.clone()),
-        stopped: None,
-        failed: None,
-        seen: false,
-    };
-    let facts = crate::turn_line::said(&turn, maker, ui::time::now_ms())
-        .map(|said| said.parts.join(" · "))
-        .filter(|facts| !facts.is_empty());
-    let tries = row
-        .done
-        .next
-        .iter()
-        .any(|next| next.step == TurnStep::TryIt);
-    let step = |step: TurnStep, variant: Variant| {
-        let label = crate::turn_line::step_label(step).unwrap_or_default();
-        let (bench, agent) = (looks.bench.clone(), row.agent_id.clone());
-        Button::new(SharedString::from(format!("{key}:{label}")), label, variant)
-            .sized(22., 10., 12.)
-            .on_click(move |_, _, cx| take(&bench, &agent, step, cx).detach())
-    };
-    let pill = (looks.bench.upgrade()).map(|bench| {
-        crate::chat::agent_pill_of(
-            &row.agent_id,
-            row.name.as_deref().unwrap_or(&row.title),
-            ui::mark(&looks.provider, TEXT_XS_H + 1.),
-            TEXT_XS_H,
-            bench.read(cx).chat_target(&looks.agent),
-            &looks.bench,
-            cx,
-        )
-    });
-    let (bench, worker_id) = (looks.bench.clone(), row.agent_id.clone());
-    let summary = div()
-        .id(SharedString::from(key.clone()))
-        .h(px(ROW_HEIGHT))
-        .pl(SPACE_3)
-        .pr(SPACE_1H)
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .rounded(theme::radius_3())
-        .bg(t.surface_raised)
-        .text_size(theme::ui_text(TEXT_XS_H))
-        .children(pill)
-        .when(row.name.is_some(), |summary| {
-            summary.child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .text_color(looks.quiet)
-                    .child(row.title.clone()),
-            )
-        })
-        .children(facts.map(|said| {
-            div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .gap(SPACE_1H)
-                .child(div().size(px(7.)).rounded_full().bg(t.accent))
-                .child(div().text_color(looks.quiet).child(said))
-        }))
-        .child(div().flex_1())
-        .when(tries, |summary| {
-            summary.child(step(TurnStep::TryIt, Variant::Primary))
-        })
-        .when(row.undo, |summary| {
-            summary.child(step(TurnStep::Undo, Variant::Ghost))
-        })
-        .child(
-            div()
-                .id(SharedString::from(format!("{key}:open")))
-                .flex_none()
-                .size(px(22.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(theme::radius_2())
-                .hover(move |chevron| chevron.bg(t.surface_active))
-                .child(ui::icon(Icon::Chevron, 12.).text_color(looks.quiet))
-                .clicks(move |_, _, cx| {
-                    bench
-                        .update(cx, |bench, cx| bench.open_agent(&worker_id, cx))
-                        .ok();
-                }),
-        );
-    div()
-        .w_full()
-        .pt(SPACE_2)
-        .child(summary)
-        .when(!row.pages.is_empty(), |result| {
-            result.child(
-                div()
-                    .pl(SPACE_3)
-                    .child(pictures(&row.pages, &key, looks, cx)),
-            )
-        })
-        .pb(if row.pages.is_empty() {
-            SPACE_1
-        } else {
-            SPACE_5
-        })
-        .into_any_element()
-}
-
 /// Takes `step` on `agent`'s work, as the person clicked it, saying so when the core refuses.
 pub(crate) fn take(
     bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
@@ -369,11 +240,6 @@ pub(crate) fn take(
     })
 }
 
-/// When a row happened: when its turn ended, or when the person sent it.
-fn time_of(row: &ChatRow) -> Option<u64> {
-    row.message.ended_at.or(row.message.sent_at)
-}
-
 /// The turns whose pictures go under row `ix`: those its reply ended.
 pub(super) fn ended_at<'a>(
     rows: &[ChatRow],
@@ -388,23 +254,5 @@ pub(super) fn ended_at<'a>(
         .unwrap_or_default();
     (shown.iter())
         .filter(|turn| turn.turn > before && turn.turn <= end)
-        .collect()
-}
-
-/// The workers' finished work that goes after row `ix`: what finished after it and before the
-/// next row that has a time.
-pub(super) fn results_after<'a>(
-    rows: &[ChatRow],
-    ix: usize,
-    results: &'a [ResultRow],
-) -> Vec<&'a ResultRow> {
-    let Some(at) = rows.get(ix).and_then(time_of) else {
-        return Vec::new();
-    };
-    let next = rows
-        .get(ix + 1..)
-        .and_then(|rest| rest.iter().find_map(time_of));
-    (results.iter())
-        .filter(|row| row.at >= at && next.is_none_or(|next| row.at < next))
         .collect()
 }

@@ -260,8 +260,7 @@ pub(super) fn row(
     };
     let user = user && !lettered;
     let ended = shown::ended_at(rows, ix, &looks.reading.shown);
-    let finished = shown::results_after(rows, ix, &looks.reading.results);
-    let after = (!ended.is_empty() || !finished.is_empty()).then(|| {
+    let after = (!ended.is_empty()).then(|| {
         div()
             .w_full()
             .max_w(super::column::rows(cx))
@@ -270,11 +269,6 @@ pub(super) fn row(
                 let key = format!("shown:{}", turn.turn);
                 shown::pictures(&turn.pages, &key, looks, cx)
             }))
-            .children(
-                finished
-                    .into_iter()
-                    .map(|row| shown::result_row(row, looks, cx)),
-            )
     });
     let drawn = div()
         .w_full()
