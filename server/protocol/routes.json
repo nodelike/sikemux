@@ -544,7 +544,7 @@
     },
     {
       "method": "put",
-      "path": "/v1/orgs/{orgId}/members/{userId}/role",
+      "path": "/v1/orgs/{orgId}/members/{memberId}/role",
       "operationId": "setOrgMemberRole",
       "summary": "Change a member's role",
       "auth": "session",
@@ -563,7 +563,7 @@
           "body": "ApiError"
         },
         "404": {
-          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that user id.",
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that member id.",
           "body": "ApiError"
         },
         "409": {
@@ -574,7 +574,7 @@
     },
     {
       "method": "delete",
-      "path": "/v1/orgs/{orgId}/members/{userId}",
+      "path": "/v1/orgs/{orgId}/members/{memberId}",
       "operationId": "removeOrgMember",
       "summary": "Take someone out of an org",
       "auth": "session",
@@ -587,7 +587,7 @@
           "body": "ApiError"
         },
         "404": {
-          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that user id.",
+          "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that member id.",
           "body": "ApiError"
         },
         "409": {

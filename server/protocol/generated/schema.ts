@@ -1660,7 +1660,12 @@ export const schema = {
           description: "The role whoever accepts it joins with.",
           $ref: "#/$defs/OrgRole",
         },
-        invitedBy: { $ref: "#/$defs/OrgUserId" },
+        invitedBy: {
+          description:
+            "The name of who sent it, from their sign-in; null when it has none or cannot be read right now.",
+          type: ["string", "null"],
+          maxLength: 256,
+        },
         createdAt: { type: "string", format: "date-time" },
         expiresAt: { type: "string", format: "date-time" },
       },
@@ -1724,14 +1729,20 @@ export const schema = {
         "Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.",
       type: "object",
       properties: {
-        userId: { $ref: "#/$defs/OrgUserId" },
+        id: { $ref: "#/$defs/OrgMemberId" },
         role: { $ref: "#/$defs/OrgRole" },
         name: { type: ["string", "null"], maxLength: 256 },
         imageUrl: { type: ["string", "null"], format: "uri", maxLength: 2048 },
         joinedAt: { type: "string", format: "date-time" },
       },
-      required: ["userId", "role", "name", "imageUrl", "joinedAt"],
+      required: ["id", "role", "name", "imageUrl", "joinedAt"],
       additionalProperties: false,
+    },
+    OrgMemberId: {
+      description:
+        "A membership's id, a UUID in lowercase: one person's place in one org.",
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     },
     OrgMemberList: {
       description: "Everyone in the org, in the order they joined.",
@@ -1776,11 +1787,6 @@ export const schema = {
       },
       required: ["held", "limit"],
       additionalProperties: false,
-    },
-    OrgUserId: {
-      description: "A member's account, by its Clerk user id.",
-      type: "string",
-      pattern: "^user_[A-Za-z0-9]+$",
     },
     PaddleCheckout: {
       description:

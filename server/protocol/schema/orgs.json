@@ -18,10 +18,10 @@
       "minLength": 1,
       "maxLength": 64
     },
-    "OrgUserId": {
-      "description": "A member's account, by its Clerk user id.",
+    "OrgMemberId": {
+      "description": "A membership's id, a UUID in lowercase: one person's place in one org.",
       "type": "string",
-      "pattern": "^user_[A-Za-z0-9]+$"
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "OrgInviteId": {
       "description": "An invite's id, a UUID in lowercase.",
@@ -108,8 +108,8 @@
       "description": "Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.",
       "type": "object",
       "properties": {
-        "userId": {
-          "$ref": "#/$defs/OrgUserId"
+        "id": {
+          "$ref": "#/$defs/OrgMemberId"
         },
         "role": {
           "$ref": "#/$defs/OrgRole"
@@ -128,7 +128,7 @@
           "format": "date-time"
         }
       },
-      "required": ["userId", "role", "name", "imageUrl", "joinedAt"],
+      "required": ["id", "role", "name", "imageUrl", "joinedAt"],
       "additionalProperties": false
     },
     "OrgMemberList": {
@@ -167,7 +167,9 @@
           "$ref": "#/$defs/OrgRole"
         },
         "invitedBy": {
-          "$ref": "#/$defs/OrgUserId"
+          "description": "The name of who sent it, from their sign-in; null when it has none or cannot be read right now.",
+          "type": ["string", "null"],
+          "maxLength": 256
         },
         "createdAt": {
           "type": "string",

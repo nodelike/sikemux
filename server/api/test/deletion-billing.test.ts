@@ -325,9 +325,13 @@ describe("deleting an account", () => {
     expect((await deleteAccount(OWNER)).status).toBe(409);
     expect((await subscriptions())[0]?.cancel_at_period_end).toBe(false);
 
+    const { rows } = await database.pool.query<{ id: string }>(
+      "select id from org_users where org_id = $1 and user_id = $2",
+      [orgId, ADMIN],
+    );
     const promoted = await as(
       OWNER,
-      `/v1/orgs/${orgId}/members/${ADMIN}/role`,
+      `/v1/orgs/${orgId}/members/${rows[0]?.id}/role`,
       { method: "PUT", json: { role: "owner" } },
     );
     expect(promoted.status).toBe(200);

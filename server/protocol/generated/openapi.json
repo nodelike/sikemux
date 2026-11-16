@@ -1208,7 +1208,7 @@
         }
       }
     },
-    "/v1/orgs/{orgId}/members/{userId}/role": {
+    "/v1/orgs/{orgId}/members/{memberId}/role": {
       "put": {
         "operationId": "setOrgMemberRole",
         "summary": "Change a member's role",
@@ -1222,7 +1222,7 @@
             "schema": { "type": "string" }
           },
           {
-            "name": "userId",
+            "name": "memberId",
             "in": "path",
             "required": true,
             "schema": { "type": "string" }
@@ -1262,7 +1262,7 @@
             }
           },
           "404": {
-            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that user id.",
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that member id.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -1288,7 +1288,7 @@
         }
       }
     },
-    "/v1/orgs/{orgId}/members/{userId}": {
+    "/v1/orgs/{orgId}/members/{memberId}": {
       "delete": {
         "operationId": "removeOrgMember",
         "summary": "Take someone out of an org",
@@ -1302,7 +1302,7 @@
             "schema": { "type": "string" }
           },
           {
-            "name": "userId",
+            "name": "memberId",
             "in": "path",
             "required": true,
             "schema": { "type": "string" }
@@ -1321,7 +1321,7 @@
             }
           },
           "404": {
-            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that user id.",
+            "description": "You are not in an org with that id, or your account is not one plans are open to yet. Or nobody in it has that member id.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -5235,7 +5235,11 @@
             "description": "The role whoever accepts it joins with.",
             "$ref": "#/components/schemas/OrgRole"
           },
-          "invitedBy": { "$ref": "#/components/schemas/OrgUserId" },
+          "invitedBy": {
+            "description": "The name of who sent it, from their sign-in; null when it has none or cannot be read right now.",
+            "type": ["string", "null"],
+            "maxLength": 256
+          },
           "createdAt": { "type": "string", "format": "date-time" },
           "expiresAt": { "type": "string", "format": "date-time" }
         },
@@ -5306,7 +5310,7 @@
         "description": "Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now.",
         "type": "object",
         "properties": {
-          "userId": { "$ref": "#/components/schemas/OrgUserId" },
+          "id": { "$ref": "#/components/schemas/OrgMemberId" },
           "role": { "$ref": "#/components/schemas/OrgRole" },
           "name": { "type": ["string", "null"], "maxLength": 256 },
           "imageUrl": {
@@ -5316,8 +5320,13 @@
           },
           "joinedAt": { "type": "string", "format": "date-time" }
         },
-        "required": ["userId", "role", "name", "imageUrl", "joinedAt"],
+        "required": ["id", "role", "name", "imageUrl", "joinedAt"],
         "additionalProperties": false
+      },
+      "OrgMemberId": {
+        "description": "A membership's id, a UUID in lowercase: one person's place in one org.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
       },
       "OrgMemberList": {
         "description": "Everyone in the org, in the order they joined.",
@@ -5363,11 +5372,6 @@
         },
         "required": ["held", "limit"],
         "additionalProperties": false
-      },
-      "OrgUserId": {
-        "description": "A member's account, by its Clerk user id.",
-        "type": "string",
-        "pattern": "^user_[A-Za-z0-9]+$"
       },
       "PaddleCheckout": {
         "description": "Paddle.js opens its checkout with a client token, which Paddle makes public by design.",

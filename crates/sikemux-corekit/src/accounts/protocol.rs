@@ -857,7 +857,8 @@ pub struct OrgInvite {
     pub id: OrgInviteId,
     /// The role whoever accepts it joins with.
     pub role: OrgRole,
-    pub invited_by: OrgUserId,
+    /// The name of who sent it, from their sign-in; null when it has none or cannot be read right now.
+    pub invited_by: Option<String>,
     pub created_at: String,
     pub expires_at: String,
 }
@@ -908,12 +909,15 @@ pub struct OrgList {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrgMember {
-    pub user_id: OrgUserId,
+    pub id: OrgMemberId,
     pub role: OrgRole,
     pub name: Option<String>,
     pub image_url: Option<String>,
     pub joined_at: String,
 }
+
+/// A membership's id, a UUID in lowercase: one person's place in one org.
+pub type OrgMemberId = String;
 
 /// Everyone in the org, in the order they joined.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -958,9 +962,6 @@ pub struct OrgSeats {
     pub held: i64,
     pub limit: i64,
 }
-
-/// A member's account, by its Clerk user id.
-pub type OrgUserId = String;
 
 /// Paddle.js opens its checkout with a client token, which Paddle makes public by design.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1493,13 +1494,13 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "OrgJoin" => through::<OrgJoin>(json),
         "OrgList" => through::<OrgList>(json),
         "OrgMember" => through::<OrgMember>(json),
+        "OrgMemberId" => through::<OrgMemberId>(json),
         "OrgMemberList" => through::<OrgMemberList>(json),
         "OrgName" => through::<OrgName>(json),
         "OrgRename" => through::<OrgRename>(json),
         "OrgRole" => through::<OrgRole>(json),
         "OrgRoleChange" => through::<OrgRoleChange>(json),
         "OrgSeats" => through::<OrgSeats>(json),
-        "OrgUserId" => through::<OrgUserId>(json),
         "PaddleCheckout" => through::<PaddleCheckout>(json),
         "PaddleEnvironment" => through::<PaddleEnvironment>(json),
         "PaymentCard" => through::<PaymentCard>(json),

@@ -70,13 +70,32 @@ async function orgBody(
   };
 }
 
-function inviteBody(invite: Selectable<Tables["org_invites"]>): OrgInvite {
+function inviteBody(
+  invite: Selectable<Tables["org_invites"]>,
+  named: Map<string, Person>,
+): OrgInvite {
   return {
     id: invite.id,
     role: invite.role,
-    invitedBy: invite.invited_by,
+    invitedBy: named.get(invite.invited_by)?.name ?? null,
     createdAt: invite.created_at.toISOString(),
     expiresAt: invite.expires_at.toISOString(),
+  };
+}
+
+function memberBody(
+  member: Pick<
+    Selectable<Tables["org_users"]>,
+    "id" | "user_id" | "role" | "joined_at"
+  >,
+  named: Map<string, Person>,
+): OrgMember {
+  return {
+    id: member.id,
+    role: member.role,
+    name: named.get(member.user_id)?.name ?? null,
+    imageUrl: named.get(member.user_id)?.imageUrl ?? null,
+    joinedAt: member.joined_at.toISOString(),
   };
 }
 
@@ -119,15 +138,19 @@ function requireRole(role: OrgRole, allowed: readonly OrgRole[]) {
     throw forbidden(`Only an org's ${allowed.join(" or ")} may do this.`);
 }
 
-async function memberRole(db: Kysely<Tables>, orgId: string, userId: string) {
-  const member = await db
-    .selectFrom("org_users")
-    .select("role")
-    .where("org_id", "=", orgId)
-    .where("user_id", "=", userId)
-    .executeTakeFirst();
-  if (!member) throw notFound("Nobody in the org has that user id.");
-  return member.role;
+/** The member a request names by its membership id. */
+async function memberOf(c: Context, db: Kysely<Tables>, orgId: string) {
+  const memberId = c.req.param("memberId") ?? "";
+  const member = UUID.test(memberId)
+    ? await db
+        .selectFrom("org_users")
+        .select(["user_id", "role"])
+        .where("org_id", "=", orgId)
+        .where("id", "=", memberId)
+        .executeTakeFirst()
+    : undefined;
+  if (!member) throw notFound("Nobody in the org has that member id.");
+  return member;
 }
 
 /** Refuses taking `userId`, who holds `role`, out of the owners when they are the last one. */
@@ -364,7 +387,7 @@ export function orgRoutes({
       const rows = await db
         .selectFrom("org_users")
         .where("org_id", "=", orgId)
-        .select(["user_id", "role", "joined_at"])
+        .select(["id", "user_id", "role", "joined_at"])
         .orderBy("joined_at")
         .orderBy("user_id")
         .execute();
@@ -373,29 +396,26 @@ export function orgRoutes({
         rows.map((row) => row.user_id),
       );
       const body: OrgMemberList = {
-        members: rows.map((row) => ({
-          userId: row.user_id,
-          role: row.role,
-          name: named.get(row.user_id)?.name ?? null,
-          imageUrl: named.get(row.user_id)?.imageUrl ?? null,
-          joinedAt: row.joined_at.toISOString(),
-        })),
+        members: rows.map((row) => memberBody(row, named)),
       };
       return c.json(body);
     })
     .put(
-      "/:orgId/members/:userId/role",
+      "/:orgId/members/:memberId/role",
       perUser(limiter, "org-role", 30),
       async (c) => {
         const { userId } = c.get("identity");
         const orgId = orgIdOf(c);
-        const target = c.req.param("userId");
         const { role: next } = await readBody(c, "OrgRoleChange");
         const changed = await db.transaction().execute(async (trx) => {
           const { role } = await membership(trx, orgId, userId, {
             lock: true,
           });
-          const current = await memberRole(trx, orgId, target);
+          const { user_id: target, role: current } = await memberOf(
+            c,
+            trx,
+            orgId,
+          );
           if (!manages(role, current) || !manages(role, next))
             throw forbidden(
               role === "user"
@@ -423,35 +443,28 @@ export function orgRoutes({
             .set({ role: next })
             .where("org_id", "=", orgId)
             .where("user_id", "=", target)
-            .returning(["user_id", "role", "joined_at"])
+            .returning(["id", "user_id", "role", "joined_at"])
             .executeTakeFirstOrThrow();
         });
         await callProvider(c);
-        const person = (await people(c, [changed.user_id])).get(
-          changed.user_id,
-        );
-        const body: OrgMember = {
-          userId: changed.user_id,
-          role: changed.role,
-          name: person?.name ?? null,
-          imageUrl: person?.imageUrl ?? null,
-          joinedAt: changed.joined_at.toISOString(),
-        };
-        return c.json(body);
+        return c.json(memberBody(changed, await people(c, [changed.user_id])));
       },
     )
     .delete(
-      "/:orgId/members/:userId",
+      "/:orgId/members/:memberId",
       perUser(limiter, "remove-org-member", 30),
       async (c) => {
         const { userId } = c.get("identity");
         const orgId = orgIdOf(c);
-        const target = c.req.param("userId");
         await db.transaction().execute(async (trx) => {
           const { role } = await membership(trx, orgId, userId, {
             lock: true,
           });
-          const current = await memberRole(trx, orgId, target);
+          const { user_id: target, role: current } = await memberOf(
+            c,
+            trx,
+            orgId,
+          );
           if (target !== userId && !manages(role, current))
             throw forbidden(
               role === "user"
@@ -555,7 +568,7 @@ export function orgRoutes({
         });
         c.get("log").info({ orgId, inviteId: invite.id }, "invited to an org");
         const body: OrgInviteCreated = {
-          invite: inviteBody(invite),
+          invite: inviteBody(invite, await people(c, [userId])),
           token,
           link: `${appOrigin}/orgs/join#${token}`,
         };
@@ -572,7 +585,12 @@ export function orgRoutes({
         .orderBy("created_at", "desc")
         .orderBy("id")
         .execute();
-      const body: OrgInviteList = { invites: invites.map(inviteBody) };
+      const named = await people(c, [
+        ...new Set(invites.map((invite) => invite.invited_by)),
+      ]);
+      const body: OrgInviteList = {
+        invites: invites.map((invite) => inviteBody(invite, named)),
+      };
       return c.json(body);
     })
     .delete(

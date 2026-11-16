@@ -381,6 +381,7 @@ Table org_users {
   role text [not null, note: 'role = ANY (ARRAY[\'owner\', \'admin\', \'user\'])']
   invited_by text
   joined_at timestamptz [not null, default: `now()`]
+  id uuid [not null, unique, default: `gen_random_uuid()`]
 
   indexes {
     (org_id, user_id) [pk]

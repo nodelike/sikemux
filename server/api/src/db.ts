@@ -295,6 +295,7 @@ export interface Tables {
     created_at: CreatedAt;
   };
   org_users: {
+    id: Generated<string>;
     org_id: string;
     user_id: string;
     role: OrgRole;

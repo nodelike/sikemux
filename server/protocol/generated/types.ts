@@ -918,7 +918,8 @@ export interface OrgInvite {
   id: OrgInviteId;
   /** The role whoever accepts it joins with. */
   role: OrgRole;
-  invitedBy: OrgUserId;
+  /** The name of who sent it, from their sign-in; null when it has none or cannot be read right now. */
+  invitedBy: string | null;
   createdAt: string;
   expiresAt: string;
 }
@@ -957,12 +958,15 @@ export interface OrgList {
 
 /** Someone in the org. name and imageUrl come from their sign-in, and are null when it has none or cannot be read right now. */
 export interface OrgMember {
-  userId: OrgUserId;
+  id: OrgMemberId;
   role: OrgRole;
   name: string | null;
   imageUrl: string | null;
   joinedAt: string;
 }
+
+/** A membership's id, a UUID in lowercase: one person's place in one org. */
+export type OrgMemberId = string;
 
 /** Everyone in the org, in the order they joined. */
 export interface OrgMemberList {
@@ -989,9 +993,6 @@ export interface OrgSeats {
   held: number;
   limit: number;
 }
-
-/** A member's account, by its Clerk user id. */
-export type OrgUserId = string;
 
 /** Paddle.js opens its checkout with a client token, which Paddle makes public by design. */
 export interface PaddleCheckout {
@@ -1831,13 +1832,13 @@ export interface Definitions {
   OrgJoin: OrgJoin;
   OrgList: OrgList;
   OrgMember: OrgMember;
+  OrgMemberId: OrgMemberId;
   OrgMemberList: OrgMemberList;
   OrgName: OrgName;
   OrgRename: OrgRename;
   OrgRole: OrgRole;
   OrgRoleChange: OrgRoleChange;
   OrgSeats: OrgSeats;
-  OrgUserId: OrgUserId;
   PaddleCheckout: PaddleCheckout;
   PaddleEnvironment: PaddleEnvironment;
   PaymentCard: PaymentCard;

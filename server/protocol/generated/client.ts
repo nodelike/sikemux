@@ -185,17 +185,17 @@ export function apiClient(send: Send) {
         `/v1/orgs/${encodeURIComponent(orgId)}/members`,
       ),
     /** Change a member's role. */
-    setOrgMemberRole: (orgId: string, userId: string, body: OrgRoleChange) =>
+    setOrgMemberRole: (orgId: string, memberId: string, body: OrgRoleChange) =>
       send<OrgMember>(
         "PUT",
-        `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}/role`,
+        `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}/role`,
         body,
       ),
     /** Take someone out of an org. */
-    removeOrgMember: (orgId: string, userId: string) =>
+    removeOrgMember: (orgId: string, memberId: string) =>
       send<void>(
         "DELETE",
-        `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(userId)}`,
+        `/v1/orgs/${encodeURIComponent(orgId)}/members/${encodeURIComponent(memberId)}`,
       ),
     /** Leave an org. */
     leaveOrg: (orgId: string) =>

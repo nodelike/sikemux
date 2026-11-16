@@ -78,15 +78,33 @@ async function fullOrg() {
   return orgId;
 }
 
-function setRole(by: string, orgId: string, userId: string, role: OrgRole) {
-  return as(by, `/v1/orgs/${orgId}/members/${userId}/role`, {
-    method: "PUT",
-    json: { role },
-  });
+async function memberId(orgId: string, userId: string) {
+  const { id } = await database.db
+    .selectFrom("org_users")
+    .select("id")
+    .where("org_id", "=", orgId)
+    .where("user_id", "=", userId)
+    .executeTakeFirstOrThrow();
+  return id;
 }
 
-function remove(by: string, orgId: string, userId: string) {
-  return as(by, `/v1/orgs/${orgId}/members/${userId}`, { method: "DELETE" });
+async function setRole(
+  by: string,
+  orgId: string,
+  userId: string,
+  role: OrgRole,
+) {
+  return as(
+    by,
+    `/v1/orgs/${orgId}/members/${await memberId(orgId, userId)}/role`,
+    { method: "PUT", json: { role } },
+  );
+}
+
+async function remove(by: string, orgId: string, userId: string) {
+  return as(by, `/v1/orgs/${orgId}/members/${await memberId(orgId, userId)}`, {
+    method: "DELETE",
+  });
 }
 
 describe("orgs", () => {
