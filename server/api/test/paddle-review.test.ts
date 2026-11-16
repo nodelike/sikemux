@@ -1427,3 +1427,26 @@ describe("2. a failed renewal paid late drops the change held for it", () => {
     });
   });
 });
+
+describe("3. changes of one plan wait for each other holding a database connection each", () => {
+  it("N3: twenty changes sent together leave no connection for anyone else", async () => {
+    await pay(OWNER, "pro");
+    const [plan] = (await overview(OWNER)).subscriptions;
+    paddle.slowMs = 4_000;
+    const changes = Array.from({ length: 20 }, () =>
+      change(OWNER, plan?.id, { quantity: 1 }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const { pool } = database;
+    const inUse = pool.totalCount - pool.idleCount;
+    const stranger = await as(OTHER, "/v1/billing");
+    paddle.slowMs = 0;
+    const statuses = new Set((await Promise.all(changes)).map((r) => r.status));
+
+    expect([...statuses]).toEqual([200]);
+    expect({ connectionsInUse: inUse, stranger: stranger.status }).toEqual({
+      connectionsInUse: 0,
+      stranger: 200,
+    });
+  }, 30_000);
+});

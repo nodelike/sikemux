@@ -9,7 +9,7 @@ import type {
   Subscription,
 } from "@sikemux/protocol";
 import { Hono, type Context } from "hono";
-import { sql, type Kysely, type Selectable } from "kysely";
+import { type Kysely, type Selectable } from "kysely";
 
 import { audit } from "../audit.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
@@ -53,6 +53,23 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 type Payer = { userId: string } | { orgId: string };
 type SubscriptionRow = Selectable<Tables["subscriptions"]>;
+
+const changing = new Map<string, Promise<unknown>>();
+
+/**
+ * Runs the changes of one subscription one after another. They wait here rather than on a
+ * database lock, so a change waiting for its turn, or at the provider, holds no connection.
+ */
+async function inTurn<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const turn = (changing.get(key) ?? Promise.resolve()).then(work);
+  const settled = turn.catch(() => undefined);
+  changing.set(key, settled);
+  try {
+    return await turn;
+  } finally {
+    if (changing.get(key) === settled) changing.delete(key);
+  }
+}
 
 function needProvider(provider: BillingProvider | null): BillingProvider {
   if (!provider)
@@ -646,47 +663,58 @@ export function billingRoutes({
     perUser(limiter, "billing-change", 20),
     async (c) => {
       const ready = needProvider(provider);
-      const { row, subscription, paid, next, unit, same, orgId, when } =
-        await askedChange(c, ready);
-      const take = async (trx: Kysely<Tables>) => {
-        await sql`select pg_advisory_xact_lock(hashtext('billing-change'), hashtext(${row.id}))`.execute(
-          trx,
-        );
-        if (same) {
-          const dropped = await ready.takeBack(subscription, { ...next, unit });
-          if (orgId && dropped)
-            await trx
-              .updateTable("subscriptions")
-              .set({ seats_cut_to: null })
-              .where("id", "=", row.id)
-              .execute();
-          return;
-        }
-        if (orgId) refuseFewerSeats(await lockSeats(trx, orgId), next.quantity);
-        const outcome = await ready.change(
-          subscription,
-          { ...next, unit },
-          when,
-        );
-        if (!outcome.taken)
-          throw outcome.why === "payment_failed"
-            ? new ApiFailure(
-                409,
-                "conflict",
-                "The payment for the change did not go through, so nothing changed. Ask for it at renewal instead.",
-              )
-            : notNow(outcome.why);
-        if (orgId)
-          await trx
+      const take = async () => {
+        const asked = await askedChange(c, ready);
+        const { row, subscription, paid, next, unit, same, orgId, when } =
+          asked;
+        const cutTo = (seats: number | null) =>
+          db
             .updateTable("subscriptions")
-            .set({
-              seats_cut_to:
-                next.quantity < paid.quantity ? next.quantity : null,
-            })
+            .set({ seats_cut_to: seats })
             .where("id", "=", row.id)
             .execute();
+        if (same) {
+          const dropped = await ready.takeBack(subscription, { ...next, unit });
+          if (orgId && dropped) await cutTo(null);
+          return asked;
+        }
+        const cut = next.quantity < paid.quantity ? next.quantity : null;
+        if (orgId)
+          await db.transaction().execute(async (trx) => {
+            refuseFewerSeats(await lockSeats(trx, orgId), next.quantity);
+            if (cut !== null)
+              await trx
+                .updateTable("subscriptions")
+                .set({ seats_cut_to: cut })
+                .where("id", "=", row.id)
+                .execute();
+          });
+        let taken = false;
+        try {
+          const outcome = await ready.change(
+            subscription,
+            { ...next, unit },
+            when,
+          );
+          if (!outcome.taken)
+            throw outcome.why === "payment_failed"
+              ? new ApiFailure(
+                  409,
+                  "conflict",
+                  "The payment for the change did not go through, so nothing changed. Ask for it at renewal instead.",
+                )
+              : notNow(outcome.why);
+          taken = true;
+        } finally {
+          if (orgId && cut !== null && !taken) await cutTo(row.seats_cut_to);
+        }
+        if (orgId && cut === null) await cutTo(null);
+        return asked;
       };
-      await db.transaction().execute(take);
+      const { row, next, same, when } = await inTurn(
+        c.req.param("subscriptionId") ?? "",
+        take,
+      );
       const { userId } = c.get("identity");
       await audit(db, {
         userId,
