@@ -354,33 +354,42 @@ pub fn tint(phase: TurnPhase, cx: &App) -> Option<Hsla> {
     }
 }
 
-/// The word and the parts after it, at `size`, the first part giving way when the room runs out.
-/// `key` names the working word's shimmer. Given the `bench`, an agent the word names is drawn
-/// as its chip, which opens it.
+/// The word, wrapping to at most `lines`, and the parts after it, at `size`, the first part giving
+/// way when the room runs out. `key` names the working word's shimmer. Given the `bench`, an agent
+/// the word names is drawn as its chip, which opens it.
 pub fn words(
     said: &Said,
     key: SharedString,
     size: f32,
+    lines: usize,
     bench: Option<&WeakEntity<Workbench>>,
     cx: &App,
 ) -> Div {
     let t = Tokens::get(cx);
     let dot = || div().flex_none().text_color(t.text_disabled).child("·");
     let pills = bench.and_then(|bench| agent_pills(&said.agents, size, bench, cx));
-    let word = div()
-        .flex_none()
-        .flex()
-        .items_center()
-        .gap(px(5.))
-        .font_weight(FontWeight::MEDIUM)
-        .map(|word| match (tint(said.phase, cx), pills) {
-            (Some(tint), Some(pills)) => word
-                .text_color(tint)
-                .child(t!("Waiting on"))
-                .children(pills),
-            (Some(tint), None) => word.text_color(tint).child(said.word.clone()),
-            (None, _) => word.child(ui::shimmer::shimmer(key, said.word.clone())),
-        });
+    let word =
+        div()
+            .font_weight(FontWeight::MEDIUM)
+            .map(|word| match (tint(said.phase, cx), pills) {
+                (Some(tint), Some(pills)) => word
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .text_color(tint)
+                    .child(t!("Waiting on"))
+                    .children(pills),
+                (tint, _) => {
+                    word.min_w_0()
+                        .line_clamp(lines)
+                        .text_ellipsis()
+                        .map(|word| match tint {
+                            Some(tint) => word.text_color(tint).child(said.word.clone()),
+                            None => word.child(ui::shimmer::shimmer(key, said.word.clone())),
+                        })
+                }
+            });
     let last = said.parts.len().saturating_sub(1);
     div()
         .min_w_0()
@@ -487,7 +496,7 @@ pub fn line(
         .items_center()
         .gap(SPACE_2)
         .child(mark)
-        .child(words(said, key, TEXT_SM, bench, cx).flex_1())
+        .child(words(said, key, TEXT_SM, 2, bench, cx).flex_1())
         .when(!buttons.is_empty(), |line| {
             line.child(
                 div()
@@ -556,5 +565,5 @@ fn header_fact(said: &Said, key: SharedString, cx: &App) -> Div {
         .when(said.phase == TurnPhase::Waiting, |fact| {
             fact.child(ui::icon(Icon::Hourglass, 12.).text_color(t.cmd))
         })
-        .child(words(said, key, TEXT_XS_H, None, cx))
+        .child(words(said, key, TEXT_XS_H, 1, None, cx))
 }
