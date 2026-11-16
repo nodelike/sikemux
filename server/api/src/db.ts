@@ -337,6 +337,7 @@ export interface Tables {
     next_interval: BillingInterval | null;
     next_quantity: number | null;
     provider_updated_at: Date;
+    seats_cut_to: Generated<number | null>;
   };
   invoices: {
     id: Generated<string>;

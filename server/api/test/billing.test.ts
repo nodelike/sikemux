@@ -632,3 +632,39 @@ describe("prices", () => {
     expect(response.status).toBe(403);
   });
 });
+
+describe("seats", () => {
+  it("refuses a Team checkout for fewer seats than the org's members", async () => {
+    const owner = await person("user_owner");
+    for (const id of ["user_b", "user_c", "user_d", "user_e"]) await person(id);
+    const orgId = await org("user_owner", [
+      "user_b",
+      "user_c",
+      "user_d",
+      "user_e",
+    ]);
+    const response = await call("/v1/billing/checkout", owner, {
+      method: "POST",
+      json: { product: "team", interval: "month", quantity: 1, orgId },
+    });
+    expect(response.status).toBe(409);
+    expect(delivered).toHaveLength(0);
+  });
+
+  it("holds a cut at renewal against invites from the moment it is taken", async () => {
+    const owner = await person("user_owner");
+    const orgId = await org("user_owner");
+    await buy(owner, "team", { quantity: 5, orgId });
+    const [held] = (await overview(owner, orgId)).subscriptions;
+    const cut = await call(`/v1/billing/subscriptions/${held?.id}`, owner, {
+      method: "PATCH",
+      json: { quantity: 1, when: "renewal" },
+    });
+    expect(cut.status).toBe(200);
+    const invited = await call(`/v1/orgs/${orgId}/invites`, owner, {
+      method: "POST",
+      json: { role: "user" },
+    });
+    expect(invited.status).toBe(409);
+  });
+});

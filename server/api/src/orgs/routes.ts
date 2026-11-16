@@ -18,7 +18,13 @@ import { audit } from "../audit.ts";
 import type { Person } from "../account/clerk.ts";
 import { accountDeleted, requireIdentity, type AuthEnv } from "../auth.ts";
 import { requireBillingAccess } from "../billing/access.ts";
-import { hasOpenSubscriptions, seatLimit } from "../billing/seats.ts";
+import {
+  hasOpenSubscriptions,
+  memberCount,
+  openInvites,
+  seatLimit,
+  seatsHeld,
+} from "../billing/seats.ts";
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import {
@@ -37,35 +43,6 @@ const NOT_IN_ORG = "You are not in an org with that id.";
 
 const tokenHash = (token: string) =>
   createHash("sha256").update(token).digest("hex");
-
-const openInvites = (db: Kysely<Tables>, orgId: string) =>
-  db
-    .selectFrom("org_invites")
-    .where("org_id", "=", orgId)
-    .where("accepted_at", "is", null)
-    .where("revoked_at", "is", null)
-    .where("expires_at", ">", sql<Date>`now()`);
-
-async function inviteCount(db: Kysely<Tables>, orgId: string) {
-  const { count } = await openInvites(db, orgId)
-    .select((eb) => eb.fn.countAll<string>().as("count"))
-    .executeTakeFirstOrThrow();
-  return Number(count);
-}
-
-async function memberCount(db: Kysely<Tables>, orgId: string, role?: OrgRole) {
-  let query = db.selectFrom("org_users").where("org_id", "=", orgId);
-  if (role) query = query.where("role", "=", role);
-  const { count } = await query
-    .select((eb) => eb.fn.countAll<string>().as("count"))
-    .executeTakeFirstOrThrow();
-  return Number(count);
-}
-
-/** Members and pending invites each hold a seat. */
-async function seatsHeld(db: Kysely<Tables>, orgId: string) {
-  return (await memberCount(db, orgId)) + (await inviteCount(db, orgId));
-}
 
 function orgName(name: string) {
   const trimmed = name.trim();
@@ -304,7 +281,7 @@ export function orgRoutes({
             .executeTakeFirst()
         )
           throw conflict("You are already in this org.");
-        if ((await memberCount(trx, org.id)) >= (await seatLimit(trx, org.id)))
+        if ((await seatsHeld(trx, org.id)) >= (await seatLimit(trx, org.id)))
           throw conflict(
             "The org has no free seat: its Team plan lapsed or its seats were cut.",
           );

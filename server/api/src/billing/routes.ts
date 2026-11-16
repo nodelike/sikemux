@@ -35,6 +35,7 @@ import {
   type ProviderRequest,
 } from "./provider.ts";
 import { PaddleProvider } from "./paddle.ts";
+import { lockSeats } from "./seats.ts";
 import { StandInProvider } from "./stand-in.ts";
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -349,6 +350,15 @@ export function billingRoutes({
         .where("provider", "=", ready.name)
         .forUpdate()
         .executeTakeFirstOrThrow();
+      if (sold.id === "team" && "orgId" in payer) {
+        const held = await lockSeats(trx, payer.orgId);
+        if (request.quantity < held)
+          throw new ApiFailure(
+            409,
+            "conflict",
+            `${held} seats are held by members and pending invites; buy at least that many.`,
+          );
+      }
       if (sold.kind === "plan") {
         const holding = await trx
           .selectFrom("subscriptions")
@@ -413,23 +423,23 @@ export function billingRoutes({
         throw badRequest(`${to.name} is not sold by the ${next.interval}.`);
       if (next.quantity > to.maxQuantity)
         throw badRequest(`${to.name} is sold up to ${to.maxQuantity} at once.`);
-      if (to.id === "team" && row.org_id) {
-        const seated = await db
-          .selectFrom("org_users")
-          .select((eb) => eb.fn.countAll<string>().as("count"))
-          .where("org_id", "=", row.org_id)
-          .executeTakeFirstOrThrow();
-        if (next.quantity < Number(seated.count))
-          throw badRequest(
-            `${seated.count} people hold seats; remove some before paying for fewer.`,
-          );
-      }
       const same =
         next.product === row.product &&
         next.interval === row.interval &&
         next.quantity === row.quantity;
       const when = change.when ?? "now";
-      if (!same) {
+      if (same) return c.json(await reread(row.id));
+      const orgId = to.id === "team" ? row.org_id : null;
+      const take = async (trx: Kysely<Tables>) => {
+        if (orgId) {
+          const held = await lockSeats(trx, orgId);
+          if (next.quantity < held)
+            throw new ApiFailure(
+              409,
+              "conflict",
+              `${held} seats are held by members and pending invites; remove some before paying for fewer.`,
+            );
+        }
         const outcome = await ready.change(
           heldSubscription(row, row.provider_customer_id),
           { ...next, unit },
@@ -443,15 +453,24 @@ export function billingRoutes({
               ? "The payment for the change did not go through, so nothing changed. Ask for it at renewal instead."
               : "This payment method cannot be charged mid-period. Ask for the change at renewal.",
           );
-        const { userId } = c.get("identity");
-        await audit(db, {
-          userId,
-          actor: `user:${userId}`,
-          action: "billing.subscription_changed",
-          subject: row.id,
-          detail: { ...next, when },
-        });
-      }
+        if (orgId)
+          await trx
+            .updateTable("subscriptions")
+            .set({
+              seats_cut_to: next.quantity < row.quantity ? next.quantity : null,
+            })
+            .where("id", "=", row.id)
+            .execute();
+      };
+      await (orgId ? db.transaction().execute(take) : take(db));
+      const { userId } = c.get("identity");
+      await audit(db, {
+        userId,
+        actor: `user:${userId}`,
+        action: "billing.subscription_changed",
+        subject: row.id,
+        detail: { ...next, when },
+      });
       return c.json(await reread(row.id));
     },
   );

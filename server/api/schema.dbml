@@ -439,6 +439,7 @@ Table subscriptions {
   next_interval text [note: 'next_interval = ANY (ARRAY[\'month\', \'year\'])']
   next_quantity integer [note: 'next_quantity > 0']
   provider_updated_at timestamptz [not null]
+  seats_cut_to integer [note: 'seats_cut_to > 0']
 
   indexes {
     customer_id [name: 'subscriptions_by_customer', note: 'where (status <> \'ended\')']
