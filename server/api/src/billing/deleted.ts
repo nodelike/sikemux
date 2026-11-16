@@ -6,8 +6,6 @@ import type { Logger } from "../log.ts";
 import { retryLater } from "../retry.ts";
 import { heldSubscription, type BillingProvider } from "./provider.ts";
 
-/** How long after ending a deleted account's billing at once the sweeper checks the provider did. */
-const RECHECK_MS = 60 * 60_000;
 const BATCH = 20;
 
 /**
@@ -60,8 +58,10 @@ export async function holdsOpenSubscriptions(
 
 /**
  * Ends a deleted account's subscriptions with the provider: at the period's end while it can be
- * restored, at once when it is due to be erased. The provider's events then change the rows. A
- * failure is recorded for the sweeper to retry, and alerts once it keeps failing.
+ * restored, at once when it is due to be erased or the plan has lapsed, so the provider's retry of
+ * a failed payment charges nobody. A cancel at once the provider took ends the row here too, so
+ * the erase never waits on an event that was lost. A failure is recorded for the sweeper to retry,
+ * and alerts once it keeps failing.
  */
 export async function endDeletedBilling(
   db: Kysely<Tables>,
@@ -93,16 +93,23 @@ export async function endDeletedBilling(
     return void (await settle({ billing_attempts: 0, billing_retry_at: null }));
 
   const due = user.purge_after <= new Date();
-  const when = due ? "now" : "period_end";
   try {
     for (const row of rows) {
-      if (!due && row.cancel_at_period_end) continue;
+      const when = due || row.status === "lapsed" ? "now" : "period_end";
+      if (when === "period_end" && row.cancel_at_period_end) continue;
       if (provider?.name !== row.provider)
         throw new Error(`no ${row.provider} payment provider is set up`);
       await provider.cancel(
         heldSubscription(row, row.provider_customer_id),
         when,
       );
+      if (when === "now")
+        await db
+          .updateTable("subscriptions")
+          .set({ status: "ended", ended_at: sql<Date>`now()` })
+          .where("id", "=", row.id)
+          .where("status", "<>", "ended")
+          .execute();
       await audit(db, {
         userId,
         actor: "system",
@@ -128,9 +135,7 @@ export async function endDeletedBilling(
   }
   await settle({
     billing_attempts: 0,
-    billing_retry_at: due
-      ? new Date(Date.now() + RECHECK_MS)
-      : user.purge_after,
+    billing_retry_at: due ? null : user.purge_after,
   });
 }
 

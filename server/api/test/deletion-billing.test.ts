@@ -13,6 +13,7 @@ import {
 
 import { sweepClerk } from "../src/account/clerk-sweeper.ts";
 import { purgeAccounts } from "../src/account/purge.ts";
+import { applyProviderEvents } from "../src/billing/apply.ts";
 import { sweepDeletedBilling } from "../src/billing/deleted.ts";
 import type { ProviderRequest } from "../src/billing/provider.ts";
 import { StandInProvider } from "../src/billing/stand-in.ts";
@@ -255,6 +256,45 @@ describe("deleting an account", () => {
       ["pro", true],
       ["shed", true],
     ]);
+  });
+
+  it("cancels a lapsed plan at once, so the provider's retry of its payment charges nobody", async () => {
+    await buy(MEMBER, "pro");
+    const { rows } = await database.pool.query<{ id: string }>(
+      "select provider_subscription_id as id from subscriptions",
+    );
+    const providerSubscriptionId = rows[0]?.id ?? "";
+    const failedAt = new Date(Date.now() + 60_000);
+    const payment = {
+      providerSubscriptionId,
+      lines: [{ product: "pro" as const, quantity: 1 }],
+      reason: "renewal" as const,
+      total: { amount: 800, currency: "usd" as const },
+    };
+    await applyProviderEvents(
+      database.db,
+      provider,
+      [
+        {
+          eventId: "evt_failed",
+          at: failedAt,
+          type: "payment.failed",
+          providerPaymentId: "pay_try_1",
+          ...payment,
+        },
+        {
+          eventId: "evt_lapsed",
+          at: failedAt,
+          type: "subscription.lapsed",
+          providerSubscriptionId,
+        },
+      ],
+      log,
+    );
+    const cancel = vi.spyOn(provider, "cancel");
+    expect((await deleteAccount(MEMBER)).status).toBe(202);
+    expect(cancel.mock.calls.map(([, when]) => when)).toEqual(["now"]);
+    expect((await subscriptions())[0]?.status).toBe("ended");
   });
 
   it("leaves an org someone else owns at once, freeing the seat", async () => {
