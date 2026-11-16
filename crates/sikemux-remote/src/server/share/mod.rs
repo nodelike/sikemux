@@ -638,7 +638,10 @@ async fn pasted_picture(core: &Core, path: PathBuf) -> CoreResult<String> {
         .clone()
         .ok_or("this host keeps no pasted pictures")?;
     super::connection::blocking(move || {
-        let kept = match (std::fs::canonicalize(&dir), std::fs::canonicalize(&path)) {
+        let kept = match (
+            sikemux_process::files::real_path(&dir),
+            sikemux_process::files::real_path(&path),
+        ) {
             (Ok(dir), Ok(path)) => path.starts_with(dir),
             _ => false,
         };

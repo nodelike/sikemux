@@ -333,7 +333,7 @@ pub fn main_checkout(path: &std::path::Path) -> Option<std::path::PathBuf> {
     let link = std::fs::read_to_string(&dot_git).ok()?;
     let gitdir = root.join(link.strip_prefix("gitdir:")?.trim());
     let common = std::fs::read_to_string(gitdir.join("commondir")).ok()?;
-    let common = std::fs::canonicalize(gitdir.join(common.trim())).ok()?;
+    let common = sikemux_process::files::real_path(gitdir.join(common.trim())).ok()?;
     if common.file_name()? != ".git" {
         return None;
     }

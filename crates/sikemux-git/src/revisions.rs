@@ -200,13 +200,14 @@ fn inside_worktree(repo: &str, path: &str) -> Result<Option<PathBuf>, String> {
     {
         return Err(format!("{path} is not a path inside the repository"));
     }
-    let root = Repository::discover(repo)
-        .map_err(|e| e.message().to_string())?
-        .workdir()
-        .ok_or("this repository has no working tree")?
-        .canonicalize()
-        .map_err(|e| e.to_string())?;
-    let full = match Path::new(repo).join(relative).canonicalize() {
+    let root = sikemux_process::files::real_path(
+        Repository::discover(repo)
+            .map_err(|e| e.message().to_string())?
+            .workdir()
+            .ok_or("this repository has no working tree")?,
+    )
+    .map_err(|e| e.to_string())?;
+    let full = match sikemux_process::files::real_path(Path::new(repo).join(relative)) {
         Ok(full) => full,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.to_string()),

@@ -735,7 +735,7 @@ pub fn in_checkout(top: &Path, dir: &Path, path: &str) -> Result<String, String>
             part => clean.push(part),
         }
     }
-    let real = crate::os::real_path(&clean).unwrap_or(clean);
+    let real = sikemux_process::files::real_path(&clean).unwrap_or(clean);
     real.strip_prefix(top)
         .map(|inside| inside.to_string_lossy().into_owned())
         .map_err(|_| format!("{path} is outside this checkout"))
@@ -1372,7 +1372,7 @@ mod tests {
     #[test]
     fn named_paths_limit_the_commit_and_take_the_lockfile_along() {
         let top = tempfile::tempdir().unwrap();
-        let top = crate::os::real_path(top.path()).unwrap();
+        let top = sikemux_process::files::real_path(top.path()).unwrap();
         let files = ["Cargo.toml", "Cargo.lock", "a.rs", "b.rs"];
         for file in files {
             std::fs::write(top.join(file), "x\n").unwrap();
@@ -1413,7 +1413,7 @@ mod tests {
     #[test]
     fn lines_others_may_have_written_go_in_only_from_a_named_file() {
         let top = tempfile::tempdir().unwrap();
-        let top = crate::os::real_path(top.path()).unwrap();
+        let top = sikemux_process::files::real_path(top.path()).unwrap();
         let files = ["seen.rs", "protocol.rs"];
         for file in files {
             std::fs::write(top.join(file), "x\n").unwrap();

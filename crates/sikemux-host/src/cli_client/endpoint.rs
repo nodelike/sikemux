@@ -75,7 +75,7 @@ pub(super) fn launch_app() -> Result<(), String> {
     }
     let current =
         env::current_exe().map_err(|error| format!("cannot locate Sikemux CLI: {error}"))?;
-    let current = fs::canonicalize(&current).unwrap_or(current);
+    let current = sikemux_process::files::real_path(&current).unwrap_or(current);
 
     #[cfg(windows)]
     if let Some(directory) = current.parent() {

@@ -74,7 +74,7 @@ fn explicit_candidates(value: &str) -> Vec<PathBuf> {
 
 /// The mise program that `executable` is a shim of, if it is one.
 fn mise_behind(executable: &Path) -> Option<PathBuf> {
-    let target = fs::canonicalize(executable).ok()?;
+    let target = sikemux_process::files::real_path(executable).ok()?;
     (target.file_name()? == "mise" && executable.file_name()? != "mise").then_some(target)
 }
 

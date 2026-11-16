@@ -38,7 +38,9 @@ pub(crate) fn config_needs(core: &Core, config: &ConfigLoad) -> Option<TrustAsk>
     };
     let ask = config_ask(path, fingerprint, config);
     let trusted_at = |file: &Path| {
-        let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+        let real = |path: &Path| {
+            sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned())
+        };
         let file = real(file);
         let state = core.tasks().state.locked();
         state.trust.configs.iter().any(|known| {

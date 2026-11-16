@@ -644,7 +644,8 @@ impl Workspaces {
     /// The id and folder of this host's project whose folder is `path` once both are resolved,
     /// which a symlink can tell apart.
     pub fn project_holding(&self, path: &str) -> CoreResult<(String, PathBuf)> {
-        let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.into());
+        let canonical =
+            |path: &Path| sikemux_process::files::real_path(path).unwrap_or_else(|_| path.into());
         let wanted = canonical(Path::new(path));
         let projects: Vec<(String, PathBuf)> = (self.published.locked().saved.projects.iter())
             .map(|project| (project.id.clone(), project.path.clone()))

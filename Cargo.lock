@@ -10611,6 +10611,7 @@ dependencies = [
 name = "sikemux-process"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "libc",
  "tempfile",
  "windows-sys 0.61.2",
@@ -10686,7 +10687,6 @@ name = "sikemux-repo"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
- "dunce",
  "futures-util",
  "git2",
  "globset",

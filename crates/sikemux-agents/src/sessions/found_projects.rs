@@ -77,7 +77,7 @@ enum Place {
 /// agents make scratch repositories in.
 fn never_projects(home: Option<&Path>) -> Vec<PathBuf> {
     let temporary = std::env::temp_dir();
-    let resolved = temporary.canonicalize().ok();
+    let resolved = sikemux_process::files::real_path(&temporary).ok();
     home.map(|home| home.join("Downloads"))
         .into_iter()
         .chain([

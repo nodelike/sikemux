@@ -194,7 +194,7 @@ fn wear_background(core: &Arc<Core>) {
 /// on its next switch and reuses file names between themes, so apps are given a path that only
 /// ever means this one picture.
 fn copy_background(current: &Path, copies: &Path) -> Option<String> {
-    let picture = std::fs::canonicalize(current.join("background")).ok()?;
+    let picture = sikemux_process::files::real_path(current.join("background")).ok()?;
     let extension = picture.extension()?.to_str()?.to_ascii_lowercase();
     if !STILL_PICTURES.contains(&extension.as_str()) {
         return None;

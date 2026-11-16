@@ -250,7 +250,7 @@ impl World {
     /// closed earlier among the recent ones and one of them pinned, and tabs of other kinds.
     pub(super) fn populate(&self, project: &str, path: &Path) -> anyhow::Result<()> {
         let world = &self.world;
-        let path = &path.canonicalize()?;
+        let path = &sikemux_process::files::real_path(path)?;
         for other in world["projects"]
             .as_array()
             .into_iter()

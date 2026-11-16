@@ -307,9 +307,9 @@ fn base_branch(repo: &Path) -> Result<String, String> {
 
 /// Where `project` sits inside the repository at `repo`.
 pub fn inside(project: &Path, repo: &Path) -> PathBuf {
-    crate::os::real_path(project)
+    sikemux_process::files::real_path(project)
         .ok()
-        .zip(crate::os::real_path(repo).ok())
+        .zip(sikemux_process::files::real_path(repo).ok())
         .and_then(|(project, repo)| project.strip_prefix(&repo).ok().map(Path::to_path_buf))
         .unwrap_or_default()
 }

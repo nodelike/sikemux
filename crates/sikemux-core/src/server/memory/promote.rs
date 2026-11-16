@@ -132,7 +132,7 @@ pub(super) fn agents_file(folder: &str) -> Result<PathBuf, Stays> {
     if !meta.file_type().is_symlink() {
         return Ok(path);
     }
-    std::fs::canonicalize(&path)
+    sikemux_process::files::real_path(&path)
         .ok()
         .filter(|target| target.starts_with(folder))
         .ok_or(Stays::LinkedAway)

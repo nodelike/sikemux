@@ -148,7 +148,8 @@ pub(super) fn resolve_target(
         let (path_part, line, column) = split_location(&expanded)?;
         (absolute_candidate(Path::new(path_part), cwd), line, column)
     };
-    let path = fs::canonicalize(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let path = sikemux_process::files::real_path(&path)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
     let metadata = fs::metadata(&path).map_err(|error| format!("{}: {error}", path.display()))?;
     let kind = if metadata.is_file() {
         CliTargetKind::File
@@ -182,7 +183,7 @@ pub(super) fn resolve_target(
 pub(super) fn resolve_existing(path: &Path, cwd: &Path) -> Result<PathBuf, String> {
     let expanded = sikemux_process::paths::expand_home(&path.to_string_lossy());
     let path = absolute_candidate(&expanded, cwd);
-    fs::canonicalize(&path).map_err(|error| format!("{}: {error}", path.display()))
+    sikemux_process::files::real_path(&path).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 pub(super) fn absolute_candidate(path: &Path, cwd: &Path) -> PathBuf {

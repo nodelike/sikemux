@@ -42,7 +42,10 @@ fn worktree_path(path: &str) -> Result<PathBuf, String> {
 }
 
 fn same_worktree_path(left: &Path, right: &Path) -> bool {
-    match (left.canonicalize(), right.canonicalize()) {
+    match (
+        sikemux_process::files::real_path(left),
+        sikemux_process::files::real_path(right),
+    ) {
         (Ok(left), Ok(right)) => left == right,
         _ => left == right,
     }
@@ -63,8 +66,7 @@ fn resolved_path_for_containment(path: &Path) -> Result<PathBuf, String> {
             .parent()
             .ok_or_else(|| format!("cannot resolve worktree target {}", path.display()))?;
     }
-    let mut resolved = existing
-        .canonicalize()
+    let mut resolved = sikemux_process::files::real_path(existing)
         .map_err(|error| format!("resolve worktree target {}: {error}", path.display()))?;
     for component in missing.iter().rev() {
         resolved.push(component);

@@ -159,7 +159,7 @@ fn parent_id() -> Option<u32> {
 }
 
 fn own_executable() -> Option<PathBuf> {
-    std::env::current_exe().ok()?.canonicalize().ok()
+    sikemux_process::files::real_path(std::env::current_exe().ok()?).ok()
 }
 
 struct Examined {
@@ -219,7 +219,9 @@ mod platform {
             .parse::<SecRequirement>()
             .is_ok_and(|requirement| code.check_validity(Flags::NONE, &requirement).is_ok());
         let program = (!signed_app)
-            .then(|| code.path(Flags::NONE).ok()?.to_path()?.canonicalize().ok())
+            .then(|| {
+                sikemux_process::files::real_path(code.path(Flags::NONE).ok()?.to_path()?).ok()
+            })
             .flatten();
         Examined {
             signed_app,
@@ -241,7 +243,7 @@ mod platform {
             signed_app: false,
             program: credentials
                 .program()
-                .and_then(|program| program.canonicalize().ok()),
+                .and_then(|program| sikemux_process::files::real_path(program).ok()),
         }
     }
 }

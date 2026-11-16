@@ -59,11 +59,21 @@ pub fn repo_root(dir: &Path) -> Option<&Path> {
         .find(|ancestor| ancestor.join(".git").exists())
 }
 
+/// `path` made absolute with links followed. On Windows this leaves off the `\\?\` prefix
+/// std adds, which cmd.exe, git and node refuse in a working folder.
+#[allow(clippy::disallowed_methods)]
+pub fn real_path(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+    #[cfg(windows)]
+    return dunce::canonicalize(path);
+    #[cfg(not(windows))]
+    fs::canonicalize(path)
+}
+
 /// `path`, taken from `project` with links followed, or `None` when that leads
 /// outside the project.
 pub fn confine_to_project(project: &str, path: &str) -> std::io::Result<Option<PathBuf>> {
-    let root = fs::canonicalize(project)?;
-    let target = fs::canonicalize(root.join(path))?;
+    let root = real_path(project)?;
+    let target = real_path(root.join(path))?;
     Ok(target.starts_with(&root).then_some(target))
 }
 

@@ -137,7 +137,7 @@ async fn only_the_chief_retires_a_persons_rule_as_now_a_check_and_agents_only_on
         .prefix("chief")
         .tempdir_in("/tmp")
         .expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");
@@ -320,7 +320,7 @@ async fn why_answers_a_broad_question_with_the_newest_decisions_and_a_specific_m
         .prefix("chief")
         .tempdir_in("/tmp")
         .expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");
@@ -386,7 +386,7 @@ async fn an_overrule_undone_while_the_chief_sleeps_after_a_restart_shows_undone_
         .prefix("chief")
         .tempdir_in("/tmp")
         .expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");
@@ -471,7 +471,7 @@ async fn a_decision_an_agent_records_shows_in_its_chat_until_overruled_then_undo
         .prefix("chief")
         .tempdir_in("/tmp")
         .expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");
@@ -574,7 +574,7 @@ async fn a_chiefs_chat_is_titled_only_from_what_the_person_wrote() {
         .prefix("chief")
         .tempdir_in("/tmp")
         .expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     let claude = root.join("claude");
     std::fs::create_dir_all(root.join("home")).expect("home");
@@ -688,7 +688,7 @@ async fn a_rule_holding_words_the_person_did_not_say_is_kept_as_the_agents_note(
         .prefix("chief")
         .tempdir_in("/tmp")
         .expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");
@@ -749,7 +749,7 @@ async fn a_kept_rule_the_person_removes_reads_undone_in_its_chat_and_its_agent_h
         .prefix("chief")
         .tempdir_in("/tmp")
         .expect("temp dir");
-    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let root = sikemux_process::files::real_path(root.path()).expect("canonical");
     let project = root.join("project");
     std::fs::create_dir_all(root.join("home")).expect("home");
     std::fs::create_dir(&project).expect("project");

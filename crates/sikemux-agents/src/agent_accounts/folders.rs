@@ -68,7 +68,7 @@ fn default_root(provider: &str) -> Option<PathBuf> {
 pub fn sessions_root(provider: &str, config_path: Option<&str>) -> Option<PathBuf> {
     let folder = accounts_home(provider)?.1.sessions?;
     let path = root(provider, config_path)?.join(folder);
-    Some(std::fs::canonicalize(&path).unwrap_or(path))
+    Some(sikemux_process::files::real_path(&path).unwrap_or(path))
 }
 
 pub fn sessions_shared(provider: &str, one: Option<&str>, other: Option<&str>) -> bool {

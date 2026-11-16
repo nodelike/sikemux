@@ -34,8 +34,7 @@ struct Share {
 impl LocalFiles {
     /// A loopback address that shows `path`, a file or a folder's `index.html`.
     pub fn url_for(&self, path: &Path) -> Result<String, String> {
-        let mut path = path
-            .canonicalize()
+        let mut path = sikemux_process::files::real_path(path)
             .map_err(|_| format!("{} does not exist", path.display()))?;
         if path.is_dir() {
             path = path.join("index.html");
@@ -157,7 +156,7 @@ fn share_address(url: &str) -> Option<(u16, String, String)> {
 fn serves_its_folder(folder: &Path) -> bool {
     let Some(home) = std::env::var("HOME")
         .ok()
-        .and_then(|home| Path::new(&home).canonicalize().ok())
+        .and_then(|home| sikemux_process::files::real_path(&home).ok())
     else {
         return false;
     };
@@ -270,7 +269,7 @@ impl Folder {
         let Some(relative) = safe_relative(rest) else {
             return Answer::Refused(404);
         };
-        let Ok(found) = self.root.join(&relative).canonicalize() else {
+        let Ok(found) = sikemux_process::files::real_path(self.root.join(&relative)) else {
             return Answer::Refused(404);
         };
         if !found.starts_with(&self.root) || self.only.as_ref().is_some_and(|only| *only != found) {
@@ -434,7 +433,7 @@ mod tests {
 
     fn folder() -> (tempfile::TempDir, Folder) {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().canonicalize().unwrap();
+        let root = sikemux_process::files::real_path(dir.path()).unwrap();
         std::fs::write(root.join("index.html"), "<h1>hi</h1>").unwrap();
         std::fs::write(root.join(".env"), "SECRET=1").unwrap();
         std::fs::create_dir(root.join("assets")).unwrap();
@@ -535,20 +534,20 @@ mod tests {
 
     #[test]
     fn only_a_project_serves_the_files_beside_a_page() {
-        let home = PathBuf::from(std::env::var("HOME").unwrap())
-            .canonicalize()
-            .unwrap();
+        let home = sikemux_process::files::real_path(std::env::var("HOME").unwrap()).unwrap();
         assert!(!serves_its_folder(Path::new("/")));
         assert!(!serves_its_folder(&home));
         assert!(!serves_its_folder(&home.join("Downloads")));
         assert!(!serves_its_folder(&home.join("Downloads/site")));
         assert!(!serves_its_folder(&home.join("site-without-git")));
         let downloads = tempfile::tempdir().unwrap();
-        let repo = downloads.path().canonicalize().unwrap().join("repo");
+        let repo = sikemux_process::files::real_path(downloads.path())
+            .unwrap()
+            .join("repo");
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         std::fs::create_dir(repo.join("docs")).unwrap();
         assert!(!serves_its_folder(
-            &downloads.path().canonicalize().unwrap()
+            &sikemux_process::files::real_path(downloads.path()).unwrap()
         ));
         assert!(serves_its_folder(&repo.join("docs")));
     }

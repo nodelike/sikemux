@@ -268,7 +268,7 @@ fn folder_for(project: &str, folder: Option<&str>) -> Result<String, String> {
     let Some(folder) = folder else {
         return Ok(project.to_owned());
     };
-    let canonical = std::fs::canonicalize(folder)
+    let canonical = sikemux_process::files::real_path(folder)
         .map_err(|error| format!("folder {folder} cannot be read: {error}"))?;
     if canonical.parent().is_none() || !Path::new(project).starts_with(&canonical) {
         return Err(format!(

@@ -906,10 +906,10 @@ fn is_shim(path: &Path) -> bool {
     static SHIM: OnceLock<Option<PathBuf>> = OnceLock::new();
     let shim = SHIM.get_or_init(|| {
         std::env::current_exe()
-            .and_then(|exe| exe.canonicalize())
+            .and_then(sikemux_process::files::real_path)
             .ok()
     });
-    path.canonicalize().ok() == *shim
+    sikemux_process::files::real_path(path).ok() == *shim
         || shim
             .as_deref()
             .is_some_and(|shim| crate::os::is_hard_link_of(path, shim))

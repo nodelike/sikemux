@@ -237,11 +237,11 @@ fn read(path: &Path) -> Option<Arc<str>> {
 
 /// `path` with its folder's links resolved, whether or not it exists yet.
 fn real(path: &Path) -> PathBuf {
-    if let Ok(real) = crate::os::real_path(path) {
+    if let Ok(real) = sikemux_process::files::real_path(path) {
         return real;
     }
     match (path.parent(), path.file_name()) {
-        (Some(folder), Some(name)) => crate::os::real_path(folder)
+        (Some(folder), Some(name)) => sikemux_process::files::real_path(folder)
             .map(|folder| folder.join(name))
             .unwrap_or_else(|_| path.to_owned()),
         _ => path.to_owned(),

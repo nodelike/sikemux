@@ -1101,7 +1101,7 @@ mod tests {
     async fn a_commit_only_on_a_work_branch_the_project_has_checked_out_has_not_landed() {
         let core = Core::new(Default::default(), None).unwrap();
         let dir = tempfile::tempdir().unwrap();
-        let project = std::fs::canonicalize(dir.path()).unwrap();
+        let project = sikemux_process::files::real_path(dir.path()).unwrap();
         let git = |args: &[&str]| {
             let mut all = vec!["-c", "user.name=Test", "-c", "user.email=test@example.com"];
             all.extend_from_slice(args);

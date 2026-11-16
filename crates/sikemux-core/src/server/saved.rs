@@ -78,7 +78,9 @@ fn open_sessions(core: &Core) -> HashMap<(String, String), (String, Option<Strin
 fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
     let wanted: Vec<PathBuf> = projects
         .iter()
-        .map(|project| std::fs::canonicalize(project).unwrap_or_else(|_| project.into()))
+        .map(|project| {
+            sikemux_process::files::real_path(project).unwrap_or_else(|_| project.into())
+        })
         .collect();
     let mut known = core.workspaces().project_paths();
     known.extend(wanted.iter().cloned());
@@ -222,7 +224,7 @@ fn scope(core: &Core, request: &HarnessRequest) -> Result<Option<Vec<String>>, S
         None | Some(Value::Null) => super::caller::project_of(core, request),
         Some(Value::String(path)) if !path.trim().is_empty() => {
             let path = Path::new(path.trim());
-            std::fs::canonicalize(path)
+            sikemux_process::files::real_path(path)
                 .map_err(|_| format!("{} is not a folder on this host", path.display()))?
                 .to_string_lossy()
                 .into_owned()

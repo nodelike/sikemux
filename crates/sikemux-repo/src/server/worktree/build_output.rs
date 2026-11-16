@@ -253,8 +253,7 @@ fn landed_and_left(core: &Core) -> Vec<(PathBuf, PathBuf)> {
         for tree in worktrees_of(std::slice::from_ref(&main)) {
             let in_use = projects.iter().any(|project| project.starts_with(&tree))
                 || held.iter().any(|path| path.starts_with(&tree))
-                || tree
-                    .canonicalize()
+                || sikemux_process::files::real_path(&tree)
                     .map_or(true, |real| running_in(&places, &[&tree, &real]).is_some());
             if !in_use && !touched_lately(&tree) && on_base(&tree, &base) {
                 left.push((main.clone(), tree));
@@ -529,7 +528,7 @@ fn kept_by(core: &Core, tree: &Path) -> Option<Keeper> {
         let name = core.names().name(&agent.id).unwrap_or(agent.id);
         return Some(Keeper::Agent(format!("@{name} is awake in it")));
     }
-    let Ok(real) = crate::os::real_path(tree) else {
+    let Ok(real) = sikemux_process::files::real_path(tree) else {
         return Some(Keeper::Unsure("its folder could not be read".to_owned()));
     };
     let Some(places) = procs::places() else {

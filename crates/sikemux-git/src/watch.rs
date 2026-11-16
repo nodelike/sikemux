@@ -33,7 +33,7 @@ pub fn repo_key(repo: &str) -> Result<String, String> {
             "repository path must be an absolute path of at most {MAX_REPO_PATH_BYTES} bytes"
         ));
     }
-    let canonical = std::fs::canonicalize(repo)
+    let canonical = sikemux_process::files::real_path(repo)
         .map_err(|error| format!("canonicalize repository path: {error}"))?;
     if !canonical.is_dir() {
         return Err("repository path is not a directory".into());

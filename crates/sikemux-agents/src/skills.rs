@@ -229,7 +229,7 @@ pub fn install_folder(data_dir: &Path, source: &Path) -> Result<Skill, String> {
 /// folder from elsewhere arrives whole. A link that is broken, or that leads
 /// back into a folder being copied, fails the copy.
 fn copy_folder(from: &Path, to: &Path, copying: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    let real = fs::canonicalize(from)?;
+    let real = sikemux_process::files::real_path(from)?;
     if copying.contains(&real) {
         return Err(std::io::Error::other(format!(
             "{} links back into itself",

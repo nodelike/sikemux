@@ -561,12 +561,13 @@ async fn dispatch(
         return crate::cli::manifest::served();
     }
     let project = request.project.clone();
-    request.project = tokio::task::spawn_blocking(move || std::fs::canonicalize(project))
-        .await
-        .map_err(|error| error.to_string())?
-        .map_err(|error| error.to_string())?
-        .to_string_lossy()
-        .into_owned();
+    request.project =
+        tokio::task::spawn_blocking(move || sikemux_process::files::real_path(project))
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?
+            .to_string_lossy()
+            .into_owned();
     if let Some(agent_id) = &request.agent_id {
         messages::used_tool(core, agent_id, &tool_word(&request.method));
         if core.names().is_blind(agent_id) && methods::of(&request.method).blind_refused {

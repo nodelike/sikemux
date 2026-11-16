@@ -51,7 +51,7 @@ use crate::launch::providers::MODEL_TOKEN_SLOT;
 pub(crate) fn tools(core: &Core) -> Option<Tools> {
     let config = &core.config();
     Some(Tools {
-        executable: std::env::current_exe().ok()?.canonicalize().ok()?,
+        executable: sikemux_process::files::real_path(std::env::current_exe().ok()?).ok()?,
         endpoint: config.cli_endpoint.clone()?,
         data_dir: config.data_dir.clone(),
     })

@@ -55,7 +55,7 @@ fn read_config(
     read: &mut Vec<PathBuf>,
     hosts: &mut Vec<SshHost>,
 ) {
-    let whole = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let whole = sikemux_process::files::real_path(path).unwrap_or_else(|_| path.to_owned());
     if read.contains(&whole) {
         return;
     }

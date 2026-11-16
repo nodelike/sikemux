@@ -97,7 +97,7 @@ pub(crate) fn state_of(core: &Core, project: &str) -> SetupState {
 
 /// The name a project's checks are kept under: its folder, wherever links lead.
 fn key(project: &str) -> String {
-    std::fs::canonicalize(project).map_or_else(
+    sikemux_process::files::real_path(project).map_or_else(
         |_| project.to_owned(),
         |path| path.to_string_lossy().into_owned(),
     )

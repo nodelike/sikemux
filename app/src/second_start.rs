@@ -65,7 +65,7 @@ fn handed_here() -> Vec<String> {
             if arg.starts_with("sikemux:") || arg.starts_with("file:") {
                 return Some(arg);
             }
-            let path = std::fs::canonicalize(&arg).ok()?;
+            let path = sikemux_process::files::real_path(&arg).ok()?;
             Url::from_file_path(path).ok().map(String::from)
         })
         .collect()

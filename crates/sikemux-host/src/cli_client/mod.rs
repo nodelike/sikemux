@@ -255,7 +255,10 @@ mod tests {
         let path = dir.path().join("report:12");
         fs::write(&path, "ok").unwrap();
         let target = resolve_target("report:12", dir.path(), None, 0).unwrap();
-        assert_eq!(Path::new(&target.path), fs::canonicalize(path).unwrap());
+        assert_eq!(
+            Path::new(&target.path),
+            sikemux_process::files::real_path(path).unwrap()
+        );
         assert_eq!(target.line, None);
     }
 
@@ -275,7 +278,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             Path::new(&target.project_root),
-            fs::canonicalize(dir.path()).unwrap()
+            sikemux_process::files::real_path(dir.path()).unwrap()
         );
     }
 

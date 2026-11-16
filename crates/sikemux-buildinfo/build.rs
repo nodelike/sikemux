@@ -40,6 +40,7 @@ fn path_dependencies(manifest: &str) -> Vec<&str> {
 /// Everything the background core is compiled from, found by following the path
 /// dependencies from sikemux-host. A change to any of it makes a new build that a
 /// running core upgrades to.
+#[allow(clippy::disallowed_methods)]
 fn core_sources(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut crates = std::collections::BTreeSet::new();
     let mut waiting = vec![std::path::PathBuf::from("../sikemux-host")];
@@ -80,6 +81,7 @@ fn collect_files(path: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
 
 /// The app and its core are compiled separately, at different times and
 /// with different features, so they compare this instead of build times.
+#[allow(clippy::disallowed_methods)]
 fn core_source_fingerprint() -> String {
     let root = std::fs::canonicalize("../..").unwrap_or_default();
     let mut files = Vec::new();
