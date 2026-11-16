@@ -36,6 +36,9 @@ const REPORTER_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER";
 const PARENT_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER_PARENT";
 const SESSION_VARIABLE: &str = "SIKEMUX_CRASH_REPORTER_SESSION";
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+/// The reporter deletes a native crash's dump once this runs out, sent or not, and a dump
+/// takes longer than a panic's few lines to upload.
+const MINIDUMP_FLUSH_TIMEOUT: Duration = Duration::from_secs(30);
 /// How often the core looks for panics that other processes left behind.
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 const STARTUP_SAMPLE_RATE: f32 = 0.1;
@@ -91,7 +94,7 @@ fn start_sending_to(
     let mut minidumps = MinidumpIntegration::new()
         .server_env_var(REPORTER_VARIABLE)
         .process_name(format!("sikemux {} crash reporter", process.name()))
-        .flush_timeout(FLUSH_TIMEOUT)
+        .flush_timeout(MINIDUMP_FLUSH_TIMEOUT)
         .before_capture(|_, _| {
             SENDING_CRASH.store(true, Ordering::SeqCst);
             send_crashed_session();
