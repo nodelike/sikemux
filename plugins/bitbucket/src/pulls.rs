@@ -779,17 +779,27 @@ fn merging(status: StatusCode, location: Option<&str>, body: &[u8]) -> Bitbucket
     }
     let answer: Value = serde_json::from_slice(body)?;
     if answer.get("task_status").is_none() {
-        return Ok(Merging::Done(Box::new(serde_json::from_value(answer)?)));
+        return done(serde_json::from_value(answer)?);
     }
     let task: MergeTask = serde_json::from_value(answer)?;
     match (task.task_status.as_str(), task.merge_result) {
         ("PENDING", _) => Ok(Merging::Pending),
-        ("SUCCESS", Some(row)) => Ok(Merging::Done(Box::new(row))),
+        ("SUCCESS", Some(row)) => done(row),
         (other, _) => Err(BitbucketError::Api(format!(
             "Bitbucket's merge ended {other}: {}",
             client::error_message(body).unwrap_or_else(|| String::from_utf8_lossy(body).into())
         ))),
     }
+}
+
+fn done(row: PullRow) -> BitbucketResult<Merging> {
+    if row.state != "MERGED" {
+        return Err(BitbucketError::Api(format!(
+            "Bitbucket answered the merge but #{} is still {}",
+            row.id, row.state
+        )));
+    }
+    Ok(Merging::Done(Box::new(row)))
 }
 
 async fn merge_answer(
@@ -1013,6 +1023,9 @@ mod tests {
             merging(StatusCode::ACCEPTED, Some(task), b""),
             Ok(Merging::Queued(queued)) if queued == task
         ));
+        let still_open = br#"{"type":"pullrequest","id":2712,"title":"t","state":"OPEN",
+            "created_on":"2026-11-16T10:00:00Z","updated_on":"2026-11-16T11:22:00Z"}"#;
+        assert!(merging(StatusCode::OK, None, still_open).is_err());
         assert!(merging(StatusCode::ACCEPTED, None, b"").is_err());
         assert!(merging(StatusCode::ACCEPTED, Some("https://evil.example/task"), b"").is_err());
 
