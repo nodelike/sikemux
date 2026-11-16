@@ -1,5 +1,5 @@
-# Opens the app on a Windows runner with the core it starts itself, then opens a project, a
-# terminal and a browser tab through the core's own tools, and keeps a picture of each stage.
+# Opens the app on a Windows runner with the core it starts itself, opens a project through the
+# CLI, then a terminal and a browser tab by their keys, and keeps a picture of each stage.
 param(
     [Parameter(Mandatory)] [string] $App,
     [Parameter(Mandatory)] [string] $Out,
@@ -35,6 +35,8 @@ public static class Grab {
 }
 "@
 
+# The app is built with its drive feature, which takes key steps on this pipe.
+$env:SIKEMUX_GPUI_DRIVE = '\\.\pipe\sikemux-window-run'
 $proc = Start-Process -FilePath $App -PassThru `
     -RedirectStandardError (Join-Path $Out 'stderr.txt') -RedirectStandardOutput (Join-Path $Out 'stdout.txt')
 $deadline = (Get-Date).AddSeconds(60)
@@ -77,20 +79,25 @@ function Ask-Core {
     $answer
 }
 
+function Drive([string] $Step, [string] $Steps) {
+    $pipe = New-Object System.IO.Pipes.NamedPipeClientStream('.', 'sikemux-window-run', [System.IO.Pipes.PipeDirection]::InOut)
+    $pipe.Connect(10000)
+    $writer = New-Object System.IO.StreamWriter($pipe)
+    $writer.Write("$Steps`nend`n"); $writer.Flush()
+    $answer = (New-Object System.IO.StreamReader($pipe)).ReadToEnd()
+    $pipe.Dispose()
+    "$Step`n$answer" | Out-File -Append (Join-Path $Out 'steps.txt')
+    Write-Host "${Step}: $answer"
+}
+
 Start-Sleep -Seconds $Settle
 Picture 'connected'
 
 Ask-Core -Step 'open the project' -Words 'open', $project | Out-Null
 Start-Sleep -Seconds 10
-$started = Ask-Core -Step 'start a terminal' -Words 'tool', 'process.start', '{"command":"ping -n 900 127.0.0.1","label":"ping","idempotencyKey":"window-run"}'
-$execution = ''
-try { $execution = ($started | ConvertFrom-Json).executionId } catch {}
-if ($execution) {
-    Ask-Core -Step 'show the terminal' -Words 'tool', 'ui.open', (@{ kind = 'terminal'; executionId = $execution } | ConvertTo-Json -Compress) | Out-Null
-} else { $failed += 'no executionId' }
-$env:SIKEMUX_AGENT_ID = 'window-run'
-Ask-Core -Step 'open a browser tab' -Words 'tool', 'browser.navigate', '{"url":"https://example.com"}' | Out-Null
-Remove-Item Env:SIKEMUX_AGENT_ID
+Drive 'open a terminal' "activate`nkey ctrl+t`nwait 3"
+Drive 'open a browser' "key ctrl+shift+b`nwait 3"
+Drive 'what the window holds' 'state'
 Start-Sleep -Seconds 15
 Picture 'window'
 "window: $($proc.MainWindowTitle)" | Out-File (Join-Path $Out 'state.txt')

@@ -168,9 +168,12 @@ jobs:
         shell: powershell
         run: app\ci\windows-window.ps1 -App target\debug\examples\windows_tools.exe -Out "$env:RUNNER_TEMP\window\browser" -Arguments "$env:RUNNER_TEMP\window\browser" -Expect "$env:RUNNER_TEMP\window\browser\passed" -Settle 40
 
-      # Built after the window above, so that one opens with no core beside it.
+      # Built after the window above, so that one opens with no core beside it; this app takes
+      # key steps from the run.
       - name: Build the core
-        run: cargo build --locked -p sikemux-host --bin sikemux-host
+        run: |
+          cargo build --locked -p sikemux-host --bin sikemux-host
+          cargo build --locked -p sikemux-app --bin sikemux --features drive
 
       - name: Open the app on its own core with a terminal and a browser tab
         shell: powershell
