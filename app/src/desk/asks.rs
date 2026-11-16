@@ -211,7 +211,18 @@ fn card(
     let agents: Vec<AnyElement> = match &ask.stand {
         AskStand::Working { agents } => (agents.iter())
             .filter_map(|id| bench.agent_by_id(id))
-            .map(|agent| crate::chat::agent_pill(&agent, 12., handle, cx).into_any_element())
+            .map(|agent| {
+                let reachable = agent.reachable;
+                let turn = agent.turn.as_ref().filter(|_| reachable);
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_1H)
+                    .child(crate::chat::agent_pill(&agent, 12., handle, cx))
+                    .children(ui::turn_time(&agent.id, turn))
+                    .children(ui::turn_mark(&agent.id, turn))
+                    .into_any_element()
+            })
             .collect(),
         _ => Vec::new(),
     };
@@ -261,12 +272,14 @@ fn card(
                         .overflow_hidden()
                         .children(agents),
                 )
-                .child(stand(ask, lane, &t))
-                .child(
-                    ui::text(ui::time::age(ask.since), 11.5, FontWeight::NORMAL)
-                        .font_features(theme::tabular())
-                        .text_color(t.text_disabled),
-                ),
+                .children(stand(ask, lane, &t))
+                .when(!matches!(ask.stand, AskStand::Working { .. }), |foot| {
+                    foot.child(
+                        ui::text(ui::time::age(ask.since), 11.5, FontWeight::NORMAL)
+                            .font_features(theme::tabular())
+                            .text_color(t.text_disabled),
+                    )
+                }),
         )
         .into_any_element()
 }
@@ -386,8 +399,9 @@ fn links(
     )
 }
 
-/// How far the ask has gone, in its lane's words and tint.
-fn stand(ask: &NowAsk, lane: Lane, t: &Tokens) -> Div {
+/// How far the ask has gone, in its lane's words and tint; none while it moves, where each
+/// agent's own mark says how it stands.
+fn stand(ask: &NowAsk, lane: Lane, t: &Tokens) -> Option<Div> {
     let (icon, words, tint, weight): (Option<AnyElement>, &str, Hsla, FontWeight) =
         match (&ask.stand, lane) {
             (_, Lane::Nobody) => (None, t!("Nobody on it"), t.warn, FontWeight::MEDIUM),
@@ -408,18 +422,15 @@ fn stand(ask: &NowAsk, lane: Lane, t: &Tokens) -> Div {
                 t.text_tertiary,
                 FontWeight::NORMAL,
             ),
-            _ => (
-                Some(ui::working(11., t.accent)),
-                t!("Working"),
-                t.text_secondary,
-                FontWeight::NORMAL,
-            ),
+            _ => return None,
         };
-    div()
-        .flex_none()
-        .flex()
-        .items_center()
-        .gap(px(5.))
-        .children(icon)
-        .child(ui::text(words, TEXT_XS, weight).text_color(tint))
+    Some(
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .children(icon)
+            .child(ui::text(words, TEXT_XS, weight).text_color(tint)),
+    )
 }
