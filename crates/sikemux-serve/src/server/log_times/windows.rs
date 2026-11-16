@@ -69,11 +69,14 @@ pub fn take_stderr() -> Option<(Handle, Handle)> {
 }
 
 /// The pipe's reading end stays open for the copying thread, which may still be waiting on
-/// it; closing the writing end is what wakes it to let go.
+/// it; closing the writing end is what wakes it to let go. Once given back, it does nothing.
 pub fn give_back(log: Handle, _pipe: Handle) {
     // SAFETY: the writing end is the one take_stderr put in place, and only it is closed.
     unsafe {
         let write = GetStdHandle(STD_ERROR_HANDLE);
+        if write == raw(log) {
+            return;
+        }
         SetStdHandle(STD_ERROR_HANDLE, raw(log));
         CloseHandle(write);
     }
