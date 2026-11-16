@@ -348,35 +348,54 @@ async fn clean_at(
     folder: &'static str,
 ) -> Result<PathBuf, String> {
     let (repo, commit) = (project.to_path_buf(), commit.to_owned());
-    let (top, path, fresh) = blocking(move || {
-        let top = PathBuf::from(Git::quick(&repo).trimmed(&[
-            "rev-parse",
-            "--path-format=absolute",
-            "--show-toplevel",
-        ])?);
-        let path = worktrees_folder(&top).join(folder);
-        let fresh = !path.join(".git").exists();
-        let target = path.to_string_lossy().into_owned();
-        if fresh {
-            let _ = Git::quick(&top).trimmed(&["worktree", "prune"]);
-            Git::slow(&top)
-                .trimmed(&["worktree", "add", "--detach", "--force", &target, &commit])?;
-            copy_included(&top, &path);
-            super::warm::seed(&top, &path);
-        } else {
-            Git::slow(&path).trimmed(&["checkout", "--detach", "--force", "--quiet", &commit])?;
-            Git::quick(&path).trimmed(&["clean", "-fdq"])?;
-        }
-        Ok((top, path, fresh))
-    })
-    .await
-    .map_err(|error| error.to_string())?;
+    let (top, path, fresh) = blocking(move || moved_to(&repo, &commit, folder))
+        .await
+        .map_err(|error| error.to_string())?;
     if fresh {
         if let Some(error) = set_up(core, &top, None, &path).await {
             return Err(error);
         }
     }
     Ok(path.join(inside(project, &top)))
+}
+
+/// The repository's top folder, the checkout `folder` beside it moved to `commit`, and whether
+/// that checkout was added just now.
+fn moved_to(repo: &Path, commit: &str, folder: &str) -> CoreResult<(PathBuf, PathBuf, bool)> {
+    let top = PathBuf::from(Git::quick(repo).trimmed(&[
+        "rev-parse",
+        "--path-format=absolute",
+        "--show-toplevel",
+    ])?);
+    let path = worktrees_folder(&top).join(folder);
+    let fresh = !linked(&path);
+    let target = path.to_string_lossy().into_owned();
+    if fresh {
+        if path.exists() {
+            std::fs::remove_dir_all(&path).map_err(|error| error.to_string())?;
+        }
+        let _ = Git::quick(&top).trimmed(&["worktree", "prune"]);
+        Git::slow(&top).trimmed(&["worktree", "add", "--detach", "--force", &target, commit])?;
+        copy_included(&top, &path);
+        super::warm::seed(&top, &path);
+    } else {
+        Git::slow(&path).trimmed(&["checkout", "--detach", "--force", "--quiet", commit])?;
+        Git::quick(&path).trimmed(&["clean", "-fdq"])?;
+    }
+    Ok((top, path, fresh))
+}
+
+/// Whether the checkout at `path` still points at a git folder that exists. A repository deleted
+/// and made again at the same place leaves its old checkouts pointing at nothing.
+fn linked(path: &Path) -> bool {
+    let dot_git = path.join(".git");
+    if dot_git.is_dir() {
+        return true;
+    }
+    std::fs::read_to_string(&dot_git)
+        .ok()
+        .and_then(|link| Some(path.join(link.strip_prefix("gitdir:")?.trim())))
+        .is_some_and(|gitdir| gitdir.is_dir())
 }
 
 /// The integration checkout's folder in the repository's worktrees folder.
@@ -615,5 +634,34 @@ mod tests {
         let gone = parent.path().join("elsewhere");
         let error = resumed_in(&gone, None).err().unwrap();
         assert!(error.contains(&gone.display().to_string()));
+    }
+    #[test]
+    fn a_queue_checkout_is_added_again_once_its_repository_is_made_again() {
+        let parent = tempfile::tempdir().unwrap();
+        let repo = parent.path().join("app");
+        let commit = ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q"];
+        let made = || {
+            std::fs::create_dir(&repo).unwrap();
+            Git::quick(&repo).trimmed(&["init", "-q"]).unwrap();
+            Git::quick(&repo)
+                .trimmed(&[&commit[..], &["--allow-empty", "-m", "base"]].concat())
+                .unwrap();
+            Git::quick(&repo).trimmed(&["rev-parse", "HEAD"]).unwrap()
+        };
+        let first = made();
+        let (_, path, fresh) = moved_to(&repo, &first, MERGE_QUEUE).unwrap();
+        assert!(fresh);
+        std::fs::remove_dir_all(&repo).unwrap();
+        let second = made();
+
+        let (_, again, fresh) = moved_to(&repo, &second, MERGE_QUEUE).unwrap();
+        assert!(fresh);
+        assert_eq!(again, path);
+        assert_eq!(
+            Git::quick(&path).trimmed(&["rev-parse", "HEAD"]).unwrap(),
+            second
+        );
+        let (_, _, fresh) = moved_to(&repo, &second, MERGE_QUEUE).unwrap();
+        assert!(!fresh);
     }
 }
