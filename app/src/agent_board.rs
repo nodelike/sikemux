@@ -27,6 +27,7 @@ const THUMB_H: f32 = 132.;
 const FOOT_H: f32 = 36.;
 const SHEET_W: f32 = 340.;
 const SAID_THUMB_W: f32 = 120.;
+const SAID_THUMB_H: f32 = 80.;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Lane {
@@ -639,7 +640,11 @@ fn sheet_of(
         .flex_col()
         .gap(SPACE_1H)
         .child(caps)
-        .child(ui::text(named, 16., FontWeight::SEMIBOLD).text_color(t.text_primary))
+        .child(
+            ui::text(named, 16., FontWeight::SEMIBOLD)
+                .whitespace_normal()
+                .text_color(t.text_primary),
+        )
         .child(standing);
     let said = sheet.said.iter().enumerate().map(|(at, said)| {
         let key = format!("ask-{}-said-{at}", ask.id);
@@ -771,7 +776,9 @@ fn said_line(
                 .child(ui::time::clock(said.at)),
         );
     let question = said.call.as_ref().map(|call| {
-        ui::text(call.question.clone(), TEXT_XS, FontWeight::NORMAL).text_color(t.text_tertiary)
+        ui::text(call.question.clone(), TEXT_XS, FontWeight::NORMAL)
+            .whitespace_normal()
+            .text_color(t.text_tertiary)
     });
     let pictures = (!said.images.is_empty()).then(|| {
         div()
@@ -782,10 +789,11 @@ fn said_line(
                 let picture = Picture::File(path.into()).source_at(px(SAID_THUMB_W * 2.));
                 div()
                     .w(px(SAID_THUMB_W))
+                    .h(px(SAID_THUMB_H))
                     .rounded(radius_2())
                     .overflow_hidden()
                     .bg(t.surface_sunken)
-                    .child(img(picture).w_full().object_fit(ObjectFit::Contain))
+                    .child(img(picture).size_full().object_fit(ObjectFit::Cover))
             }))
     });
     let card = div()
