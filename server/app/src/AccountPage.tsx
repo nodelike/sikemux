@@ -5,7 +5,6 @@ import type { MouseEvent, ReactNode } from "react";
 import { Avatar } from "./Avatar.tsx";
 import { AppleMark, GitHubMark, GoogleMark } from "./icons.tsx";
 import { DELETE_ACCOUNT } from "./navigation.ts";
-import { SignIns, type Load as SignInsLoad } from "./SignIns.tsx";
 import { ItemRow, PageHead, Row, Rows, Section } from "./ui.tsx";
 
 const PROVIDERS: Record<string, { name: string; mark: ReactNode }> = {
@@ -15,10 +14,8 @@ const PROVIDERS: Record<string, { name: string; mark: ReactNode }> = {
 };
 
 export function AccountPage({
-  signIns,
   onDelete,
 }: {
-  signIns: SignInsLoad;
   onDelete: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   const { user } = useUser();
@@ -34,7 +31,7 @@ export function AccountPage({
   return (
     <>
       <PageHead title="Account">
-        Who you are on Sikemux, the sign-ins your agents use, and the way out.
+        Who you are on Sikemux, and the way out.
       </PageHead>
       <div className="groups">
         <Section label="Profile">
@@ -54,9 +51,6 @@ export function AccountPage({
             </Row>
           </Rows>
         </Section>
-      </div>
-      <SignIns load={signIns} />
-      <div className="groups">
         <Section label="Delete">
           <Rows>
             <ItemRow

@@ -20,12 +20,14 @@ export function Shell({
   follow,
   groups,
   meta,
+  wide,
   children,
 }: {
   path: string;
   follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
   groups: NavGroup[];
   meta?: string;
+  wide?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -62,7 +64,9 @@ export function Shell({
         <Me meta={meta} />
       </nav>
       <main className="main">
-        <div className="column">{children}</div>
+        <div className="column" data-wide={wide || undefined}>
+          {children}
+        </div>
       </main>
     </div>
   );

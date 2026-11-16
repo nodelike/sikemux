@@ -652,7 +652,12 @@ button:focus-visible,
 }
 
 .column {
-  max-width: 760px;
+  max-width: 960px;
+  margin-inline: auto;
+}
+
+.column[data-wide] {
+  max-width: 1200px;
 }
 
 .main h1 {

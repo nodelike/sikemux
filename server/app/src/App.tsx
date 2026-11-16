@@ -10,6 +10,7 @@ import {
 import {
   IconCreditCard,
   IconCube,
+  IconPlug,
   IconServer,
   IconTag,
   IconUser,
@@ -18,6 +19,7 @@ import {
 
 import { AccountPage } from "./AccountPage.tsx";
 import { Backdrop } from "./Backdrop.tsx";
+import { ConnectorsPage } from "./Connectors.tsx";
 import { BillingPage, useBillingShown } from "./Billing.tsx";
 import { Consent, Panel, SIGNED_IN, SignedIn } from "./Consent.tsx";
 import {
@@ -36,6 +38,7 @@ import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
   appReturn,
   BILLING,
+  CONNECTORS,
   CONSENT,
   DELETE_ACCOUNT,
   HOST,
@@ -202,6 +205,7 @@ export function App() {
 }
 
 const PAGE_TITLES: Record<string, string> = {
+  [CONNECTORS]: "Connectors",
   [HOSTS]: "Hosts",
   [BILLING]: "Plan and billing",
   [SHED]: "Shed",
@@ -270,6 +274,11 @@ function Account({
       items: [
         { path: "/", name: "Account", icon: <IconUser size={15} /> },
         {
+          path: CONNECTORS,
+          name: "Connectors",
+          icon: <IconPlug size={15} />,
+        },
+        {
           path: HOSTS,
           name: "Hosts",
           icon: <IconServer size={15} />,
@@ -321,6 +330,7 @@ function Account({
       path={page === DELETE_ACCOUNT ? "/" : page === JOIN ? TEAM : page}
       follow={follow}
       groups={groups}
+      wide={page === PRICING}
     >
       {account.state === "deleting" ? (
         <RestoreAccount deletesAt={account.deletesAt} onRestored={restored} />
@@ -353,8 +363,10 @@ function Account({
           <Devices load={devices.load} remove={devices.remove} />
           {staff ? <ShedNotHost follow={follow} /> : null}
         </>
+      ) : page === CONNECTORS ? (
+        <ConnectorsPage signIns={signIns.load} />
       ) : (
-        <AccountPage signIns={signIns.load} onDelete={follow(DELETE_ACCOUNT)} />
+        <AccountPage onDelete={follow(DELETE_ACCOUNT)} />
       )}
     </Shell>
   );
