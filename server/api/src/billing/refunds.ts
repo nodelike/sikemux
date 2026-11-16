@@ -31,14 +31,22 @@ const NONE: PlanRefund = { covers: [] };
 
 /**
  * A plan's refund. It is open for `REFUND_DAYS` from the plan's first payment and returns every
- * payment on the plan in that time, once per payer for each kind of plan.
+ * payment on the plan in that time, once per payer for each kind of plan. A plan paid through
+ * another provider than the one set up is history only, and has none.
  */
 export async function planRefund(
   db: Kysely<Tables>,
+  provider: string | undefined,
   customerId: string,
   providerSubscriptionId: string,
   now = Date.now(),
 ): Promise<PlanRefund> {
+  const customer = await db
+    .selectFrom("billing_customers")
+    .select("provider")
+    .where("id", "=", customerId)
+    .executeTakeFirst();
+  if (!customer || customer.provider !== provider) return NONE;
   const invoices = await db
     .selectFrom("invoices")
     .selectAll()
@@ -66,13 +74,15 @@ export async function planRefund(
   if (first.status !== "paid" || until.getTime() <= now) return NONE;
   const [line] = first.lines;
   if (!line) return NONE;
-  if (await refundedBefore(db, first, familyOf(line.product))) return NONE;
+  if (await refundedBefore(db, provider, first, familyOf(line.product)))
+    return NONE;
   return { until, amount, covers: covered };
 }
 
 /** Whether the payer already had a refund for this kind of plan on another subscription. */
 async function refundedBefore(
   db: Kysely<Tables>,
+  provider: string,
   first: InvoiceRow,
   family: string,
 ) {
@@ -89,6 +99,7 @@ async function refundedBefore(
       "invoices.customer_id",
     )
     .select("invoices.lines")
+    .where("billing_customers.provider", "=", provider)
     .where(
       payer.user_id
         ? (eb) => eb("billing_customers.user_id", "=", payer.user_id)
@@ -138,7 +149,12 @@ export async function askRefund(
 ): Promise<"asked" | "already"> {
   return db.transaction().execute(async (trx) => {
     await lockPayer(trx, customerId);
-    const refund = await planRefund(trx, customerId, providerSubscriptionId);
+    const refund = await planRefund(
+      trx,
+      provider,
+      customerId,
+      providerSubscriptionId,
+    );
     if (refund.requestedAt) return "already";
     if (!refund.covers.length)
       throw new ApiFailure(

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { PRODUCTS } from "../src/billing/catalog.ts";
 import { PaddleProvider } from "../src/billing/paddle.ts";
+import { endSandboxPlans } from "../src/billing/sandbox.ts";
 import {
   CLIENT_TOKEN_NAME,
   PaddleError,
@@ -60,7 +61,7 @@ interface Patch {
 
 /** Paddle as its docs describe it, for the calls the adapter makes. */
 class FakePaddle {
-  readonly sandbox = true;
+  sandbox = true;
   setUp = true;
   calls: Call[] = [];
   patches: Patch[] = [];
@@ -1057,6 +1058,55 @@ describe("4. a Paddle customer keeps an address its person gave up", () => {
       others: [200, 200],
       again: 200,
     });
+  });
+});
+
+describe("a sandbox purchase once the live key is in", () => {
+  const invoices = async (userId: string) =>
+    (await body(await as(userId, "/v1/billing/invoices"), "InvoiceList"))
+      .invoices;
+  const toLiveKey = async () => {
+    paddle = new FakePaddle();
+    paddle.sandbox = false;
+    app = appWith(paddle);
+    call = caller(app);
+    await endSandboxPlans(database.db, log);
+  };
+
+  it("D22a: a refund taken in the sandbox leaves the first live Pro plan refundable", async () => {
+    await pay(OWNER, "pro");
+    const [sandbox] = await invoices(OWNER);
+    const asked = await as(
+      OWNER,
+      `/v1/billing/invoices/${sandbox?.id}/refund`,
+      { method: "POST" },
+    );
+    await toLiveKey();
+    await pay(OWNER, "pro");
+    const [plan] = (await overview(OWNER)).subscriptions;
+
+    expect({
+      asked: asked.status,
+      refundableUntil: typeof plan?.refundableUntil,
+    }).toEqual({ asked: 200, refundableUntil: "string" });
+  });
+
+  it("D22b: a sandbox payment is listed but never refundable, and asking queues nothing", async () => {
+    await pay(OWNER, "pro");
+    await toLiveKey();
+    const [listed] = await invoices(OWNER);
+    const asked = await as(OWNER, `/v1/billing/invoices/${listed?.id}/refund`, {
+      method: "POST",
+    });
+    const { rows } = await database.pool.query(
+      "select count(*)::int as calls from billing_calls",
+    );
+
+    expect({
+      listed: listed?.refundableUntil,
+      asked: asked.status,
+      calls: (rows[0] as { calls: number }).calls,
+    }).toEqual({ listed: undefined, asked: 409, calls: 0 });
   });
 });
 

@@ -129,12 +129,18 @@ function subscriptionBody(
 /** A subscription as the API shows it, with where its plan's refund stands. */
 async function subscriptionWithRefund(
   db: Kysely<Tables>,
+  provider: string | undefined,
   row: SubscriptionRow,
 ): Promise<Subscription> {
   const refund =
     row.status === "ended"
       ? { covers: [] }
-      : await planRefund(db, row.customer_id, row.provider_subscription_id);
+      : await planRefund(
+          db,
+          provider,
+          row.customer_id,
+          row.provider_subscription_id,
+        );
   return subscriptionBody(row, refund);
 }
 
@@ -251,6 +257,7 @@ export function billingRoutes({
   const reread = async (id: string) =>
     subscriptionWithRefund(
       db,
+      provider?.name,
       await db
         .selectFrom("subscriptions")
         .selectAll()
@@ -341,7 +348,11 @@ export function billingRoutes({
             "invoices.customer_id",
           )
           .selectAll("invoices")
-          .select(["billing_customers.user_id", "billing_customers.org_id"])
+          .select([
+            "billing_customers.user_id",
+            "billing_customers.org_id",
+            "billing_customers.provider",
+          ])
           .where("invoices.id", "=", id)
           .executeTakeFirst()
       : undefined;
@@ -361,7 +372,12 @@ export function billingRoutes({
       row.status === "paid" &&
       !row.refund_requested_at;
     const refund = refundable
-      ? await planRefund(db, row.customer_id, row.provider_subscription_id)
+      ? await planRefund(
+          db,
+          provider?.name,
+          row.customer_id,
+          row.provider_subscription_id,
+        )
       : undefined;
     return invoiceBody(row, refund?.until);
   };
@@ -401,7 +417,7 @@ export function billingRoutes({
     const body: BillingOverview = {
       allowance: await allowance(db, payer, { live }),
       subscriptions: await Promise.all(
-        rows.map((row) => subscriptionWithRefund(db, row)),
+        rows.map((row) => subscriptionWithRefund(db, provider?.name, row)),
       ),
       live,
       canBuy: provider !== null && (paidBy === null || paidBy === "you"),
@@ -751,6 +767,7 @@ export function billingRoutes({
       if (!row.refund_requested_at) {
         const refund = await planRefund(
           db,
+          ready.name,
           row.customer_id,
           row.provider_subscription_id,
         );
@@ -777,7 +794,10 @@ export function billingRoutes({
   app.get("/invoices/:invoiceId/receipt", async (c) => {
     const ready = needProvider(provider);
     const row = await invoiceFor(c);
-    const receipt = await ready.receipt(row.provider_payment_id);
+    const receipt =
+      row.provider === ready.name
+        ? await ready.receipt(row.provider_payment_id)
+        : null;
     if (!receipt)
       throw notFound("The provider has no receipt for this payment.");
     return c.json(receipt);
