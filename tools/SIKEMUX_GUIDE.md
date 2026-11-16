@@ -475,7 +475,8 @@ never reached the server.
 `errors: true` drops log, info and debug.
 
 `app_console` reads what the Sikemux app itself printed, for when Sikemux
-misbehaves rather than a page.
+misbehaves rather than a page. After the app was relaunched, `previous: true`
+reads the errors of the run before.
 
 `browser_evaluate` returns nothing from statements without a `return`.
 Promises are awaited up to `timeoutMs` (60 seconds at most). Use it only when

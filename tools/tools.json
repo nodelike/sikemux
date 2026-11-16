@@ -2568,6 +2568,10 @@
         },
         "errors": {
           "type": "boolean"
+        },
+        "previous": {
+          "description": "The errors of the app's last run, kept after it ended",
+          "type": "boolean"
         }
       },
       "required": []

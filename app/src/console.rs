@@ -1,7 +1,10 @@
 //! What the app prints to stderr, kept as it goes so an agent can read it with `app_console`.
+//! Its errors also go to `app.log` beside the core's log, so they outlive the process.
 
 use std::collections::VecDeque;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use chrono::{DateTime, SecondsFormat, Utc};
@@ -11,7 +14,12 @@ use sikemux_process::sync::Locked;
 const MAX_ENTRIES: usize = 500;
 const MAX_TEXT: usize = 2000;
 const READ_BUDGET: usize = 24000;
+const LOG: &str = "app.log";
+const LOG_BEFORE: &str = "app.1.log";
+const PREVIOUS_LOG: &str = "app-previous.log";
+const LOG_CAP: u64 = 1 << 20;
 
+#[derive(Clone)]
 struct Entry {
     level: &'static str,
     at: DateTime<Utc>,
@@ -40,12 +48,17 @@ pub fn install() {
     let spawned = std::thread::Builder::new()
         .name("console".into())
         .spawn(move || {
+            let mut log = crate::core::logs_dir().and_then(|dir| Log::start(&dir));
             for line in BufReader::new(lines).lines() {
                 let Ok(line) = line else { break };
                 if let Some(printed) = printed.as_mut() {
                     let _ = writeln!(printed, "{line}");
                 }
-                keep(line);
+                let entry = entry(line);
+                if let Some(log) = log.as_mut().filter(|_| entry.level != "log") {
+                    log.write(&entry);
+                }
+                keep(entry);
             }
         });
     if let Err(error) = spawned {
@@ -53,7 +66,44 @@ pub fn install() {
     }
 }
 
-fn keep(line: String) {
+/// This process's errors on disk. The last process's move to `app-previous.log` when it starts,
+/// and past `LOG_CAP` the older half of this one's moves to `app.1.log`.
+struct Log {
+    dir: PathBuf,
+    file: File,
+    size: u64,
+}
+
+impl Log {
+    fn start(dir: &Path) -> Option<Self> {
+        std::fs::create_dir_all(dir).ok()?;
+        let _ = std::fs::rename(dir.join(LOG), dir.join(PREVIOUS_LOG));
+        let _ = std::fs::remove_file(dir.join(LOG_BEFORE));
+        Some(Self {
+            dir: dir.to_path_buf(),
+            file: File::create(dir.join(LOG)).ok()?,
+            size: 0,
+        })
+    }
+
+    fn write(&mut self, entry: &Entry) {
+        if self.size > LOG_CAP {
+            let _ = std::fs::rename(self.dir.join(LOG), self.dir.join(LOG_BEFORE));
+            match File::create(self.dir.join(LOG)) {
+                Ok(file) => self.file = file,
+                Err(_) => return,
+            }
+            self.size = 0;
+        }
+        let mut line = entry.to_json().to_string();
+        line.push('\n');
+        if self.file.write_all(line.as_bytes()).is_ok() {
+            self.size += line.len() as u64;
+        }
+    }
+}
+
+fn entry(line: String) -> Entry {
     let level = if line.starts_with("thread '") && line.contains("panicked") {
         "uncaught"
     } else if line.starts_with("sikemux") {
@@ -66,18 +116,59 @@ fn keep(line: String) {
         Some((end, _)) => format!("{}…", &line[..end]),
         None => line,
     };
+    Entry {
+        level,
+        at: Utc::now(),
+        text,
+    }
+}
+
+fn keep(entry: Entry) {
     let mut entries = ENTRIES.locked();
     if entries.len() == MAX_ENTRIES {
         entries.pop_front();
     }
-    entries.push_back(Entry {
-        level,
-        at: Utc::now(),
-        text,
-    });
+    entries.push_back(entry);
 }
 
-/// The latest lines, as `app_console` asks for them: `limit` of them, or only problems with `errors`.
+impl Entry {
+    fn to_json(&self) -> Value {
+        json!({
+            "level": self.level,
+            "at": self.at.to_rfc3339_opts(SecondsFormat::Millis, true),
+            "text": self.text,
+        })
+    }
+
+    fn of_json(line: &str) -> Option<Self> {
+        let value: Value = serde_json::from_str(line).ok()?;
+        let level = match value.get("level")?.as_str()? {
+            "uncaught" => "uncaught",
+            "error" => "error",
+            _ => "log",
+        };
+        Some(Self {
+            level,
+            at: DateTime::parse_from_rfc3339(value.get("at")?.as_str()?)
+                .ok()?
+                .with_timezone(&Utc),
+            text: value.get("text")?.as_str()?.to_owned(),
+        })
+    }
+}
+
+/// The lines the app's last process wrote to its log before it ended.
+fn previous() -> Result<Vec<Entry>, String> {
+    let path = crate::core::logs_dir()
+        .ok_or("this system has no logs folder")?
+        .join(PREVIOUS_LOG);
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("{} could not be read: {error}", path.display()))?;
+    Ok(text.lines().filter_map(Entry::of_json).collect())
+}
+
+/// The latest lines, as `app_console` asks for them: `limit` of them, or only problems with
+/// `errors`, from the app's last process with `previous`.
 pub fn read(params: &Value) -> Result<Value, String> {
     let limit = match params.get("limit") {
         None | Some(Value::Null) => 20,
@@ -90,20 +181,22 @@ pub fn read(params: &Value) -> Result<Value, String> {
         None | Some(Value::Null) => false,
         Some(errors) => errors.as_bool().ok_or("errors must be a boolean")?,
     };
-    let entries = ENTRIES.locked();
+    let previous_run = match params.get("previous") {
+        None | Some(Value::Null) => false,
+        Some(previous) => previous.as_bool().ok_or("previous must be a boolean")?,
+    };
+    let entries: Vec<Entry> = if previous_run {
+        previous()?
+    } else {
+        ENTRIES.locked().iter().cloned().collect()
+    };
     let matched: Vec<&Entry> = entries
         .iter()
         .filter(|entry| !errors || entry.level != "log")
         .collect();
     let mut messages: VecDeque<Value> = matched[matched.len().saturating_sub(limit)..]
         .iter()
-        .map(|entry| {
-            json!({
-                "level": entry.level,
-                "at": entry.at.to_rfc3339_opts(SecondsFormat::Millis, true),
-                "text": entry.text,
-            })
-        })
+        .map(|entry| entry.to_json())
         .collect();
     let mut size: usize = messages
         .iter()

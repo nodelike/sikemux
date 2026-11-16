@@ -520,6 +520,11 @@ impl Home {
     }
 }
 
+/// The folder the core's and the app's logs are written to.
+pub(crate) fn logs_dir() -> Option<PathBuf> {
+    Folders::of_this_system().map(|folders| folders.logs)
+}
+
 /// Where the app keeps its data, its settings and its logs: the folders the Tauri app used on
 /// each system, so an install's data carries over.
 struct Folders {

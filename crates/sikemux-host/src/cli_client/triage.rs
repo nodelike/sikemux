@@ -91,7 +91,7 @@ fn gather() -> Result<PathBuf, String> {
     private_dir(&copies)?;
     let scrub = |text: &str| redact(text, &home);
     let mut gathered = Vec::new();
-    for log in ["core.log", "notch.log"] {
+    for log in ["core.log", "notch.log", "app.log", "app-previous.log"] {
         let source = logs.join(log);
         if let Some(text) = read_tail(&source, LOG_TAIL_BYTES) {
             write_private(&copies.join(log), &scrub(&text))?;
