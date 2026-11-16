@@ -1,0 +1,35 @@
+name: W6 manifests proof
+on:
+  push:
+    branches: [proof/w6-manifests]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  manifests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-installer-arm64
+          run-id: 43817201969
+          github-token: ${{ github.token }}
+          path: setup
+      - shell: pwsh
+        run: |
+          $installer = (Get-ChildItem "setup\*-setup.exe" | Select-Object -First 1).FullName
+          $version = "0.6.1-nightly.2917"
+          $out = "$env:RUNNER_TEMP\manifests"
+          packaging\windows\manifests.ps1 -Version $version -X64 $installer -Arm64 $installer -Out $out
+          Get-Command winget -ErrorAction SilentlyContinue | Format-List Source, Version
+          winget --version
+          "version exit: $LASTEXITCODE"
+          $dir = "$out\winget\manifests\n\Nodelike\Sikemux\$version"
+          Get-ChildItem $dir | ForEach-Object { "--- $($_.Name)"; Get-Content $_.FullName }
+          winget validate --manifest $dir --disable-interactivity --verbose-logs
+          "validate exit: $LASTEXITCODE ($('{0:X8}' -f $LASTEXITCODE))"
+          Get-ChildItem "$env:LOCALAPPDATA\Packages\Microsoft.DesktopAppInstaller_8wekyb3d8bbwe\LocalState\DiagOutputDir" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1 | ForEach-Object { Get-Content $_.FullName -Tail 60 }
+          exit 0
