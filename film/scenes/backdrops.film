@@ -9,6 +9,8 @@ chat Flint
 title "Fix the rounding in cart totals"
 say "shell pnpm test"
 settle 6
+front Flint
+settle 2
 snap grain
 prefer paneBackdrop gradient
 settle 2
