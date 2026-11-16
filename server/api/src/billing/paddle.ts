@@ -146,24 +146,24 @@ function intervalOf(cycle: { interval: string } | null): BillingInterval {
   return interval;
 }
 
-function productOf(price: PaddlePrice): BillingProductId {
-  const tag = priceTag(price);
-  if (!tag)
-    throw new Error(`Paddle's price ${price.id} is not one the setup made.`);
-  return tag.product;
+/** The items on a price the setup made; one added in Paddle's dashboard is not ours to read. */
+function ours<T extends { price: PaddlePrice }>(
+  items: readonly T[],
+): (T & { product: BillingProductId })[] {
+  return items.flatMap((item) => {
+    const tag = priceTag(item.price);
+    return tag ? [{ ...item, product: tag.product }] : [];
+  });
 }
 
 function linesOf(
   items: readonly { quantity: number; price: PaddlePrice }[],
 ): InvoiceLine[] {
   return (
-    items
+    ours(items)
       // A change lists what it replaced with a negative quantity.
       .filter((item) => item.quantity > 0)
-      .map((item) => ({
-        product: productOf(item.price),
-        quantity: item.quantity,
-      }))
+      .map(({ product, quantity }) => ({ product, quantity }))
   );
 }
 
@@ -202,12 +202,11 @@ function periodEndOf(sub: PaddleSubscription): string {
 function subscriptionOf(
   sub: PaddleSubscription,
   at: Date,
-): ProviderSubscription {
-  const live = sub.items.filter((item) => item.status !== "inactive");
-  const items: ProviderItem[] = live.map((item) => ({
-    product: productOf(item.price),
-    quantity: item.quantity,
-  }));
+): ProviderSubscription | null {
+  const items: ProviderItem[] = ours(
+    sub.items.filter((item) => item.status !== "inactive"),
+  ).map(({ product, quantity }) => ({ product, quantity }));
+  if (!items.length) return null;
   const interval = intervalOf(sub.billing_cycle);
   const reported: ProviderSubscription = {
     providerSubscriptionId: sub.id,
@@ -261,6 +260,20 @@ export interface PaddleOptions {
   now?: () => number;
 }
 
+/** A value read from Paddle, or none, and when it was read. */
+interface Read {
+  value: string | null;
+  at: number;
+}
+
+function notReady() {
+  return new ApiFailure(
+    503,
+    "unavailable",
+    "The payment provider is not set up yet.",
+  );
+}
+
 /**
  * Paddle Billing. Each checkout makes one Paddle subscription holding one product. Prices are the
  * ones the setup command made, found by what it wrote on them; the webhook secret and checkout
@@ -272,9 +285,9 @@ export class PaddleProvider implements BillingProvider {
   private readonly log: Logger;
   private readonly now: () => number;
   private readonly webhookUrl: string;
-  private secret: { value: string; at: number } | null;
+  private secret: Read | null;
   private prices: { all: PaddlePrice[]; at: number } | null = null;
-  private clientToken: string | null = null;
+  private clientToken: Read | null = null;
 
   constructor(options: PaddleOptions) {
     this.api = options.api;
@@ -295,13 +308,25 @@ export class PaddleProvider implements BillingProvider {
     return this.sandbox ? 10 * 60_000 : 3 * 24 * 60 * 60_000;
   }
 
-  private notSetUp(what: string): never {
+  private missing(what: string) {
     this.log.error(`Paddle has no ${what}: run the paddle-setup command`);
-    throw new ApiFailure(
-      503,
-      "unavailable",
-      "The payment provider is not set up yet.",
-    );
+  }
+
+  private notSetUp(what: string): never {
+    this.missing(what);
+    throw notReady();
+  }
+
+  /** What was read from Paddle, missing or not, stands for a minute; a stranger can't spend the key. */
+  private async readAtMostEachMinute(
+    known: Read | null,
+    what: string,
+    read: () => Promise<string | null>,
+  ): Promise<Read> {
+    if (known && this.now() - known.at < REFETCH_AFTER_MS) return known;
+    const value = await read();
+    if (!value) this.missing(what);
+    return { value, at: this.now() };
   }
 
   private async priceFor(
@@ -333,38 +358,47 @@ export class PaddleProvider implements BillingProvider {
 
   /** Read again on a bad signature, at most once a minute, in case the secret was rotated. */
   private async webhookSecret(again = false): Promise<string | null> {
-    if (
-      this.secret &&
-      (!again || this.now() - this.secret.at < REFETCH_AFTER_MS)
-    )
-      return this.secret.value;
-    const settings = await this.api.list<{
-      destination: string;
-      active: boolean;
-      endpoint_secret_key: string;
-    }>("/notification-settings");
-    const found = settings.find(
-      (setting) => setting.destination === this.webhookUrl && setting.active,
+    if (this.secret?.value && !again) return this.secret.value;
+    this.secret = await this.readAtMostEachMinute(
+      this.secret,
+      "webhook destination",
+      async () => {
+        const settings = await this.api.list<{
+          destination: string;
+          active: boolean;
+          endpoint_secret_key: string;
+        }>("/notification-settings");
+        return (
+          settings.find(
+            (setting) =>
+              setting.destination === this.webhookUrl && setting.active,
+          )?.endpoint_secret_key ?? null
+        );
+      },
     );
-    this.secret = found
-      ? { value: found.endpoint_secret_key, at: this.now() }
-      : null;
-    return this.secret?.value ?? null;
+    return this.secret.value;
   }
 
   /** What the checkout page opens Paddle's checkout with. The token is public by Paddle's design. */
   async checkoutPage(): Promise<{ clientToken: string; sandbox: boolean }> {
-    if (!this.clientToken) {
-      const tokens = await this.api.list<{
-        name: string;
-        status: string;
-        token: string;
-      }>("/client-tokens?status=active");
-      this.clientToken =
-        tokens.find((token) => token.name === CLIENT_TOKEN_NAME)?.token ??
-        this.notSetUp("client token");
-    }
-    return { clientToken: this.clientToken, sandbox: this.sandbox };
+    if (!this.clientToken?.value)
+      this.clientToken = await this.readAtMostEachMinute(
+        this.clientToken,
+        "client token",
+        async () => {
+          const tokens = await this.api.list<{
+            name: string;
+            token: string;
+          }>("/client-tokens?status=active");
+          return (
+            tokens.find((token) => token.name === CLIENT_TOKEN_NAME)?.token ??
+            null
+          );
+        },
+      );
+    const clientToken = this.clientToken.value;
+    if (!clientToken) throw notReady();
+    return { clientToken, sandbox: this.sandbox };
   }
 
   async checkout(request: CheckoutRequest) {
@@ -611,8 +645,8 @@ export class PaddleProvider implements BillingProvider {
   async readEvents(request: ProviderRequest): Promise<ProviderEvent[] | null> {
     const header = request.header("paddle-signature");
     if (!header) return null;
-    const secret =
-      (await this.webhookSecret()) ?? this.notSetUp("webhook destination");
+    const secret = await this.webhookSecret();
+    if (!secret) throw notReady();
     if (!signedBy(header, request.body, secret, this.now())) {
       const fresh = await this.webhookSecret(true);
       if (
@@ -652,13 +686,9 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
             providerSubscriptionId: sub.id,
           },
         ];
-      return [
-        {
-          ...base,
-          type: "subscription.changed",
-          subscription: subscriptionOf(sub, at),
-        },
-      ];
+      const subscription = subscriptionOf(sub, at);
+      if (!subscription) return [];
+      return [{ ...base, type: "subscription.changed", subscription }];
     }
     case "transaction.completed":
     case "transaction.payment_failed": {
@@ -690,7 +720,7 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
         !txn.billing_period
       )
         return [payment];
-      const [first] = txn.items;
+      const items = ours(txn.items);
       return [
         {
           eventId: `${event.event_id}.started`,
@@ -701,11 +731,11 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
           providerPaymentId: txn.id,
           subscription: {
             providerSubscriptionId: txn.subscription_id,
-            items: txn.items.map((item) => ({
-              product: productOf(item.price),
-              quantity: item.quantity,
+            items: items.map(({ product, quantity }) => ({
+              product,
+              quantity,
             })),
-            interval: intervalOf(first?.price.billing_cycle ?? null),
+            interval: intervalOf(items[0]?.price.billing_cycle ?? null),
             currentPeriodEnd: new Date(txn.billing_period.ends_at),
             cancelAtPeriodEnd: false,
           },

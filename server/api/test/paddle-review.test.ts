@@ -496,3 +496,47 @@ describe("a change at renewal asked while our period is behind Paddle's", () => 
     });
   });
 });
+
+describe("the webhook", () => {
+  it("F11a: an item the setup did not make leaves the rest of the subscription heard", async () => {
+    const { sub } = await pay(OWNER, "pro");
+    const byHand: PaddlePrice = {
+      ...paddle.price("pro"),
+      id: "pri_made_in_the_dashboard",
+      billing_cycle: null,
+      custom_data: null,
+    };
+    const charged: PaddleSub = {
+      ...sub,
+      scheduled_change: {
+        action: "cancel",
+        effective_at: sub.current_billing_period.ends_at,
+      },
+      items: [...sub.items, { status: "active", quantity: 1, price: byHand }],
+    };
+    const answer = await deliver("subscription.updated", charged, ago(10));
+    const [held] = (await overview(OWNER)).subscriptions;
+    expect({ answer, cancelAtPeriodEnd: held?.cancelAtPeriodEnd }).toEqual({
+      answer: 204,
+      cancelAtPeriodEnd: true,
+    });
+  });
+
+  it("F11b: before setup, strangers' requests ask Paddle at most once a minute", async () => {
+    paddle.setUp = false;
+    for (let sent = 0; sent < 5; sent++) {
+      await app.request("/v1/billing/provider", {
+        method: "POST",
+        headers: { "paddle-signature": "ts=1;h1=00" },
+        body: "{}",
+      });
+      await app.request("/v1/billing/paddle");
+    }
+    const asked = (start: string) =>
+      paddle.calls.filter((each) => each.path.startsWith(start)).length;
+    expect({
+      settings: asked("/notification-settings"),
+      tokens: asked("/client-tokens"),
+    }).toEqual({ settings: 1, tokens: 1 });
+  });
+});
