@@ -66,6 +66,9 @@ const PICTURE_TYPES: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
 const MAX_PICTURE_BYTES: u64 = 20 * 1024 * 1024;
 /// The answers to secret questions kept for one agent, newest first.
 const MAX_SECRETS_PER_AGENT: usize = 8;
+/// A shorter answer is hidden only where it was answered, since it would match ordinary words.
+const MIN_HIDDEN_SECRET_CHARS: usize = 4;
+const HIDDEN: &str = "••••••••";
 const MAX_QUESTION_BYTES: usize = 8 * 1024;
 const MAX_CHOICES: usize = 9;
 const MAX_LABEL_CHARS: usize = 200;
@@ -459,6 +462,29 @@ impl Questions {
             let _ = std::fs::remove_file(old);
         }
         Ok(path)
+    }
+
+    /// The text with every secret the person answered an agent with drawn as dots, so an agent
+    /// passing one on never puts it in front of another agent or the person.
+    pub(crate) fn hide_secrets(&self, text: &str) -> String {
+        let Some(root) = self.secrets.as_deref() else {
+            return text.to_owned();
+        };
+        let mut kept: Vec<String> = (std::fs::read_dir(root).into_iter().flatten().flatten())
+            .flat_map(|agent| {
+                std::fs::read_dir(agent.path())
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+            })
+            .filter_map(|file| std::fs::read_to_string(file.path()).ok())
+            .map(|secret| secret.trim().to_owned())
+            .filter(|secret| secret.chars().count() >= MIN_HIDDEN_SECRET_CHARS)
+            .collect();
+        kept.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
+        kept.iter().fold(text.to_owned(), |text, secret| {
+            text.replace(secret.as_str(), HIDDEN)
+        })
     }
 
     /// Copies the pictures of the raise's evidence, as [`Self::keep_pictures`] copies choices'.
@@ -1048,9 +1074,9 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         Some(Value::Bool(on)) => Ok(Some(*on)),
         Some(_) => Err(format!("{key} must be a boolean")),
     };
-    let secret = flag("secret")?.unwrap_or(false);
-    let blocked = secret || flag("blocked")?.unwrap_or(true);
     let kind = (params.get("kind")).and_then(|kind| CallKind::deserialize(kind).ok());
+    let secret = flag("secret")?.unwrap_or(false) || kind == Some(CallKind::Access);
+    let blocked = secret || flag("blocked")?.unwrap_or(true);
     if let Some(pick) = params.get("pick").and_then(Value::as_str) {
         mark_pick(pick, &mut choices);
     }
@@ -2199,6 +2225,36 @@ mod tests {
         assert_eq!(wait.kind, TurnWaitKind::Agent);
         assert_eq!(wait.what, "Mumen");
         assert_eq!(wait.started_at, 7);
+    }
+
+    /// The person's password to an access call showed in the asker's chat, and again in the
+    /// chat of the agent it was passed on to.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_answer_to_an_access_call_stays_out_of_every_chat() {
+        use crate::server::parts::Parts;
+        use crate::server::{Core, ServerCore};
+
+        let data = tempfile::tempdir().unwrap();
+        let core = Core::new(Default::default(), Some(data.path())).unwrap();
+        let request = crate::cli::protocol::HarnessRequest {
+            id: "1".to_owned(),
+            project: data.path().to_string_lossy().into_owned(),
+            agent_id: Some("chief".to_owned()),
+            method: "agent.ask".to_owned(),
+            params: serde_json::json!({ "question": "The staging password?", "kind": "access" }),
+        };
+        super::ask(&core, &request).await.expect("the ask");
+        let questions = &core.harness().questions;
+        let asked = questions.state.locked().open[0].clone();
+        let call = asked.call();
+        assert!(asked.secret && call.secret && call.keeps_words_private());
+
+        let password = "hunter2-staging";
+        questions.keep_secret(&asked, password).expect("kept");
+        let passed_on = format!("Use {password} to sign in.");
+        let sent = questions.hide_secrets(&passed_on);
+        assert!(!sent.contains(password), "{sent}");
+        assert_eq!(sent, format!("Use {} to sign in.", super::HIDDEN));
     }
 
     fn asked_in(reply: &str) -> Vec<(String, bool)> {

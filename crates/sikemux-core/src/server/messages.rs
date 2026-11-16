@@ -978,10 +978,10 @@ fn log<'a>(
     }
 }
 
-fn message_text(params: &Value) -> Result<String, String> {
+fn message_text(core: &Core, params: &Value) -> Result<String, String> {
     match params.get("text") {
         Some(Value::String(text)) if !text.trim().is_empty() && text.len() <= MAX_TEXT_BYTES => {
-            Ok(text.clone())
+            Ok(core.harness().questions.hide_secrets(text))
         }
         Some(Value::String(text)) if !text.trim().is_empty() => Err(format!(
             "text is {} bytes; a message holds at most {MAX_TEXT_BYTES}, so put long material in a file and send its path",
@@ -1064,7 +1064,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             return Err("to must be the agent's name or id, or several separated by commas".into())
         }
     };
-    let text = message_text(&request.params)?;
+    let text = message_text(core, &request.params)?;
     let why = super::caller::text_param(&request.params, "why", MAX_WHY_BYTES)?.map(str::to_owned);
     let answers = match request.params.get("answers") {
         None | Some(Value::Null) => None,
@@ -1198,7 +1198,7 @@ async fn reopen_elsewhere(
     request: &HarnessRequest,
     name: &str,
 ) -> Result<Value, String> {
-    let text = message_text(&request.params)?;
+    let text = message_text(core, &request.params)?;
     let opened = super::hosts::reopen::reopen(core, request, None, name, text)
         .await
         .map_err(|why| format!("{name} had closed, and reopening it failed: {why}"))?;
@@ -1224,7 +1224,8 @@ async fn reopen(
             .await
             .map_err(|why| format!("{name} had closed, and reopening it failed: {why}"))?;
         let mut message = request.clone();
-        message.params = json!({ "to": taken.agent_id, "text": message_text(&request.params)? });
+        message.params =
+            json!({ "to": taken.agent_id, "text": message_text(core, &request.params)? });
         Box::pin(send(core, &message)).await?;
         return Ok(json!({
             "to": name,
@@ -1235,7 +1236,7 @@ async fn reopen(
     }
     let mut spawning = request.clone();
     spawning.params = json!({
-        "prompt": message_text(&request.params)?,
+        "prompt": message_text(core, &request.params)?,
         "resume": ran.session_id,
         "cli": ran.provider,
     });
