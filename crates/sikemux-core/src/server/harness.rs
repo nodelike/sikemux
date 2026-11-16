@@ -46,6 +46,7 @@ use crate::skills;
 
 mod inspect;
 mod methods;
+pub(crate) mod page_index;
 pub mod pages;
 mod processes;
 mod skills_tool;
@@ -660,6 +661,7 @@ async fn dispatch(
             Ok(serde_json::to_value(ran).unwrap_or_default())
         }
         "page.show" => show_page(core, request).await,
+        "page.list" => list_pages(core, &request).await,
         "theme.read" => super::themes::tools::read(core, &request),
         "theme.set" => super::themes::tools::set(core, request).await,
         "ui.open" => ui_open(core, request).await,

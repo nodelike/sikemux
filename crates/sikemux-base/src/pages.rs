@@ -18,6 +18,8 @@ const MAX_IMAGE_BYTES: u64 = 10 * MIB;
 /// Under the 16 MiB a connection to the core carries, so a reply can always fetch the page.
 const MAX_PAGE_BYTES: usize = 15 * MIB as usize;
 const MAX_TITLE_CHARS: usize = 120;
+/// Enough of a page to hold its `<title>`, unless a big inlined font or picture comes first.
+const HEAD_BYTES: u64 = 64 * 1024;
 
 /// A path names no scheme, so it holds no `:`, except after a Windows drive letter.
 const DRIVE: &str = if cfg!(windows) {
@@ -200,7 +202,18 @@ pub fn title(dir: &Path, id: &str) -> Option<String> {
     if !is_page_id(id) {
         return None;
     }
-    let page = std::fs::read_to_string(dir.join(format!("{id}.html"))).ok()?;
+    let path = dir.join(format!("{id}.html"));
+    let mut head = Vec::new();
+    std::io::Read::read_to_end(
+        &mut std::io::Read::take(std::fs::File::open(&path).ok()?, HEAD_BYTES),
+        &mut head,
+    )
+    .ok()?;
+    let head = String::from_utf8_lossy(&head);
+    let page = match head.to_ascii_lowercase().contains("</title") {
+        true => head.into_owned(),
+        false => std::fs::read_to_string(&path).ok()?,
+    };
     let start = page.to_ascii_lowercase().find("<title")?;
     let (_, rest) = page[start..].split_once('>')?;
     let (title, _) = rest.split_once('<')?;

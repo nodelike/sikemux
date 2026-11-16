@@ -886,6 +886,10 @@ pub(crate) async fn run_core(
         skill_library::watch_global(&core);
         account::start(&core);
         tokio::spawn(usage::serve(core.clone(), data_dir.to_owned()));
+        tokio::spawn(harness::page_index::serve(
+            core.clone(),
+            data_dir.to_owned(),
+        ));
     }
     let mut stopping = socket::Stopping::new()?;
     let mut background = core.start_parts();

@@ -587,6 +587,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "page_list",
+        Spec {
+            verb: "list",
+            kind: "read",
+            icon: "image",
+            target: &["pages with {words}", "pages"],
+            detail: &[],
+            plugin: None,
+        },
+    ),
+    (
         "events_wait",
         Spec {
             verb: "wait",

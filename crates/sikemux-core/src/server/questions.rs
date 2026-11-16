@@ -1069,6 +1069,14 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         }],
     )?
     .remove(0);
+    if let (Some(page), Some(data_dir)) = (&question.page, core.config().data_dir.clone()) {
+        let (page, call) = (page.id.clone(), question.id.clone());
+        let linked = move || {
+            super::harness::page_index::link_call(&data_dir, &page, &call);
+            Ok(())
+        };
+        let _ = super::connection::blocking(linked).await;
+    }
     hand_to_lead(core, &question).await;
     let question = core
         .harness()

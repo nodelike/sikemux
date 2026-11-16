@@ -1586,7 +1586,7 @@
       "description": "Open a page in a desk tab.",
       "properties": {
         "path": {
-          "description": "Absolute path of your HTML",
+          "description": "Absolute path of your HTML; with title",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -1595,12 +1595,33 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 120
+        },
+        "id": {
+          "description": "A kept page's id from page_list, instead of path and title",
+          "type": "string",
+          "minLength": 32,
+          "maxLength": 32
         }
       },
-      "required": [
-        "path",
-        "title"
-      ]
+      "required": []
+    },
+    {
+      "name": "page_list",
+      "row": {"verb": "list", "kind": "read", "icon": "image", "target": ["pages with {words}", "pages"]},
+      "method": "page.list",
+      "description": "Find pages shown before, by title words.",
+      "properties": {
+        "words": {
+          "description": "Words the title holds",
+          "type": "string",
+          "maxLength": 200
+        },
+        "allProjects": {
+          "description": "true lists every project's, not just this one's",
+          "type": "boolean"
+        }
+      },
+      "required": []
     },
     {
       "name": "events_wait",
@@ -1928,7 +1949,7 @@
       "name": "agent_close",
       "row": {"verb": "close", "kind": "edit", "icon": "close", "target": ["{agents}"]},
       "method": "agent.close",
-      "description": "Close agents. Closes every one it may and lists the rest under refused, each with its reason.",
+      "description": "Close agents; lists those it refused, with why.",
       "properties": {
         "agents": {
           "type": "array",

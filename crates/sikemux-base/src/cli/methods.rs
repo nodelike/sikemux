@@ -56,6 +56,7 @@ pub const HARNESS_METHODS: &[&str] = &[
     "mod.read",
     "mod.write",
     "page.show",
+    "page.list",
     "events.wait",
     "agent.list",
     "agent.send",

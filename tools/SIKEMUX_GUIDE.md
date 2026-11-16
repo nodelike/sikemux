@@ -299,6 +299,12 @@ when shown; remote `https` scripts load as they are. Pass absolute paths.
 Never hand the person a page as a path, yours or one a teammate's report
 names: `page_show` it.
 
+Sikemux keeps every page shown. Showing the same title again makes a new
+version. `page_list` finds the latest version of each by words in its title,
+and `page_show` with its `id` opens it again: do that rather than rebuilding a
+page the person asks for again. Old versions go after 30 days unless a call
+or a kept ask links them.
+
 Layout: the page fills its tab and scrolls itself, so let it reflow to the
 tab's width.
 

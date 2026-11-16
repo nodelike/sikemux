@@ -173,6 +173,16 @@ pub(crate) fn asked(
     id
 }
 
+/// The asks still kept, and the address of every page opened under them.
+pub(crate) fn kept(core: &Core) -> (std::collections::BTreeSet<u64>, Vec<String>) {
+    let state = core.now().state.locked();
+    let ids = state.asks.iter().map(|ask| ask.id).collect();
+    let opened = (state.asks.iter())
+        .flat_map(|ask| ask.pages.iter().map(|page| page.url.clone()))
+        .collect();
+    (ids, opened)
+}
+
 /// The window's desks moved from `before` to `after`. What opened on an agent's desk goes under
 /// the ask the person has open there, else the ask the agent is answering; pages already kept
 /// take their latest title and address.
