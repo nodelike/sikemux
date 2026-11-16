@@ -18,7 +18,7 @@ export const FEATURE_WORDS: Record<PlanFeature, string> = {
   org_shared_setup:
     "Shared skills, instructions, subagents and MCP servers for the whole org",
   org_model_keys:
-    "Org model keys; your work sign-ins, memory and browser stay yours",
+    "Org model keys; your work sign-ins, personal rules and browser stay yours",
   org_github:
     "Connect GitHub once; git works on every host and agents never see a token",
   org_bot_triggers:
