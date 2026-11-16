@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use portable_pty::{Child, ExitStatus, NativePtySystem, PtySize, PtySystem};
+use portable_pty::{Child, ExitStatus, PtySize};
 use sikemux_process::sync::Locked;
 use sikemux_pty::master::{self, Master};
 use sikemux_pty::output_log::OutputLog;
@@ -456,14 +456,13 @@ pub fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreResult<Pen
     let (rows, cols) = carried
         .as_ref()
         .map_or((rows, cols), |carried| (carried.rows, carried.cols));
-    let pair = NativePtySystem::default()
-        .openpty(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(CoreError::pty)?;
+    let pair = master::open_pty(PtySize {
+        rows,
+        cols,
+        pixel_width: 0,
+        pixel_height: 0,
+    })
+    .map_err(CoreError::pty)?;
     let shell_metadata_enabled = shell_integration.is_some() || ssh;
 
     let child = sikemux_process::spawn_hearing_ctrl_c(|| pair.slave.spawn_command(command))

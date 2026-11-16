@@ -600,20 +600,19 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn powershell_reports_its_folder_and_prompt_through_the_pseudoconsole() {
-        use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+        use portable_pty::{CommandBuilder, PtySize};
         use std::time::{Duration, Instant};
 
         let root = tempfile::tempdir().expect("shell root");
         let cwd = root.path().join("repo root");
         std::fs::create_dir(&cwd).expect("shell cwd");
-        let pair = NativePtySystem::default()
-            .openpty(PtySize {
-                rows: 24,
-                cols: 200,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .expect("open pty");
+        let pair = crate::master::open_pty(PtySize {
+            rows: 24,
+            cols: 200,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("open pty");
         let mut command = CommandBuilder::new("powershell.exe");
         command.arg("-NoProfile");
         command.cwd(&cwd);
