@@ -259,6 +259,9 @@ async fn run(
             let _ = manager
                 .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                 .await;
+            if manager.viewport(agent_id, &tab_id).is_some() {
+                let _ = manager.settle_viewport(agent_id, &tab_id).await;
+            }
             let mut result = arrived(manager, agent_id, &tab_id, params, started).await?;
             if let Some(note) = note {
                 result["note"] = json!(note);
