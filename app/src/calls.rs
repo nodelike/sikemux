@@ -1425,7 +1425,13 @@ impl Render for InChat {
             .ok();
         };
         let rows: Vec<AnyElement> = match self.calls.open.as_slice() {
-            [call] => vec![page::chat_row(call, &self.agent, through, false, cx)],
+            [call] => vec![page::chat_row(
+                call,
+                &self.agent,
+                through,
+                page::RowFrame::Own,
+                cx,
+            )],
             open => (!open.is_empty())
                 .then(|| page::chat_fold(open, self.unfolded, toggle, &self.agent, through, cx))
                 .into_iter()

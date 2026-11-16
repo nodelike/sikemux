@@ -895,12 +895,18 @@ pub(super) fn chat_fold(
         .children(folded.into_iter().flatten())
         .children(unfolded.into_iter().flatten())
         .child(chevron);
-    let rows = (open.then_some(calls).into_iter().flatten()).map(|call| {
-        div()
-            .border_t(crate::theme::border())
-            .border_color(t.line)
-            .child(chat_row(call, agent, through, true, cx))
-    });
+    let rows = (open.then_some(calls).into_iter().flatten())
+        .enumerate()
+        .map(|(ix, call)| {
+            let frame = match ix + 1 == calls.len() {
+                true => RowFrame::LastInBlock,
+                false => RowFrame::InBlock,
+            };
+            div()
+                .border_t(crate::theme::border())
+                .border_color(t.line)
+                .child(chat_row(call, agent, through, frame, cx))
+        });
     div()
         .w_full()
         .flex()
@@ -915,6 +921,15 @@ pub(super) fn chat_fold(
         .into_any_element()
 }
 
+/// Where a call's row in a chat sits: on its own, or inside the open calls' block, whose
+/// rounded bottom its last row's hover has to follow.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum RowFrame {
+    Own,
+    InBlock,
+    LastInBlock,
+}
+
 /// A call in its asker's chat, folded to one row: who asks, the question and its age, which
 /// offers Open in Calls while hovered and opens it on the agent's desk. Inside the open calls'
 /// block it drops its own frame and leaves its bell to the block's first row.
@@ -922,7 +937,7 @@ pub(super) fn chat_row(
     call: &PersonCall,
     agent: &str,
     through: Through,
-    in_block: bool,
+    frame: RowFrame,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
@@ -954,9 +969,11 @@ pub(super) fn chat_row(
         .text_color(t.text_tertiary)
         .group_hover(CHAT_ROW, |style| style.opacity(0.))
         .child(ui::time::age(call.raised_at));
-    let bell = match in_block {
-        true => div().w(px(12.)).flex_none().into_any_element(),
-        false => ui::icon(Icon::Bell, 12.)
+    let bell = match frame {
+        RowFrame::InBlock | RowFrame::LastInBlock => {
+            div().w(px(12.)).flex_none().into_any_element()
+        }
+        RowFrame::Own => ui::icon(Icon::Bell, 12.)
             .text_color(t.warn)
             .into_any_element(),
     };
@@ -969,7 +986,10 @@ pub(super) fn chat_row(
         .flex()
         .items_center()
         .gap(px(9.))
-        .when(!in_block, |row| {
+        .when(frame == RowFrame::LastInBlock, |row| {
+            row.rounded_b(radius_4())
+        })
+        .when(frame == RowFrame::Own, |row| {
             row.rounded(radius_4())
                 .border(crate::theme::border())
                 .border_color(t.line)
