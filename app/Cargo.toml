@@ -69,3 +69,6 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSBitmapImageRep", "NSGraphics", "NSImage", "NSImageRep", "NSResponder", "NSRunningApplication", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSError", "NSGeometry", "NSValue"] }
 objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "WKSnapshotConfiguration", "WKWebView", "block2", "objc2-app-kit"] }
+
+[lints]
+workspace = true
