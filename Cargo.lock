@@ -10012,6 +10012,7 @@ dependencies = [
  "sikemux-remote",
  "sikemux-repo",
  "sikemux-serve",
+ "sikemux-trust",
  "sikemux-view",
  "sikemux-wire",
  "sikemux-workspace",
@@ -10256,6 +10257,7 @@ dependencies = [
  "sikemux-plugin-vercel",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-trust",
  "sikemux-view",
  "sikemux-wire",
  "tempfile",
@@ -10282,6 +10284,7 @@ dependencies = [
  "sikemux-corekit",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-trust",
  "sikemux-wire",
  "tempfile",
  "tokio",
@@ -10787,6 +10790,8 @@ dependencies = [
 name = "sikemux-trust"
 version = "0.6.1-nightly.22"
 dependencies = [
+ "serde",
+ "serde_json",
  "windows-sys 0.61.2",
  "workspace-hack",
 ]

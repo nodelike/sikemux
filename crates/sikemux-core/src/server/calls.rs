@@ -223,6 +223,7 @@ calls! { core, client, method, params;
     "explainAgentDetection": NoDevice, any_program => {
         answer(super::agent::explain_of(core, parse::<AgentParams>(params)?.agent_id).await?)
     },
+    "trustReport": NoDevice, any_program => answer(super::trust::report()?),
     "runCommand": NoDevice => answer(super::custom_command::run(parse(params)?).await?),
     "updateStatus" = UpdateStatus: Watch, any_program => core.updates().status(),
     "updateCheck" = UpdateCheck: Owner => super::updates::check(&core).await?,

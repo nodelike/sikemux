@@ -4,12 +4,27 @@
 //! `git`, it is the git agents find first on their PATH.
 
 mod core_mode;
+#[cfg(windows)]
+mod service_mode;
 mod tools_mcp;
 
 use sikemux_host::cli_client;
 
 fn main() {
+    #[cfg(windows)]
+    if let Err(error) = sikemux_trust::pin_library_search() {
+        eprintln!("Sikemux could not limit where it loads libraries from: {error}");
+        std::process::exit(1);
+    }
     let first = std::env::args_os().nth(1);
+    #[cfg(windows)]
+    if first
+        .as_ref()
+        .is_some_and(|arg| arg == service_mode::SERVICE_ARG)
+    {
+        let action = std::env::args().nth(2);
+        std::process::exit(service_mode::run(action.as_deref()));
+    }
     let core = first.as_ref().is_some_and(|arg| arg == "core");
     sikemux_host::panic_reports::record_panics(
         if core { "core" } else { "cli" },

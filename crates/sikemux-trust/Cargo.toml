@@ -3,17 +3,31 @@ name = "sikemux-trust"
 version.workspace = true
 edition = "2021"
 publish = false
-description = "Windows tokens and process starts that keep the person's other programs out of a High core"
+description = "Windows tokens, process starts and the service that keep the person's other programs out of a High core"
 
 [target.'cfg(windows)'.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_Environment",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Services",
     "Win32_System_SystemServices",
     "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

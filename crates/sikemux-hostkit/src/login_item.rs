@@ -158,6 +158,23 @@ pub fn path(identifier: &str) -> Option<PathBuf> {
 /// the host's core then runs outside it. A LaunchAgent already loaded cannot
 /// be started again, so on macOS the core starts directly when it did not.
 pub fn start_core(identifier: &str, launch: &CoreLaunch) -> Result<CoreHello, ClientError> {
+    #[cfg(windows)]
+    if sikemux_trust::service::installed() {
+        if let Ok(hello) = probe(&launch.socket, SERVICE_PROBE) {
+            return Ok(hello);
+        }
+        if let Some(logs) = launch.log.parent() {
+            std::fs::create_dir_all(logs).map_err(|error| ClientError::Core(error.to_string()))?;
+        }
+        sikemux_trust::service::start_core(&launch.socket, &launch.log, &launch.args).map_err(
+            |error| {
+                ClientError::Core(format!(
+                    "the Sikemux service did not start the core: {error}"
+                ))
+            },
+        )?;
+        return wait_for_core(&launch.socket, SERVICE_START);
+    }
     if path(identifier).is_some_and(|path| path.exists()) {
         if let Ok(hello) = probe(&launch.socket, SERVICE_PROBE) {
             return Ok(hello);
@@ -557,11 +574,17 @@ mod run_entry {
         unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, wide(RUN).as_ptr(), wide(label).as_ptr()) };
     }
 
-    /// Starts the process that keeps the core up, which starts the core.
+    /// Starts the process that keeps the core up, which starts the core. Where the Sikemux
+    /// service is installed, the service starts the core and keeps it up instead.
     pub(super) fn start(_label: &str, path: &Path) -> Result<(), String> {
         let saved = read(path).ok_or_else(|| format!("{} cannot be read", path.display()))?;
         if let Some(logs) = saved.log.parent() {
             std::fs::create_dir_all(logs).map_err(|error| error.to_string())?;
+        }
+        if sikemux_trust::service::installed() {
+            return sikemux_trust::service::start_core(&saved.socket, &saved.log, &saved.args)
+                .map(drop)
+                .map_err(|error| format!("the Sikemux service did not start the core: {error}"));
         }
         let log = OpenOptions::new()
             .create(true)

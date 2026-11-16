@@ -250,6 +250,12 @@ impl Token {
     }
 }
 
+impl From<OwnedHandle> for Token {
+    fn from(handle: OwnedHandle) -> Self {
+        Self(handle)
+    }
+}
+
 struct Sid([u8; SECURITY_MAX_SID_SIZE as usize]);
 
 impl Sid {

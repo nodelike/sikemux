@@ -149,6 +149,7 @@ pub mod themes;
 mod tools;
 pub mod triage;
 pub mod triggers;
+mod trust;
 pub mod turn_state;
 mod update_reports;
 pub mod updates;

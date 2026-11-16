@@ -45,6 +45,7 @@ sikemux-remote
 sikemux-repo
 sikemux-serve
 sikemux-simulator
+sikemux-trust
 sikemux-view
 sikemux-voice
 sikemux-wire

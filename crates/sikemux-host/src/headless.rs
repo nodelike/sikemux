@@ -425,6 +425,10 @@ struct Status {
     waiting: usize,
     /// How this host keeps its core current, on a host that updates itself.
     updates: Option<Value>,
+    /// On Windows, the integrity the core runs at, the libraries it loaded and its
+    /// environment's names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trust: Option<Value>,
     /// What is wrong with this host, worst first, each with what fixes it.
     problems: Vec<crate::problems::Problem>,
 }
@@ -474,9 +478,10 @@ fn gather_status() -> Option<Status> {
     let about = hello
         .as_ref()
         .and_then(|_| runtime().ok()?.block_on(about(&launch.socket)).ok());
-    let (remote, name, updates) = about.map_or((None, None, None), |(remote, name, updates)| {
-        (Some(remote), Some(name), updates)
-    });
+    let (remote, name, updates, trust) = about.map_or(
+        (None, None, None, None),
+        |(remote, name, updates, trust)| (Some(remote), Some(name), updates, trust),
+    );
     let status = Status {
         running: hello.is_some() || older.is_some(),
         pid: hello.as_ref().map(|hello| hello.pid).or(older),
@@ -511,6 +516,7 @@ fn gather_status() -> Option<Status> {
             .and_then(|remote| remote.update_required.as_ref())
             .map(|required| required.minimum.clone()),
         updates,
+        trust,
         problems: Vec::new(),
     };
     let status = Status {
@@ -596,6 +602,13 @@ fn print_status(status: &Status) {
     }
     if let Some(updates) = &status.updates {
         row("Updates", updates_row(updates));
+    }
+    if let Some(integrity) = status
+        .trust
+        .as_ref()
+        .and_then(|trust| trust["integrity"].as_str())
+    {
+        row("Runs at", format!("{integrity} integrity"));
     }
     let rolled_back = (status.problems.iter()).find(|problem| problem.name == "update-rolled-back");
     if let Some(problem) = rolled_back {
@@ -718,7 +731,9 @@ async fn plugin_login(socket: &Path, plugin: &str) -> Result<(), String> {
 
 /// What the core says of remote access, the host's own name, and how it
 /// updates when it updates itself.
-async fn about(socket: &Path) -> Result<(RemoteStatus, String, Option<Value>), String> {
+async fn about(
+    socket: &Path,
+) -> Result<(RemoteStatus, String, Option<Value>, Option<Value>), String> {
     let (core, _events) = CoreClient::connect(socket)
         .await
         .map_err(|error| error.to_string())?;
@@ -737,8 +752,12 @@ async fn about(socket: &Path) -> Result<(RemoteStatus, String, Option<Value>), S
                 .await
                 .ok()
                 .filter(|updates| updates["automatic"].is_boolean());
+            let trust = match cfg!(windows) {
+                true => core.call("trustReport", json!({})).await.ok(),
+                false => None,
+            };
             let name = host["name"].as_str().unwrap_or_default().to_owned();
-            Ok((remote, name, updates))
+            Ok((remote, name, updates, trust))
         }
         _ => Err("the core answered with something else".into()),
     }

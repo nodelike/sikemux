@@ -1,0 +1,32 @@
+//! `sikemux-host --service run|install|remove`: the Windows service that starts each signed-in
+//! person's core at High integrity. Install and remove need an administrator.
+
+use sikemux_trust::service::{self, Core};
+
+pub const SERVICE_ARG: &str = "--service";
+
+const CORE: Core = Core {
+    subcommand: "core",
+    options: &["--cli-endpoint", "--data-dir"],
+};
+
+pub fn run(action: Option<&str>) -> i32 {
+    let done = match action {
+        Some("run") => service::run(CORE),
+        Some("install") => std::env::current_exe().and_then(|program| {
+            service::install(&format!("\"{}\" {SERVICE_ARG} run", program.display()))
+        }),
+        Some("remove") => service::remove(),
+        _ => {
+            eprintln!("usage: sikemux-host {SERVICE_ARG} run|install|remove");
+            return 2;
+        }
+    };
+    match done {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("The Sikemux service failed: {error}");
+            1
+        }
+    }
+}

@@ -73,6 +73,9 @@ toml = "1"
 trash = "5"
 webpki-roots = "1"
 
+[target.'cfg(windows)'.dependencies]
+sikemux-trust = { path = "../sikemux-trust" }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 rustix = { version = "1", features = ["fs"] }
