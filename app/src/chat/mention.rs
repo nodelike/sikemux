@@ -107,7 +107,9 @@ enum Choice {
         id: String,
         name: String,
         title: Option<String>,
-        project: Option<String>,
+        project: String,
+        /// The project is the one this chat is in.
+        here: bool,
         provider: String,
     },
     Entry {
@@ -533,31 +535,27 @@ impl Workbench {
             .shown()
             .and_then(|view| view.workspace.agents.iter().find(|saved| saved.id == agent))
             .map(|saved| saved.project.clone());
-        let mut projects: Vec<(&str, Option<String>)> = Vec::new();
-        if let Some(own) = &own {
-            projects.push((own, None));
-        }
-        projects.extend(
-            self.projects()
-                .iter()
-                .filter(|project| Some(&project.id) != own.as_ref())
-                .map(|project| (project.id.as_str(), Some(project.name.clone()))),
-        );
+        let mut projects: Vec<&ProjectInfo> = self.projects().iter().collect();
+        projects.sort_by_key(|project| Some(&project.id) != own.as_ref());
         projects
             .into_iter()
-            .flat_map(|(project, name)| {
-                self.agents_of(project).into_iter().filter_map(move |row| {
-                    let mate = row.name.clone().filter(|mate| {
-                        row.id != agent && mate.to_lowercase().starts_with(needle)
-                    })?;
-                    Some(Choice::Mate {
-                        id: row.id,
-                        name: mate,
-                        title: row.titled.then_some(row.title),
-                        project: name.clone(),
-                        provider: row.provider,
+            .flat_map(|project| {
+                let here = Some(&project.id) == own.as_ref();
+                self.agents_of(&project.id)
+                    .into_iter()
+                    .filter_map(move |row| {
+                        let mate = row.name.clone().filter(|mate| {
+                            row.id != agent && mate.to_lowercase().starts_with(needle)
+                        })?;
+                        Some(Choice::Mate {
+                            id: row.id,
+                            name: mate,
+                            title: row.titled.then_some(row.title),
+                            project: project.name.clone(),
+                            here,
+                            provider: row.provider,
+                        })
                     })
-                })
             })
             .take(SHOWN)
             .collect()
@@ -1016,12 +1014,12 @@ fn ranked_entries(needle: &str, files: &Arc<Vec<String>>) -> Vec<Choice> {
 }
 
 /// The kinds of thing the menu names, in the order its heading lists them.
-const SCOPES: [(char, &str); 5] = [
-    ('@', n!("Agents")),
-    ('#', n!("Issues")),
-    ('!', n!("Pull requests")),
-    ('+', n!("Files")),
-    ('&', n!("Stash")),
+const SCOPES: [(char, Icon, &str); 5] = [
+    ('@', Icon::Agents, n!("Agents")),
+    ('#', Icon::Issue, n!("Issues")),
+    ('!', Icon::PullRequest, n!("Pull requests")),
+    ('+', Icon::File, n!("Files")),
+    ('&', Icon::Stash, n!("Stash")),
 ];
 
 /// The menu over the draft of `agent`'s chat, while it offers anything, under a heading of the
@@ -1045,10 +1043,10 @@ pub fn dock(
         }
         let scopes = SCOPES
             .iter()
-            .map(|&(key, label)| {
+            .map(|&(key, icon, label)| {
                 let (this, agent) = (cx.weak_entity(), agent.to_owned());
                 DockScope {
-                    key: key.to_string().into(),
+                    icon,
                     label: crate::i18n::tr(label).into(),
                     on: key == trigger,
                     choose: Rc::new(move |window: &mut Window, cx: &mut App| {
@@ -1059,9 +1057,8 @@ pub fn dock(
             })
             .collect();
         let aside = match trigger {
-            '+' => t!("attach"),
             '#' | '!' => repo.unwrap_or_default(),
-            _ => t!("mention"),
+            _ => "",
         };
         dock.heading(scopes, aside.to_owned())
     };
@@ -1086,7 +1083,6 @@ pub fn dock(
     }
     let this = cx.weak_entity();
     let tint = crate::theme::Tokens::get(cx).text_tertiary;
-    let mut shown_project: Option<&str> = None;
     let mut shown_kind = None;
     let rows = menu.choices.iter().enumerate().map(|(index, choice)| {
         let (this, agent) = (this.clone(), agent.to_owned());
@@ -1102,12 +1098,9 @@ pub fn dock(
                 name,
                 title,
                 project,
+                here,
                 provider,
             } => {
-                let group = (project.as_deref() != shown_project)
-                    .then(|| project.clone().map(SharedString::from))
-                    .flatten();
-                shown_project = project.as_deref();
                 let row = bench.agent_by_id(id);
                 let shown = DockRow::new(format!("@{name}"), choose).mark(
                     row.as_ref()
@@ -1117,8 +1110,8 @@ pub fn dock(
                     Some(title) => shown.detail(title.clone()),
                     None => shown,
                 }
+                .place(project.clone(), *here)
                 .state(row.and_then(|agent| ui::turn_mark(&agent.id, agent.turn.as_ref())))
-                .group(group)
             }
             Choice::Entry { path, folder } => {
                 let parent = path.rsplit_once('/').map_or(".", |(parent, _)| parent);
@@ -1137,6 +1130,7 @@ pub fn dock(
                     )
                 };
                 DockRow::new(leaf(path).to_owned(), choose)
+                    .code()
                     .mark(mark)
                     .detail(parent.to_owned())
             }
@@ -1145,7 +1139,7 @@ pub fn dock(
                 description,
                 hint,
             } => {
-                let row = DockRow::new(format!("/{name}"), choose);
+                let row = DockRow::new(format!("/{name}"), choose).code();
                 match hint {
                     Some(hint) if description.is_empty() => row.detail(hint.clone()),
                     hint => row
@@ -1153,9 +1147,9 @@ pub fn dock(
                         .aside(hint.clone().map(SharedString::from)),
                 }
             }
-            Choice::Own(own, description) => {
-                DockRow::new(format!("/{}", own.name()), choose).detail(description.clone())
-            }
+            Choice::Own(own, description) => DockRow::new(format!("/{}", own.name()), choose)
+                .code()
+                .detail(description.clone()),
             Choice::Earlier {
                 cli,
                 name,
@@ -1163,19 +1157,16 @@ pub fn dock(
                 active_at,
                 ..
             } => {
-                let kind = if name.is_some() {
-                    t!("Closed")
-                } else {
-                    t!("Earlier chats")
-                };
-                let group = (shown_kind != Some(kind)).then_some(SharedString::from(kind));
-                shown_kind = Some(kind);
+                let divided = shown_kind != Some(name.is_some());
+                shown_kind = Some(name.is_some());
                 let row = match name {
-                    Some(name) => DockRow::new(format!("@{name}"), choose).detail(title.clone()),
+                    Some(name) => DockRow::new(format!("@{name}"), choose)
+                        .detail(title.clone())
+                        .aside(Some(t!("closed").into())),
                     None => DockRow::new(title.clone(), choose)
                         .aside(active_at.map(|at| crate::ui::time::age(at).into())),
                 };
-                row.mark(ui::mark(cli, 13.)).group(group)
+                row.mark(ui::mark(cli, 13.)).divided(divided)
             }
             Choice::Tracked(item) => {
                 let (sign, icon) = match item.kind {

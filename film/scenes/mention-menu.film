@@ -1,0 +1,27 @@
+# The composer's @ menu over a chat, with agents in three projects to name.
+stage 1760 900
+window 1760 900
+prefer themeId aura-noir
+prefer paneImage null
+project storefront shop
+core openChief {"project":"storefront"}
+chat Mira
+title "Order emails"
+project marketing line-shop
+core openChief {"project":"marketing"}
+chat Cleo
+title "Draft the launch post"
+project checkout places-shop
+core openChief {"project":"checkout"}
+chat Calder
+title "Rotate the TLS certs"
+chat Wren
+title "Cart totals a cent off"
+settle 6
+click 871,774
+type "@" 120
+settle 1
+snap mention-agents
+type "c" 120
+settle 1
+snap mention-typed
