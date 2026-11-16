@@ -581,6 +581,12 @@ impl Workbench {
         self.feeds.this.view.as_ref()
     }
 
+    /// The words on a Pro feature while the account has Pro's features free, none otherwise.
+    pub fn pro_free(&self) -> Option<SharedString> {
+        let account = self.this_view()?.account.as_deref()?;
+        account.pro_given.then(|| t!("Pro, free for now").into())
+    }
+
     pub fn projects(&self) -> &[ProjectInfo] {
         self.shown()
             .map_or(&[], |view| view.workspace.projects.as_slice())

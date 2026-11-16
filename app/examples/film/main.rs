@@ -321,6 +321,7 @@ fn main() -> anyhow::Result<()> {
                 staff: false,
                 flags: Vec::new(),
                 features: None,
+                pro_given: false,
             }
         }),
         compositor,

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::api::host_send_any;
 use super::{folder, show};
-use crate::accounts::protocol::{Allowance, PlanFeature};
+use crate::accounts::protocol::{Allowance, PlanFeature, PlanId};
 use crate::server::remote_state::RemoteParts;
 use crate::server::Core;
 
@@ -22,11 +22,26 @@ struct Kept {
     allowance: Allowance,
 }
 
-/// The features `user_id`'s plan allows, or nothing while the account has not said.
-pub async fn read(dir: &Path, user_id: &str) -> Option<Vec<PlanFeature>> {
+/// What `user_id`'s plan allows, or nothing while the account has not said.
+pub async fn read(dir: &Path, user_id: &str) -> Option<Allowance> {
     let text = tokio::fs::read(dir.join(FILE)).await.ok()?;
     let kept: Kept = serde_json::from_slice(&text).ok()?;
-    (kept.user_id == user_id).then_some(kept.allowance.features)
+    (kept.user_id == user_id).then_some(kept.allowance)
+}
+
+/// Whether the account may use Pro's features without paying for them: before billing is live,
+/// or while Pro is a gift.
+pub fn pro_given(allowance: &Allowance) -> bool {
+    let has_pro = allowance.features.iter().any(|feature| {
+        matches!(
+            feature,
+            PlanFeature::Sync
+                | PlanFeature::MoveWork
+                | PlanFeature::HistorySearch
+                | PlanFeature::OwnTriggers
+        )
+    });
+    allowance.gift_ends.is_some() || (allowance.plan == PlanId::Free && has_pro)
 }
 
 /// Asks the account what its plan allows and shows the answer. An account server that does not

@@ -431,7 +431,7 @@ pub fn render(
         ),
         rows::section(
             n!("Session transfer"),
-            None,
+            bench.pro_free(),
             Some(t!("Send the project in front to another host, with its chats and tabs.").into()),
             lit("Session transfer"),
             transfer(bench, &fields.transfer, this, cx),

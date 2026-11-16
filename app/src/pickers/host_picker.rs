@@ -276,7 +276,14 @@ impl Render for HostPicker {
             }))
             .on_action(cx.listener(|picker, _: &Close, window, cx| (picker.close)(window, cx)))
             .gap_0()
-            .child(list_picker::heading(&t!("Has {name}", name = name), cx))
+            .child(
+                list_picker::heading(&t!("Has {name}", name = name), cx).when_some(
+                    self.bench
+                        .upgrade()
+                        .and_then(|bench| bench.read(cx).pro_free()),
+                    |heading, words| heading.child(ui::caps(&words, cx).flex_none()),
+                ),
+            )
             .children(held)
             .when(copies < choices.len(), |popup| {
                 popup

@@ -150,6 +150,9 @@ pub struct AccountInfo {
     /// the account has said, and everything is allowed meanwhile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub features: Option<Vec<String>>,
+    /// Pro's features come free for now: before paid plans start, or while Pro is a gift.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pro_given: bool,
 }
 
 /// A feature still being tried, on for staff before anyone else. Each is a risky change

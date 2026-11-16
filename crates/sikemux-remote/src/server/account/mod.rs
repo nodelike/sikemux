@@ -205,14 +205,16 @@ pub async fn show(core: &Core) {
                 Some(profile) => (profile.name, profile.email.or(saved_email), profile.staff),
                 None => (None, saved_email, false),
             };
-            let features = allowance::read(&folder, &owner).await;
+            let allowance = allowance::read(&folder, &owner).await;
             Some(AccountInfo {
                 name,
                 email,
                 picture_hash,
                 staff,
                 flags: flags::resolve(staff, &core.remote().flags_off()),
-                features: features.map(|features| features.into_iter().map(feature_name).collect()),
+                pro_given: allowance.as_ref().is_some_and(allowance::pro_given),
+                features: allowance
+                    .map(|allowance| allowance.features.into_iter().map(feature_name).collect()),
             })
         }
         (Some(_), None) => Some(AccountInfo {
@@ -222,6 +224,7 @@ pub async fn show(core: &Core) {
             staff: false,
             flags: Vec::new(),
             features: None,
+            pro_given: false,
         }),
     };
     let changed = {
