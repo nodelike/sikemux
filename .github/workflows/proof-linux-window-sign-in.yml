@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  NIGHTLY: v0.6.1-nightly.2688
+  NIGHTLY: v0.6.1-nightly.2863
   APP_ONLY: "only Sikemux's own window or notch can do that"
   GROUP_STRICT: "yes"
 
