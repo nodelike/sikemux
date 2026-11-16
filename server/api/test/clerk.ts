@@ -18,7 +18,7 @@ export class FakeClerk implements ClerkBackend {
   }
 
   /** Stands in for an address, so no email-shaped text is in the tests. */
-  async verifiedEmail(userId: string) {
+  async verifiedEmail(userId: string): Promise<string | null> {
     if (this.failing) throw new Error("Clerk answered 500");
     return `verified address of ${userId}`;
   }

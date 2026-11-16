@@ -12,7 +12,7 @@ import {
   type ProviderCall,
 } from "./calls.ts";
 import { PLAN_PRODUCTS, product } from "./catalog.ts";
-import { refusal } from "./checks.ts";
+import { openerRole, refusal } from "./checks.ts";
 import {
   heldSubscription,
   type ProviderEvent,
@@ -333,6 +333,7 @@ async function paidCheckout(
     checkout.interval !== sub.interval
   )
     return null;
+  const role = await openerRole(trx, checkout.org_id, checkout.opened_by);
   const customer = await trx
     .selectFrom("billing_customers")
     .select(["id", "paid_by"])
@@ -344,6 +345,7 @@ async function paidCheckout(
     orgId: checkout.org_id,
     paidBy: customer.paid_by,
     openedBy: checkout.opened_by,
+    openerRole: role,
     product: item.product,
     quantity: item.quantity,
   });

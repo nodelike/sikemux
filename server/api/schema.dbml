@@ -530,6 +530,18 @@ Table billing_checkouts {
   }
 }
 
+Table billing_people {
+  provider text [not null]
+  user_id text [not null]
+  provider_customer_id text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, user_id) [pk]
+    (provider, provider_customer_id) [unique]
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
@@ -560,3 +572,4 @@ Ref: subscriptions.customer_id > billing_customers.id [delete: cascade]
 Ref: invoices.customer_id > billing_customers.id [delete: cascade]
 Ref: billing_checkouts.customer_id > billing_customers.id [delete: cascade]
 Ref: billing_checkouts.opened_by > users.id [delete: cascade]
+Ref: billing_people.user_id > users.id [delete: cascade]

@@ -275,6 +275,13 @@ export interface PaddleOptions {
   now?: () => number;
 }
 
+/** Paddle's error with its message swapped out, since Paddle may quote the email it was sent. */
+function withoutEmail(err: unknown, message: string) {
+  return err instanceof PaddleError
+    ? new PaddleError(err.status, err.code, message)
+    : err;
+}
+
 /** A value read from Paddle, or none, and when it was read. */
 interface Read {
   value: string | null;
@@ -433,22 +440,33 @@ export class PaddleProvider implements BillingProvider {
   async customerFor(_userId: string, email: string | null) {
     if (!email) return null;
     try {
-      return (
-        await this.api.request<{ id: string }>("POST", "/customers", { email })
-      ).id;
+      const made = await this.api.request<{ id: string }>(
+        "POST",
+        "/customers",
+        { email },
+      );
+      return { id: made.id, made: true };
     } catch (err) {
       const existing =
         err instanceof PaddleError && err.code === "customer_already_exists"
           ? /ctm_[a-z0-9]+/.exec(err.message)?.[0]
           : undefined;
-      if (!existing)
-        throw err instanceof PaddleError
-          ? new PaddleError(err.status, err.code, "no customer was made")
-          : err;
+      if (!existing) throw withoutEmail(err, "no customer was made");
       await this.api.request("PATCH", `/customers/${existing}`, {
         status: "active",
       });
-      return existing;
+      return { id: existing, made: false };
+    }
+  }
+
+  async readdress(providerCustomerId: string, email: string) {
+    try {
+      await this.api.request("PATCH", `/customers/${providerCustomerId}`, {
+        email,
+        status: "active",
+      });
+    } catch (err) {
+      throw withoutEmail(err, "the customer's email was not moved");
     }
   }
 

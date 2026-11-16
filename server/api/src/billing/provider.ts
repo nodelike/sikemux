@@ -162,10 +162,15 @@ export interface BillingProvider {
    */
   readonly eventRetrySpanMs: number;
   /**
-   * The person's own customer at the provider, found or made from their verified email, or null
-   * when the provider needs an email and there is none.
+   * A customer at the provider for this verified email: `made` when new, else the one the provider
+   * already holds under it. Null when the provider needs an email and there is none.
    */
-  customerFor(userId: string, email: string | null): Promise<string | null>;
+  customerFor(
+    userId: string,
+    email: string | null,
+  ): Promise<{ id: string; made: boolean } | null>;
+  /** Moves a customer at the provider to another email, which its receipts then go to. */
+  readdress(providerCustomerId: string, email: string): Promise<void>;
   /** The provider's hosted page to buy a product, and its id, which its payment comes back under. */
   checkout(
     request: CheckoutRequest,

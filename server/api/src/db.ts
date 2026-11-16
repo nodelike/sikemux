@@ -325,6 +325,12 @@ export interface Tables {
     paid_by: ColumnType<string | null, never, string | null>;
     created_at: CreatedAt;
   };
+  billing_people: {
+    provider: string;
+    user_id: string;
+    provider_customer_id: string;
+    created_at: CreatedAt;
+  };
   billing_checkouts: {
     provider: string;
     provider_checkout_id: string;

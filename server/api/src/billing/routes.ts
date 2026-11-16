@@ -29,7 +29,8 @@ import { orgRole } from "../orgs/roles.ts";
 import { requireBillingAccess } from "./access.ts";
 import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
-import { refusal } from "./checks.ts";
+import { openerRole, refusal } from "./checks.ts";
+import { ownCustomer } from "./customers.ts";
 import { makeDueCalls } from "./calls.ts";
 import { CATALOG, product, unitPrice } from "./catalog.ts";
 import {
@@ -442,6 +443,8 @@ export function billingRoutes({
         .values(values)
         .onConflict((oc) => oc.doNothing())
         .execute();
+      const orgId = "orgId" in payer ? payer.orgId : null;
+      const role = await openerRole(trx, orgId, userId);
       const found = await customersOf(trx, payer)
         .select(["id", "paid_by"])
         .where("provider", "=", ready.name)
@@ -449,9 +452,10 @@ export function billingRoutes({
         .executeTakeFirstOrThrow();
       const refused = await refusal(trx, {
         customerId: found.id,
-        orgId: "orgId" in payer ? payer.orgId : null,
+        orgId,
         paidBy: found.paid_by,
         openedBy: userId,
+        openerRole: role,
         product: sold.id,
         quantity: request.quantity,
       });
@@ -474,16 +478,7 @@ export function billingRoutes({
       return found;
     });
 
-    const providerCustomerId = await ready.customerFor(
-      userId,
-      clerk ? await clerk.verifiedEmail(userId) : null,
-    );
-    if (!providerCustomerId)
-      throw new ApiFailure(
-        409,
-        "conflict",
-        "Verify the email you sign in with before buying.",
-      );
+    const providerCustomerId = await ownCustomer(db, ready, clerk, userId);
     const checkout = await ready.checkout({
       providerCustomerId,
       product: sold.id,

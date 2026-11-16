@@ -67,7 +67,7 @@ class FakePaddle {
   gapAfterItems = 0;
   private later = 0;
   subscriptions = new Map<string, PaddleSub>();
-  customers = new Set<string>();
+  customerOf = new Map<string, string>();
   lastCheckout: string | undefined;
   completed = new Map<string, unknown[]>();
   prices: PaddlePrice[] = PRODUCTS.flatMap((item) =>
@@ -130,20 +130,32 @@ class FakePaddle {
   ): Promise<unknown> {
     this.calls.push({ method, path, ...(body ? { body } : {}) });
     if (method === "POST" && path === "/customers") {
-      const id = ctmOf(String(body?.email).replace("verified address of ", ""));
-      if (this.customers.has(id))
+      const email = String(body?.email);
+      const held = this.customerOf.get(email);
+      if (held)
         return Promise.reject(
           new PaddleError(
             409,
             "customer_already_exists",
-            `Customer email conflicts with existing customer ID ${id}`,
+            `Customer email conflicts with existing customer ID ${held}`,
           ),
         );
-      this.customers.add(id);
+      const first = ctmOf(email.replace("verified address of ", ""));
+      const id = [...this.customerOf.values()].includes(first)
+        ? `ctm_made${this.customerOf.size}`
+        : first;
+      this.customerOf.set(email, id);
       return Promise.resolve({ id });
     }
-    if (method === "PATCH" && path.startsWith("/customers/"))
+    if (method === "PATCH" && path.startsWith("/customers/")) {
+      const id = path.slice("/customers/".length);
+      if (typeof body?.email === "string") {
+        for (const [email, held] of this.customerOf)
+          if (held === id) this.customerOf.delete(email);
+        this.customerOf.set(body.email, id);
+      }
       return Promise.resolve({});
+    }
     if (method === "POST" && path === "/transactions") {
       const id = `txn_${randomUUID()}`;
       this.lastCheckout = id;
@@ -238,10 +250,21 @@ let drop: () => Promise<void>;
 let paddle: FakePaddle;
 let app: ReturnType<typeof testApp>;
 let call: ReturnType<typeof caller>;
+let clerk: MovingClerk;
+
+/** Clerk, where a verified address can pass from one account to another. */
+class MovingClerk extends FakeClerk {
+  readonly addressOf = new Map<string, string | null>();
+
+  override async verifiedEmail(userId: string) {
+    const address = this.addressOf.get(userId);
+    return address === null ? null : `verified address of ${address ?? userId}`;
+  }
+}
 
 function appWith(fake: FakePaddle, live = true) {
   return testApp(database, new RateLimiter(), {
-    clerk: new FakeClerk(),
+    clerk,
     billing: {
       provider: new PaddleProvider({
         api: fake as unknown as PaddleApi,
@@ -267,6 +290,7 @@ beforeEach(async () => {
     [OWNER, OTHER, NOT_STAFF],
   );
   paddle = new FakePaddle();
+  clerk = new MovingClerk();
   app = appWith(paddle);
   call = caller(app);
 });
@@ -893,5 +917,103 @@ describe("a change of interval asked just before renewal", () => {
       billsOn: paidEnd,
       interval: "month",
     });
+  });
+});
+
+describe("an address that passes from one account to another", () => {
+  it("R3a: the second account gets a Paddle customer of its own, and a portal of its own", async () => {
+    await pay(OWNER, "pro");
+    clerk.addressOf.set(OWNER, "user_owner_moved");
+    clerk.addressOf.set(NOT_STAFF, OWNER);
+    const second = await openCheckout(NOT_STAFF, "pro");
+    const sub = paddleSub(String(second.sent?.customer_id), "pro", 1);
+    paddle.subscriptions.set(sub.id, sub);
+    const answer = await deliver(
+      "transaction.completed",
+      paddleTxn(sub, { id: second.txn }),
+      ago(5),
+    );
+    const portalOf = async (userId: string) =>
+      (
+        (await (await as(userId, "/v1/billing/portal")).json()) as {
+          url?: string;
+        }
+      ).url?.split("signed_in_as=")[1];
+    const { rows } = await database.pool.query(
+      "select count(distinct provider_customer_id)::int as customers from billing_customers where user_id in ($1, $2)",
+      [OWNER, NOT_STAFF],
+    );
+    expect({
+      answer,
+      paddleCustomers: (rows[0] as { customers: number }).customers,
+      portals: [await portalOf(OWNER), await portalOf(NOT_STAFF)],
+    }).toEqual({
+      answer: 204,
+      paddleCustomers: 2,
+      portals: [ctmOf(OWNER), expect.not.stringMatching(ctmOf(OWNER))],
+    });
+  });
+
+  it("R3a: while the account that holds the address has none verified, the checkout is refused", async () => {
+    await pay(OWNER, "pro");
+    clerk.addressOf.set(OWNER, null);
+    clerk.addressOf.set(NOT_STAFF, OWNER);
+    expect((await openCheckout(NOT_STAFF, "pro")).status).toBe(409);
+  });
+
+  it("R3b: after their address changes and they buy again, the payment page of the first plan still opens", async () => {
+    await pay(OWNER, "pro");
+    const before = await as(OWNER, "/v1/billing/portal");
+    clerk.addressOf.set(OWNER, "user_owner_moved");
+    const box = await pay(OWNER, "shed");
+    const after = await as(OWNER, "/v1/billing/portal");
+    expect({
+      portal: [before.status, after.status],
+      boxCheckoutFor: box.opened?.customer_id,
+    }).toEqual({ portal: [200, 200], boxCheckoutFor: ctmOf(OWNER) });
+  });
+});
+
+describe("an owner demoted while their first payment is applied", () => {
+  it("finding 7: the payment waits for the demotion and does not make them the payer", async () => {
+    const orgId = await createOrg();
+    await database.pool.query(
+      "insert into org_users (org_id, user_id, role) values ($1, $2, 'owner')",
+      [orgId, OTHER],
+    );
+    const { txn } = await openCheckout(OTHER, "team", 3, orgId);
+    const demotion = await database.pool.connect();
+    try {
+      await demotion.query("begin");
+      await demotion.query(
+        "update org_users set role = 'user' where org_id = $1 and user_id = $2",
+        [orgId, OTHER],
+      );
+      const sub = paddleSub(ctmOf(OTHER), "team", 3);
+      paddle.subscriptions.set(sub.id, sub);
+      const applied = deliver(
+        "transaction.completed",
+        paddleTxn(sub, { id: txn }),
+        ago(5),
+      );
+      for (let tries = 0; tries < 100; tries++) {
+        const { rows } = await database.pool.query(
+          "select count(*)::int as waiting from pg_stat_activity where wait_event_type = 'Lock'",
+        );
+        if ((rows[0] as { waiting: number }).waiting > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      await demotion.query("commit");
+      expect(await applied).toBe(204);
+    } finally {
+      demotion.release();
+    }
+    expect({
+      payer: await paidBy(orgId),
+      endedAndRefunded: [
+        askedOfPaddle("/cancel"),
+        askedOfPaddle("/adjustments"),
+      ],
+    }).toEqual({ payer: null, endedAndRefunded: [1, 1] });
   });
 });

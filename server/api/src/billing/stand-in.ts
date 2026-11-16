@@ -129,7 +129,11 @@ export class StandInProvider implements BillingProvider {
   }
 
   customerFor(userId: string) {
-    return Promise.resolve(`cus_${userId}`);
+    return Promise.resolve({ id: `cus_${userId}`, made: true });
+  }
+
+  readdress() {
+    return Promise.resolve();
   }
 
   checkout(request: CheckoutRequest) {
