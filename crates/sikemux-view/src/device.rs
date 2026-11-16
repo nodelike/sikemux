@@ -141,8 +141,10 @@ pub struct AccountInfo {
     /// Names the picture `accountPicture` answers, which changes with it.
     pub picture_hash: Option<String>,
     /// Someone who makes Sikemux, whose hosts take each build of main before nightly does.
+    #[serde(default)]
     pub staff: bool,
     /// The features still being tried that are on for this account.
+    #[serde(default)]
     pub flags: Vec<Flag>,
 }
 
@@ -242,4 +244,17 @@ pub struct HostInfo {
     /// What the paired device that asked may do here; none for a program on this host.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access: Option<DeviceAccess>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AccountInfo;
+
+    #[test]
+    fn an_older_linked_host_account_still_reads() {
+        let account: AccountInfo =
+            serde_json::from_str(r#"{"name":"n","email":null,"pictureHash":null}"#).unwrap();
+        assert!(!account.staff);
+        assert!(account.flags.is_empty());
+    }
 }
