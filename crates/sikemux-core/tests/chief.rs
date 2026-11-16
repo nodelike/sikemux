@@ -858,8 +858,8 @@ fn now_secs() -> u64 {
 }
 
 fn find_rule(memory: &Value, starts: &str) -> Option<u64> {
-    (memory["folders"].as_array()?.iter())
-        .flat_map(|folder| folder["rules"].as_array().into_iter().flatten())
+    (memory["stores"].as_array()?.iter())
+        .flat_map(|store| store["rules"].as_array().into_iter().flatten())
         .map(|listed| &listed["rule"])
         .find(|rule| {
             rule["text"]
