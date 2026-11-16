@@ -708,6 +708,7 @@ mod tests {
     fn the_system_reports_a_child_process_with_its_command_and_use() {
         let mut child = crate::user_environment::command("ping")
             .args(["-n", "30", "127.0.0.1"])
+            .env(crate::vars::AGENT_ID, "agent-4")
             .stdout(std::process::Stdio::null())
             .spawn()
             .expect("spawn ping");
@@ -715,6 +716,8 @@ mod tests {
         let name = name(child.id());
         let line = command_line(child.id());
         let usage = usages().into_iter().find(|usage| usage.pid == child.id());
+        let agent = environment_value(child.id(), &crate::vars::AGENT_ID.to_lowercase());
+        let missing = environment_value(child.id(), "SIKEMUX_NOT_SET");
         let _ = child.kill();
         let _ = child.wait();
         assert_eq!(parents.get(&child.id()), Some(&std::process::id()));
@@ -726,6 +729,8 @@ mod tests {
         let usage = usage.expect("ping is among the usages");
         assert_eq!(usage.parent, std::process::id());
         assert!(usage.memory > 0 && usage.started_ms > 0);
+        assert_eq!(agent.as_deref(), Some("agent-4"));
+        assert_eq!(missing, None);
     }
 }
 

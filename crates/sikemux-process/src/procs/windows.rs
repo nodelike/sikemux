@@ -1,9 +1,10 @@
 use windows_sys::Wdk::System::Threading::{
-    NtQueryInformationProcess, ProcessCommandLineInformation,
+    NtQueryInformationProcess, ProcessBasicInformation, ProcessCommandLineInformation,
 };
 use windows_sys::Win32::Foundation::{
     CloseHandle, LocalFree, FALSE, FILETIME, HANDLE, INVALID_HANDLE_VALUE, UNICODE_STRING,
 };
+use windows_sys::Win32::System::Diagnostics::Debug::ReadProcessMemory;
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
@@ -14,6 +15,12 @@ use windows_sys::Win32::System::Threading::{
     GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
 };
 use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
+
+/// Where a 64-bit process keeps its environment, which no public header lays out: the
+/// parameters' address in its PEB, then the block's address and size in those parameters.
+const PEB_PARAMETERS: usize = 0x20;
+const PARAMETERS_ENVIRONMENT: usize = 0x80;
+const PARAMETERS_ENVIRONMENT_SIZE: usize = 0x3F0;
 
 /// 1970 in the 100 ns ticks since 1601 that Windows counts time in.
 const UNIX_EPOCH_TICKS: u64 = 116_444_736_000_000_000;
@@ -151,6 +158,59 @@ impl Process {
     }
 }
 
+impl Process {
+    /// Its environment block: `NAME=value` strings, each ending in a nul.
+    fn environment(&self) -> Option<Vec<u16>> {
+        let mut basic = [0_usize; 6];
+        let mut written = 0_u32;
+        // SAFETY: `basic` has the size and layout of PROCESS_BASIC_INFORMATION and is valid
+        // for writes of that size.
+        let status = unsafe {
+            NtQueryInformationProcess(
+                self.0,
+                ProcessBasicInformation,
+                basic.as_mut_ptr().cast(),
+                size_of_val(&basic) as u32,
+                &mut written,
+            )
+        };
+        if status < 0 {
+            return None;
+        }
+        let peb = basic[1];
+        let parameters = self.read_word(peb.checked_add(PEB_PARAMETERS)?)?;
+        let block = self.read_word(parameters.checked_add(PARAMETERS_ENVIRONMENT)?)?;
+        let size = self.read_word(parameters.checked_add(PARAMETERS_ENVIRONMENT_SIZE)?)?;
+        let mut environment = vec![0_u16; size / 2];
+        self.read(
+            block,
+            environment.as_mut_ptr().cast(),
+            environment.len() * 2,
+        )?;
+        Some(environment)
+    }
+
+    fn read_word(&self, address: usize) -> Option<usize> {
+        let mut word = 0_usize;
+        self.read(
+            address,
+            (&mut word as *mut usize).cast(),
+            size_of::<usize>(),
+        )?;
+        Some(word)
+    }
+
+    fn read(&self, address: usize, into: *mut core::ffi::c_void, length: usize) -> Option<()> {
+        let mut copied = 0_usize;
+        // SAFETY: `into` is valid for writes of `length` bytes; Windows checks the address
+        // in the other process and fails rather than faulting.
+        let read =
+            unsafe { ReadProcessMemory(self.0, address as *const _, into, length, &mut copied) }
+                != 0;
+        (read && copied == length).then_some(())
+    }
+}
+
 impl Drop for Process {
     fn drop(&mut self) {
         // SAFETY: the handle is open and owned by this value alone.
@@ -216,8 +276,20 @@ pub(super) fn processes() -> Vec<(u32, u32, u64)> {
         .collect()
 }
 
-pub(super) fn environment_value(_pid: u32, _key: &str) -> Option<String> {
-    None
+/// Names match without regard to case, as Windows looks them up. A name may start with `=`,
+/// as the hidden per-drive folders do, so the separator is the first `=` after that.
+pub(super) fn environment_value(pid: u32, key: &str) -> Option<String> {
+    let environment = Process::open(pid)?.environment()?;
+    environment
+        .split(|&unit| unit == 0)
+        .take_while(|entry| !entry.is_empty())
+        .find_map(|entry| {
+            let entry = String::from_utf16_lossy(entry);
+            let separator = 1 + entry.get(1..)?.find('=')?;
+            entry[..separator]
+                .eq_ignore_ascii_case(key)
+                .then(|| entry[separator + 1..].to_string())
+        })
 }
 
 pub(super) fn usages() -> Vec<super::Usage> {
