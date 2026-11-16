@@ -20,6 +20,26 @@ impl From<sikemux_wire::protocol::BuildChannel> for protocol::Channel {
     }
 }
 
+/// The name the accounts server gives `feature`, which clients are sent.
+pub fn feature_name(feature: protocol::PlanFeature) -> String {
+    serde_json::to_value(feature)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// Whether the account's plan allows `feature`. Everything is allowed until the account says
+/// otherwise: signed out, not asked yet, or while billing is not live.
+pub fn allows(
+    account: Option<&sikemux_view::device::AccountInfo>,
+    feature: protocol::PlanFeature,
+) -> bool {
+    let name = feature_name(feature);
+    account
+        .and_then(|account| account.features.as_ref())
+        .is_none_or(|features| features.contains(&name))
+}
+
 /// Where the web app is. A shared chat's link opens there, and it hands the
 /// link on to the Mac or phone app when one is installed.
 pub fn app_base() -> String {

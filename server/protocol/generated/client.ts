@@ -5,6 +5,7 @@ import type {
   AccountDeletion,
   AccountDeletionRequest,
   AccountProfile,
+  Allowance,
   ApprovedHost,
   BillingCatalog,
   BillingLink,
@@ -167,6 +168,8 @@ export function apiClient(send: Send) {
     restoreAccount: () => send<Account>("POST", `/v1/account/restore`),
     /** The name, email and picture of the account a host is on. */
     getAccountProfile: () => send<AccountProfile>("GET", `/v1/account/profile`),
+    /** The plan of the account a host is on, and what it may use. */
+    getAccountAllowance: () => send<Allowance>("GET", `/v1/account/allowance`),
     /** Make an org, with you as its owner. */
     createOrg: (body: OrgCreate) => send<Org>("POST", `/v1/orgs`, body),
     /** The orgs you are in. */

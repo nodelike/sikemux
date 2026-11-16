@@ -7,6 +7,7 @@
 //! picture, and the core's remote access which account owns the host. A host
 //! with no browser signs in by a code approved elsewhere, and keeps no record.
 
+mod allowance;
 pub mod api;
 mod code;
 pub mod devices;
@@ -17,6 +18,7 @@ use crate::server::changed::ChangedCore;
 use crate::server::changed::What;
 use crate::server::remote_state::RemoteParts;
 use crate::server::workspace_state::WorkspaceParts;
+pub use allowance::refresh as refresh_allowance;
 pub use code::sign_in_by_code;
 pub use sikemux_calls::account::AccountPictureParams;
 pub use sikemux_calls::account::{SignInCode, SignInPage};
@@ -43,7 +45,7 @@ use super::changed::Topic;
 use super::join::NAME_LIMIT;
 use super::remote_image::PictureData;
 use super::{remote, Core, CoreError, CoreResult};
-use crate::accounts::client;
+use crate::accounts::{client, feature_name};
 
 /// The Clerk instance accounts live in, and this host's OAuth client there.
 /// Dev builds use Clerk's development instance, which the accounts server on
@@ -203,12 +205,14 @@ pub async fn show(core: &Core) {
                 Some(profile) => (profile.name, profile.email.or(saved_email), profile.staff),
                 None => (None, saved_email, false),
             };
+            let features = allowance::read(&folder, &owner).await;
             Some(AccountInfo {
                 name,
                 email,
                 picture_hash,
                 staff,
                 flags: flags::resolve(staff, &core.remote().flags_off()),
+                features: features.map(|features| features.into_iter().map(feature_name).collect()),
             })
         }
         (Some(_), None) => Some(AccountInfo {
@@ -217,6 +221,7 @@ pub async fn show(core: &Core) {
             picture_hash: None,
             staff: false,
             flags: Vec::new(),
+            features: None,
         }),
     };
     let changed = {

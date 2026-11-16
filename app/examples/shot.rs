@@ -149,6 +149,7 @@ fn main() -> anyhow::Result<()> {
             picture_hash: None,
             staff: false,
             flags: Vec::new(),
+            features: None,
         };
         cx.update(|cx| {
             bench.update(cx, |bench, cx| {

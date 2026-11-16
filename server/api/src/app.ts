@@ -8,6 +8,7 @@ import type { ClerkBackend } from "./account/clerk.ts";
 import { accountRoutes } from "./account/routes.ts";
 import type { Verifier } from "./auth.ts";
 import type { Database } from "./db.ts";
+import { allowanceRoutes } from "./billing/host.ts";
 import { billingProviderRoutes, billingRoutes } from "./billing/routes.ts";
 import type { BillingProvider } from "./billing/provider.ts";
 import { deviceRoutes } from "./devices/routes.ts";
@@ -118,6 +119,7 @@ export function createApp(services: Services) {
   app.route("/v1/devices", deviceRoutes(services));
   app.route("/v1/host-sign-ins", hostSignInRoutes(services));
   app.route("/v1/account/profile", profileRoutes(services));
+  app.route("/v1/account/allowance", allowanceRoutes(services));
   app.route("/v1/account", accountRoutes(services));
   app.route("/v1/orgs", orgRoutes(services));
   app.route(

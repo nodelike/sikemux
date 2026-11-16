@@ -207,6 +207,7 @@ impl live::Account for HostAccount {
                     eprintln!("sikemux core: could not check the account's phones: {error}");
                 }
                 crate::server::account::devices::keep_name_current(&reconciling).await;
+                crate::server::account::refresh_allowance(&reconciling).await;
             });
             (core.remote_above().hosts_relink)(&core);
             core.vault().wake();
@@ -288,8 +289,10 @@ pub fn apply_events(core: &Core, events: &[AccountEvent]) {
     let own = core.remote().core_id();
     let mut revoked = Vec::new();
     let mut released = None;
+    let mut plan_changed = false;
     for event in events {
         match event.r#type {
+            AccountEventType::PlanChanged => plan_changed = true,
             AccountEventType::DeviceRevoked => match event.key.as_deref() {
                 Some(key) if Some(key) == own.as_deref() => released = Some(event.reason),
                 Some(key) => revoked.push((
@@ -323,6 +326,9 @@ pub fn apply_events(core: &Core, events: &[AccountEvent]) {
             }
             _ => {}
         }
+    }
+    if let (true, Some(core)) = (plan_changed, core.arc()) {
+        tokio::spawn(async move { crate::server::account::refresh_allowance(&core).await });
     }
     let last = events.iter().map(|event| event.id).max().unwrap_or(0);
     let mut unlinked = Vec::new();

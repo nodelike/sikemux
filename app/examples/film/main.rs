@@ -320,6 +320,7 @@ fn main() -> anyhow::Result<()> {
                 picture_hash: None,
                 staff: false,
                 flags: Vec::new(),
+                features: None,
             }
         }),
         compositor,

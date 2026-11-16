@@ -146,6 +146,10 @@ pub struct AccountInfo {
     /// The features still being tried that are on for this account.
     #[serde(default)]
     pub flags: Vec<Flag>,
+    /// The features the account's plan allows, by the accounts server's names. Left out until
+    /// the account has said, and everything is allowed meanwhile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<Vec<String>>,
 }
 
 /// A feature still being tried, on for staff before anyone else. Each is a risky change

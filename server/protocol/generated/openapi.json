@@ -907,6 +907,32 @@
         }
       }
     },
+    "/v1/account/allowance": {
+      "get": {
+        "operationId": "getAccountAllowance",
+        "summary": "The plan of the account a host is on, and what it may use",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "responses": {
+          "200": {
+            "description": "The allowance; plan.changed says when to read it again. Until billing is live, every feature is allowed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Allowance" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/orgs": {
       "post": {
         "operationId": "createOrg",

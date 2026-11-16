@@ -411,6 +411,19 @@
       }
     },
     {
+      "method": "get",
+      "path": "/v1/account/allowance",
+      "operationId": "getAccountAllowance",
+      "summary": "The plan of the account a host is on, and what it may use",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "The allowance; plan.changed says when to read it again. Until billing is live, every feature is allowed.",
+          "body": "Allowance"
+        }
+      }
+    },
+    {
       "method": "post",
       "path": "/v1/orgs",
       "operationId": "createOrg",
