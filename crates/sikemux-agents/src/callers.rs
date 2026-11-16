@@ -438,17 +438,26 @@ mod platform {
     }
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(windows)]
 mod platform {
-    pub struct Socket;
+    use crate::tcp_table;
+
+    pub struct Socket {
+        owner: u32,
+    }
 
     impl Socket {
-        pub fn find(_local: u16, _remote: u16) -> Option<Self> {
-            None
+        /// The client end of the connection from `local` to `remote`, whose owner Windows
+        /// names in its table.
+        pub fn find(local: u16, remote: u16) -> Option<Self> {
+            tcp_table::connected()
+                .into_iter()
+                .find(|socket| socket.port == local && socket.remote_port == remote)
+                .map(|socket| Self { owner: socket.pid })
         }
 
-        pub fn held_by(&self, _pid: u32) -> bool {
-            false
+        pub fn held_by(&self, pid: u32) -> bool {
+            self.owner == pid
         }
     }
 }
