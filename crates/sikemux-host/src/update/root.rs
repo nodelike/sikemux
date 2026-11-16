@@ -177,17 +177,17 @@ async fn attempt(
         .cloned()
         .ok_or_else(|| format!("{} has no core for this machine", newest.version))?;
     let app = Path::new(host_update::INSTALLED_APP);
-    let app_asset = app
-        .is_dir()
-        .then(|| {
-            newest
-                .feed
-                .platforms
-                .get(&release_feed::platform())
-                .cloned()
-                .ok_or_else(|| format!("{} has no app for this machine", newest.version))
-        })
-        .transpose()?;
+    // Releases carry the window for fewer machines than the core, so where there is none
+    // the core still updates and the window stays as it is.
+    let app_asset = if app.is_dir() {
+        newest
+            .feed
+            .platforms
+            .get(&release_feed::platform())
+            .cloned()
+    } else {
+        None
+    };
 
     let work = dir.join(".update");
     let _ = fs::remove_dir_all(&work);
