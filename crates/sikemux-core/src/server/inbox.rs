@@ -13,7 +13,7 @@ use crate::server::workspace_state::WorkspaceParts;
 use serde::{Deserialize, Serialize};
 pub use sikemux_calls::inbox::DigestParams;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -658,6 +658,33 @@ pub(crate) fn uncommitted_files(
     agent_id: &str,
     cwd: &Path,
 ) -> Vec<String> {
+    let files = edited_files(core, project, agent_id);
+    if files.is_empty() {
+        return Vec::new();
+    }
+    if let Some(listed) = uncommitted_in(cwd, &files) {
+        return listed;
+    }
+    (checkouts_holding(&files, cwd).iter())
+        .filter_map(|(checkout, files)| uncommitted_in(checkout, files))
+        .flatten()
+        .collect()
+}
+
+/// The git checkouts around or under `cwd` that hold files the agent changed in `project`,
+/// for an agent whose folder is not a checkout itself, such as a folder of several repositories.
+pub(crate) fn edited_checkouts(
+    core: &Core,
+    project: &str,
+    agent_id: &str,
+    cwd: &Path,
+) -> Vec<PathBuf> {
+    checkouts_holding(&edited_files(core, project, agent_id), cwd)
+        .into_keys()
+        .collect()
+}
+
+fn edited_files(core: &Core, project: &str, agent_id: &str) -> Vec<String> {
     let filter = serde_json::from_value(json!({ "project": project, "agentId": agent_id }));
     let Ok(filter) = filter else {
         return Vec::new();
@@ -668,18 +695,38 @@ pub(crate) fn uncommitted_files(
     files.sort_unstable();
     files.dedup();
     files.truncate(MAX_STATUS_FILES);
-    if files.is_empty() {
-        return Vec::new();
-    }
+    files
+}
+
+/// Which of `files` git at `checkout` lists as changed; None when git there cannot say, as
+/// outside a checkout or for a file outside it.
+fn uncommitted_in(checkout: &Path, files: &[String]) -> Option<Vec<String>> {
     let mut status = vec!["status", "--porcelain", "--"];
     status.extend(files.iter().map(String::as_str));
-    let Ok(listed) = Git::at(cwd).text(&status) else {
-        return Vec::new();
-    };
-    (listed.lines())
-        .filter_map(|line| line.get(3..))
-        .map(str::to_owned)
-        .collect()
+    let listed = Git::at(checkout).text(&status).ok()?;
+    Some(
+        (listed.lines())
+            .filter_map(|line| line.get(3..))
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// `files` by the git checkout each is in, keeping the checkouts around or under `cwd`: a file
+/// the agent changed in a checkout elsewhere, such as its notes, is not this agent's work here.
+fn checkouts_holding(files: &[String], cwd: &Path) -> BTreeMap<PathBuf, Vec<String>> {
+    let mut held: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    for file in files {
+        let checkout = (Path::new(file).ancestors().skip(1))
+            .find(|dir| dir.is_absolute() && dir.join(".git").exists())
+            .filter(|checkout| checkout.starts_with(cwd) || cwd.starts_with(checkout));
+        if let Some(checkout) = checkout {
+            held.entry(checkout.to_path_buf())
+                .or_default()
+                .push(file.clone());
+        }
+    }
+    held
 }
 
 /// How an agent's latest turn left things, as a row about the agent says it.
