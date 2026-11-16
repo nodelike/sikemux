@@ -1140,7 +1140,7 @@ impl Chat {
         }
         self.feed.set_start(start.clone());
         self.tell_options(&start.session_id, &start.setup["configOptions"]);
-        self.tell_saved_usage(&start);
+        self.tell_saved_usage(&start.session_id, &start.setup);
         self.readiness.send_replace(Readiness::Ready(start));
         if let Some(core) = self.core.upgrade() {
             (core.chat_above().chief_chat_ready)(&core, self);

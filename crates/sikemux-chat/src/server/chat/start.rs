@@ -159,6 +159,9 @@ fn bring_up(
     launch(core, chat, queue, begin);
     if chat.unstarted() {
         native::show_saved(chat);
+        if let Some(session) = chat.launch.resume_id.as_deref() {
+            chat.tell_saved_usage(session, &Value::Null);
+        }
         offer_options(core, chat);
     }
 }
