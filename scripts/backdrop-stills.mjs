@@ -50,7 +50,7 @@ if (!options.mac) {
 
 /** The phones' shader module as a plain script for the page, with the generated kinds it reads. */
 function shaders() {
-  const ui = join(root, "mobile/app/src/ui");
+  const ui = join(root, "shared/backdrop");
   const plain = (file) =>
     ts
       .transpileModule(readFileSync(join(ui, file), "utf8"), {
@@ -69,7 +69,7 @@ function shaders() {
     "glowMap",
     "readPicture",
   ];
-  return `${plain("backdropKinds.generated.ts")}\n${plain("backdropShaders.ts")}\nglobalThis.backdropShaders = { ${names.join(", ")} };`;
+  return `${plain("kinds.generated.ts")}\n${plain("shaders.ts")}\nglobalThis.backdropShaders = { ${names.join(", ")} };`;
 }
 
 const dataUrl = (file) =>

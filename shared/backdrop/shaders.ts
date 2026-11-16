@@ -1,6 +1,4 @@
-import type { ExpoWebGLRenderingContext } from 'expo-gl';
-
-import { backdropKinds } from './backdropKinds.generated';
+import { backdropKinds } from './kinds.generated';
 
 /** A rectangle covering the surface; each fragment shader below works from where it is on it. */
 export const coverVertexShader = `#version 300 es
@@ -131,7 +129,7 @@ function box(source: Uint8Array, count: number, length: number, step: number, st
 }
 
 /** Reads the picture bound to texture unit 0 back at a small size, top row first. */
-export function readPicture(gl: ExpoWebGLRenderingContext, program: WebGLProgram, width: number, height: number): Uint8Array {
+export function readPicture(gl: WebGL2RenderingContext, program: WebGLProgram, width: number, height: number): Uint8Array {
   const target = gl.createTexture();
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, target);

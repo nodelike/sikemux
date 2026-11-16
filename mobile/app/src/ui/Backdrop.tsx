@@ -11,7 +11,7 @@ import type { DeviceBackdrop } from '@/devices/backdrop';
 import { useAppActive, useBackdropPaused, useStill } from './motion';
 import { useColors, type Palette } from './theme';
 import { uploadPicture } from './picture';
-import { copyFragmentShader, coverVertexShader, glowMap, grainFragmentShader, pictureFragmentShader, readPicture } from './backdropShaders';
+import { copyFragmentShader, coverVertexShader, glowMap, grainFragmentShader, pictureFragmentShader, readPicture } from '@shared/backdrop/shaders';
 
 /** What the host a screen belongs to draws behind its panes; absent outside a device's screens. */
 export const BackdropContext = createContext<DeviceBackdrop | undefined>(undefined);
