@@ -126,6 +126,10 @@ impl Default for TerminalColors {
 
 impl TerminalColors {
     /// The colour a named colour number stands for under this theme.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "each match arm's range keeps its index inside the array it reads"
+    )]
     pub fn color(&self, index: usize) -> [u8; 3] {
         const CUBE: [u8; 6] = [0, 95, 135, 175, 215, 255];
         let dim = |[r, g, b]: [u8; 3]| [r / 3 * 2, g / 3 * 2, b / 3 * 2];
@@ -511,8 +515,10 @@ impl<'a> Reader<'a> {
             0 => Some(Color::Named(self.small()?)),
             1 => Some(Color::Indexed(self.byte()?)),
             2 => {
-                let rgb = self.take(3)?;
-                Some(Color::Rgb([rgb[0], rgb[1], rgb[2]]))
+                let &[r, g, b] = self.take(3)? else {
+                    return None;
+                };
+                Some(Color::Rgb([r, g, b]))
             }
             _ => None,
         }
@@ -618,8 +624,10 @@ pub fn decode_frame(payload: &[u8]) -> Option<Frame> {
     if flags & FRAME_PALETTE != 0 {
         for _ in 0..reader.varint()? {
             let index = reader.small()?;
-            let rgb = reader.take(3)?;
-            palette.push((index, [rgb[0], rgb[1], rgb[2]]));
+            let &[r, g, b] = reader.take(3)? else {
+                return None;
+            };
+            palette.push((index, [r, g, b]));
         }
     }
     let styles = reader.tables()?;
