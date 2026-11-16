@@ -391,7 +391,7 @@ impl Claude {
         shared.locked().tool_hook = rotates;
         args.extend([
             "--autocompact".to_owned(),
-            format!("{}k", cap::CLAUDE_WINDOW / 1000),
+            format!("{}k", cap::claude_window(model) / 1000),
         ]);
         if let Some(model) = model {
             args.extend(["--model".to_owned(), model.to_owned()]);
@@ -437,6 +437,7 @@ impl Claude {
             apps.clone(),
         );
         reader.on_account(account_root(AgentKind::Claude, None, &launch.env));
+        reader.launched_with(model);
         if let Some(model) = model {
             reader.note_model(model);
         }

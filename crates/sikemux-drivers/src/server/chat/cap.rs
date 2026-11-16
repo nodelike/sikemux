@@ -1,8 +1,11 @@
 use serde_json::{json, Value};
 
-/// Every Claude chat is launched with this window. Claude compacts about 33K tokens under it,
-/// so near 150K.
+/// Every Claude chat but a Fable one is launched with this window. Claude compacts about 33K
+/// tokens under it, so near 150K.
 pub const CLAUDE_WINDOW: u64 = 183_000;
+/// A Fable chat compacts near 250K instead: at 150K it ran out of room twice as fast as Opus,
+/// and its cheap cache reads make the larger context cost no more than the extra compactions.
+const FABLE_WINDOW: u64 = 283_000;
 const RESERVE: u64 = 33_000;
 /// The callbacks Claude calls before it compacts and as it starts again after.
 pub const KEEP_HOOK: &str = "sikemux-keep";
@@ -17,9 +20,19 @@ pub const SHIP_HOOK: &str = "sikemux-ship";
 /// What the core asks for when it compacts an idle chat itself.
 pub const IDLE_FOCUS: &str = "Keep what the person asked for and decided, and the work still open.";
 
-/// Tokens of context at which Claude compacts a session whose model's window is `size`.
-pub fn compact_at(size: u64) -> u64 {
-    size.min(CLAUDE_WINDOW).saturating_sub(RESERVE)
+/// The window a Claude chat launched with `model` is given.
+pub fn claude_window(model: Option<&str>) -> u64 {
+    if model.is_some_and(|model| model.contains("fable")) {
+        FABLE_WINDOW
+    } else {
+        CLAUDE_WINDOW
+    }
+}
+
+/// Tokens of context at which Claude compacts a session launched with `window` whose model's
+/// own window is `size`.
+pub fn compact_at(size: u64, window: u64) -> u64 {
+    size.min(window).saturating_sub(RESERVE)
 }
 
 /// The hooks a Claude chat registers as it starts. Every chat is told what to keep before a

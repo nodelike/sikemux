@@ -12,7 +12,7 @@ use sikemux_fold::ChatEventKind;
 
 use super::native::saved_window;
 use super::Chat;
-use sikemux_drivers::server::chat::cap::compact_at;
+use sikemux_drivers::server::chat::cap::{claude_window, compact_at};
 
 impl Chat {
     pub fn tell_saved_usage(&self, session_id: &str, setup: &Value) {
@@ -45,7 +45,8 @@ impl Chat {
             };
             let mut update = sikemux_fold::update::usage(saved.used, size);
             if kind == AgentKind::Claude {
-                update["compactAt"] = json!(compact_at(size));
+                update["compactAt"] =
+                    json!(compact_at(size, claude_window(launch.model.as_deref())));
             }
             if chat.generation == generation {
                 chat.feed.emit(

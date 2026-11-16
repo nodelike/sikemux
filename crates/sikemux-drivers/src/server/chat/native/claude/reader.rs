@@ -170,6 +170,9 @@ pub(crate) struct ReaderState {
     #[serde(default)]
     cost: Option<f64>,
     model: Option<String>,
+    /// The window Claude was launched with, which sets where it compacts.
+    #[serde(default = "default_window")]
+    window: u64,
     /// The account folder the chat runs in, which windows are learned for.
     #[serde(default)]
     account: Option<PathBuf>,
@@ -446,6 +449,10 @@ fn task_type(kind: Option<&str>) -> String {
     }
 }
 
+fn default_window() -> u64 {
+    cap::CLAUDE_WINDOW
+}
+
 impl Reader {
     pub fn new(
         sink: Sink,
@@ -480,6 +487,7 @@ impl Reader {
                 size: 200_000,
                 cost: None,
                 model: None,
+                window: cap::CLAUDE_WINDOW,
                 account: None,
                 calls: Vec::new(),
                 compactions: Vec::new(),
@@ -519,6 +527,10 @@ impl Reader {
 
     pub fn on_account(&mut self, account: Option<PathBuf>) {
         self.data.account = account;
+    }
+
+    pub fn launched_with(&mut self, model: Option<&str>) {
+        self.data.window = cap::claude_window(model);
     }
 
     pub fn note_model(&mut self, model: &str) {
@@ -1268,7 +1280,7 @@ impl Reader {
             return;
         };
         let mut update = sikemux_fold::update::usage(used, self.data.size);
-        update["compactAt"] = json!(cap::compact_at(self.data.size));
+        update["compactAt"] = json!(cap::compact_at(self.data.size, self.data.window));
         if let Some(cost) = self.data.cost {
             update["cost"] = json!({ "amount": cost, "currency": "USD" });
         }
