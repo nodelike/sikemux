@@ -6,8 +6,8 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, App, ClickEvent, ElementId, Entity, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, Radians, RenderOnce, SharedString, StatefulInteractiveElement,
-    Styled, Transformation, Window,
+    IntoElement, ParentElement, Pixels, Radians, RenderOnce, SharedString,
+    StatefulInteractiveElement, Styled, Transformation, Window,
 };
 
 use super::{icon, kbd, text};
@@ -42,6 +42,8 @@ pub struct IconButton {
     disabled: bool,
     turned: f32,
     tint: Option<Hsla>,
+    thumb: bool,
+    radius: Option<Pixels>,
     label: SharedString,
     on_click: Option<OnClick>,
 }
@@ -61,6 +63,8 @@ impl IconButton {
             disabled: false,
             turned: 0.,
             tint: None,
+            thumb: false,
+            radius: None,
             label: label.into(),
             on_click: None,
         }
@@ -69,6 +73,18 @@ impl IconButton {
     /// Drawn in `tint` on a wash of it, as the mic while it listens.
     pub fn tint(mut self, tint: Hsla) -> Self {
         self.tint = Some(tint);
+        self
+    }
+
+    /// One of a switch's choices: pressed, it is lifted on an agent pill's fill, and at rest its
+    /// glyph takes the pill's quieter ink.
+    pub fn thumb(mut self) -> Self {
+        self.thumb = true;
+        self
+    }
+
+    pub fn radius(mut self, radius: Pixels) -> Self {
+        self.radius = Some(radius);
         self
     }
 
@@ -139,10 +155,10 @@ impl IconButton {
 impl RenderOnce for IconButton {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let t = Tokens::get(cx);
-        let enabled = if self.quiet {
-            t.icon_quiet
-        } else {
-            t.text_tertiary
+        let enabled = match (self.thumb, self.quiet) {
+            (true, _) => t.text_secondary,
+            (false, true) => t.icon_quiet,
+            (false, false) => t.text_tertiary,
         };
         let rest = match self.disabled {
             true => Hsla {
@@ -151,7 +167,12 @@ impl RenderOnce for IconButton {
             },
             false => enabled,
         };
-        let (hover, primary, chosen) = (t.surface_hover, t.text_primary, t.surface_chosen);
+        let chosen = if self.thumb {
+            t.surface_raised
+        } else {
+            t.surface_chosen
+        };
+        let (hover, primary) = (t.surface_hover, t.text_primary);
         let (hover, primary) = if self.disabled {
             (Hsla::transparent_black(), rest)
         } else {
@@ -186,7 +207,7 @@ impl RenderOnce for IconButton {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(radius_2())
+            .rounded(self.radius.unwrap_or_else(radius_2))
             .text_color(ink)
             .bg(wash)
             .on_hover(keep_over)

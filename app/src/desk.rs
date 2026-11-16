@@ -1917,9 +1917,15 @@ fn view_of(pane: &Pane, kind: PaneKind, target: &str) -> Option<String> {
 const HEAD: f32 = 34.;
 /// The gap a pane keeps inside its cell, which the desk's edge keeps round the switch.
 const GAP: f32 = 5.;
-/// The kind switch's box: four 24pt kinds 2pt apart, 4pt inside its edge, a gap short of the head.
-const SWITCH_W: f32 = 5. * 24. + 4. * 2. + 2. * 4.;
+/// The kind switch's box: its kinds 2pt apart, a gap short of the head, each kind as far from
+/// the box's edge on every side.
+const KINDS: f32 = if cfg!(target_os = "macos") { 5. } else { 4. };
+const KIND_W: f32 = 24.;
+const KIND_H: f32 = 21.;
+const KIND_GAP: f32 = 2.;
 const SWITCH_H: f32 = HEAD - GAP;
+const SWITCH_INSET: f32 = (SWITCH_H - KIND_H) / 2.;
+const SWITCH_W: f32 = KINDS * KIND_W + (KINDS - 1.) * KIND_GAP + 2. * SWITCH_INSET;
 /// A desk tab's width, and the narrowest it gets before the strip scrolls, as the Mac's.
 const PILL_W: f32 = 180.;
 const PILL_MIN: f32 = 120.;
@@ -2410,7 +2416,9 @@ fn frame(
                 .left_0()
                 .w(px(SWITCH_W))
                 .h(px(SWITCH_H))
-                .p(SPACE_1)
+                .flex()
+                .items_center()
+                .justify_center()
                 .rounded(radius_3())
                 .border(crate::theme::border())
                 .border_color(t.border)
@@ -2656,7 +2664,8 @@ fn kinds(
     let calls = crate::calls::waiting_on_desk(bench, agent);
     let t = Tokens::get(cx).clone();
     let ground = crate::see_through::ground(t.surface, cx);
-    let mut row = div().flex().items_center().gap(SPACE_0);
+    let thumb_radius = (radius_3() - px(SWITCH_INSET)).max(px(0.));
+    let mut row = div().flex().items_center().gap(px(KIND_GAP));
     for (id, icon, label, kind, count, busy) in [
         (
             "desk-calls",
@@ -2716,8 +2725,10 @@ fn kinds(
                 .child(
                     IconButton::new(id, icon, named)
                         .glyph(13.)
-                        .width(24.)
-                        .height(21.)
+                        .width(KIND_W)
+                        .height(KIND_H)
+                        .thumb()
+                        .radius(thumb_radius)
                         .pressed(shown == kind)
                         .disabled(empty)
                         .when_some(tint.filter(|_| busy && shown != kind), |button, tint| {
