@@ -2166,7 +2166,7 @@
       "name": "board_decide",
       "row": {"verb": "decide", "kind": "edit", "icon": "board", "target": ["decision #{decision}", "{text}"]},
       "method": "board.decide",
-      "description": "Keep the project's decisions.",
+      "description": "Keep project decisions.",
       "properties": {
         "environments": { "type": "array", "items": { "type": "object" }, "description": "Instead: propose the project's, in order, with why; see the guide" },
         "decision": {
