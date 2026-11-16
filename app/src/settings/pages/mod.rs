@@ -94,9 +94,13 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
         Page::General if pages.general.is_none() => cx.defer_in(window, general::make),
         Page::Keyboard if pages.keybindings.is_none() => cx.defer_in(window, keybindings::make),
         Page::Settled if pages.settled.is_none() => cx.defer_in(window, settled::make),
-        Page::Theme | Page::Interface | Page::Buddies if pages.appearance.is_none() => {
-            cx.defer_in(window, appearance::make)
-        }
+        Page::Theme | Page::Interface | Page::Buddies => match &pages.appearance {
+            None => cx.defer_in(window, appearance::make),
+            Some(fields) if appearance::strays(fields, bench, cx) => {
+                cx.defer_in(window, appearance::follow)
+            }
+            Some(_) => {}
+        },
         Page::Connectors => match &pages.connectors {
             None => cx.defer_in(window, connectors::make),
             Some(fields) if fields.stale => cx.defer_in(window, connectors::read),

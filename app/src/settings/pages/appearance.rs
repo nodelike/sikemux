@@ -254,6 +254,28 @@ const BACKDROPS: [(PaneBackdrop, &str); 7] = [
     (PaneBackdrop::None, n!("None")),
 ];
 
+fn backdrop_at(choice: PaneBackdrop) -> usize {
+    BACKDROPS
+        .iter()
+        .position(|(offered, _)| *offered == choice)
+        .unwrap_or(0)
+}
+
+/// Whether the Backdrop row shows other than the backdrop worn, as after a theme_set.
+pub(super) fn strays(fields: &Fields, bench: &Workbench, cx: &App) -> bool {
+    (fields.backdrop).strays_from(backdrop_at(bench.preferences().pane_backdrop), cx)
+}
+
+pub(super) fn follow(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    let Some(fields) = super::state(bench, cx).and_then(|pages| pages.appearance.as_ref()) else {
+        return;
+    };
+    let show = fields
+        .backdrop
+        .show(backdrop_at(bench.preferences().pane_backdrop));
+    show(window, cx);
+}
+
 /// What the Backdrop row says is worn: the theme's own kind by the theme's name, or the choice.
 fn backdrop_about(choice: PaneBackdrop, theme: &str, kind: BackdropKind) -> SharedString {
     let kind = match kind {
@@ -347,10 +369,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
             .iter()
             .map(|(_, label)| crate::i18n::tr(label))
             .collect(),
-        BACKDROPS
-            .iter()
-            .position(|(choice, _)| *choice == preferences.pane_backdrop)
-            .unwrap_or(0),
+        backdrop_at(preferences.pane_backdrop),
         |bench, at, _| {
             crate::settings::set(bench, PreferenceChange::PaneBackdrop(BACKDROPS[at].0));
         },
