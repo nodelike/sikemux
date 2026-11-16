@@ -356,6 +356,51 @@ describe("refunds", () => {
 });
 
 describe("the provider's events", () => {
+  it("keeps a plan paid when its lapse notice arrives after the payment that cured it", async () => {
+    const ada = await person("user_ada");
+    await buy(ada, "pro");
+    const sub = await database.db
+      .selectFrom("subscriptions")
+      .select("provider_subscription_id")
+      .executeTakeFirstOrThrow();
+    const failedAt = new Date(Date.now() + 60_000);
+    const paidAt = new Date(Date.now() + 120_000);
+    const payment = {
+      providerSubscriptionId: sub.provider_subscription_id,
+      lines: [{ product: "pro" as const, quantity: 1 }],
+      reason: "renewal" as const,
+      total: { amount: 800, currency: "usd" },
+    };
+    await applyProviderEvents(
+      database.db,
+      provider,
+      [
+        {
+          eventId: "evt_failed",
+          at: failedAt,
+          type: "payment.failed",
+          providerPaymentId: "pay_try_1",
+          ...payment,
+        },
+        {
+          eventId: "evt_paid",
+          at: paidAt,
+          type: "payment.made",
+          providerPaymentId: "pay_try_2",
+          ...payment,
+        },
+        {
+          eventId: "evt_lapsed",
+          at: failedAt,
+          type: "subscription.lapsed",
+          providerSubscriptionId: sub.provider_subscription_id,
+        },
+      ],
+      log,
+    );
+    expect((await overview(ada)).allowance.plan).toBe("pro");
+  });
+
   it("changes nothing when an event comes again", async () => {
     const owner = await person("user_owner");
     const orgId = await org("user_owner");

@@ -338,7 +338,16 @@ async function apply(
       const ids = rows
         .filter((row) => row.status !== "ended")
         .map((row) => row.id);
-      if (ids.length && (ended || isNewer(rows, at)))
+      const cured =
+        !ended &&
+        (await trx
+          .selectFrom("invoices")
+          .select("id")
+          .where("provider_subscription_id", "=", event.providerSubscriptionId)
+          .where("status", "in", ["paid", "refunded"])
+          .where("at", ">=", at)
+          .executeTakeFirst());
+      if (ids.length && !cured && (ended || isNewer(rows, at)))
         await trx
           .updateTable("subscriptions")
           .set(
