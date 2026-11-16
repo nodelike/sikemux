@@ -85,6 +85,19 @@ impl Kept {
         );
     }
 
+    /// Copies the file as it is to `<file>.<suffix>`, unless that copy is already there.
+    pub fn copy_once(&self, suffix: &str) -> std::io::Result<()> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let mut copy = path.clone().into_os_string();
+        copy.push(format!(".{suffix}"));
+        if Path::new(&copy).exists() {
+            return Ok(());
+        }
+        std::fs::copy(path, &copy).map(|_| ())
+    }
+
     pub fn save<T: Serialize>(&self, value: &T) {
         let Some(path) = &self.path else {
             return;

@@ -42,12 +42,17 @@ pub(super) struct Carried {
     asked: Asked,
 }
 
-/// Puts the asks an earlier core kept in `now.json` on their projects' boards.
+/// Puts the asks an earlier core kept in `now.json` on their projects' boards, once a copy of
+/// that file as it was is kept beside it.
 pub(super) fn carry_over(core: &Core) {
-    let carried = std::mem::take(&mut core.now().state.locked().asks);
-    if carried.is_empty() {
+    if core.now().state.locked().asks.is_empty() {
         return;
     }
+    if let Err(error) = core.now().kept.copy_once("before-tasks") {
+        eprintln!("sikemux core: the asks stay in now.json, as it could not be copied: {error}");
+        return;
+    }
+    let carried = std::mem::take(&mut core.now().state.locked().asks);
     let boards = core.boards();
     let mut state = boards.state.locked();
     let mut folders = BTreeSet::new();
@@ -55,14 +60,20 @@ pub(super) fn carry_over(core: &Core) {
         let Some(folder) = folder_of(core, &ask.project) else {
             continue;
         };
-        state.made(&folder).ask(ask.title, ask.at, ask.asked);
-        folders.insert(folder);
+        let board = state.made(&folder);
+        let moved_before =
+            asks(board).any(|(card, asked)| card.at() == ask.at && asked.to == ask.asked.to);
+        if !moved_before {
+            board.ask(ask.title, ask.at, ask.asked);
+            folders.insert(folder);
+        }
     }
     for folder in folders {
         boards.save(&mut state, &folder);
     }
     drop(state);
-    core.now().change(|_| {});
+    let now = core.now();
+    now.kept.save(&*now.state.locked());
     core.changed(What::View);
 }
 
