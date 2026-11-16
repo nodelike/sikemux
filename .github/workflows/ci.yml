@@ -257,6 +257,9 @@ jobs:
       - name: Check the phones' backdrop shaders match the Mac's
         run: scripts/check-rust.sh backdrop-shaders
 
+      - name: Check the phone's Rust never links the core
+        run: scripts/check-rust.sh phone-deps
+
   # The core's and the GPUI app's macOS-only code is linted only here; the build without plugins
   # changes no macOS code, so the Linux job lints it.
   rust-lint:

@@ -10,6 +10,16 @@
       "when": ["**/*.rs"]
     },
     {
+      "label": "the phone's Rust never links the core",
+      "command": "PATH=\"$PWD/scripts/bin:$PATH\" node scripts/check-phone-deps.mjs",
+      "when": ["Cargo.lock", "**/Cargo.toml", "scripts/check-phone-deps.mjs"]
+    },
+    {
+      "label": "no new sleeps in the app",
+      "command": "node scripts/check-app-sleeps.mjs",
+      "when": ["app/src/**/*.rs", "scripts/app-sleeps.json", "scripts/check-app-sleeps.mjs"]
+    },
+    {
       "label": "pnpm agent-catalog:check",
       "command": "node scripts/generate-agent-catalog.mjs --check",
       "fix": "node scripts/generate-agent-catalog.mjs",
