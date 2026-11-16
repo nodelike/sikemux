@@ -574,7 +574,9 @@ export class PaddleProvider implements BillingProvider {
         items,
         proration_billing_mode: "prorated_immediately",
         on_payment_failure: "prevent_change",
-        custom_data: {},
+        custom_data: owedOf(sub, at)
+          ? { subscription: sub.id, bill_on: owedOf(sub, at) }
+          : {},
       },
     };
   }

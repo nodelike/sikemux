@@ -583,6 +583,19 @@ describe("taking back a change held for renewal", () => {
       shownAtRenewal: undefined,
     });
   });
+  it("F3b: a box added now after the take-back keeps a change of interval now refused until renewal", async () => {
+    await pay(OWNER, "shed", { quantity: 2 });
+    const [box] = (await overview(OWNER)).subscriptions;
+    await change(OWNER, box?.id, { interval: "year", when: "renewal" });
+    await change(OWNER, box?.id, { interval: "month" });
+    const more = await change(OWNER, box?.id, { quantity: 3 });
+    const asked = paddle.patches.length;
+    const yearly = await change(OWNER, box?.id, { interval: "year" });
+    expect({
+      answers: [more.status, yearly.status],
+      askedOfPaddle: paddle.patches.length - asked,
+    }).toEqual({ answers: [200, 409], askedOfPaddle: 0 });
+  });
 });
 
 describe("a change at renewal asked while our period is behind Paddle's", () => {
