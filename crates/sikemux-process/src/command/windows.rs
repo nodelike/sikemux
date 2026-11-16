@@ -346,8 +346,10 @@ impl Command {
             .flatten()
             .map(|end| end.as_raw_handle())
             .collect();
+        let list_handles =
+            std::env::var_os("SIKEMUX_BENCH_NO_LIST").is_none() && !handed.is_empty();
         let mut attributes = Attributes::new(
-            usize::from(!handed.is_empty())
+            usize::from(list_handles)
                 + usize::from(self.pseudoconsole.is_some())
                 + usize::from(self.job.is_some()),
         )?;
@@ -362,7 +364,7 @@ impl Command {
                 )?
             };
         }
-        if !handed.is_empty() {
+        if list_handles {
             // SAFETY: `handed` outlives the attribute list's use in CreateProcess below.
             unsafe {
                 attributes.set(
