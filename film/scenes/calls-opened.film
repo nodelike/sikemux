@@ -14,7 +14,10 @@ settle 8
 front Wren
 settle 2
 snap opened-desk
-click 835,70
+click 733,56
 move 1100,700 0.3
 settle 2
 snap calls-opened
+key cmd-k
+settle 2
+snap calls-opened-alone

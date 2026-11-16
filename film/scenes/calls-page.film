@@ -3,6 +3,7 @@
 stage 1440 900
 window 1440 900
 prefer themeId aura-noir
+prefer starAsked true
 replies call-follow-up.json
 project storefront shop
 chat Wren
@@ -16,3 +17,6 @@ settle 2
 click 709,612
 settle 2
 snap calls-page
+key cmd-k
+settle 2
+snap calls-page-alone
