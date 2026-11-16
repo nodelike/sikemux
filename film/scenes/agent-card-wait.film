@@ -1,6 +1,7 @@
 # An agent's hover card while its chat waits on a trigger with a long title.
 stage 1440 900
 window 1440 900
+replies agent-card-wait.json
 prefer themeId aura-noir
 prefer uiTextScale 1.25
 project storefront line-shop
@@ -15,8 +16,8 @@ lead Chief
 say "hold 600000"
 chat Otter
 title "Check the refund totals"
-trigger "Arch news feed changed (AUR registration, card #267)" 300 "echo same"
-settle 4
+say "Watch the Arch news feed for the AUR registration change."
+settle 6
 move 1238,540
 settle 1.5
 snap agent-card-wait

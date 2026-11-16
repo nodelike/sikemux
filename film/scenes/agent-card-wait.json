@@ -1,0 +1,9 @@
+[
+  {
+    "when": "Watch the Arch news",
+    "steps": [
+      { "tool": "mcp__sikemux-tools__trigger_add", "call": "trigger.add", "input": { "title": "Arch news feed changed (AUR registration, card #267)", "prompt": "Arch news feed changed (AUR registration, card #267)", "every": 300, "check": "echo same" }, "ms": 400 },
+      { "say": "Watching the feed; I'll pick this up when it changes.", "perSecond": 40 }
+    ]
+  }
+]
