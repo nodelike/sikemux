@@ -58,10 +58,12 @@ pub fn window_buttons_at() -> Point<Pixels> {
     point(px(16.), px(top))
 }
 
+#[cfg(target_os = "macos")]
 thread_local! {
     static WINDOW_BUTTONS: Cell<Option<Point<Pixels>>> = const { Cell::new(None) };
 }
 
+#[cfg(target_os = "macos")]
 fn keep_window_buttons_level(window: &Window) {
     let at = window_buttons_at();
     if WINDOW_BUTTONS.with(|placed| placed.replace(Some(at))) != Some(at) {
@@ -143,6 +145,7 @@ pub(crate) fn strip_layout<'a>(layout: &'a Layout, strip: &Strip) -> Option<&'a 
 /// The bar: the window buttons, the way back and forward, the tabs of the place in front, then
 /// the chips.
 pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> impl IntoElement {
+    #[cfg(target_os = "macos")]
     keep_window_buttons_level(window);
     let roomy = window.viewport_size().width >= px(ROOMY_BAR);
     let t = Tokens::get(cx).clone();
