@@ -107,24 +107,54 @@ fn join_user_path(cli: Option<&str>, shell_path: &str, home: &str, inherited: &s
 }
 
 /// A desktop app inherits the person's PATH. A High core runs on a fixed one, and only the
-/// programs it starts, which run at Medium, get the PATH the person signs in with.
+/// programs it starts, which run at Medium, get the PATH the person signs in with. Once asked to
+/// reread, folders the person's saved PATH has gained since go last.
 #[cfg(windows)]
 fn user_path() -> Option<String> {
+    use std::path::PathBuf;
+
     let own = std::env::var_os("PATH").unwrap_or_default();
     let existing = sikemux_trust::child()
-        .and_then(|child| {
-            child
-                .environment
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))
-        })
-        .map_or(own, |(_, path)| path.clone());
-    let directory = crate::cli_paths::cli_link_directory();
-    let paths = directory
-        .map(std::path::Path::to_path_buf)
+        .and_then(|child| path_of(&child.environment))
+        .unwrap_or(own);
+    let saved = sikemux_process::user_environment::was_reread()
+        .then(saved_path)
+        .flatten()
+        .unwrap_or_default();
+    let directory = crate::cli_paths::cli_link_directory().map(std::path::Path::to_path_buf);
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for path in directory
         .into_iter()
-        .chain(std::env::split_paths(&existing).filter(|path| Some(path.as_path()) != directory));
+        .chain(std::env::split_paths(&existing))
+        .chain(std::env::split_paths(&saved))
+    {
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
     std::env::join_paths(paths).ok()?.into_string().ok()
+}
+
+/// The PATH the person signs in with now, read from their saved settings.
+#[cfg(windows)]
+fn saved_path() -> Option<std::ffi::OsString> {
+    let own;
+    let token = match sikemux_trust::child() {
+        Some(child) => &child.token,
+        None => {
+            own = sikemux_trust::Token::own().ok()?;
+            &own
+        }
+    };
+    path_of(&sikemux_trust::person_environment(token).ok()?)
+}
+
+#[cfg(windows)]
+fn path_of(environment: &[(std::ffi::OsString, std::ffi::OsString)]) -> Option<std::ffi::OsString> {
+    environment
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))
+        .map(|(_, path)| path.clone())
 }
 
 /// nvm keeps each Node it installed in its own folder and puts one on PATH
