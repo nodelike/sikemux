@@ -15,10 +15,17 @@ import {
   IconDownload,
   IconUndo,
 } from "@shared/ui/Icons";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { api, problemText, signedInToken } from "./api.ts";
 import { PlanCard } from "./PlanCard.tsx";
+import { ShedOffer } from "./Shed.tsx";
 import {
   FEATURE_WORDS,
   featuresAdded,
@@ -86,7 +93,15 @@ export function useBillingShown(ready: boolean): boolean {
   return shown;
 }
 
-export function BillingPage({ version }: { version: number }) {
+export function BillingPage({
+  version,
+  staff,
+  follow,
+}: {
+  version: number;
+  staff: boolean;
+  follow: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
   const client = useClient();
   const [orgs, setOrgs] = useState<Org[]>();
   const [chosen, setChosen] = useState<string>();
@@ -184,6 +199,7 @@ export function BillingPage({ version }: { version: number }) {
         org={org}
         orgs={orgs ?? []}
         switcher={switcher}
+        shedOffer={staff ? follow : undefined}
         reload={reload}
         show={show}
       />
@@ -202,12 +218,14 @@ function Bill({
   org,
   orgs,
   switcher,
+  shedOffer,
   reload,
   show,
 }: Loaded & {
   org?: Org;
   orgs: Org[];
   switcher: ReactNode;
+  shedOffer?: (to: string) => (event: MouseEvent<HTMLAnchorElement>) => void;
   reload: () => void;
   show: Show;
 }) {
@@ -282,7 +300,12 @@ function Bill({
           </Rows>
         </Section>
         {free ? (
-          <Upgrade catalog={catalog} canBuy={canBuy} />
+          <>
+            <Upgrade catalog={catalog} canBuy={canBuy} />
+            {shedOffer ? (
+              <ShedOffer catalog={catalog} follow={shedOffer} />
+            ) : null}
+          </>
         ) : org && !planSub ? (
           <StartTeam catalog={catalog} canBuy={canBuy} org={org} />
         ) : null}
@@ -1177,7 +1200,7 @@ function invoiceWhat(invoice: Invoice, catalog: BillingCatalog): string {
     .join(" · ");
 }
 
-function Refunds({
+export function Refunds({
   subs,
   readAt,
   catalog,

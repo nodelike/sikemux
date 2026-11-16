@@ -10,9 +10,18 @@ export const BILLING = "/billing";
 export const PRICING = "/pricing";
 export const TEAM = "/team";
 export const JOIN = "/orgs/join";
+export const SHED = "/shed";
 
 /** The signed-in pages a sign-in can come back to. */
-const PAGES = new Set(["/", HOSTS, BILLING, TEAM, PRICING, DELETE_ACCOUNT]);
+const PAGES = new Set([
+  "/",
+  HOSTS,
+  BILLING,
+  SHED,
+  TEAM,
+  PRICING,
+  DELETE_ACCOUNT,
+]);
 
 const RETURN_KEY = "sikemux.returnTo";
 

@@ -1074,6 +1074,26 @@ a.button {
   color: color-mix(in oklab, var(--acc) 55%, var(--ink));
 }
 
+.chip.warn {
+  margin-left: 6px;
+  background: color-mix(in oklab, var(--warn) 16%, transparent);
+  color: color-mix(in oklab, var(--warn) 60%, var(--ink));
+}
+
+.row.note {
+  min-height: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.row.note > .glyph {
+  grid-row: auto;
+}
+
+.row.note > :last-child {
+  grid-column: 2 / -1;
+}
+
 .testmode {
   padding: 1px 5px;
   border: 1px dashed color-mix(in oklab, var(--warn) 45%, transparent);

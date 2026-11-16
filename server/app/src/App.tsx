@@ -9,6 +9,7 @@ import {
 
 import {
   IconCreditCard,
+  IconCube,
   IconServer,
   IconTag,
   IconUser,
@@ -28,6 +29,7 @@ import { Devices, useDevices } from "./Devices.tsx";
 import { HostApproval } from "./HostApproval.tsx";
 import { useLive } from "./live.ts";
 import { PricingPage } from "./Pricing.tsx";
+import { ShedNotHost, ShedPage } from "./Shed.tsx";
 import { JoinPage, TeamPage } from "./Team.tsx";
 import { RestoreAccount, useAccountState } from "./RestoreAccount.tsx";
 import {
@@ -40,6 +42,7 @@ import {
   isSharePath,
   JOIN,
   PRICING,
+  SHED,
   takeReturn,
   TEAM,
   usePath,
@@ -193,6 +196,7 @@ export function App() {
 const PAGE_TITLES: Record<string, string> = {
   [HOSTS]: "Hosts",
   [BILLING]: "Plan and billing",
+  [SHED]: "Shed",
   [TEAM]: "Team",
   [JOIN]: "Join an org",
   [PRICING]: "Pricing",
@@ -229,6 +233,7 @@ function Account({
     [BILLING]: billingShown,
     [TEAM]: billingShown,
     [JOIN]: billingShown,
+    [SHED]: staff,
     [PRICING]: staff,
   };
   const page = path in PAGE_TITLES && shown[path] !== false ? path : "/";
@@ -274,6 +279,9 @@ function Account({
                 name: "Plan and billing",
                 icon: <IconCreditCard size={15} />,
               },
+              ...(staff
+                ? [{ path: SHED, name: "Shed", icon: <IconCube size={15} /> }]
+                : []),
             ],
           },
           {
@@ -324,8 +332,10 @@ function Account({
         <TeamPage follow={follow} />
       ) : page === PRICING ? (
         <PricingPage />
+      ) : page === SHED ? (
+        <ShedPage version={planVersion} />
       ) : page === BILLING ? (
-        <BillingPage version={planVersion} />
+        <BillingPage version={planVersion} staff={staff} follow={follow} />
       ) : page === HOSTS ? (
         <>
           <PageHead title="Hosts">
@@ -333,6 +343,7 @@ function Account({
             client connects to a host only after someone at the host allows it.
           </PageHead>
           <Devices load={devices.load} remove={devices.remove} />
+          {staff ? <ShedNotHost follow={follow} /> : null}
         </>
       ) : (
         <AccountPage signIns={signIns.load} onDelete={follow(DELETE_ACCOUNT)} />
