@@ -9,4 +9,6 @@ chat Wren
 title "Cart total bug"
 say "delegate 600000"
 settle 4
+front Wren
+settle 2
 snap running-strip
