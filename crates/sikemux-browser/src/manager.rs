@@ -193,10 +193,19 @@ impl BrowserManager {
 
     /// A loopback address a tab can load `path` from.
     pub fn local_file_url(&self, path: &Path) -> Result<String, String> {
+        self.local_file_url_with_media(path, None)
+    }
+
+    /// Like [`Self::local_file_url`], serving `media`'s files under its name beside `path`.
+    pub fn local_file_url_with_media(
+        &self,
+        path: &Path,
+        media: Option<&Path>,
+    ) -> Result<String, String> {
         if self.local_files.full() {
             self.release_unused_files();
         }
-        self.local_files.url_for(path)
+        self.local_files.url_with_media(path, media)
     }
 
     /// Whether `url` is a page an agent showed the person with page_show, which other tools leave be.

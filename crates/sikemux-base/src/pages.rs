@@ -1,6 +1,7 @@
 //! Pages agents show the person: a self-contained HTML document an agent
 //! writes, kept in the data folder with every local picture and font it names
-//! inlined, so it outlives those files and any client can show it.
+//! inlined and every video or sound copied into a folder beside it, so it
+//! outlives those files.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ const DRIVE: &str = if cfg!(windows) {
 
 static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r#"(["'(])\s*({DRIVE}[^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf))\s*(["')])"#,
+        r#"(["'(])\s*({DRIVE}[^"'()<>\s:]+?\.(?i:png|jpe?g|gif|webp|avif|svg|bmp|ico|woff2?|ttf|otf|mp4|m4v|webm|mov|mp3|m4a|wav|ogg|oga|opus|flac|aac))\s*(["')])"#,
     ))
     .expect("local file pattern")
 });
@@ -69,7 +70,9 @@ fn escape_text(text: &str) -> String {
 
 /// Reads the page an agent wrote and inlines every local picture and font it
 /// names, by absolute, `~/` or relative path, so the page outlives those files.
-pub fn build(source: &Path) -> Result<String, String> {
+/// Videos and sounds are too big to inline: with `media` they are copied into
+/// that folder and named relative to its parent, and without it left as named.
+pub fn build(source: &Path, media: Option<&Path>) -> Result<String, String> {
     let size = std::fs::metadata(source)
         .map_err(|_| format!("{} does not exist", source.display()))?
         .len();
@@ -95,7 +98,15 @@ pub fn build(source: &Path) -> Result<String, String> {
         if let Some(data) = inlined.get(reference) {
             return format!("{open}{data}{close}");
         }
-        match image_data(&resolve(folder, reference)) {
+        let path = resolve(folder, reference);
+        let read = match is_media(&path) {
+            true => match media {
+                Some(media) => copy_media(&path, media, inlined.len()),
+                None => return found[0].to_owned(),
+            },
+            false => image_data(&path),
+        };
+        match read {
             Ok(Some(data)) => {
                 inlined.insert(reference.to_owned(), data.clone());
                 format!("{open}{data}{close}")
@@ -132,6 +143,32 @@ pub fn build(source: &Path) -> Result<String, String> {
 
 fn resolve(folder: &Path, reference: &str) -> PathBuf {
     folder.join(sikemux_process::paths::expand_home(reference))
+}
+
+fn is_media(path: &Path) -> bool {
+    let kind = content_type(path);
+    kind.starts_with("video/") || kind.starts_with("audio/")
+}
+
+/// Copies the video or sound at `path` into `media`, under a name no other file of the page
+/// takes, and gives its address relative to the page.
+fn copy_media(path: &Path, media: &Path, index: usize) -> Result<Option<String>, String> {
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let name = path.file_name().map_or_else(String::new, |name| {
+        name.to_string_lossy()
+            .replace(['"', '\'', '(', ')', ' ', '#', '?', '%'], "-")
+    });
+    let name = format!("{index}-{name}");
+    std::fs::create_dir_all(media).map_err(|error| format!("could not keep the page: {error}"))?;
+    std::fs::copy(path, media.join(&name))
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let folder = media
+        .file_name()
+        .map(|folder| folder.to_string_lossy())
+        .unwrap_or_default();
+    Ok(Some(format!("{folder}/{name}")))
 }
 
 fn image_data(path: &Path) -> Result<Option<String>, String> {
@@ -175,7 +212,7 @@ fn content_type(path: &Path) -> &'static str {
         "woff2" => "font/woff2",
         "ttf" => "font/ttf",
         "otf" => "font/otf",
-        _ => "application/octet-stream",
+        _ => crate::http::content_type(path),
     }
 }
 
@@ -186,15 +223,27 @@ pub fn publish(dir: &Path, source: &Path, title: &str) -> Result<PageRef, String
     if title.is_empty() {
         return Err("title must be nonempty".into());
     }
-    let mut page = build(source)?;
-    if !page.to_ascii_lowercase().contains("<title") {
-        page = insert_head(&page, &format!("<title>{}</title>", escape_text(&title)));
-    }
-    std::fs::create_dir_all(dir).map_err(|error| format!("could not keep the page: {error}"))?;
     let id = uuid::Uuid::new_v4().simple().to_string();
-    std::fs::write(dir.join(format!("{id}.html")), page)
-        .map_err(|error| format!("could not keep the page: {error}"))?;
+    let media = media_folder(dir, &id);
+    let kept = build(source, Some(&media)).and_then(|mut page| {
+        if !page.to_ascii_lowercase().contains("<title") {
+            page = insert_head(&page, &format!("<title>{}</title>", escape_text(&title)));
+        }
+        std::fs::create_dir_all(dir)
+            .map_err(|error| format!("could not keep the page: {error}"))?;
+        std::fs::write(dir.join(format!("{id}.html")), page)
+            .map_err(|error| format!("could not keep the page: {error}"))
+    });
+    if let Err(error) = kept {
+        let _ = std::fs::remove_dir_all(&media);
+        return Err(error);
+    }
     Ok(PageRef { id, title })
+}
+
+/// The folder beside page `id` that holds the videos and sounds it shows.
+pub fn media_folder(dir: &Path, id: &str) -> PathBuf {
+    dir.join(id)
 }
 
 /// The title of page `id` kept in `dir`, as its `<title>` names it; none when no such page is kept.
@@ -317,7 +366,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let page = build(&source).unwrap();
+        let page = build(&source, None).unwrap();
         assert_eq!(page.matches("data:image/png;base64,AQID").count(), 3);
         assert!(page.contains("https://x.test/b.png"));
         assert!(page.contains("//cdn.test/c.png"));
@@ -333,7 +382,7 @@ mod tests {
             "<style>@font-face{font-family:F;src:url(Figtree.woff2) format(\"woff2\")}</style>",
         )
         .unwrap();
-        let page = build(&source).unwrap();
+        let page = build(&source, None).unwrap();
         assert!(
             page.contains("url(data:font/woff2;base64,Bw==) format(\"woff2\")"),
             "{page}"
@@ -341,11 +390,26 @@ mod tests {
     }
 
     #[test]
+    fn a_kept_page_keeps_its_video_beside_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("ademark.mp4"), [9u8; 4]).unwrap();
+        let source = dir.path().join("draft.html");
+        std::fs::write(&source, "<video src=\"ademark.mp4\" controls></video>").unwrap();
+        let kept = dir.path().join("kept");
+        let page = publish(&kept, &source, "Draft").unwrap();
+        std::fs::remove_file(dir.path().join("ademark.mp4")).unwrap();
+        let html = std::fs::read_to_string(kept.join(format!("{}.html", page.id))).unwrap();
+        let video = format!("{}/0-ademark.mp4", page.id);
+        assert!(html.contains(&format!("src=\"{video}\"")), "{html}");
+        assert_eq!(std::fs::read(kept.join(video)).unwrap(), [9u8; 4]);
+    }
+
+    #[test]
     fn a_missing_picture_is_named() {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("page.html");
         std::fs::write(&source, "<img src=\"gone.webp\">").unwrap();
-        let error = build(&source).unwrap_err();
+        let error = build(&source, None).unwrap_err();
         assert!(error.contains("gone.webp"), "{error}");
     }
 

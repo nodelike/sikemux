@@ -240,6 +240,7 @@ fn sweep(
     for id in &stale {
         let _ = std::fs::remove_file(pages.join(format!("{id}.html")));
         let _ = std::fs::remove_file(pages.join(format!("{id}.jpg")));
+        let _ = std::fs::remove_dir_all(crate::pages::media_folder(pages, id));
     }
     gone.extend(stale.iter().cloned());
     let mut remove = connection

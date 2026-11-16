@@ -124,7 +124,9 @@ pub(super) async fn list_pages(core: &Core, request: &HarnessRequest) -> Result<
         .map_err(|error| error.to_string())??;
     let mut reply = json!({ "pages": pages });
     if !every {
-        reply["note"] = json!("Only this project's. allProjects: true lists every project's too, and the pages shown before Sikemux kept a list of them.");
+        reply["note"] = json!(
+            "Only this project's. allProjects: true lists every project's too, and the pages shown before Sikemux kept a list of them."
+        );
     }
     Ok(reply)
 }
@@ -174,7 +176,13 @@ pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<Pag
         let picture = std::fs::read(picture_path(&dir, &params.id))
             .ok()
             .map(|bytes| base64::engine::general_purpose::STANDARD.encode(bytes));
-        Ok(PageHtml { html, picture })
+        let media =
+            Some(crate::pages::media_folder(&dir, &params.id)).filter(|media| media.is_dir());
+        Ok(PageHtml {
+            html,
+            picture,
+            media,
+        })
     })
     .await
 }

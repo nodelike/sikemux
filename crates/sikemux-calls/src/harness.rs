@@ -11,6 +11,9 @@ pub struct PageHtml {
     /// A JPEG of the page as its desk tab first drew it, in base64, for a page shown in a tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture: Option<String>,
+    /// The folder on the core's computer holding the videos and sounds the page names under it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<std::path::PathBuf>,
 }
 
 /// The runs that match every field given.

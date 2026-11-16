@@ -27,6 +27,7 @@ struct Share {
     root: PathBuf,
     port: u16,
     token: String,
+    media: Option<(String, PathBuf)>,
     /// Dropping it stops the share's server.
     _stop: tokio::sync::oneshot::Sender<()>,
 }
@@ -34,6 +35,12 @@ struct Share {
 impl LocalFiles {
     /// A loopback address that shows `path`, a file or a folder's `index.html`.
     pub fn url_for(&self, path: &Path) -> Result<String, String> {
+        self.url_with_media(path, None)
+    }
+
+    /// Like [`Self::url_for`], with the files in `media` served under that folder's name
+    /// beside `path`, as a kept page names its videos and sounds.
+    pub fn url_with_media(&self, path: &Path, media: Option<&Path>) -> Result<String, String> {
         let mut path = sikemux_process::files::real_path(path)
             .map_err(|_| format!("{} does not exist", path.display()))?;
         if path.is_dir() {
@@ -57,7 +64,11 @@ impl LocalFiles {
             return Err("hidden files are not shown in a tab".into());
         }
         let only = (!serves_its_folder(&root)).then(|| path.clone());
-        let (port, token) = self.share(&root, only)?;
+        let media = media.and_then(|media| {
+            let name = media.file_name()?.to_string_lossy().into_owned();
+            Some((name, sikemux_process::files::real_path(media).ok()?))
+        });
+        let (port, token) = self.share(&root, only, media)?;
         let mut url = Url::parse(&format!("http://127.0.0.1:{port}/")).expect("loopback url");
         url.path_segments_mut()
             .expect("http url has a path")
@@ -92,12 +103,18 @@ impl LocalFiles {
         });
     }
 
-    fn share(&self, root: &Path, only: Option<PathBuf>) -> Result<(u16, String), String> {
+    fn share(
+        &self,
+        root: &Path,
+        only: Option<PathBuf>,
+        media: Option<(String, PathBuf)>,
+    ) -> Result<(u16, String), String> {
         let key = only.clone().unwrap_or_else(|| root.to_path_buf());
         let mut shares = self.shares.locked();
-        if let Some(share) = shares.get(&key) {
+        if let Some(share) = shares.get(&key).filter(|share| share.media == media) {
             return Ok((share.port, share.token.clone()));
         }
+        shares.remove(&key);
         if shares.len() >= MAX_SHARES {
             return Err(format!(
                 "already showing {MAX_SHARES} local files; close some of their tabs to show another"
@@ -116,6 +133,7 @@ impl LocalFiles {
         let folder = Folder {
             root: root.to_path_buf(),
             only,
+            media: media.clone(),
             token: token.clone(),
             port,
         };
@@ -132,6 +150,7 @@ impl LocalFiles {
             root: root.to_path_buf(),
             port,
             token: token.clone(),
+            media,
             _stop: stop,
         };
         shares.insert(key, share);
@@ -187,6 +206,8 @@ const TEMPORARY_FOLDERS: &[&str] = &["/private/tmp", "/private/var/folders"];
 struct Folder {
     root: PathBuf,
     only: Option<PathBuf>,
+    /// A folder's name and where it is, served whole under that name.
+    media: Option<(String, PathBuf)>,
     token: String,
     port: u16,
 }
@@ -269,6 +290,14 @@ impl Folder {
         let Some(relative) = safe_relative(rest) else {
             return Answer::Refused(404);
         };
+        let media = (self.media.as_ref())
+            .and_then(|(name, media)| Some((media, relative.strip_prefix(name).ok()?)));
+        if let Some((media, inside)) = media {
+            return match sikemux_process::files::real_path(media.join(inside)) {
+                Ok(found) if found.starts_with(media) && found.is_file() => Answer::File(found),
+                _ => Answer::Refused(404),
+            };
+        }
         let Ok(found) = sikemux_process::files::real_path(self.root.join(&relative)) else {
             return Answer::Refused(404);
         };
@@ -441,6 +470,7 @@ mod tests {
         let folder = Folder {
             root,
             only: None,
+            media: None,
             token: "t0k".into(),
             port: 4000,
         };

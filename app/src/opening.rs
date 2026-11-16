@@ -530,8 +530,8 @@ impl Workbench {
         let files = self.desks.read(cx).page_files.clone();
         crate::desk::spawn(async move {
             let shown = async {
-                let html = page.await?.html;
-                let url = files.url(&id, &html)?;
+                let page = page.await?;
+                let url = files.kept_url(&id, &page)?;
                 let engine = files.engine()?;
                 engine
                     .open_tab(&agent, Some(&url))

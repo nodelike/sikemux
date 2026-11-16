@@ -587,6 +587,20 @@ pub(crate) struct PageFiles {
 impl PageFiles {
     /// An address for `html` in a desk tab, kept as `name` so showing it again replaces the copy.
     pub(crate) fn url(&self, name: &str, html: &str) -> Result<String, String> {
+        self.page_url(name, html, None)
+    }
+
+    /// An address for a page the core keeps, with the videos and sounds in `media` beside it.
+    pub(crate) fn kept_url(
+        &self,
+        id: &str,
+        page: &sikemux_calls::harness::PageHtml,
+    ) -> Result<String, String> {
+        let media = (page.media.as_deref()).filter(|media| media.is_dir());
+        self.page_url(id, &page.html, media)
+    }
+
+    fn page_url(&self, name: &str, html: &str, media: Option<&Path>) -> Result<String, String> {
         let folder = self
             .folder
             .as_ref()
@@ -595,7 +609,7 @@ impl PageFiles {
         let path = folder.join(format!("{name}.html"));
         let themed = sikemux_base::pages::themed(html, &self.theme.locked(), None);
         std::fs::write(&path, themed).map_err(|error| error.to_string())?;
-        self.engine()?.local_file_url(&path)
+        self.engine()?.local_file_url_with_media(&path, media)
     }
 
     pub(crate) fn engine(&self) -> Result<Arc<BrowserManager>, String> {
@@ -1500,7 +1514,7 @@ impl Workbench {
         self.bring_page_forward(
             agent,
             cx,
-            |_| async move { files.url(&id, &page.await?.html) },
+            |_| async move { files.kept_url(&id, &page.await?) },
         );
     }
 

@@ -479,7 +479,7 @@ pub(super) async fn page(core: &Arc<Core>, params: ModParams) -> CoreResult<ModP
         if let Some(problem) = &shown.problem {
             return Err(CoreError::from(format!("this mod cannot show: {problem}")));
         }
-        Ok((crate::pages::build(&folder.join(PAGE))?, shown))
+        Ok((crate::pages::build(&folder.join(PAGE), None)?, shown))
     })
     .await?;
     let allowed = core.mods().allowed(&id, &shown.writes, &shown.connect);
