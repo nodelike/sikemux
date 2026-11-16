@@ -319,7 +319,8 @@ impl Workbench {
             return;
         };
         let draft = composing.draft.read(cx);
-        let typed = typed(&draft.value(), draft.cursor());
+        let typed =
+            typed(&draft.value(), draft.cursor()).filter(|typed| names(agent, typed.trigger));
         let kept = composing.menu.as_ref().map(|menu| &menu.typed);
         let pinned = composing.menu.as_ref().is_some_and(|menu| menu.pinned);
         if typed.as_ref() == kept && !pinned {
@@ -531,6 +532,9 @@ impl Workbench {
     }
 
     fn mates(&self, agent: &str, needle: &str) -> Vec<Choice> {
+        let agent = (crate::calls::reply::call_of(agent))
+            .and_then(|call| self.call_at(call))
+            .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
         let own = self
             .shown()
             .and_then(|view| view.workspace.agents.iter().find(|saved| saved.id == agent))
@@ -1022,6 +1026,12 @@ const SCOPES: [(char, Icon, &str); 5] = [
     ('&', Icon::Stash, n!("Stash")),
 ];
 
+/// Whether `owner`'s draft names things with `trigger`. A call's reply names agents and
+/// files alone: its answer carries no issue, and a command acts on a chat.
+fn names(owner: &str, trigger: char) -> bool {
+    crate::calls::reply::call_of(owner).is_none() || matches!(trigger, '@' | '+')
+}
+
 /// The menu over the draft of `agent`'s chat, while it offers anything, under a heading of the
 /// kinds of thing it names; `repo` is the project's on its code host. It reads `bench`, which
 /// is drawing it, and never the workbench's entity, which is busy drawing.
@@ -1043,6 +1053,7 @@ pub fn dock(
         }
         let scopes = SCOPES
             .iter()
+            .filter(|(key, ..)| names(agent, *key))
             .map(|&(key, icon, label)| {
                 let (this, agent) = (cx.weak_entity(), agent.to_owned());
                 DockScope {

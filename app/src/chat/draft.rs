@@ -184,6 +184,9 @@ impl Workbench {
     /// The person began writing, so a new chat's agent starts while they write. A host whose
     /// core predates this answers that it does not know the method, which nobody needs to hear.
     pub fn began_writing(&self, agent: &str) {
+        if crate::calls::reply::call_of(agent).is_some() {
+            return;
+        }
         drop(
             self.chat_target(agent)
                 .request_typed::<call::Composing>(AgentParams {
@@ -253,6 +256,9 @@ impl Workbench {
 
     /// Keeps `agent`'s draft with the core.
     pub fn keep_draft(&mut self, agent: &str, cx: &mut Context<Self>) {
+        if crate::calls::reply::call_of(agent).is_some() {
+            return;
+        }
         let Some(composing) = self.composing_mut(agent) else {
             return;
         };

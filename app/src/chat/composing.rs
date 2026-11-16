@@ -44,13 +44,19 @@ fn append(draft: &Entity<TextareaState>, text: &str, window: &mut Window, cx: &m
 }
 
 impl Workbench {
-    /// The composer of the chat of agent `owner`.
+    /// The composer of the chat of agent `owner`, or the one a call is answered with.
     pub fn composing(&self, owner: &str) -> Option<&Composing> {
-        self.chats.open.get(owner)?.composer.as_ref()
+        match self.chats.open.get(owner) {
+            Some(chat) => chat.composer.as_ref(),
+            None => self.chats.replies.get(owner),
+        }
     }
 
     pub fn composing_mut(&mut self, owner: &str) -> Option<&mut Composing> {
-        self.chats.open.get_mut(owner)?.composer.as_mut()
+        match self.chats.open.get_mut(owner) {
+            Some(chat) => chat.composer.as_mut(),
+            None => self.chats.replies.get_mut(owner),
+        }
     }
 
     /// Empties `owner`'s composer once what it held has gone, and keeps it so.
@@ -71,6 +77,7 @@ impl Workbench {
     pub fn composers(&self) -> impl Iterator<Item = (&str, &Composing)> {
         (self.chats.open.iter())
             .filter_map(|(agent, chat)| Some((agent.as_str(), chat.composer.as_ref()?)))
+            .chain((self.chats.replies.iter()).map(|(owner, reply)| (owner.as_str(), reply)))
     }
 }
 
@@ -304,25 +311,26 @@ pub(super) fn stop_turn(
     }
 }
 
-/// The composer of one chat as a view of its own, mounted isolated, so a key typed in it draws
-/// only it again rather than the chat around it.
+/// One composer as a view of its own, mounted isolated, so a key typed in it draws only it
+/// again rather than the chat or the page around it.
 pub struct ComposerView {
     pub bench: WeakEntity<Workbench>,
     /// The composer it draws, as [`Workbench::composing`] names it.
     pub owner: String,
-    /// The chat's agent as the stage last drew it.
+    /// The chat's agent as the stage last drew it; a call's reply has none.
     pub agent: Option<AgentRow>,
 }
 
 impl gpui::Render for ComposerView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(agent) = self.agent.clone() else {
-            return div().into_any_element();
-        };
+        let (owner, agent) = (self.owner.clone(), self.agent.clone());
         self.bench
-            .update(cx, |bench, cx| {
-                let chat = bench.chats.open.get(&agent.id)?;
-                mounted_composer(bench, &agent, chat, cx)
+            .update(cx, |bench, cx| match agent {
+                Some(agent) => {
+                    let chat = bench.chats.open.get(&agent.id)?;
+                    mounted_composer(bench, &agent, chat, cx)
+                }
+                None => crate::calls::reply::composer(bench, &owner, cx),
             })
             .ok()
             .flatten()
@@ -427,8 +435,8 @@ pub(super) fn notice(
 }
 
 /// What every composer offers, whatever it sends to: the files and chips going with the
-/// message, the menu over the word at the caret, dictation, and why the core turned the last
-/// message down or that it was just stashed; and whether the menu is open over it.
+/// message, the menu over the word at the caret, and why the core turned the last message
+/// down or that it was just stashed; and whether the menu is open over it.
 pub fn drafting(
     bench: &Workbench,
     owner: &str,
@@ -500,11 +508,6 @@ pub fn drafting(
             Rc::new(attach::on_paste(owner, cx)),
             attach::chip(cx.weak_entity()),
         )
-        .when(cfg!(target_os = "macos"), |composer| {
-            composer.snapshot(snapshot(owner, &this))
-        })
-        .dictation(composing.mic.clone(), bench.voice.read(cx).heard_for(owner))
-        .suggestion(composing.suggested.clone())
         .menu(dock);
     Some((composer, offering))
 }
@@ -595,7 +598,7 @@ pub(super) fn composer(
     chat: &Chat,
     cx: &mut Context<Workbench>,
 ) -> Option<(Composer, bool)> {
-    chat.composer.as_ref()?;
+    let composing = chat.composer.as_ref()?;
     let head = chat.state.as_ref();
     let kind = bench.reads.catalog.kind(&agent.provider);
     let label = bench.agent_name(&agent.provider).to_owned();
@@ -626,6 +629,15 @@ pub(super) fn composer(
         (on_send, on_stop),
         cx,
     )?;
+    let composer = composer
+        .when(cfg!(target_os = "macos"), |composer| {
+            composer.snapshot(snapshot(&agent.id, &this))
+        })
+        .dictation(
+            composing.mic.clone(),
+            bench.voice.read(cx).heard_for(&agent.id),
+        )
+        .suggestion(composing.suggested.clone());
     let (mut composer, tray_open) = with_stash(bench, &agent.id, composer, cx);
     let saved = bench.shown().and_then(|view| {
         view.workspace
@@ -1147,7 +1159,7 @@ impl Workbench {
         if !(self.chats.open.get(&agent)).is_some_and(|chat| chat.composer.is_none()) {
             return;
         }
-        let mut composing = self.new_composing(&agent, window, cx);
+        let mut composing = self.new_composing(&agent, 2, window, cx);
         let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
         };
@@ -1168,17 +1180,18 @@ impl Workbench {
         }
     }
 
-    /// A composer for the chat of agent `owner`, sending what it holds on Return and keeping it
-    /// as the person types.
+    /// A composer named `owner`, its draft at least `lines` tall, sending what it holds on
+    /// Return and keeping it as the person types.
     pub(crate) fn new_composing(
         &mut self,
         owner: &str,
+        lines: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Composing {
         let draft = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(2, 12)
+                .auto_grow(lines, 12)
                 .submit_on_enter(true)
         });
         let secret = cx.new(|cx| {
@@ -1472,6 +1485,13 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(call) = crate::calls::reply::call_of(agent) {
+            // A production call is never sent by a key; only a click sends it.
+            if !self.ships_to_production(call) {
+                self.reply(call, cx);
+            }
+            return;
+        }
         let waits = self
             .voice
             .update(cx, |voice, cx| voice.send_after_words(agent, primary, cx));

@@ -500,7 +500,7 @@ impl Workbench {
     }
 
     /// Asks the core to keep a file that lives nowhere the agent can read, and hands where it
-    /// went to `kept`.
+    /// went to `kept`. A file for a call's reply is kept for the agent that asked.
     #[allow(clippy::too_many_arguments)]
     fn keep(
         &self,
@@ -513,14 +513,17 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let (stored, answer) = oneshot::channel();
+        let keeper = (crate::calls::reply::call_of(agent))
+            .and_then(|call| self.call_at(call))
+            .map_or(agent, |(_, call)| call.asker.agent_id.as_str());
         let ask = ChatAsk::Keep {
-            agent: agent.to_owned(),
+            agent: keeper.to_owned(),
             name,
             mime: mime.to_owned(),
             bytes,
             kept: stored,
         };
-        self.ask_chat(ask);
+        self.chat_target(agent).ask(crate::core::Ask::Chat(ask));
         cx.spawn_in(window, async move |this, cx| match answer.await {
             Ok(Ok(path)) => {
                 this.update_in(cx, |bench, window, cx| kept(bench, path, window, cx))
@@ -680,9 +683,10 @@ pub fn takes_drops(pane: Div, agent: &str, this: WeakEntity<Workbench>) -> Div {
 }
 
 /// Whether `agent`'s composer takes `chat` as context: any chat but its own that names an
-/// agent or a saved chat.
+/// agent or a saved chat. A call's reply takes none, since its answer carries no context.
 fn takes_chat(chat: &DraggedChat, agent: &str) -> bool {
-    (chat.agent.is_some() || chat.recent.is_some())
+    crate::calls::reply::call_of(agent).is_none()
+        && (chat.agent.is_some() || chat.recent.is_some())
         && chat.agent.as_ref().is_none_or(|(id, _)| id != agent)
 }
 

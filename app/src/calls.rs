@@ -32,6 +32,7 @@ use crate::workbench::{Strip, Workbench};
 
 mod away;
 mod page;
+pub(crate) mod reply;
 pub(crate) use away::Away;
 pub(crate) use page::{waiting_on_desk, Page};
 use sikemux_view::chat::ChiefAway;
@@ -313,14 +314,22 @@ impl Workbench {
         answered_in_chat(open, opened.as_deref())
     }
 
-    /// Lets go of the cards of calls answered or gone, once a core's view says so.
-    pub(crate) fn keep_cards(&self, cx: &mut Context<Self>) {
+    /// Lets go of the cards and the composers of calls answered or gone, once a core's view
+    /// says so.
+    pub(crate) fn keep_cards(&mut self, cx: &mut Context<Self>) {
         let open: HashSet<&str> = (self.views())
             .flat_map(|(_, view)| view.calls.iter())
             .filter(|call| call.state == CallState::Open)
             .map(|call| call.id.as_str())
             .collect();
         self.calls.update(cx, |cards, _| cards.keep(&open));
+        let closed: Vec<String> = (self.chats.replies.keys())
+            .filter(|owner| !reply::call_of(owner).is_some_and(|id| open.contains(id)))
+            .cloned()
+            .collect();
+        for owner in closed {
+            self.chats.replies.remove(&owner);
+        }
     }
 
     /// The call whose card takes the keys of `agent`'s chat: the one open in the chief's away
@@ -588,7 +597,14 @@ fn card(
         .flatten()
         .map(|action| what_runs(call, action, action_open, cards, &t));
     let ready = !chosen.is_empty() || typed;
-    let go = go_button(call, t!("Go with this").into(), ready, sending, bench);
+    let go = go_button(
+        call,
+        t!("Go with this").into(),
+        ready,
+        sending,
+        bench,
+        Workbench::go_with,
+    );
     let open_chat = match seat {
         Seat::Queue { .. } if call.asker.chief => None,
         Seat::Queue { .. } => Some((None, bench.clone(), call.asker.agent_id.clone())),
@@ -693,6 +709,13 @@ fn who(
                 ))
         })
         .children(tail)
+}
+
+/// A question's first line, which names its call where one line shows.
+fn headline(question: &str) -> &str {
+    (question.lines().map(str::trim))
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
 }
 
 /// Why the call came up, in the asker's words.
@@ -842,13 +865,14 @@ fn against_line(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
     })
 }
 
-/// The button that answers `call` with what its card holds, worded `words`.
+/// The button that answers `call`, worded `words`: `go` sends what its card or its page holds.
 fn go_button(
     call: &PersonCall,
     words: SharedString,
     ready: bool,
     sending: bool,
     bench: &WeakEntity<Workbench>,
+    go: fn(&mut Workbench, &str, &mut Context<Workbench>),
 ) -> Button {
     let (bench, id) = (bench.clone(), call.id.clone());
     let production = call.kind == CallKind::Production;
@@ -867,7 +891,7 @@ fn go_button(
         if production && matches!(event, ClickEvent::Keyboard(_)) {
             return;
         }
-        bench.update(cx, |bench, cx| bench.go_with(&id, cx)).ok();
+        bench.update(cx, |bench, cx| go(bench, &id, cx)).ok();
     })
 }
 
@@ -957,34 +981,42 @@ fn note_row(
             true => t.text_tertiary,
             false => t.text_disabled,
         }))
+        .child(hinted_field(field, hint, lit, t))
+}
+
+/// A call's field, with `hint` over it until it is `lit`.
+fn hinted_field(
+    field: &Entity<InputState>,
+    hint: &'static str,
+    lit: bool,
+    t: &Tokens,
+) -> gpui_kit::Div {
+    div()
+        .relative()
+        .flex_1()
+        .min_w_0()
+        .text_size(theme::ui_text(13.))
+        .text_color(t.text_primary)
         .child(
             div()
-                .relative()
-                .flex_1()
-                .min_w_0()
-                .text_size(theme::ui_text(13.))
-                .text_color(t.text_primary)
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .text_color(t.text_disabled)
-                        .when(lit, |hint| hint.invisible())
-                        .child(hint),
-                )
-                .child(
-                    // Its own key context keeps the chat's question keys off the field, so Return
-                    // answers this call, as Return in the composer sends.
-                    div().w_full().key_context("CallField").child(
-                        Input::new(field)
-                            .appearance(false)
-                            .bordered(false)
-                            .p_0()
-                            .text_size(theme::ui_text(13.)),
-                    ),
-                ),
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .text_color(t.text_disabled)
+                .when(lit, |hint| hint.invisible())
+                .child(hint),
+        )
+        .child(
+            // Its own key context keeps the chat's question keys off the field, so Return
+            // answers this call, as Return in the composer sends.
+            div().w_full().key_context("CallField").child(
+                Input::new(field)
+                    .appearance(false)
+                    .bordered(false)
+                    .p_0()
+                    .text_size(theme::ui_text(13.)),
+            ),
         )
 }
 
@@ -1543,7 +1575,7 @@ fn folded(
                 .flex_1()
                 .min_w_0()
                 .truncate()
-                .child(call.question.clone()),
+                .child(headline(&call.question).to_owned()),
         )
         .child(
             div()

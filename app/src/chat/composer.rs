@@ -12,9 +12,9 @@ use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, radians, size, Anchor, AnyElement, AnyView, App, ClipboardItem, ElementId, Entity,
-    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
+    div, px, radians, size, Anchor, AnyElement, AnyView, App, ClickEvent, ClipboardItem, ElementId,
+    Entity, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use sikemux_view::chat::{Compactions, ContextUsage, ExpiredCache};
 use sikemux_view::workspace::ConfigPicker;
@@ -147,7 +147,10 @@ pub struct Composer {
     /// What the agent predicts the person sends next, which the empty draft says with Tab
     /// beside it.
     suggestion: Option<SharedString>,
-    /// Stands one line tall until more is written, where it sits under a long list.
+    /// Stands one line tall until more is written, where it sits under a page.
+    slim: bool,
+    /// Send takes a click of the mouse alone, never a key, as a step to production must.
+    send_by_mouse: bool,
     on_send: Act,
     on_stop: Act,
 }
@@ -188,9 +191,21 @@ impl Composer {
             send_label: None,
             text_scale: 1.,
             suggestion: None,
+            slim: false,
+            send_by_mouse: false,
             on_send,
             on_stop,
         }
+    }
+
+    pub fn slim(mut self) -> Self {
+        self.slim = true;
+        self
+    }
+
+    pub fn send_by_mouse(mut self, by_mouse: bool) -> Self {
+        self.send_by_mouse = by_mouse;
+        self
     }
 
     pub fn suggestion(mut self, suggestion: Option<SharedString>) -> Self {
@@ -496,7 +511,7 @@ impl RenderOnce for Composer {
                     stopping,
                     drafted,
                     self.running.then_some(self.steers),
-                    self.on_send,
+                    (self.on_send, self.send_by_mouse),
                     self.on_stop,
                     job,
                     cx,
@@ -555,7 +570,10 @@ impl RenderOnce for Composer {
                                 div()
                                     .relative()
                                     .py(SPACE_0)
-                                    .min_h(px(14.5 * self.text_scale * 1.75 * 2.5))
+                                    .min_h(px(14.5
+                                        * self.text_scale
+                                        * 1.75
+                                        * if self.slim { 1. } else { 2.5 }))
                                     .children(suggestion)
                                     .child(
                                         Textarea::new(&self.draft)
@@ -1626,12 +1644,13 @@ const SEND_TURN: Ease = Ease::new(150, Curve::OUT);
 
 /// Send, or while a turn runs and nothing is written, Stop. While a turn runs, `steers` tells
 /// whether sending steers into it. `job` runs from 0 (send) to 1 (stop): when the button
-/// changes job, its new mark turns in.
-fn send(
+/// changes job, its new mark turns in. With `by_mouse` it takes no focus, so Tab never reaches
+/// it, and a click that came from a key sends nothing.
+pub(crate) fn send(
     stopping: bool,
     drafted: bool,
     steers: Option<bool>,
-    on_send: Act,
+    (on_send, by_mouse): (Act, bool),
     on_stop: Act,
     job: f32,
     cx: &App,
@@ -1672,10 +1691,11 @@ fn send(
         .bg(t.text_primary)
         .when(!stopping && !drafted, |button| button.opacity(0.28))
         .when_some(about, |button, about| button.tooltip(ui::tooltip(about)))
-        .on_click(move |_, window, cx| {
+        .when(by_mouse, |button| button.focusable(false).tab_stop(false))
+        .on_click(move |event, window, cx| {
             if stopping {
                 on_stop(window, cx)
-            } else {
+            } else if !(by_mouse && matches!(event, ClickEvent::Keyboard(_))) {
                 on_send(window, cx)
             }
         })

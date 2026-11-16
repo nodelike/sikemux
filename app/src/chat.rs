@@ -102,7 +102,9 @@ pub(crate) use installing::installs_moved;
 mod worktree;
 
 pub use attach::lasting;
+pub(crate) use attach::{drop_hint, takes_drops};
 pub use composing::{dictate, ComposeStage, ComposerView, Composing, Sent};
+pub(crate) use composing::{drafting, mounted};
 pub(crate) use mention::{AGENT, FILE, TRACKED};
 pub(crate) use meta::clock;
 pub use questions::{question_keys, Answering, Question};
@@ -584,6 +586,8 @@ pub struct Chats {
     pub(crate) finds: HashMap<String, String>,
     /// Files and the notes about them handed to agents whose composer is not made yet.
     pub(crate) held_files: HashMap<String, (Vec<PathBuf>, Vec<ChatContext>)>,
+    /// The composers the open calls are answered with on their page, by what names each.
+    pub(crate) replies: HashMap<String, Composing>,
     /// Pictures made in the app while the chat they go to starts.
     pub(crate) pictures_for_new_chat: Option<Vec<attach::Made>>,
     /// Lets go of the chats out of sight once they have been for a while, counted from when
@@ -2052,12 +2056,16 @@ impl Workbench {
         self.chat_target(ask.agent()).ask(Ask::Chat(ask));
     }
 
-    /// Where `agent`'s chat asks: the core of the host the agent runs on.
+    /// Where `agent`'s chat asks: the core of the host the agent runs on. A call's reply asks
+    /// the core that holds the call.
     pub fn chat_target(&self, agent: &str) -> Target {
-        self.chats.open.get(agent).map_or_else(
-            || Target::new(&self.asks, self.place()),
-            |chat| chat.target.clone(),
-        )
+        if let Some(chat) = self.chats.open.get(agent) {
+            return chat.target.clone();
+        }
+        let place = crate::calls::reply::call_of(agent)
+            .and_then(|call| self.call_at(call))
+            .map_or_else(|| self.place(), |(place, _)| place);
+        Target::new(&self.asks, place)
     }
 
     /// Holds the chat of the agent the tab in front shows, attaching to it the first time.
