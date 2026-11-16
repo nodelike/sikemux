@@ -34,7 +34,7 @@ pub(crate) const APP_WRITES: [&str; 10] = [
 
 /// The tools an agent changes a project's record with.
 pub(crate) const TOOL_WRITES: [&str; 4] =
-    ["board.add", "board.claim", "board.update", "board.decide"];
+    ["task.add", "task.claim", "task.update", "decision.keep"];
 
 #[derive(Serialize, Deserialize)]
 pub(super) struct RecordCopy {
@@ -113,7 +113,8 @@ pub(crate) async fn tool_write(
     core: &Arc<Core>,
     request: &HarnessRequest,
 ) -> Option<Result<Value, String>> {
-    if !TOOL_WRITES.contains(&request.method.as_str()) {
+    let closes_an_ask = request.params.get("asked").is_some();
+    if !TOOL_WRITES.contains(&request.method.as_str()) || closes_an_ask {
         return None;
     }
     let folder = crate::server::caller::project_of(core, request);

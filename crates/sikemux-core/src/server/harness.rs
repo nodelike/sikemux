@@ -559,10 +559,10 @@ pub(crate) async fn record_write(
     request: &HarnessRequest,
 ) -> Result<Value, String> {
     match request.method.as_str() {
-        "board.add" => board::add(core, request).await,
-        "board.claim" => board::claim(core, request).await,
-        "board.update" => board::update(core, request).await,
-        "board.decide" => board::goal::tool(core, request).await,
+        "task.add" => board::add(core, request).await,
+        "task.claim" => board::claim(core, request).await,
+        "task.update" => board::update(core, request).await,
+        "decision.keep" => board::goal::tool(core, request).await,
         method => Err(format!("{method} does not write a project's board")),
     }
 }
