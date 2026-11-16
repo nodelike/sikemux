@@ -279,7 +279,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn interactive_command_reads_zshrc_and_preserves_literal_arguments() {
-        use portable_pty::{NativePtySystem, PtySize, PtySystem};
+        use portable_pty::PtySize;
         use std::io::Read;
 
         let root = tempfile::tempdir().unwrap();
@@ -299,14 +299,13 @@ mod tests {
             },
             None,
         );
-        let pair = NativePtySystem::default()
-            .openpty(PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .unwrap();
+        let pair = crate::master::open_pty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
         let mut reader = pair.master.try_clone_reader().unwrap();
         let mut child = pair.slave.spawn_command(command).unwrap();
         drop(pair.slave);

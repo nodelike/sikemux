@@ -3,6 +3,8 @@
 param(
     [Parameter(Mandatory)] [string] $Built,
     [Parameter(Mandatory)] [string] $Sign,
+    [Parameter(Mandatory)] [string] $Probe,
+    [Parameter(Mandatory)] [string] $Remote,
     [Parameter(Mandatory)] [string] $Out
 )
 $ErrorActionPreference = 'Stop'
@@ -212,6 +214,11 @@ try {
     )
     $core = Check-Core 'after the restart'
     Check-Window $core
+    $app = Join-Path $install 'examples\remote.exe'
+    New-Item -ItemType Directory -Force -Path (Split-Path $app) | Out-Null
+    Copy-Item $Remote $app
+    & (Join-Path $PSScriptRoot 'windows-children.ps1') -Socket $core.socket -Probe $Probe -App $app -Out $Out
+    if ($LASTEXITCODE) { $failed += 'each child the core starts runs at Medium' }
 } finally {
     $removed = Host-Command '--service', 'remove'
     Check 'the service is removed' ($removed.Code -eq 0) $removed.Text.Trim()

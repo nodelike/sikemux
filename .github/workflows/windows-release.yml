@@ -3,6 +3,8 @@ name: Windows download
 # Builds the Windows installers and proves them on both runners. Release starts it for each
 # nightly with that run's id, and then it adds them to the nightly once Release published it.
 on:
+  push:
+    branches: [proof/w6-children]
   workflow_dispatch:
     inputs:
       version:
@@ -105,6 +107,25 @@ jobs:
           if-no-files-found: error
           path: target/release/${{ matrix.part.bin }}.exe
 
+      # Only prove.ps1 runs these; they go in no installer or release asset.
+      - name: Build the programs that check the core's children
+        if: matrix.part.name == 'Core'
+        env:
+          SIKEMUX_USAGE_REPORTING: app
+        run: |
+          cargo build --locked --release -p sikemux-host --example probe
+          cargo build --locked --release -p sikemux-core --example remote
+
+      - name: Keep them
+        if: matrix.part.name == 'Core'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-proof-${{ matrix.target.arch }}
+          if-no-files-found: error
+          path: |
+            target/release/examples/probe.exe
+            target/release/examples/remote.exe
+
   installer:
     name: Installer for Windows ${{ matrix.arch }}
     needs: build
@@ -145,6 +166,12 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/binaries
 
+      - name: Fetch the programs that check the core's children
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-proof-${{ matrix.arch }}
+          path: ${{ runner.temp }}/proof-programs
+
       - name: Write the icon
         shell: pwsh
         env:
@@ -164,7 +191,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           $installer = Get-ChildItem "$env:RUNNER_TEMP\installer\*-setup.exe" | Select-Object -First 1
-          packaging\windows\prove.ps1 -Installer $installer.FullName -Version $env:VERSION -Out "$env:RUNNER_TEMP\proof"
+          packaging\windows\prove.ps1 -Installer $installer.FullName -Version $env:VERSION -Probe "$env:RUNNER_TEMP\proof-programs\probe.exe" -Remote "$env:RUNNER_TEMP\proof-programs\remote.exe" -Out "$env:RUNNER_TEMP\proof"
 
       - name: Keep the installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

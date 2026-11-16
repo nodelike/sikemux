@@ -1,4 +1,8 @@
+disallowed-types = [
+    { path = "portable_pty::NativePtySystem", reason = "use sikemux_pty::master::open_pty, whose Windows terminals start through the core's own command" },
+]
 disallowed-methods = [
+    { path = "portable_pty::native_pty_system", reason = "use sikemux_pty::master::open_pty, whose Windows terminals start through the core's own command" },
     { path = "std::process::Command::new", reason = "use sikemux_process::user_environment::command, so the child gets the user's PATH" },
     { path = "tokio::process::Command::new", reason = "use sikemux_process::user_environment::command(..).into_async(), so the child gets the user's PATH" },
     { path = "sikemux_process::command::Command::new", reason = "use sikemux_process::user_environment::command, so the child gets the user's PATH" },

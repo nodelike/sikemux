@@ -8,6 +8,13 @@ use tokio::io::unix::AsyncFd;
 use super::Read;
 use crate::process::Terminal;
 
+/// A new terminal.
+pub fn open_pty(size: portable_pty::PtySize) -> std::io::Result<portable_pty::PtyPair> {
+    #[allow(clippy::disallowed_types)]
+    let system = portable_pty::NativePtySystem::default();
+    portable_pty::PtySystem::openpty(&system, size).map_err(std::io::Error::other)
+}
+
 /// One descriptor serves both directions, read and written as soon as it is ready.
 pub struct Master {
     io: AsyncFd<File>,
@@ -111,18 +118,17 @@ mod tests {
     // before printing, so a hangup on drop would end the read before the marker arrives.
     #[test]
     fn lone_master_dup_keeps_child_alive_after_masterpty_drop() {
-        use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+        use portable_pty::{CommandBuilder, PtySize};
         use std::io::Read;
         use std::os::fd::FromRawFd;
 
-        let pair = NativePtySystem::default()
-            .openpty(PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .expect("openpty");
+        let pair = super::open_pty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .expect("openpty");
         let mut cmd = CommandBuilder::new("/bin/sh");
         cmd.arg("-c");
         cmd.arg("sleep 0.2; printf MARKER");

@@ -1,11 +1,18 @@
-use std::io::{Read as _, Write};
+use std::io::{PipeReader, PipeWriter, Read as _, Write};
+use std::os::windows::io::{AsHandle, AsRawHandle, OwnedHandle, RawHandle};
 use std::sync::{Arc, Mutex};
 
-use portable_pty::{MasterPty, PtySize};
+use portable_pty::{
+    Child, ChildKiller, CommandBuilder, ExitStatus, MasterPty, PtyPair, PtySize, SlavePty,
+};
 use tokio::sync::{mpsc, oneshot};
 use windows_sys::Win32::Foundation::{CloseHandle, WAIT_FAILED};
+use windows_sys::Win32::System::Console::{
+    ClosePseudoConsole, CreatePseudoConsole, ResizePseudoConsole, COORD, HPCON,
+    PSEUDOCONSOLE_INHERIT_CURSOR,
+};
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
+    OpenProcess, TerminateProcess, WaitForSingleObject, INFINITE, PROCESS_SYNCHRONIZE,
 };
 
 use super::Read;
@@ -144,5 +151,202 @@ fn wait_for_exit(program: u32) {
             return;
         }
         CloseHandle(process);
+    }
+}
+
+// Flags Windows Terminal passes that Windows does not document; portable-pty passed them too.
+const PSEUDOCONSOLE_RESIZE_QUIRK: u32 = 0x2;
+const PSEUDOCONSOLE_WIN32_INPUT_MODE: u32 = 0x4;
+
+/// A new pseudoconsole. Its program starts through the core's own command, so it gets the
+/// token every child of the core starts on.
+pub fn open_pty(size: PtySize) -> std::io::Result<PtyPair> {
+    let (console_input, input) = std::io::pipe()?;
+    let (output, console_output) = std::io::pipe()?;
+    let mut console: HPCON = 0;
+    // SAFETY: both pipe ends are open for the call, and the pseudoconsole keeps copies of its own.
+    let result = unsafe {
+        CreatePseudoConsole(
+            coord(size),
+            console_input.as_raw_handle(),
+            console_output.as_raw_handle(),
+            PSEUDOCONSOLE_INHERIT_CURSOR
+                | PSEUDOCONSOLE_RESIZE_QUIRK
+                | PSEUDOCONSOLE_WIN32_INPUT_MODE,
+            &mut console,
+        )
+    };
+    if result < 0 {
+        return Err(std::io::Error::other(format!(
+            "CreatePseudoConsole failed: HRESULT {result:#x}"
+        )));
+    }
+    let shared = Arc::new(Pseudoconsole {
+        console: Console(console),
+        output,
+        input: Mutex::new(Some(input)),
+        size: Mutex::new(size),
+    });
+    Ok(PtyPair {
+        slave: Box::new(ConsoleSlave(shared.clone())),
+        master: Box::new(ConsoleMaster(shared)),
+    })
+}
+
+fn coord(size: PtySize) -> COORD {
+    COORD {
+        X: size.cols as i16,
+        Y: size.rows as i16,
+    }
+}
+
+struct Console(HPCON);
+
+impl Drop for Console {
+    fn drop(&mut self) {
+        // SAFETY: the pseudoconsole was created open and is closed only here.
+        unsafe { ClosePseudoConsole(self.0) };
+    }
+}
+
+struct Pseudoconsole {
+    console: Console,
+    output: PipeReader,
+    input: Mutex<Option<PipeWriter>>,
+    size: Mutex<PtySize>,
+}
+
+struct ConsoleMaster(Arc<Pseudoconsole>);
+
+impl MasterPty for ConsoleMaster {
+    fn resize(&self, size: PtySize) -> anyhow::Result<()> {
+        // SAFETY: the pseudoconsole stays open while `self` holds it.
+        let result = unsafe { ResizePseudoConsole(self.0.console.0, coord(size)) };
+        anyhow::ensure!(
+            result >= 0,
+            "ResizePseudoConsole failed: HRESULT {result:#x}"
+        );
+        *self
+            .0
+            .size
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = size;
+        Ok(())
+    }
+
+    fn get_size(&self) -> anyhow::Result<PtySize> {
+        Ok(*self
+            .0
+            .size
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()))
+    }
+
+    fn try_clone_reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
+        Ok(Box::new(self.0.output.try_clone()?))
+    }
+
+    fn take_writer(&self) -> anyhow::Result<Box<dyn std::io::Write + Send>> {
+        let writer = self
+            .0
+            .input
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("pseudoconsole writer already taken"))?;
+        Ok(Box::new(writer))
+    }
+}
+
+struct ConsoleSlave(Arc<Pseudoconsole>);
+
+impl SlavePty for ConsoleSlave {
+    fn spawn_command(&self, built: CommandBuilder) -> anyhow::Result<Box<dyn Child + Send + Sync>> {
+        let mut command = command(&built)?;
+        command.pseudoconsole(self.0.console.0);
+        Ok(Box::new(ConsoleChild(command.spawn()?)))
+    }
+}
+
+/// `built` as the core's own command. The variables it set are set again, and the ones it
+/// dropped from this process's are removed, on top of what the seam starts every child with.
+fn command(built: &CommandBuilder) -> anyhow::Result<sikemux_process::command::Command> {
+    let [program, args @ ..] = built.get_argv().as_slice() else {
+        anyhow::bail!("a pseudoconsole needs a program to start");
+    };
+    #[allow(clippy::disallowed_methods)]
+    let mut command = sikemux_process::command::Command::new(program);
+    command.args(args);
+    if let Some(dir) = built.get_cwd() {
+        command.current_dir(dir);
+    }
+    for (key, _) in std::env::vars_os() {
+        if built.get_env(&key).is_none() {
+            command.env_remove(key);
+        }
+    }
+    for (key, value) in built.iter_extra_env_as_str() {
+        command.env(key, value);
+    }
+    Ok(command)
+}
+
+struct ConsoleChild(sikemux_process::command::Child);
+
+impl std::fmt::Debug for ConsoleChild {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("ConsoleChild").field(&self.0.id()).finish()
+    }
+}
+
+impl Child for ConsoleChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<ExitStatus>> {
+        Ok(self.0.try_wait()?.map(ExitStatus::from))
+    }
+
+    fn wait(&mut self) -> std::io::Result<ExitStatus> {
+        Ok(self.0.wait()?.into())
+    }
+
+    fn process_id(&self) -> Option<u32> {
+        Some(self.0.id())
+    }
+
+    fn as_raw_handle(&self) -> Option<RawHandle> {
+        Some(self.0.as_raw_handle())
+    }
+}
+
+impl ChildKiller for ConsoleChild {
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.0.kill()
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(Killer(self.0.as_handle().try_clone_to_owned().ok()))
+    }
+}
+
+#[derive(Debug)]
+struct Killer(Option<OwnedHandle>);
+
+impl ChildKiller for Killer {
+    fn kill(&mut self) -> std::io::Result<()> {
+        let Some(process) = &self.0 else {
+            return Err(std::io::Error::other(
+                "the program's handle could not be copied",
+            ));
+        };
+        // SAFETY: the handle is a copy this killer owns, open until it drops.
+        if unsafe { TerminateProcess(process.as_raw_handle(), 1) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(Killer(
+            self.0.as_ref().and_then(|process| process.try_clone().ok()),
+        ))
     }
 }

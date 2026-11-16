@@ -25,7 +25,7 @@ use super::access::Peer;
 use crate::host_update;
 
 /// The window's executable, beside the core's own in a build.
-const APP: &str = sikemux_process::names::APP_PROGRAM;
+const APP: &str = sikemux_process::names::APP_EXECUTABLE;
 const BUNDLED_APP: &str = "Contents/MacOS/sikemux";
 pub const BUNDLED_NOTCH: &str = "Contents/Helpers/Sikemux Notch.app";
 pub const NOTCH_EXECUTABLE: &str = "Contents/MacOS/sikemux-notch";
