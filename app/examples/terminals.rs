@@ -12,6 +12,7 @@
 
 mod common;
 
+use anyhow::Context as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -127,6 +128,10 @@ impl Run {
 
     fn key(&mut self, key: &str) {
         let os = self.cx.update(|cx| cx.platform_info().os);
+        #[expect(
+            clippy::expect_used,
+            reason = "the bench presses only keys it names itself"
+        )]
         let keystroke = Keystroke::parse_with_os(key, os).expect("a keystroke");
         self.cx
             .update_window(self.window, |_, window, cx| {
@@ -152,10 +157,9 @@ impl Run {
                 .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
                 .ok();
             latencies.push(began.elapsed().as_secs_f64() * 1e3);
-            if latencies.len() >= 3
-                && latencies[latencies.len() - 3..]
-                    .iter()
-                    .all(|latency| *latency >= 1000.)
+            if latencies
+                .last_chunk::<3>()
+                .is_some_and(|last| last.iter().all(|latency| *latency >= 1000.))
             {
                 eprintln!("three keys went unanswered: GPUI's test scheduler lost the window's wake-up; run again");
                 std::process::exit(3);
@@ -259,7 +263,11 @@ impl Run {
     }
 }
 
-fn spawn(runtime: &tokio::runtime::Runtime, client: &CoreClient, script: &str) -> SessionId {
+fn spawn(
+    runtime: &tokio::runtime::Runtime,
+    client: &CoreClient,
+    script: &str,
+) -> anyhow::Result<SessionId> {
     let target = SpawnTarget::Terminal(TerminalSpawn {
         cols: 120,
         rows: 40,
@@ -273,10 +281,11 @@ fn spawn(runtime: &tokio::runtime::Runtime, client: &CoreClient, script: &str) -
     };
     runtime
         .block_on(client.spawn(launch, target))
-        .expect("a terminal starts")
+        .map_err(anyhow::Error::msg)
+        .context("a terminal starts")
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     core::search_path_only_for_own_core();
     let Ok(socket) = std::env::var(sikemux_corekit::SOCKET_ENV) else {
         eprintln!(
@@ -289,7 +298,7 @@ fn main() {
         .unwrap_or_else(|| "/tmp/termbench/buildlog-crlf.txt".into());
     let shots = std::env::args().nth(2).map(PathBuf::from);
     let link = core::start(core::Home::of(sikemux_buildinfo::identity()));
-    let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+    let runtime = tokio::runtime::Runtime::new().context("tokio runtime")?;
     let started = Instant::now();
     let client = loop {
         match runtime.block_on(CoreClient::connect(std::path::Path::new(&socket))) {
@@ -297,17 +306,19 @@ fn main() {
             Err(_) if started.elapsed() < Duration::from_secs(20) => {
                 std::thread::sleep(Duration::from_millis(200))
             }
-            Err(error) => panic!("no core answers at {socket}: {error}"),
+            Err(error) => anyhow::bail!("no core answers at {socket}: {error}"),
         }
     };
-    let typist = spawn(&runtime, &client, "stty -icanon; exec cat");
+    let typist = spawn(&runtime, &client, "stty -icanon; exec cat")?;
     let flood = format!("while :; do cat '{log}'; done");
-    let floods: Vec<SessionId> = (0..4).map(|_| spawn(&runtime, &client, &flood)).collect();
+    let floods: Vec<SessionId> = (0..4)
+        .map(|_| spawn(&runtime, &client, &flood))
+        .collect::<anyhow::Result<_>>()?;
     let history = spawn(
         &runtime,
         &client,
         "seq 1 20000; echo 'docs live at https://sikemux.com/docs/terminal.'; exec cat",
-    );
+    )?;
 
     let mut cx = HeadlessAppContext::with_platform(
         gpui_platform::bench_text_system(),
@@ -345,9 +356,9 @@ fn main() {
                 },
             )
         })
-        .expect("window opens")
+        .context("window opens")?
         .into();
-    let (bench, panes) = parts.expect("window parts");
+    let (bench, panes) = parts.context("window parts")?;
     cx.update_window(window, |_, window, _| window.activate_window())
         .ok();
     let mut run = Run {
@@ -373,19 +384,17 @@ fn main() {
     run.shot(&shots, "typing");
 
     for count in [1, 4] {
+        let flooding = floods.get(..count).unwrap_or_default();
         let mut shown = vec![typist];
-        shown.extend(&floods[..count]);
+        shown.extend(flooding);
         run.show(shown);
-        let before: Vec<u32> = floods[..count]
-            .iter()
-            .map(|id| run.frame_number(*id))
-            .collect();
+        let before: Vec<u32> = flooding.iter().map(|id| run.frame_number(*id)).collect();
         let (began, cpu) = (Instant::now(), thread_cpu_ms());
         for _ in 0..360 {
             run.frame();
         }
         let busy = (thread_cpu_ms() - cpu) / (began.elapsed().as_secs_f64() * 1e3) * 100.;
-        let applied: Vec<u32> = floods[..count]
+        let applied: Vec<u32> = flooding
             .iter()
             .map(|id| run.frame_number(*id))
             .zip(&before)
@@ -447,4 +456,5 @@ fn main() {
     run.shot(&shots, "dracula");
     println!("app peak RSS {:.0} MB", peak_resident_mb());
     drop(client);
+    Ok(())
 }

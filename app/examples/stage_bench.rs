@@ -14,6 +14,7 @@
 
 mod common;
 
+use anyhow::Context as _;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -177,7 +178,7 @@ fn main() -> anyhow::Result<()> {
             },
         )
     })?;
-    let bench = held.take().expect("the workbench");
+    let bench = held.take().context("the workbench")?;
     let mut run = Bench {
         cx,
         window: window.into(),
@@ -244,7 +245,10 @@ fn main() -> anyhow::Result<()> {
             anyhow::bail!("terminal {count} did not open beside the chat");
         }
     }
-    let id = run.bench.read_with(&run.cx, |bench, _| shown(bench)[0]);
+    let id = run
+        .bench
+        .read_with(&run.cx, |bench, _| shown(bench).first().copied())
+        .context("no terminal beside the chat")?;
     run.cx
         .update_window(run.window, |_, window, cx| {
             let focus = run.bench.read(cx).terminals.focus(id).cloned();
@@ -274,7 +278,10 @@ fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|seconds| seconds.parse::<u64>().ok())
     {
-        let echo = run.bench.read_with(&run.cx, |bench, _| shown(bench)[1]);
+        let echo = run
+            .bench
+            .read_with(&run.cx, |bench, _| shown(bench).get(1).copied())
+            .context("no second terminal beside the chat")?;
         run.bench.update(&mut run.cx, |bench, cx| {
             terminal::type_text(bench, id, flood_command(), cx);
         });
@@ -282,7 +289,7 @@ fn main() -> anyhow::Result<()> {
         let agent = run
             .bench
             .read_with(&run.cx, |bench, _| bench.agent().map(|agent| agent.id))
-            .expect("the chat");
+            .context("the chat")?;
         run.cx
             .update_window(run.window, |_, window, cx| {
                 let draft = run
@@ -536,7 +543,7 @@ fn main() -> anyhow::Result<()> {
     let agent = run
         .bench
         .read_with(&run.cx, |bench, _| bench.agent().map(|agent| agent.id))
-        .expect("the chat");
+        .context("the chat")?;
     run.cx
         .update_window(run.window, |_, window, cx| {
             let draft = run

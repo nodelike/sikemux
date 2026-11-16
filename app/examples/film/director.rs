@@ -157,8 +157,8 @@ impl Director {
         }
         let at = (self.recorded as f64 / FPS * 1000.).round() / 1000.;
         let mut event = json!({ "kind": kind, "at": at });
-        if let Some(detail) = detail {
-            event["detail"] = detail;
+        if let (Some(detail), Some(fields)) = (detail, event.as_object_mut()) {
+            fields.insert("detail".to_owned(), detail);
         }
         self.events.push(event);
     }

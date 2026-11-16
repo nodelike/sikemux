@@ -313,17 +313,23 @@ fn main() -> anyhow::Result<()> {
         stand_in,
         calls: Vec::new(),
         update: None,
-        signed_in: args.world["signedIn"]["name"].as_str().map(|name| {
-            sikemux_view::device::AccountInfo {
+        signed_in: args
+            .world
+            .pointer("/signedIn/name")
+            .and_then(Value::as_str)
+            .map(|name| sikemux_view::device::AccountInfo {
                 name: Some(name.into()),
-                email: args.world["signedIn"]["email"].as_str().map(Into::into),
+                email: args
+                    .world
+                    .pointer("/signedIn/email")
+                    .and_then(Value::as_str)
+                    .map(Into::into),
                 picture_hash: None,
                 staff: false,
                 flags: Vec::new(),
                 features: None,
                 pro_given: false,
-            }
-        }),
+            }),
         compositor,
         output: (output_width, output_height),
         sink,

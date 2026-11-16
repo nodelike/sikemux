@@ -53,8 +53,10 @@ impl World {
                 bin.display()
             ),
         )?;
-        let ssh: String = args.world["sshHosts"]
-            .as_array()
+        let ssh: String = args
+            .world
+            .get("sshHosts")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|host| {
@@ -75,7 +77,7 @@ impl World {
         )?;
         std::fs::write(
             claude.join("fake-usage.json"),
-            usage(&args.world["account"]["usage"]).to_string(),
+            usage(args.world.pointer("/account/usage").unwrap_or(&Value::Null)).to_string(),
         )?;
         let socket = work.join("core.sock");
         let _ = std::fs::remove_file(&socket);
@@ -132,7 +134,7 @@ impl World {
         };
         let profile = json!({
             "id": "builtin-claude", "provider": "claude", "accent": "#d97757",
-            "name": args.world["account"]["name"].as_str().unwrap_or("Claude"),
+            "name": args.world.pointer("/account/name").and_then(Value::as_str).unwrap_or("Claude"),
             "executablePath": args.claude, "configPath": claude,
         });
         runtime.block_on(client.call("setAgentAccounts", json!({ "profiles": [profile] })))?;
@@ -145,7 +147,7 @@ impl World {
             ("onboardingComplete".to_owned(), json!(true)),
             ("lastSeenVersion".to_owned(), json!(version)),
         ];
-        if let Some(kept) = args.world["preferences"].as_object() {
+        if let Some(kept) = args.world.get("preferences").and_then(Value::as_object) {
             preferences.extend(
                 kept.iter()
                     .map(|(key, value)| (key.clone(), expand_home(value))),
@@ -157,8 +159,8 @@ impl World {
         {
             runtime.block_on(client.call(method, params))?;
         }
-        if args.world["faceStyle"].is_object() {
-            runtime.block_on(client.call("setFaceStyle", args.world["faceStyle"].clone()))?;
+        if let Some(face) = args.world.get("faceStyle").filter(|face| face.is_object()) {
+            runtime.block_on(client.call("setFaceStyle", face.clone()))?;
         }
         Ok(Self {
             core,
@@ -346,7 +348,9 @@ impl World {
             };
             let mut patch = json!({ "title": agent["title"], "renamed": true });
             if let Some(lead) = agent["lead"].as_str().and_then(|lead| named.get(lead)) {
-                patch["lead"] = json!(lead);
+                if let Some(fields) = patch.as_object_mut() {
+                    fields.insert("lead".to_owned(), json!(lead));
+                }
             }
             self.call("updateAgent", json!({ "agentId": chat, "patch": patch }))?;
         }
@@ -594,7 +598,12 @@ impl World {
             "prefer" => {
                 let key = step.text(0)?;
                 let value = match step.text(1) {
-                    Err(_) => expand_home(&self.world["preferences"][key]),
+                    Err(_) => expand_home(
+                        self.world
+                            .get("preferences")
+                            .and_then(|preferences| preferences.get(key))
+                            .unwrap_or(&Value::Null),
+                    ),
                     Ok("null") => Value::Null,
                     Ok(text) => serde_json::from_str(text).unwrap_or_else(|_| json!(text)),
                 };
@@ -638,7 +647,9 @@ impl World {
                     .replace("$chat", self.chat.as_deref().unwrap_or_default())
                     .replace("$checkout", self.checkout.as_deref().unwrap_or_default());
                 let answer = self.call(step.text(0)?, serde_json::from_str(&params)?)?;
-                if let (Ok("openChief"), Some(chief)) = (step.text(0), answer["agentId"].as_str()) {
+                if let (Ok("openChief"), Some(chief)) =
+                    (step.text(0), answer.get("agentId").and_then(Value::as_str))
+                {
                     self.named.insert("Chief".to_owned(), chief.to_owned());
                 }
                 if let Some(folder) = answer.pointer("/worktree/path").and_then(Value::as_str) {
@@ -664,6 +675,10 @@ pub(super) fn session_id(seed: usize) -> String {
 }
 
 /// Claude's usage answer, with each window's `resetsInMinutes` turned into when it resets.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "indexing adds a missing rate_limits key as null, which the fake usage file keeps"
+)]
 pub(super) fn usage(world: &Value) -> Value {
     let mut usage = world.clone();
     let now = std::time::SystemTime::now()

@@ -24,6 +24,7 @@
 
 mod common;
 
+use anyhow::Context as _;
 use sikemux_wire::protocol::ask;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -139,6 +140,10 @@ struct Driver {
 }
 
 impl Driver {
+    #[expect(
+        clippy::panic,
+        reason = "the stress run cannot go on once the core refuses a call"
+    )]
     fn call(&self, method: &str, params: Value) -> Value {
         self.runtime
             .block_on(self.client.call(method, params))
@@ -158,6 +163,10 @@ impl Driver {
         );
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "the stress run needs every chat it starts"
+    )]
     fn chat(&self) -> String {
         let (chat, _) = self
             .runtime
@@ -218,6 +227,10 @@ impl Driver {
         });
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "the stress run needs every terminal it starts"
+    )]
     fn terminal(&self, script: &str) -> String {
         let target = SpawnTarget::Terminal(TerminalSpawn {
             cols: 120,
@@ -326,6 +339,10 @@ impl Run {
     /// Presses `key`, typing its letter as the platform would when it types one.
     fn key(&mut self, key: &str) {
         let os = self.cx.update(|cx| cx.platform_info().os);
+        #[expect(
+            clippy::expect_used,
+            reason = "the run presses only keys it names itself"
+        )]
         let mut keystroke = Keystroke::parse_with_os(key, os).expect("a keystroke");
         if keystroke.key_char.is_none() && !keystroke.modifiers.modified() {
             keystroke.key_char = match keystroke.key.as_str() {
@@ -573,7 +590,9 @@ fn agents(run: &mut Run, driver: &Arc<Driver>, minutes: Option<f64>) {
         let (driver, chats) = (driver.clone(), chats);
         run.measure(30., move |_, index| {
             if index % 360 == 0 {
-                driver.front(&chats[(index / 360) % chats.len()], "agent");
+                if let Some(chat) = chats.get((index / 360) % chats.len()) {
+                    driver.front(chat, "agent");
+                }
             }
         })
     };
@@ -801,14 +820,17 @@ fn scale(run: &mut Run, driver: &Arc<Driver>, terminals: bool) {
         run.frames(240);
         let idle = run.steps(240, |_, _| {});
         let idle_typing = run.typing(60).unwrap_or_default();
-        while busy < 10.min(opened.len()) {
+        while busy < 10 {
+            let Some(target) = opened.get(busy) else {
+                break;
+            };
             if terminals {
                 let flood = b"while :; do cat /usr/share/dict/words; done\r";
-                if let Ok(id) = opened[busy].parse() {
+                if let Ok(id) = target.parse() {
                     driver.runtime.block_on(driver.client.write(id, flood)).ok();
                 }
             } else {
-                driver.keep_busy(opened[busy].clone(), 2_500, stop.clone());
+                driver.keep_busy(target.clone(), 2_500, stop.clone());
             }
             busy += 1;
         }
@@ -851,8 +873,8 @@ fn replay_heard(log: &Path, session: &str, after: u64) -> Option<u64> {
         .ok()?
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .filter(|line| line["session"] == session)
-        .filter_map(|line| line["t_ns"].as_f64().map(|t| t as u64))
+        .filter(|line| line.get("session").and_then(Value::as_str) == Some(session))
+        .filter_map(|line| line.get("t_ns")?.as_f64().map(|t| t as u64))
         .find(|t| *t > after)
 }
 
@@ -947,6 +969,10 @@ fn ademark_a4(run: &mut Run, log: &Path) {
 /// and A11 a chat of 2,000 items opened, scrolled and switched to. `ADEMARK_ONLY_A4` stops
 /// after A4.
 fn ademark(run: &mut Run, driver: &Arc<Driver>) {
+    #[expect(
+        clippy::expect_used,
+        reason = "the ADEMark run has no replay server to time without its log"
+    )]
     let log = PathBuf::from(std::env::var("ADEMARK_REPLAY_LOG").expect("ADEMARK_REPLAY_LOG"));
     let first = driver.chat();
     run.until(30, |run| run.front_chat().is_some());
@@ -1060,7 +1086,7 @@ fn soak(run: &mut Run, minutes: f64) {
         let measured = run.measure(10., |_, _| {});
         frames.extend(measured.frames);
     }
-    let half = &samples[samples.len() / 2..];
+    let half = samples.get(samples.len() / 2..).unwrap_or_default();
     let (low, high) = half.iter().fold((f64::MAX, 0f64), |(low, high), mb| {
         (low.min(*mb), high.max(*mb))
     });
@@ -1151,13 +1177,14 @@ fn windowed(run: &mut Run, driver: &Arc<Driver>) {
         };
         steps += 1;
         hits.extend(
-            answer["hits"]
-                .as_array()
+            answer
+                .get("hits")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
                 .filter_map(|hit| hit["row"].as_str().map(str::to_owned)),
         );
-        from = answer["next"].clone();
+        from = answer.get("next").cloned().unwrap_or(Value::Null);
         if !hits.is_empty() || from.is_null() || steps == 500 {
             break;
         }
@@ -1432,8 +1459,10 @@ fn repo(run: &mut Run, driver: &Arc<Driver>) {
     run.frames(20);
     let finder = run.measure(10., |run, index| {
         let typed = ["m", "o", "d", "4", "2", "backspace", "7"];
-        if index % 20 == 0 && index / 20 < typed.len() {
-            run.key(typed[index / 20]);
+        if index % 20 == 0 {
+            if let Some(key) = typed.get(index / 20) {
+                run.key(key);
+            }
         }
     });
     println!("{}", finder.line("typing in the file finder"));
@@ -1617,7 +1646,7 @@ fn main() -> anyhow::Result<()> {
             },
         )
     })?;
-    let bench = held.take().expect("the workbench");
+    let bench = held.take().context("the workbench")?;
     cx.update_window(window.into(), |_, window, _| window.activate_window())
         .ok();
     let mut run = Run {

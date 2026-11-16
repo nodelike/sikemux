@@ -61,8 +61,9 @@ async fn run() -> anyhow::Result<()> {
         .map_or("tmp".into(), |name| name.to_string_lossy().into_owned());
     let project = json!({ "id": name, "name": name, "path": folder });
     let added = client.call("addProject", project).await?;
-    let name = added["id"]
-        .as_str()
+    let name = added
+        .get("id")
+        .and_then(serde_json::Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("the core named no project"))?
         .to_owned();
     let (chat, _) = client

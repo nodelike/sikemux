@@ -14,6 +14,7 @@
 //! `frames` times on the headless renderer, waiting for each frame to be read back, and prints
 //! each kind's mean and p95 milliseconds per frame over the empty pane's.
 
+use anyhow::Context as _;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -106,10 +107,12 @@ impl Render for Bench {
 /// The number after `key`, looking from where `section` first appears.
 fn after(words: &[&str], section: &str, key: &str) -> f64 {
     let from = words.iter().position(|word| *word == section).unwrap_or(0);
-    words[from..]
+    words
+        .get(from..)
+        .unwrap_or_default()
         .windows(2)
-        .find(|pair| pair[0] == key)
-        .and_then(|pair| pair[1].parse().ok())
+        .find(|pair| matches!(pair, [word, _] if *word == key))
+        .and_then(|pair| pair.last()?.parse().ok())
         .unwrap_or(0.)
 }
 
@@ -120,12 +123,17 @@ fn summary(stats: &str) -> Option<String> {
         .filter(|line| line.starts_with("S "))
         .map(|line| line.split_whitespace().collect())
         .collect();
-    let time = |words: &Vec<&str>| words[1].parse::<f64>().unwrap_or(0.);
+    let time = |words: &Vec<&str>| {
+        words
+            .get(1)
+            .and_then(|word| word.parse::<f64>().ok())
+            .unwrap_or(0.)
+    };
     let start = seconds
         .iter()
         .position(|words| time(words) >= WARM_UP_SECONDS)?;
-    let counted = &seconds[start + 1..];
-    let span = time(seconds.last()?) - time(&seconds[start]);
+    let (first, counted) = seconds.get(start..)?.split_first()?;
+    let span = time(seconds.last()?) - time(first);
     if counted.is_empty() || span <= 0. {
         return None;
     }
@@ -246,7 +254,9 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
         }
         took.sort_by(f64::total_cmp);
         let mean = took.iter().sum::<f64>() / took.len() as f64;
-        let p95 = took[took.len() * 95 / 100];
+        let p95 = *took
+            .get(took.len() * 95 / 100)
+            .context("no frames were timed")?;
         if kind.is_none() {
             empty = mean;
         }
@@ -259,21 +269,20 @@ fn offscreen(frames: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     if std::env::args().nth(1).as_deref() == Some("offscreen") {
         let frames = std::env::args()
             .nth(2)
             .and_then(|frames| frames.parse().ok())
             .unwrap_or(300);
-        offscreen(frames).expect("the frames draw offscreen");
-        return;
+        return offscreen(frames).context("the frames draw offscreen");
     }
     let mode = match args.next().as_deref() {
         None | Some("stream") => Mode::Stream,
         Some("moving") => Mode::Moving,
         Some("still") => Mode::Still,
-        Some(other) => panic!("no mode {other}: stream, moving or still"),
+        Some(other) => anyhow::bail!("no mode {other}: stream, moving or still"),
     };
     let seconds: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(20);
     let kind = match args.next().as_deref() {
@@ -281,7 +290,7 @@ fn main() {
         Some("gradient") => BackdropKind::Gradient,
         Some("stars") => BackdropKind::Stars,
         Some("grid") => BackdropKind::Grid,
-        Some(other) => panic!("no kind {other}: grain, gradient, stars or grid"),
+        Some(other) => anyhow::bail!("no kind {other}: grain, gradient, stars or grid"),
     };
     let look = ThemeBackdrop {
         kind,
@@ -311,6 +320,10 @@ fn main() {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             ..Default::default()
         };
+        #[expect(
+            clippy::expect_used,
+            reason = "the bench has nothing to measure without its window"
+        )]
         let (handle, bench) = gpui_kit::open_window(options, cx, |_, cx| {
             cx.new(|_| {
                 let mut bench = Bench {
@@ -351,6 +364,7 @@ fn main() {
         })
         .detach();
     });
+    Ok(())
 }
 
 /// Prints the run's means. Quitting ends the process, so this runs before it.
