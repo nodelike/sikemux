@@ -86,7 +86,10 @@ export async function vaultState(
   return { vault: state };
 }
 
-/** Uses of the account's entries, or of the one entry asked for, in the last 30 days, most recent first. */
+/**
+ * Uses of the account's entries, or of the one entry asked for, in the last 30 days: one row for
+ * each entry, host and agent, most recent first.
+ */
 export async function vaultUses(
   db: Kysely<Tables>,
   userId: string,
@@ -99,23 +102,29 @@ export async function vaultUses(
         .onRef("devices.key", "=", "vault_uses.host_key")
         .onRef("devices.user_id", "=", "vault_uses.user_id"),
     )
-    .select([
+    .select((eb) => [
       "vault_uses.entry_id",
       "vault_uses.plugin",
       "vault_uses.host_key",
       "devices.name",
       "vault_uses.actor",
-      "vault_uses.count",
-      "vault_uses.first_at",
-      "vault_uses.last_at",
+      sql<number>`sum(vault_uses.count)::int`.as("count"),
+      eb.fn.min("vault_uses.first_at").as("first_at"),
+      eb.fn.max("vault_uses.last_at").as("last_at"),
     ])
     .where("vault_uses.user_id", "=", userId)
     .where("vault_uses.last_at", ">", sql<Date>`now() - interval '30 days'`);
   if (entry !== undefined)
     query = query.where("vault_uses.entry_id", "=", entry);
   const rows = await query
-    .orderBy("vault_uses.last_at", "desc")
-    .orderBy("vault_uses.id", "desc")
+    .groupBy([
+      "vault_uses.entry_id",
+      "vault_uses.plugin",
+      "vault_uses.host_key",
+      "devices.name",
+      "vault_uses.actor",
+    ])
+    .orderBy("last_at", "desc")
     .limit(500)
     .execute();
   return {
