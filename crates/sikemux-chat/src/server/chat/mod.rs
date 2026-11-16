@@ -1115,7 +1115,7 @@ impl Chat {
         let ask = match (whose.person, self.core.upgrade()) {
             (true, Some(core)) => {
                 let filed = context.iter().find_map(ChatContext::reply_on);
-                (core.chat_above().now_person_asked)(&core, self.agent_id(), text, filed)
+                (core.chat_above().now_person_asked)(&core, self.agent_id(), text, paths, filed)
             }
             _ => None,
         };

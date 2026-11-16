@@ -11,6 +11,7 @@ use crate::server::chat_state::ChatParts;
 use crate::server::chief;
 use crate::text::clipped_line;
 use serde_json::{json, Value};
+use sikemux_markdown::paths::is_image_path;
 use sikemux_view::goals::{AgentDesk, DeskPage};
 use std::collections::BTreeMap;
 
@@ -31,6 +32,8 @@ pub(super) struct Ask {
     /// The workspace project, by id.
     project: String,
     title: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    images: Vec<String>,
     at: u64,
     /// The agent the person sent it to.
     to: String,
@@ -117,23 +120,36 @@ fn change(core: &Core, change: impl FnOnce(&mut Vec<Ask>, &mut u64) -> bool) {
     }
 }
 
-/// The person sent `text` to `agent`, as a reply on the ask `filed`
+/// The person sent `text` to `agent`, with the files at `paths`, as a reply on the ask `filed`
 /// when it names one. The ask it is, by number.
-pub(crate) fn asked(core: &Core, agent: &str, text: &str, filed: Option<u64>) -> Option<u64> {
+pub(crate) fn asked(
+    core: &Core,
+    agent: &str,
+    text: &str,
+    paths: &[String],
+    filed: Option<u64>,
+) -> Option<u64> {
     if filed.is_some() {
         return filed;
     }
     let title = clipped_line(text, TITLE_CHARS);
-    if title.is_empty() {
-        return None;
-    }
-    let project = core.workspaces().agent(agent)?.project;
+    let images: Vec<String> = (paths.iter())
+        .filter(|path| is_image_path(path))
+        .cloned()
+        .collect();
+    let project = (!title.is_empty() || !images.is_empty())
+        .then(|| core.workspaces().agent(agent))
+        .flatten()
+        .map(|agent| agent.project)?;
     let at = epoch_ms();
     let before = stood(core, agent);
     let mut id = None;
     change(core, |asks, next| {
         let again = asks.iter().find(|ask| {
-            ask.to == agent && ask.title == title && at.saturating_sub(ask.at) < SAME_ASK_MS
+            ask.to == agent
+                && ask.title == title
+                && ask.images == images
+                && at.saturating_sub(ask.at) < SAME_ASK_MS
         });
         if let Some(again) = again {
             id = Some(again.id);
@@ -145,6 +161,7 @@ pub(crate) fn asked(core: &Core, agent: &str, text: &str, filed: Option<u64>) ->
             id: *next,
             project,
             title,
+            images,
             at,
             to: agent.to_owned(),
             to_before: before,
@@ -444,6 +461,7 @@ pub(super) fn of_project(asks: &[Ask], project: &str, at: u64) -> Vec<NowAsk> {
                 title: ask.title.clone(),
                 stand,
                 since,
+                images: ask.images.clone(),
                 to: ask.to.clone(),
                 at: ask.at,
                 pages: ask.pages.clone(),

@@ -37,7 +37,7 @@ type AccountWithRoom = fn(&Core, &str, &ChatLaunch, &dyn Fn(&str) -> bool) -> Op
 type ShipHeldFor = fn(Arc<Core>, String, String, BTreeMap<String, String>, PathBuf) -> ShipHeld;
 
 /// The agent, the person's words and files, and the ask they reply on, to the ask they are.
-pub type PersonAsked = fn(&Core, &str, &str, Option<u64>) -> Option<u64>;
+pub type PersonAsked = fn(&Core, &str, &str, &[String], Option<u64>) -> Option<u64>;
 
 pub struct ChatAbove {
     /// Starts the agent's chat again on what it saved, waiting for the person or not.
