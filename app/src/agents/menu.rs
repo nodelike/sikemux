@@ -399,7 +399,7 @@ impl AgentMenu {
                     .icon(Icon::Trash)
                     .on_click(move |_, window, cx| {
                         let _ = bench.update(cx, |bench, cx| {
-                            bench.remove_worktree(&removed, false, window, cx)
+                            bench.remove_worktree(&removed, window, cx)
                         });
                     }),
             );

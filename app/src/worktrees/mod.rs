@@ -2,7 +2,6 @@
 //! one.
 
 pub(crate) mod head;
-pub(crate) mod ports;
 pub mod switch;
 
 use gpui_kit::component::WindowExt;
@@ -17,14 +16,8 @@ use sikemux_calls::worktree::WorktreeRemovalInfo;
 
 impl Workbench {
     /// Removes an agent's worktree once the person knows what that loses: uncommitted
-    /// changes, and commits only its branch has, which a merged pull request already keeps.
-    pub fn remove_worktree(
-        &mut self,
-        agent: &str,
-        pull_merged: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// changes, and commits only its branch has.
+    pub fn remove_worktree(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
         let agent = agent.to_owned();
         let cost = self
             .chat_target(&agent)
@@ -34,7 +27,7 @@ impl Workbench {
         cx.spawn_in(window, async move |bench, cx| {
             let cost = cost.await;
             let _ = bench.update_in(cx, |bench, window, cx| match cost {
-                Ok(cost) => bench.confirm_removal(agent, &cost, pull_merged, window, cx),
+                Ok(cost) => bench.confirm_removal(agent, &cost, window, cx),
                 Err(error) => window.push_notification(
                     toast::error(t!("Could not remove the worktree: {error}", error = error)),
                     cx,
@@ -48,7 +41,6 @@ impl Workbench {
         &mut self,
         agent: String,
         cost: &WorktreeRemovalInfo,
-        pull_merged: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -65,7 +57,7 @@ impl Workbench {
         let branch = cost.branch.clone();
         let path = cost.path.to_string_lossy().into_owned();
         let dirty = cost.dirty_files;
-        let unmerged = !pull_merged && cost.unmerged_commits > 0;
+        let unmerged = cost.unmerged_commits > 0;
         let named = branch.clone();
         let then_branch = move |bench: &mut Workbench,
                                 discard: bool,

@@ -96,11 +96,8 @@ pub struct Feed {
     /// The repository's status, branches and log, or why they did not read.
     pub git_overview: Option<Result<GitOverview, String>>,
     pub git_draft: Option<Drafts>,
-    /// The worktree in front's pull requests, and whether its branch is merged.
+    /// The worktree in front's pull requests.
     pub worktree_pulls: Option<PullList>,
-    pub worktree_merged: Option<bool>,
-    /// The checkout in front's name, ports and environment.
-    pub checkout: Option<sikemux_calls::ports::CheckoutAbout>,
     /// Whether it asks the person before a new device joins, once it has said.
     pub approval: Option<bool>,
     /// Whether this app is connected to it now, for an account host.
@@ -146,8 +143,6 @@ impl Feed {
         self.git_overview = None;
         self.git_draft = None;
         self.worktree_pulls = None;
-        self.worktree_merged = None;
-        self.checkout = None;
     }
 }
 

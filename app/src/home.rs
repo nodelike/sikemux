@@ -518,9 +518,9 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         )
         .when_some(
             in_terminal
-                .then(|| crate::worktrees::head::badges(bench, &agent.id, cx))
+                .then(|| crate::worktrees::head::pull_badge(bench, &agent.id, cx))
                 .flatten(),
-            |header, badges| header.action(badges),
+            |header, badge| header.action(badge),
         )
         .when(has_chat, |header| header.action(share))
         .action(more)

@@ -80,12 +80,10 @@ pub struct Strip {
     /// The project's folder, which its name's tooltip gives.
     pub path: SharedString,
     pub branch: Option<SharedString>,
-    /// The chip of an own checkout's ports, beside its branch.
-    pub ports: Option<AnyElement>,
     /// The switcher the project's name opens, until the first message says where the work is.
     pub moves: Option<ChipMenu>,
     pub worktree: Option<AnyElement>,
-    /// A worktree agent's pull request and its Remove worktree, beside the worktree.
+    /// A worktree agent's pull request, beside the worktree.
     pub pull: Option<AnyElement>,
     pub account: Option<AnyElement>,
     /// Why smart accounts started this new chat on its account, said beside the account until
@@ -803,7 +801,6 @@ fn context_line(strip: Strip, cx: &App) -> impl IntoElement {
                 )
         }))
         .children(strip.worktree)
-        .children(strip.ports)
         .children(strip.pull)
         .child(div().flex_1())
         .children(

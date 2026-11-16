@@ -1,16 +1,13 @@
 //! What an agent's header says of its worktree's branch, as the Mac's does: the pull request
-//! the branch has, and a way to remove the worktree once its work is merged.
+//! the branch has.
 
 use crate::ui::Clicks;
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
 use sikemux_calls::call;
 use sikemux_calls::codehost::PullsParams;
-use sikemux_calls::ports::CheckoutParams;
-use sikemux_calls::worktree::WorktreeParams;
 use sikemux_plugin_api::codehost::{Pull, PullState};
 
 use crate::core::Target;
@@ -39,15 +36,11 @@ impl Workbench {
         }
         if let Some((_, _, was)) = &self.watched.worktree {
             let left = Target::new(&self.asks, was.clone());
-            for read in [Read::WorktreePulls, Read::WorktreeMerged, Read::Checkout] {
-                left.unwatch(read);
-            }
-            let feed = self.feeds.at_mut(was);
-            (feed.worktree_pulls, feed.worktree_merged) = (None, None);
-            feed.checkout = None;
+            left.unwatch(Read::WorktreePulls);
+            self.feeds.at_mut(was).worktree_pulls = None;
         }
         let target = self.target();
-        if let Some((agent, folder, _)) = &watched {
+        if let Some((_, folder, _)) = &watched {
             target.watch_folder::<call::CodeHostPulls>(
                 Read::WorktreePulls,
                 PullsParams {
@@ -56,24 +49,7 @@ impl Workbench {
                 },
                 folder.clone(),
             );
-            target.watch_folder::<call::Checkout>(
-                Read::Checkout,
-                CheckoutParams { cwd: folder.into() },
-                folder.clone(),
-            );
-            let merged = WorktreeParams {
-                agent_id: agent.clone(),
-            };
-            match self.project() {
-                Some(project) => target.watch_folder::<call::WorktreeMerged>(
-                    Read::WorktreeMerged,
-                    merged,
-                    project.path.to_string_lossy().into_owned(),
-                ),
-                None => target.watch::<call::WorktreeMerged>(Read::WorktreeMerged, merged),
-            }
         }
-        self.checkout_env.open = false;
         self.watched.worktree = watched;
     }
 }
@@ -90,10 +66,12 @@ fn pull<'a>(bench: &'a Workbench, branch: &str) -> Option<&'a Pull> {
         .copied()
 }
 
-/// The pull request's badge and the button that removes a merged worktree, for the agent in
-/// front, while its worktree has them. A teammate that lands as it goes reads as merged after
-/// each land, so the button waits until the agent is done.
-pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+/// The pull request's badge for the agent in front, while its worktree's branch has one.
+pub fn pull_badge(
+    bench: &Workbench,
+    agent: &str,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
     let (watched, _, _) = bench.watched.worktree.as_ref()?;
     if watched != agent {
         return None;
@@ -105,16 +83,8 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
         .iter()
         .find(|known| known.id == agent)?;
     let worktree = known.worktree.as_ref()?;
-    let branch = worktree.branch.clone();
-    let path = worktree.path.to_string_lossy().into_owned();
     let t = Tokens::get(cx).clone();
-    let pull = pull(bench, &branch);
-    let pull_merged = pull.is_some_and(|pull| pull.listed_state() == PullState::Merged);
-    let at_rest = bench
-        .agent_by_id(agent)
-        .is_none_or(|row| !row.busy && !row.background);
-    let can_remove =
-        at_rest && (pull_merged || bench.feeds.in_front().worktree_merged == Some(true));
+    let pull = pull(bench, &worktree.branch)?;
     let chip = |id: &'static str| {
         div()
             .id(id)
@@ -130,15 +100,15 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             .text_size(crate::theme::ui_text(TEXT_2XS))
             .hover(|style| style.bg(t.surface_hover).border_color(t.border_strong))
     };
-    let badge = pull.map(|pull| {
-        let (number, title, url) = (pull.number, &pull.title, pull.url.clone());
-        let state = pull.listed_state();
-        let (_, color, word) = crate::code_host_marks::pull_look(state, &t);
-        let edge = match state {
-            PullState::Open | PullState::Merged => color.opacity(0.34),
-            PullState::Closed | PullState::Draft => t.border,
-        };
-        let opened = agent.to_owned();
+    let (number, title, url) = (pull.number, &pull.title, pull.url.clone());
+    let state = pull.listed_state();
+    let (_, color, word) = crate::code_host_marks::pull_look(state, &t);
+    let edge = match state {
+        PullState::Open | PullState::Merged => color.opacity(0.34),
+        PullState::Closed | PullState::Draft => t.border,
+    };
+    let opened = agent.to_owned();
+    Some(
         chip("agent-pull-badge")
             .border_color(edge)
             .text_color(color)
@@ -149,30 +119,6 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             .clicks(cx.listener(move |bench, _, _, cx| {
                 bench.open_on_desk(&opened, &url, cx);
             }))
-    });
-    let removed = agent.to_owned();
-    let remove = can_remove.then(|| {
-        ui::sign_in::link("agent-worktree-remove", t!("Remove worktree"), cx)
-            .underline()
-            .tooltip(ui::tooltip(t!(
-                "{branch} is merged. Remove its worktree at {path}.",
-                branch = branch,
-                path = path
-            )))
-            .clicks(cx.listener(move |bench, _, window, cx| {
-                bench.remove_worktree(&removed, pull_merged, window, cx)
-            }))
-    });
-    if badge.is_none() && remove.is_none() {
-        return None;
-    }
-    Some(
-        div()
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .children(badge)
-            .when_some(remove, |row, remove| row.child(remove))
             .into_any_element(),
     )
 }
