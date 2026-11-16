@@ -38,21 +38,17 @@ pub(crate) struct LastKey(pub Instant);
 impl Global for LastKey {}
 
 /// Starts the app again on the update in place. On Windows the core only fetched the release's
-/// installer, which replaces the app and the core and opens the app again, so this hands over to
-/// it: through the core to the Sikemux service when one runs the core, or else by running it.
+/// installer, which the Sikemux service runs: it replaces the app and the core and opens the app
+/// again, so this hands over to it through the core.
 fn restart_into_update(asks: &UnboundedSender<Ask>, cx: &mut App) {
     #[cfg(windows)]
-    if let Some(setup) = sikemux_process::paths::update_setup().filter(|setup| setup.is_file()) {
+    if sikemux_process::paths::update_setup().is_some_and(|setup| setup.is_file()) {
         let applied = Target::here(asks).request_typed::<call::UpdateApply>(NoParams {});
         cx.spawn(async move |cx| match applied.await {
             Ok(true) => cx.update(|cx| cx.quit()),
-            Ok(false) => match run_setup(&setup) {
-                Ok(()) => cx.update(|cx| cx.quit()),
-                Err(error) => {
-                    eprintln!("sikemux: the update's installer did not start: {error}");
-                    cx.update(|cx| cx.restart());
-                }
-            },
+            Ok(false) => {
+                eprintln!("sikemux: no Sikemux service runs this core to install the update")
+            }
             Err(error) => eprintln!("sikemux: the update did not start: {error}"),
         })
         .detach();
@@ -61,21 +57,6 @@ fn restart_into_update(asks: &UnboundedSender<Ask>, cx: &mut App) {
     #[cfg(not(windows))]
     let _ = asks;
     cx.restart();
-}
-
-#[cfg(windows)]
-fn run_setup(setup: &std::path::Path) -> std::io::Result<()> {
-    let mut command = sikemux_process::user_environment::command(setup);
-    command
-        .args([
-            "/VERYSILENT",
-            "/SUPPRESSMSGBOXES",
-            "/NORESTART",
-            "/relaunch=1",
-        ])
-        .arg(format!("/LOG={}", setup.with_extension("log").display()));
-    let quiet = std::fs::OpenOptions::new().write(true).open("NUL")?;
-    sikemux_corekit::client::spawn_detached(command, quiet)
 }
 
 /// Restarts into the installed update once the person's keys have rested, so the windows never

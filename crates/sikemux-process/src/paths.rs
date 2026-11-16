@@ -89,7 +89,7 @@ pub fn cache_dir() -> Option<PathBuf> {
     unix_folder("XDG_CACHE_HOME", "Library/Caches", ".cache")
 }
 
-/// Where the core keeps the checked installer of a Windows update until the app hands over to it.
+/// Where the core keeps the checked installer of a Windows update until the Sikemux service installs it.
 #[cfg(windows)]
 pub fn update_setup() -> Option<PathBuf> {
     Some(cache_dir()?.join("Sikemux-update-setup.exe"))

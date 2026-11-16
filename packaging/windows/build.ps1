@@ -1,5 +1,4 @@
-# Packs release builds of sikemux.exe (and sikemux-host.exe, once it is built) into the
-# per-user installer. resources.ps1 wrote the icon they and the installer carry.
+# Packs release builds of sikemux.exe and sikemux-host.exe into the installer. resources.ps1 wrote the icon they and the installer carry.
 param(
   [Parameter(Mandatory)][ValidateSet("x64", "arm64")][string]$Arch,
   [Parameter(Mandatory)][string]$Version,
@@ -23,13 +22,8 @@ Copy-Item "$Resources\sikemux.ico" $Stage
 
 foreach ($Name in "sikemux.exe", "sikemux-host.exe") {
   $Built = Join-Path $Binaries $Name
-  if (Test-Path $Built) {
-    Copy-Item $Built $Stage
-  } elseif ($Name -eq "sikemux.exe") {
-    throw "$Built was not built"
-  } else {
-    Write-Host "$Name was not built; the installer carries the app alone"
-  }
+  if (-not (Test-Path $Built)) { throw "$Built was not built" }
+  Copy-Item $Built $Stage
 }
 
 $Iscc = @(
