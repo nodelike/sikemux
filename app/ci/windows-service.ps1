@@ -227,13 +227,14 @@ function Check-Login($Core) {
     if (-not $login.HasExited) { $login.Kill() }
     Stop-Job $server
     Remove-Job -Force $server
-    $printed = Get-Content -Raw $said -ErrorAction SilentlyContinue
+    $printed = [string](Get-Content -Raw $said -ErrorAction SilentlyContinue)
+    $complaint = [string](Get-Content -Raw (Join-Path $Out 'login-errors.txt') -ErrorAction SilentlyContinue)
     Check '`sikemux login` shows the code to approve' ($printed -match '"code":"BCDF GHJK"') "$printed".Trim()
     Check '`sikemux login` asks once, in the core''s window' (
         $asked.Count -eq 1 -and $asked[0] -match 'Sign this computer in to your Sikemux account'
     ) "$($asked.Count) asks: $($asked -join ' | ')"
     Check '`sikemux login` signs the host in' ($printed -match '"signedIn":true' -and $login.ExitCode -eq 0) (
-        "exit $($login.ExitCode)"
+        "exit $($login.ExitCode) $complaint".Trim()
     )
 }
 
