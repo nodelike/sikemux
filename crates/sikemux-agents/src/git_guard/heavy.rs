@@ -89,6 +89,7 @@ const BUILT_IN: &[BuiltIn] = &[
     cargo("cargo r", true),
     cargo("cargo test", true),
     cargo("cargo t", true),
+    cargo("cargo nextest", true),
     cargo("cargo bench", true),
     BuiltIn {
         command: "xcodebuild",

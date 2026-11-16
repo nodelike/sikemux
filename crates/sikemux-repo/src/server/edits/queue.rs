@@ -1208,9 +1208,10 @@ fn rust_check(
     let crates = names.iter().cloned().collect::<Vec<_>>().join(", ");
     let clippy =
         |scope: &str| format!("cargo clippy {scope} --all-targets --all-features -- -D warnings");
-    let test = format!("cargo test {packages} --all-targets --all-features");
-    // Some integration tests fail now and then under load; a land breaks a test only if it fails twice.
-    let tests = format!("({test} || {test})");
+    let targets = format!("{packages} --all-targets --all-features");
+    let tests = format!(
+        "if command -v cargo-nextest >/dev/null; then cargo nextest run {targets} --no-tests=pass; else cargo test {targets}; fi"
+    );
     Ok(Some(match (every, names.is_empty()) {
         (true, true) => ("Clippy on every crate".to_owned(), clippy("--workspace")),
         (true, false) => (
