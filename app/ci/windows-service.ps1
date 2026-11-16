@@ -3,6 +3,8 @@
 param(
     [Parameter(Mandatory)] [string] $Built,
     [Parameter(Mandatory)] [string] $Sign,
+    [Parameter(Mandatory)] [string] $Probe,
+    [Parameter(Mandatory)] [string] $Remote,
     [Parameter(Mandatory)] [string] $Out
 )
 $ErrorActionPreference = 'Stop'
@@ -175,6 +177,46 @@ function Check-Window($Core) {
     Check 'answered Yes, the request is signed' ($null -ne $window -and $answer -match '(?m)^signed \S+') "$answer".Trim()
 }
 
+# Has the core start a program that saves `whoami /groups` each way it starts programs, through
+# the dev build's own test client, which the core takes for its app at examples\ beside it.
+function Check-Children($Core) {
+    $children = Join-Path $env:TEMP 'children'
+    New-Item -ItemType Directory -Force -Path $children | Out-Null
+    $reporter = Join-Path $children 'probe.exe'
+    Copy-Item $Probe $reporter
+    $repo = Join-Path $children 'repo'
+    & git init -q -b main $repo
+    & git -C $repo -c user.name=proof -c user.email=proof@localhost commit -q --allow-empty -m first
+    & git -C $repo branch other
+    $hook = "#!/bin/sh`nexec '$($reporter -replace '\\', '/')' git`n"
+    [IO.File]::WriteAllText((Join-Path $repo '.git\hooks\post-checkout'), $hook)
+    & icacls $children /setowner $env:USERNAME /T /Q | Out-Null
+
+    $app = Join-Path $install 'examples\remote.exe'
+    New-Item -ItemType Directory -Force -Path (Split-Path $app) | Out-Null
+    Copy-Item $Remote $app
+    $ErrorActionPreference = 'Continue'
+    (& $app mac $Core.socket children $reporter $repo 2>&1 | Out-String) |
+        Out-File -Encoding utf8 (Join-Path $Out 'children.txt')
+    $ErrorActionPreference = 'Stop'
+
+    $ways = [ordered]@{
+        terminal = 'a program a terminal''s shell starts'
+        git = 'a hook git runs for the core'
+    }
+    $agent = { Get-ChildItem $children -Filter *.txt | Where-Object { -not $ways.Contains($_.BaseName) } }
+    Wait-For { ($ways.Keys | Where-Object { Test-Path (Join-Path $children "$_.txt") }).Count -eq $ways.Count -and (& $agent) } 60 | Out-Null
+    $reports = @($ways.Keys | ForEach-Object { [pscustomobject]@{ What = $ways[$_]; File = Join-Path $children "$_.txt" } })
+    $reports += @(& $agent | ForEach-Object { [pscustomobject]@{ What = "an agent's program, run as $($_.BaseName)"; File = $_.FullName } })
+    if (-not (& $agent)) { $reports += [pscustomobject]@{ What = 'an agent''s program'; File = Join-Path $children 'agent.txt' } }
+    foreach ($report in $reports) {
+        $text = Get-Content -Raw $report.File -ErrorAction SilentlyContinue
+        if ($text) { $text | Out-File -Encoding utf8 (Join-Path $Out "whoami-$(Split-Path -Leaf $report.File)") }
+        $level = [regex]::Match("$text", 'Mandatory Label\\(\w+) Mandatory Level').Groups[1].Value
+        Check "$($report.What) runs at Medium" ($level -eq 'Medium') "$(if ($text) { $level } else { 'it never ran' })"
+    }
+}
+
 # The load config the linker wrote, read from the installed file.
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $dumpbin = & $vswhere -latest -products * -find 'VC\Tools\MSVC\**\dumpbin.exe' | Select-Object -First 1
@@ -212,6 +254,7 @@ try {
     )
     $core = Check-Core 'after the restart'
     Check-Window $core
+    Check-Children $core
 } finally {
     $removed = Host-Command '--service', 'remove'
     Check 'the service is removed' ($removed.Code -eq 0) $removed.Text.Trim()

@@ -106,12 +106,20 @@ fn join_user_path(cli: Option<&str>, shell_path: &str, home: &str, inherited: &s
     parts.join(":")
 }
 
-/// Windows desktop applications inherit the user's PATH, so only the CLI link
-/// needs adding.
+/// A desktop app inherits the person's PATH. A High core runs on a fixed one, and only the
+/// programs it starts, which run at Medium, get the PATH the person signs in with.
 #[cfg(windows)]
 fn user_path() -> Option<String> {
+    let own = std::env::var_os("PATH").unwrap_or_default();
+    let existing = sikemux_trust::child()
+        .and_then(|child| {
+            child
+                .environment
+                .iter()
+                .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))
+        })
+        .map_or(own, |(_, path)| path.clone());
     let directory = crate::cli_paths::cli_link_directory()?;
-    let existing = std::env::var_os("PATH").unwrap_or_default();
     let paths = std::iter::once(directory.to_path_buf())
         .chain(std::env::split_paths(&existing).filter(|path| path != directory));
     std::env::join_paths(paths).ok()?.into_string().ok()

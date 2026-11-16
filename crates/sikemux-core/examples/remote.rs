@@ -12,6 +12,8 @@
 //!   remote mac <socket> login              signs the core in by a code a phone approves
 //!   remote mac <socket> owner <user-id>    signs the core in to an account, as far as devices can tell
 //!   remote mac <socket> trust <device-id> [full|watch]  pairs a device by its key, as joining does
+//!   remote mac <socket> children <probe> <repo>  has the core start `probe` each way it starts
+//!                                          programs, naming each run by its first argument
 //! As a device, keeping its key in `<key-file>`:
 //!   remote device <key-file> sessions <core-id>
 
@@ -57,6 +59,7 @@ async fn main() -> Result<(), Failure> {
             println!("{:#?}", client.allow_devices(vec![allowed]).await?);
             Ok(())
         }
+        ["mac", socket, "children", probe, repo] => children(Path::new(socket), probe, repo).await,
         ["mac", socket, action] => mac(Path::new(socket), action).await,
         ["device", key, "sessions", core] => sessions(Path::new(key), core).await,
         _ => Err("usage: remote mac <socket> on|off|allow|status|spawn|publish|chat|say | remote device <key-file> sessions <core-id>".into()),
@@ -157,6 +160,54 @@ async fn spawn(socket: &Path) -> Result<(), Failure> {
         ..TerminalSpawn::default()
     });
     println!("terminal {}", client.spawn(launch, terminal).await?);
+    Ok(())
+}
+
+/// A shell running `probe`, a terminal that is `probe`, a terminal whose shell starts it, git
+/// running `repo`'s post-checkout hook, and an agent whose program it is. Each is reported and
+/// none stops the rest.
+async fn children(socket: &Path, probe: &str, repo: &str) -> Result<(), Failure> {
+    let (client, _events) = CoreClient::connect(socket).await?;
+    let launch = || LaunchIdentity {
+        version: env!("CARGO_PKG_VERSION").into(),
+        ..LaunchIdentity::default()
+    };
+    let terminal = SpawnTarget::Terminal(TerminalSpawn {
+        cols: 80,
+        rows: 24,
+        cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
+        startup: Some(format!("{probe} terminal")),
+        ..TerminalSpawn::default()
+    });
+    let shell = client.spawn(launch(), terminal).await;
+    println!("terminal: {shell:?}");
+    let checkout = client
+        .call(
+            "git.checkout",
+            serde_json::json!({ "repo": repo, "branch": "other" }),
+        )
+        .await;
+    println!("git: {checkout:?}");
+    let accounts = serde_json::json!({
+        "profiles": [{
+            "id": "probe",
+            "name": "Probe",
+            "provider": "opencode",
+            "accent": "#a277ff",
+            "executablePath": probe,
+        }],
+    });
+    let project = serde_json::json!({ "id": "tmp", "name": "tmp", "path": std::env::temp_dir() });
+    let agent = async {
+        client.call("setAgentAccounts", accounts).await?;
+        client.call("addProject", project).await?;
+        client
+            .start_chat("opencode:probe".into(), "tmp".into(), None)
+            .await
+            .map(|(agent, _)| agent)
+    }
+    .await;
+    println!("agent: {agent:?}");
     Ok(())
 }
 
