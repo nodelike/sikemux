@@ -83,6 +83,12 @@ export async function makeDueCalls(
     if (busy.has(call.id)) continue;
     busy.add(call.id);
     try {
+      const owed = await db
+        .selectFrom("billing_calls")
+        .select("id")
+        .where("id", "=", call.id)
+        .executeTakeFirst();
+      if (!owed) continue;
       if (call.action === "refund" && call.provider_payment_id)
         await provider.refund(call.provider_payment_id);
       else if (call.subscription)

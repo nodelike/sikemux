@@ -76,10 +76,15 @@ export type ProviderEvent = {
 } & (
   | {
       type: "subscription.started";
-      /** The billing customer id the checkout passed, which the provider hands back. */
-      customerRef: string;
+      /**
+       * The billing customer id the checkout passed, which the provider hands back. Null for a
+       * subscription that did not start from the app's checkout.
+       */
+      customerRef: string | null;
       providerCustomerId: string;
       subscription: ProviderSubscription;
+      /** The subscription's first payment, when the provider names it here. */
+      providerPaymentId?: string;
     }
   | { type: "subscription.changed"; subscription: ProviderSubscription }
   /** A renewal payment failed and the provider is still trying. */

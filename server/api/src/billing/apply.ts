@@ -5,7 +5,12 @@ import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import { ApiFailure } from "../http.ts";
 import type { Logger } from "../log.ts";
-import { callLater, makeDueCalls, type Calling } from "./calls.ts";
+import {
+  callLater,
+  makeDueCalls,
+  type Calling,
+  type ProviderCall,
+} from "./calls.ts";
 import { PLAN_PRODUCTS, product } from "./catalog.ts";
 import type {
   ProviderEvent,
@@ -15,6 +20,11 @@ import type {
 
 /** An event about something erased, which is acknowledged and changes nothing. */
 class Gone extends Error {}
+
+/** No payer, as for an event about a subscription that did not come from the app's checkout. */
+const STRAY = { customerId: null };
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The provider an event came from, as applying it needs. */
 interface From {
@@ -65,11 +75,58 @@ async function rowsOf(
     .forUpdate("subscriptions")
     .execute();
   const [first] = rows;
-  if (!first) throw unknown(from, "The subscription", at);
-  return { rows, customerId: first.customer_id };
+  if (first) return { rows, customerId: first.customer_id };
+  if (await isStray(trx, from, providerSubscriptionId)) return null;
+  throw unknown(from, "The subscription", at);
 }
 
-type Row = Awaited<ReturnType<typeof rowsOf>>["rows"][number];
+async function isStray(
+  trx: Transaction<Tables>,
+  from: From,
+  providerId: string,
+) {
+  const stray = await trx
+    .selectFrom("billing_strays")
+    .select("provider_id")
+    .where("provider", "=", from.name)
+    .where("provider_id", "=", providerId)
+    .executeTakeFirst();
+  return Boolean(stray);
+}
+
+/** Remembers a subscription or payment that is not ours, so its later events are acknowledged. */
+async function keepStrays(
+  trx: Transaction<Tables>,
+  from: From,
+  providerIds: readonly string[],
+) {
+  await trx
+    .insertInto("billing_strays")
+    .values(providerIds.map((id) => ({ provider: from.name, provider_id: id })))
+    .onConflict((oc) => oc.columns(["provider", "provider_id"]).doNothing())
+    .execute();
+}
+
+/** A held subscription for each product of one the provider described, to cancel it by. */
+function heldItems(
+  sub: ProviderSubscription,
+  providerCustomerId: string,
+): ProviderCall[] {
+  return sub.items.map((item) => ({
+    action: "cancel_now",
+    subscription: {
+      providerSubscriptionId: sub.providerSubscriptionId,
+      providerCustomerId,
+      product: item.product,
+      interval: sub.interval,
+      quantity: item.quantity,
+      currentPeriodEnd: sub.currentPeriodEnd,
+      cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+    },
+  }));
+}
+
+type Row = NonNullable<Awaited<ReturnType<typeof rowsOf>>>["rows"][number];
 
 function isNewer(rows: readonly Row[], at: Date) {
   return rows.every((row) => row.provider_updated_at <= at);
@@ -222,61 +279,61 @@ async function apply(
   trx: Transaction<Tables>,
   from: From,
   event: ProviderEvent,
-): Promise<{ customerId: string }> {
+): Promise<{ customerId: string | null }> {
   const provider = from.name;
   const { at } = event;
   switch (event.type) {
     case "subscription.started": {
-      const customer = await trx
-        .updateTable("billing_customers")
-        .set({ provider_customer_id: event.providerCustomerId })
-        .where("id", "=", event.customerRef)
-        .where("provider", "=", provider)
-        .returning("id")
-        .executeTakeFirst();
-      if (!customer) throw new Gone("The customer");
-      await endingForDeletedPayer(trx, customer.id);
       const sub = event.subscription;
+      const ref = event.customerRef;
+      const customer =
+        ref && UUID.test(ref)
+          ? await trx
+              .updateTable("billing_customers")
+              .set({ provider_customer_id: event.providerCustomerId })
+              .where("id", "=", ref)
+              .where("provider", "=", provider)
+              .returning("id")
+              .executeTakeFirst()
+          : undefined;
+      if (!customer) {
+        const payment = event.providerPaymentId;
+        await keepStrays(trx, from, [
+          sub.providerSubscriptionId,
+          ...(payment ? [payment] : []),
+        ]);
+        await callLater(trx, provider, [
+          ...heldItems(sub, event.providerCustomerId),
+          ...(payment
+            ? [{ action: "refund" as const, providerPaymentId: payment }]
+            : []),
+        ]);
+        return STRAY;
+      }
+      await endingForDeletedPayer(trx, customer.id);
       const surplus = await isSurplus(trx, customer.id, sub);
       await insertItems(trx, customer.id, sub, sub.items, at, { surplus });
       if (surplus)
         await callLater(
           trx,
           provider,
-          sub.items.map((item) => ({
-            action: "cancel_now",
-            subscription: {
-              providerSubscriptionId: sub.providerSubscriptionId,
-              providerCustomerId: event.providerCustomerId,
-              product: item.product,
-              interval: sub.interval,
-              quantity: item.quantity,
-              currentPeriodEnd: sub.currentPeriodEnd,
-              cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-            },
-          })),
+          heldItems(sub, event.providerCustomerId),
         );
       return { customerId: customer.id };
     }
     case "subscription.changed": {
       const sub = event.subscription;
-      const { rows, customerId } = await rowsOf(
-        trx,
-        from,
-        sub.providerSubscriptionId,
-        at,
-      );
+      const held = await rowsOf(trx, from, sub.providerSubscriptionId, at);
+      if (!held) return STRAY;
+      const { rows, customerId } = held;
       if (isNewer(rows, at)) await changeItems(trx, rows, customerId, sub, at);
       return { customerId };
     }
     case "subscription.lapsed":
     case "subscription.ended": {
-      const { rows, customerId } = await rowsOf(
-        trx,
-        from,
-        event.providerSubscriptionId,
-        at,
-      );
+      const held = await rowsOf(trx, from, event.providerSubscriptionId, at);
+      if (!held) return STRAY;
+      const { rows, customerId } = held;
       const ended = event.type === "subscription.ended";
       const ids = rows
         .filter((row) => row.status !== "ended")
@@ -295,13 +352,18 @@ async function apply(
     }
     case "payment.made":
     case "payment.failed": {
-      const { rows, customerId } = await rowsOf(
-        trx,
-        from,
-        event.providerSubscriptionId,
-        at,
-      );
       const paid = event.type === "payment.made";
+      const held = await rowsOf(trx, from, event.providerSubscriptionId, at);
+      if (!held) {
+        if (paid && !(await isStray(trx, from, event.providerPaymentId))) {
+          await keepStrays(trx, from, [event.providerPaymentId]);
+          await callLater(trx, provider, [
+            { action: "refund", providerPaymentId: event.providerPaymentId },
+          ]);
+        }
+        return STRAY;
+      }
+      const { rows, customerId } = held;
       await trx
         .insertInto("invoices")
         .values({
@@ -369,8 +431,9 @@ async function apply(
         .select("customer_id")
         .where("provider_payment_id", "=", event.providerPaymentId)
         .executeTakeFirst();
-      if (!known) throw unknown(from, "The payment", at);
-      return { customerId: known.customer_id };
+      if (known) return { customerId: known.customer_id };
+      if (await isStray(trx, from, event.providerPaymentId)) return STRAY;
+      throw unknown(from, "The payment", at);
     }
   }
 }
@@ -454,7 +517,9 @@ async function applyOnce(
         .executeTakeFirst();
       if (!fresh) return;
       const result = await apply(trx, from, event);
-      const people = await peopleOf(trx, result.customerId);
+      const people = result.customerId
+        ? await peopleOf(trx, result.customerId)
+        : [];
       await appendEvents(
         trx,
         people.map((userId) => ({ userId, type: "plan.changed" as const })),

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { BillingProductId, PlanFeature } from "@sikemux/protocol";
 import {
   afterAll,
@@ -555,6 +557,68 @@ describe("the provider's events", () => {
       plan: (await overview(ada)).allowance.plan,
       invoices: (await invoices(ada)).length,
     }).toEqual({ plan: "pro", invoices: 1 });
+  });
+
+  it("ends a subscription that did not come from the app's checkout, and answers its event", async () => {
+    const at = new Date();
+    const refs = [null, "", "not-a-uuid", randomUUID()];
+    const cancel = vi.fn(() => Promise.resolve());
+    const refund = vi.fn(() => Promise.resolve());
+    await applyProviderEvents(
+      database.db,
+      {
+        name: "stand-in",
+        eventRetrySpanMs: provider.eventRetrySpanMs,
+        cancel,
+        refund,
+      },
+      refs.map((customerRef, index) => ({
+        eventId: `evt_stray_${index}`,
+        at,
+        type: "subscription.started" as const,
+        customerRef,
+        providerCustomerId: "cus_stray",
+        providerPaymentId: `pay_stray_${index}`,
+        subscription: {
+          providerSubscriptionId: `sub_stray_${index}`,
+          items: [{ product: "shed_large" as const, quantity: 1 }],
+          interval: "month" as const,
+          currentPeriodEnd: new Date(at.getTime() + 30 * DAY_MS),
+          cancelAtPeriodEnd: false,
+        },
+      })),
+      log,
+    );
+    expect({
+      cancelled: cancel.mock.calls.length,
+      refunded: refund.mock.calls.length,
+    }).toEqual({ cancelled: 4, refunded: 4 });
+  });
+
+  it("refunds and ends a checkout paid after its org was deleted", async () => {
+    const owner = await person("user_owner");
+    const orgId = await org("user_owner");
+    const response = await call("/v1/billing/checkout", owner, {
+      method: "POST",
+      json: { product: "team", interval: "month", quantity: 3, orgId },
+    });
+    const { url } = await body(response, "Checkout");
+    await database.db.deleteFrom("orgs").where("id", "=", orgId).execute();
+    const cancel = vi.spyOn(provider, "cancel");
+    const refund = vi.spyOn(provider, "refund");
+    expect((await app.request(new URL(url).pathname)).status).toBe(303);
+    const { rows } = await database.pool.query(
+      "select (select count(*)::int from subscriptions) as subscriptions, (select count(*)::int from invoices) as invoices",
+    );
+    expect({
+      known: rows[0],
+      cancelled: cancel.mock.calls.length,
+      refunded: refund.mock.calls.length,
+    }).toEqual({
+      known: { subscriptions: 0, invoices: 0 },
+      cancelled: 1,
+      refunded: 1,
+    });
   });
 });
 

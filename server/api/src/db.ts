@@ -359,6 +359,11 @@ export interface Tables {
     type: string;
     received_at: CreatedAt;
   };
+  billing_strays: {
+    provider: string;
+    provider_id: string;
+    created_at: CreatedAt;
+  };
   billing_calls: {
     id: Generated<string>;
     provider: string;

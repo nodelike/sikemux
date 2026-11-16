@@ -501,6 +501,16 @@ Table billing_calls {
   Note: '(action = \'refund\') = (provider_payment_id IS NOT NULL); (action = \'refund\') = (subscription IS NULL)'
 }
 
+Table billing_strays {
+  provider text [not null]
+  provider_id text [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider, provider_id) [pk]
+  }
+}
+
 Ref: devices.user_id > users.id [delete: cascade]
 Ref: update_channels.update_id > updates.id [delete: cascade]
 Ref: events.user_id > users.id [delete: cascade]
