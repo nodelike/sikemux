@@ -1,12 +1,12 @@
 //! Every goal and every agent on one screen, as the core works them out: which agents work each
-//! goal, what is on their desks, what comes next and by when. Clients only filter, rank and draw.
+//! goal, what is on their desks, and what comes next. Clients only filter, rank and draw.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::inbox::InboxNeed;
-use crate::slice::{NextGate, SliceState};
+use crate::slice::SliceState;
 use crate::workspace::AgentFace;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus, SessionId};
 
@@ -25,17 +25,6 @@ pub struct GoalsView {
     pub no_goal: Vec<String>,
     /// What waits on the person about no goal, in the inbox's order.
     pub loose_needs: Vec<LooseNeed>,
-    /// When every goal under way should be through, by the latest of their estimates.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub through: Option<GoalsThrough>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoalsThrough {
-    pub at: u64,
-    /// A gate only the person passes is left on one of them once they are.
-    pub then_you: bool,
 }
 
 /// A row for something that waits on the person about no goal.
@@ -67,7 +56,6 @@ pub struct GoalRow {
     pub next: Option<GoalNext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub clock: Option<GoalClock>,
-    pub slices: Vec<GoalSlice>,
     /// The agents working it, by id, its lead first.
     pub agents: Vec<String>,
     /// What waits on the person about it, as ids of the inbox's items, in its order.
@@ -76,14 +64,6 @@ pub struct GoalRow {
     /// The agent to open for a goal one agent works alone, unless that agent closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GoalSlice {
-    pub card: u64,
-    pub title: String,
-    pub state: SliceState,
 }
 
 /// The one thing a goal's row says comes next.
@@ -99,17 +79,7 @@ pub enum GoalNext {
         need: InboxNeed,
         what: String,
     },
-    /// A slice's check failed, with nothing in the inbox about it yet.
-    Failed {
-        slice: String,
-    },
-    /// The gate its slices reach next.
-    Gate {
-        gate: NextGate,
-        slice: String,
-        owner: Option<String>,
-    },
-    /// The agent on a goal with no gates, by name, whose state is the goal's.
+    /// The agent on the goal, by name, whose state is the goal's.
     Agent {
         agent: String,
         idle: bool,
@@ -127,10 +97,6 @@ pub enum GoalNext {
 pub enum GoalClock {
     /// How long it has waited on the person.
     Since { at: u64 },
-    /// When it should be through.
-    Until { at: u64 },
-    /// When it was due, now it has no estimate left.
-    Late { at: u64 },
     /// When it finished.
     Finished { at: u64 },
 }

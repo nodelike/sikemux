@@ -11,10 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use sikemux_view::slice::{
-    Evidence, GateState, LeftOut, LeftOutWhy, Passer, Proof, SourceKind, SourceLink, SummarySource,
-    Verdict,
-};
+use sikemux_view::slice::{LeftOut, LeftOutWhy, SourceKind, SourceLink, SummarySource};
 
 use crate::agent_catalog::AgentKind;
 use crate::server::board::{self, BoardCard, ProjectBoard};
@@ -102,8 +99,6 @@ pub(super) struct Gathered {
     pub gaps: Vec<Gap>,
     pub recorded: Vec<String>,
     pub left_out: Vec<LeftOut>,
-    /// The pull requests the goal's cards hold, with when each card last moved.
-    pub pulls: Vec<(u64, u64)>,
     /// The agent to ask and the account its goal runs on; none when no agent of the goal's
     /// vendor can be asked.
     pub asked: Option<(AgentKind, Option<String>)>,
@@ -509,67 +504,8 @@ fn commits(core: &Core, project: &str, workers: &[Worker], since: u64) -> Vec<Mo
     found
 }
 
-fn evidence_words(evidence: &Evidence, title: &str) -> String {
-    let verdict = match evidence.verdict {
-        Some(Verdict::Passed) => " passed",
-        Some(Verdict::Failed) => " failed",
-        None => "",
-    };
-    match &evidence.proof {
-        Proof::Run { command, sha, .. } => {
-            let on = sha.as_deref().map(|sha| {
-                let short: String = sha.chars().take(9).collect();
-                format!(" on {short}")
-            });
-            format!(
-                "On \"{title}\", Sikemux ran `{command}`{}:{verdict}",
-                on.unwrap_or_default()
-            )
-        }
-        Proof::Diff {
-            head,
-            files,
-            added,
-            removed,
-            ..
-        } => {
-            let short: String = head.chars().take(9).collect();
-            let files = files.iter().take(4).cloned().collect::<Vec<_>>().join(", ");
-            format!("On \"{title}\", the change up to {short}: +{added} -{removed} in {files}")
-        }
-        Proof::Picture {
-            seconds, opened, ..
-        } => match (seconds, opened) {
-            (Some(seconds), _) => format!("On \"{title}\", a recording of {seconds:.0} s was kept"),
-            (None, Some(page)) => format!("On \"{title}\", Sikemux took a screenshot of {page}"),
-            (None, None) => format!("On \"{title}\", a screenshot was kept"),
-        },
-        Proof::Numbers { measures } => {
-            let measures: Vec<String> = (measures.iter())
-                .map(|measure| match &measure.before {
-                    Some(before) => format!("{} {before} → {}", measure.label, measure.after),
-                    None => format!("{} {}", measure.label, measure.after),
-                })
-                .collect();
-            format!("On \"{title}\", measured: {}", measures.join(", "))
-        }
-        Proof::Timeline { moments } => {
-            let last = moments.last().map_or("", |moment| moment.text.as_str());
-            format!("On \"{title}\", events ending: {last}")
-        }
-    }
-}
-
-fn evidence_key(evidence: &Evidence) -> String {
-    match &evidence.proof {
-        Proof::Run { command, .. } => format!("run {command}"),
-        other => format!("{other:?}"),
-    }
-}
-
-/// What the core recorded of the goal's cards: evidence, gates passed, notes and results, with
-/// any evidence still failing as a gap.
-fn card_facts(cards: &[&BoardCard], moments: &mut Vec<Moment>, gaps: &mut Vec<(usize, String)>) {
+/// The results put on the goal's cards.
+fn card_facts(cards: &[&BoardCard], moments: &mut Vec<Moment>) {
     for card in cards {
         if let Some(result) = &card.result {
             moments.push(fact(
@@ -580,81 +516,11 @@ fn card_facts(cards: &[&BoardCard], moments: &mut Vec<Moment>, gaps: &mut Vec<(u
                 SourceLink::Card { card: card.id },
             ));
         }
-        let Some(slice) = &card.slice else {
-            continue;
-        };
-        for gate in &slice.gates {
-            let (GateState::Passed, Some(at)) = (gate.state, gate.at) else {
-                continue;
-            };
-            let by = match gate.passer {
-                Passer::Person => "you".to_owned(),
-                Passer::Core => "Sikemux".to_owned(),
-                Passer::Owner => gate.agent_name.clone().unwrap_or("its owner".to_owned()),
-            };
-            moments.push(fact(
-                SourceKind::Gate,
-                at,
-                None,
-                &match &gate.environment {
-                    Some(environment) => {
-                        format!("\"{}\" passed {environment}, by {by}", card.title)
-                    }
-                    None => format!("\"{}\" passed {:?}, by {by}", card.title, gate.gate),
-                },
-                SourceLink::Card { card: card.id },
-            ));
-        }
-        for evidence in &slice.evidence {
-            let failing = evidence.verdict == Some(Verdict::Failed)
-                && !(slice.evidence.iter()).any(|later| {
-                    later.at > evidence.at
-                        && later.verdict == Some(Verdict::Passed)
-                        && evidence_key(later) == evidence_key(evidence)
-                });
-            let words = evidence_words(evidence, &card.title);
-            if failing {
-                let what = match &evidence.proof {
-                    Proof::Run { command, .. } => format!("`{command}`"),
-                    _ => "Its evidence".to_owned(),
-                };
-                let sentence = format!("{what} still fails on \"{}\".", card.title);
-                gaps.push((moments.len(), sentence));
-            }
-            moments.push(fact(
-                SourceKind::Evidence,
-                evidence.at,
-                None,
-                &words,
-                SourceLink::Evidence {
-                    card: card.id,
-                    evidence: evidence.id,
-                },
-            ));
-        }
-        for note in slice.notes.iter().filter(|note| note.by.is_none()) {
-            if may_hold_secret(&note.text) {
-                continue;
-            }
-            moments.push(fact(
-                SourceKind::Note,
-                note.at,
-                None,
-                &format!("On \"{}\" you wrote: {}", card.title, note.text),
-                SourceLink::Card { card: card.id },
-            ));
-        }
     }
 }
 
-/// What the goal keeps: its decisions, and its assertions with how far their evidence got. An
-/// assertion some slice has not met is a gap.
-fn goal_facts(
-    goal: &BoardCard,
-    cards: &[&BoardCard],
-    moments: &mut Vec<Moment>,
-    gaps: &mut Vec<(usize, String)>,
-) {
+/// The decisions the goal keeps.
+fn goal_facts(goal: &BoardCard, moments: &mut Vec<Moment>) {
     for decision in goal.decisions.iter().filter(|kept| kept.retired.is_none()) {
         let link = match &decision.learned.agent {
             Some(agent) => chat_link(agent, decision.learned.feed.clone(), decision.learned.turn),
@@ -666,29 +532,6 @@ fn goal_facts(
             decision.learned.name.clone(),
             &decision.text,
             link,
-        ));
-    }
-    for assertion in goal.assertions.iter().filter(|kept| kept.retired.is_none()) {
-        let asserted: Vec<bool> = (cards.iter())
-            .filter_map(|card| card.slice.as_ref())
-            .flat_map(|slice| slice.asserts.iter())
-            .filter(|asserted| asserted.assertion == assertion.id)
-            .map(|asserted| asserted.met)
-            .collect();
-        let met = asserted.iter().filter(|met| **met).count();
-        let words = match asserted.len() {
-            0 => "no slice fulfils it yet".to_owned(),
-            all => format!("its evidence is in on {met} of {all} slices"),
-        };
-        if asserted.is_empty() || met < asserted.len() {
-            gaps.push((moments.len(), format!("Not proven yet: {}", assertion.text)));
-        }
-        moments.push(fact(
-            SourceKind::Assertion,
-            assertion.learned.at,
-            None,
-            &format!("Must hold: {}; {words}", assertion.text),
-            SourceLink::Card { card: goal.id },
         ));
     }
 }
@@ -731,7 +574,7 @@ fn held(core: &Core, workers: &[Worker], moments: &mut Vec<Moment>) {
 
 /// The moments that fit, ahead of everything what the core recorded, then the person's words,
 /// then the agents' answers, newest first within each, all back in time order.
-fn bounded(moments: Vec<Moment>, gaps: Vec<(usize, String)>) -> (Vec<Moment>, Vec<Gap>) {
+fn bounded(moments: Vec<Moment>) -> Vec<Moment> {
     let rank = |kind: SourceKind| match kind {
         SourceKind::Person => 1,
         SourceKind::Answer => 2,
@@ -753,22 +596,10 @@ fn bounded(moments: Vec<Moment>, gaps: Vec<(usize, String)>) -> (Vec<Moment>, Ve
         }
     }
     kept.sort_by_key(|at| (moments[*at].source.at, *at));
-    let number: HashMap<usize, usize> = (kept.iter().enumerate())
-        .map(|(new, old)| (*old, new))
-        .collect();
-    let gaps = (gaps.into_iter())
-        .filter_map(|(old, sentence)| {
-            Some(Gap {
-                moment: *number.get(&old)?,
-                sentence,
-            })
-        })
-        .collect();
     let mut slots: Vec<Option<Moment>> = moments.into_iter().map(Some).collect();
-    let kept = (kept.into_iter())
+    (kept.into_iter())
         .filter_map(|at| slots[at].take())
-        .collect();
-    (kept, gaps)
+        .collect()
 }
 
 /// The moments of goal `card` of `project`, or none when there is no such goal or no agent on it.
@@ -792,7 +623,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
         .to_owned();
     let asked_kind = lead_kind.filter(|kind| ASKED.contains(kind));
     let deadline = Instant::now() + READ_BUDGET;
-    let (mut moments, mut gaps) = (Vec::new(), Vec::new());
+    let mut moments = Vec::new();
     let mut left_out = Vec::new();
     let mut account = None;
     for (at, worker) in workers.iter().enumerate() {
@@ -840,25 +671,21 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
             ));
         }
     }
-    card_facts(&cards, &mut moments, &mut gaps);
-    goal_facts(goal, &cards, &mut moments, &mut gaps);
+    card_facts(&cards, &mut moments);
+    goal_facts(goal, &mut moments);
     held(core, &workers, &mut moments);
-    let (moments, gaps) = bounded(moments, gaps);
-    let pulls = (cards.iter())
-        .filter_map(|card| Some((card.auto.as_ref()?.pull.as_ref()?.number, card.updated_at)))
-        .collect();
+    let moments = bounded(moments);
     Some(Gathered {
         card: goal.id,
         title: goal.title.clone(),
         wants_name: board::wants_name(&goal.title, &goal.details),
         moments,
-        gaps,
+        gaps: Vec::new(),
         recorded: (goal.decisions.iter())
             .filter(|kept| kept.retired.is_none())
             .map(|kept| kept.text.clone())
             .collect(),
         left_out,
-        pulls,
         asked: asked_kind.map(|kind| (kind, account)),
         lead_label,
     })

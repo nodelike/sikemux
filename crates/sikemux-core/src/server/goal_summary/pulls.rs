@@ -56,7 +56,7 @@ fn named(gathered: &Gathered, slug: Option<&str>) -> Vec<(u64, u64)> {
     let in_moments = (gathered.moments.iter().rev()).flat_map(|moment| {
         (named_in(&moment.source.text, slug).into_iter()).map(|number| (number, moment.source.at))
     });
-    for (number, at) in gathered.pulls.iter().copied().chain(in_moments) {
+    for (number, at) in in_moments {
         if named.len() < MAX_PULLS && !named.iter().any(|(known, _)| *known == number) {
             named.push((number, at));
         }

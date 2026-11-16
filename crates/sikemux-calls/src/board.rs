@@ -3,18 +3,13 @@ use crate::places::Place;
 use serde::{Deserialize, Serialize};
 use sikemux_view::chat::TriggerWhen;
 use sikemux_view::inbox::InboxRecording;
-use sikemux_view::slice::Assertion;
 use sikemux_view::slice::Collect;
 use sikemux_view::slice::Decision;
 use sikemux_view::slice::Gate;
-use sikemux_view::slice::GoalEta;
-use sikemux_view::slice::GoalReport;
 use sikemux_view::slice::GoalRule;
 use sikemux_view::slice::NamedFile;
-use sikemux_view::slice::NextGate;
 use sikemux_view::slice::ReportEvery;
 use sikemux_view::slice::SliceState;
-use sikemux_view::slice::SliceView;
 use sikemux_view::slice::Spot;
 use sikemux_view::turn::Landed;
 use sikemux_wire::protocol::PermissionMode;
@@ -98,7 +93,6 @@ pub struct BoardCard {
     pub title: String,
     pub details: String,
     pub acceptance: String,
-    pub contract: Option<CardContract>,
     pub status: CardStatus,
     pub owner: Option<String>,
     pub owner_name: Option<String>,
@@ -120,41 +114,21 @@ pub struct BoardCard {
     /// The question of its owner's it waits on the person to answer, by id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<String>,
-    pub auto: Option<CardRun>,
-    /// Browser recordings, for a card that is not a slice; a slice's are in its evidence.
+    /// Browser recordings.
     pub recordings: Vec<InboxRecording>,
-    /// For a slice of a goal: its promise, gates, evidence and notes.
-    pub slice: Option<SliceView>,
-    /// For a goal, its slices' cards in board order: those right under it,
-    /// and its own card when it is a slice itself.
-    #[serde(default)]
-    pub goal_slices: Vec<u64>,
-    /// It sits at the top of the board with slices, or with an agent working it or a card under
-    /// it, as a chat started from Home does.
+    /// It sits at the top of the board with an agent working it or a card under it, as a chat
+    /// started from Home does.
     #[serde(default)]
     pub is_goal: bool,
     /// A short name its summary gave a goal whose title is only its prompt cut short.
     #[serde(default)]
     pub display_title: Option<String>,
-    /// For a goal, the gates its slices wait at, in the order they will be
-    /// reached: a slice that waits on another comes after it.
-    pub next: Vec<NextGate>,
-    /// For a goal, how its slices stand together; none for a card with no
-    /// slices under it.
+    /// For a goal, how it stands, as its column does.
     #[serde(default)]
     pub goal_state: Option<SliceState>,
     /// Every slice left in the goal lost its owner, so it isn't moving: the person's inbox says so.
     #[serde(default)]
     pub goal_stalled: bool,
-    /// For a goal, when its work should be through and whether that slipped.
-    #[serde(default)]
-    pub eta: Option<GoalEta>,
-    /// For a goal, how often its report is written; none writes none.
-    #[serde(default)]
-    pub report_every: Option<ReportEvery>,
-    /// For a goal, its latest report; `goalReports` lists those before it.
-    #[serde(default)]
-    pub report: Option<GoalReport>,
     /// For a goal, what it decided, oldest first, retired ones too.
     pub decisions: Vec<Decision>,
     /// For a goal, rules only its own agents follow, oldest first, retired
@@ -162,9 +136,6 @@ pub struct BoardCard {
     pub rules: Vec<GoalRule>,
     /// Its ticket or trigger arriving again while it was open, oldest first.
     pub arrivals: Vec<Arrival>,
-    /// For a goal, what must hold once its slices are done, oldest first,
-    /// retired ones too.
-    pub assertions: Vec<Assertion>,
     pub at: u64,
     pub updated_at: u64,
     /// When it was put aside in Later, off the board until someone takes it up again.
@@ -191,9 +162,6 @@ pub struct ProjectBoard {
     /// Places an agent proposed, waiting for the person's answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub places_proposal: Option<PlacesProposal>,
-    /// How many of its cards have an agent of Auto's at work.
-    pub running: usize,
-    pub auto_note: Option<String>,
     /// What could not be done of what the person asked, a line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
@@ -500,121 +468,6 @@ pub struct BoardReviewerParams {
     pub provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-}
-
-/// The step of Auto's own work a card's run is at. Its slice and `held` say
-/// what waits on the person and whether the work landed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RunStage {
-    /// Its worktree and agent are being made.
-    Starting,
-    Working,
-    /// An agent on another CLI reviews what its builder proposes to build.
-    Contracting,
-    /// Its work is being committed, pushed and put in a pull request.
-    Shipping,
-    /// Its pull request's checks are running.
-    Checking,
-    /// Its checks passed, and an agent on another CLI reviews the change
-    /// blind before it merges.
-    Reviewing,
-    /// Its agent was asked to fix what failed.
-    Fixing,
-    Merging,
-    /// Its pull request is open, and Auto watches it for the person to merge
-    /// it or comment on it.
-    Watching,
-}
-
-/// What the person is needed for once Auto gives a card back to them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum RunHold {
-    /// Something failed that needs mending.
-    Fix,
-    /// Something only the person can do, such as starting its agent again.
-    Unblock,
-}
-
-impl RunStage {
-    /// Its agent is at work, so it takes one of Auto's places.
-    pub fn busy(self) -> bool {
-        matches!(
-            self,
-            RunStage::Starting | RunStage::Working | RunStage::Contracting | RunStage::Fixing
-        )
-    }
-
-    /// A turn of its agent ending sends its work on.
-    pub fn ships_on_turn_end(self) -> bool {
-        matches!(
-            self,
-            RunStage::Working | RunStage::Fixing | RunStage::Watching
-        )
-    }
-}
-
-/// A card's run as the app and devices read it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CardRun {
-    pub agent: String,
-    pub repo: String,
-    pub worktree: String,
-    pub branch: String,
-    pub base: String,
-    pub start_sha: String,
-    pub stage: RunStage,
-    /// Auto gave the card back to the person, who is needed for this.
-    pub held: Option<RunHold>,
-    /// Auto gave it back, or its pull request waits for them.
-    pub waits_on_person: bool,
-    pub note: Option<String>,
-    pub pull: Option<CardPull>,
-}
-
-/// A run's pull request as the app and devices read it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct CardPull {
-    pub number: u64,
-    pub url: String,
-    pub host: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ContractTerm {
-    pub behaviour: String,
-    pub verify: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ContractState {
-    /// Its builder has not proposed one yet.
-    Awaited,
-    /// Its builder ended a turn without one and was reminded.
-    Reminded,
-    /// A reviewer has the latest proposal.
-    Reviewing,
-    /// A reviewer objected and its builder is proposing again.
-    Revising,
-    Agreed,
-    /// The latest proposal stands without a reviewer's agreement, for the reason on record.
-    Stands,
-    /// Its builder never proposed one.
-    Skipped,
-}
-
-/// A card's contract as the app and devices read it.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CardContract {
-    pub terms: Vec<ContractTerm>,
-    pub state: ContractState,
-    pub rounds: u32,
-    pub why: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

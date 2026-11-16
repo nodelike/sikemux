@@ -1,5 +1,5 @@
 //! Every goal and every agent on one screen: which agents work each goal, what is on their
-//! desks, what comes next and by when. The window owns the browser and the editors, so it tells
+//! desks and what comes next. The window owns the browser and the editors, so it tells
 //! the core what its desks hold.
 
 use crate::server::changed::ChangedCore;
@@ -16,14 +16,14 @@ use std::sync::Mutex;
 
 use sikemux_process::sync::Locked;
 use sikemux_view::goals::{
-    AgentDesk, DeskCounts, DesksParams, GoalAgent, GoalClock, GoalNext, GoalRow, GoalSlice,
-    GoalsThrough, GoalsView, LooseNeed,
+    AgentDesk, DeskCounts, DesksParams, GoalAgent, GoalClock, GoalNext, GoalRow, GoalsView,
+    LooseNeed,
 };
 use sikemux_view::inbox::{AgentShown, Inbox, InboxItem, InboxKind, InboxNeed};
-use sikemux_view::slice::{Passer, SliceState, WaitOn};
+use sikemux_view::slice::SliceState;
 use sikemux_wire::protocol::{AgentGroup, SessionId};
 
-use super::board::{self, BoardCard, BoardColumn, ProjectBoard};
+use super::board::{self, BoardCard, ProjectBoard};
 use super::changed::Topic;
 use super::connection::ClientId;
 use super::{inbox, Core};
@@ -101,13 +101,9 @@ pub(super) fn view(core: &Core) -> GoalsView {
 
     let families: Vec<Family> = boards.iter().map(Family::of).collect();
     let mut rows = Vec::new();
-    let mut tasks: HashMap<String, String> = HashMap::new();
     for (board, family) in boards.iter().zip(&families) {
         for goal in board.cards.iter().filter(|card| card.is_goal) {
-            let (agents, owned) = agents_of(family, goal, &helpers, &open);
-            for (agent, slice) in owned {
-                tasks.entry(agent).or_insert(slice);
-            }
+            let agents = agents_of(family, goal, &helpers, &open);
             let mut desk = DeskCounts::default();
             for agent in agents.iter().filter_map(|agent| desks.get(agent)) {
                 desk.add(agent);
@@ -123,16 +119,12 @@ pub(super) fn view(core: &Core) -> GoalsView {
                     state: state_of(goal),
                     next: None,
                     clock: None,
-                    slices: slices_of(family, goal),
                     agents,
                     needs: Vec::new(),
                     desk,
-                    worker: goal.owner.clone().filter(|_| {
-                        !goal.goal_stalled && (goal.slice.is_some() || goal.goal_slices.is_empty())
-                    }),
+                    worker: goal.owner.clone().filter(|_| !goal.goal_stalled),
                 },
                 goal,
-                family,
             });
         }
     }
@@ -159,18 +151,6 @@ pub(super) fn view(core: &Core) -> GoalsView {
         }
     };
     rows.sort_by_key(order);
-    let under_way = (rows.iter())
-        .filter(|placed| placed.row.state != SliceState::Done)
-        .filter_map(|placed| placed.goal.eta.as_ref());
-    let through = under_way.fold(None, |through: Option<GoalsThrough>, eta| {
-        let Some(at) = eta.at else {
-            return through;
-        };
-        Some(GoalsThrough {
-            at: through.map_or(at, |through| through.at.max(at)),
-            then_you: through.is_some_and(|through| through.then_you) || eta.then_you,
-        })
-    });
     let done = (rows.iter())
         .filter(|placed| placed.row.state == SliceState::Done)
         .count();
@@ -207,7 +187,7 @@ pub(super) fn view(core: &Core) -> GoalsView {
                 face: agent.face.clone(),
                 status: agent.status,
                 group: agent.group,
-                task: (tasks.get(&agent.agent_id).cloned()).unwrap_or_else(|| agent.title.clone()),
+                task: agent.title.clone(),
                 project: agent.project.clone(),
                 desk: desks.get(&agent.agent_id).cloned().unwrap_or_default(),
             }
@@ -219,7 +199,6 @@ pub(super) fn view(core: &Core) -> GoalsView {
         agents,
         no_goal,
         loose_needs,
-        through,
     }
 }
 
@@ -235,10 +214,9 @@ fn agent_state(agent: &AgentShown, ended_well: bool) -> SliceState {
     }
 }
 
-/// A board's cards by number and by the card at the top above each, which is the card itself at
-/// the top, so a goal's row is put together without reading the whole board again.
+/// A board's cards by the card at the top above each, which is the card itself at the top, so a
+/// goal's row is put together without reading the whole board again.
 struct Family<'a> {
-    cards: HashMap<u64, &'a BoardCard>,
     in_goal: HashMap<u64, Vec<&'a BoardCard>>,
 }
 
@@ -254,7 +232,7 @@ impl<'a> Family<'a> {
             }
             in_goal.entry(top).or_default().push(card);
         }
-        Self { cards, in_goal }
+        Self { in_goal }
     }
 
     fn in_goal(&self, goal: u64) -> &[&'a BoardCard] {
@@ -262,15 +240,14 @@ impl<'a> Family<'a> {
     }
 }
 
-/// A goal's row while the view is put together, with what it was made from.
+/// A goal's row while the view is put together, with the card it was made from.
 struct Placed<'a> {
     row: GoalRow,
     goal: &'a BoardCard,
-    family: &'a Family<'a>,
 }
 
 impl Placed<'_> {
-    /// Says how it stands once its needs are known, what comes next and by when.
+    /// Says how it stands once its needs are known, what comes next and since when.
     fn settle(&mut self, first: Option<&InboxItem>) {
         let (goal, row) = (self.goal, &mut self.row);
         let need = first.and_then(|item| Some((item, item.need?)));
@@ -281,51 +258,21 @@ impl Placed<'_> {
             None if goal.goal_stalled => SliceState::NeedsYou,
             None => row.state,
         };
-        let failed = (row.slices.iter()).find(|slice| slice.state == SliceState::Failed);
-        let gate = goal.next.first();
-        row.next = match (need, failed) {
-            (Some((item, need)), _) => Some(GoalNext::Need {
+        row.next = match need {
+            Some((item, need)) => Some(GoalNext::Need {
                 need,
                 what: asks_on(item, &row.title),
             }),
-            (None, Some(failed)) => Some(GoalNext::Failed {
-                slice: failed.title.clone(),
-            }),
-            (None, None) if row.state == SliceState::Done => Some(GoalNext::Done),
-            (None, None) => gate
-                .and_then(|next| {
-                    let card = *self.family.cards.get(&next.card)?;
-                    // Whose gate it is: it says so of its owner, naming the slice only when the
-                    // goal holds others, and an idle owner is all that holds it up.
-                    let owners = next.passer == Passer::Owner;
-                    let idle = owners && row.state == SliceState::Waiting && next.wait.is_none();
-                    let at_work = owners
-                        && card.id == goal.id
-                        && matches!(
-                            next.wait.as_ref().map(|wait| &wait.on),
-                            Some(WaitOn::Agent { .. })
-                        );
-                    Some(match (&card.owner_name, idle || at_work) {
-                        (Some(agent), true) => GoalNext::Agent {
-                            agent: agent.clone(),
-                            idle,
-                        },
-                        (owner, _) => GoalNext::Gate {
-                            gate: next.clone(),
-                            slice: card.title.clone(),
-                            owner: owner.clone(),
-                        },
-                    })
-                })
-                .or_else(|| {
-                    let agent = goal.owner_name.clone()?;
-                    let idle = row.state == SliceState::Waiting;
-                    let shown = goal.goal_slices.is_empty()
-                        && matches!(row.state, SliceState::Moving | SliceState::Waiting);
-                    shown.then_some(GoalNext::Agent { agent, idle })
+            None if row.state == SliceState::Done => Some(GoalNext::Done),
+            None => goal
+                .owner_name
+                .clone()
+                .filter(|_| matches!(row.state, SliceState::Moving | SliceState::Waiting))
+                .map(|agent| GoalNext::Agent {
+                    agent,
+                    idle: row.state == SliceState::Waiting,
                 }),
         };
-        let eta = goal.eta.as_ref();
         row.clock = match (need, row.state) {
             (Some((item, _)), _) => Some(GoalClock::Since { at: item.at }),
             (None, SliceState::Failed) => Some(GoalClock::Since {
@@ -334,15 +281,7 @@ impl Placed<'_> {
             (None, SliceState::Done) => Some(GoalClock::Finished {
                 at: goal.updated_at,
             }),
-            _ => match (eta.and_then(|eta| eta.at), eta) {
-                (Some(at), _) => Some(GoalClock::Until { at }),
-                (None, Some(eta)) if eta.slip.is_some() => {
-                    Some(GoalClock::Late { at: eta.promised })
-                }
-                _ => (gate.and_then(|next| next.wait.as_ref()))
-                    .and_then(|wait| wait.eta())
-                    .map(|at| GoalClock::Until { at }),
-            },
+            _ => None,
         };
     }
 }
@@ -375,24 +314,21 @@ fn helpers_of(core: &Core) -> HashMap<String, Vec<String>> {
 }
 
 /// The open agents working `goal`, its lead first: who holds it or a card under it and whom they
-/// started; and for each one that holds a slice, the slice's title.
+/// started.
 fn agents_of(
     family: &Family,
     goal: &BoardCard,
     helpers: &HashMap<String, Vec<String>>,
     open: &HashSet<&str>,
-) -> (Vec<String>, Vec<(String, String)>) {
+) -> Vec<String> {
     let mut agents: Vec<String> = goal.owner.iter().cloned().collect();
-    let mut owned = Vec::new();
-    for card in family.in_goal(goal.id) {
-        let Some(owner) = &card.owner else {
-            continue;
-        };
+    for owner in family
+        .in_goal(goal.id)
+        .iter()
+        .filter_map(|card| card.owner.as_ref())
+    {
         if !agents.contains(owner) {
             agents.push(owner.clone());
-        }
-        if card.slice.is_some() && card.column != BoardColumn::Done {
-            owned.push((owner.clone(), card.title.clone()));
         }
     }
     let mut at = 0;
@@ -405,25 +341,11 @@ fn agents_of(
         at += 1;
     }
     agents.retain(|agent| open.contains(agent.as_str()));
-    (agents, owned)
+    agents
 }
 
 fn state_of(goal: &BoardCard) -> SliceState {
     goal.goal_state.unwrap_or(SliceState::Waiting)
-}
-
-fn slices_of(family: &Family, goal: &BoardCard) -> Vec<GoalSlice> {
-    let held: HashSet<u64> = goal.goal_slices.iter().copied().collect();
-    (family.in_goal(goal.id).iter())
-        .filter(|card| held.contains(&card.id))
-        .filter_map(|card| {
-            Some(GoalSlice {
-                card: card.id,
-                title: card.title.clone(),
-                state: card.slice.as_ref()?.state,
-            })
-        })
-        .collect()
 }
 
 /// What an item says it needs, in a line: what an agent asked, else the core's words.

@@ -49,8 +49,7 @@ MCP server every agent is launched with.
   build does; a team-signed build never falls back to a path.
 - **Messages are text, labelled as coming from an agent.** A message can never answer a
   permission prompt or change configuration. Any agent may message any other, across
-  projects, except Auto's reviewer: it is the one agent others cannot message, read or
-  wait on, and it cannot reach them.
+  projects.
 - **Delivery steers first.** A busy agent that can steer reads the message at its next
   tool call; an idle one gets it as a new turn. Only an agent that can do neither, such as
   a terminal agent mid-turn, has it queued in the core, up to ten, and delivered when its
@@ -67,20 +66,11 @@ MCP server every agent is launched with.
   person. Codex's and Muse's own questions go the same way. A lead's message closes only the
   question it names as answering. A secret question goes straight to the person, and its
   answer reaches the agent as a private file, never as text in a transcript or log. A worker
-  that is not blocked goes ahead on a stated assumption, and a card whose team has an open
-  question or an unseen assumption does not merge.
-- **Auto's merge needs a blind review beside the questions gate.** Once a card's checks pass,
-  Auto starts a reviewer of its own on another CLI than the builder's, with no lead and no
-  session to resume. It reads only the card, its acceptance criteria, which only the person
-  writes, and the diff from the run's start to the pushed commit, in a read-only checkout of
-  that commit. Its approval is kept against that commit, so any later push needs a new one.
-  Findings go back to the builder as review comments do, and each round gets a fresh
-  reviewer. With no signed-in agent on another CLI, or no verdict, the card waits for the
-  person.
+  that is not blocked goes ahead on a stated assumption.
 - **Work is tracked on one board per project.** Cards have a parent and dependencies and no
   types. Claiming is a single step in the core. Only the person moves a Jira or Linear
-  ticket onto the board, and the board's automatic pickup starts agents only for cards the
-  person added.
+  ticket onto the board. A trigger's card that no open agent holds gets an agent of its own;
+  no other card starts one.
 - **Agents sharing a checkout are told when they collide.** The core keeps, for each file an
   agent read or changed this session, the copy that agent last saw and the file's last few
   versions, in memory within a fixed budget. When an edit lands on lines another open agent has
@@ -111,8 +101,6 @@ MCP server every agent is launched with.
 - The rail lists workers flat, right after their lead, joined by the lead's tree line.
 - Phones reach the same tools as `Call` methods (ADR 0010), never new wire requests.
 - A lead that is compacted or closed does not lose the plan: it lives on the board.
-- A reviewer and its checkout go when its review ends, when its card leaves Auto, or, after a
-  restart that lost it, when Auto starts the review again on the same commit.
 
 ## Notes
 

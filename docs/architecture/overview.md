@@ -23,7 +23,7 @@ One word for each idea, in the interface, docs and the core's messages.
 | watch                     | Can read, answer questions and allow permissions, but not start or drive anything.                                            |
 | shared device             | Someone else's device paired with a host. It never acts as the person.                                                        |
 | agent, lead, worker, team | One running agent CLI; one that started others; one another started; all of them.                                             |
-| board, card, Auto         | Where work waits; one piece of work; what carries a card to merged.                                                           |
+| board, card               | Where work waits; one piece of work.                                                                                          |
 | sandbox                   | Where one card's work runs: a worktree or a virtual machine.                                                                  |
 | trigger, event            | A rule that adds work when something happens; one time it happened.                                                           |
 | inbox, digest             | What waits on the person; what happened while they were away.                                                                 |
@@ -200,7 +200,7 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 | `sikemux-chat`       | Chats: an agent's conversation as the core keeps it, its feed and replay from disk, hand-overs between accounts and agents, and the model proxy. What it asks of the features above it goes through `ChatAbove`                      |
 | `sikemux-remote`     | Reaching a host from elsewhere and its account: pairing, listening for devices, the account, the vault, joining, sharing a chat and notifying the person's devices. What it asks of the features above it goes through `RemoteAbove` |
 | `sikemux-repo`       | A project's repository: who wrote which lines, committing, landing and pushing, collisions, the check, the code host and CI, places and deploys, the person's calls, language servers, skills. It asks above through `RepoAbove`     |
-| `sikemux-board`      | The board: cards, goals and slices, the checks and proof a slice passes, and Auto, which starts, follows, recovers and finishes the runs that build them. What it asks of the features above it goes through `BoardAbove`            |
+| `sikemux-board`      | The board: cards and goals, their decisions and rules, hand-offs, and the agent a trigger's card starts. What it asks of the features above it goes through `BoardAbove`                                                             |
 | `sikemux-hostkit`    | What an app and the `sikemux` command do around the core without linking it: starting it and keeping it on their build, the login item, the CLI's paths, and crash, panic and hang reports                                           |
 | `sikemux-buildinfo`  | Which build this is: the commit, the time and a fingerprint of the core's sources, for the `sikemux` command and the app's program                                                                                                   |
 | `sikemux-drivers`    | The agents a chat runs on, each driven over its own protocol (Claude Code, Codex, Pi, Muse, ACP), and what a driver and its chat say to each other                                                                                   |
