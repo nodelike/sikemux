@@ -96,6 +96,8 @@ export type ProviderEvent = {
       reason: InvoiceReason;
       /** What the provider charged, in the currency it charged in. */
       total: Money;
+      /** The end of the period the payment is for, when the provider names one. */
+      periodEnd?: Date;
     }
   /**
    * Money went back on a payment: a refund, asked for or not, which may come long after the

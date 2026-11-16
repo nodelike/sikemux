@@ -805,6 +805,9 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
           amount: total,
           currency: txn.currency_code.toLowerCase(),
         },
+        ...(txn.billing_period && {
+          periodEnd: new Date(txn.billing_period.ends_at),
+        }),
       };
       if (
         payment.type !== "payment.made" ||

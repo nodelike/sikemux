@@ -657,6 +657,65 @@ describe("a chargeback", () => {
   });
 });
 
+describe("a cured lapse", () => {
+  const renewal = (sub: PaddleSub) => ({
+    ...paddleTxn(sub),
+    origin: "subscription_recurring",
+  });
+
+  async function lapsed() {
+    const { sub } = await pay(OWNER, "pro");
+    expect(
+      await deliver(
+        "subscription.past_due",
+        { ...sub, status: "past_due" },
+        ago(30),
+      ),
+    ).toBe(204);
+    expect((await overview(OWNER)).subscriptions[0]?.status).toBe("lapsed");
+    const ends = new Date(Date.now() + 59 * DAY_MS).toISOString();
+    const renewed: PaddleSub = {
+      ...sub,
+      current_billing_period: {
+        starts_at: sub.current_billing_period.ends_at,
+        ends_at: ends,
+      },
+      next_billed_at: ends,
+    };
+    return { renewed, ends };
+  }
+
+  it("S4: the subscription stamped first and sent first", async () => {
+    const { renewed, ends } = await lapsed();
+    expect(await deliver("subscription.updated", renewed, ago(11))).toBe(204);
+    expect(
+      await deliver("transaction.completed", renewal(renewed), ago(10)),
+    ).toBe(204);
+    const [held] = (await overview(OWNER)).subscriptions;
+    expect([held?.status, held?.currentPeriodEnd]).toEqual(["active", ends]);
+  });
+
+  it("F7a: the subscription stamped after the payment, and sent first", async () => {
+    const { renewed, ends } = await lapsed();
+    expect(await deliver("subscription.updated", renewed, ago(10))).toBe(204);
+    expect(
+      await deliver("transaction.completed", renewal(renewed), ago(11)),
+    ).toBe(204);
+    const [held] = (await overview(OWNER)).subscriptions;
+    expect([held?.status, held?.currentPeriodEnd]).toEqual(["active", ends]);
+  });
+
+  it("F7b: the subscription stamped before the payment, and sent second", async () => {
+    const { renewed, ends } = await lapsed();
+    expect(
+      await deliver("transaction.completed", renewal(renewed), ago(10)),
+    ).toBe(204);
+    expect(await deliver("subscription.updated", renewed, ago(11))).toBe(204);
+    const [held] = (await overview(OWNER)).subscriptions;
+    expect([held?.status, held?.currentPeriodEnd]).toEqual(["active", ends]);
+  });
+});
+
 describe("who pays for an org", () => {
   it("F2: of two owners' open checkouts, the one paid makes its opener the payer", async () => {
     const orgId = await createOrg();

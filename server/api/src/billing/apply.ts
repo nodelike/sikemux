@@ -201,7 +201,7 @@ async function changeItems(
   }));
   for (const { item, row } of pairs) {
     if (!row || (row.status === "ended" && !live.length)) continue;
-    const back = row.status === "ended" && {
+    const back = row.status !== "active" && {
       status: "active" as const,
       ended_at: null,
     };
@@ -486,12 +486,20 @@ async function apply(
       const lapsed = rows
         .filter((row) => row.status === "lapsed")
         .map((row) => row.id);
-      if (paid && lapsed.length && isNewer(rows, at))
+      if (paid && lapsed.length && isNewer(rows, at)) {
         await trx
           .updateTable("subscriptions")
           .set({ status: "active", provider_updated_at: at })
           .where("id", "in", lapsed)
           .execute();
+        if (event.periodEnd)
+          await trx
+            .updateTable("subscriptions")
+            .set({ current_period_end: event.periodEnd })
+            .where("id", "in", lapsed)
+            .where("current_period_end", "<", event.periodEnd)
+            .execute();
+      }
       const fresh = !before || before.status === "failed";
       if (paid && fresh && paidForNothing(rows, at, before?.status))
         await callLater(trx, provider, [
