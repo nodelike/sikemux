@@ -1,0 +1,34 @@
+name: win-trust-spike
+
+on:
+  workflow_dispatch:
+
+jobs:
+  spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        working-directory: spikes/win-trust
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: rustup target add ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Prove
+        shell: pwsh
+        run: |
+          $exe = "target/${{ matrix.target }}/release/spike.exe"
+          & $exe prove
+          $code = $LASTEXITCODE
+          Write-Host "---- service log ----"
+          Get-Content "$env:ProgramData/SikemuxSpike/service.log" -ErrorAction SilentlyContinue
+          exit $code
