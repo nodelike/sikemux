@@ -1176,9 +1176,9 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
         "decisions": decisions,
         "goal": goal.map(|(card, rules)| json!({ "card": card, "rules": rules })),
     });
-    if !set_aside.is_empty() {
-        listed["setAside"] = json!(set_aside);
-        listed["setAsideNote"] = json!(BRING_BACK);
+    if let Some(fields) = listed.as_object_mut().filter(|_| !set_aside.is_empty()) {
+        fields.insert("setAside".to_owned(), json!(set_aside));
+        fields.insert("setAsideNote".to_owned(), json!(BRING_BACK));
     }
     Ok(listed)
 }

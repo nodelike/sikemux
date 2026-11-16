@@ -123,7 +123,7 @@ pub(crate) async fn reopen(
                 "agentId": closed.agent_id,
                 "host": link.name,
                 "cli": closed.cli,
-                "resumed": answer["resumed"],
+                "resumed": answer.get("resumed"),
                 "reportsBack": reports,
                 "note": format!(
                     "{} is reopening its session on {} in its checkout there, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
@@ -230,6 +230,8 @@ pub(super) async fn reopen_here(
     })
     .await
     .map_err(|error| error.to_string())?;
-    answer["resumed"] = session.into();
+    if let Some(fields) = answer.as_object_mut() {
+        fields.insert("resumed".into(), session.into());
+    }
     Ok(answer)
 }

@@ -1037,7 +1037,9 @@ fn setup_list(mut agents: Vec<Installed>) -> Vec<Installed> {
     agents.sort_by_key(|agent| {
         let ready = agent.available && agent.status != status::AgentStatus::SignedOut;
         let at = AGENTS.iter().position(|def| def.kind == agent.kind);
-        let featured = at.is_some_and(|at| AGENTS[at].featured);
+        let featured = at
+            .and_then(|at| AGENTS.get(at))
+            .is_some_and(|def| def.featured);
         (!ready, !featured, at)
     });
     agents

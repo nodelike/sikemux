@@ -978,7 +978,7 @@ fn own_landed(
             continue;
         }
         match agents.iter().all(|agent| agent.chat == agent_id) {
-            true => own.push(format!("{} {subject}", &sha[..sha.len().min(9)])),
+            true => own.push(format!("{} {subject}", sha.get(..9).unwrap_or(sha))),
             false => shared += 1,
         }
     }
@@ -1106,9 +1106,8 @@ mod tests {
             "lead": "lead",
             "permissionMode": "auto",
         });
-        let Value::Object(worker) = worker else {
-            unreachable!()
-        };
+        let worker: serde_json::Map<String, Value> =
+            serde_json::from_value(worker).expect("a worker draft");
         core.workspaces()
             .put_agent_draft(worker)
             .expect("the worker");

@@ -487,7 +487,7 @@ pub(super) fn workers_here(
         };
         let waiting = (core.hosts().outbox)
             .pulled_body(host, |post| {
-                post.params["agentId"] == held.agent_id.as_str()
+                post.params.get("agentId").and_then(Value::as_str) == Some(held.agent_id.as_str())
             })
             .is_some();
         if waiting || tree.sent.is_none() || tree.sent == held.landed {
@@ -675,8 +675,10 @@ pub(crate) async fn deliver(
         .await
         {
             Ok(mut answer) => {
-                answer["to"] = shown.into();
-                answer["host"] = host_name.into();
+                if let Some(fields) = answer.as_object_mut() {
+                    fields.insert("to".into(), shown.into());
+                    fields.insert("host".into(), host_name.into());
+                }
                 return Ok(answer);
             }
             Err(error) if !error.passing() => return Err(error.to_string()),
@@ -772,8 +774,10 @@ pub(crate) async fn read(
         }
         Failed::Refused(why) | Failed::NotLinked(why) => why,
     })?;
-    answer["name"] = shown(&foreign, core).into();
-    answer["host"] = name_of(core, &foreign.host).into();
+    if let Some(fields) = answer.as_object_mut() {
+        fields.insert("name".into(), shown(&foreign, core).into());
+        fields.insert("host".into(), name_of(core, &foreign.host).into());
+    }
     Ok(answer)
 }
 
@@ -890,8 +894,9 @@ pub(crate) async fn hire(
                 error => error.to_string(),
             }
         })?;
-    answer["name"]
-        .as_str()
+    answer
+        .get("name")
+        .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| "the lead's host named no worker".into())
 }
@@ -1108,8 +1113,8 @@ pub(crate) fn elsewhere(
     }
     let naming = |agents: Vec<String>| {
         let mut params = params.clone();
-        if params["agentIds"].is_array() {
-            params["agentIds"] = json!(agents);
+        if let Some(ids) = params.get_mut("agentIds").filter(|ids| ids.is_array()) {
+            *ids = json!(agents);
         }
         params
     };
@@ -1214,7 +1219,11 @@ pub(super) fn permit_here(core: &Core, host: &str, params: PermitParams) -> Core
 /// Puts a question an agent here asked to the person on the host its team's
 /// lead runs on.
 pub(crate) fn relay_question(core: &Core, host: &str, question: Value) {
-    let asker = question["agentId"].as_str().unwrap_or_default().to_owned();
+    let asker = question
+        .get("agentId")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
     post(
         core,
         host,

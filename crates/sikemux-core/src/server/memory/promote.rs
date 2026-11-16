@@ -38,17 +38,13 @@ fn with_rule(file: &str, rule: &str) -> String {
             lines.extend([HEADING, "", bullet]);
         }
         Some(heading) => {
-            let end = lines[heading + 1..]
-                .iter()
-                .position(|line| line.starts_with("## "))
-                .map_or(lines.len(), |at| heading + 1 + at);
-            if lines[heading + 1..end]
-                .iter()
-                .any(|line| line.trim_end() == bullet)
-            {
+            let after = lines.get(heading + 1..).unwrap_or_default();
+            let section = (after.split(|line| line.starts_with("## ")).next()).unwrap_or_default();
+            if section.iter().any(|line| line.trim_end() == bullet) {
                 return file.to_owned();
             }
-            let last = lines[..end]
+            let end = heading + 1 + section.len();
+            let last = (lines.get(..end).unwrap_or_default())
                 .iter()
                 .rposition(|line| !line.trim().is_empty())
                 .unwrap_or(heading);

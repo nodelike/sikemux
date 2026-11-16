@@ -736,7 +736,7 @@ async fn flush_lane(core: Arc<Core>, host: String, lane: String) {
             Ok(_) => {
                 core.hosts().outbox.sent(&host, post.seq);
                 if post.method == "question" {
-                    if let Some(id) = post.params["id"].as_str() {
+                    if let Some(id) = post.params.get("id").and_then(Value::as_str) {
                         super::questions::relay_arrived(&core, id);
                     }
                 }

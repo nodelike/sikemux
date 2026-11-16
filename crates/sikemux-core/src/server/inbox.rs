@@ -661,7 +661,7 @@ pub(crate) fn uncommitted_files(
     let files = edited_files(core, project, agent_id);
     (checkouts_holding(&files, cwd).iter())
         .filter_map(|(checkout, files)| {
-            let listed = uncommitted_in(checkout, &files[..files.len().min(MAX_STATUS_FILES)])?;
+            let listed = uncommitted_in(checkout, files.get(..MAX_STATUS_FILES).unwrap_or(files))?;
             Some(listed.into_iter().map(|file| {
                 let path = checkout.join(file);
                 (path.strip_prefix(cwd).unwrap_or(&path))
@@ -1456,32 +1456,34 @@ fn in_teams(agents: Vec<AgentShown>, leads: &HashMap<String, String>) -> Vec<Age
     };
     let mut workers = vec![Vec::new(); agents.len()];
     for (ix, lead) in lead_of.iter().enumerate() {
-        if let Some(lead) = lead {
-            workers[*lead].push(ix);
+        if let Some(team) = lead.and_then(|lead| workers.get_mut(lead)) {
+            team.push(ix);
         }
     }
     fn gather(lead: usize, workers: &[Vec<usize>], placed: &mut [bool], team: &mut Vec<usize>) {
-        placed[lead] = true;
+        if let Some(seen) = placed.get_mut(lead) {
+            *seen = true;
+        }
         team.push(lead);
-        for &worker in &workers[lead] {
-            if !placed[worker] {
+        for &worker in workers.get(lead).into_iter().flatten() {
+            if placed.get(worker) == Some(&false) {
                 gather(worker, workers, placed, team);
             }
         }
     }
     let mut placed = vec![false; agents.len()];
     let mut order = Vec::with_capacity(agents.len());
-    for ix in 0..agents.len() {
-        if placed[ix] || lead_of[ix].is_some() {
+    for (ix, lead) in lead_of.iter().enumerate() {
+        if lead.is_some() || placed.get(ix) != Some(&false) {
             continue;
         }
         gather(ix, &workers, &mut placed, &mut order);
     }
-    order.extend((0..agents.len()).filter(|&ix| !placed[ix]));
+    order.extend((placed.iter().enumerate()).filter_map(|(ix, &placed)| (!placed).then_some(ix)));
     let mut agents: Vec<Option<AgentShown>> = agents.into_iter().map(Some).collect();
     order
         .into_iter()
-        .filter_map(|ix| agents[ix].take())
+        .filter_map(|ix| agents.get_mut(ix).and_then(Option::take))
         .collect()
 }
 

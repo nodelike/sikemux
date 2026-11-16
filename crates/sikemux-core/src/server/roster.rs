@@ -297,27 +297,28 @@ pub(crate) fn rows(core: &Core, project: Option<&str>, caller: &str) -> Vec<Valu
                     && agent.agent_id != caller
                     && super::messages::blind_between(core, caller, &agent.agent_id, "").is_ok(),
             });
-            let fields = row.as_object_mut().expect("a row is an object");
-            if let Some(parent) = &agent.parent {
-                fields.insert(
-                    "startedBy".into(),
-                    (names.get(parent).cloned())
-                        .or_else(|| core.names().get(parent).map(|named| named.name))
-                        .unwrap_or_else(|| parent.clone())
-                        .into(),
-                );
-            }
-            if agent.agent_id == caller {
-                fields.insert("you".into(), true.into());
-            }
-            if let Some(model) = &agent.model {
-                fields.insert("model".into(), model.clone().into());
-            }
-            if let Some(host) = host {
-                fields.insert("host".into(), host.into());
-            }
-            if project.is_none() {
-                fields.insert("project".into(), agent.project.clone().into());
+            if let Some(fields) = row.as_object_mut() {
+                if let Some(parent) = &agent.parent {
+                    fields.insert(
+                        "startedBy".into(),
+                        (names.get(parent).cloned())
+                            .or_else(|| core.names().get(parent).map(|named| named.name))
+                            .unwrap_or_else(|| parent.clone())
+                            .into(),
+                    );
+                }
+                if agent.agent_id == caller {
+                    fields.insert("you".into(), true.into());
+                }
+                if let Some(model) = &agent.model {
+                    fields.insert("model".into(), model.clone().into());
+                }
+                if let Some(host) = host {
+                    fields.insert("host".into(), host.into());
+                }
+                if project.is_none() {
+                    fields.insert("project".into(), agent.project.clone().into());
+                }
             }
             row
         })
@@ -378,14 +379,15 @@ pub(crate) async fn close(core: &Arc<Core>, request: &HarnessRequest) -> Result<
             Err(why) => refused.push(json!({ "agent": agent_id, "reason": why })),
         }
     }
-    let mut result = json!({ "closed": closed });
+    let mut result = serde_json::Map::new();
+    result.insert("closed".to_owned(), closed.into());
     if !left.is_empty() {
-        result["left"] = left.into();
+        result.insert("left".to_owned(), left.into());
     }
     if !refused.is_empty() {
-        result["refused"] = refused.into();
+        result.insert("refused".to_owned(), refused.into());
     }
-    Ok(result)
+    Ok(Value::Object(result))
 }
 
 /// Moves agents' chats to another account of their agent, named by its name or id, where each

@@ -159,7 +159,9 @@ async fn dispatch(
     match method {
         "join" => {
             let mut reply = introduction(core);
-            reply["result"] = "allowed".into();
+            if let Some(fields) = reply.as_object_mut() {
+                fields.insert("result".into(), "allowed".into());
+            }
             Ok(reply)
         }
         "unlink" => {

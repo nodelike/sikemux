@@ -88,9 +88,13 @@ pub(crate) fn rows(core: &Core) -> Vec<HostRow> {
         .collect();
     for (alias, reach) in open {
         let key = super::probe::reached(core, &alias);
-        if let Some(&at) = key.as_ref().and_then(|key| reached.get(key)) {
-            if rows[at].setup.is_none() {
-                rows[at].setup = setups.remove(&alias);
+        if let Some(row) = key
+            .as_ref()
+            .and_then(|key| reached.get(key))
+            .and_then(|&at| rows.get_mut(at))
+        {
+            if row.setup.is_none() {
+                row.setup = setups.remove(&alias);
             }
             continue;
         }

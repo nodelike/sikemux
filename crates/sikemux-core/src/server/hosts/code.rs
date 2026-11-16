@@ -393,7 +393,11 @@ fn clone_dir(core: &Core, host: &str, code: &Code) -> PathBuf {
         .clone()
         .unwrap_or_else(std::env::temp_dir)
         .join(CLONES);
-    base.join(format!("{}-{}", slug(&code.project), &digest[..12]))
+    base.join(format!(
+        "{}-{}",
+        slug(&code.project),
+        digest.get(..12).unwrap_or(&digest)
+    ))
 }
 
 /// The commits a host with `repo` has, so a bundle need not carry them.

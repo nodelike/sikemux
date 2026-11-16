@@ -905,12 +905,9 @@ fn mark_pick(pick: &str, choices: &mut [QuestionChoice]) {
 fn recommended(label: &str) -> (&str, bool) {
     const MARK: &str = "(recommended)";
     let label = label.trim();
-    let cut = label
-        .len()
-        .checked_sub(MARK.len())
-        .filter(|&at| label.is_char_boundary(at));
+    let cut = (label.len().checked_sub(MARK.len())).and_then(|at| label.split_at_checked(at));
     match cut {
-        Some(at) if label[at..].eq_ignore_ascii_case(MARK) => (label[..at].trim_end(), true),
+        Some((kept, mark)) if mark.eq_ignore_ascii_case(MARK) => (kept.trim_end(), true),
         _ => (label, false),
     }
 }
@@ -1902,7 +1899,8 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             })
             .collect();
         match messages::answer(core, asker.to_owned(), sent).await {
-            Ok(delivered) if delivered["delivery"] == "waiting" => {}
+            Ok(delivered)
+                if delivered.get("delivery").and_then(Value::as_str) == Some("waiting") => {}
             Ok(_) => core.harness().questions.delivered(asker),
             Err(error) => {
                 reopen(
@@ -2051,11 +2049,9 @@ fn attach_picked_pictures(core: &Arc<Core>, answers: &mut [AnswerParams]) {
             continue;
         };
         let to = dir.join(name);
-        if std::fs::create_dir_all(dir)
-            .and_then(|()| std::fs::copy(from, &to))
-            .is_ok()
-        {
-            answers[at].paths.push(to.to_string_lossy().into_owned());
+        let copied = std::fs::create_dir_all(dir).and_then(|()| std::fs::copy(from, &to));
+        if let (Ok(_), Some(answer)) = (copied, answers.get_mut(at)) {
+            answer.paths.push(to.to_string_lossy().into_owned());
         }
     }
 }
@@ -2424,16 +2420,16 @@ mod tests {
         .await
         .expect("the project");
         for agent in ["worker", "lead"] {
-            let serde_json::Value::Object(draft) = serde_json::json!({
-                "id": agent,
-                "provider": "claude",
-                "project": project.id,
-                "cwd": dir.path(),
-                "title": agent,
-                "permissionMode": "auto",
-            }) else {
-                unreachable!()
-            };
+            let draft: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_value(serde_json::json!({
+                    "id": agent,
+                    "provider": "claude",
+                    "project": project.id,
+                    "cwd": dir.path(),
+                    "title": agent,
+                    "permissionMode": "auto",
+                }))
+                .expect("a draft");
             core.workspaces().put_agent_draft(draft).expect("the agent");
         }
         let workers: Question = serde_json::from_value(serde_json::json!({

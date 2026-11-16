@@ -134,7 +134,8 @@ fn rules_in(answer: &str, kept: &[String]) -> Vec<SeededRule> {
         .find('[')
         .zip(answer.rfind(']'))
         .filter(|(start, end)| start < end)
-        .and_then(|(start, end)| serde_json::from_str::<Vec<Found>>(&answer[start..=end]).ok())
+        .and_then(|(start, end)| answer.get(start..=end))
+        .and_then(|list| serde_json::from_str::<Vec<Found>>(list).ok())
         .unwrap_or_default();
     let mut rules: Vec<SeededRule> = Vec::new();
     for found in list {

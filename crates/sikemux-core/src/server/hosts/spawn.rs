@@ -120,7 +120,11 @@ pub(crate) async fn spawn(
     };
     let started_from = format!(
         "your commit {}{}",
-        &packed.code.commit[..packed.code.commit.len().min(10)],
+        packed
+            .code
+            .commit
+            .get(..packed.code.commit.len().min(10))
+            .unwrap_or(&packed.code.commit),
         match (packed.code.patch.is_some(), packed.left_behind) {
             (true, _) => " with your uncommitted changes committed on top".to_owned(),
             (false, 0) => String::new(),
@@ -171,13 +175,16 @@ pub(crate) async fn spawn(
             "note": format!("{} did not answer in time, so whether {shown} started is not known yet. Do not start it again: Sikemux asks {} until it knows, and tells you whether it started. It starts from {started_from}.", link.name, link.name),
         }));
     }
-    let branch = answer["branch"].as_str().unwrap_or_default();
+    let branch = answer
+        .get("branch")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     Ok(json!({
         "name": shown,
         "agentId": agent_id,
         "host": link.name,
-        "cli": answer["cli"],
-        "model": answer["model"],
+        "cli": answer.get("cli"),
+        "model": answer.get("model"),
         "reportsBack": reports,
         "note": format!(
             "{shown} is starting on {} in a checkout of its own{}, from {started_from}, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
@@ -274,9 +281,10 @@ pub(crate) async fn hand_over(
     )
     .await
     {
-        Ok(answer) if answer["needs"] == "bundle" => {
-            let tips: Vec<String> = answer["tips"]
-                .as_array()
+        Ok(answer) if answer.get("needs").and_then(Value::as_str) == Some("bundle") => {
+            let tips: Vec<String> = answer
+                .get("tips")
+                .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
@@ -296,9 +304,13 @@ pub(crate) async fn hand_over(
                     )
                     .await
                     {
-                        Ok(answer) if answer["needs"] == "bundle" => Err(Failed::Refused(
-                            "it could not take your code from the bundle".into(),
-                        )),
+                        Ok(answer)
+                            if answer.get("needs").and_then(Value::as_str) == Some("bundle") =>
+                        {
+                            Err(Failed::Refused(
+                                "it could not take your code from the bundle".into(),
+                            ))
+                        }
                         answer => answer,
                     }
                 }
@@ -559,7 +571,9 @@ pub(super) async fn start_here(
     };
     match started {
         Ok(mut answer) => {
-            answer["branch"] = tree.branch.clone().into();
+            if let Some(fields) = answer.as_object_mut() {
+                fields.insert("branch".into(), tree.branch.clone().into());
+            }
             super::changed(core);
             Ok(answer)
         }
@@ -758,8 +772,8 @@ pub(super) fn commits_for(
     core.hosts()
         .outbox
         .pulled_body(host, |post| {
-            post.params["agentId"] == wanted.agent_id.as_str()
-                && post.params["head"] == wanted.head.as_str()
+            post.params.get("agentId").and_then(Value::as_str) == Some(wanted.agent_id.as_str())
+                && post.params.get("head").and_then(Value::as_str) == Some(wanted.head.as_str())
         })
         .filter(|path| path.is_file())
         .ok_or_else(|| "those commits no longer wait here; newer ones replaced them".into())

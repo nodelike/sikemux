@@ -668,8 +668,8 @@ pub(crate) fn told(core: &Core, told: &[(String, u64)]) {
 /// names, which then stands for the ask's work, or with nothing to change, which answered it.
 pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let agent = (request.agent_id.as_deref()).ok_or("task_update needs the calling agent's id")?;
-    let id = request.params["asked"]
-        .as_u64()
+    let id = (request.params.get("asked"))
+        .and_then(Value::as_u64)
         .ok_or("task_update needs the number of what the person asked for")?;
     let project = (core.workspaces().agent(agent))
         .ok_or("task_update answers only an agent Sikemux started")?
@@ -681,7 +681,7 @@ pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, Strin
     if !ours {
         return Err(format!("task #{id} is not an open task of this project"));
     }
-    let named = (request.params["commit"].as_str())
+    let named = (request.params.get("commit").and_then(Value::as_str))
         .map(str::trim)
         .filter(|it| !it.is_empty());
     let Some(named) = named else {

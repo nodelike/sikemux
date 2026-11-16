@@ -378,7 +378,7 @@ pub(super) async fn process_start(
     };
     let mut answer = answer_start(core, &request.project, &execution_id, until, ready_when).await?;
     if let Some(said) = in_line(core, &execution_id).await {
-        answer["inLine"] = said.into();
+        set_param(&mut answer, "inLine", said.into());
     }
     Ok(answer)
 }

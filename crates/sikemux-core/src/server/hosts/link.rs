@@ -199,7 +199,7 @@ async fn write_body(send: &mut SendStream, path: &Path) -> std::io::Result<()> {
         if read == 0 {
             return Ok(());
         }
-        AsyncWriteExt::write_all(send, &buffer[..read]).await?;
+        AsyncWriteExt::write_all(send, buffer.get(..read).unwrap_or_default()).await?;
     }
 }
 
@@ -228,7 +228,7 @@ async fn read_body(recv: &mut RecvStream, stall: Option<Duration>) -> std::io::R
                 "the bundle is larger than a link carries",
             ));
         }
-        file.write_all(&buffer[..read])?;
+        file.write_all(buffer.get(..read).unwrap_or_default())?;
     }
 }
 

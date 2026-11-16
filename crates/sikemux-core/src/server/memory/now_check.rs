@@ -47,9 +47,8 @@ pub(super) fn labelled(
 ) -> Option<Result<(), String>> {
     let said = said.trim();
     let label = |label: &str| {
-        (said.get(..label.len()))
-            .filter(|start| start.eq_ignore_ascii_case(label))
-            .map(|_| &said[label.len()..])
+        let (start, rest) = said.split_at_checked(label.len())?;
+        start.eq_ignore_ascii_case(label).then_some(rest)
     };
     if let Some(rest) = label(NOW_A_CHECK) {
         return Some(retire(core, project, id, rest, by));
