@@ -1,0 +1,33 @@
+# The top bar with more tabs than fit: the window buttons, the tabs and the chips on one row.
+stage 1440 900
+window 1440 900
+prefer themeId aura-noir
+project storefront line-shop
+chat Flint
+title "Fix the rounding in cart totals"
+chat Maple
+title "Bundle the storefront"
+chat Otter
+title "Check the refund totals"
+chat Wren
+title "Some orders come out a cent off"
+chat Juno
+title "Search results page"
+chat Pike
+title "Agent tab titles"
+chat Sable
+title "Windows build"
+chat Moss
+title "Posts feed"
+chat Lark
+title "Devices page"
+chat Reed
+title "Close button on cards"
+chat Ivo
+title "Git panel diff"
+chat Tern
+title "Untitled"
+open terminal
+open git
+settle 6
+snap top-bar
