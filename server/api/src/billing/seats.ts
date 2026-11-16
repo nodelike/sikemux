@@ -38,11 +38,11 @@ export async function seatLimit(
 const CLAIM_SETTLES = "5 minutes";
 
 /**
- * Clears an owner's claim once the provider reports it: its snapshot holds the org to `seats` or
- * fewer, or was taken well after the claim and so shows the provider never kept it.
+ * Clears an owner's claim once the provider reports it: its snapshot, taken after the claim, holds
+ * the org to `seats` or fewer, or was taken well after it and so shows the provider never kept it.
  */
 export function claimSettledBy(seats: number, at: Date) {
-  const settled = sql<boolean>`(${seats} <= seats_cut_to or seats_cut_at < ${at}::timestamptz - interval '${sql.raw(CLAIM_SETTLES)}')`;
+  const settled = sql<boolean>`((${seats} <= seats_cut_to and seats_cut_at <= ${at}::timestamptz) or seats_cut_at < ${at}::timestamptz - interval '${sql.raw(CLAIM_SETTLES)}')`;
   return {
     seats_cut_to: sql<
       number | null

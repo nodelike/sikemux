@@ -1565,3 +1565,69 @@ describe("a sale made with our own key that we have no record of", () => {
     }).toEqual({ answered: 503, cancelled: 0, refunded: 0 });
   });
 });
+
+describe("the seat limit, sixth read", () => {
+  it("A1: holds at a cut while the events of an earlier cut and its take-back land after it", async () => {
+    const { orgId, sub, id } = await team(10);
+    const sent: { snapshot: PaddleSub; at: Date }[] = [];
+    const ask = async (json: unknown) => {
+      expect((await change(OWNER, id, json)).status).toBe(200);
+      sent.push({ snapshot: structuredClone(sub), at: new Date() });
+    };
+    await ask({ quantity: 1, when: "renewal" });
+    await ask({ quantity: 10 });
+    await ask({ quantity: 1, when: "renewal" });
+    const claimed = await seatLimit(database.db, orgId);
+
+    const afterEach: number[] = [];
+    let made = 0;
+    for (const [index, { snapshot, at }] of sent.entries()) {
+      expect(await deliver("subscription.updated", snapshot, at)).toBe(204);
+      afterEach.push(await seatLimit(database.db, orgId));
+      if (index === 1) made = await invitesMade(orgId);
+    }
+
+    expect({
+      claimed,
+      atRenewalAtPaddle: sub.items[0]?.quantity,
+      afterEach,
+      invitesMadeBeforeTheLastEvent: made,
+    }).toEqual({
+      claimed: 1,
+      atRenewalAtPaddle: 1,
+      afterEach: [1, 1, 1],
+      invitesMadeBeforeTheLastEvent: 0,
+    });
+  });
+});
+
+const claimOf = async (id: string | undefined) =>
+  (
+    await database.db
+      .selectFrom("subscriptions")
+      .select("seats_cut_to")
+      .where("id", "=", id ?? "")
+      .executeTakeFirstOrThrow()
+  ).seats_cut_to;
+
+describe("the claim, sixth read", () => {
+  it("A2: a snapshot taken before the claim does not clear it", async () => {
+    const { sub, id } = await team(10);
+    expect(
+      (await change(OWNER, id, { quantity: 1, when: "renewal" })).status,
+    ).toBe(200);
+    const firstCut = { snapshot: structuredClone(sub), at: new Date() };
+    expect((await change(OWNER, id, { quantity: 10 })).status).toBe(200);
+    expect(
+      (await change(OWNER, id, { quantity: 1, when: "renewal" })).status,
+    ).toBe(200);
+    const claimed = await claimOf(id);
+    expect(
+      await deliver("subscription.updated", firstCut.snapshot, firstCut.at),
+    ).toBe(204);
+    expect({ claimed, afterTheOlderSnapshot: await claimOf(id) }).toEqual({
+      claimed: 1,
+      afterTheOlderSnapshot: 1,
+    });
+  });
+});
