@@ -198,13 +198,18 @@ async function changeItems(
       rows.find((row) => row.product === item.product) ??
       (item === added[0] ? swappedRow : undefined),
   }));
-  for (const { item, row } of pairs)
-    if (row && row.status !== "ended")
-      await trx
-        .updateTable("subscriptions")
-        .set(itemColumns(sub, item, at))
-        .where("id", "=", row.id)
-        .execute();
+  for (const { item, row } of pairs) {
+    if (!row || (row.status === "ended" && !live.length)) continue;
+    const back = row.status === "ended" && {
+      status: "active" as const,
+      ended_at: null,
+    };
+    await trx
+      .updateTable("subscriptions")
+      .set({ ...itemColumns(sub, item, at), ...back })
+      .where("id", "=", row.id)
+      .execute();
+  }
   await insertItems(
     trx,
     customerId,
