@@ -922,7 +922,7 @@ impl Workbench {
 
     /// Puts the focus on the view `id`, drawing the file tree again when that moves the desk
     /// whose file it lights.
-    fn focus_pane(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn focus_pane(&mut self, id: String, cx: &mut Context<Self>) {
         let was = self.desk_file(cx);
         self.panes.focused = Some(id);
         if self.desk_file(cx) != was {

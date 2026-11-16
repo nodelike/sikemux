@@ -219,7 +219,9 @@ pub fn pressed(
             let path = std::path::PathBuf::from(&found.path);
             if super::link::is_page(&path) {
                 bench
-                    .update(cx, |bench, cx| bench.open_html_in_tab(agent, path, cx))
+                    .update(cx, |bench, cx| {
+                        bench.open_html_in_tab(agent, path, window, cx)
+                    })
                     .ok();
             } else {
                 open_on_desk(agent, &found, bench, cx)

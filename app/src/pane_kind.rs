@@ -226,11 +226,14 @@ pub fn focus(kind: PaneKind, bench: &Workbench, target: &str, window: &mut Windo
                 composing.draft.read(cx).focus_handle(cx).focus(window, cx);
             }
         }
+        PaneKind::Desk => match crate::desk::page_focus(bench, target, cx) {
+            Some(page) => page.focus(window, cx),
+            None => bench.keys.focus.focus(window, cx),
+        },
         PaneKind::Files
         | PaneKind::Git
         | PaneKind::Search
         | PaneKind::Board
-        | PaneKind::Desk
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
         | PaneKind::Stash

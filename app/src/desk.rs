@@ -139,6 +139,13 @@ pub fn listen(desks: &Entity<Desks>, window: &mut Window, cx: &mut Context<Workb
     }
 }
 
+/// The tab on a desk that shows `url`, which Open on its page brings forward.
+fn tab_showing<'a>(strip: &'a BrowserSnapshot, url: &str) -> Option<&'a str> {
+    (strip.tabs.iter())
+        .find(|tab| tab.url == url)
+        .map(|tab| tab.id.as_str())
+}
+
 /// What a desk holds besides its pages: a file in an editor, the terminal of a task its
 /// agent started, or what a link named, shown among its pages: a pull request, issue or run,
 /// or a plugin's own item such as a Jira issue.
@@ -194,7 +201,7 @@ const DESKS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 /// What a desk shows, as its switch names it: its pages, its files, its task terminals, its
 /// simulator, or the calls of its project. Only the pages, the simulator and the calls are kept;
 /// files and terminals are shown by bringing one to the front.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum DeskKind {
     #[default]
     Pages,
@@ -340,8 +347,7 @@ impl Desks {
         match kind {
             DeskKind::Simulator | DeskKind::Calls => self.show_kind(agent, kind, cx),
             DeskKind::Pages => {
-                self.show_kind(agent, DeskKind::Pages, cx);
-                self.front.remove(agent);
+                self.turn_to_pages(agent, cx);
                 return (self.strips.get(agent)).is_none_or(|strip| strip.tabs.is_empty());
             }
             DeskKind::Files | DeskKind::Terminals => {
@@ -360,6 +366,12 @@ impl Desks {
             }
         }
         false
+    }
+
+    /// Turns the desk to its pages, with no file or terminal in front of them.
+    fn turn_to_pages(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.show_kind(agent, DeskKind::Pages, cx);
+        self.front.remove(agent);
     }
 
     /// Shows `item` in front of the agent's pages, remembered as its kind's last.
@@ -1504,24 +1516,34 @@ impl Workbench {
 
     /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
     /// or opens one, as the person's.
-    pub(crate) fn open_page_in_tab(&mut self, agent: &str, id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn open_page_in_tab(
+        &mut self,
+        agent: &str,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let page = self
             .chat_target(agent)
             .request_typed::<sikemux_calls::call::ReadPage>(sikemux_calls::harness::PageParams {
                 id: id.to_owned(),
             });
         let (files, id) = (self.desks.read(cx).page_files.clone(), id.to_owned());
-        self.bring_page_forward(
-            agent,
-            cx,
-            |_| async move { files.kept_url(&id, &page.await?) },
-        );
+        self.bring_page_forward(agent, window, cx, |_| async move {
+            files.kept_url(&id, &page.await?)
+        });
     }
 
     /// Brings forward the tab on `agent`'s desk that shows the HTML file at `path` as a page,
     /// or opens one, as the person's.
-    pub(crate) fn open_html_in_tab(&mut self, agent: &str, path: PathBuf, cx: &mut Context<Self>) {
-        self.bring_page_forward(agent, cx, move |engine| {
+    pub(crate) fn open_html_in_tab(
+        &mut self,
+        agent: &str,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.bring_page_forward(agent, window, cx, move |engine| {
             let url = engine.local_file_url(&path);
             async move { url }
         });
@@ -1530,6 +1552,7 @@ impl Workbench {
     fn bring_page_forward<Url>(
         &mut self,
         agent: &str,
+        window: &mut Window,
         cx: &mut Context<Self>,
         url: impl FnOnce(&BrowserManager) -> Url,
     ) where
@@ -1539,18 +1562,27 @@ impl Workbench {
             return;
         };
         self.open_agent(agent, cx);
+        self.desks
+            .update(cx, |desks, cx| desks.turn_to_pages(agent, cx));
         if !self.desk_open_anywhere(agent) {
             self.reveal_desk(agent);
+        }
+        if let Some(desk) = self
+            .tab()
+            .and_then(|tab| view_of(&tab.pane, PaneKind::Desk, agent))
+        {
+            self.focus_pane(desk.clone(), cx);
+            self.focus_view(&desk, window, cx);
         }
         let (agent, url) = (agent.to_owned(), url(&engine));
         runtime().spawn(async move {
             let shown = async {
                 let url = url.await?;
                 let open = (engine.snapshot(&agent).ok())
-                    .and_then(|strip| strip.tabs.into_iter().find(|tab| tab.url == url));
+                    .and_then(|strip| tab_showing(&strip, &url).map(str::to_owned));
                 match open {
                     Some(tab) => engine
-                        .switch_tab(&agent, &tab.id)
+                        .switch_tab(&agent, &tab)
                         .map_err(|error| error.to_string()),
                     None => {
                         let tab_id = engine
@@ -1885,6 +1917,15 @@ fn elsewhere(bench: &Workbench, host: &str, cx: &mut Context<Workbench>) -> AnyE
         .into_any_element()
 }
 
+/// Where the keys go in the agent's desk while it shows a page.
+pub(crate) fn page_focus(bench: &Workbench, agent: &str, cx: &App) -> Option<FocusHandle> {
+    let desks = bench.desks.read(cx);
+    (desks.kind_of(agent) == DeskKind::Pages)
+        .then(|| desks.pages.get(agent))
+        .flatten()
+        .map(|page| page.focus.clone())
+}
+
 pub fn pane(
     bench: &Workbench,
     agent: &str,
@@ -2009,10 +2050,9 @@ pub fn pane(
             )
             .children(ui::spot(|| format!("desk-page-{agent}-{}", page.title)))
             .clicks(cx.listener(move |bench, _, _, cx| {
-                bench.desks.update(cx, |desks, cx| {
-                    desks.front.remove(&switch_agent);
-                    cx.notify();
-                });
+                bench
+                    .desks
+                    .update(cx, |desks, cx| desks.turn_to_pages(&switch_agent, cx));
                 bench.with_engine(cx, |engine| engine.switch_tab(&switch_agent, &switch_tab));
             }))
             .context_menu(ui::menu(tab_menu(
@@ -2810,4 +2850,63 @@ fn agent_place_in(view: &DeviceView, agent: &str) -> Option<(Strip, String, Stri
                 .map(|view| (Strip::Project(project.clone()), tab.id.clone(), view))
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sikemux_browser::BrowserTab;
+
+    fn tab(id: &str, url: &str, active: bool) -> BrowserTab {
+        BrowserTab {
+            id: id.into(),
+            title: id.into(),
+            url: url.into(),
+            active,
+            loading: false,
+            can_go_back: false,
+            can_go_forward: false,
+            favicon: None,
+            acting: false,
+            local_file: None,
+        }
+    }
+
+    #[test]
+    fn open_on_a_page_already_in_a_tab_picks_that_tab_on_the_pages() {
+        let page = "file:///pages/tabs/x-posts.html";
+        let strip = BrowserSnapshot {
+            tabs: vec![
+                tab("page", page, false),
+                tab("other", "https://example.com", true),
+            ],
+            active_tab_id: Some("other".into()),
+        };
+        assert_eq!(tab_showing(&strip, page), Some("page"));
+        assert_eq!(tab_showing(&strip, "file:///pages/tabs/gone.html"), None);
+    }
+
+    #[gpui::test]
+    fn open_turns_a_desk_on_a_terminal_or_the_simulator_back_to_its_pages(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let window = cx.add_empty_window();
+        let desks = window.update(|window, cx| cx.new(|cx| Desks::new(window, cx)));
+        let terminal = DeskItem::Terminal {
+            session: 7,
+            title: "zsh".into(),
+        };
+        window.update(|_, cx| {
+            desks.update(cx, |desks, cx| {
+                desks.put("agent", terminal, true, cx);
+                assert_eq!(desks.kind_of("agent"), DeskKind::Terminals);
+                desks.turn_to_pages("agent", cx);
+                assert_eq!(desks.kind_of("agent"), DeskKind::Pages);
+
+                desks.show_kind("agent", DeskKind::Simulator, cx);
+                desks.turn_to_pages("agent", cx);
+                assert_eq!(desks.kind_of("agent"), DeskKind::Pages);
+            })
+        });
+    }
 }
