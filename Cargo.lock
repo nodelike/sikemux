@@ -10238,6 +10238,7 @@ dependencies = [
  "sikemux-buildinfo",
  "sikemux-client",
  "sikemux-core",
+ "sikemux-corekit",
  "sikemux-hostkit",
  "sikemux-keychain",
  "sikemux-loopback",
@@ -10791,6 +10792,9 @@ dependencies = [
 name = "sikemux-trust"
 version = "0.6.1-nightly.22"
 dependencies = [
+ "base64 0.22.1",
+ "minisign-verify",
+ "semver",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",

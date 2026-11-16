@@ -18,6 +18,8 @@ mod spawn;
 #[cfg(windows)]
 mod token;
 #[cfg(windows)]
+mod update;
+#[cfg(windows)]
 mod window;
 
 #[cfg(windows)]

@@ -8,6 +8,7 @@ pub const SERVICE_ARG: &str = "--service";
 const CORE: Core = Core {
     subcommand: "core",
     options: &["--cli-endpoint", "--data-dir"],
+    release_key: sikemux_corekit::release_feed::release_key,
 };
 
 pub fn run(action: Option<&str>) -> i32 {

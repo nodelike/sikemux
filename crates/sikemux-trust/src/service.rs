@@ -55,10 +55,11 @@ const SHORT_RUNS: u32 = 5;
 const RETRY_WAIT: Duration = Duration::from_secs(1);
 
 /// How the service runs a core: this program with `subcommand`, taking only `options`, each
-/// with one value, from the person who asks.
+/// with one value, from the person who asks. Updates are checked against `release_key`.
 pub struct Core {
     pub subcommand: &'static str,
     pub options: &'static [&'static str],
+    pub release_key: fn() -> Result<minisign_verify::PublicKey, String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -69,6 +70,11 @@ enum Ask {
         log: PathBuf,
         args: Vec<String>,
     },
+    Apply {
+        setup: PathBuf,
+        signature: String,
+        version: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -76,6 +82,7 @@ enum Ask {
 enum Answer {
     Started { pid: u32 },
     Running { pid: u32 },
+    Applying,
     Refused { reason: String },
 }
 
@@ -94,12 +101,35 @@ pub fn start_core(socket: &Path, log: &Path, args: &[OsString]) -> io::Result<u3
         log: log.to_owned(),
         args,
     };
-    let mut connection = Connection::open()?;
-    connection.send(&serde_json::to_string(&ask)?)?;
-    match serde_json::from_str(&connection.receive()?)? {
+    match asked(&ask)? {
         Answer::Started { pid } | Answer::Running { pid } => Ok(pid),
+        Answer::Applying => Err(io::Error::other("the service answered with an update")),
         Answer::Refused { reason } => Err(io::Error::other(reason)),
     }
+}
+
+/// Asks the service to install the release `version` from the installer at `setup`, signed
+/// with `signature` as the feed gave it. The installer ends every Sikemux program, and the
+/// service opens the app again once it is done. Only a High core may ask.
+pub fn apply_update(setup: &Path, signature: &str, version: &str) -> io::Result<()> {
+    let ask = Ask::Apply {
+        setup: setup.to_owned(),
+        signature: signature.to_owned(),
+        version: version.to_owned(),
+    };
+    match asked(&ask)? {
+        Answer::Applying => Ok(()),
+        Answer::Refused { reason } => Err(io::Error::other(reason)),
+        Answer::Started { .. } | Answer::Running { .. } => {
+            Err(io::Error::other("the service answered with a core"))
+        }
+    }
+}
+
+fn asked(ask: &Ask) -> io::Result<Answer> {
+    let mut connection = Connection::open()?;
+    connection.send(&serde_json::to_string(ask)?)?;
+    Ok(serde_json::from_str(&connection.receive()?)?)
 }
 
 /// Whether this machine has the service installed.
@@ -254,6 +284,7 @@ unsafe extern "system" fn service_main(_count: u32, _arguments: *mut windows_sys
     let (stop, stopped) = mpsc::channel();
     let _ = STOP.set(stop);
     report(SERVICE_RUNNING);
+    std::thread::spawn(|| crate::update::reopen_app(&service.program));
     std::thread::spawn(|| listen(service));
     let _ = stopped.recv();
     report(SERVICE_STOP_PENDING);
@@ -339,10 +370,33 @@ impl Service {
 
     fn handle(&self, connection: &Connection, line: &str) -> Result<Answer, String> {
         let ask: Ask = serde_json::from_str(line).map_err(|error| error.to_string())?;
-        let Ask::Start { socket, log, args } = ask;
         let person = connection
             .client_token()
             .map_err(|error| error.to_string())?;
+        match ask {
+            Ask::Start { socket, log, args } => self.start_core(person, socket, log, &args),
+            Ask::Apply {
+                setup,
+                signature,
+                version,
+            } => {
+                if person.integrity().map_err(|error| error.to_string())? != Integrity::High {
+                    return Err("only a core asks for an update".into());
+                }
+                let key = (self.core.release_key)()?;
+                crate::update::apply(&person, &key, &setup, &signature, &version)?;
+                Ok(Answer::Applying)
+            }
+        }
+    }
+
+    fn start_core(
+        &self,
+        person: Token,
+        socket: PathBuf,
+        log: PathBuf,
+        args: &[String],
+    ) -> Result<Answer, String> {
         let user = person.user().map_err(|error| error.to_string())?;
         let mut cores = self
             .cores
@@ -357,7 +411,7 @@ impl Service {
             token: person
                 .for_person(Integrity::High)
                 .map_err(|error| error.to_string())?,
-            command_line: self.command_line(&socket, &log, &args)?,
+            command_line: self.command_line(&socket, &log, args)?,
             user: user.clone(),
             log,
         };
@@ -588,7 +642,7 @@ fn is_one_of(name: &OsStr, names: &[&str]) -> bool {
         .is_some_and(|name| names.iter().any(|kept| kept.eq_ignore_ascii_case(name)))
 }
 
-fn system_folder() -> io::Result<PathBuf> {
+pub(crate) fn system_folder() -> io::Result<PathBuf> {
     let root = std::env::var_os("SystemRoot")
         .ok_or_else(|| io::Error::other("this service has no SystemRoot"))?;
     Ok(PathBuf::from(root).join("System32"))
@@ -596,7 +650,7 @@ fn system_folder() -> io::Result<PathBuf> {
 
 /// Quotes one argument for a Windows command line. Quotes inside an argument are refused, so
 /// only backslashes before the closing quote need doubling.
-fn quote(argument: &OsStr) -> Result<String, String> {
+pub(crate) fn quote(argument: &OsStr) -> Result<String, String> {
     let text = argument
         .to_str()
         .ok_or_else(|| format!("{argument:?} is not Unicode"))?;

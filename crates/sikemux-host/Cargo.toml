@@ -73,6 +73,7 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 backtrace = "0.3"
+sikemux-corekit = { path = "../sikemux-corekit" }
 sikemux-trust = { path = "../sikemux-trust" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
