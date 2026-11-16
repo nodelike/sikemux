@@ -196,8 +196,8 @@ fn is_host() -> bool {
     matches!(own_app(), Some(OwnApp::Host))
 }
 
-/// The channel to update on: the person's. Nightly is staff for a staff account,
-/// while the accounts server leaves the staff feed on.
+/// The channel to update on: the person's. Staff only holds on a staff account, while the
+/// accounts server leaves the staff feed on; anywhere else it is nightly.
 fn channel(core: &Core) -> UpdateChannel {
     let chosen = core.preferences().get().update_channel;
     let staff_feed = core
@@ -206,7 +206,7 @@ fn channel(core: &Core) -> UpdateChannel {
         .is_some_and(|account| account.flags.contains(&Flag::StaffFeed));
     match chosen {
         UpdateChannel::Stable => UpdateChannel::Stable,
-        UpdateChannel::Nightly | UpdateChannel::Staff if staff_feed => UpdateChannel::Staff,
+        UpdateChannel::Staff if staff_feed => UpdateChannel::Staff,
         UpdateChannel::Nightly | UpdateChannel::Staff => UpdateChannel::Nightly,
     }
 }
