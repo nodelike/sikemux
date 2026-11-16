@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_view::calls::{CallState, PersonCall};
+use sikemux_view::calls::{CallOpened, CallState, PersonCall};
 use sikemux_view::chat::{
     AwayAgent, AwayDecision, AwayLanded, ChiefAway, ChiefWeek, ClosedCard, DecidedLine,
     LinesChanged, OverruledDecision, RuleChange, WorkerPage,
@@ -55,6 +55,7 @@ const MOST_LANDED: usize = 40;
 /// Chats noted as their agents went to sleep, and lines kept for the chief's chat, at most.
 const MOST_FEEDS: usize = 40;
 const MOST_ROWS: usize = 20;
+const MOST_OPENED: usize = 4;
 
 /// How the chief works, ahead of the project's rules in its instructions.
 pub(crate) const SEAT: &str = "You are @Chief, this project's chief in Sikemux. The person talks to you; every other agent in the project works under you. Your job is to decide and route, not to do the work yourself.
@@ -104,6 +105,9 @@ struct Saved {
     /// The last page each agent showed, and when, which a call about its work links.
     #[serde(default)]
     last_pages: HashMap<String, (WorkerPage, u64)>,
+    /// The files and diffs each agent opened lately, newest last, with when.
+    #[serde(default)]
+    last_opened: HashMap<String, Vec<(CallOpened, u64)>>,
 }
 
 /// What the core keeps for one chief.
@@ -1449,6 +1453,37 @@ pub(crate) fn last_page(core: &Core, agent: &str, within: u64) -> Option<WorkerP
     let state = core.chiefs().state.locked();
     let (page, at) = state.last_pages.get(agent)?;
     (now.saturating_sub(*at) <= within).then(|| page.clone())
+}
+
+/// `agent` opened `opened` for the person: kept, in place of the same file or diff opened before.
+pub(crate) fn opened(core: &Core, agent: &str, opened: CallOpened) {
+    let at = epoch_ms();
+    core.chiefs().change(|saved| {
+        let kept = saved.last_opened.entry(agent.to_owned()).or_default();
+        kept.retain(|(was, _)| !same_place(was, &opened));
+        kept.push((opened, at));
+        if kept.len() > MOST_OPENED {
+            kept.remove(0);
+        }
+    });
+}
+
+fn same_place(a: &CallOpened, b: &CallOpened) -> bool {
+    match (a, b) {
+        (CallOpened::File { path: a, .. }, CallOpened::File { path: b, .. }) => a == b,
+        (CallOpened::Diff { checkout: a, .. }, CallOpened::Diff { checkout: b, .. }) => a == b,
+        _ => false,
+    }
+}
+
+/// What `agent` opened in the last `within` ms, newest first.
+pub(crate) fn opened_lately(core: &Core, agent: &str, within: u64) -> Vec<CallOpened> {
+    let now = epoch_ms();
+    let state = core.chiefs().state.locked();
+    (state.last_opened.get(agent).into_iter().flatten().rev())
+        .filter(|(_, at)| now.saturating_sub(*at) <= within)
+        .map(|(opened, _)| opened.clone())
+        .collect()
 }
 
 fn decided_key(project: &str, goal: Option<u64>, decision: u64) -> String {

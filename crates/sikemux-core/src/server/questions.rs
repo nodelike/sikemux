@@ -30,7 +30,9 @@ use sikemux_process::sync::Locked;
 use crate::cli::protocol::HarnessRequest;
 use crate::sessions::asked::may_hold_secret;
 use crate::text::clipped;
-use sikemux_view::calls::{CallAsker, CallKind, CallOption, CallPage, CallState, PersonCall};
+use sikemux_view::calls::{
+    CallAsker, CallKind, CallOpened, CallOption, CallPage, CallState, PersonCall,
+};
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::WindowCall;
 
@@ -127,6 +129,9 @@ struct Question {
     /// The page that shows what it is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     page: Option<CallPage>,
+    /// What the asker, or the agent it is about, opened for the person just before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    opened: Vec<CallOpened>,
     at: u64,
     stage: Stage,
     /// The linked host it was also put to the person on, where its asker's team
@@ -229,6 +234,7 @@ impl Question {
             pick,
             against: None,
             evidence: Vec::new(),
+            opened: self.opened.clone(),
             action: None,
             brief: None,
             place: None,
@@ -903,6 +909,14 @@ fn open(
             },
             secret: asked.secret,
             kind: asked.kind,
+            opened: super::chief::opened_lately(
+                core,
+                asked
+                    .about
+                    .as_ref()
+                    .map_or(agent_id, |about| &about.agent_id),
+                LAST_PAGE_MS,
+            ),
             about: asked.about,
             page: asked.page,
             id: format!("question-{}", uuid::Uuid::new_v4().simple()),

@@ -4,6 +4,8 @@
 use super::*;
 use crate::ui::Clicks;
 use gpui_kit::StatefulInteractiveElement;
+use sikemux_view::calls::{CallChange, CallChangedFile, CallOpened};
+use std::path::Path;
 
 const COLUMN: f32 = 640.;
 const ATTACHMENT_HEIGHT: f32 = 240.;
@@ -331,7 +333,9 @@ fn opened_by(call: &PersonCall, through: Through, t: &Tokens, cx: &mut App) -> O
             .into_any_element(),
         )
     });
-    let shown: Vec<AnyElement> = page.into_iter().chain(pictures).collect();
+    let opened = (call.opened.iter().enumerate())
+        .filter_map(|(ix, opened)| opened_one(call, ix, opened, &owner.agent_id, bench, t));
+    let shown: Vec<AnyElement> = page.into_iter().chain(opened).chain(pictures).collect();
     if shown.is_empty() {
         return None;
     }
@@ -350,6 +354,141 @@ fn opened_by(call: &PersonCall, through: Through, t: &Tokens, cx: &mut App) -> O
             )
             .into_any_element(),
     )
+}
+
+/// A file as it read where the asker opened it, or the changes of its checkout; a click opens it.
+fn opened_one(
+    call: &PersonCall,
+    ix: usize,
+    opened: &CallOpened,
+    agent: &str,
+    bench: &WeakEntity<Workbench>,
+    t: &Tokens,
+) -> Option<AnyElement> {
+    let id = SharedString::from(format!("call-opened-{}-{ix}", call.id));
+    let hover = t.surface_hover;
+    let frame = div()
+        .id(id)
+        .cursor_pointer()
+        .hover(move |style| style.bg(hover));
+    let (bench, agent) = (bench.clone(), agent.to_owned());
+    let shown = match opened {
+        CallOpened::File {
+            path,
+            line,
+            first,
+            excerpt,
+        } => {
+            let (opening, at) = (PathBuf::from(path), *line);
+            let frame = frame.clicks(move |_, _, cx| {
+                bench
+                    .update(cx, |bench, cx| {
+                        bench.open_file_on_desk(&agent, opening.clone(), at, None, cx)
+                    })
+                    .ok();
+            });
+            let name = Path::new(path)
+                .file_name()
+                .map_or_else(|| path.clone(), |name| name.to_string_lossy().into_owned());
+            let caption = match line {
+                Some(line) => format!("{name}:{line}"),
+                None => name,
+            };
+            attachment(
+                frame,
+                file_lines(excerpt, *first, *line, t),
+                Icon::File,
+                caption,
+                t,
+            )
+        }
+        CallOpened::Diff { files, .. } => {
+            let frame = frame.clicks(move |_, _, cx| {
+                bench.update(cx, |bench, cx| bench.open_git(cx)).ok();
+            });
+            let caption = t!("Changes · {count} files", count = files.len());
+            attachment(frame, changed_files(files, t), Icon::Git, caption, t)
+        }
+        CallOpened::Unknown => return None,
+    };
+    Some(shown.into_any_element())
+}
+
+fn file_lines(excerpt: &str, first: u32, opened_at: Option<u32>, t: &Tokens) -> gpui_kit::Div {
+    let rows = excerpt.lines().enumerate().map(|(ix, text)| {
+        let number = first + ix as u32;
+        div()
+            .flex()
+            .gap(SPACE_3_PX)
+            .px(SPACE_3_PX)
+            .when(opened_at == Some(number), |row| row.bg(t.surface_chosen))
+            .child(
+                div()
+                    .w(px(28.))
+                    .flex_none()
+                    .text_right()
+                    .text_color(t.text_disabled)
+                    .child(number.to_string()),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_color(t.text_secondary)
+                    .child(text.to_owned()),
+            )
+    });
+    div()
+        .h(px(ATTACHMENT_HEIGHT))
+        .w_full()
+        .py(SPACE_2)
+        .overflow_hidden()
+        .bg(t.surface_sunken)
+        .font_family(crate::theme::mono_font())
+        .text_size(theme::ui_text(11.5))
+        .line_height(px(18.))
+        .children(rows)
+}
+
+fn changed_files(files: &[CallChangedFile], t: &Tokens) -> gpui_kit::Div {
+    let rows = files.iter().map(|file| {
+        let (mark, colour) = match file.change {
+            CallChange::Added => ("A", t.git_added),
+            CallChange::Deleted => ("D", t.git_deleted),
+            CallChange::Renamed => ("R", t.git_renamed),
+            CallChange::Modified | CallChange::Unknown => ("M", t.git_modified),
+        };
+        div()
+            .h(px(22.))
+            .px(SPACE_3_PX)
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .child(
+                div()
+                    .w(px(12.))
+                    .flex_none()
+                    .font_family(crate::theme::mono_font())
+                    .text_color(colour)
+                    .child(mark),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(t.text_secondary)
+                    .child(file.path.clone()),
+            )
+    });
+    div()
+        .h(px(ATTACHMENT_HEIGHT))
+        .w_full()
+        .py(SPACE_2)
+        .overflow_hidden()
+        .bg(t.surface_sunken)
+        .text_size(theme::ui_text(12.))
+        .children(rows)
 }
 
 /// One thing the asker opened: `shown` over a line naming it.

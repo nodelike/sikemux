@@ -1,0 +1,14 @@
+[
+  {
+    "when": "cent off",
+    "steps": [
+      { "say": "Tax is rounded per line, so a cart of cheap items drifts by a cent. Here is the line and the fix." },
+      { "tool": "mcp__sikemux-tools__ui_open", "call": "ui.open", "input": { "kind": "file", "path": "src/cart.mjs", "line": 4 }, "ms": 400 },
+      { "tool": "mcp__sikemux-tools__ui_open", "call": "ui.open", "input": { "kind": "diff" }, "ms": 400 },
+      { "ask": { "questions": [{ "question": "Round tax once on the whole cart?", "header": "Tax rounding", "options": [
+        { "label": "Once per cart (recommended)", "description": "Totals match the receipt; per-line tax shown on the invoice may differ by a cent" },
+        { "label": "Per line, as now", "description": "Each line's tax is exact, the cart total can drift by a cent" }
+      ] }] } }
+    ]
+  }
+]

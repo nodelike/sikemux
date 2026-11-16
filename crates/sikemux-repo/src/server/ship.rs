@@ -1790,6 +1790,7 @@ fn held_call(core: &Core, hold: &Hold) -> PersonCall {
         pick: None,
         against: None,
         evidence: Vec::new(),
+        opened: Vec::new(),
         action: Some(hold.ship.what.clone()),
         brief: None,
         place: (hold.environment.clone()).map(|name| CallPlace {

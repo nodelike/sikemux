@@ -143,6 +143,7 @@ impl Raise {
             pick: self.pick,
             against: self.against,
             evidence: self.evidence,
+            opened: Vec::new(),
             action: self.action,
             brief: self.brief,
             place: self.place,

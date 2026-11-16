@@ -46,6 +46,7 @@ use crate::skills;
 
 mod inspect;
 mod methods;
+mod opened;
 pub(crate) mod page_index;
 pub mod pages;
 mod processes;
@@ -824,7 +825,13 @@ async fn ui_open(core: &Arc<Core>, request: HarnessRequest) -> Result<Value, Str
         request.params["url"] = url.into();
     }
     let project = request.project.clone();
+    let agent = request.agent_id.clone();
+    let path = text(&request.params, "path")?.map(str::to_owned);
+    let line = (request.params.get("line").and_then(Value::as_u64)).map(|line| line as u32);
     let value = forward(core, request).await?;
+    if let (Some(agent), Some(kind)) = (&agent, &kind) {
+        opened::keep(core, agent, kind, path, line, &project).await;
+    }
     if kind.as_deref() != Some("preview") {
         core.harness().change(|state| {
             state.journals.append(&project, "ui.opened", None, None);

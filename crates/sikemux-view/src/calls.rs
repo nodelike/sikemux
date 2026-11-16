@@ -78,6 +78,49 @@ pub struct CallPage {
     pub title: String,
 }
 
+/// A file or diff the asker opened for the person before asking, as it stood then.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum CallOpened {
+    File {
+        path: String,
+        /// The line it was opened at, counted from one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        line: Option<u32>,
+        /// The first line of `excerpt`, counted from one.
+        first: u32,
+        excerpt: String,
+    },
+    /// The uncommitted changes of the asker's checkout.
+    Diff {
+        checkout: String,
+        files: Vec<CallChangedFile>,
+    },
+    /// One from a later release.
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallChangedFile {
+    /// Its path in the checkout.
+    pub path: String,
+    pub change: CallChange,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CallChange {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    /// One from a later release.
+    #[serde(other)]
+    Unknown,
+}
+
 /// A place a call changes, by an id that outlives a rename.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -219,6 +262,9 @@ pub struct PersonCall {
     pub against: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub evidence: Vec<CallEvidence>,
+    /// What the asker, or the agent the call is about, opened for the person in the hour before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub opened: Vec<CallOpened>,
     /// Exactly what runs on a yes, shown only once the card is opened.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
