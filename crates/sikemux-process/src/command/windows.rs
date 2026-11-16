@@ -335,10 +335,10 @@ impl Command {
             .flatten()
             .map(|end| end.as_raw_handle())
             .collect();
-        let mut attributes = Attributes::new(
-            usize::from(!handed.is_empty()) + usize::from(self.pseudoconsole.is_some()),
-        )?;
-        if !handed.is_empty() {
+        let listed = !handed.is_empty() && std::env::var_os("PROOF_NO_HANDLE_LIST").is_none();
+        let mut attributes =
+            Attributes::new(usize::from(listed) + usize::from(self.pseudoconsole.is_some()))?;
+        if listed {
             // SAFETY: `handed` outlives the attribute list's use in CreateProcess below.
             unsafe {
                 attributes.set(
