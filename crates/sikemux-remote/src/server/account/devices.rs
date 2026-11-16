@@ -68,7 +68,8 @@ pub struct JoinTicketParams {
 }
 
 /// Adds the device to the account as one this host added, and asks the account for the
-/// ticket that lets it join `host`.
+/// ticket that lets it join `host`. Where the person answers in this core's own window, the app
+/// asking is only hands there, so it never signs for them on the host it joins either.
 pub async fn device_join_ticket(core: &Core, params: JoinTicketParams) -> CoreResult<JoinTicket> {
     let registration = DeviceRegistration {
         key: params.key.clone(),
@@ -76,7 +77,7 @@ pub async fn device_join_ticket(core: &Core, params: JoinTicketParams) -> CoreRe
         name: params.name.chars().take(NAME_LIMIT).collect(),
         platform: params.platform,
         channel: None,
-        hands_only: None,
+        hands_only: crate::server::remote::asks_in_window().then_some(true),
         nonce: params.nonce,
         signature: params.signature,
     };
