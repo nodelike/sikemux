@@ -703,8 +703,8 @@ impl Chat {
         let reader = cx.new(|_| Reading::default());
         let running = reader.read(cx).running.clone();
         let stage = bench.clone();
-        let calls =
-            cx.new(|cx| crate::calls::InChat::new(bench.clone(), cards, target.clone(), cx));
+        let calls = cx
+            .new(|cx| crate::calls::InChat::new(bench.clone(), cards, target.clone(), &agent, cx));
         let chat = agent.clone();
         let looks = Rc::new(RefCell::new(Rc::new(Looks::new(
             Tokens::get(cx),

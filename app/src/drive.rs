@@ -469,6 +469,7 @@ impl Workbench {
                 "open": self.desk_open_anywhere(agent),
                 "kind": match desks.kinds.get(agent).copied().unwrap_or_default() {
                     DeskKind::Simulator => "simulator",
+                    DeskKind::Calls => "calls",
                     _ => "pages",
                 },
                 "pages": pages,

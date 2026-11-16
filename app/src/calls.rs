@@ -1,6 +1,6 @@
-//! Calls: decisions put to the person, as each host's core lists them in its view. One card
-//! draws a call wherever it shows: as the last thing in its asker's chat, and open in the title
-//! bar's popover over the calls of the project in front.
+//! Calls: decisions put to the person, as each host's core lists them in its view. A call is
+//! answered on its desk's Calls page, in the title bar's popover and in the chief's away block;
+//! its asker's chat keeps it folded to one row that opens the page.
 
 use crate::ui::Clicks;
 use std::collections::{HashMap, HashSet};
@@ -31,7 +31,9 @@ use crate::ui::{self, Button, Variant};
 use crate::workbench::{Strip, Workbench};
 
 mod away;
+mod page;
 pub(crate) use away::Away;
+pub(crate) use page::{waiting_on_desk, Page};
 use sikemux_view::chat::ChiefAway;
 
 const CARD_WIDTH: f32 = 452.;
@@ -321,9 +323,13 @@ impl Workbench {
         self.calls.update(cx, |cards, _| cards.keep(&open));
     }
 
-    /// The call whose card takes the keys of `agent`'s chat: the one its chat answers, unless it
-    /// asks for a secret, whose field takes them.
+    /// The call whose card takes the keys of `agent`'s chat: the one open in the chief's away
+    /// block, unless it asks for a secret, whose field takes them. Other calls are answered on
+    /// the desk's Calls page.
     pub(crate) fn keyed_call(&self, place: &Place, agent: &str, cx: &App) -> Option<String> {
+        (self.chats.open.get(agent))
+            .and_then(|chat| chat.state.as_ref())
+            .and_then(|head| head.away.as_ref())?;
         (self.waiting_call(place, agent, cx))
             .filter(|call| !call.secret)
             .map(|call| call.id.clone())
@@ -442,7 +448,6 @@ fn asker_mark(bench: &Workbench, call: &PersonCall, size: f32, cx: &App) -> AnyE
 /// Where a card is drawn, which decides what its footer offers: the popover's card opens its
 /// asker's chat, closing the popover.
 enum Seat {
-    Chat,
     Popover(crate::ui::list_picker::Dismiss),
     /// The open card of a chief's away block, `at` of `of`, which opens a worker's chat.
     Queue {
@@ -452,6 +457,7 @@ enum Seat {
 }
 
 /// What a card answers through: the core of its call, the cards' store and the window's store.
+#[derive(Clone, Copy)]
 struct Through<'a> {
     target: &'a Target,
     cards: &'a Entity<Cards>,
@@ -482,54 +488,18 @@ fn card(
         (cards.chosen(call), cards.sending(&call.id))
     };
     let typed = !field.read(cx).value().trim().is_empty();
-    let asker = (bench.upgrade())
-        .map(|strong| asker_mark(strong.read(cx), call, 13., cx))
-        .unwrap_or_else(|| ui::mark(&call.asker.cli, 13.));
-    let who = div()
-        .h(px(FACE))
-        .flex()
-        .items_center()
-        .gap(px(7.))
-        .text_size(theme::ui_text(12.))
-        .text_color(t.text_tertiary)
-        .child(crate::chat::agent_pill_of(
-            &call.asker.agent_id,
-            &call.asker.name,
-            asker,
-            12.,
-            target.clone(),
-            bench,
-            cx,
-        ))
-        .child(div().text_color(t.text_disabled).child("·"))
-        .child(ui::time::age(call.raised_at))
-        .when_some(call.about.as_ref(), |who, about| {
-            who.child(div().text_color(t.text_disabled).child("·"))
-                .child(t!("about"))
-                .child(crate::chat::agent_pill_of(
-                    &about.agent_id,
-                    &about.name,
-                    ui::mark(&about.cli, 13.),
-                    12.,
-                    target.clone(),
-                    bench,
-                    cx,
-                ))
-        })
-        .when_some(
-            match &seat {
-                Seat::Queue { at, of } if *of > 1 => Some((*at, *of)),
-                _ => None,
-            },
-            |who, (at, of)| {
-                who.child(div().flex_1()).child(
-                    div()
-                        .text_size(theme::ui_text(11.5))
-                        .font_features(theme::tabular())
-                        .child(t!("{at} of {of}", at = at, of = of)),
-                )
-            },
-        );
+    let at_of = match &seat {
+        Seat::Queue { at, of } if *of > 1 => Some(
+            div()
+                .ml_auto()
+                .text_size(theme::ui_text(11.5))
+                .font_features(theme::tabular())
+                .child(t!("{at} of {of}", at = at, of = of))
+                .into_any_element(),
+        ),
+        _ => None,
+    };
+    let who = who(call, through, at_of, cx);
     let question = div()
         .mt(SPACE_2)
         .mb(px(3.))
@@ -538,13 +508,7 @@ fn card(
         .line_height(relative(1.35))
         .text_color(t.text_primary)
         .child(call.question.clone());
-    let context = match &call.brief {
-        Some(brief) => Some(format!(
-            "{} {} {}",
-            brief.tried, brief.shows, brief.cannot_undo
-        )),
-        None => call.context.clone(),
-    };
+    let context = context_words(call);
     let page = call.page.as_ref().map(|page| {
         let owner = call.about.as_ref().unwrap_or(&call.asker);
         let picture = cards.update(cx, |cards, cx| cards.page_picture(&page.id, target, cx));
@@ -610,145 +574,22 @@ fn card(
             })
         }
     };
-    let rows = call.options.iter().map(|option| {
-        let on = chosen.contains(&option.id);
-        let key = radio(on, &t);
-        let pick = (call.pick.as_ref() == Some(&option.id)).then(|| {
-            div()
-                .ml_auto()
-                .pl(SPACE_2)
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(5.))
-                .text_size(theme::ui_text(11.))
-                .text_color(t.text_tertiary)
-                .child(ui::mark_box(12., ui::mark("sikemux", 17.)))
-                .child(t!("pick"))
-        });
-        let label = div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .child(div().child(option.label.clone()))
-            .children(option.detail.clone().map(|detail| {
-                div()
-                    .text_size(theme::ui_text(11.5))
-                    .line_height(relative(1.4))
-                    .text_color(t.text_tertiary)
-                    .child(detail)
-            }));
-        let (cards, call) = (cards.clone(), call.clone());
-        let option = option.id.clone();
-        let hover = t.surface_hover;
-        BaseButton::new(SharedString::from(format!("call-{}-{option}", call.id)))
-            .w_full()
-            .min_h(px(crate::theme::dense(ROW_HEIGHT)))
-            .py(px(7.))
-            .px(SPACE_3_PX)
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .text_size(theme::ui_text(13.))
-            .text_color(t.text_primary)
-            .disabled(sending)
-            .map(|row| match on {
-                true => row.bg(t.surface_chosen),
-                false => row.hover(move |style| style.bg(hover)),
-            })
-            .on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                cards.update(cx, |cards, cx| cards.choose(&call, &option, cx));
-            })
-            .child(key)
-            .child(label)
-            .children(pick)
-            .into_any_element()
-    });
-    let hint = match (chosen.is_empty(), call.keeps_words_private()) {
-        (_, true) => t!("Type or paste it…"),
-        (false, false) => t!("Add a note…"),
-        (true, false) => t!("Or answer in your own words…"),
-    };
+    let rows =
+        (call.options.iter()).map(|option| option_row(call, option, &chosen, sending, cards, &t));
+    let hint = note_hint(call, &chosen);
     let focused = field.read(cx).focus_handle(cx).is_focused(window);
     let note = note_row(&field, hint, focused || typed, !call.options.is_empty(), &t);
-    let mut block = div()
-        .flex()
-        .flex_col()
-        .border(crate::theme::border())
-        .border_color(t.line)
-        .rounded(px(8.))
-        .overflow_hidden();
-    for (ix, row) in rows.enumerate() {
-        block = block.child(
-            div()
-                .when(ix > 0, |row| {
-                    row.border_t(crate::theme::border()).border_color(t.line)
-                })
-                .child(row),
-        );
-    }
-    let block = block.child(note);
-    let kept = call.keeps_words_private().then(|| {
-        div()
-            .mt(SPACE_2)
-            .flex()
-            .items_center()
-            .gap(SPACE_1H)
-            .text_size(theme::ui_text(11.5))
-            .text_color(t.text_tertiary)
-            .child(ui::icon(Icon::Shield, 11.).text_color(t.text_tertiary))
-            .child(t!(
-                "Kept private: @{name} reads it, and it never shows in the chat.",
-                name = call.asker.name
-            ))
-    });
-    let against = call.against.clone().map(|against| {
-        let lead = t!("Against it:");
-        div()
-            .text_size(theme::ui_text(12.5))
-            .line_height(relative(1.5))
-            .text_color(t.text_secondary)
-            .child(
-                gpui_kit::StyledText::new(format!("{lead} {against}")).with_highlights([(
-                    0..lead.len(),
-                    gpui_kit::HighlightStyle {
-                        color: Some(t.text_tertiary),
-                        ..Default::default()
-                    },
-                )]),
-            )
-    });
+    let block = answers(rows, note, &t);
+    let kept = kept_line(call, &t);
+    let against = against_line(call, &t);
     let action_open = cards.read(cx).action_open(&call.id);
     let runs = (call.kind == CallKind::Production)
         .then_some(call.action.as_ref())
         .flatten()
         .map(|action| what_runs(call, action, action_open, cards, &t));
     let ready = !chosen.is_empty() || typed;
-    let production = call.kind == CallKind::Production;
-    let go = {
-        let (bench, id) = (bench.clone(), call.id.clone());
-        Button::new(
-            SharedString::from(format!("call-go-{}", call.id)),
-            t!("Go with this"),
-            Variant::Primary,
-        )
-        .sized(26., 11., 12.)
-        .disabled(!ready || sending)
-        // A step to production is never sent by a key: its button takes no focus, so Tab never
-        // reaches it, and a click that came from a key is refused.
-        .mouse_only(production)
-        .on_click(move |event, _, cx| {
-            cx.stop_propagation();
-            if production && matches!(event, ClickEvent::Keyboard(_)) {
-                return;
-            }
-            bench.update(cx, |bench, cx| bench.go_with(&id, cx)).ok();
-        })
-    };
+    let go = go_button(call, t!("Go with this").into(), ready, sending, bench);
     let open_chat = match seat {
-        Seat::Chat => None,
         Seat::Queue { .. } if call.asker.chief => None,
         Seat::Queue { .. } => Some((None, bench.clone(), call.asker.agent_id.clone())),
         Seat::Popover(dismiss) => Some((Some(dismiss), bench.clone(), call.asker.agent_id.clone())),
@@ -807,6 +648,228 @@ fn card(
 }
 
 const SPACE_3_PX: gpui_kit::Pixels = theme::SPACE_3;
+
+/// Who asks `call`, how long ago, and whom it is about, with `tail` at the end of the line.
+fn who(
+    call: &PersonCall,
+    through: Through,
+    tail: Option<AnyElement>,
+    cx: &mut App,
+) -> gpui_kit::Div {
+    let Through { target, bench, .. } = through;
+    let t = Tokens::get(cx).clone();
+    let asker = (bench.upgrade())
+        .map(|strong| asker_mark(strong.read(cx), call, 13., cx))
+        .unwrap_or_else(|| ui::mark(&call.asker.cli, 13.));
+    div()
+        .h(px(FACE))
+        .flex()
+        .items_center()
+        .gap(px(7.))
+        .text_size(theme::ui_text(12.))
+        .text_color(t.text_tertiary)
+        .child(crate::chat::agent_pill_of(
+            &call.asker.agent_id,
+            &call.asker.name,
+            asker,
+            12.,
+            target.clone(),
+            bench,
+            cx,
+        ))
+        .child(div().text_color(t.text_disabled).child("·"))
+        .child(ui::time::age(call.raised_at))
+        .when_some(call.about.as_ref(), |who, about| {
+            who.child(div().text_color(t.text_disabled).child("·"))
+                .child(t!("about"))
+                .child(crate::chat::agent_pill_of(
+                    &about.agent_id,
+                    &about.name,
+                    ui::mark(&about.cli, 13.),
+                    12.,
+                    target.clone(),
+                    bench,
+                    cx,
+                ))
+        })
+        .children(tail)
+}
+
+/// Why the call came up, in the asker's words.
+fn context_words(call: &PersonCall) -> Option<String> {
+    match &call.brief {
+        Some(brief) => Some(format!(
+            "{} {} {}",
+            brief.tried, brief.shows, brief.cannot_undo
+        )),
+        None => call.context.clone(),
+    }
+}
+
+/// One option of `call` as a row that chooses it, with the chief's pick marked.
+fn option_row(
+    call: &PersonCall,
+    option: &sikemux_view::calls::CallOption,
+    chosen: &[String],
+    sending: bool,
+    cards: &Entity<Cards>,
+    t: &Tokens,
+) -> AnyElement {
+    let on = chosen.contains(&option.id);
+    let key = radio(on, t);
+    let pick = (call.pick.as_ref() == Some(&option.id)).then(|| pick_mark(t).ml_auto().pl(SPACE_2));
+    let label = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .flex_col()
+        .child(div().child(option.label.clone()))
+        .children(option.detail.clone().map(|detail| {
+            div()
+                .text_size(theme::ui_text(11.5))
+                .line_height(relative(1.4))
+                .text_color(t.text_tertiary)
+                .child(detail)
+        }));
+    let (cards, call) = (cards.clone(), call.clone());
+    let option = option.id.clone();
+    let hover = t.surface_hover;
+    BaseButton::new(SharedString::from(format!("call-{}-{option}", call.id)))
+        .w_full()
+        .min_h(px(crate::theme::dense(ROW_HEIGHT)))
+        .py(px(7.))
+        .px(SPACE_3_PX)
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .text_size(theme::ui_text(13.))
+        .text_color(t.text_primary)
+        .disabled(sending)
+        .map(|row| match on {
+            true => row.bg(t.surface_chosen),
+            false => row.hover(move |style| style.bg(hover)),
+        })
+        .on_click(move |_, _, cx| {
+            cx.stop_propagation();
+            cards.update(cx, |cards, cx| cards.choose(&call, &option, cx));
+        })
+        .child(key)
+        .child(label)
+        .children(pick)
+        .into_any_element()
+}
+
+/// The options as one bordered block of rows, with the note field as its last.
+fn answers(
+    rows: impl Iterator<Item = AnyElement>,
+    note: impl IntoElement,
+    t: &Tokens,
+) -> gpui_kit::Div {
+    let mut block = div()
+        .flex()
+        .flex_col()
+        .border(crate::theme::border())
+        .border_color(t.line)
+        .rounded(px(8.))
+        .overflow_hidden();
+    for (ix, row) in rows.enumerate() {
+        block = block.child(
+            div()
+                .when(ix > 0, |row| {
+                    row.border_t(crate::theme::border()).border_color(t.line)
+                })
+                .child(row),
+        );
+    }
+    block.child(note)
+}
+
+/// Says the person's words on a call for a secret reach only its asker.
+fn kept_line(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
+    call.keeps_words_private().then(|| {
+        div()
+            .mt(SPACE_2)
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .text_size(theme::ui_text(11.5))
+            .text_color(t.text_tertiary)
+            .child(ui::icon(Icon::Shield, 11.).text_color(t.text_tertiary))
+            .child(t!(
+                "Kept private: @{name} reads it, and it never shows in the chat.",
+                name = call.asker.name
+            ))
+    })
+}
+
+/// The chief's pick on an option.
+fn pick_mark(t: &Tokens) -> gpui_kit::Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(5.))
+        .text_size(theme::ui_text(11.))
+        .text_color(t.text_tertiary)
+        .child(ui::mark_box(12., ui::mark("sikemux", 17.)))
+        .child(t!("pick"))
+}
+
+fn note_hint(call: &PersonCall, chosen: &[String]) -> &'static str {
+    match (chosen.is_empty(), call.keeps_words_private()) {
+        (_, true) => t!("Type or paste it…"),
+        (false, false) => t!("Add a note…"),
+        (true, false) => t!("Or answer in your own words…"),
+    }
+}
+
+fn against_line(call: &PersonCall, t: &Tokens) -> Option<gpui_kit::Div> {
+    call.against.clone().map(|against| {
+        let lead = t!("Against it:");
+        div()
+            .text_size(theme::ui_text(12.5))
+            .line_height(relative(1.5))
+            .text_color(t.text_secondary)
+            .child(
+                gpui_kit::StyledText::new(format!("{lead} {against}")).with_highlights([(
+                    0..lead.len(),
+                    gpui_kit::HighlightStyle {
+                        color: Some(t.text_tertiary),
+                        ..Default::default()
+                    },
+                )]),
+            )
+    })
+}
+
+/// The button that answers `call` with what its card holds, worded `words`.
+fn go_button(
+    call: &PersonCall,
+    words: SharedString,
+    ready: bool,
+    sending: bool,
+    bench: &WeakEntity<Workbench>,
+) -> Button {
+    let (bench, id) = (bench.clone(), call.id.clone());
+    let production = call.kind == CallKind::Production;
+    Button::new(
+        SharedString::from(format!("call-go-{}", call.id)),
+        words,
+        Variant::Primary,
+    )
+    .sized(26., 11., 12.)
+    .disabled(!ready || sending)
+    // A step to production is never sent by a key: its button takes no focus, so Tab never
+    // reaches it, and a click that came from a key is refused.
+    .mouse_only(production)
+    .on_click(move |event, _, cx| {
+        cx.stop_propagation();
+        if production && matches!(event, ClickEvent::Keyboard(_)) {
+            return;
+        }
+        bench.update(cx, |bench, cx| bench.go_with(&id, cx)).ok();
+    })
+}
 
 /// What a production call runs on a yes, folded under a row that opens it.
 fn what_runs(
@@ -1174,6 +1237,7 @@ pub(crate) enum Shown {
 /// The calls an agent asks, at the end of its chat, over the line saying how it stands.
 pub struct InChat {
     bench: WeakEntity<Workbench>,
+    agent: String,
     cards: Entity<Cards>,
     target: Target,
     calls: CallsOf,
@@ -1186,11 +1250,13 @@ impl InChat {
         bench: WeakEntity<Workbench>,
         cards: Entity<Cards>,
         target: Target,
+        agent: &str,
         cx: &mut Context<Self>,
     ) -> Self {
         let observed = cx.observe(&cards, |_, _, cx| cx.notify());
         Self {
             bench,
+            agent: agent.to_owned(),
             cards,
             target,
             calls: CallsOf::default(),
@@ -1253,29 +1319,14 @@ impl Render for InChat {
             return div().into_any_element();
         }
         let t = Tokens::get(cx).clone();
-        let opened = self.cards.read(cx).opened.clone();
-        let answered = answered_in_chat(self.calls.open.iter(), opened.as_deref());
-        let open: Vec<&PersonCall> = (self.calls.open.iter())
-            .filter(|call| answered.is_none_or(|answered| answered.id != call.id))
-            .chain(answered)
-            .collect();
         let notices = (self.calls.settled.iter()).filter_map(|call| notice(call, &t));
-        let cards: Vec<AnyElement> = (open.into_iter())
-            .map(|call| {
-                panel(&t)
-                    .child(card(
-                        call,
-                        Seat::Chat,
-                        Through {
-                            target: &self.target,
-                            cards: &self.cards,
-                            bench: &self.bench,
-                        },
-                        window,
-                        cx,
-                    ))
-                    .into_any_element()
-            })
+        let through = Through {
+            target: &self.target,
+            cards: &self.cards,
+            bench: &self.bench,
+        };
+        let rows: Vec<AnyElement> = (self.calls.open.iter())
+            .map(|call| page::chat_row(call, &self.agent, through, cx))
             .collect();
         let away = self.away.as_ref().map(|away| {
             let through = Through {
@@ -1301,7 +1352,7 @@ impl Render for InChat {
                     .gap(SPACE_2)
                     .children(notices)
                     .children(away)
-                    .children(cards),
+                    .children(rows),
             )
             .into_any_element()
     }

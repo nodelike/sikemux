@@ -53,8 +53,10 @@ pub struct Desks {
     pub(crate) pages: HashMap<String, Page>,
     /// Each agent's tabs as last heard, so only a tab it newly opened brings its desk out.
     known: HashMap<String, HashSet<String>>,
-    /// What each agent's desk shows: its pages, or its simulator.
+    /// What each agent's desk shows: its pages, its simulator or its calls.
     pub(crate) kinds: HashMap<String, DeskKind>,
+    /// Each desk's calls page, made the first time the desk shows its calls.
+    call_pages: HashMap<String, Entity<crate::calls::Page>>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
     /// The agents in a turn as last heard, so each one's desk is tidied as its turn ends.
@@ -189,9 +191,9 @@ const MAX_FAVICONS: usize = 64;
 /// How long the desks are left to settle before the core hears what they hold.
 const DESKS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
-/// What a desk shows, as its switch names it: its pages, its files, its task terminals, or its
-/// simulator. Only the pages and the simulator are kept; files and terminals are shown by
-/// bringing one to the front.
+/// What a desk shows, as its switch names it: its pages, its files, its task terminals, its
+/// simulator, or the calls of its project. Only the pages, the simulator and the calls are kept;
+/// files and terminals are shown by bringing one to the front.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum DeskKind {
     #[default]
@@ -199,6 +201,7 @@ pub enum DeskKind {
     Files,
     Terminals,
     Simulator,
+    Calls,
 }
 
 /// One desk's page area and address bar.
@@ -268,6 +271,7 @@ impl Desks {
             pages: HashMap::new(),
             known: HashMap::new(),
             kinds: HashMap::new(),
+            call_pages: HashMap::new(),
             present: HashSet::new(),
             working: HashSet::new(),
             finished_runs: HashSet::new(),
@@ -306,6 +310,7 @@ impl Desks {
         self.pages.remove(agent);
         self.known.remove(agent);
         self.kinds.remove(agent);
+        self.call_pages.remove(agent);
         self.items.remove(agent);
         self.front.remove(agent);
         self.last_front.retain(|(held, _), _| held != agent);
@@ -318,10 +323,11 @@ impl Desks {
         cx.notify();
     }
 
-    /// What the desk shows now: its simulator, else whatever is in front of its pages.
+    /// What the desk shows now: its simulator or its calls, else whatever is in front of its
+    /// pages.
     fn kind_of(&self, agent: &str) -> DeskKind {
-        if self.kinds.get(agent) == Some(&DeskKind::Simulator) {
-            return DeskKind::Simulator;
+        if let Some(kind @ (DeskKind::Simulator | DeskKind::Calls)) = self.kinds.get(agent) {
+            return *kind;
         }
         self.front
             .get(agent)
@@ -332,7 +338,7 @@ impl Desks {
     /// were asked for with none to show, so a blank one opens.
     fn pick_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) -> bool {
         match kind {
-            DeskKind::Simulator => self.show_kind(agent, DeskKind::Simulator, cx),
+            DeskKind::Simulator | DeskKind::Calls => self.show_kind(agent, kind, cx),
             DeskKind::Pages => {
                 self.show_kind(agent, DeskKind::Pages, cx);
                 self.front.remove(agent);
@@ -819,13 +825,15 @@ impl Workbench {
 
     /// Shuts the agent's desk once nothing is left on it, so no empty desk stays open.
     fn shut_empty_desk(&mut self, agent: &str, cx: &mut Context<Self>) {
-        let empty = self.desk_kind(agent, cx) != DeskKind::Simulator
-            && self
-                .desks
-                .read(cx)
-                .items
-                .get(agent)
-                .is_none_or(Vec::is_empty)
+        let empty = !matches!(
+            self.desk_kind(agent, cx),
+            DeskKind::Simulator | DeskKind::Calls
+        ) && self
+            .desks
+            .read(cx)
+            .items
+            .get(agent)
+            .is_none_or(Vec::is_empty)
             && (self.desks.read(cx).strips.get(agent)).is_none_or(|strip| strip.tabs.is_empty());
         if !empty {
             return;
@@ -891,7 +899,17 @@ impl Workbench {
         }
     }
 
-    /// What the desk shows now: its simulator, else whatever is in front of its pages.
+    /// Turns the agent's desk to the calls of its project, bringing the desk out if it is closed.
+    pub(crate) fn show_calls(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.desks
+            .update(cx, |desks, cx| desks.show_kind(agent, DeskKind::Calls, cx));
+        if !self.desk_open_anywhere(agent) {
+            self.reveal_desk(agent);
+        }
+    }
+
+    /// What the desk shows now: its simulator or its calls, else whatever is in front of its
+    /// pages.
     pub(crate) fn desk_kind(&self, agent: &str, cx: &App) -> DeskKind {
         self.desks.read(cx).kind_of(agent)
     }
@@ -1351,7 +1369,7 @@ impl Workbench {
             .copied()
             .unwrap_or_default()
         {
-            DeskKind::Simulator => {
+            DeskKind::Simulator | DeskKind::Calls => {
                 self.desks
                     .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
                 true
@@ -1834,7 +1852,7 @@ const HEAD: f32 = 34.;
 /// The gap a pane keeps inside its cell, which the desk's edge keeps round the switch.
 const GAP: f32 = 5.;
 /// The kind switch's box: four 24pt kinds 2pt apart, 4pt inside its edge, a gap short of the head.
-const SWITCH_W: f32 = 4. * 24. + 3. * 2. + 2. * 4.;
+const SWITCH_W: f32 = 5. * 24. + 4. * 2. + 2. * 4.;
 const SWITCH_H: f32 = HEAD - GAP;
 /// A desk tab's width, and the narrowest it gets before the strip scrolls, as the Mac's.
 const PILL_W: f32 = 180.;
@@ -1864,8 +1882,10 @@ pub fn pane(
     }
     let t = Tokens::get(cx).clone();
     let kind = bench.desk_kind(agent, cx);
-    if kind == DeskKind::Simulator {
-        return simulator_desk(bench, agent, cx);
+    match kind {
+        DeskKind::Simulator => return simulator_desk(bench, agent, cx),
+        DeskKind::Calls => return calls_desk(bench, agent, cx),
+        _ => {}
     }
     let desks = bench.desks.read(cx);
     let strip = desks.strips.get(agent).cloned();
@@ -2548,6 +2568,9 @@ fn kinds(
         .get(agent)
         .map_or(&[][..], Vec::as_slice);
     let held = |kind: DeskKind| items.iter().filter(|item| item.kind() == kind).count();
+    let calls = crate::calls::waiting_on_desk(bench, agent);
+    let t = Tokens::get(cx).clone();
+    let ground = crate::see_through::ground(t.surface, cx);
     let mut row = div().flex().items_center().gap(SPACE_0);
     for (id, icon, label, kind, count, busy) in [
         (
@@ -2582,6 +2605,14 @@ fn kinds(
             0,
             false,
         ),
+        (
+            "desk-calls",
+            Icon::Bell,
+            t!("Calls"),
+            DeskKind::Calls,
+            calls,
+            false,
+        ),
     ]
     .into_iter()
     .filter(|(_, _, _, kind, _, _)| cfg!(target_os = "macos") || *kind != DeskKind::Simulator)
@@ -2594,23 +2625,87 @@ fn kinds(
         let spot = format!("desk-kind-{agent}-{id}");
         let agent = agent.to_owned();
         row = row.child(
-            div().relative().children(ui::spot(|| spot)).child(
-                IconButton::new(id, icon, named)
-                    .glyph(13.)
-                    .width(24.)
-                    .height(21.)
-                    .pressed(shown == kind)
-                    .disabled(empty)
-                    .when_some(tint.filter(|_| busy && shown != kind), |button, tint| {
-                        button.tint(tint)
-                    })
-                    .on_click(
-                        cx.listener(move |bench, _, _, cx| bench.pick_kind(&agent, kind, cx)),
-                    ),
-            ),
+            div()
+                .relative()
+                .children(ui::spot(|| spot))
+                .child(
+                    IconButton::new(id, icon, named)
+                        .glyph(13.)
+                        .width(24.)
+                        .height(21.)
+                        .pressed(shown == kind)
+                        .disabled(empty)
+                        .when_some(tint.filter(|_| busy && shown != kind), |button, tint| {
+                            button.tint(tint)
+                        })
+                        .on_click(
+                            cx.listener(move |bench, _, _, cx| bench.pick_kind(&agent, kind, cx)),
+                        ),
+                )
+                .when(kind == DeskKind::Calls && count > 0, |button| {
+                    button.child(count_badge(count, ground, &t))
+                }),
         );
     }
     row
+}
+
+/// The amber count on the calls' bell while calls wait.
+fn count_badge(count: usize, ground: gpui_kit::Hsla, t: &Tokens) -> impl IntoElement {
+    div()
+        .absolute()
+        .top(px(-3.))
+        .right(px(-3.))
+        .min_w(px(14.))
+        .h(px(14.))
+        .px(px(3.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(t.warn)
+        .border_2()
+        .border_color(ground)
+        .text_color(ground)
+        .text_size(crate::theme::ui_text(9.5))
+        .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+        .font_features(crate::theme::tabular())
+        .child(count.to_string())
+}
+
+fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let page = match bench.desks.read(cx).call_pages.get(agent) {
+        Some(page) => page.clone(),
+        None => {
+            let page = crate::calls::Page::new(bench, agent, cx);
+            bench.desks.update(cx, |desks, _| {
+                desks.call_pages.insert(agent.to_owned(), page.clone());
+            });
+            page
+        }
+    };
+    let waiting = crate::calls::waiting_on_desk(bench, agent);
+    let head = div()
+        .h(px(HEAD))
+        .flex_none()
+        .flex()
+        .items_center()
+        .pl(px(SWITCH_W + GAP - 1. + 10.))
+        .when(waiting > 0, |head| {
+            head.child(ui::meta(t!("{count} waiting on you", count = waiting), cx))
+        });
+    frame(
+        bench,
+        agent,
+        DeskKind::Calls,
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(div().flex_1().min_h_0().child(page)),
+        cx,
+    )
 }
 
 fn simulator_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
