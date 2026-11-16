@@ -2,7 +2,7 @@ use crate::command::Command;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use crate::sync::{Locked, Shared};
@@ -26,6 +26,7 @@ struct Source {
 }
 
 static SOURCE: OnceLock<Source> = OnceLock::new();
+static REREADS: AtomicU64 = AtomicU64::new(0);
 static ENVIRONMENT: RwLock<Option<(u64, Arc<UserEnvironment>)>> = RwLock::new(None);
 
 /// Registers how to build the environment, and how to tell it has gone stale.
@@ -33,6 +34,17 @@ static ENVIRONMENT: RwLock<Option<(u64, Arc<UserEnvironment>)>> = RwLock::new(No
 /// inherited.
 pub fn provide(build: fn() -> UserEnvironment, generation: fn() -> u64) {
     let _ = SOURCE.set(Source { build, generation });
+}
+
+/// Builds the environment again at its next use, from the person's settings as they are now,
+/// for a program they installed after it was read.
+pub fn reread() {
+    REREADS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Whether [`reread`] was asked for since this process started.
+pub fn was_reread() -> bool {
+    REREADS.load(Ordering::Relaxed) > 0
 }
 
 /// Builds the environment now so the first spawn does not pay for it.
@@ -44,7 +56,7 @@ fn environment() -> Arc<UserEnvironment> {
     let Some(source) = SOURCE.get() else {
         return Arc::default();
     };
-    let generation = (source.generation)();
+    let generation = (source.generation)() + REREADS.load(Ordering::Relaxed);
     if let Some((built, environment)) = ENVIRONMENT.read_locked().as_ref() {
         if *built == generation {
             return environment.clone();
@@ -124,6 +136,10 @@ fn shell_program() -> Result<PathBuf, String> {
 #[cfg(windows)]
 fn shell_program() -> Result<PathBuf, String> {
     git_program()
+        .or_else(|| {
+            reread();
+            git_program()
+        })
         .and_then(|git| {
             git.ancestors()
                 .skip(1)

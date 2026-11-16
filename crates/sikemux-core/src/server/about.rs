@@ -55,10 +55,15 @@ pub(crate) fn introduced(core: &Core) -> CoreResult<()> {
     Ok(())
 }
 
-/// Whether a git that runs is here. A Mac without the developer tools has a stand-in at
+/// Whether a git that runs is here. On Windows a miss reads the person's PATH again, so a Git
+/// for Windows installed since is found. A Mac without the developer tools has a stand-in at
 /// /usr/bin/git that only offers to install them.
 fn git_works() -> bool {
-    let Some(git) = find_executable("git") else {
+    let found = find_executable("git").or_else(|| {
+        cfg!(windows).then(sikemux_process::user_environment::reread)?;
+        find_executable("git")
+    });
+    let Some(git) = found else {
         return false;
     };
     if !cfg!(target_os = "macos") || git != std::path::Path::new("/usr/bin/git") {
