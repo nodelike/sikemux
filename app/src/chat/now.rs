@@ -206,7 +206,10 @@ fn asks_pill(now: &ProjectNow, chief: &str, cx: &mut Context<Workbench>) -> Opti
         .count();
     let (words, ink, fill) = match nobody {
         0 => (
-            t!("{count} asks", count = now.asks.len()),
+            match now.asks.len() {
+                1 => t!("1 ask").to_owned(),
+                count => t!("{count} asks", count = count),
+            },
             t.text_secondary,
             t.text_primary.opacity(0.06),
         ),
@@ -261,7 +264,13 @@ fn head(
         .child(ui::text(t!("Now"), TEXT_SM, FontWeight::SEMIBOLD).text_color(t.text_primary))
         .child(
             ui::text(
-                format!("· {}", t!("{count} agents", count = agents)),
+                format!(
+                    "· {}",
+                    match agents {
+                        1 => t!("1 agent").to_owned(),
+                        agents => t!("{count} agents", count = agents),
+                    }
+                ),
                 TEXT_XS,
                 FontWeight::NORMAL,
             )
