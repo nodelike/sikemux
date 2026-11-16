@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use sikemux_process::sync::Locked;
 
-use super::{add_card, long_text, project_at, project_view, title_of, Adding, By};
+use super::{add_card, claim_card, long_text, project_at, project_view, title_of, Adding, By};
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::worktree::agent::{self, Unclaimed};
@@ -69,8 +69,49 @@ pub async fn hand_off(core: &Arc<Core>, params: BoardHandOffParams) -> Result<Ha
     let card = started.card;
     let core = core.clone();
     let worker = agent.clone();
-    tokio::spawn(async move { hand_task(&core, &worker, started, text, params.files).await });
+    tokio::spawn(async move {
+        hand_task(
+            &core,
+            &worker,
+            started,
+            text,
+            params.files,
+            chat::Whose::PERSON,
+        )
+        .await
+    });
     Ok(HandedOff { card, agent, board })
+}
+
+/// Starts an agent in a checkout of its own on card `card` of `project`, which a trigger added
+/// and nobody holds, and sends it the card's title and details as its task.
+pub async fn take_up(core: Arc<Core>, project: String, card: u64, task: String) {
+    let worker = Worker {
+        project,
+        launcher: None,
+        provider: None,
+        model: None,
+        permission_mode: None,
+        effort: None,
+    };
+    let started = start_worker(&core, worker, task.clone(), move |core, project, agent| {
+        claim_card(core, project, agent, card).map(|_| card)
+    })
+    .await;
+    match started {
+        Ok((agent, started)) => {
+            hand_task(
+                &core,
+                &agent,
+                started,
+                task,
+                Vec::new(),
+                chat::Whose::NOT_PERSON,
+            )
+            .await
+        }
+        Err(error) => eprintln!("sikemux core: no agent took up card #{card}: {error}"),
+    }
 }
 
 /// The agent to start: in which project, and on what.
@@ -161,6 +202,7 @@ async fn hand_task(
     started: Started,
     text: String,
     files: Vec<String>,
+    whose: chat::Whose,
 ) {
     let Started {
         project,
@@ -197,15 +239,7 @@ async fn hand_task(
         title: format!("Card #{card}"),
         text: message,
     };
-    if let Err(error) = chat::prompt(
-        core,
-        agent,
-        None,
-        text,
-        files,
-        vec![tracking],
-        chat::Whose::PERSON,
-    ) {
+    if let Err(error) = chat::prompt(core, agent, None, text, files, vec![tracking], whose) {
         eprintln!("sikemux core: the agent handed card #{card} never got its task: {error}");
     }
 }

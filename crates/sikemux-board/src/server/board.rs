@@ -1365,22 +1365,29 @@ pub fn add_card(
 }
 
 /// Adds a card for trigger `trigger` that came due, as the person's own; to the card it added
-/// before instead, while that is still open.
+/// before instead, while that is still open. Answers the card and its task while nobody holds
+/// it, for an agent of its own to take up with `hand_off::take_up`.
 pub fn add_for_trigger(
     core: &Arc<Core>,
     project: &str,
     trigger: u64,
     title: &str,
     details: &str,
-) -> Result<(), String> {
+) -> Result<Option<(u64, String)>, String> {
     let adding = Adding {
         title: title.to_owned(),
         details: details.to_owned(),
         trigger: Some(trigger),
         ..Adding::default()
     };
-    add_card(core, project, &By::Auto("Trigger"), adding, None)?;
-    Ok(())
+    let (id, _) = add_card(core, project, &By::Auto("Trigger"), adding, None)?;
+    let state = core.boards().state.locked();
+    let board = state.boards.get(project).ok_or("The board is gone")?;
+    let card = board.card(id)?;
+    let free = card.status != CardStatus::Done
+        && holder(core, card).is_none()
+        && board.waits_on(card).is_empty();
+    Ok(free.then(|| (id, format!("{}\n\n{}", card.title, card.details))))
 }
 
 pub fn triggers_changed(core: &Core, project: &str) {

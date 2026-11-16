@@ -662,13 +662,15 @@ async fn fire(core: Arc<Core>, firing: Firing) {
             Some(request) => format!("{}\n\n{}", trigger.prompt, fired::request_text(request)),
             None => trigger.prompt.clone(),
         };
-        if let Err(error) =
-            super::board::add_for_trigger(&core, project, trigger.id, &trigger.title, &details)
-        {
-            eprintln!(
+        match super::board::add_for_trigger(&core, project, trigger.id, &trigger.title, &details) {
+            Ok(Some((card, task))) => {
+                super::board::hand_off::take_up(core.clone(), project.clone(), card, task).await
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!(
                 "sikemux core: trigger {} added no card to {project}'s board: {error}",
                 trigger.id
-            );
+            ),
         }
         return;
     }

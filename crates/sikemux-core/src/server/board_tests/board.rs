@@ -38,3 +38,29 @@ fn a_closed_owners_card_is_free_and_a_live_owners_is_not() {
     let (view, _) = change_card(&core, PROJECT, &creator, id, done()).unwrap();
     assert_eq!(view["status"], "done");
 }
+
+/// On 2026-11-16 the pr-fan trigger's card #170 gathered GitHub's events, a `labeled` one among
+/// them, with nobody ever taking it up, so a pull request labelled `triage` was never looked at.
+#[tokio::test]
+async fn a_triggers_card_is_taken_up_until_someone_holds_it() {
+    let core = Core::new(Default::default(), None).unwrap();
+    let fire = |action: &str| {
+        add_for_trigger(
+            &core,
+            PROJECT,
+            37,
+            "pr-fan",
+            &format!("{{\"action\":\"{action}\"}}"),
+        )
+        .unwrap()
+    };
+
+    let (id, task) = fire("synchronize").expect("a new card nobody holds is taken up");
+    assert!(task.starts_with("pr-fan\n\n"));
+    let (again, _) = fire("labeled").expect("an arrival on a card nobody holds is taken up");
+    assert_eq!(again, id);
+
+    core.names().pin(HashSet::from(["worker".to_owned()]));
+    claim_card(&core, PROJECT, "worker", id).unwrap();
+    assert!(fire("labeled").is_none());
+}
