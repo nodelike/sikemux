@@ -172,7 +172,7 @@ pub fn enqueue(core: &Core, agent_id: &str, push: bool) -> Result<Queued, String
     };
     Ok(Queued {
         note: format!(
-            "Queued {short}:{replaces} Sikemux checks it with the lands beside it, running Clippy on the crates they change, and puts it on {base}{pushed} when that passes. Either way a message tells you how it ended, naming {short}; until then your checkout keeps its commits, and you need not run the final checks yourself."
+            "Queued {short}:{replaces} Sikemux checks it with the lands beside it, running Clippy and the tests of the crates they change, and puts it on {base}{pushed} when that passes. Either way a message tells you how it ended, naming {short}; until then your checkout keeps its commits, and you need not run the final checks yourself."
         ),
         branch: base,
         commits: laid.listed,
@@ -798,9 +798,12 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
     for (agent, on) in &pushers {
         let (text, calm) = match &pushed {
             Ok(pushed) if (pushed.blocked.iter()).any(|blocked| blocked.owners.contains(agent)) => {
-                (format!(
-                    "Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again."
-                ), false)
+                (
+                    format!(
+                        "Its land of {on}, but clashed with the remote's newest and came off it again. It has been told to settle it and land again."
+                    ),
+                    false,
+                )
             }
             Ok(_) => (format!("Its land of {on}, and pushed."), true),
             Err(error) => {
@@ -809,7 +812,10 @@ async fn put_on(core: &Arc<Core>, key: &Key, stacked: Stack) {
                     agent,
                     format!("Your commits landed on {} but did not push: {error}", key.1),
                 );
-                (format!("Its land of {on}, but did not push: {error}"), false)
+                (
+                    format!("Its land of {on}, but did not push: {error}"),
+                    false,
+                )
             }
         };
         tell_lead(core, agent, text, calm);
@@ -1053,9 +1059,10 @@ pub(super) fn shell(
 pub(super) const LAND_CHECK_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The check for what changed from `from` to `to`, read in `checkout` at `to`,
-/// with what to call it: Clippy on the crates it changes or whose files they
-/// read; on every crate when it changes how they all build; none when it
-/// changes no Rust. GitHub's CI on the branch runs the tests.
+/// with what to call it: Clippy and the tests of the crates it changes or whose
+/// files they read, Clippy on every crate when it changes how they all build,
+/// none when it changes no Rust. Crates that depend on the changed ones are left
+/// to CI, as building and testing them made a core land take most of the workspace.
 fn rust_check(
     repo: &Path,
     checkout: &Path,
@@ -1092,20 +1099,27 @@ fn rust_check(
     if !every && names.is_empty() {
         return Ok(None);
     }
-    let (scope, of) = match every {
-        true => ("--workspace".to_owned(), "every crate".to_owned()),
-        false => (
-            (names.iter())
-                .map(|name| format!("-p {name}"))
-                .collect::<Vec<_>>()
-                .join(" "),
-            names.iter().cloned().collect::<Vec<_>>().join(", "),
+    let packages = (names.iter())
+        .map(|name| format!("-p {name}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let crates = names.iter().cloned().collect::<Vec<_>>().join(", ");
+    let clippy =
+        |scope: &str| format!("cargo clippy {scope} --all-targets --all-features -- -D warnings");
+    let test = format!("cargo test {packages} --all-targets --all-features");
+    // Some integration tests fail now and then under load; a land breaks a test only if it fails twice.
+    let tests = format!("({test} || {test})");
+    Ok(Some(match (every, names.is_empty()) {
+        (true, true) => ("Clippy on every crate".to_owned(), clippy("--workspace")),
+        (true, false) => (
+            format!("Clippy on every crate and the tests of {crates}"),
+            format!("{} && {tests}", clippy("--workspace")),
         ),
-    };
-    Ok(Some((
-        format!("Clippy on {of}"),
-        format!("cargo clippy {scope} --all-targets --all-features -- -D warnings"),
-    )))
+        (false, _) => (
+            format!("Clippy and the tests of {crates}"),
+            format!("{} && {tests}", clippy(&packages)),
+        ),
+    }))
 }
 
 const METADATA_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
