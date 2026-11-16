@@ -936,6 +936,15 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
         let lines = crate::server::repo_events::lines_changed(repo, &onto, &laid.tip);
         (core.repo_above().chief_landed)(core, &project, &waiting.agent, &subject, lines);
         (core.repo_above().turn_state_committed)(core, &waiting.agent);
+        let made = format!("{onto}..{}", laid.tip);
+        let commits: Vec<(String, String)> =
+            git(repo, &["log", "--reverse", "--format=%H %s", &made])
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|line| line.split_once(' '))
+                .map(|(sha, subject)| (sha.to_owned(), subject.to_owned()))
+                .collect();
+        (core.repo_above().board_committed)(core, &project, &waiting.agent, &commits, true);
         onto = laid.tip.clone();
         landed.push((waiting.clone(), laid.commits.clone(), stays));
     }

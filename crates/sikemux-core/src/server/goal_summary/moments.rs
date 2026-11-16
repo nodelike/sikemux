@@ -150,7 +150,7 @@ fn top_of<'a>(cards: &'a [BoardCard], card: &'a BoardCard) -> &'a BoardCard {
 }
 
 /// The cards of goal `id`: its own, and those under it at any depth.
-fn family(cards: &[BoardCard], id: u64) -> Vec<&BoardCard> {
+pub(super) fn family(cards: &[BoardCard], id: u64) -> Vec<&BoardCard> {
     (cards.iter())
         .filter(|card| top_of(cards, card).id == id)
         .collect()

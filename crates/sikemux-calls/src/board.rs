@@ -12,6 +12,7 @@ use sikemux_view::slice::ReportEvery;
 use sikemux_view::slice::SliceState;
 use sikemux_view::slice::Spot;
 use sikemux_view::turn::Landed;
+use sikemux_view::workspace::PullChecks;
 use sikemux_wire::protocol::PermissionMode;
 
 /// The chat a goal's button acts on.
@@ -141,6 +142,45 @@ pub struct BoardCard {
     /// When it was put aside in Later, off the board until someone takes it up again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aside_at: Option<u64>,
+    /// The commits its owner made while on it, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commits: Vec<CardCommit>,
+    /// The pull requests those commits went up in, as the code host last told.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pulls: Vec<CardPull>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardCommit {
+    pub sha: String,
+    pub subject: String,
+    pub at: u64,
+    /// Whether it is on the project's branch, not only on a checkout or branch of its own.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub landed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardPull {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    pub state: PullState,
+    /// How the checks on its newest commit stand, while it is open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checks: Option<PullChecks>,
+    /// When it merged or closed, else when the code host was last asked.
+    pub at: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PullState {
+    Open,
+    Merged,
+    Closed,
 }
 
 /// Where a board shows a card: `needs` holds the cards waiting on the person.

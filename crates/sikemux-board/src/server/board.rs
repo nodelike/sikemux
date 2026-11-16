@@ -15,7 +15,8 @@ use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::board::{
     BoardAddParams, BoardAddTicketParams, BoardCard, BoardCardParams, BoardColumn, BoardParams,
     BoardSettings, BoardSettingsParams, BoardTicketCard, BoardTicketParams, BoardUpdateParams,
-    CardStatus, CardTicket, ForgetInheritedParams, Landing, ProjectBoard, Tracker,
+    CardCommit, CardPull, CardStatus, CardTicket, ForgetInheritedParams, Landing, ProjectBoard,
+    PullState, Tracker,
 };
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
@@ -134,6 +135,10 @@ pub struct Card {
     /// it. The card closes by itself once the owner leaves it or waits on the person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     checked: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    commits: Vec<CardCommit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pulls: Vec<CardPull>,
 }
 
 /// Bumped by a change to what a board file holds that an earlier file needs
@@ -1140,6 +1145,8 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         at: card.at,
         updated_at: card.updated_at,
         aside_at: card.aside_at,
+        commits: card.commits.clone(),
+        pulls: card.pulls.clone(),
     }
 }
 
@@ -1245,6 +1252,12 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         if !card.arrivals.is_empty() {
             fields.insert("arrivals".into(), json!(card.arrivals));
         }
+        if !card.commits.is_empty() {
+            fields.insert("commits".into(), json!(card.commits));
+        }
+        if !card.pulls.is_empty() {
+            fields.insert("pulls".into(), json!(card.pulls));
+        }
     }
     view
 }
@@ -1278,6 +1291,8 @@ fn new_card(core: &Core, id: u64, adding: Adding, maker: Option<String>) -> Card
         acted_at: now,
         aside_at: None,
         checked: None,
+        commits: Vec::new(),
+        pulls: Vec::new(),
     }
 }
 
@@ -1410,6 +1425,68 @@ pub fn check_passed(core: &Arc<Core>, project: &str, agents: &[String], sha: &st
     core.boards().save(&mut state, project);
     drop(state);
     core.boards().wake.now();
+}
+
+const MAX_COMMITS: usize = 100;
+
+/// `agent` made `commits`, each a sha and subject, oldest first: the card it works now keeps
+/// them. Landed ones are made again on the project's branch, so they replace those of the same
+/// subject that had not landed.
+pub fn committed(
+    core: &Core,
+    project: &str,
+    agent: &str,
+    commits: &[(String, String)],
+    landed: bool,
+) {
+    let mut state = core.boards().state.locked();
+    let Some(board) = state.boards.get_mut(project) else {
+        return;
+    };
+    let Some(id) = board.open_working_card(agent).map(|card| card.id) else {
+        return;
+    };
+    let Ok(card) = board.card_mut(id) else {
+        return;
+    };
+    if landed {
+        card.commits.retain(|known| {
+            known.landed || !commits.iter().any(|(_, subject)| *subject == known.subject)
+        });
+    }
+    let at = epoch_ms();
+    for (sha, subject) in commits {
+        if !card.commits.iter().any(|known| known.sha == *sha) {
+            card.commits.push(CardCommit {
+                sha: sha.clone(),
+                subject: subject.clone(),
+                at,
+                landed,
+            });
+        }
+    }
+    let over = card.commits.len().saturating_sub(MAX_COMMITS);
+    card.commits.drain(..over);
+    core.boards().save(&mut state, project);
+}
+
+/// What the code host says of `pull`, which card `id`'s commits went up in.
+pub fn pull_seen(core: &Core, project: &str, id: u64, pull: CardPull) {
+    let mut state = core.boards().state.locked();
+    let Some(card) = (state.boards.get_mut(project)).and_then(|board| board.card_mut(id).ok())
+    else {
+        return;
+    };
+    match card
+        .pulls
+        .iter_mut()
+        .find(|known| known.number == pull.number)
+    {
+        Some(known) if *known == pull => return,
+        Some(known) => *known = pull,
+        None => card.pulls.push(pull),
+    }
+    core.boards().save(&mut state, project);
 }
 
 /// Whether card `id` is one the board closed by itself, which the person's reopening puts back.

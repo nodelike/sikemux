@@ -23,6 +23,9 @@ pub struct CommitMade<'a> {
 /// The one event a commit is, however it was made: what follows from it follows from here.
 pub fn commit_made(core: &Core, made: CommitMade<'_>) {
     let (project, on_branch) = core.workspaces().project_checkout(made.top);
+    let subject = made.message.lines().next().unwrap_or_default();
+    let commit = [(made.sha.to_owned(), subject.to_owned())];
+    (core.repo_above().board_committed)(core, &project, made.agent, &commit, on_branch);
     if on_branch {
         let mut agents: Vec<String> = crate::trailers::agents(made.message)
             .into_iter()
@@ -33,7 +36,7 @@ pub fn commit_made(core: &Core, made: CommitMade<'_>) {
         }
         let commit = super::checks::Commit {
             sha: made.sha.to_owned(),
-            subject: made.message.lines().next().unwrap_or_default().to_owned(),
+            subject: subject.to_owned(),
             agents,
         };
         core.checks()

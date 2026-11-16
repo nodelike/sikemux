@@ -390,15 +390,7 @@ pub async fn branch_pull(repo: &Repo, branch: &str) -> Result<Option<ProjectPull
         return Ok(None);
     };
     let pull = pull_of(repo, found)?;
-    let checks = match text(found, "headSha") {
-        Some(sha) => match commit_checks(repo, Some(branch), &sha, &[]).await? {
-            Checks::None | Checks::Stopped(_) => None,
-            Checks::Running { .. } => Some(PullChecks::Pending),
-            Checks::Passed => Some(PullChecks::Passing),
-            Checks::Failed(_) => Some(PullChecks::Failing),
-        },
-        None => None,
-    };
+    let checks = pull_checks(repo, found).await?;
     Ok(Some(ProjectPull {
         number: pull.number,
         title: text(found, "title").unwrap_or_default(),
@@ -406,6 +398,22 @@ pub async fn branch_pull(repo: &Repo, branch: &str) -> Result<Option<ProjectPull
         url: pull.url,
         checks,
     }))
+}
+
+/// How the checks on the newest commit of the pull request the code host answered with stand.
+pub async fn pull_checks(repo: &Repo, found: &Value) -> Result<Option<PullChecks>, String> {
+    let Some(sha) = text(found, "headSha") else {
+        return Ok(None);
+    };
+    let branch = text(found, "head");
+    Ok(
+        match commit_checks(repo, branch.as_deref(), &sha, &[]).await? {
+            Checks::None | Checks::Stopped(_) => None,
+            Checks::Running { .. } => Some(PullChecks::Pending),
+            Checks::Passed => Some(PullChecks::Passing),
+            Checks::Failed(_) => Some(PullChecks::Failing),
+        },
+    )
 }
 
 impl Repo {

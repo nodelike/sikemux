@@ -43,6 +43,7 @@ type Trusted = for<'a> fn(&'a Arc<Core>, &'a Path, Option<&'a str>) -> Doing<'a,
 type Done<'a> = Doing<'a, Result<(), String>>;
 type Settings =
     for<'a> fn(&'a Arc<Core>, BoardSettingsParams) -> Doing<'a, Result<ProjectBoard, String>>;
+type Committed = fn(&Core, &str, &str, &[(String, String)], bool);
 type AgentTool = for<'a> fn(&'a Arc<Core>, &'a str, Value, Option<Deploy>) -> Told<'a>;
 
 pub struct RepoAbove {
@@ -141,6 +142,9 @@ pub struct RepoAbove {
     pub board_ci_card: fn(&Core, &str) -> Option<CiCard>,
     /// The project's check passed on `commit`, on its branch, which holds these agents' commits.
     pub board_check_passed: fn(&Arc<Core>, &str, &[String], &str),
+    /// The agent made these commits, each a sha and subject, oldest first, and whether they are
+    /// on the project's branch.
+    pub board_committed: Committed,
     /// Notes in the project's journal that its repository moved, by the kind of move.
     pub harness_note_repository: fn(&Core, &str, &str),
     /// Whether the question still waits for its answer.

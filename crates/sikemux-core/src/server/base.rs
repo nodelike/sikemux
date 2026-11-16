@@ -447,6 +447,7 @@ pub(super) fn repo_above() -> RepoAbove {
         board_ci_ruled: board::ci_ruled,
         board_ci_card: board::ci_card,
         board_check_passed: board::check_passed,
+        board_committed: board::committed,
         harness_note_repository: |core, project, kind| {
             core.harness().note_repository(project, kind)
         },
