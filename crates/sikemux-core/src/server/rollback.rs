@@ -5,10 +5,9 @@
 //! started well, the watcher puts the kept app back and starts its core, which brings the chats
 //! back on their sessions. The new core says it started well by settling the update.
 
+use sikemux_process::command::Stdio;
 use std::ffi::OsString;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

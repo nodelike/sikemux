@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
-use tokio::process::Command;
+use sikemux_process::command::Command;
 
 use crate::agent_catalog::AgentKind;
 
@@ -103,12 +103,13 @@ pub(super) async fn rename_hermes_session(
     session_id: &str,
     name: &str,
 ) -> Result<(), String> {
-    let mut command = Command::from(sikemux_process::user_environment::agent_command(executable));
+    let mut command =
+        Command::into_async(sikemux_process::user_environment::agent_command(executable));
     apply_login_environment(&mut command);
     command
         .args(["sessions", "rename", "--", session_id, name])
         .kill_on_drop(true)
-        .stdin(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::null());
     let output = tokio::time::timeout(HERMES_RENAME_TIMEOUT, command.output())
         .await
         .map_err(|_| "Hermes took too long to rename the chat".to_string())?

@@ -709,7 +709,7 @@ mod tests {
         let mut child = crate::user_environment::command("ping")
             .args(["-n", "30", "127.0.0.1"])
             .env(crate::vars::AGENT_ID, "agent-4")
-            .stdout(std::process::Stdio::null())
+            .stdout(crate::command::Stdio::null())
             .spawn()
             .expect("spawn ping");
         let parents = descendants(std::process::id());

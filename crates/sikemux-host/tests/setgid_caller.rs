@@ -5,10 +5,10 @@
 
 #![cfg(target_os = "linux")]
 
+use sikemux_process::command::Stdio;
 use std::io::Write;
 use std::net::TcpListener;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::process::Stdio;
 
 use sikemux_agents::callers;
 

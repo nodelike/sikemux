@@ -5,9 +5,9 @@
 
 #![cfg(unix)]
 
+use sikemux_process::command::{Child, Stdio};
 use sikemux_wire::protocol::ask;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::time::{Duration, Instant};
 
 use iroh::endpoint::presets;

@@ -5,13 +5,13 @@
 
 mod folded;
 
+use sikemux_process::command::{Child, Stdio};
 use sikemux_wire::protocol::ask;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

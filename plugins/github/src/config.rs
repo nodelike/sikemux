@@ -2,8 +2,8 @@
 // GitHub. A token typed in is saved in the Keychain; one already in the
 // environment, or held by the `gh` CLI, is used where it is and never copied.
 
+use sikemux_process::command::Command;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};

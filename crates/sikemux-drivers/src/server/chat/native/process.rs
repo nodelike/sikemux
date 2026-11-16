@@ -2,8 +2,8 @@
 //! standard input and output. Its pipes and pid can be let go of whole, for
 //! a core that replaces this one in the same process to take up.
 
+use sikemux_process::command::Stdio;
 use std::collections::VecDeque;
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

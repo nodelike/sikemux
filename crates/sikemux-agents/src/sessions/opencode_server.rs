@@ -2,14 +2,15 @@
 //! A [`Server`] starts one for a short ask and is gone once its input closes; a [`Client`]
 //! speaks to one whoever started it.
 
+use sikemux_process::command::Stdio;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use serde_json::Value;
+use sikemux_process::command::{AsyncChild, AsyncCommand};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::ChildStdin;
 use tokio::sync::mpsc;
 
 pub const READY_WAIT: Duration = Duration::from_secs(20);
@@ -251,7 +252,7 @@ pub struct Server {
     client: Client,
     /// OpenCode serves for as long as this stays open.
     lease: Option<ChildStdin>,
-    child: Child,
+    child: AsyncChild,
 }
 
 impl std::ops::Deref for Server {
@@ -264,7 +265,7 @@ impl std::ops::Deref for Server {
 
 impl Server {
     /// Starts `command` as a server for `directory` and waits until it says where it listens.
-    pub async fn start(mut command: Command, directory: &Path) -> Result<Self, String> {
+    pub async fn start(mut command: AsyncCommand, directory: &Path) -> Result<Self, String> {
         let password = new_password();
         command
             .args(SERVE_ARGS)

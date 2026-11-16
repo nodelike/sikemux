@@ -6,11 +6,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
+use sikemux_process::command::Command;
 use sikemux_process::paths::expand_home;
 use sikemux_process::sync::Locked;
 use sikemux_process::user_environment;
 use sikemux_pty::user_shell::login_shell_environment;
-use tokio::process::Command;
 use tokio::sync::{Notify, Semaphore, SemaphorePermit};
 
 use crate::agent_catalog::{AgentEntry, AGENTS};
@@ -83,15 +83,15 @@ async fn is_uninstalled_mise_shim(executable: &Path, timeout: Duration) -> Resul
     let (Some(mise), Some(tool)) = (mise_behind(executable), executable.file_name()) else {
         return Ok(false);
     };
-    let mut command = Command::from(user_environment::command(mise));
+    let mut command = Command::into_async(user_environment::command(mise));
     command
         .arg("which")
         .arg(tool)
         .envs(login_shell_environment())
         .kill_on_drop(true)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null());
     let status = tokio::time::timeout(timeout, command.status())
         .await
         .map_err(|_| TIMED_OUT.to_string())?
@@ -109,14 +109,14 @@ async fn probe_agent_executable_with_timeout(
     if is_uninstalled_mise_shim(executable, timeout).await? {
         return Err(NOT_INSTALLED.to_string());
     }
-    let mut command = Command::from(user_environment::agent_command(executable));
+    let mut command = Command::into_async(user_environment::agent_command(executable));
     command
         .args(def.probe)
         .envs(login_shell_environment())
         .kill_on_drop(true)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::piped())
+        .stderr(sikemux_process::command::Stdio::piped());
     let output = tokio::time::timeout(timeout, command.output())
         .await
         .map_err(|_| TIMED_OUT.to_string())?

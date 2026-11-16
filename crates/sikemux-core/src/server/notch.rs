@@ -27,11 +27,10 @@ pub(crate) fn follow(core: &Core) {
 
 #[cfg(target_os = "macos")]
 mod mac {
+    use sikemux_process::command::Stdio;
     use std::fs::OpenOptions;
     use std::os::unix::fs::OpenOptionsExt;
-    use std::os::unix::process::CommandExt;
     use std::path::{Path, PathBuf};
-    use std::process::Stdio;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use crate::server::local_peer::{BUNDLED_NOTCH, NOTCH_EXECUTABLE};

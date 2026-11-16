@@ -40,7 +40,7 @@ pub fn open_private_append(path: &Path) -> io::Result<File> {
 }
 
 /// The person's login shell, for commands written for their own terminal.
-pub fn login_shell() -> Result<std::process::Command, String> {
+pub fn login_shell() -> Result<sikemux_process::command::Command, String> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
     Ok(sikemux_process::user_environment::agent_command_in_own_cgroup(shell))
 }

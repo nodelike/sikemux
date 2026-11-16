@@ -859,7 +859,7 @@ fn install_dependencies(cwd: &Path, install: &str) -> Result<(), String> {
     command
         .args(words)
         .current_dir(cwd)
-        .stdin(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::null());
     let output = sikemux_process::run(&mut command, None, INSTALL_WAIT, INSTALL_OUTPUT_LIMIT, None)
         .map_err(|error| format!("{install} did not finish: {error}"))?;
     if output.status.success() {

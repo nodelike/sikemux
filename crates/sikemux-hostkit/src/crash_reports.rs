@@ -622,10 +622,11 @@ impl log::Log for Breadcrumbs {
 
 #[cfg(all(test, target_os = "macos"))]
 mod tests {
+    use sikemux_process::command::{Child, Command, Stdio};
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
     use std::os::unix::process::ExitStatusExt;
-    use std::process::{Child, Command, ExitStatus, Stdio};
+    use std::process::ExitStatus;
     use std::time::Instant;
 
     use super::*;

@@ -479,7 +479,7 @@ mod tests {
             .arg("-C")
             .arg(dir)
             .args(args)
-            .stdout(std::process::Stdio::null())
+            .stdout(sikemux_process::command::Stdio::null())
             .status()
             .expect("git runs");
         assert!(status.success(), "git {args:?}");

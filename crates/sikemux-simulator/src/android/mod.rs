@@ -9,9 +9,9 @@ mod logcat;
 pub mod pair;
 pub(crate) mod sdk;
 
+use sikemux_process::command::Stdio;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -91,8 +91,9 @@ impl Android {
 
     async fn adb(&self, args: &[&str], limit: Duration) -> SimResult<String> {
         let adb = self.adb_path()?;
-        let mut command =
-            tokio::process::Command::from(sikemux_process::user_environment::command(adb));
+        let mut command = sikemux_process::command::Command::into_async(
+            sikemux_process::user_environment::command(adb),
+        );
         command
             .args(args)
             .stdin(Stdio::null())
@@ -268,15 +269,16 @@ impl Android {
     async fn push_program(&self, serial: &str) -> SimResult<()> {
         use tokio::io::AsyncWriteExt;
         let adb = self.adb_path()?;
-        let mut child =
-            tokio::process::Command::from(sikemux_process::user_environment::command(adb))
-                .args(["-s", serial, "exec-in", &format!("cat > {DEVICE_JAR}")])
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .kill_on_drop(true)
-                .spawn()
-                .map_err(|error| format!("could not run adb: {error}"))?;
+        let mut child = sikemux_process::command::Command::into_async(
+            sikemux_process::user_environment::command(adb),
+        )
+        .args(["-s", serial, "exec-in", &format!("cat > {DEVICE_JAR}")])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("could not run adb: {error}"))?;
         let mut stdin = child.stdin.take().ok_or("adb took no input")?;
         stdin
             .write_all(DEVICE_PROGRAM)
@@ -739,8 +741,8 @@ impl Android {
                 .stdout(Stdio::null())
                 .stderr(Stdio::piped());
             #[cfg(unix)]
-            std::os::unix::process::CommandExt::process_group(&mut command, 0);
-            let child = tokio::process::Command::from(command)
+            command.process_group(0);
+            let child = sikemux_process::command::Command::into_async(command)
                 .spawn()
                 .map_err(|error| format!("could not start the emulator: {error}"))?;
             let (exited, on_exit) = tokio::sync::oneshot::channel();
@@ -813,7 +815,7 @@ impl Android {
         let even = |side: f64| ((side * shrink) as u32) & !1;
         let size = format!("{}x{}", even(display.width), even(display.height));
         loop {
-            let mut child = tokio::process::Command::from(
+            let mut child = sikemux_process::command::Command::into_async(
                 sikemux_process::user_environment::command(self.adb_path()?),
             )
             .args([
@@ -885,7 +887,7 @@ impl Android {
 
 /// Waits for an emulator to exit, reading its stderr all the while so it never blocks on a
 /// full pipe, and says how it ended with the last of what it wrote.
-async fn watch_emulator(mut child: tokio::process::Child) -> String {
+async fn watch_emulator(mut child: sikemux_process::command::AsyncChild) -> String {
     use tokio::io::AsyncReadExt;
     const TAIL: usize = 2048;
     enum Event {
@@ -1028,13 +1030,15 @@ async fn apk_package(root: Option<&Path>, apk: &str) -> Option<String> {
         .rev()
         .map(|folder| folder.join(if cfg!(windows) { "aapt.exe" } else { "aapt" }))
         .find(|aapt| aapt.is_file())?;
-    let output = tokio::process::Command::from(sikemux_process::user_environment::command(aapt))
-        .args(["dump", "badging", apk])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .await
-        .ok()?;
+    let output = sikemux_process::command::Command::into_async(
+        sikemux_process::user_environment::command(aapt),
+    )
+    .args(["dump", "badging", apk])
+    .stdin(Stdio::null())
+    .stderr(Stdio::null())
+    .output()
+    .await
+    .ok()?;
     let text = String::from_utf8_lossy(&output.stdout);
     let line = text.lines().find(|line| line.starts_with("package:"))?;
     let name = line.split("name='").nth(1)?.split('\'').next()?;

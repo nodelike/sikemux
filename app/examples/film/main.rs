@@ -65,7 +65,7 @@ use sikemux_wire::protocol::ask;
 use std::cell::RefCell;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Stdio};
+use sikemux_process::command::{Child, ChildStdin, Stdio};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

@@ -1,9 +1,9 @@
 //! A device's log as `adb logcat` prints it, kept as numbered lines so an agent
 //! can ask for what came after the last line it read, as the iOS helper keeps its log.
 
+use sikemux_process::command::Stdio;
 use std::collections::VecDeque;
 use std::path::Path;
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -33,15 +33,16 @@ impl Drop for Logcat {
 impl Logcat {
     /// Follows the device's log from now on.
     pub fn follow(adb: &Path, serial: &str) -> Result<Arc<Self>, String> {
-        let mut child =
-            tokio::process::Command::from(sikemux_process::user_environment::command(adb))
-                .args(["-s", serial, "logcat", "-v", "threadtime", "-T", "1"])
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .kill_on_drop(true)
-                .spawn()
-                .map_err(|error| format!("could not read the device's log: {error}"))?;
+        let mut child = sikemux_process::command::Command::into_async(
+            sikemux_process::user_environment::command(adb),
+        )
+        .args(["-s", serial, "logcat", "-v", "threadtime", "-T", "1"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("could not read the device's log: {error}"))?;
         let stdout = child.stdout.take().ok_or("the log has no output")?;
         let lines = Arc::new(Mutex::new(Lines::default()));
         let filled = Arc::clone(&lines);

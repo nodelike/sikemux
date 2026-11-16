@@ -1,9 +1,10 @@
 //! The command runs in a job of its own, which holds every process it starts, and ending the
 //! job ends them all. With `--foreground` only the command itself ends.
 
+use sikemux_process::command::{Child, Command};
 use std::io;
 use std::os::windows::io::{AsHandle, AsRawHandle, OwnedHandle};
-use std::process::{Child, Command, ExitStatus};
+use std::process::ExitStatus;
 
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::System::JobObjects::{

@@ -94,7 +94,7 @@ pub(crate) fn picture_id(path: &str) -> Option<String> {
 #[cfg(target_os = "macos")]
 fn shrunk(path: &str, id: String) -> Option<BackdropImage> {
     use base64::Engine;
-    use std::process::Command;
+    use sikemux_process::command::Command;
     use std::time::Duration;
 
     /// A phone draws the picture across its width at most a few times over; past this it only

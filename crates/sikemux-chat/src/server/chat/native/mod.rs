@@ -59,7 +59,7 @@ fn shows_saved(provider: &str) -> bool {
 
 /// The models and efforts `launch`'s agent offers, asked of its CLI without a session.
 pub async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
-    let mut command = tokio::process::Command::from(
+    let mut command = sikemux_process::command::Command::into_async(
         sikemux_process::user_environment::agent_command(&launch.program),
     );
     command

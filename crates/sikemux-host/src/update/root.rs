@@ -310,8 +310,8 @@ async fn fetch_app(
     let extracted = sikemux_process::user_environment::command(&appimage)
         .arg("--appimage-extract")
         .current_dir(work)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::piped())
         .output()
         .map_err(failed)?;
     let unpacked = work.join("squashfs-root");
@@ -381,7 +381,7 @@ fn place(archive: &Path, target: &Path) -> Result<u64, Failure> {
         .arg("-C")
         .arg(work)
         .arg(CORE)
-        .stderr(std::process::Stdio::piped())
+        .stderr(sikemux_process::command::Stdio::piped())
         .output()
         .map_err(failed)?;
     let unpacked = work.join(CORE);
