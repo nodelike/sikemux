@@ -281,7 +281,7 @@ impl Workbench {
 }
 
 /// Every agent the view lists, running or kept.
-fn rows_of(view: &DeviceView) -> impl Iterator<Item = &AgentShown> {
+pub(crate) fn rows_of(view: &DeviceView) -> impl Iterator<Item = &AgentShown> {
     view.inbox.agents.iter().chain(&view.inbox.kept)
 }
 

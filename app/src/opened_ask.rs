@@ -1,11 +1,13 @@
-//! One of the person's asks, opened from its card: the chat of the agent it went to and that
-//! agent's desk show only what the core filed under it, until the switch in the pane's header
-//! widens both again. Leaving the agent's tab, or Back, closes it.
+//! One of the person's asks to a chief, opened from its card: the chief's chat and desk show only
+//! what the core filed under it, until the switch in the pane's header widens both again.
+//! Leaving the chief's tab, or Back, closes it. An ask to a teammate opens its whole chat.
 
 use gpui_kit::Context;
+use sikemux_view::inbox::AgentShown;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::now::NowAsk;
 
+use crate::agents::rows::rows_of;
 use crate::chat::narrowed::Narrowed;
 use crate::core::Ask;
 use crate::tabs::shows;
@@ -21,6 +23,11 @@ pub(crate) struct OpenedAsk {
     pub narrowed: bool,
     /// Its agent's tab has come to the front since it was opened, so leaving it closes the ask.
     arrived: bool,
+}
+
+/// Whether an ask to `agent` shows alone in its chat: only a chief's chat narrows to one.
+fn narrows<'a>(mut agents: impl Iterator<Item = &'a AgentShown>, agent: &str) -> bool {
+    agents.any(|row| row.agent_id == agent && row.chief)
 }
 
 /// The ask number a `sikemux://ask/<id>` link names.
@@ -64,6 +71,12 @@ impl Workbench {
             return self.notify(toast::error(t!("Ask #{id} is no longer open", id = id)), cx);
         };
         let (agent, ask) = (ask.to.clone(), ask.clone());
+        let narrows = (self.this_view()).is_some_and(|view| narrows(rows_of(view), &agent));
+        if !narrows {
+            self.close_ask(cx);
+            self.bring_agent(&agent, cx).detach();
+            return;
+        }
         if self
             .opened_ask
             .as_ref()
@@ -199,5 +212,27 @@ impl Workbench {
         }
         self.open_ask(id, cx);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn agent(id: &str, chief: bool) -> AgentShown {
+        serde_json::from_value(serde_json::json!({
+            "agentId": id, "chief": chief, "cli": "claude", "title": id,
+            "status": "working", "group": "working", "label": "Working",
+            "unread": false, "subagents": 0, "tasks": 0, "busy": true, "failed": false,
+            "background": false, "activeAt": null, "face": null,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_teammates_ask_opens_its_whole_chat() {
+        let agents = [agent("chief", true), agent("calcifer", false)];
+        assert!(!narrows(agents.iter(), "calcifer"));
+        assert!(narrows(agents.iter(), "chief"));
     }
 }
