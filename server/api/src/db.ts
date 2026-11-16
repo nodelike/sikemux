@@ -359,6 +359,7 @@ export interface Tables {
     next_quantity: number | null;
     provider_updated_at: Date;
     seats_cut_to: Generated<number | null>;
+    seats_cut_at: Generated<Date | null>;
   };
   invoices: {
     id: Generated<string>;

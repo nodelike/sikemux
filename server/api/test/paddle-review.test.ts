@@ -539,6 +539,31 @@ async function teamHolding(paid: number, atRenewal: number) {
 const heldAtPaddle = (sub: PaddleSub) =>
   (sub.custom_data as { held?: { quantity: number } } | null)?.held?.quantity;
 
+/** Paddle takes the next change of a subscription's items, and its answer never reaches the API. */
+function loseNextAnswer() {
+  const request = paddle.request.bind(paddle);
+  let lost = false;
+  paddle.request = async (method, path, body) => {
+    const answer = await request(method, path, body);
+    if (lost || method !== "PATCH" || !body?.items) return answer;
+    lost = true;
+    throw new Error("The operation was aborted due to timeout");
+  };
+}
+
+/** How many of nine invites the org's owner gets made. */
+async function invitesMade(orgId: string) {
+  let made = 0;
+  for (let each = 0; each < 9; each++) {
+    const invited = await as(OWNER, `/v1/orgs/${orgId}/invites`, {
+      method: "POST",
+      json: { role: "user" },
+    });
+    if (invited.status === 201) made++;
+  }
+  return made;
+}
+
 function chargeback(transactionId: string, total: number) {
   return {
     id: `adj_${randomUUID()}`,
@@ -1449,4 +1474,77 @@ describe("3. changes of one plan wait for each other holding a database connecti
       stranger: 200,
     });
   }, 30_000);
+});
+
+describe("1. a change that is not a cut clears the cut while our row is a period behind", () => {
+  it("P1: after a renewal that billed 1 seat, asking for 11 at the next one opens 10 seats before its event", async () => {
+    const { orgId, sub, id, paidEnd } = await teamHolding(10, 1);
+    renewed(sub, paidEnd);
+    const before = await seatLimit(database.db, orgId);
+
+    const asked = await change(OWNER, id, { quantity: 11, when: "renewal" });
+
+    expect({
+      before,
+      asked: asked.status,
+      paidAtPaddle: heldAtPaddle(sub),
+      seats: await seatLimit(database.db, orgId),
+      invitesMade: await invitesMade(orgId),
+    }).toEqual({
+      before: 1,
+      asked: 200,
+      paidAtPaddle: 1,
+      seats: 1,
+      invitesMade: 0,
+    });
+  });
+});
+
+describe("2. the cut the route records is never set right by what Paddle reports", () => {
+  it("P2a: a raise Paddle took but whose answer was lost leaves an old cut in force, and asking again does not lift it", async () => {
+    const { orgId, sub, id, paidEnd } = await teamHolding(10, 1);
+    const renewal = renewed(sub, paidEnd);
+    expect(
+      await deliver("subscription.updated", renewal, justAfter(paidEnd)),
+    ).toBe(204);
+
+    loseNextAnswer();
+    const raised = await change(OWNER, id, { quantity: 5 });
+    expect(await deliver("subscription.updated", sub, clockNow())).toBe(204);
+    const [plan] = (await overview(OWNER, orgId)).subscriptions;
+    const afterEvent = await seatLimit(database.db, orgId);
+    const again = await change(OWNER, id, { quantity: 5 });
+
+    expect({
+      raised: raised.status,
+      billedByPaddle: sub.items[0]?.quantity,
+      shownAsPaid: plan?.quantity,
+      afterEvent,
+      again: again.status,
+      seats: await seatLimit(database.db, orgId),
+    }).toEqual({
+      raised: 500,
+      billedByPaddle: 5,
+      shownAsPaid: 5,
+      afterEvent: 5,
+      again: 200,
+      seats: 5,
+    });
+  });
+
+  it("P2b: a cut Paddle took but whose answer was lost leaves every paid seat open to invites until renewal", async () => {
+    const { orgId, sub, id } = await team(10);
+
+    loseNextAnswer();
+    const cut = await change(OWNER, id, { quantity: 1, when: "renewal" });
+    expect(await deliver("subscription.updated", sub)).toBe(204);
+    const [plan] = (await overview(OWNER, orgId)).subscriptions;
+
+    expect({
+      cut: cut.status,
+      atRenewal: plan?.atRenewal?.quantity,
+      seats: await seatLimit(database.db, orgId),
+      invitesMade: await invitesMade(orgId),
+    }).toEqual({ cut: 500, atRenewal: 1, seats: 1, invitesMade: 0 });
+  });
 });

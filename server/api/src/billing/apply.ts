@@ -20,6 +20,7 @@ import {
   type ProviderSubscription,
 } from "./provider.ts";
 import { refundPending } from "./refunds.ts";
+import { claimSettledBy } from "./seats.ts";
 
 /** An event about something erased, which is acknowledged and changes nothing. */
 class Gone extends Error {}
@@ -207,7 +208,14 @@ async function changeItems(
     };
     await trx
       .updateTable("subscriptions")
-      .set({ ...itemColumns(sub, item, at), ...back })
+      .set({
+        ...itemColumns(sub, item, at),
+        ...claimSettledBy(
+          Math.min(item.quantity, item.atRenewal?.quantity ?? item.quantity),
+          at,
+        ),
+        ...back,
+      })
       .where("id", "=", row.id)
       .execute();
   }

@@ -15,8 +15,8 @@ function orgSubscriptions(db: Kysely<Tables>, orgId: string) {
 }
 
 /**
- * How many seats the org may fill: its active Team plan's quantity, or a cut its owner took that
- * the provider has not applied yet, or 0 with no plan.
+ * How many seats the org may fill: the fewest of what its active Team plan bills now, what waits
+ * at renewal, and a cut its owner claimed that the provider has not reported yet; 0 with no plan.
  */
 export async function seatLimit(
   db: Kysely<Tables>,
@@ -24,7 +24,7 @@ export async function seatLimit(
 ): Promise<number> {
   const row = await orgSubscriptions(db, orgId)
     .select(
-      sql<number>`least(subscriptions.quantity, coalesce(subscriptions.seats_cut_to, subscriptions.quantity))`.as(
+      sql<number>`least(subscriptions.quantity, subscriptions.next_quantity, subscriptions.seats_cut_to)`.as(
         "seats",
       ),
     )
@@ -32,6 +32,23 @@ export async function seatLimit(
     .where("subscriptions.status", "=", "active")
     .executeTakeFirst();
   return row?.seats ?? 0;
+}
+
+/** Longer than a change takes at the provider, so an event this much later already shows it. */
+const CLAIM_SETTLES = "5 minutes";
+
+/**
+ * Clears an owner's claim once the provider reports it: its snapshot holds the org to `seats` or
+ * fewer, or was taken well after the claim and so shows the provider never kept it.
+ */
+export function claimSettledBy(seats: number, at: Date) {
+  const settled = sql<boolean>`(${seats} <= seats_cut_to or seats_cut_at < ${at}::timestamptz - interval '${sql.raw(CLAIM_SETTLES)}')`;
+  return {
+    seats_cut_to: sql<
+      number | null
+    >`case when ${settled} then null else seats_cut_to end`,
+    seats_cut_at: sql<Date | null>`case when ${settled} then null else seats_cut_at end`,
+  };
 }
 
 /** Whether any of the org's subscriptions has not ended, a lapsed one still billed included. */

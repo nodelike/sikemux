@@ -667,25 +667,29 @@ export function billingRoutes({
         const asked = await askedChange(c, ready);
         const { row, subscription, paid, next, unit, same, orgId, when } =
           asked;
-        const cutTo = (seats: number | null) =>
+        const claim = (seats: number | null, at: Date | null) =>
           db
             .updateTable("subscriptions")
-            .set({ seats_cut_to: seats })
+            .set({ seats_cut_to: seats, seats_cut_at: at })
             .where("id", "=", row.id)
             .execute();
         if (same) {
           const dropped = await ready.takeBack(subscription, { ...next, unit });
-          if (orgId && dropped) await cutTo(null);
+          if (orgId && dropped) await claim(null, null);
           return asked;
         }
-        const cut = next.quantity < paid.quantity ? next.quantity : null;
+        const seats =
+          when === "now"
+            ? next.quantity
+            : Math.min(paid.quantity, next.quantity);
+        const tighter = row.seats_cut_to === null || seats < row.seats_cut_to;
         if (orgId)
           await db.transaction().execute(async (trx) => {
             refuseFewerSeats(await lockSeats(trx, orgId), next.quantity);
-            if (cut !== null)
+            if (tighter)
               await trx
                 .updateTable("subscriptions")
-                .set({ seats_cut_to: cut })
+                .set({ seats_cut_to: seats, seats_cut_at: new Date() })
                 .where("id", "=", row.id)
                 .execute();
           });
@@ -706,9 +710,10 @@ export function billingRoutes({
               : notNow(outcome.why);
           taken = true;
         } finally {
-          if (orgId && cut !== null && !taken) await cutTo(row.seats_cut_to);
+          if (orgId && tighter && !taken)
+            await claim(row.seats_cut_to, row.seats_cut_at);
         }
-        if (orgId && cut === null) await cutTo(null);
+        if (orgId && !tighter) await claim(seats, new Date());
         return asked;
       };
       const { row, next, same, when } = await inTurn(
