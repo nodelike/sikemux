@@ -229,6 +229,16 @@ describe("deleting an account", () => {
     ]);
   });
 
+  it("ends a plan paid for on a checkout page left open while the account was deleted", async () => {
+    const pay = await checkout(MEMBER, "pro");
+    expect((await deleteAccount(MEMBER)).status).toBe(202);
+    expect((await pay()).status).toBe(303);
+    expect((await subscriptions())[0]?.cancel_at_period_end).toBe(false);
+
+    await sweepDeletedBilling(database.db, provider, log);
+    expect((await subscriptions())[0]?.cancel_at_period_end).toBe(true);
+  });
+
   it("leaves an org someone else owns at once, freeing the seat", async () => {
     const orgId = await createOrg(2);
     await addMember(orgId, MEMBER, "user");
@@ -286,6 +296,23 @@ describe("deleting an account", () => {
       ),
     ).toBe(0);
     expect((await subscriptions())[0]?.cancel_at_period_end).toBe(false);
+    const { rows } = await database.pool.query(
+      "select user_id, action, subject, detail from audit where action like 'org.%' and detail->>'why' = 'account_deleted' order by id",
+    );
+    expect(rows).toEqual([
+      {
+        user_id: ADMIN,
+        action: "org.role_changed",
+        subject: orgId,
+        detail: { from: "admin", to: "owner", why: "account_deleted" },
+      },
+      {
+        user_id: OWNER,
+        action: "org.left",
+        subject: orgId,
+        detail: { role: "owner", why: "account_deleted" },
+      },
+    ]);
   });
 
   it("passes the org to its longest-standing member when it has no admin", async () => {

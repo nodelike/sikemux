@@ -1,5 +1,5 @@
 import type { InvoiceLine } from "@sikemux/protocol";
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
@@ -192,6 +192,35 @@ async function isSurplus(
 const neverHeld = (rows: readonly Row[]) =>
   rows.every((row) => row.ended_at?.getTime() === row.started_at.getTime());
 
+/**
+ * A deleted account can still finish a checkout it opened before deleting. Its payer, the person
+ * or the solo org it is the last member of, then gets the sweeper's turn to end the new plan.
+ */
+async function endingForDeletedPayer(trx: Kysely<Tables>, customerId: string) {
+  const payer = trx
+    .selectFrom("billing_customers")
+    .where("id", "=", customerId);
+  await trx
+    .updateTable("users")
+    .set({ billing_retry_at: sql<Date>`now()` })
+    .where("deleted_at", "is not", null)
+    .where("billing_retry_at", "is", null)
+    .where((eb) =>
+      eb.or([
+        eb("id", "=", payer.select("user_id")),
+        eb(
+          "id",
+          "in",
+          eb
+            .selectFrom("org_users")
+            .select("user_id")
+            .where("org_id", "=", payer.select("org_id")),
+        ),
+      ]),
+    )
+    .execute();
+}
+
 /** Applies one event and answers which customer it changed. */
 async function apply(
   trx: Transaction<Tables>,
@@ -209,6 +238,7 @@ async function apply(
         .returning("id")
         .executeTakeFirst();
       if (!customer) throw new Gone("The customer");
+      await endingForDeletedPayer(trx, customer.id);
       const sub = event.subscription;
       const surplus = await isSurplus(trx, customer.id, sub);
       await insertItems(trx, customer.id, sub, sub.items, at, { surplus });

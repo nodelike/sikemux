@@ -77,7 +77,9 @@ export async function markDeleted(
       };
     }
 
-    const orgs = await leaveOrgs(trx, userId, { handOver: deletedInClerk });
+    const orgs = await leaveOrgs(trx, userId, actor, {
+      handOver: deletedInClerk,
+    });
     const marked = await trx
       .updateTable("users")
       .set({
@@ -133,8 +135,10 @@ export async function markDeleted(
 async function leaveOrgs(
   trx: Kysely<Tables>,
   userId: string,
+  actor: Actor,
   { handOver }: { handOver: boolean },
 ) {
+  const why = "account_deleted";
   const memberships = await trx
     .selectFrom("org_users")
     .select("org_id")
@@ -175,13 +179,21 @@ async function leaveOrgs(
           "You are the only owner of an org with other members: make one of them an owner first.",
         );
       const heir = others.find((o) => o.role === "admin") ?? others[0];
-      if (heir)
+      if (heir) {
         await trx
           .updateTable("org_users")
           .set({ role: "owner" })
           .where("org_id", "=", orgId)
           .where("user_id", "=", heir.user_id)
           .execute();
+        await audit(trx, {
+          userId: heir.user_id,
+          actor,
+          action: "org.role_changed",
+          subject: orgId,
+          detail: { from: heir.role, to: "owner", why },
+        });
+      }
       counts.orgsHandedOver += 1;
     }
     await trx
@@ -189,6 +201,13 @@ async function leaveOrgs(
       .where("org_id", "=", orgId)
       .where("user_id", "=", userId)
       .execute();
+    await audit(trx, {
+      userId,
+      actor,
+      action: "org.left",
+      subject: orgId,
+      detail: { role: mine?.role, why },
+    });
     counts.orgsLeft += 1;
   }
   return counts;
