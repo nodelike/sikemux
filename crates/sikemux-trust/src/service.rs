@@ -11,19 +11,21 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use windows_sys::Win32::Foundation::{
-    SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, NO_ERROR, WAIT_OBJECT_0,
+    SetHandleInformation, ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_DOES_NOT_EXIST, HANDLE,
+    HANDLE_FLAG_INHERIT, NO_ERROR, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::System::RemoteDesktop::{WTSQueryUserToken, WTSSESSION_NOTIFICATION};
 use windows_sys::Win32::System::Services::{
-    ChangeServiceConfig2W, CloseServiceHandle, ControlService, CreateServiceW, DeleteService,
-    OpenSCManagerW, OpenServiceW, RegisterServiceCtrlHandlerExW, SetServiceStatus,
-    StartServiceCtrlDispatcherW, StartServiceW, SC_ACTION, SC_ACTION_RESTART, SC_HANDLE,
-    SC_MANAGER_CONNECT, SC_MANAGER_CREATE_SERVICE, SERVICE_ACCEPT_SESSIONCHANGE,
-    SERVICE_ACCEPT_STOP, SERVICE_ALL_ACCESS, SERVICE_AUTO_START, SERVICE_CONFIG_FAILURE_ACTIONS,
-    SERVICE_CONTROL_SESSIONCHANGE, SERVICE_CONTROL_STOP, SERVICE_ERROR_NORMAL,
-    SERVICE_FAILURE_ACTIONSW, SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_STATUS,
-    SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_STOP_PENDING,
-    SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
+    ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService,
+    CreateServiceW, DeleteService, OpenSCManagerW, OpenServiceW, QueryServiceStatus,
+    RegisterServiceCtrlHandlerExW, SetServiceStatus, StartServiceCtrlDispatcherW, StartServiceW,
+    SC_ACTION, SC_ACTION_RESTART, SC_HANDLE, SC_MANAGER_CONNECT, SC_MANAGER_CREATE_SERVICE,
+    SERVICE_ACCEPT_SESSIONCHANGE, SERVICE_ACCEPT_STOP, SERVICE_ALL_ACCESS, SERVICE_AUTO_START,
+    SERVICE_CONFIG_FAILURE_ACTIONS, SERVICE_CONTROL_SESSIONCHANGE, SERVICE_CONTROL_STOP,
+    SERVICE_ERROR_NORMAL, SERVICE_FAILURE_ACTIONSW, SERVICE_NO_CHANGE, SERVICE_QUERY_STATUS,
+    SERVICE_RUNNING, SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_HANDLE,
+    SERVICE_STOP, SERVICE_STOPPED, SERVICE_STOP_PENDING, SERVICE_TABLE_ENTRYW,
+    SERVICE_WIN32_OWN_PROCESS,
 };
 use windows_sys::Win32::System::Threading::{
     GetExitCodeProcess, TerminateProcess, WaitForSingleObject, INFINITE,
@@ -53,6 +55,8 @@ const SHORT_RUN: Duration = Duration::from_secs(60);
 /// After this many short runs in a row the core is left down.
 const SHORT_RUNS: u32 = 5;
 const RETRY_WAIT: Duration = Duration::from_secs(1);
+/// How long `stop` waits for the service to end its cores and stop.
+const STOP_WAIT: Duration = Duration::from_secs(30);
 
 /// How the service runs a core: this program with `subcommand`, taking only `options`, each
 /// with one value, from the person who asks. Updates are checked against `release_key`.
@@ -140,32 +144,40 @@ pub fn installed() -> bool {
 }
 
 /// Installs the service to run `command_line` as SYSTEM at every boot, restarted if it fails,
-/// and starts it. Needs an administrator.
+/// and starts it. An installed service is pointed at `command_line` instead. Needs an
+/// administrator.
 pub fn install(command_line: &str) -> io::Result<()> {
-    let manager = Manager::open(SC_MANAGER_CREATE_SERVICE)?;
-    let name = wide(NAME);
-    let display = wide(DISPLAY_NAME);
+    let manager = Manager::open(SC_MANAGER_CREATE_SERVICE | SC_MANAGER_CONNECT)?;
     let binary = wide(command_line);
-    // SAFETY: every string ends in a nul; the null arguments mean no group, dependencies or
-    // account, which runs the service as LocalSystem.
-    let handle = unsafe {
-        CreateServiceW(
-            manager.0 .0,
-            name.as_ptr(),
-            display.as_ptr(),
-            SERVICE_ALL_ACCESS,
-            SERVICE_WIN32_OWN_PROCESS,
-            SERVICE_AUTO_START,
-            SERVICE_ERROR_NORMAL,
-            binary.as_ptr(),
-            std::ptr::null(),
-            std::ptr::null_mut(),
-            std::ptr::null(),
-            std::ptr::null(),
-            std::ptr::null(),
-        )
+    let service = match manager.service(SERVICE_ALL_ACCESS) {
+        Ok(service) => {
+            // SAFETY: the service is open and `binary` ends in a nul; every null leaves that
+            // setting as it is.
+            let changed = unsafe {
+                ChangeServiceConfigW(
+                    service.0,
+                    SERVICE_NO_CHANGE,
+                    SERVICE_NO_CHANGE,
+                    SERVICE_NO_CHANGE,
+                    binary.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            };
+            if changed == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            service
+        }
+        Err(error) if error.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST as i32) => {
+            create(&manager, &binary)?
+        }
+        Err(error) => return Err(error),
     };
-    let service = Handle::checked(handle)?;
     let mut restart = [SC_ACTION {
         Type: SC_ACTION_RESTART,
         Delay: 1000,
@@ -190,18 +202,74 @@ pub fn install(command_line: &str) -> io::Result<()> {
     }
     // SAFETY: the service is open; it takes no arguments.
     if unsafe { StartServiceW(service.0, 0, std::ptr::null()) } == 0 {
-        return Err(io::Error::last_os_error());
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(ERROR_SERVICE_ALREADY_RUNNING as i32) {
+            return Err(error);
+        }
     }
     Ok(())
 }
 
-/// Stops the service, which ends every core it started, and removes it. Needs an administrator.
-pub fn remove() -> io::Result<()> {
-    let service = Manager::open(SC_MANAGER_CONNECT)?.service(SERVICE_ALL_ACCESS)?;
+fn create(manager: &Manager, binary: &[u16]) -> io::Result<Handle> {
+    let name = wide(NAME);
+    let display = wide(DISPLAY_NAME);
+    // SAFETY: every string ends in a nul; the null arguments mean no group, dependencies or
+    // account, which runs the service as LocalSystem.
+    let handle = unsafe {
+        CreateServiceW(
+            manager.0 .0,
+            name.as_ptr(),
+            display.as_ptr(),
+            SERVICE_ALL_ACCESS,
+            SERVICE_WIN32_OWN_PROCESS,
+            SERVICE_AUTO_START,
+            SERVICE_ERROR_NORMAL,
+            binary.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            std::ptr::null(),
+            std::ptr::null(),
+        )
+    };
+    Handle::checked(handle)
+}
+
+/// Stops the service, which ends every core it started, and waits until it has. A machine
+/// without the service has nothing to stop. Needs an administrator.
+pub fn stop() -> io::Result<()> {
+    let service =
+        match Manager::open(SC_MANAGER_CONNECT)?.service(SERVICE_STOP | SERVICE_QUERY_STATUS) {
+            Ok(service) => service,
+            Err(error) if error.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST as i32) => {
+                return Ok(())
+            }
+            Err(error) => return Err(error),
+        };
     let mut status = SERVICE_STATUS::default();
     // SAFETY: the service is open, and the call writes one status. It fails when the service
     // is already stopped, which is what is wanted.
     unsafe { ControlService(service.0, SERVICE_CONTROL_STOP, &mut status) };
+    let until = Instant::now() + STOP_WAIT;
+    loop {
+        // SAFETY: the service is open, and the call writes one status.
+        if unsafe { QueryServiceStatus(service.0, &mut status) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        if status.dwCurrentState == SERVICE_STOPPED {
+            return Ok(());
+        }
+        if Instant::now() >= until {
+            return Err(io::Error::other("the service did not stop in time"));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// Stops the service, which ends every core it started, and removes it. Needs an administrator.
+pub fn remove() -> io::Result<()> {
+    stop()?;
+    let service = Manager::open(SC_MANAGER_CONNECT)?.service(SERVICE_ALL_ACCESS)?;
     // SAFETY: the service is open; Windows removes it once its last handle closes.
     if unsafe { DeleteService(service.0) } == 0 {
         return Err(io::Error::last_os_error());

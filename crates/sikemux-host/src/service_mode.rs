@@ -1,4 +1,4 @@
-//! `sikemux-host --service run|install|remove`: the Windows service that starts each signed-in
+//! `sikemux-host --service run|install|stop|remove`: the Windows service that starts each signed-in
 //! person's core at High integrity. Install and remove need an administrator.
 
 use sikemux_trust::service::{self, Core};
@@ -17,9 +17,10 @@ pub fn run(action: Option<&str>) -> i32 {
         Some("install") => std::env::current_exe().and_then(|program| {
             service::install(&format!("\"{}\" {SERVICE_ARG} run", program.display()))
         }),
+        Some("stop") => service::stop(),
         Some("remove") => service::remove(),
         _ => {
-            eprintln!("usage: sikemux-host {SERVICE_ARG} run|install|remove");
+            eprintln!("usage: sikemux-host {SERVICE_ARG} run|install|stop|remove");
             return 2;
         }
     };
