@@ -380,13 +380,7 @@ fn run_codex_app_server_candidate(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    let mut child = command
-        .spawn()
+    let mut child = sikemux_process::spawn_tree(&mut command)
         .map_err(|error| format!("codex failed to start: {error}"))?;
     let stdout = match child.stdout.take() {
         Some(stdout) => stdout,
@@ -583,12 +577,7 @@ where
         if input.is_some() {
             command.stdin(Stdio::piped());
         }
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.process_group(0);
-        }
-        let mut child = match command.spawn() {
+        let mut child = match sikemux_process::spawn_tree(&mut command) {
             Ok(child) => child,
             Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
             Err(error) => return Err(format!("{} failed to start: {error}", program)),
