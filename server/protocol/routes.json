@@ -1026,6 +1026,295 @@
           "body": "ApiError"
         }
       }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/catalog",
+      "operationId": "getBillingCatalog",
+      "summary": "Every plan and product on sale, with prices",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The catalog.",
+          "body": "BillingCatalog"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing",
+      "operationId": "getBilling",
+      "summary": "Your plan, or an org's, and what it pays for",
+      "auth": "session",
+      "query": {
+        "org": "OrgId"
+      },
+      "responses": {
+        "200": {
+          "description": "The plan, what it allows and its subscriptions.",
+          "body": "BillingOverview"
+        },
+        "403": {
+          "description": "Only the org's owner reads its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/checkout",
+      "operationId": "startCheckout",
+      "summary": "Open the provider's page to buy a product",
+      "auth": "session",
+      "request": "CheckoutRequest",
+      "responses": {
+        "200": {
+          "description": "Where to pay. Nothing changes until the provider says the payment went through.",
+          "body": "Checkout"
+        },
+        "400": {
+          "description": "The product is not sold by that interval, for that payer or in that quantity.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owner buys for it.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The payer already holds this plan, or a Shed product not yet on sale outside staff.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "patch",
+      "path": "/v1/billing/subscriptions/{subscriptionId}",
+      "operationId": "changeSubscription",
+      "summary": "Change a subscription's quantity, product or interval, prorated",
+      "auth": "session",
+      "request": "SubscriptionChange",
+      "responses": {
+        "200": {
+          "description": "The subscription as it stands once the provider has taken the change.",
+          "body": "Subscription"
+        },
+        "400": {
+          "description": "The change is not one this subscription can make.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/subscriptions/{subscriptionId}/cancel",
+      "operationId": "cancelSubscription",
+      "summary": "End a subscription when its paid period ends",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The subscription, set to end at currentPeriodEnd. Repeating it changes nothing.",
+          "body": "Subscription"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/subscriptions/{subscriptionId}/resume",
+      "operationId": "resumeSubscription",
+      "summary": "Take back a cancellation before the period ends",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The subscription, renewing again.",
+          "body": "Subscription"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/invoices",
+      "operationId": "listInvoices",
+      "summary": "Your payments, or an org's",
+      "auth": "session",
+      "query": {
+        "org": "OrgId"
+      },
+      "responses": {
+        "200": {
+          "description": "Every payment, newest first.",
+          "body": "InvoiceList"
+        },
+        "403": {
+          "description": "Only the org's owner reads its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "Billing is not live and the account is not staff.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/invoices/{invoiceId}/refund",
+      "operationId": "refundInvoice",
+      "summary": "Refund a subscription's first payment in full and end it",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The invoice, refunded; its subscription has ended.",
+          "body": "Invoice"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such invoice of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "Only a subscription's first payment is refunded, within the catalog's refundDays of it, once.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/invoices/{invoiceId}/receipt",
+      "operationId": "getInvoiceReceipt",
+      "summary": "Where one payment's receipt is",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The provider's receipt page for the payment.",
+          "body": "BillingLink"
+        },
+        "404": {
+          "description": "No such invoice of the account's, the provider has no receipt for it, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/billing/portal",
+      "operationId": "getBillingPortal",
+      "summary": "The provider's own page for payment methods and receipts",
+      "auth": "session",
+      "query": {
+        "org": "OrgId"
+      },
+      "responses": {
+        "200": {
+          "description": "Where the provider's page is.",
+          "body": "BillingLink"
+        },
+        "403": {
+          "description": "Only the org's owner reads its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The provider has no such page, the payer has never paid, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/provider",
+      "operationId": "receiveBillingEvent",
+      "summary": "The payment provider telling the API what it billed",
+      "auth": "webhook",
+      "responses": {
+        "204": {
+          "description": "Handled, already handled, or not an event the API acts on."
+        },
+        "401": {
+          "description": "The provider's signature is missing or wrong.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
     }
   ]
 }

@@ -16,6 +16,8 @@ pub struct Account {
     /// How many days a deleted account can still be restored: deletesAt is this long after the deletion.
     pub restorable_days: i64,
     pub staff: Staff,
+    /// The plan the account holds, its own or through a seat; plan.changed says when it changes.
+    pub plan: PlanId,
 }
 
 /// Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it.
@@ -92,6 +94,8 @@ pub enum AccountEventType {
     VaultChanged,
     #[serde(rename = "mods.changed")]
     ModsChanged,
+    #[serde(rename = "plan.changed")]
+    PlanChanged,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -117,6 +121,19 @@ pub enum AccountStatus {
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
+}
+
+/// What an account or org may use. Until billing is live, features lists everything for everyone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Allowance {
+    pub plan: PlanId,
+    pub features: Vec<PlanFeature>,
+    /// The Shed boxes it has bought and paid for.
+    pub boxes: Vec<ShedBoxes>,
+    /// For a person: the orgs whose paid Team plan they hold a seat in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seat_orgs: Option<Vec<OrgId>>,
 }
 
 /// The body of every response that is not a success.
@@ -150,6 +167,140 @@ pub struct ApnsTokenRegistration {
     pub signature: String,
 }
 
+/// Everything on sale, what it costs and what each plan includes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingCatalog {
+    pub products: Vec<BillingProduct>,
+    pub plans: Vec<BillingPlan>,
+    /// How many days after a subscription's first payment it may be refunded in full.
+    pub refund_days: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BillingInterval {
+    #[serde(rename = "month")]
+    Month,
+    #[serde(rename = "year")]
+    Year,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A page of the provider's: its portal for payment methods, or one payment's receipt.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingLink {
+    pub url: String,
+}
+
+/// A person's or an org's plan, what it allows and what it pays for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingOverview {
+    pub allowance: Allowance,
+    /// Every subscription that has not ended, then the ended ones, newest first.
+    pub subscriptions: Vec<Subscription>,
+    /// Whether plans are enforced and sold to everyone. Until then billing answers only staff.
+    pub live: bool,
+    /// Whether a payment provider is set up, so checkouts and changes can be made.
+    pub can_buy: bool,
+    /// Left out when the provider holds no card for this payer, or could not be asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card: Option<PaymentCard>,
+}
+
+/// Who a product may be bought by: a person, an org, or either.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BillingPayer {
+    #[serde(rename = "person")]
+    Person,
+    #[serde(rename = "org")]
+    Org,
+    #[serde(rename = "either")]
+    Either,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A plan and everything it includes, the plans it includes counted in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingPlan {
+    pub id: PlanId,
+    pub name: String,
+    pub features: Vec<PlanFeature>,
+}
+
+/// What one unit costs each interval.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingPrice {
+    pub interval: BillingInterval,
+    pub unit: Money,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingProduct {
+    pub id: BillingProductId,
+    pub name: String,
+    pub kind: BillingProductKind,
+    pub unit: BillingUnit,
+    pub payer: BillingPayer,
+    /// Only on plans: the plan it is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<PlanId>,
+    pub max_quantity: i64,
+    pub prices: Vec<BillingPrice>,
+}
+
+/// What can be bought: a plan, or one of the Shed's boxes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BillingProductId {
+    #[serde(rename = "pro")]
+    Pro,
+    #[serde(rename = "team")]
+    Team,
+    #[serde(rename = "shed")]
+    Shed,
+    #[serde(rename = "shed_always_on")]
+    ShedAlwaysOn,
+    #[serde(rename = "shed_large")]
+    ShedLarge,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A plan, held once; or a Shed box, bought by the box on any plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BillingProductKind {
+    #[serde(rename = "plan")]
+    Plan,
+    #[serde(rename = "shed")]
+    Shed,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// What the quantity counts: the one account, a seat in an org, or a box.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BillingUnit {
+    #[serde(rename = "account")]
+    Account,
+    #[serde(rename = "seat")]
+    Seat,
+    #[serde(rename = "box")]
+    Box,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
 /// A one-time value a device signs to prove it holds its key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,6 +322,27 @@ pub enum Channel {
     #[serde(other)]
     Unknown,
 }
+
+/// The provider's page to pay on. The plan changes when the provider says the payment went through, not when the page returns.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Checkout {
+    pub url: String,
+}
+
+/// Buy a product. The server sets the price from the catalog.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutRequest {
+    pub product: BillingProductId,
+    pub interval: BillingInterval,
+    pub quantity: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<OrgId>,
+}
+
+/// An ISO 4217 code, in lowercase. The catalog prices in usd; a provider may charge in the buyer's own.
+pub type Currency = String;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -302,6 +474,61 @@ pub enum HealthStatus {
     Ok,
     #[serde(rename = "unavailable")]
     Unavailable,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A payment the provider took or tried to take.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Invoice {
+    pub id: InvoiceId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<SubscriptionId>,
+    pub product: BillingProductId,
+    /// How many accounts, seats or boxes the subscription held after this payment.
+    pub quantity: i64,
+    pub reason: InvoiceReason,
+    pub total: Money,
+    pub status: InvoiceStatus,
+    pub at: String,
+    /// Only on a subscription's first payment, while it may still be refunded in full.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refundable_until: Option<String>,
+}
+
+pub type InvoiceId = String;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceList {
+    /// Newest first.
+    pub invoices: Vec<Invoice>,
+}
+
+/// Why a payment was taken: a subscription's first, one for a new period, or the prorated difference of a change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum InvoiceReason {
+    #[serde(rename = "first_payment")]
+    FirstPayment,
+    #[serde(rename = "renewal")]
+    Renewal,
+    #[serde(rename = "change")]
+    Change,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum InvoiceStatus {
+    #[serde(rename = "paid")]
+    Paid,
+    #[serde(rename = "failed")]
+    Failed,
+    #[serde(rename = "refunded")]
+    Refunded,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -573,6 +800,14 @@ pub enum LiveServerMessage {
     Unknown,
 }
 
+/// An amount in the currency's smallest unit, such as cents.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Money {
+    pub amount: i64,
+    pub currency: Currency,
+}
+
 /// An org's id, a UUID in lowercase.
 pub type OrgId = String;
 
@@ -585,6 +820,63 @@ pub enum OrgRole {
     Admin,
     #[serde(rename = "user")]
     User,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentCard {
+    /// The provider's name for the card's network, such as visa.
+    pub brand: String,
+    pub last4: String,
+    pub exp_month: i64,
+    pub exp_year: i64,
+}
+
+/// Something a paid plan includes. Free's are everyone's and are not listed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PlanFeature {
+    #[serde(rename = "sync")]
+    Sync,
+    #[serde(rename = "move_work")]
+    MoveWork,
+    #[serde(rename = "history_search")]
+    HistorySearch,
+    #[serde(rename = "own_triggers")]
+    OwnTriggers,
+    #[serde(rename = "org_hosts")]
+    OrgHosts,
+    #[serde(rename = "org_shared_setup")]
+    OrgSharedSetup,
+    #[serde(rename = "org_model_keys")]
+    OrgModelKeys,
+    #[serde(rename = "org_github")]
+    OrgGithub,
+    #[serde(rename = "org_bot_triggers")]
+    OrgBotTriggers,
+    #[serde(rename = "chat_handover")]
+    ChatHandover,
+    #[serde(rename = "org_roles")]
+    OrgRoles,
+    #[serde(rename = "org_policy")]
+    OrgPolicy,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
+/// A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PlanId {
+    #[serde(rename = "free")]
+    Free,
+    #[serde(rename = "pro")]
+    Pro,
+    #[serde(rename = "team")]
+    Team,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,
@@ -689,6 +981,13 @@ pub struct PushTokenState {
     /// Whether the server has a token for this phone.
     pub enabled: bool,
     pub updated_at: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShedBoxes {
+    pub product: BillingProductId,
+    pub quantity: i64,
 }
 
 /// The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.
@@ -894,6 +1193,51 @@ pub struct StashUpdate {
     pub taken: Option<bool>,
 }
 
+/// One product bought in a quantity, billed each interval.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Subscription {
+    pub id: SubscriptionId,
+    pub product: BillingProductId,
+    pub interval: BillingInterval,
+    pub quantity: i64,
+    pub status: SubscriptionStatus,
+    pub current_period_end: String,
+    /// It ends at currentPeriodEnd unless resumed first.
+    pub cancel_at_period_end: bool,
+    pub started_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+}
+
+/// A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionChange {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product: Option<BillingProductId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval: Option<BillingInterval>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantity: Option<i64>,
+}
+
+pub type SubscriptionId = String;
+
+/// active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SubscriptionStatus {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "lapsed")]
+    Lapsed,
+    #[serde(rename = "ended")]
+    Ended,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
 /// Reads `json` as the named type and writes it back, for the contract tests.
 #[cfg(test)]
 pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
@@ -907,11 +1251,26 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "AccountEventType" => through::<AccountEventType>(json),
         "AccountProfile" => through::<AccountProfile>(json),
         "AccountStatus" => through::<AccountStatus>(json),
+        "Allowance" => through::<Allowance>(json),
         "ApiError" => through::<ApiError>(json),
         "ApnsEnvironment" => through::<ApnsEnvironment>(json),
         "ApnsTokenRegistration" => through::<PushTokenRegistration>(json),
+        "BillingCatalog" => through::<BillingCatalog>(json),
+        "BillingInterval" => through::<BillingInterval>(json),
+        "BillingLink" => through::<BillingLink>(json),
+        "BillingOverview" => through::<BillingOverview>(json),
+        "BillingPayer" => through::<BillingPayer>(json),
+        "BillingPlan" => through::<BillingPlan>(json),
+        "BillingPrice" => through::<BillingPrice>(json),
+        "BillingProduct" => through::<BillingProduct>(json),
+        "BillingProductId" => through::<BillingProductId>(json),
+        "BillingProductKind" => through::<BillingProductKind>(json),
+        "BillingUnit" => through::<BillingUnit>(json),
         "Challenge" => through::<Challenge>(json),
         "Channel" => through::<Channel>(json),
+        "Checkout" => through::<Checkout>(json),
+        "CheckoutRequest" => through::<CheckoutRequest>(json),
+        "Currency" => through::<Currency>(json),
         "Device" => through::<Device>(json),
         "DeviceList" => through::<DeviceList>(json),
         "DeviceRegistration" => through::<DeviceRegistration>(json),
@@ -924,6 +1283,11 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "Flags" => through::<Flags>(json),
         "Health" => through::<Health>(json),
         "HealthStatus" => through::<HealthStatus>(json),
+        "Invoice" => through::<Invoice>(json),
+        "InvoiceId" => through::<InvoiceId>(json),
+        "InvoiceList" => through::<InvoiceList>(json),
+        "InvoiceReason" => through::<InvoiceReason>(json),
+        "InvoiceStatus" => through::<InvoiceStatus>(json),
         "JoinRequest" => through::<JoinRequest>(json),
         "LiveAck" => through::<LiveDeviceMessage>(json),
         "LiveApp" => through::<LiveApp>(json),
@@ -944,8 +1308,12 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "LiveRevoked" => through::<LiveServerMessage>(json),
         "LiveRole" => through::<LiveRole>(json),
         "LiveServerMessage" => through::<LiveServerMessage>(json),
+        "Money" => through::<Money>(json),
         "OrgId" => through::<OrgId>(json),
         "OrgRole" => through::<OrgRole>(json),
+        "PaymentCard" => through::<PaymentCard>(json),
+        "PlanFeature" => through::<PlanFeature>(json),
+        "PlanId" => through::<PlanId>(json),
         "Platform" => through::<Platform>(json),
         "PushApp" => through::<PushApp>(json),
         "PushKind" => through::<PushKind>(json),
@@ -954,6 +1322,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PushResult" => through::<PushResult>(json),
         "PushTokenRegistration" => through::<PushTokenRegistration>(json),
         "PushTokenState" => through::<PushTokenState>(json),
+        "ShedBoxes" => through::<ShedBoxes>(json),
         "Staff" => through::<Staff>(json),
         "StashAdd" => through::<StashAdd>(json),
         "StashAddLink" => through::<StashAdd>(json),
@@ -971,6 +1340,10 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "StashTaken" => through::<StashTaken>(json),
         "StashTarget" => through::<StashTarget>(json),
         "StashUpdate" => through::<StashUpdate>(json),
+        "Subscription" => through::<Subscription>(json),
+        "SubscriptionChange" => through::<SubscriptionChange>(json),
+        "SubscriptionId" => through::<SubscriptionId>(json),
+        "SubscriptionStatus" => through::<SubscriptionStatus>(json),
         _ => return None,
     })
 }

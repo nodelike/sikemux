@@ -23,8 +23,13 @@ export const schema = {
           minimum: 1,
         },
         staff: { $ref: "#/$defs/Staff" },
+        plan: {
+          description:
+            "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
+          $ref: "#/$defs/PlanId",
+        },
       },
-      required: ["status", "restorableDays", "staff"],
+      required: ["status", "restorableDays", "staff", "plan"],
       additionalProperties: false,
     },
     AccountDeletion: {
@@ -108,6 +113,7 @@ export const schema = {
         "stash.seen",
         "vault.changed",
         "mods.changed",
+        "plan.changed",
       ],
     },
     AccountProfile: {
@@ -128,6 +134,28 @@ export const schema = {
         "Active, or deleting: deleted on request and still restorable until deletesAt.",
       type: "string",
       enum: ["active", "deleting"],
+    },
+    Allowance: {
+      description:
+        "What an account or org may use. Until billing is live, features lists everything for everyone.",
+      type: "object",
+      properties: {
+        plan: { $ref: "#/$defs/PlanId" },
+        features: { type: "array", items: { $ref: "#/$defs/PlanFeature" } },
+        boxes: {
+          description: "The Shed boxes it has bought and paid for.",
+          type: "array",
+          items: { $ref: "#/$defs/ShedBoxes" },
+        },
+        seatOrgs: {
+          description:
+            "For a person: the orgs whose paid Team plan they hold a seat in.",
+          type: "array",
+          items: { $ref: "#/$defs/OrgId" },
+        },
+      },
+      required: ["plan", "features", "boxes"],
+      additionalProperties: false,
     },
     ApiError: {
       description: "The body of every response that is not a success.",
@@ -186,6 +214,134 @@ export const schema = {
       pattern:
         "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$",
     },
+    BillingCatalog: {
+      description:
+        "Everything on sale, what it costs and what each plan includes.",
+      type: "object",
+      properties: {
+        products: { type: "array", items: { $ref: "#/$defs/BillingProduct" } },
+        plans: { type: "array", items: { $ref: "#/$defs/BillingPlan" } },
+        refundDays: {
+          description:
+            "How many days after a subscription's first payment it may be refunded in full.",
+          type: "integer",
+          minimum: 1,
+        },
+      },
+      required: ["products", "plans", "refundDays"],
+      additionalProperties: false,
+    },
+    BillingInterval: { type: "string", enum: ["month", "year"] },
+    BillingLink: {
+      description:
+        "A page of the provider's: its portal for payment methods, or one payment's receipt.",
+      type: "object",
+      properties: { url: { type: "string", format: "uri" } },
+      required: ["url"],
+      additionalProperties: false,
+    },
+    BillingOverview: {
+      description:
+        "A person's or an org's plan, what it allows and what it pays for.",
+      type: "object",
+      properties: {
+        allowance: { $ref: "#/$defs/Allowance" },
+        subscriptions: {
+          description:
+            "Every subscription that has not ended, then the ended ones, newest first.",
+          type: "array",
+          items: { $ref: "#/$defs/Subscription" },
+        },
+        live: {
+          description:
+            "Whether plans are enforced and sold to everyone. Until then billing answers only staff.",
+          type: "boolean",
+        },
+        canBuy: {
+          description:
+            "Whether a payment provider is set up, so checkouts and changes can be made.",
+          type: "boolean",
+        },
+        card: {
+          description:
+            "Left out when the provider holds no card for this payer, or could not be asked.",
+          $ref: "#/$defs/PaymentCard",
+        },
+      },
+      required: ["allowance", "subscriptions", "live", "canBuy"],
+      additionalProperties: false,
+    },
+    BillingPayer: {
+      description:
+        "Who a product may be bought by: a person, an org, or either.",
+      type: "string",
+      enum: ["person", "org", "either"],
+    },
+    BillingPlan: {
+      description:
+        "A plan and everything it includes, the plans it includes counted in.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/PlanId" },
+        name: { type: "string" },
+        features: { type: "array", items: { $ref: "#/$defs/PlanFeature" } },
+      },
+      required: ["id", "name", "features"],
+      additionalProperties: false,
+    },
+    BillingPrice: {
+      description: "What one unit costs each interval.",
+      type: "object",
+      properties: {
+        interval: { $ref: "#/$defs/BillingInterval" },
+        unit: { $ref: "#/$defs/Money" },
+      },
+      required: ["interval", "unit"],
+      additionalProperties: false,
+    },
+    BillingProduct: {
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/BillingProductId" },
+        name: { type: "string" },
+        kind: { $ref: "#/$defs/BillingProductKind" },
+        unit: { $ref: "#/$defs/BillingUnit" },
+        payer: { $ref: "#/$defs/BillingPayer" },
+        plan: {
+          description: "Only on plans: the plan it is.",
+          $ref: "#/$defs/PlanId",
+        },
+        maxQuantity: { type: "integer", minimum: 1 },
+        prices: { type: "array", items: { $ref: "#/$defs/BillingPrice" } },
+      },
+      required: [
+        "id",
+        "name",
+        "kind",
+        "unit",
+        "payer",
+        "maxQuantity",
+        "prices",
+      ],
+      additionalProperties: false,
+    },
+    BillingProductId: {
+      description: "What can be bought: a plan, or one of the Shed's boxes.",
+      type: "string",
+      enum: ["pro", "team", "shed", "shed_always_on", "shed_large"],
+    },
+    BillingProductKind: {
+      description:
+        "A plan, held once; or a Shed box, bought by the box on any plan.",
+      type: "string",
+      enum: ["plan", "shed"],
+    },
+    BillingUnit: {
+      description:
+        "What the quantity counts: the one account, a seat in an org, or a box.",
+      type: "string",
+      enum: ["account", "seat", "box"],
+    },
     Challenge: {
       description: "A one-time value a device signs to prove it holds its key.",
       type: "object",
@@ -212,6 +368,32 @@ export const schema = {
       },
       required: ["nightly", "stable"],
       additionalProperties: false,
+    },
+    Checkout: {
+      description:
+        "The provider's page to pay on. The plan changes when the provider says the payment went through, not when the page returns.",
+      type: "object",
+      properties: { url: { type: "string", format: "uri" } },
+      required: ["url"],
+      additionalProperties: false,
+    },
+    CheckoutRequest: {
+      description: "Buy a product. The server sets the price from the catalog.",
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        interval: { $ref: "#/$defs/BillingInterval" },
+        quantity: { type: "integer", minimum: 1 },
+        orgId: { $ref: "#/$defs/OrgId" },
+      },
+      required: ["product", "interval", "quantity"],
+      additionalProperties: false,
+    },
+    Currency: {
+      description:
+        "An ISO 4217 code, in lowercase. The catalog prices in usd; a provider may charge in the buyer's own.",
+      type: "string",
+      pattern: "^[a-z]{3}$",
     },
     Device: {
       type: "object",
@@ -739,6 +921,64 @@ export const schema = {
       type: "string",
       pattern: "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$",
     },
+    Invoice: {
+      description: "A payment the provider took or tried to take.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/InvoiceId" },
+        subscriptionId: { $ref: "#/$defs/SubscriptionId" },
+        product: { $ref: "#/$defs/BillingProductId" },
+        quantity: {
+          description:
+            "How many accounts, seats or boxes the subscription held after this payment.",
+          type: "integer",
+          minimum: 1,
+        },
+        reason: { $ref: "#/$defs/InvoiceReason" },
+        total: { $ref: "#/$defs/Money" },
+        status: { $ref: "#/$defs/InvoiceStatus" },
+        at: { type: "string", format: "date-time" },
+        refundableUntil: {
+          description:
+            "Only on a subscription's first payment, while it may still be refunded in full.",
+          type: "string",
+          format: "date-time",
+        },
+      },
+      required: [
+        "id",
+        "product",
+        "quantity",
+        "reason",
+        "total",
+        "status",
+        "at",
+      ],
+      additionalProperties: false,
+    },
+    InvoiceId: {
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    InvoiceList: {
+      type: "object",
+      properties: {
+        invoices: {
+          description: "Newest first.",
+          type: "array",
+          items: { $ref: "#/$defs/Invoice" },
+        },
+      },
+      required: ["invoices"],
+      additionalProperties: false,
+    },
+    InvoiceReason: {
+      description:
+        "Why a payment was taken: a subscription's first, one for a new period, or the prorated difference of a change.",
+      type: "string",
+      enum: ["first_payment", "renewal", "change"],
+    },
+    InvoiceStatus: { type: "string", enum: ["paid", "failed", "refunded"] },
     JoinRequest: {
       description: "Which host on the account the phone wants to join.",
       type: "object",
@@ -1343,6 +1583,16 @@ export const schema = {
       required: ["mod", "id", "revision", "seq"],
       additionalProperties: false,
     },
+    Money: {
+      description: "An amount in the currency's smallest unit, such as cents.",
+      type: "object",
+      properties: {
+        amount: { type: "integer", minimum: 0 },
+        currency: { $ref: "#/$defs/Currency" },
+      },
+      required: ["amount", "currency"],
+      additionalProperties: false,
+    },
     Network: {
       description:
         "How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.",
@@ -1371,6 +1621,23 @@ export const schema = {
         "What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.",
       type: "string",
       enum: ["owner", "admin", "user"],
+    },
+    PaymentCard: {
+      description:
+        "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",
+      type: "object",
+      properties: {
+        brand: {
+          description:
+            "The provider's name for the card's network, such as visa.",
+          type: "string",
+        },
+        last4: { type: "string", pattern: "^[0-9]{4}$" },
+        expMonth: { type: "integer", minimum: 1, maximum: 12 },
+        expYear: { type: "integer", minimum: 2000 },
+      },
+      required: ["brand", "last4", "expMonth", "expYear"],
+      additionalProperties: false,
     },
     PendingHost: {
       description:
@@ -1417,6 +1684,31 @@ export const schema = {
         "requestedNear",
       ],
       additionalProperties: false,
+    },
+    PlanFeature: {
+      description:
+        "Something a paid plan includes. Free's are everyone's and are not listed.",
+      type: "string",
+      enum: [
+        "sync",
+        "move_work",
+        "history_search",
+        "own_triggers",
+        "org_hosts",
+        "org_shared_setup",
+        "org_model_keys",
+        "org_github",
+        "org_bot_triggers",
+        "chat_handover",
+        "org_roles",
+        "org_policy",
+      ],
+    },
+    PlanId: {
+      description:
+        "A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid.",
+      type: "string",
+      enum: ["free", "pro", "team"],
     },
     Platform: { type: "string", enum: ["macos", "linux", "ios", "android"] },
     PluginId: {
@@ -1935,6 +2227,15 @@ export const schema = {
       required: ["type", "share"],
       additionalProperties: false,
     },
+    ShedBoxes: {
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        quantity: { type: "integer", minimum: 1 },
+      },
+      required: ["product", "quantity"],
+      additionalProperties: false,
+    },
     Staff: {
       description:
         "The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.",
@@ -2195,6 +2496,56 @@ export const schema = {
         taken: { type: "boolean" },
       },
       additionalProperties: false,
+    },
+    Subscription: {
+      description: "One product bought in a quantity, billed each interval.",
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/SubscriptionId" },
+        product: { $ref: "#/$defs/BillingProductId" },
+        interval: { $ref: "#/$defs/BillingInterval" },
+        quantity: { type: "integer", minimum: 1 },
+        status: { $ref: "#/$defs/SubscriptionStatus" },
+        currentPeriodEnd: { type: "string", format: "date-time" },
+        cancelAtPeriodEnd: {
+          description: "It ends at currentPeriodEnd unless resumed first.",
+          type: "boolean",
+        },
+        startedAt: { type: "string", format: "date-time" },
+        endedAt: { type: "string", format: "date-time" },
+      },
+      required: [
+        "id",
+        "product",
+        "interval",
+        "quantity",
+        "status",
+        "currentPeriodEnd",
+        "cancelAtPeriodEnd",
+        "startedAt",
+      ],
+      additionalProperties: false,
+    },
+    SubscriptionChange: {
+      description:
+        "A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box.",
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        interval: { $ref: "#/$defs/BillingInterval" },
+        quantity: { type: "integer", minimum: 1 },
+      },
+      additionalProperties: false,
+    },
+    SubscriptionId: {
+      type: "string",
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    SubscriptionStatus: {
+      description:
+        "active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good.",
+      type: "string",
+      enum: ["active", "lapsed", "ended"],
     },
     Vault: {
       description: "The account's vault, as the host that asked sees it.",

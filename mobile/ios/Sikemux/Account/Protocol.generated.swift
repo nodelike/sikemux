@@ -11,6 +11,8 @@ struct WireAccount: Codable, Hashable, Sendable {
     /// How many days a deleted account can still be restored: deletesAt is this long after the deletion.
     var restorableDays: Int
     var staff: Staff
+    /// The plan the account holds, its own or through a seat; plan.changed says when it changes.
+    var plan: PlanId
 }
 
 /// What the phone may send when it deletes an account. The body can be left out.
@@ -45,6 +47,7 @@ enum AccountEventType: String, Codable, Hashable, Sendable {
     case stashSeen = "stash.seen"
     case vaultChanged = "vault.changed"
     case modsChanged = "mods.changed"
+    case planChanged = "plan.changed"
     /// A value added after this build, which it cannot act on.
     case unknown
 
@@ -391,6 +394,19 @@ struct PendingHost: Codable, Hashable, Sendable {
     var requestedNear: String?
     /// Only for a host once removed from this account: when it was. It can come back only through a code approved like this.
     var removedAt: String?
+}
+
+/// A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid.
+enum PlanId: String, Codable, Hashable, Sendable {
+    case free = "free"
+    case pro = "pro"
+    case team = "team"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 enum Platform: String, Codable, Hashable, Sendable {

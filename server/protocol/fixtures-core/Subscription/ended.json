@@ -1,0 +1,11 @@
+{
+  "id": "5b1d6c2e-8f3a-4b7e-9c1d-2a3b4c5d6e7f",
+  "product": "pro",
+  "interval": "month",
+  "quantity": 1,
+  "status": "ended",
+  "currentPeriodEnd": "2026-12-16T09:30:00.000Z",
+  "cancelAtPeriodEnd": false,
+  "startedAt": "2026-11-16T09:30:00.000Z",
+  "endedAt": "2026-11-18T10:00:00.000Z"
+}

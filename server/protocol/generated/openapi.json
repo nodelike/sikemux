@@ -2305,6 +2305,639 @@
           }
         }
       }
+    },
+    "/v1/billing/catalog": {
+      "get": {
+        "operationId": "getBillingCatalog",
+        "summary": "Every plan and product on sale, with prices",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "responses": {
+          "200": {
+            "description": "The catalog.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BillingCatalog" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing": {
+      "get": {
+        "operationId": "getBilling",
+        "summary": "Your plan, or an org's, and what it pays for",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "org",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/OrgId" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The plan, what it allows and its subscriptions.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BillingOverview" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner reads its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/checkout": {
+      "post": {
+        "operationId": "startCheckout",
+        "summary": "Open the provider's page to buy a product",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CheckoutRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Where to pay. Nothing changes until the provider says the payment went through.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Checkout" }
+              }
+            }
+          },
+          "400": {
+            "description": "The product is not sold by that interval, for that payer or in that quantity.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner buys for it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The payer already holds this plan, or a Shed product not yet on sale outside staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscriptions/{subscriptionId}": {
+      "patch": {
+        "operationId": "changeSubscription",
+        "summary": "Change a subscription's quantity, product or interval, prorated",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SubscriptionChange" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The subscription as it stands once the provider has taken the change.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Subscription" }
+              }
+            }
+          },
+          "400": {
+            "description": "The change is not one this subscription can make.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscriptions/{subscriptionId}/cancel": {
+      "post": {
+        "operationId": "cancelSubscription",
+        "summary": "End a subscription when its paid period ends",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The subscription, set to end at currentPeriodEnd. Repeating it changes nothing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Subscription" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscriptions/{subscriptionId}/resume": {
+      "post": {
+        "operationId": "resumeSubscription",
+        "summary": "Take back a cancellation before the period ends",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "subscriptionId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The subscription, renewing again.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Subscription" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The subscription has ended.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/invoices": {
+      "get": {
+        "operationId": "listInvoices",
+        "summary": "Your payments, or an org's",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "org",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/OrgId" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every payment, newest first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/InvoiceList" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner reads its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/invoices/{invoiceId}/refund": {
+      "post": {
+        "operationId": "refundInvoice",
+        "summary": "Refund a subscription's first payment in full and end it",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The invoice, refunded; its subscription has ended.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner changes its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such invoice of yours, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "Only a subscription's first payment is refunded, within the catalog's refundDays of it, once.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/invoices/{invoiceId}/receipt": {
+      "get": {
+        "operationId": "getInvoiceReceipt",
+        "summary": "Where one payment's receipt is",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider's receipt page for the payment.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BillingLink" }
+              }
+            }
+          },
+          "404": {
+            "description": "No such invoice of the account's, the provider has no receipt for it, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/portal": {
+      "get": {
+        "operationId": "getBillingPortal",
+        "summary": "The provider's own page for payment methods and receipts",
+        "security": [{ "session": [] }],
+        "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
+        "parameters": [
+          {
+            "name": "org",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/OrgId" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where the provider's page is.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BillingLink" }
+              }
+            }
+          },
+          "403": {
+            "description": "Only the org's owner reads its billing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The provider has no such page, the payer has never paid, or billing is not live and the account is not staff.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/provider": {
+      "post": {
+        "operationId": "receiveBillingEvent",
+        "summary": "The payment provider telling the API what it billed",
+        "security": [],
+        "description": "Called by Clerk, signed with Svix's headers.",
+        "responses": {
+          "204": {
+            "description": "Handled, already handled, or not an event the API acts on."
+          },
+          "401": {
+            "description": "The provider's signature is missing or wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "503": {
+            "description": "No payment provider is set up.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2324,9 +2957,13 @@
             "type": "integer",
             "minimum": 1
           },
-          "staff": { "$ref": "#/components/schemas/Staff" }
+          "staff": { "$ref": "#/components/schemas/Staff" },
+          "plan": {
+            "description": "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
+            "$ref": "#/components/schemas/PlanId"
+          }
         },
-        "required": ["status", "restorableDays", "staff"],
+        "required": ["status", "restorableDays", "staff", "plan"],
         "additionalProperties": false
       },
       "AccountDeletion": {
@@ -2401,7 +3038,8 @@
           "stash.removed",
           "stash.seen",
           "vault.changed",
-          "mods.changed"
+          "mods.changed",
+          "plan.changed"
         ]
       },
       "AccountProfile": {
@@ -2424,6 +3062,29 @@
         "description": "Active, or deleting: deleted on request and still restorable until deletesAt.",
         "type": "string",
         "enum": ["active", "deleting"]
+      },
+      "Allowance": {
+        "description": "What an account or org may use. Until billing is live, features lists everything for everyone.",
+        "type": "object",
+        "properties": {
+          "plan": { "$ref": "#/components/schemas/PlanId" },
+          "features": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PlanFeature" }
+          },
+          "boxes": {
+            "description": "The Shed boxes it has bought and paid for.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ShedBoxes" }
+          },
+          "seatOrgs": {
+            "description": "For a person: the orgs whose paid Team plan they hold a seat in.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/OrgId" }
+          }
+        },
+        "required": ["plan", "features", "boxes"],
+        "additionalProperties": false
       },
       "ApiError": {
         "description": "The body of every response that is not a success.",
@@ -2480,6 +3141,134 @@
         "type": "string",
         "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
       },
+      "BillingCatalog": {
+        "description": "Everything on sale, what it costs and what each plan includes.",
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BillingProduct" }
+          },
+          "plans": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BillingPlan" }
+          },
+          "refundDays": {
+            "description": "How many days after a subscription's first payment it may be refunded in full.",
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": ["products", "plans", "refundDays"],
+        "additionalProperties": false
+      },
+      "BillingInterval": { "type": "string", "enum": ["month", "year"] },
+      "BillingLink": {
+        "description": "A page of the provider's: its portal for payment methods, or one payment's receipt.",
+        "type": "object",
+        "properties": { "url": { "type": "string", "format": "uri" } },
+        "required": ["url"],
+        "additionalProperties": false
+      },
+      "BillingOverview": {
+        "description": "A person's or an org's plan, what it allows and what it pays for.",
+        "type": "object",
+        "properties": {
+          "allowance": { "$ref": "#/components/schemas/Allowance" },
+          "subscriptions": {
+            "description": "Every subscription that has not ended, then the ended ones, newest first.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Subscription" }
+          },
+          "live": {
+            "description": "Whether plans are enforced and sold to everyone. Until then billing answers only staff.",
+            "type": "boolean"
+          },
+          "canBuy": {
+            "description": "Whether a payment provider is set up, so checkouts and changes can be made.",
+            "type": "boolean"
+          },
+          "card": {
+            "description": "Left out when the provider holds no card for this payer, or could not be asked.",
+            "$ref": "#/components/schemas/PaymentCard"
+          }
+        },
+        "required": ["allowance", "subscriptions", "live", "canBuy"],
+        "additionalProperties": false
+      },
+      "BillingPayer": {
+        "description": "Who a product may be bought by: a person, an org, or either.",
+        "type": "string",
+        "enum": ["person", "org", "either"]
+      },
+      "BillingPlan": {
+        "description": "A plan and everything it includes, the plans it includes counted in.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/PlanId" },
+          "name": { "type": "string" },
+          "features": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PlanFeature" }
+          }
+        },
+        "required": ["id", "name", "features"],
+        "additionalProperties": false
+      },
+      "BillingPrice": {
+        "description": "What one unit costs each interval.",
+        "type": "object",
+        "properties": {
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "unit": { "$ref": "#/components/schemas/Money" }
+        },
+        "required": ["interval", "unit"],
+        "additionalProperties": false
+      },
+      "BillingProduct": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/BillingProductId" },
+          "name": { "type": "string" },
+          "kind": { "$ref": "#/components/schemas/BillingProductKind" },
+          "unit": { "$ref": "#/components/schemas/BillingUnit" },
+          "payer": { "$ref": "#/components/schemas/BillingPayer" },
+          "plan": {
+            "description": "Only on plans: the plan it is.",
+            "$ref": "#/components/schemas/PlanId"
+          },
+          "maxQuantity": { "type": "integer", "minimum": 1 },
+          "prices": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BillingPrice" }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "unit",
+          "payer",
+          "maxQuantity",
+          "prices"
+        ],
+        "additionalProperties": false
+      },
+      "BillingProductId": {
+        "description": "What can be bought: a plan, or one of the Shed's boxes.",
+        "type": "string",
+        "enum": ["pro", "team", "shed", "shed_always_on", "shed_large"]
+      },
+      "BillingProductKind": {
+        "description": "A plan, held once; or a Shed box, bought by the box on any plan.",
+        "type": "string",
+        "enum": ["plan", "shed"]
+      },
+      "BillingUnit": {
+        "description": "What the quantity counts: the one account, a seat in an org, or a box.",
+        "type": "string",
+        "enum": ["account", "seat", "box"]
+      },
       "Challenge": {
         "description": "A one-time value a device signs to prove it holds its key.",
         "type": "object",
@@ -2504,6 +3293,30 @@
         },
         "required": ["nightly", "stable"],
         "additionalProperties": false
+      },
+      "Checkout": {
+        "description": "The provider's page to pay on. The plan changes when the provider says the payment went through, not when the page returns.",
+        "type": "object",
+        "properties": { "url": { "type": "string", "format": "uri" } },
+        "required": ["url"],
+        "additionalProperties": false
+      },
+      "CheckoutRequest": {
+        "description": "Buy a product. The server sets the price from the catalog.",
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "orgId": { "$ref": "#/components/schemas/OrgId" }
+        },
+        "required": ["product", "interval", "quantity"],
+        "additionalProperties": false
+      },
+      "Currency": {
+        "description": "An ISO 4217 code, in lowercase. The catalog prices in usd; a provider may charge in the buyer's own.",
+        "type": "string",
+        "pattern": "^[a-z]{3}$"
       },
       "Device": {
         "type": "object",
@@ -3003,6 +3816,64 @@
         "description": "What the host shows its person, who types it on a device already signed in. Eight consonants in two groups of four.",
         "type": "string",
         "pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$"
+      },
+      "Invoice": {
+        "description": "A payment the provider took or tried to take.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/InvoiceId" },
+          "subscriptionId": { "$ref": "#/components/schemas/SubscriptionId" },
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "quantity": {
+            "description": "How many accounts, seats or boxes the subscription held after this payment.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": { "$ref": "#/components/schemas/InvoiceReason" },
+          "total": { "$ref": "#/components/schemas/Money" },
+          "status": { "$ref": "#/components/schemas/InvoiceStatus" },
+          "at": { "type": "string", "format": "date-time" },
+          "refundableUntil": {
+            "description": "Only on a subscription's first payment, while it may still be refunded in full.",
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "product",
+          "quantity",
+          "reason",
+          "total",
+          "status",
+          "at"
+        ],
+        "additionalProperties": false
+      },
+      "InvoiceId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "InvoiceList": {
+        "type": "object",
+        "properties": {
+          "invoices": {
+            "description": "Newest first.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Invoice" }
+          }
+        },
+        "required": ["invoices"],
+        "additionalProperties": false
+      },
+      "InvoiceReason": {
+        "description": "Why a payment was taken: a subscription's first, one for a new period, or the prorated difference of a change.",
+        "type": "string",
+        "enum": ["first_payment", "renewal", "change"]
+      },
+      "InvoiceStatus": {
+        "type": "string",
+        "enum": ["paid", "failed", "refunded"]
       },
       "JoinRequest": {
         "description": "Which host on the account the phone wants to join.",
@@ -3583,6 +4454,16 @@
         "required": ["mod", "id", "revision", "seq"],
         "additionalProperties": false
       },
+      "Money": {
+        "description": "An amount in the currency's smallest unit, such as cents.",
+        "type": "object",
+        "properties": {
+          "amount": { "type": "integer", "minimum": 0 },
+          "currency": { "$ref": "#/components/schemas/Currency" }
+        },
+        "required": ["amount", "currency"],
+        "additionalProperties": false
+      },
       "Network": {
         "description": "How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release.",
         "type": "object",
@@ -3608,6 +4489,21 @@
         "description": "What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner.",
         "type": "string",
         "enum": ["owner", "admin", "user"]
+      },
+      "PaymentCard": {
+        "description": "The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept.",
+        "type": "object",
+        "properties": {
+          "brand": {
+            "description": "The provider's name for the card's network, such as visa.",
+            "type": "string"
+          },
+          "last4": { "type": "string", "pattern": "^[0-9]{4}$" },
+          "expMonth": { "type": "integer", "minimum": 1, "maximum": 12 },
+          "expYear": { "type": "integer", "minimum": 2000 }
+        },
+        "required": ["brand", "last4", "expMonth", "expYear"],
+        "additionalProperties": false
       },
       "PendingHost": {
         "description": "The host waiting behind a user code, for the person to check before approving it.",
@@ -3650,6 +4546,29 @@
           "requestedNear"
         ],
         "additionalProperties": false
+      },
+      "PlanFeature": {
+        "description": "Something a paid plan includes. Free's are everyone's and are not listed.",
+        "type": "string",
+        "enum": [
+          "sync",
+          "move_work",
+          "history_search",
+          "own_triggers",
+          "org_hosts",
+          "org_shared_setup",
+          "org_model_keys",
+          "org_github",
+          "org_bot_triggers",
+          "chat_handover",
+          "org_roles",
+          "org_policy"
+        ]
+      },
+      "PlanId": {
+        "description": "A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid.",
+        "type": "string",
+        "enum": ["free", "pro", "team"]
       },
       "Platform": {
         "type": "string",
@@ -4133,6 +5052,15 @@
         "required": ["type", "share"],
         "additionalProperties": false
       },
+      "ShedBoxes": {
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["product", "quantity"],
+        "additionalProperties": false
+      },
       "Staff": {
         "description": "The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it.",
         "type": "boolean"
@@ -4393,6 +5321,54 @@
           "taken": { "type": "boolean" }
         },
         "additionalProperties": false
+      },
+      "Subscription": {
+        "description": "One product bought in a quantity, billed each interval.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/SubscriptionId" },
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "status": { "$ref": "#/components/schemas/SubscriptionStatus" },
+          "currentPeriodEnd": { "type": "string", "format": "date-time" },
+          "cancelAtPeriodEnd": {
+            "description": "It ends at currentPeriodEnd unless resumed first.",
+            "type": "boolean"
+          },
+          "startedAt": { "type": "string", "format": "date-time" },
+          "endedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "id",
+          "product",
+          "interval",
+          "quantity",
+          "status",
+          "currentPeriodEnd",
+          "cancelAtPeriodEnd",
+          "startedAt"
+        ],
+        "additionalProperties": false
+      },
+      "SubscriptionChange": {
+        "description": "A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box.",
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false
+      },
+      "SubscriptionId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "SubscriptionStatus": {
+        "description": "active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good.",
+        "type": "string",
+        "enum": ["active", "lapsed", "ended"]
       },
       "Vault": {
         "description": "The account's vault, as the host that asked sees it.",

@@ -1,5 +1,6 @@
 {
   "status": "active",
   "restorableDays": 30,
-  "staff": true
+  "staff": true,
+  "plan": "pro"
 }

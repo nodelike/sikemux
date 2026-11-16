@@ -9,6 +9,8 @@ export interface Account {
   /** How many days a deleted account can still be restored: deletesAt is this long after the deletion. */
   restorableDays: number;
   staff: Staff;
+  /** The plan the account holds, its own or through a seat; plan.changed says when it changes. */
+  plan: PlanId;
 }
 
 /** Every device is revoked and every token refused from the moment this is answered, except to read or restore the account. Signing in again before deletesAt can restore it. */
@@ -57,7 +59,8 @@ export type AccountEventType =
   | "stash.removed"
   | "stash.seen"
   | "vault.changed"
-  | "mods.changed";
+  | "mods.changed"
+  | "plan.changed";
 export const accountEventTypeValues: readonly AccountEventType[] = [
   "device.added",
   "device.changed",
@@ -69,6 +72,7 @@ export const accountEventTypeValues: readonly AccountEventType[] = [
   "stash.seen",
   "vault.changed",
   "mods.changed",
+  "plan.changed",
 ];
 
 /** The name, email and picture the account signed in with, for a host to show who it belongs to. */
@@ -85,6 +89,16 @@ export const accountStatusValues: readonly AccountStatus[] = [
   "active",
   "deleting",
 ];
+
+/** What an account or org may use. Until billing is live, features lists everything for everyone. */
+export interface Allowance {
+  plan: PlanId;
+  features: PlanFeature[];
+  /** The Shed boxes it has bought and paid for. */
+  boxes: ShedBoxes[];
+  /** For a person: the orgs whose paid Team plan they hold a seat in. */
+  seatOrgs?: OrgId[];
+}
 
 /** The body of every response that is not a success. */
 export interface ApiError {
@@ -118,6 +132,97 @@ export interface ApprovedHost {
 /** A semantic version, such as 0.5.0 or 0.6.0-nightly.3. */
 export type AppVersion = string;
 
+/** Everything on sale, what it costs and what each plan includes. */
+export interface BillingCatalog {
+  products: BillingProduct[];
+  plans: BillingPlan[];
+  /** How many days after a subscription's first payment it may be refunded in full. */
+  refundDays: number;
+}
+
+export type BillingInterval = "month" | "year";
+export const billingIntervalValues: readonly BillingInterval[] = [
+  "month",
+  "year",
+];
+
+/** A page of the provider's: its portal for payment methods, or one payment's receipt. */
+export interface BillingLink {
+  url: string;
+}
+
+/** A person's or an org's plan, what it allows and what it pays for. */
+export interface BillingOverview {
+  allowance: Allowance;
+  /** Every subscription that has not ended, then the ended ones, newest first. */
+  subscriptions: Subscription[];
+  /** Whether plans are enforced and sold to everyone. Until then billing answers only staff. */
+  live: boolean;
+  /** Whether a payment provider is set up, so checkouts and changes can be made. */
+  canBuy: boolean;
+  /** Left out when the provider holds no card for this payer, or could not be asked. */
+  card?: PaymentCard;
+}
+
+/** Who a product may be bought by: a person, an org, or either. */
+export type BillingPayer = "person" | "org" | "either";
+export const billingPayerValues: readonly BillingPayer[] = [
+  "person",
+  "org",
+  "either",
+];
+
+/** A plan and everything it includes, the plans it includes counted in. */
+export interface BillingPlan {
+  id: PlanId;
+  name: string;
+  features: PlanFeature[];
+}
+
+/** What one unit costs each interval. */
+export interface BillingPrice {
+  interval: BillingInterval;
+  unit: Money;
+}
+
+export interface BillingProduct {
+  id: BillingProductId;
+  name: string;
+  kind: BillingProductKind;
+  unit: BillingUnit;
+  payer: BillingPayer;
+  /** Only on plans: the plan it is. */
+  plan?: PlanId;
+  maxQuantity: number;
+  prices: BillingPrice[];
+}
+
+/** What can be bought: a plan, or one of the Shed's boxes. */
+export type BillingProductId =
+  "pro" | "team" | "shed" | "shed_always_on" | "shed_large";
+export const billingProductIdValues: readonly BillingProductId[] = [
+  "pro",
+  "team",
+  "shed",
+  "shed_always_on",
+  "shed_large",
+];
+
+/** A plan, held once; or a Shed box, bought by the box on any plan. */
+export type BillingProductKind = "plan" | "shed";
+export const billingProductKindValues: readonly BillingProductKind[] = [
+  "plan",
+  "shed",
+];
+
+/** What the quantity counts: the one account, a seat in an org, or a box. */
+export type BillingUnit = "account" | "seat" | "box";
+export const billingUnitValues: readonly BillingUnit[] = [
+  "account",
+  "seat",
+  "box",
+];
+
 /** A one-time value a device signs to prove it holds its key. */
 export interface Challenge {
   nonce: string;
@@ -133,6 +238,22 @@ export interface ChannelVersions {
   nightly: AppVersion;
   stable: AppVersion;
 }
+
+/** The provider's page to pay on. The plan changes when the provider says the payment went through, not when the page returns. */
+export interface Checkout {
+  url: string;
+}
+
+/** Buy a product. The server sets the price from the catalog. */
+export interface CheckoutRequest {
+  product: BillingProductId;
+  interval: BillingInterval;
+  quantity: number;
+  orgId?: OrgId;
+}
+
+/** An ISO 4217 code, in lowercase. The catalog prices in usd; a provider may charge in the buyer's own. */
+export type Currency = string;
 
 export interface Device {
   key: DeviceKey;
@@ -422,6 +543,43 @@ export const hostSignInStatusValues: readonly HostSignInStatus[] = [
 
 /** What the host shows its person, who types it on a device already signed in. Eight consonants in two groups of four. */
 export type HostSignInUserCode = string;
+
+/** A payment the provider took or tried to take. */
+export interface Invoice {
+  id: InvoiceId;
+  subscriptionId?: SubscriptionId;
+  product: BillingProductId;
+  /** How many accounts, seats or boxes the subscription held after this payment. */
+  quantity: number;
+  reason: InvoiceReason;
+  total: Money;
+  status: InvoiceStatus;
+  at: string;
+  /** Only on a subscription's first payment, while it may still be refunded in full. */
+  refundableUntil?: string;
+}
+
+export type InvoiceId = string;
+
+export interface InvoiceList {
+  /** Newest first. */
+  invoices: Invoice[];
+}
+
+/** Why a payment was taken: a subscription's first, one for a new period, or the prorated difference of a change. */
+export type InvoiceReason = "first_payment" | "renewal" | "change";
+export const invoiceReasonValues: readonly InvoiceReason[] = [
+  "first_payment",
+  "renewal",
+  "change",
+];
+
+export type InvoiceStatus = "paid" | "failed" | "refunded";
+export const invoiceStatusValues: readonly InvoiceStatus[] = [
+  "paid",
+  "failed",
+  "refunded",
+];
 
 /** Which host on the account the phone wants to join. */
 export interface JoinRequest {
@@ -713,6 +871,12 @@ export interface ModStored {
   seq: ModSeq;
 }
 
+/** An amount in the currency's smallest unit, such as cents. */
+export interface Money {
+  amount: number;
+  currency: Currency;
+}
+
 /** How hosts and phones reach each other, and the oldest app the server still serves. Apps read it when they start, so changing either needs no app release. */
 export interface Network {
   /** The relays to use, best first. A host connects to every one; a phone dials a host through the relay the host says it is on. */
@@ -727,6 +891,15 @@ export type OrgId = string;
 /** What a member may do. owner: everything, and alone billing, ownership and deleting the org. admin: rename the org, invite people and manage admins and users. user: see the org and its members. An org always keeps at least one owner. */
 export type OrgRole = "owner" | "admin" | "user";
 export const orgRoleValues: readonly OrgRole[] = ["owner", "admin", "user"];
+
+/** The card a payer pays with, as the provider shows it. Nothing more of a card is ever sent or kept. */
+export interface PaymentCard {
+  /** The provider's name for the card's network, such as visa. */
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+}
 
 /** The host waiting behind a user code, for the person to check before approving it. */
 export interface PendingHost {
@@ -744,6 +917,39 @@ export interface PendingHost {
   /** Only for a host once removed from this account: when it was. It can come back only through a code approved like this. */
   removedAt?: string;
 }
+
+/** Something a paid plan includes. Free's are everyone's and are not listed. */
+export type PlanFeature =
+  | "sync"
+  | "move_work"
+  | "history_search"
+  | "own_triggers"
+  | "org_hosts"
+  | "org_shared_setup"
+  | "org_model_keys"
+  | "org_github"
+  | "org_bot_triggers"
+  | "chat_handover"
+  | "org_roles"
+  | "org_policy";
+export const planFeatureValues: readonly PlanFeature[] = [
+  "sync",
+  "move_work",
+  "history_search",
+  "own_triggers",
+  "org_hosts",
+  "org_shared_setup",
+  "org_model_keys",
+  "org_github",
+  "org_bot_triggers",
+  "chat_handover",
+  "org_roles",
+  "org_policy",
+];
+
+/** A plan. Free is having no paid plan; Team is held through a seat in an org whose Team plan is paid. */
+export type PlanId = "free" | "pro" | "team";
+export const planIdValues: readonly PlanId[] = ["free", "pro", "team"];
 
 export type Platform = "macos" | "linux" | "ios" | "android";
 export const platformValues: readonly Platform[] = [
@@ -1069,6 +1275,11 @@ export interface ShareWantsSnapshot {
   share: ShareId;
 }
 
+export interface ShedBoxes {
+  product: BillingProductId;
+  quantity: number;
+}
+
 /** The account belongs to someone who makes Sikemux. Its hosts take each build of main before nightly does, and features still being tried are on for it. */
 export type Staff = boolean;
 
@@ -1200,6 +1411,37 @@ export interface StashUpdate {
   note?: StashNote;
   taken?: boolean;
 }
+
+/** One product bought in a quantity, billed each interval. */
+export interface Subscription {
+  id: SubscriptionId;
+  product: BillingProductId;
+  interval: BillingInterval;
+  quantity: number;
+  status: SubscriptionStatus;
+  currentPeriodEnd: string;
+  /** It ends at currentPeriodEnd unless resumed first. */
+  cancelAtPeriodEnd: boolean;
+  startedAt: string;
+  endedAt?: string;
+}
+
+/** A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box. */
+export interface SubscriptionChange {
+  product?: BillingProductId;
+  interval?: BillingInterval;
+  quantity?: number;
+}
+
+export type SubscriptionId = string;
+
+/** active: paid for the current period. lapsed: a payment failed and the provider is still trying; nothing it pays for is allowed meanwhile. ended: over for good. */
+export type SubscriptionStatus = "active" | "lapsed" | "ended";
+export const subscriptionStatusValues: readonly SubscriptionStatus[] = [
+  "active",
+  "lapsed",
+  "ended",
+];
 
 /** The account's vault, as the host that asked sees it. */
 export interface Vault {
@@ -1342,14 +1584,29 @@ export interface Definitions {
   AccountEventType: AccountEventType;
   AccountProfile: AccountProfile;
   AccountStatus: AccountStatus;
+  Allowance: Allowance;
   ApiError: ApiError;
   ApnsEnvironment: ApnsEnvironment;
   ApnsTokenRegistration: ApnsTokenRegistration;
   ApprovedHost: ApprovedHost;
   AppVersion: AppVersion;
+  BillingCatalog: BillingCatalog;
+  BillingInterval: BillingInterval;
+  BillingLink: BillingLink;
+  BillingOverview: BillingOverview;
+  BillingPayer: BillingPayer;
+  BillingPlan: BillingPlan;
+  BillingPrice: BillingPrice;
+  BillingProduct: BillingProduct;
+  BillingProductId: BillingProductId;
+  BillingProductKind: BillingProductKind;
+  BillingUnit: BillingUnit;
   Challenge: Challenge;
   Channel: Channel;
   ChannelVersions: ChannelVersions;
+  Checkout: Checkout;
+  CheckoutRequest: CheckoutRequest;
+  Currency: Currency;
   Device: Device;
   DeviceKey: DeviceKey;
   DeviceList: DeviceList;
@@ -1392,6 +1649,11 @@ export interface Definitions {
   HostSignInState: HostSignInState;
   HostSignInStatus: HostSignInStatus;
   HostSignInUserCode: HostSignInUserCode;
+  Invoice: Invoice;
+  InvoiceId: InvoiceId;
+  InvoiceList: InvoiceList;
+  InvoiceReason: InvoiceReason;
+  InvoiceStatus: InvoiceStatus;
   JoinRequest: JoinRequest;
   JoinTicket: JoinTicket;
   LiveAck: LiveAck;
@@ -1430,10 +1692,14 @@ export interface Definitions {
   ModsPush: ModsPush;
   ModsPushed: ModsPushed;
   ModStored: ModStored;
+  Money: Money;
   Network: Network;
   OrgId: OrgId;
   OrgRole: OrgRole;
+  PaymentCard: PaymentCard;
   PendingHost: PendingHost;
+  PlanFeature: PlanFeature;
+  PlanId: PlanId;
   Platform: Platform;
   PluginId: PluginId;
   PushApp: PushApp;
@@ -1480,6 +1746,7 @@ export interface Definitions {
   ShareViewerProof: ShareViewerProof;
   ShareViewers: ShareViewers;
   ShareWantsSnapshot: ShareWantsSnapshot;
+  ShedBoxes: ShedBoxes;
   Staff: Staff;
   StashAdd: StashAdd;
   StashAddLink: StashAddLink;
@@ -1497,6 +1764,10 @@ export interface Definitions {
   StashTaken: StashTaken;
   StashTarget: StashTarget;
   StashUpdate: StashUpdate;
+  Subscription: Subscription;
+  SubscriptionChange: SubscriptionChange;
+  SubscriptionId: SubscriptionId;
+  SubscriptionStatus: SubscriptionStatus;
   Vault: Vault;
   VaultCreate: VaultCreate;
   VaultEntry: VaultEntry;

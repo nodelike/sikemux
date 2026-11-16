@@ -24,7 +24,8 @@
         "stash.removed",
         "stash.seen",
         "vault.changed",
-        "mods.changed"
+        "mods.changed",
+        "plan.changed"
       ]
     },
     "RevokeReason": {

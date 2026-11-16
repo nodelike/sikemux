@@ -64,9 +64,13 @@
         },
         "staff": {
           "$ref": "#/$defs/Staff"
+        },
+        "plan": {
+          "description": "The plan the account holds, its own or through a seat; plan.changed says when it changes.",
+          "$ref": "billing.json#/$defs/PlanId"
         }
       },
-      "required": ["status", "restorableDays", "staff"],
+      "required": ["status", "restorableDays", "staff", "plan"],
       "additionalProperties": false
     },
     "Staff": {

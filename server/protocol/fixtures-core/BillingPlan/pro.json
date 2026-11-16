@@ -1,0 +1,5 @@
+{
+  "id": "pro",
+  "name": "Pro",
+  "features": ["sync", "move_work", "history_search", "own_triggers"]
+}

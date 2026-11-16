@@ -6,7 +6,12 @@ import type {
   AccountDeletionRequest,
   AccountProfile,
   ApprovedHost,
+  BillingCatalog,
+  BillingLink,
+  BillingOverview,
   Challenge,
+  Checkout,
+  CheckoutRequest,
   Device,
   DeviceList,
   DeviceRegistration,
@@ -20,6 +25,8 @@ import type {
   HostSignInPoll,
   HostSignInStart,
   HostSignInState,
+  Invoice,
+  InvoiceList,
   JoinRequest,
   JoinTicket,
   ModFiles,
@@ -29,6 +36,7 @@ import type {
   ModsPush,
   ModsPushed,
   Network,
+  OrgId,
   PendingHost,
   PushTokenRegistration,
   PushTokenState,
@@ -39,6 +47,8 @@ import type {
   StashSeen,
   StashTaken,
   StashUpdate,
+  Subscription,
+  SubscriptionChange,
   VaultCreate,
   VaultEntry,
   VaultEntryId,
@@ -220,6 +230,51 @@ export function apiClient(send: Send) {
         "DELETE",
         `/v1/mods/${encodeURIComponent(mod)}/documents`,
       ),
+    /** Every plan and product on sale, with prices. */
+    getBillingCatalog: () => send<BillingCatalog>("GET", `/v1/billing/catalog`),
+    /** Your plan, or an org's, and what it pays for. */
+    getBilling: (query: { org?: OrgId } = {}) =>
+      send<BillingOverview>("GET", `/v1/billing${search(query)}`),
+    /** Open the provider's page to buy a product. */
+    startCheckout: (body: CheckoutRequest) =>
+      send<Checkout>("POST", `/v1/billing/checkout`, body),
+    /** Change a subscription's quantity, product or interval, prorated. */
+    changeSubscription: (subscriptionId: string, body: SubscriptionChange) =>
+      send<Subscription>(
+        "PATCH",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`,
+        body,
+      ),
+    /** End a subscription when its paid period ends. */
+    cancelSubscription: (subscriptionId: string) =>
+      send<Subscription>(
+        "POST",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`,
+      ),
+    /** Take back a cancellation before the period ends. */
+    resumeSubscription: (subscriptionId: string) =>
+      send<Subscription>(
+        "POST",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/resume`,
+      ),
+    /** Your payments, or an org's. */
+    listInvoices: (query: { org?: OrgId } = {}) =>
+      send<InvoiceList>("GET", `/v1/billing/invoices${search(query)}`),
+    /** Refund a subscription's first payment in full and end it. */
+    refundInvoice: (invoiceId: string) =>
+      send<Invoice>(
+        "POST",
+        `/v1/billing/invoices/${encodeURIComponent(invoiceId)}/refund`,
+      ),
+    /** Where one payment's receipt is. */
+    getInvoiceReceipt: (invoiceId: string) =>
+      send<BillingLink>(
+        "GET",
+        `/v1/billing/invoices/${encodeURIComponent(invoiceId)}/receipt`,
+      ),
+    /** The provider's own page for payment methods and receipts. */
+    getBillingPortal: (query: { org?: OrgId } = {}) =>
+      send<BillingLink>("GET", `/v1/billing/portal${search(query)}`),
   };
 }
 
