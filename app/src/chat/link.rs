@@ -66,13 +66,7 @@ pub fn local_path(href: &str) -> Option<PathBuf> {
     url.to_file_path().ok()
 }
 
-pub fn open(
-    href: &str,
-    agent: &str,
-    bench: &WeakEntity<Workbench>,
-    window: &mut Window,
-    cx: &mut App,
-) {
+pub fn open(href: &str, agent: &str, bench: &WeakEntity<Workbench>, window: &Window, cx: &mut App) {
     if href.starts_with("sikemux://") {
         bench
             .update(cx, |bench, cx| crate::links::follow(bench, href, cx))
@@ -89,9 +83,7 @@ pub fn open(
                 .ok();
         } else if is_page(&path) {
             bench
-                .update(cx, |bench, cx| {
-                    bench.open_html_in_tab(agent, path, window, cx)
-                })
+                .update(cx, |bench, cx| bench.open_html_in_tab(agent, path, cx))
                 .ok();
         } else {
             cx.reveal_path(&path);

@@ -12,6 +12,7 @@ use gpui_kit::Task;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::time::{Duration, Instant};
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
@@ -81,6 +82,9 @@ pub struct Desks {
     restored: Option<HashSet<String>>,
     /// The agent whose address ⌘L asked for, floated once its desk has drawn it.
     address_wanted: Option<String>,
+    /// The agent whose page the person's Open asked to focus, and when, focused once its
+    /// desk is in the tab in front.
+    page_wanted: Option<(String, Instant)>,
     pub(crate) floating: Option<address::Floating>,
     /// Each desk's tab strip, and the tab it last scrolled into view.
     tab_scrolls: std::cell::RefCell<HashMap<String, (gpui_kit::ScrollHandle, Option<usize>)>>,
@@ -198,6 +202,9 @@ const MAX_FAVICONS: usize = 64;
 /// How long the desks are left to settle before the core hears what they hold.
 const DESKS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
+/// How long Open waits for its desk to come out before giving up on focusing the page.
+const PAGE_WANTED_FOR: Duration = Duration::from_secs(3);
+
 /// What a desk shows, as its switch names it: its pages, its files, its task terminals, its
 /// simulator, or the calls of its project. Only the pages, the simulator and the calls are kept;
 /// files and terminals are shown by bringing one to the front.
@@ -291,6 +298,7 @@ impl Desks {
             runs_read: false,
             restored: None,
             address_wanted: None,
+            page_wanted: None,
             floating: None,
             tab_scrolls: Default::default(),
             hearing,
@@ -366,6 +374,26 @@ impl Desks {
             }
         }
         false
+    }
+
+    /// Asks for the agent's page to take the keys once its desk is in the tab in front.
+    fn want_page_focused(&mut self, agent: &str) {
+        self.page_wanted = Some((agent.to_owned(), Instant::now()));
+    }
+
+    /// The agent whose page is wanted focused, once one of `in_front` shows it, and only once.
+    /// A wish older than [`PAGE_WANTED_FOR`] lapses, so a desk that comes out much later leaves
+    /// the keys where they are.
+    fn take_page_wanted(&mut self, in_front: &[String], now: Instant) -> Option<String> {
+        let (agent, at) = self.page_wanted.as_ref()?;
+        if now.duration_since(*at) > PAGE_WANTED_FOR {
+            self.page_wanted = None;
+            return None;
+        }
+        if !in_front.contains(agent) {
+            return None;
+        }
+        self.page_wanted.take().map(|(agent, _)| agent)
     }
 
     /// Turns the desk to its pages, with no file or terminal in front of them.
@@ -1516,34 +1544,24 @@ impl Workbench {
 
     /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
     /// or opens one, as the person's.
-    pub(crate) fn open_page_in_tab(
-        &mut self,
-        agent: &str,
-        id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn open_page_in_tab(&mut self, agent: &str, id: &str, cx: &mut Context<Self>) {
         let page = self
             .chat_target(agent)
             .request_typed::<sikemux_calls::call::ReadPage>(sikemux_calls::harness::PageParams {
                 id: id.to_owned(),
             });
         let (files, id) = (self.desks.read(cx).page_files.clone(), id.to_owned());
-        self.bring_page_forward(agent, window, cx, |_| async move {
-            files.kept_url(&id, &page.await?)
-        });
+        self.bring_page_forward(
+            agent,
+            cx,
+            |_| async move { files.kept_url(&id, &page.await?) },
+        );
     }
 
     /// Brings forward the tab on `agent`'s desk that shows the HTML file at `path` as a page,
     /// or opens one, as the person's.
-    pub(crate) fn open_html_in_tab(
-        &mut self,
-        agent: &str,
-        path: PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.bring_page_forward(agent, window, cx, move |engine| {
+    pub(crate) fn open_html_in_tab(&mut self, agent: &str, path: PathBuf, cx: &mut Context<Self>) {
+        self.bring_page_forward(agent, cx, move |engine| {
             let url = engine.local_file_url(&path);
             async move { url }
         });
@@ -1552,7 +1570,6 @@ impl Workbench {
     fn bring_page_forward<Url>(
         &mut self,
         agent: &str,
-        window: &mut Window,
         cx: &mut Context<Self>,
         url: impl FnOnce(&BrowserManager) -> Url,
     ) where
@@ -1562,18 +1579,14 @@ impl Workbench {
             return;
         };
         self.open_agent(agent, cx);
-        self.desks
-            .update(cx, |desks, cx| desks.turn_to_pages(agent, cx));
+        self.desks.update(cx, |desks, cx| {
+            desks.turn_to_pages(agent, cx);
+            desks.want_page_focused(agent);
+        });
         if !self.desk_open_anywhere(agent) {
             self.reveal_desk(agent);
         }
-        if let Some(desk) = self
-            .tab()
-            .and_then(|tab| view_of(&tab.pane, PaneKind::Desk, agent))
-        {
-            self.focus_pane(desk.clone(), cx);
-            self.focus_view(&desk, window, cx);
-        }
+        cx.notify();
         let (agent, url) = (agent.to_owned(), url(&engine));
         runtime().spawn(async move {
             let shown = async {
@@ -1772,7 +1785,7 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
         return;
     };
     shut_desks_restored_empty(bench, &engine, cx);
-    for agent in agents {
+    for agent in agents.clone() {
         if bench.desks.read(cx).pages.contains_key(&agent) {
             continue;
         }
@@ -1814,6 +1827,13 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
         bench
             .desks
             .update(cx, |desks, _| desks.pages.insert(agent, page));
+    }
+    let wanted = (bench.desks).update(cx, |desks, _| {
+        desks.take_page_wanted(&agents, Instant::now())
+    });
+    if let Some(desk) = wanted.and_then(|agent| bench.desk_of(&bench.tab()?.id, &agent)) {
+        bench.focus_pane(desk.clone(), cx);
+        bench.focus_view(&desk, window, cx);
     }
     if let Some(agent) = bench.desks.read(cx).address_wanted.clone() {
         if bench.desks.read(cx).pages.contains_key(&agent) {
@@ -2906,6 +2926,30 @@ mod tests {
                 desks.show_kind("agent", DeskKind::Simulator, cx);
                 desks.turn_to_pages("agent", cx);
                 assert_eq!(desks.kind_of("agent"), DeskKind::Pages);
+            })
+        });
+    }
+
+    #[gpui::test]
+    fn open_focuses_the_page_once_its_desk_comes_out(cx: &mut gpui::TestAppContext) {
+        let window = cx.add_empty_window();
+        let desks = window.update(|window, cx| cx.new(|cx| Desks::new(window, cx)));
+        window.update(|_, cx| {
+            desks.update(cx, |desks, _| {
+                let asked = Instant::now();
+                let (none, shown) = (Vec::new(), vec!["agent".to_owned()]);
+                desks.want_page_focused("agent");
+                assert_eq!(desks.take_page_wanted(&none, asked), None);
+                assert_eq!(
+                    desks.take_page_wanted(&shown, asked + Duration::from_millis(400)),
+                    Some("agent".to_owned())
+                );
+                assert_eq!(desks.take_page_wanted(&shown, asked), None);
+
+                desks.want_page_focused("agent");
+                let late = Instant::now() + PAGE_WANTED_FOR + Duration::from_secs(1);
+                assert_eq!(desks.take_page_wanted(&none, late), None);
+                assert_eq!(desks.take_page_wanted(&shown, asked), None);
             })
         });
     }

@@ -208,10 +208,8 @@ fn opens_tab(
     bench: &gpui_kit::WeakEntity<crate::workbench::Workbench>,
 ) -> impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut App) + 'static {
     let (id, agent, bench) = (page.id.clone(), agent.to_owned(), bench.clone());
-    move |_, window, cx| {
-        let _ = bench.update(cx, |bench, cx| {
-            bench.open_page_in_tab(&agent, &id, window, cx)
-        });
+    move |_, _, cx| {
+        let _ = bench.update(cx, |bench, cx| bench.open_page_in_tab(&agent, &id, cx));
     }
 }
 
