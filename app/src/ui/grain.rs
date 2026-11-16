@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{
     canvas, div, relative, AnyElement, App, AppContext, Context, Global, Hsla, IntoElement,
@@ -73,6 +73,120 @@ const PICTURE_LONGEST: u32 = 2560;
 const GLOW_LONGEST: u32 = 320;
 /// How bright a place must be, from 0 to 1, before it glows.
 const GLOW_THRESHOLD: f32 = 0.45;
+
+/// How long the panes' backdrop keeps moving after the last agent stops, and how long it takes
+/// to ease to a stop or back up to speed, in that many steps.
+const REST_AFTER: Duration = Duration::from_secs(10);
+const EASE: Duration = Duration::from_secs(2);
+const EASE_STEPS: u32 = 8;
+
+/// How fast the panes' backdrop runs: at its own speed while an agent works, held still at
+/// rest, so movement behind the panes always means work and an idle window draws nothing.
+#[derive(Clone, Copy)]
+struct Pace {
+    working: bool,
+    /// From 0, held still, to 1, the backdrop's own speed.
+    now: f32,
+    /// Where the backdrop's own clock stood, in seconds at full speed, when `now` last changed,
+    /// and the window's shader time then.
+    held: f32,
+    since: f32,
+    /// Counts changes of `working`, so an easing that a newer change overtook stops.
+    turn: u64,
+    started: Instant,
+}
+
+impl Default for Pace {
+    fn default() -> Self {
+        Self {
+            working: false,
+            now: 0.,
+            held: 0.,
+            since: 0.,
+            turn: 0,
+            started: Instant::now(),
+        }
+    }
+}
+
+impl Global for Pace {}
+
+impl Pace {
+    /// The window's shader time now: seconds since its renderer started, near enough to when
+    /// the window began animating.
+    fn time(&self) -> f32 {
+        self.started.elapsed().as_secs_f32()
+    }
+
+    fn set(&mut self, now: f32) {
+        let time = self.time();
+        self.held += (time - self.since) * self.now;
+        self.since = time;
+        self.now = now;
+    }
+
+    /// Where a shader's clock starts and how fast it runs, for a backdrop of `speed`.
+    fn clock(&self, speed: f32) -> (f32, f32) {
+        (
+            speed * (self.held - self.since * self.now),
+            speed * self.now,
+        )
+    }
+}
+
+/// Says whether any agent on the host in front is working, easing the panes' backdrop up to
+/// speed at once, or down to still once none has worked for a while.
+pub fn working(working: bool, cx: &mut App) {
+    let mut pace = cx.try_global::<Pace>().copied().unwrap_or_default();
+    if pace.working == working {
+        return;
+    }
+    pace.working = working;
+    pace.turn += 1;
+    let turn = pace.turn;
+    cx.set_global(pace);
+    let (wait, target) = match working {
+        true => (Duration::ZERO, 1.),
+        false => (REST_AFTER, 0.),
+    };
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(wait).await;
+        let by = 1. / EASE_STEPS as f32;
+        loop {
+            let more = cx.update(|cx| {
+                let mut pace = *cx.global::<Pace>();
+                if pace.turn != turn || pace.now == target {
+                    return false;
+                }
+                pace.set(match target > pace.now {
+                    true => (pace.now + by).min(target),
+                    false => (pace.now - by).max(target),
+                });
+                let more = pace.now != target;
+                cx.set_global(pace);
+                cx.refresh_windows();
+                more
+            });
+            if !more {
+                return;
+            }
+            cx.background_executor().timer(EASE / EASE_STEPS).await;
+        }
+    })
+    .detach();
+}
+
+/// The panes' backdrop's clock: held where it stands at rest, and still for less motion.
+fn paced(speed: f32, cx: &App) -> (f32, f32) {
+    match cx.reduce_motion() {
+        true => (STILL, 0.),
+        false => cx
+            .try_global::<Pace>()
+            .copied()
+            .unwrap_or_default()
+            .clock(speed),
+    }
+}
 
 /// What panes show behind them, as the person's preferences say, and whether a sky is up.
 /// Until the preferences are read, panes show nothing.
@@ -180,12 +294,12 @@ impl Look {
 impl Grain {
     /// Only the grain moves: a picture holds still, and one still being read or a grain at no
     /// strength paints nothing.
-    fn moving(&self) -> bool {
+    fn moving(&self, paced: bool) -> bool {
         let drawn = match self.choice {
             PaneBackdrop::Picture => self.wanted.is_none(),
             _ => self.worn.look.speed > 0.,
         };
-        self.skies > 0 || self.glowing || (self.shown && self.strength() > 0. && drawn)
+        self.skies > 0 || self.glowing || (paced && self.shown && self.strength() > 0. && drawn)
     }
 
     /// The person's pane strength laid over what is worn, held where text over it still reads.
@@ -466,7 +580,7 @@ fn grain_field(
         .map(|ink| theme::color(ink).to_rgb());
     let dot = ink.unwrap_or_else(|| Tokens::get(cx).shader_dot.to_rgb());
     let speed = FIELD_SPEED * worn.map_or(1., |worn| worn.look.speed as f32);
-    let (start, speed) = clock(speed, cx);
+    let (start, speed) = paced(speed, cx);
     let alpha = (dot.a * FIELD_OPACITY * grain.strength()).min(1.);
     Rc::new(move |solid| {
         canvas(
@@ -501,7 +615,7 @@ fn kind_field(worn: &WornBackdrop, strength: f32, cx: &App) -> Rc<dyn Fn(f32) ->
             packed(ink.r * 255., ink.g * 255., ink.b * 255.)
         })
     };
-    let (start, speed) = clock(look.speed as f32, cx);
+    let (start, speed) = paced(look.speed as f32, cx);
     let alpha = (look.kind.solid() as f32 * strength).min(1.);
     let (kind, own) = match look.kind {
         BackdropKind::Gradient => (1., [look.softness as f32, look.dither as f32, 0., 0.]),
@@ -767,6 +881,7 @@ fn clock(speed: f32, cx: &App) -> (f32, f32) {
 /// Moves what the shaders show on while the window is in front and can be seen, at the rate
 /// the power allows, which `on_battery` answers from the view.
 pub fn animate<V: 'static>(window: &mut Window, cx: &mut Context<V>, on_battery: fn(&V) -> bool) {
+    cx.default_global::<Pace>();
     follow_reduced_motion(cx);
     #[cfg(target_os = "linux")]
     cx.spawn(async move |bench, cx| {
@@ -794,7 +909,9 @@ pub fn animate<V: 'static>(window: &mut Window, cx: &mut Context<V>, on_battery:
         on_visibility(bench, window, cx)
     })
     .detach();
-    cx.observe_global_in::<Grain>(window, restart(ticking))
+    cx.observe_global_in::<Grain>(window, restart(ticking.clone()))
+        .detach();
+    cx.observe_global_in::<Pace>(window, restart(ticking))
         .detach();
 }
 
@@ -806,7 +923,9 @@ fn tick<V: 'static>(
     let moving = window.is_window_active()
         && window.is_visible()
         && !cx.reduce_motion()
-        && cx.try_global::<Grain>().is_some_and(Grain::moving);
+        && cx.try_global::<Grain>().is_some_and(|grain| {
+            grain.moving(cx.try_global::<Pace>().is_some_and(|pace| pace.now > 0.))
+        });
     moving.then(|| {
         cx.spawn_in(window, async move |bench, cx| loop {
             let Ok(wait) = bench.update_in(cx, |bench, window, cx| {
