@@ -64,6 +64,7 @@ interface PaddleSubscription {
   next_billed_at: string | null;
   scheduled_change: { action: string; effective_at: string } | null;
   items: PaddleItem[];
+  management_urls?: { update_payment_method: string | null } | null;
 }
 
 interface PaddleTransaction {
@@ -76,7 +77,18 @@ interface PaddleTransaction {
   billing_period: { starts_at: string; ends_at: string } | null;
   items: { quantity: number; price: PaddlePrice }[];
   details: { totals: { grand_total: string } };
-  payments: { status: string; method_details: { type: string } | null }[];
+  payments: {
+    status: string;
+    method_details: {
+      type: string;
+      card: {
+        type: string;
+        last4: string;
+        expiry_month: number;
+        expiry_year: number;
+      } | null;
+    } | null;
+  }[];
   checkout: { url: string | null } | null;
 }
 
@@ -338,15 +350,19 @@ export class PaddleProvider implements BillingProvider {
     return this.api.request<PaddleSubscription>("GET", `/subscriptions/${id}`);
   }
 
-  /** UPI takes payments only on the dates its mandate names, so nothing can be charged mid-period. */
-  private async paysByUpi(subscriptionId: string) {
+  /** What the subscription's latest completed transaction was paid with. */
+  private async lastPayment(subscriptionId: string) {
     const [last] = await this.api.request<PaddleTransaction[]>(
       "GET",
       `/transactions?subscription_id=${subscriptionId}&status=completed&order_by=created_at[DESC]&per_page=1`,
     );
+    return last?.payments.find((payment) => payment.status === "captured");
+  }
+
+  /** UPI takes payments only on the dates its mandate names, so nothing can be charged mid-period. */
+  private async paysByUpi(subscriptionId: string) {
     return (
-      last?.payments.find((payment) => payment.status === "captured")
-        ?.method_details?.type === "upi"
+      (await this.lastPayment(subscriptionId))?.method_details?.type === "upi"
     );
   }
 
@@ -452,11 +468,10 @@ export class PaddleProvider implements BillingProvider {
     }
   }
 
-  async portal(providerCustomerId: string) {
-    const session = await this.api.request<{
-      urls: { general: { overview: string } };
-    }>("POST", `/customers/${providerCustomerId}/portal-sessions`, {});
-    return { url: session.urls.general.overview };
+  async portal(held: HeldSubscription) {
+    const sub = await this.subscription(held.providerSubscriptionId);
+    const url = sub.management_urls?.update_payment_method;
+    return url ? { url } : null;
   }
 
   async receipt(providerPaymentId: string) {
@@ -479,19 +494,9 @@ export class PaddleProvider implements BillingProvider {
     }
   }
 
-  async card(providerCustomerId: string): Promise<PaymentCard | null> {
-    const methods = await this.api.list<{
-      type: string;
-      card: {
-        type: string;
-        last4: string;
-        expiry_month: number;
-        expiry_year: number;
-      } | null;
-    }>(`/customers/${providerCustomerId}/payment-methods`);
-    const card = methods.find(
-      (method) => method.type === "card" && method.card,
-    )?.card;
+  async card(held: HeldSubscription): Promise<PaymentCard | null> {
+    const card = (await this.lastPayment(held.providerSubscriptionId))
+      ?.method_details?.card;
     return card
       ? {
           brand: card.type,

@@ -261,9 +261,9 @@ export class StandInProvider implements BillingProvider {
   }
 
   /** The test card every stand-in checkout pays with. */
-  card(providerCustomerId: string): Promise<PaymentCard | null> {
+  card({ providerCustomerId }: HeldSubscription): Promise<PaymentCard | null> {
     return Promise.resolve(
-      this.paying.has(providerCustomerId)
+      providerCustomerId && this.paying.has(providerCustomerId)
         ? {
             brand: "visa",
             last4: "4242",

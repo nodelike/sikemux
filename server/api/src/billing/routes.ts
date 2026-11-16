@@ -218,16 +218,31 @@ export function billingRoutes({
         .executeTakeFirstOrThrow(),
     );
 
-  /** The payer's card as the provider shows it; a provider that cannot answer leaves it out. */
+  /** The payer's plan that has not ended, Pro or Team, as the provider acts on it. */
+  const openPlanOf = async (payer: Payer, ready: BillingProvider) => {
+    const row = await customersOf(db, payer)
+      .innerJoin(
+        "subscriptions",
+        "subscriptions.customer_id",
+        "billing_customers.id",
+      )
+      .selectAll("subscriptions")
+      .select("billing_customers.provider_customer_id")
+      .where("billing_customers.provider", "=", ready.name)
+      .where("subscriptions.status", "!=", "ended")
+      .where("subscriptions.product", "in", ["pro", "team"])
+      .orderBy("subscriptions.started_at", "desc")
+      .executeTakeFirst();
+    return row ? heldSubscription(row, row.provider_customer_id) : null;
+  };
+
+  /** The card the payer's plan pays with, as the provider shows it; a provider that cannot answer leaves it out. */
   const cardOf = async (payer: Payer) => {
     if (!provider) return null;
-    const customer = await customersOf(db, payer)
-      .select("provider_customer_id")
-      .where("provider", "=", provider.name)
-      .executeTakeFirst();
-    if (!customer?.provider_customer_id) return null;
+    const plan = await openPlanOf(payer, provider);
+    if (!plan) return null;
     try {
-      return await provider.card(customer.provider_customer_id);
+      return await provider.card(plan);
     } catch (err) {
       log.warn({ err, provider: provider.name }, "could not ask for the card");
       return null;
@@ -560,13 +575,8 @@ export function billingRoutes({
   app.get("/portal", async (c) => {
     const ready = needProvider(provider);
     const payer = await payerOf(c, c.req.query("org"));
-    const customer = await customersOf(db, payer)
-      .select("provider_customer_id")
-      .where("provider", "=", ready.name)
-      .executeTakeFirst();
-    const portal = customer?.provider_customer_id
-      ? await ready.portal(customer.provider_customer_id)
-      : null;
+    const plan = await openPlanOf(payer, ready);
+    const portal = plan ? await ready.portal(plan) : null;
     if (!portal)
       throw notFound("The provider has no page for this payer to manage.");
     return c.json(portal);

@@ -159,12 +159,15 @@ export interface BillingProvider {
   resume(subscription: HeldSubscription): Promise<void>;
   /** Asks for a payment to be refunded in full; payment.refunded says when it is. */
   refund(providerPaymentId: string): Promise<void>;
-  /** The provider's own page for a customer's payment methods and receipts, where it has one. */
-  portal(providerCustomerId: string): Promise<{ url: string } | null>;
+  /** The provider's own page for one subscription's payment method, where it has one. */
+  portal(subscription: HeldSubscription): Promise<{ url: string } | null>;
   /** The provider's receipt for one payment, where it has one. */
   receipt(providerPaymentId: string): Promise<{ url: string } | null>;
-  /** The card a customer pays with, asked each time so no card detail is kept here. */
-  card(providerCustomerId: string): Promise<PaymentCard | null>;
+  /**
+   * The card one subscription pays with, asked each time so no card detail is kept here. Scoped to
+   * the subscription because a provider's customer may also be paying for something else.
+   */
+  card(subscription: HeldSubscription): Promise<PaymentCard | null>;
   /** The events in a webhook request, or null when its signature is not the provider's. */
   readEvents(request: ProviderRequest): Promise<ProviderEvent[] | null>;
 }
