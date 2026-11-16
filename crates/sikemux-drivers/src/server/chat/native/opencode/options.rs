@@ -105,12 +105,12 @@ pub struct Catalog {
 
 impl Catalog {
     pub async fn read(client: &Client) -> Result<Self, String> {
-        let (listed, default, modes) = tokio::try_join!(
-            client.get("/api/model"),
-            client.get("/api/model/default"),
-            client.get("/api/agent"),
-        )
-        .map_err(String::from)?;
+        let (listed, default) =
+            tokio::try_join!(client.get("/api/model"), client.get("/api/model/default"))
+                .map_err(String::from)?;
+        // A server just started lists no agents until it has loaded its config, which
+        // answering for the models waits on.
+        let modes = client.get("/api/agent").await.map_err(String::from)?;
         let mut listed: Vec<Listed> = serde_json::from_value(listed).map_err(|error| {
             format!("OpenCode listed its models in a shape Sikemux cannot read: {error}")
         })?;
