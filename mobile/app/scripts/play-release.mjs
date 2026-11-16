@@ -1,9 +1,9 @@
 // Puts a signed app bundle on Google Play with the release notes for its version: a nightly on
-// the internal testing track, a stable release on production, where it starts with a share of phones
-// and widens once it holds up. `--alpha` also gives a nightly to the closed test, until production opens.
+// the closed test's alpha track, a stable release on production, where it starts with a share of phones
+// and widens once it holds up.
 //
 //   node scripts/play-release.mjs notes 0.1.0-nightly.5
-//   node scripts/play-release.mjs upload 0.1.0-nightly.5 dist/Sikemux_0.1.0-nightly.5_android.aab [--alpha]
+//   node scripts/play-release.mjs upload 0.1.0-nightly.5 dist/Sikemux_0.1.0-nightly.5_android.aab
 //   node scripts/play-release.mjs rollout 0.5        half of production phones
 //   node scripts/play-release.mjs rollout 1          every phone
 //
@@ -37,7 +37,7 @@ export function releaseNotes(version, text = readFileSync(NOTES, 'utf8')) {
 }
 
 export function track(version) {
-  return version.includes('-nightly.') ? 'internal' : 'production';
+  return version.includes('-nightly.') ? 'alpha' : 'production';
 }
 
 /** The share of production phones a stable release reaches first. */
@@ -96,7 +96,7 @@ async function call(token, url, init = {}) {
   return answer;
 }
 
-async function upload(version, bundle, alpha) {
+async function upload(version, bundle) {
   const notes = releaseNotes(version);
   const name = track(version);
   const token = await accessToken(JSON.parse(process.env.PLAY_SERVICE_ACCOUNT ?? ''));
@@ -110,18 +110,14 @@ async function upload(version, bundle, alpha) {
     (release) => release.status !== 'draft',
   );
   const made = trackRelease(version, uploaded.versionCode, notes, name === 'production' && !productionShipped);
-  // The closed test keeps Google's production review fed only until production has a release of its own.
-  const tracks = alpha && name === 'internal' && !productionShipped ? [name, 'alpha'] : [name];
-  for (const onTrack of tracks) {
-    await call(token, `${API}/edits/${edit.id}/tracks/${onTrack}`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ track: onTrack, releases: [made] }),
-    });
-  }
+  await call(token, `${API}/edits/${edit.id}/tracks/${name}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ track: name, releases: [made] }),
+  });
   await call(token, `${API}/edits/${edit.id}:commit`, { method: 'POST' });
   const reach = made.status === 'inProgress' ? ` to ${FIRST_ROLLOUT * 100}% of phones; widen it with \`rollout\`` : '';
-  console.log(`Google Play: ${version} (version code ${uploaded.versionCode}) is out on ${tracks.join(' and ')}${reach}`);
+  console.log(`Google Play: ${version} (version code ${uploaded.versionCode}) is out on ${name}${reach}`);
 }
 
 async function rollout(fraction) {
@@ -139,13 +135,13 @@ async function rollout(fraction) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const [command, version, bundle, flag] = process.argv.slice(2);
+  const [command, version, bundle] = process.argv.slice(2);
   try {
     if (command === 'notes' && version) console.log(releaseNotes(version));
-    else if (command === 'upload' && version && bundle) await upload(version, bundle, flag === '--alpha');
+    else if (command === 'upload' && version && bundle) await upload(version, bundle);
     else if (command === 'rollout' && version) await rollout(Number(version));
     else {
-      console.error('usage: play-release.mjs notes <version> | upload <version> <bundle.aab> [--alpha] | rollout <share of phones>');
+      console.error('usage: play-release.mjs notes <version> | upload <version> <bundle.aab> | rollout <share of phones>');
       process.exit(2);
     }
   } catch (error) {
