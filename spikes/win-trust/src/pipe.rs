@@ -1,18 +1,18 @@
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
 
-use windows_sys::Win32::Foundation::{GetLastError, HANDLE};
+use windows_sys::Win32::Foundation::{GetLastError, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, FlushFileBuffers, ReadFile, WriteFile, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
+    CreateFileW, FlushFileBuffers, ReadFile, WriteFile, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
 };
 use windows_sys::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, CreatePipe, DisconnectNamedPipe, PIPE_READMODE_BYTE,
-    PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, CreatePipe, DisconnectNamedPipe, WaitNamedPipeW,
+    PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES,
+    PIPE_WAIT,
 };
 
 use crate::util::wide;
@@ -38,7 +38,7 @@ pub fn create_named(name: &str, sddl: &str) -> HANDLE {
         bInheritHandle: 0,
     };
     let wn = wide(name);
-    unsafe {
+    let h = unsafe {
         CreateNamedPipeW(
             wn.as_ptr(),
             PIPE_ACCESS_DUPLEX,
@@ -49,6 +49,11 @@ pub fn create_named(name: &str, sddl: &str) -> HANDLE {
             0,
             &sa,
         )
+    };
+    if h == INVALID_HANDLE_VALUE {
+        null_mut()
+    } else {
+        h
     }
 }
 
@@ -65,18 +70,30 @@ pub fn disconnect(pipe: HANDLE) {
 }
 
 pub fn client(name: &str) -> HANDLE {
+    const READ_WRITE_DATA: u32 = 0x0010_0083;
+    const ERROR_PIPE_BUSY: u32 = 231;
     let wn = wide(name);
-    unsafe {
-        CreateFileW(
-            wn.as_ptr(),
-            0xC000_0000,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            null(),
-            OPEN_EXISTING,
-            0,
-            null_mut(),
-        )
+    for _ in 0..20 {
+        let h = unsafe {
+            CreateFileW(
+                wn.as_ptr(),
+                READ_WRITE_DATA,
+                0,
+                null(),
+                OPEN_EXISTING,
+                0,
+                null_mut(),
+            )
+        };
+        if h != INVALID_HANDLE_VALUE {
+            return h;
+        }
+        if unsafe { GetLastError() } != ERROR_PIPE_BUSY {
+            return null_mut();
+        }
+        unsafe { WaitNamedPipeW(wn.as_ptr(), 1000) };
     }
+    null_mut()
 }
 
 pub fn send_line(h: HANDLE, line: &str) -> bool {
