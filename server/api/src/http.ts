@@ -162,6 +162,10 @@ export function forbidden(message: string): ApiFailure {
   return new ApiFailure(403, "forbidden", message);
 }
 
+export function conflict(message: string): ApiFailure {
+  return new ApiFailure(409, "conflict", message);
+}
+
 export function notFound(message: string): ApiFailure {
   return new ApiFailure(404, "not_found", message);
 }

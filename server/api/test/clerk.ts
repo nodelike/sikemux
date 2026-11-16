@@ -17,6 +17,13 @@ export class FakeClerk implements ClerkBackend {
     return { email: null, name: null, imageUrl: null };
   }
 
+  async people(userIds: string[]) {
+    if (this.failing) throw new Error("Clerk answered 500");
+    return new Map(
+      userIds.map((id) => [id, { name: `Person ${id}`, imageUrl: null }]),
+    );
+  }
+
   async revokeSession(sessionId: string) {
     if (this.failing) throw new Error("Clerk answered 500");
     this.revoked.push(sessionId);

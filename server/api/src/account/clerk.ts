@@ -5,10 +5,14 @@ export interface ClerkBackend {
   deleteUser(userId: string): Promise<void>;
   /** The name, primary email and picture the user signed in with; all null once the user is gone. */
   profile(userId: string): Promise<Omit<AccountProfile, "staff">>;
+  /** The names and pictures of up to 100 users, by id; a user who is gone is left out. */
+  people(userIds: string[]): Promise<Map<string, Person>>;
   revokeSession(sessionId: string): Promise<void>;
   /** The access tokens Clerk holds from the user's web sign-ins with Apple; none for the phone's. */
   appleAccessTokens(userId: string): Promise<string[]>;
 }
+
+export type Person = Pick<AccountProfile, "name" | "imageUrl">;
 
 type Fetch = (
   input: string | URL | Request,
@@ -18,6 +22,7 @@ type Fetch = (
 const BASE = "https://api.clerk.com";
 
 interface ClerkUser {
+  id?: string;
   first_name?: string | null;
   last_name?: string | null;
   image_url?: string | null;
@@ -25,6 +30,18 @@ interface ClerkUser {
   email_addresses?: { id?: string; email_address?: string }[];
 }
 const TIMEOUT_MS = 10_000;
+
+function personOf(user: ClerkUser | undefined): Person {
+  const name = [user?.first_name, user?.last_name]
+    .filter((part) => part?.trim())
+    .join(" ");
+  return {
+    name: name.slice(0, 256) || null,
+    imageUrl: user?.image_url?.startsWith("https://")
+      ? user.image_url.slice(0, 2048)
+      : null,
+  };
+}
 
 export function clerkBackend(
   secretKey: string,
@@ -62,16 +79,19 @@ export function clerkBackend(
       const email = user?.email_addresses?.find(
         (address) => address.id === user.primary_email_address_id,
       )?.email_address;
-      const name = [user?.first_name, user?.last_name]
-        .filter((part) => part?.trim())
-        .join(" ");
-      return {
-        email: email?.slice(0, 320) ?? null,
-        name: name.slice(0, 256) || null,
-        imageUrl: user?.image_url?.startsWith("https://")
-          ? user.image_url.slice(0, 2048)
-          : null,
-      };
+      return { email: email?.slice(0, 320) ?? null, ...personOf(user) };
+    },
+    people: async (userIds) => {
+      const query = new URLSearchParams({ limit: "100" });
+      for (const id of userIds) query.append("user_id", checked(id, "user"));
+      const response = await request("GET", `/v1/users?${query}`);
+      const listed: unknown = await response?.json();
+      const users = Array.isArray(listed) ? (listed as ClerkUser[]) : [];
+      return new Map(
+        users.flatMap((user) =>
+          typeof user.id === "string" ? [[user.id, personOf(user)]] : [],
+        ),
+      );
     },
     revokeSession: async (sessionId) =>
       call("POST", `/v1/sessions/${checked(sessionId, "sess")}/revoke`),

@@ -26,6 +26,7 @@ import type { JoinSigner } from "./join/signer.ts";
 import { clientAddress, limit, type RateLimiter } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
+import { orgRoutes } from "./orgs/routes.ts";
 import type { Places } from "./places.ts";
 import type { PushSettings } from "./push/settings.ts";
 import { relayAccessRoutes, type RelayAccess } from "./relay/access.ts";
@@ -118,6 +119,7 @@ export function createApp(services: Services) {
   app.route("/v1/host-sign-ins", hostSignInRoutes(services));
   app.route("/v1/account/profile", profileRoutes(services));
   app.route("/v1/account", accountRoutes(services));
+  app.route("/v1/orgs", orgRoutes(services));
   app.route("/v1/webhooks", clerkWebhookRoutes(database, webhookSecret));
   app.route("/v1/hooks", hookRoutes(services));
   app.route("/v1/billing", billingRoutes(services));
