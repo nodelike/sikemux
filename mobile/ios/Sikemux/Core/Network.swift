@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SikemuxCore
+import StoreKit
 
 /// The relays hosts listen on, from the accounts server's `GET /v1/network`, and whether this app is too old for
 /// it. Relays rarely change, so a saved copy is used at once while the server is asked behind it.
@@ -57,7 +58,7 @@ final class Network {
             (response as? HTTPURLResponse)?.statusCode == 200,
             let answer = try? JSONDecoder().decode(WireNetwork.self, from: data)
         {
-            check(answer.minimumVersions.ios)
+            await check(answer.minimumVersions.ios)
             let relays = answer.relays.filter { $0.url.hasPrefix("http://") || $0.url.hasPrefix("https://") }
             if !relays.isEmpty {
                 try? data.write(to: saved, options: .atomic)
@@ -76,8 +77,11 @@ final class Network {
 
     /// Only an answer from the server decides this app is too old; failing to reach it never does. Development
     /// builds are never too old.
-    private func check(_ minimum: ChannelVersions) {
-        guard !Config.isDev, let installed = Versions.fromBuild(Config.build) else { return }
+    private func check(_ minimum: ChannelVersions) async {
+        guard !Config.isDev, let built = Versions.fromBuild(Config.build) else { return }
+        // A stable release is a nightly's build promoted to the App Store, so there it counts as that stable.
+        let fromAppStore = (try? await AppTransaction.shared)?.unsafePayloadValue.environment == .production
+        let installed = fromAppStore ? Versions.base(built) : built
         let oldest = installed.contains("-") ? minimum.nightly : minimum.stable
         guard oldest != "0.0.0", let order = Versions.compare(installed, oldest), order < 0 else {
             updateRequired = nil
@@ -89,12 +93,16 @@ final class Network {
 
 enum Versions {
     /// The installed app's version from its build number, which release builds set to the store's version code:
-    /// 0.5.0-nightly.3 is 50003, and 0.5.0 itself is 50099.
+    /// 0.5.0-nightly.3 is 500003, and 0.5.0 itself is 500999.
     static func fromBuild(_ build: String) -> String? {
-        guard let code = Int(build), code >= 100 else { return nil }
-        let base = "\(code / 1_000_000).\(code / 10_000 % 100).\(code / 100 % 100)"
-        let nightly = code % 100
-        return nightly == 99 ? base : "\(base)-nightly.\(nightly)"
+        guard let code = Int(build), code >= 1000 else { return nil }
+        let base = "\(code / 10_000_000).\(code / 100_000 % 100).\(code / 1000 % 100)"
+        let nightly = code % 1000
+        return nightly == 999 ? base : "\(base)-nightly.\(nightly)"
+    }
+
+    static func base(_ version: String) -> String {
+        String(version.prefix { $0 != "-" })
     }
 
     /// Semantic version order: negative when `a` is older.

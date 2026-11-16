@@ -17,7 +17,7 @@ const ACCOUNTS = {
 };
 
 /**
- * Play needs a number that grows with every upload: 0.5.0-nightly.3 is 50003, and 0.5.0 itself is 50099.
+ * Play needs a number that grows with every upload: 0.5.0-nightly.3 is 500003, and 0.5.0 itself is 500999.
  * The iPhone app's build number is the same, so it can tell its own nightly from it.
  */
 function versionCode(version, base) {
@@ -26,8 +26,8 @@ function versionCode(version, base) {
   const [major, minor, patch] = match.slice(1, 4).map(Number);
   const nightly = match[4] === undefined ? null : Number(match[4]);
   if (`${major}.${minor}.${patch}` !== base) throw new Error(`${version} is not a release of ${base}, the version in app.json`);
-  if (minor > 99 || patch > 99 || nightly > 98) throw new Error(`${version} does not fit the version code scheme`);
-  return major * 1_000_000 + minor * 10_000 + patch * 100 + (nightly ?? 99);
+  if (minor > 99 || patch > 99 || nightly > 998) throw new Error(`${version} does not fit the version code scheme`);
+  return major * 10_000_000 + minor * 100_000 + patch * 1000 + (nightly ?? 999);
 }
 
 const CHANNELS = release.channels;

@@ -4,7 +4,7 @@ import { FIRST_ROLLOUT, releaseNotes, track, trackRelease, widened } from '../sc
 
 describe('Google Play releases', () => {
   it('sends a nightly to testers at once and a stable release to a share of production phones', () => {
-    expect(track('0.5.0-nightly.3')).toBe('alpha');
+    expect(track('0.5.0-nightly.3')).toBe('internal');
     expect(trackRelease('0.5.0-nightly.3', 50003, 'notes')).toMatchObject({ status: 'completed', versionCodes: ['50003'] });
     expect(track('0.5.0')).toBe('production');
     expect(trackRelease('0.5.0', 50099, 'notes')).toMatchObject({ status: 'inProgress', userFraction: FIRST_ROLLOUT });

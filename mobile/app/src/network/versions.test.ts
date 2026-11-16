@@ -4,10 +4,10 @@ import { compareVersions, tooOld, versionFromBuild } from './versions';
 
 describe('the installed version', () => {
   it('reads back from the version code', () => {
-    expect(versionFromBuild('50003')).toBe('0.5.0-nightly.3');
-    expect(versionFromBuild('50099')).toBe('0.5.0');
-    expect(versionFromBuild('1020100')).toBe('1.2.1-nightly.0');
-    expect(versionFromBuild('1')).toBeNull();
+    expect(versionFromBuild('500003')).toBe('0.5.0-nightly.3');
+    expect(versionFromBuild('500999')).toBe('0.5.0');
+    expect(versionFromBuild('10201000')).toBe('1.2.1-nightly.0');
+    expect(versionFromBuild('999')).toBeNull();
     expect(versionFromBuild('1.0')).toBeNull();
     expect(versionFromBuild(null)).toBeNull();
   });

@@ -2,18 +2,18 @@ import type { ChannelVersions } from '@sikemux/protocol';
 
 /**
  * The installed app's version from its build number, which release builds set to the Play version code:
- * 0.5.0-nightly.3 is 50003, and 0.5.0 itself is 50099. Anything else is not a release build's.
+ * 0.5.0-nightly.3 is 500003, and 0.5.0 itself is 500999. Anything else is not a release build's.
  */
 export function versionFromBuild(build: string | null): string | null {
   if (!build || !/^\d+$/.test(build)) return null;
   const code = Number(build);
-  if (code < 100) return null;
-  const major = Math.floor(code / 1_000_000);
-  const minor = Math.floor(code / 10_000) % 100;
-  const patch = Math.floor(code / 100) % 100;
-  const nightly = code % 100;
+  if (code < 1000) return null;
+  const major = Math.floor(code / 10_000_000);
+  const minor = Math.floor(code / 100_000) % 100;
+  const patch = Math.floor(code / 1000) % 100;
+  const nightly = code % 1000;
   const base = `${major}.${minor}.${patch}`;
-  return nightly === 99 ? base : `${base}-nightly.${nightly}`;
+  return nightly === 999 ? base : `${base}-nightly.${nightly}`;
 }
 
 type Parsed = { core: [number, number, number]; pre: string[] };

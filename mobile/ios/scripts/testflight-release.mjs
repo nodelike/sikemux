@@ -1,12 +1,15 @@
-// Hands an uploaded iPhone build to the external testers: waits for App Store Connect to finish
-// processing it, sets "What to Test" from the release notes, adds it to the Testers group and
-// submits it for beta review. Apple only lets external testers install a build it has reviewed.
+// `internal` waits for App Store Connect to finish processing an uploaded iPhone build and sets its
+// "What to Test" from the release notes; internal testers get it then, with no review.
 //
-//   node scripts/testflight-release.mjs submit 0.1.0-nightly.10 10010
+//   node scripts/testflight-release.mjs internal 0.1.0-nightly.10 100010
 //
-// `app-store` puts a stable build up for App Store review, released by itself once Apple approves:
+// `submit` does the same and also hands the build to the external Testers group through beta review.
+// Apple only lets external testers install a build it has reviewed.
 //
-//   node scripts/testflight-release.mjs app-store 0.2.0 20000
+// `app-store` puts a build up for App Store review as a stable version, released by itself once Apple
+// approves. A stable release promotes the build a nightly already sent to TestFlight:
+//
+//   node scripts/testflight-release.mjs app-store 0.2.0 200007
 //
 // `prune-certificates` revokes the development certificates earlier CI archives made. Each runner
 // starts with an empty keychain, so Xcode makes a new one every run until Apple's limit refuses.
@@ -142,6 +145,15 @@ async function pruneCertificates() {
   console.log(`TestFlight: revoked ${stale.length} development certificates earlier CI runs made`);
 }
 
+async function internal(version, build) {
+  const apps = await call(`/v1/apps?filter[bundleId]=${BUNDLE_ID}`);
+  const appId = apps.data[0]?.id;
+  if (!appId) throw new Error(`App Store Connect has no app with the bundle id ${BUNDLE_ID}`);
+  const { id: buildId } = await processedBuild(appId, version.replace(/-.*$/, ''), build);
+  await setWhatToTest(buildId, releaseNotes(version));
+  console.log(`TestFlight: ${version} (${build}) is out to internal testers`);
+}
+
 async function submit(version, build) {
   const notes = releaseNotes(version);
   const base = version.replace(/-.*$/, '');
@@ -269,11 +281,12 @@ async function appStore(version, build) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const [command, version, build] = process.argv.slice(2);
   try {
-    if (command === 'submit' && version && build) await submit(version, build);
+    if (command === 'internal' && version && build) await internal(version, build);
+    else if (command === 'submit' && version && build) await submit(version, build);
     else if (command === 'app-store' && version && build) await appStore(version, build);
     else if (command === 'prune-certificates') await pruneCertificates();
     else {
-      console.error('usage: testflight-release.mjs submit <version> <build number> | app-store <version> <build number> | prune-certificates');
+      console.error('usage: testflight-release.mjs internal|submit <version> <build number> | app-store <version> <build number> | prune-certificates');
       process.exit(2);
     }
   } catch (error) {
