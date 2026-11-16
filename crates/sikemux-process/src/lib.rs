@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io::{self, Read, Write};
-use std::process::{Command, Output, Stdio};
+use std::process::Output;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc, Arc,
@@ -10,6 +10,9 @@ use std::time::{Duration, Instant};
 pub mod android_sdk;
 pub mod cgroups;
 pub mod clock;
+pub mod command;
+
+use command::{Child, Command, Stdio};
 pub mod files;
 pub mod jobs;
 pub mod line;
@@ -81,7 +84,7 @@ fn kill_group(pid: u32) {
 }
 
 /// Kills the child and everything it started, then reaps it.
-pub fn kill_and_reap(child: &mut std::process::Child) {
+pub fn kill_and_reap(child: &mut Child) {
     kill_group(child.id());
     let _ = child.kill();
     let _ = child.wait();

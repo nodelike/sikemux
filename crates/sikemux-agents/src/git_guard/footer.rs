@@ -11,10 +11,10 @@
 //! gets the note saying whose they are once it is made, at `post-commit`, or
 //! at `post-rewrite` for an amend, after git copied the replaced commit's.
 
+use sikemux_process::command::{Command, Stdio};
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde::Deserialize;

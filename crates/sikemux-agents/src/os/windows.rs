@@ -1,7 +1,8 @@
+use sikemux_process::command::Command;
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::process::{Command, ExitStatus};
+use std::process::ExitStatus;
 
 /// Windows lets only Developer Mode or an administrator make symbolic links, so a folder falls
 /// back to a junction and a file to a hard link, which anyone may make.
@@ -46,7 +47,7 @@ fn junction(target: &Path, link: &Path) -> io::Result<()> {
         .arg("/J")
         .arg(link)
         .arg(target)
-        .stdout(std::process::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
         .status()?;
     match status.success() {
         true => Ok(()),

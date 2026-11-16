@@ -51,7 +51,7 @@ use std::time::UNIX_EPOCH;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::clock::epoch_ms_of;
-use tokio::process::Command;
+use sikemux_process::command::AsyncCommand;
 
 use crate::agent_catalog::AgentKind;
 use sikemux_pty::user_shell::login_shell_environment;
@@ -126,14 +126,14 @@ fn in_project(found: Option<recent::Found>, cwd: &str) -> Option<AgentSession> {
 }
 
 /// Points a CLI started on one of the person's accounts at that account's folder.
-pub fn apply_process_config(command: &mut Command, agent: &str, config_path: Option<&str>) {
+pub fn apply_process_config(command: &mut AsyncCommand, agent: &str, config_path: Option<&str>) {
     let (Some(variable), Some(path)) = (crate::launch::account_variable(agent), config_path) else {
         return;
     };
     command.env(variable, sikemux_process::paths::account_dir(path));
 }
 
-pub fn apply_login_environment(command: &mut Command) {
+pub fn apply_login_environment(command: &mut AsyncCommand) {
     for (key, value) in login_shell_environment() {
         command.env(key, value);
     }

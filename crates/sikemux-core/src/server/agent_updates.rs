@@ -6,18 +6,18 @@ use crate::server::chat_state::ChatParts;
 pub use sikemux_calls::agent_updates::UpdateAgents;
 pub use sikemux_calls::agent_updates::Updating;
 pub use sikemux_calls::agent_updates::{is_newer, newer_first};
+use sikemux_process::command::Stdio;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+use sikemux_process::command::Command;
 use sikemux_process::sync::Locked;
 use sikemux_process::user_environment;
 use sikemux_pty::user_shell::login_shell_environment;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
 
 use super::agent_accounts::Installed;
 use super::changed::{Topic, What};
@@ -161,7 +161,7 @@ async fn npm_latest(package: &str) -> Option<String> {
 }
 
 async fn command_latest(program: &Path, args: &[&str]) -> Option<String> {
-    let mut command = Command::from(user_environment::agent_command(program));
+    let mut command = Command::into_async(user_environment::agent_command(program));
     command
         .args(args)
         .envs(login_shell_environment())
@@ -251,12 +251,12 @@ fn set(core: &Core, kind: &str, updating: Option<Updating>) {
 async fn run(core: &Core, def: &AgentEntry, program: &Path) -> Result<(), String> {
     let mut command = match (def.update, def.install) {
         (Some(args), _) => {
-            let mut command = Command::from(user_environment::agent_command(program));
+            let mut command = Command::into_async(user_environment::agent_command(program));
             command.args(args);
             command
         }
         (None, Some(install)) => {
-            let mut command = Command::from(user_environment::agent_command("/bin/sh"));
+            let mut command = Command::into_async(user_environment::agent_command("/bin/sh"));
             command.args(["-c", install]);
             command
         }

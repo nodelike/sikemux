@@ -5,9 +5,9 @@
 
 mod models;
 
+use sikemux_process::command::{Child, ChildStdin, Stdio};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;

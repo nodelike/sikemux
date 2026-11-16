@@ -12,9 +12,9 @@ use windows as platform;
 /// Starts `command` as the head of a tree that [`terminate_tree`] stops as one: in a process
 /// group of its own on Unix, in a job on Windows. Every child the core may later stop starts
 /// here.
-pub fn spawn_tree(command: &mut std::process::Command) -> std::io::Result<std::process::Child> {
+pub fn spawn_tree(command: &mut crate::command::Command) -> std::io::Result<crate::command::Child> {
     #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(command, 0);
+    command.process_group(0);
     let child = spawn_hearing_ctrl_c(|| command.spawn())?;
     own_tree(child.id());
     Ok(child)

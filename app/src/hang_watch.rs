@@ -104,9 +104,9 @@ fn report(directory: &Path, silent: Duration) -> std::io::Result<()> {
         .arg(SAMPLE_SECONDS.to_string())
         .arg("-file")
         .arg(folder.join(file))
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .status();
     let (file, error) = match sampled {
         Ok(status) if status.success() => (Some(file), None),

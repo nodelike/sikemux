@@ -66,8 +66,8 @@ fn git_works() -> bool {
     }
     sikemux_process::user_environment::command("/usr/bin/xcode-select")
         .arg("-p")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::null())
         .status()
         .is_ok_and(|status| status.success())
 }

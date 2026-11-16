@@ -1,5 +1,5 @@
+use sikemux_process::command::ChildStdin;
 use std::io::{BufRead, Read, Write};
-use std::process::ChildStdin;
 use std::sync::mpsc;
 use std::time::Duration;
 

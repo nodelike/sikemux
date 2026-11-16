@@ -227,10 +227,10 @@ async fn clone_into(core: &Core, project: &str, url: &str, dir: &Path) -> Result
         sikemux_process::user_environment::var("GIT_SSH_COMMAND")
             .unwrap_or_else(|| "ssh -o BatchMode=yes -o ConnectTimeout=20".into()),
     );
-    let mut child = tokio::process::Command::from(command)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
+    let mut child = sikemux_process::command::Command::into_async(command)
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
         .map_err(|error| format!("git did not start: {error}"))?;

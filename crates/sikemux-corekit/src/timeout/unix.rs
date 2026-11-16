@@ -1,6 +1,7 @@
+use sikemux_process::command::{Child, Command};
 use std::io;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::process::{Child, Command, ExitStatus};
+use std::os::unix::process::ExitStatusExt;
+use std::process::ExitStatus;
 
 pub const TERMINATE: i32 = libc::SIGTERM;
 pub const KILL: i32 = libc::SIGKILL;

@@ -14,8 +14,9 @@ pub mod testing;
 pub mod watch;
 pub mod worktree;
 
+use sikemux_process::command::Command;
 use std::io::{self, Read};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

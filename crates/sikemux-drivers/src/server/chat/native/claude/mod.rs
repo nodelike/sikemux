@@ -112,7 +112,7 @@ fn transcript(launch: &ChatLaunch, session_id: &str) -> Option<PathBuf> {
 /// The models Claude offers, and the efforts `model` takes, from its answer to `initialize`
 /// with no session saved.
 pub async fn read_options(
-    command: tokio::process::Command,
+    command: sikemux_process::command::AsyncCommand,
     model: Option<&str>,
     effort: Option<&str>,
 ) -> Result<Value, String> {

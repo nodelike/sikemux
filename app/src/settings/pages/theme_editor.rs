@@ -910,8 +910,8 @@ mod wallpaper {
             .arg(path)
             .arg("--out")
             .arg(out.path())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(sikemux_process::command::Stdio::null())
+            .stderr(sikemux_process::command::Stdio::null())
             .status()
             .ok()?;
         if !shrunk.success() {

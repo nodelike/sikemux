@@ -9,10 +9,10 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sikemux_process::command::AsyncCommand;
 use sikemux_process::sync::Locked;
 use sikemux_pty::user_shell::login_shell_environment;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 
 use super::{cli, key};
 use crate::agent_catalog::AgentKind;
@@ -609,15 +609,15 @@ async fn run(
 pub async fn ask(
     provider: &str,
     lookup: &str,
-    mut command: Command,
+    mut command: AsyncCommand,
     args: &[&str],
     input: &str,
 ) -> Result<String, String> {
     command
         .args(args)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
+        .stdin(sikemux_process::command::Stdio::piped())
+        .stdout(sikemux_process::command::Stdio::piped())
+        .stderr(sikemux_process::command::Stdio::piped());
     let mut child = command
         .spawn()
         .map_err(|_| format!("Could not start the {provider} {lookup}"))?;
@@ -736,16 +736,16 @@ pub(super) async fn codex_app_server(
 
 /// Asks `command`, a `codex` program, one question as a short-lived app server.
 pub async fn codex_ask(
-    mut command: Command,
+    mut command: AsyncCommand,
     method: &str,
     params: Value,
     topic: &str,
 ) -> Result<Value, String> {
     command
         .args(["app-server", "--stdio"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::piped())
+        .stdout(sikemux_process::command::Stdio::piped())
+        .stderr(sikemux_process::command::Stdio::null());
     let mut child = command
         .spawn()
         .map_err(|_| format!("Could not start Codex {topic} lookup"))?;

@@ -7,9 +7,9 @@
 //! adds to what the person already configured or works on a private copy of the
 //! agent's home, so an agent launched outside Sikemux is unaffected.
 
+use sikemux_process::command::Stdio;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -469,14 +469,16 @@ async fn run_config_command(
 ) -> Result<(), String> {
     let output = tokio::time::timeout(
         CONFIG_TIMEOUT,
-        tokio::process::Command::from(sikemux_process::user_environment::agent_command(program))
-            .args(args)
-            .env(home.0, home.1)
-            .kill_on_drop(true)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .output(),
+        sikemux_process::command::Command::into_async(
+            sikemux_process::user_environment::agent_command(program),
+        )
+        .args(args)
+        .env(home.0, home.1)
+        .kill_on_drop(true)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output(),
     )
     .await
     .map_err(|_| format!("{label} tools config timed out"))?

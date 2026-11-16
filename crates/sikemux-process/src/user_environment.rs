@@ -1,7 +1,7 @@
+use crate::command::Command;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
@@ -72,12 +72,6 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
     };
     command.envs(&environment().variables);
     command.envs(crate::jobs::variable());
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // A console of its own, without a window, keeps the child's Ctrl-C apart from ours.
-        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
-    }
     command
 }
 
@@ -167,7 +161,7 @@ fn past_xcode_stub(git: PathBuf) -> PathBuf {
     if git != std::path::Path::new("/usr/bin/git") {
         return git;
     }
-    let output = Command::new("/usr/bin/xcrun")
+    let output = std::process::Command::new("/usr/bin/xcrun")
         .args(["--find", "git"])
         .envs(&environment().variables)
         .stdin(std::process::Stdio::null())

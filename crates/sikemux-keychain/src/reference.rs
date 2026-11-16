@@ -3,7 +3,7 @@
 //! through 1Password's `op` CLI each time it is used. `op` runs in the person's own
 //! environment, so a service account or a Connect server set there is used as `op` would.
 
-use std::process::Stdio;
+use sikemux_process::command::Stdio;
 use std::time::Duration;
 
 const PREFIX: &str = "op://";

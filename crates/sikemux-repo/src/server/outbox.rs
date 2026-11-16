@@ -5,9 +5,9 @@
 //! remote, with its own checks and hooks. The outbox's hook then has the core forward exactly
 //! those ref updates, from a git of its own that reads no config or hook an agent can write.
 
+use sikemux_process::command::Command;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};

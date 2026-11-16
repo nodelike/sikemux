@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 #[cfg(unix)]
-use std::process::Command;
+use sikemux_process::command::Command;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// Opens the payload, fencing it off from whatever an interactive rc file
@@ -159,8 +159,8 @@ fn capture_login_shell() -> LoginShellCapture {
         command
             .args(["-l", "-i", "-c", &script])
             // An rc file that reads stdin sees EOF instead of blocking.
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
+            .stdin(sikemux_process::command::Stdio::null())
+            .stderr(sikemux_process::command::Stdio::null());
         for key in crate::launch::OPTIONAL_PTY_ENV
             .iter()
             .chain(&sikemux_process::vars::LAUNCHING_SESSION)

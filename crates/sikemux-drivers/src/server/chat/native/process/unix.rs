@@ -70,7 +70,9 @@ impl Released {
     }
 }
 
-pub fn start(command: &mut std::process::Command) -> std::io::Result<(u32, Pipes, Exit)> {
+pub fn start(
+    command: &mut sikemux_process::command::Command,
+) -> std::io::Result<(u32, Pipes, Exit)> {
     let mut child = sikemux_process::spawn_tree(command)?;
     let pid = child.id();
     let pipes = (|| {

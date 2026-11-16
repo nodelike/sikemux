@@ -2,8 +2,8 @@
 // handed to the JDK's keytool and jarsigner, or the SDK's apksigner, only through
 // an environment variable, so no password is ever on a command line or in an answer.
 
+use sikemux_process::command::Command;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;

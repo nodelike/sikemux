@@ -3,11 +3,11 @@
 //! command already runs, it plays that run's output instead; when the wait is long and the
 //! agent typed the command, it says so and ends, to be woken when its turn comes.
 
+use sikemux_process::command::Stdio;
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -181,7 +181,7 @@ pub(super) fn run(
 /// Copies what the child writes to this process's own output and to `log`, from threads of
 /// their own.
 fn copy_output(
-    child: &mut std::process::Child,
+    child: &mut sikemux_process::command::Child,
     log: &Path,
 ) -> Option<Vec<std::thread::JoinHandle<()>>> {
     let file = std::fs::OpenOptions::new().append(true).open(log).ok()?;

@@ -1,5 +1,7 @@
 //! The core's client, and finding or starting the core on this machine.
 
+#[cfg(not(target_os = "macos"))]
+use sikemux_process::command::Stdio;
 use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
@@ -8,8 +10,6 @@ use std::os::unix::fs::OpenOptionsExt;
 #[cfg(all(unix, not(target_os = "macos")))]
 use std::os::unix::process::CommandExt;
 use std::path::Path;
-#[cfg(not(target_os = "macos"))]
-use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use crate::frozen::{FrozenReply, FrozenRequest};
@@ -210,9 +210,11 @@ fn start_detached(socket: &Path, binary: &Path, log: &Path, args: &[OsString]) -
 
 /// The core outlives the app, so it leaves any job the app runs in when the job lets it.
 #[cfg(windows)]
-pub fn spawn_detached(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
+pub fn spawn_detached(
+    mut command: sikemux_process::command::Command,
+    log: std::fs::File,
+) -> io::Result<()> {
     use std::os::windows::io::AsRawHandle;
-    use std::os::windows::process::CommandExt;
     use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
     use windows_sys::Win32::System::Threading::{
         CREATE_BREAKAWAY_FROM_JOB, CREATE_NEW_PROCESS_GROUP, DETACHED_PROCESS,
@@ -248,7 +250,10 @@ pub fn spawn_detached(mut command: std::process::Command, log: std::fs::File) ->
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn spawn_double_forked(mut command: std::process::Command, log: std::fs::File) -> io::Result<()> {
+fn spawn_double_forked(
+    mut command: sikemux_process::command::Command,
+    log: std::fs::File,
+) -> io::Result<()> {
     command
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
@@ -286,7 +291,10 @@ extern "C" {
 /// core starts answers for itself, and the person's grant to Sikemux never
 /// reaches them.
 #[cfg(target_os = "macos")]
-fn spawn_responsible(command: &std::process::Command, log: &std::fs::File) -> io::Result<()> {
+fn spawn_responsible(
+    command: &sikemux_process::command::Command,
+    log: &std::fs::File,
+) -> io::Result<()> {
     use std::collections::BTreeMap;
     use std::ffi::{CString, OsStr};
     use std::os::fd::AsRawFd;

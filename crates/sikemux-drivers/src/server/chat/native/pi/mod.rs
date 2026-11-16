@@ -83,7 +83,9 @@ fn offered<'a>(state: &'a Value, answer: &Value) -> Offered<'a> {
 }
 
 /// Asks Pi, with no session, which models it can run, as the pickers of a chat not yet started.
-pub async fn read_options(command: tokio::process::Command) -> Result<Value, String> {
+pub async fn read_options(
+    command: sikemux_process::command::AsyncCommand,
+) -> Result<Value, String> {
     let asked = format!(
         "{}\n{}\n",
         json!({ "type": "get_state", "id": "state" }),

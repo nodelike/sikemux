@@ -3,9 +3,9 @@
 //! way through its own CLI, and some cannot answer at all, so `Unknown` is an
 //! honest answer rather than a failure. Sikemux never reads a credential.
 
+use sikemux_process::command::Stdio;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;

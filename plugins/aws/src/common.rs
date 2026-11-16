@@ -54,7 +54,7 @@ impl Target {
     }
 }
 
-pub(crate) fn aws_command(target: &Target) -> std::process::Command {
+pub(crate) fn aws_command(target: &Target) -> sikemux_process::command::Command {
     let mut cmd = sikemux_process::user_environment::command(aws_bin());
     if let Some(profile) = &target.profile {
         cmd.env("AWS_PROFILE", profile);

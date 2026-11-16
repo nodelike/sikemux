@@ -1,9 +1,10 @@
+use sikemux_process::command::Command;
 use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
-use std::process::{Command, ExitStatus};
+use std::process::ExitStatus;
 
 pub const PATH_LIST_SEPARATOR: char = ':';
 

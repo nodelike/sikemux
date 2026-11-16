@@ -235,7 +235,7 @@ impl Catalog {
 /// Asks a server started from `command` in `directory` what a chat there can run on, the
 /// model picked first when OpenCode has it, at `effort` when that model takes it.
 pub async fn read_options(
-    command: tokio::process::Command,
+    command: sikemux_process::command::AsyncCommand,
     directory: &Path,
     model: Option<&str>,
     effort: Option<&str>,

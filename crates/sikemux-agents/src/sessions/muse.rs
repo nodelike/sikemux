@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
+use sikemux_process::command::Command;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::Command;
 
 use super::apply_login_environment;
 use super::recent::{Found, Hit, Listed, PageScan};
@@ -139,14 +139,15 @@ pub(super) async fn rename_muse_session(
     session_id: &str,
     name: &str,
 ) -> Result<(), String> {
-    let mut command = Command::from(sikemux_process::user_environment::agent_command(executable));
+    let mut command =
+        Command::into_async(sikemux_process::user_environment::agent_command(executable));
     apply_login_environment(&mut command);
     command
         .arg("serve")
         .kill_on_drop(true)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+        .stdin(sikemux_process::command::Stdio::piped())
+        .stdout(sikemux_process::command::Stdio::piped())
+        .stderr(sikemux_process::command::Stdio::null());
     let mut child = command
         .spawn()
         .map_err(|_| "Could not start Muse".to_string())?;

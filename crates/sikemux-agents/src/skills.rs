@@ -284,9 +284,9 @@ fn clone(url: &str, into: &Path) -> Result<(), String> {
         .args(["clone", "--depth", "1", "--quiet", url])
         .arg(into)
         .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped());
+        .stdin(sikemux_process::command::Stdio::null())
+        .stdout(sikemux_process::command::Stdio::null())
+        .stderr(sikemux_process::command::Stdio::piped());
     if sikemux_process::user_environment::var("GIT_SSH_COMMAND").is_none() {
         command.env(
             "GIT_SSH_COMMAND",
