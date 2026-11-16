@@ -48,9 +48,8 @@ fn read_from(rows: &[Row], from: usize) -> usize {
     let Some(before) = at.checked_sub(1) else {
         return at;
     };
-    match &rows[before].msg.team {
-        Some(team) => rows[..=before]
-            .iter()
+    match rows.get(before).and_then(|row| row.msg.team.as_ref()) {
+        Some(team) => (rows.iter().take(before + 1))
             .rposition(|row| row.msg.id == team.id)
             .unwrap_or(at),
         None => at,
@@ -69,7 +68,7 @@ fn one_line(text: &str) -> String {
         .replace("**", "")
         .replace('`', "");
     match line.char_indices().nth(MAX_LINE_CHARS) {
-        Some((at, _)) => format!("{}…", &line[..at]),
+        Some((at, _)) => format!("{}…", line.get(..at).unwrap_or(&line)),
         None => line,
     }
 }
@@ -94,7 +93,9 @@ impl Run {
         if self.rows.len() >= MOST_ROWS {
             self.close(rows, out);
         }
-        let row = &rows[at];
+        let Some(row) = rows.get(at) else {
+            return;
+        };
         for letter in &row.msg.letters {
             let sender = TeamAgent {
                 agent_id: letter.agent_id.clone(),
@@ -119,6 +120,10 @@ impl Run {
     }
 
     /// Ends the run, writing what it came to on its rows.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "a run holds only the places of rows `read` walked, all within `rows`"
+    )]
     fn close(&mut self, rows: &mut [Row], out: &mut Reading) {
         let members = std::mem::take(&mut self.rows);
         let said = std::mem::take(&mut self.said);
@@ -191,11 +196,13 @@ fn read(rows: &mut [Row], from: usize, needs: &mut Needs) -> Vec<usize> {
     };
     let mut run = Run::default();
     for at in read_from(rows, from)..rows.len() {
-        if from_an_agent(&rows[at]) {
+        if rows.get(at).is_some_and(from_an_agent) {
             run.add(rows, at, &mut out);
         } else {
             run.close(rows, &mut out);
-            put(&mut rows[at], None, 0, at, &mut out.touched);
+            if let Some(row) = rows.get_mut(at) {
+                put(row, None, 0, at, &mut out.touched);
+            }
         }
     }
     run.close(rows, &mut out);

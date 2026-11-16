@@ -153,14 +153,14 @@ pub fn matches(text: &str, query: &Query) -> Vec<(usize, usize)> {
     let mut found = Vec::new();
     let mut at = 0;
     while at + needle.len() <= folded.len() {
-        if folded[at..at + needle.len()] == needle[..] {
+        if (folded.get(at..at + needle.len())).is_some_and(|window| window == needle) {
             let end = at + needle.len();
             let before = at.checked_sub(1).and_then(|before| hay.get(before));
             let whole = !query.whole_word
                 || (word(before) != word(hay.get(at))
                     && word(hay.get(end - 1)) != word(hay.get(end)));
             if whole {
-                found.push((units[at], units[end]));
+                found.extend(units.get(at).copied().zip(units.get(end).copied()));
                 at = end;
                 continue;
             }

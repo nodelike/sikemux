@@ -2188,7 +2188,9 @@ mod diff {
 
     fn marked(line: &DiffLine) -> &str {
         let mark = line.mark.as_ref().expect("a marked span");
-        &line.text[mark[0] as usize..mark[1] as usize]
+        (line.text)
+            .get(mark[0] as usize..mark[1] as usize)
+            .expect("the span falls on character boundaries")
     }
 
     #[test]

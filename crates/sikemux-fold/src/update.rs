@@ -163,14 +163,18 @@ pub fn tool_status(word: &str) -> &'static str {
 /// A command run in a terminal, with `input` saying what ran and where.
 pub fn terminal_call(id: &str, status: &str, title: &str, input: Value) -> Value {
     let mut call = tool_call(id, "execute", title, status);
-    call["rawInput"] = input;
+    set(&mut call, "rawInput", input);
     call
 }
 
 /// A command that finished, having printed `output`.
 pub fn terminal_done(id: &str, status: &str, output: &str) -> Value {
     let mut update = tool_update(id, status);
-    update["rawOutput"] = json!({ "formatted_output": output });
+    set(
+        &mut update,
+        "rawOutput",
+        json!({ "formatted_output": output }),
+    );
     update
 }
 
@@ -182,7 +186,7 @@ pub fn mcp_title(server: &str, tool: &str) -> String {
 /// A call of a tool server's tool, with `arguments` as the model wrote them.
 pub fn mcp_call(id: &str, status: &str, server: &str, tool: &str, arguments: &Value) -> Value {
     let mut call = tool_call(id, "other", &mcp_title(server, tool), status);
-    call["rawInput"] = mcp_input(server, tool, arguments);
+    set(&mut call, "rawInput", mcp_input(server, tool, arguments));
     call
 }
 
@@ -324,7 +328,7 @@ pub fn thought(text: &str, message_id: Option<&str>) -> Value {
 fn chunk(kind: UpdateKind, text: &str, message_id: Option<&str>) -> Value {
     let mut update = json!({ "sessionUpdate": kind, "content": { "type": "text", "text": text } });
     if let Some(id) = message_id {
-        update["messageId"] = json!(id);
+        set(&mut update, "messageId", json!(id));
     }
     update
 }
@@ -335,7 +339,7 @@ pub fn notice(severity: &str, title: &str, description: Option<&str>) -> Value {
     let mut update =
         json!({ "sessionUpdate": UpdateKind::Notice, "severity": severity, "title": title });
     if let Some(description) = description.filter(|description| !description.is_empty()) {
-        update["description"] = json!(description);
+        set(&mut update, "description", json!(description));
     }
     update
 }
@@ -343,49 +347,49 @@ pub fn notice(severity: &str, title: &str, description: Option<&str>) -> Value {
 /// The line in a chat where the goal `marker` began or ended.
 pub fn goal_notice(title: &str, marker: GoalMarker) -> Value {
     let mut update = notice("info", title, None);
-    update["goal"] = json!(marker);
+    set(&mut update, "goal", json!(marker));
     update
 }
 
 /// The line in the chief's chat that says the person overruled a decision.
 pub fn overruled_notice(title: &str, overruled: OverruledDecision) -> Value {
     let mut update = notice("info", title, None);
-    update["overruled"] = json!(overruled);
+    set(&mut update, "overruled", json!(overruled));
     update
 }
 
 /// The row in a lead's chat for a page one of its workers showed.
 pub fn worker_page_notice(page: WorkerPage) -> Value {
     let mut update = notice("info", "Page shown", None);
-    update["workerPage"] = json!(page);
+    set(&mut update, "workerPage", json!(page));
     update
 }
 
 /// The line under an agent's reply that says it recorded a decision itself.
 pub fn decided_notice(decided: DecidedLine) -> Value {
     let mut update = notice("info", "Decided", None);
-    update["decided"] = json!(decided);
+    set(&mut update, "decided", json!(decided));
     update
 }
 
 /// The line in the chief's chat that counts its week.
 pub fn week_notice(title: &str, week: ChiefWeek) -> Value {
     let mut update = notice("info", title, None);
-    update["week"] = json!(week);
+    set(&mut update, "week", json!(week));
     update
 }
 
 /// The line in the chief's chat that says a rule of the person's is now a check.
 pub fn rule_change_notice(title: &str, rule_change: RuleChange) -> Value {
     let mut update = notice("info", title, None);
-    update["ruleChange"] = json!(rule_change);
+    set(&mut update, "ruleChange", json!(rule_change));
     update
 }
 
 /// The line in the chief's chat that says the board closed a card by itself.
 pub fn closed_card_notice(title: &str, closed_card: ClosedCard) -> Value {
     let mut update = notice("info", title, None);
-    update["closedCard"] = json!(closed_card);
+    set(&mut update, "closedCard", json!(closed_card));
     update
 }
 
@@ -396,7 +400,7 @@ pub fn rule_notice(rule: KeptRule) -> Value {
         false => "Kept as a rule",
     };
     let mut update = notice("info", title, None);
-    update["rule"] = json!(rule);
+    set(&mut update, "rule", json!(rule));
     update
 }
 
@@ -411,12 +415,18 @@ pub fn compaction(id: &str, opens: bool, status: &str, error: Option<&str>) -> V
         "_meta": { "sikemux": { "compaction": true } },
     });
     if opens {
-        update["kind"] = json!("think");
+        set(&mut update, "kind", json!("think"));
     }
     if let Some(error) = error {
-        update["content"] = json!([text_content(error)]);
+        set(&mut update, "content", json!([text_content(error)]));
     }
     update
+}
+
+fn set(update: &mut Value, key: &str, value: Value) {
+    if let Some(fields) = update.as_object_mut() {
+        fields.insert(key.to_owned(), value);
+    }
 }
 
 /// Marks a replayed update with when it first happened, in Unix milliseconds,

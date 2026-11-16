@@ -327,8 +327,9 @@ fn first_step(command: &str) -> Option<Vec<String>> {
 /// Where a search command looked, when it says.
 pub(super) fn command_within(command: &str) -> Option<String> {
     let step = first_step(command)?;
-    let program = step[0].rsplit('/').next().unwrap_or_default();
-    let positional: Vec<&str> = step[1..]
+    let (program, args) = step.split_first()?;
+    let program = program.rsplit('/').next().unwrap_or_default();
+    let positional: Vec<&str> = args
         .iter()
         .map(String::as_str)
         .filter(|arg| !arg.starts_with('-'))
@@ -349,11 +350,11 @@ pub(super) fn command_within(command: &str) -> Option<String> {
 /// What a command does, read from its first step that is not a `cd` or a setting, and what
 /// it reads, searches for or lists.
 pub(super) fn command_intent(command: &str) -> (ToolIntent, Option<String>) {
-    let Some(step) = first_step(command) else {
+    let step = first_step(command).unwrap_or_default();
+    let Some((program, args)) = step.split_first() else {
         return (ToolIntent::Run, None);
     };
-    let program = step[0].rsplit('/').next().unwrap_or_default();
-    let args = &step[1..];
+    let program = program.rsplit('/').next().unwrap_or_default();
     let positional: Vec<&str> = args
         .iter()
         .map(String::as_str)
@@ -479,8 +480,8 @@ const VALUED_FLAGS: &[&str] = &[
 /// searching, reading, listing, testing, building or git. A plain command stays as typed.
 pub(super) fn said(command: &str) -> Option<Said> {
     let step = first_step(command)?;
-    let program = step[0].rsplit('/').next().unwrap_or_default();
-    let args = &step[1..];
+    let (program, args) = step.split_first()?;
+    let program = program.rsplit('/').next().unwrap_or_default();
     let positional: Vec<&str> = args
         .iter()
         .map(String::as_str)
@@ -667,7 +668,7 @@ fn without_prefixes(words: &[String]) -> Vec<String> {
             _ => break,
         }
     }
-    words[at.min(words.len())..].to_vec()
+    words.iter().skip(at).cloned().collect()
 }
 
 fn basename(path: &str) -> &str {

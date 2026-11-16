@@ -43,7 +43,7 @@ fn tag_name(text: &str) -> Option<&str> {
     let end = rest
         .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'))
         .unwrap_or(rest.len());
-    Some(&rest[..end])
+    rest.get(..end)
 }
 
 fn is_harness_markup(text: &str) -> bool {
@@ -56,10 +56,10 @@ fn is_harness_markup(text: &str) -> bool {
             return false;
         }
         let close = format!("</{name}>");
-        let Some(end) = rest.find(&close) else {
+        let Some((_, after)) = rest.split_once(close.as_str()) else {
             return false;
         };
-        rest = rest[end + close.len()..].trim_start();
+        rest = after.trim_start();
     }
     true
 }
@@ -86,8 +86,9 @@ pub(super) fn is_markup_only(text: &str) -> bool {
     };
     let close = format!("</{}>", name.to_lowercase());
     trimmed.len() > close.len()
-        && trimmed[trimmed.len() - close.len()..].eq_ignore_ascii_case(&close)
-        && trimmed[1 + name.len()..].contains('>')
+        && (trimmed.get(trimmed.len() - close.len()..))
+            .is_some_and(|end| end.eq_ignore_ascii_case(&close))
+        && (trimmed.get(1 + name.len()..)).is_some_and(|after| after.contains('>'))
 }
 
 fn has_blank_line(text: &str) -> bool {
@@ -115,19 +116,18 @@ fn unescaped(value: &str) -> String {
 pub(super) fn attributes(source: &str) -> Vec<(&str, String)> {
     let mut found = Vec::new();
     let mut rest = source;
-    while let Some(eq) = rest.find("=\"") {
-        let key_start = rest[..eq]
-            .rfind(|c: char| !(c.is_ascii_lowercase() || c == '-'))
-            .map_or(0, |at| at + 1);
-        let key = &rest[key_start..eq];
-        let value_start = eq + 2;
-        let Some(len) = rest[value_start..].find('"') else {
+    while let Some((before, after)) = rest.split_once("=\"") {
+        let key_start = before
+            .trim_end_matches(|c: char| c.is_ascii_lowercase() || c == '-')
+            .len();
+        let key = before.get(key_start..).unwrap_or_default();
+        let Some((value, after_value)) = after.split_once('"') else {
             break;
         };
         if !key.is_empty() {
-            found.push((key, unescaped(&rest[value_start..value_start + len])));
+            found.push((key, unescaped(value)));
         }
-        rest = &rest[value_start + len + 1..];
+        rest = after_value;
     }
     found
 }
@@ -150,21 +150,23 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
             outside.push_str(rest);
             break;
         };
-        outside.push_str(&rest[..at]);
-        let open_end = rest[at..].find(">\n").map(|end| at + end);
-        let Some(open_end) = open_end.filter(|end| !rest[at..*end].contains('>')) else {
-            outside.push_str(&rest[at..]);
+        let Some((before, from_tag)) = rest.split_at_checked(at) else {
+            outside.push_str(rest);
             break;
         };
-        let source = &rest[at + tag.len() + 2..open_end];
-        let body_start = open_end + 2;
+        outside.push_str(before);
+        let open = from_tag.split_once(">\n");
+        let Some((open, after_open)) = open.filter(|(open, _)| !open.contains('>')) else {
+            outside.push_str(from_tag);
+            break;
+        };
+        let source = open.get(tag.len() + 2..).unwrap_or_default();
         let close = format!("\n</{tag}>");
-        let Some(body_len) = rest[body_start..].find(&close) else {
-            outside.push_str(&rest[at..]);
+        let Some((body, after_close)) = after_open.split_once(close.as_str()) else {
+            outside.push_str(from_tag);
             break;
         };
-        let body = rest[body_start..body_start + body_len]
-            .replace(&format!("&lt;/{tag}"), &format!("</{tag}"));
+        let body = body.replace(&format!("&lt;/{tag}"), &format!("</{tag}"));
         let found = attributes(source);
         let attribute = |key: &str| {
             found
@@ -209,7 +211,7 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
                 trigger,
             }
         });
-        rest = &rest[body_start + body_len + close.len()..];
+        rest = after_close;
     }
     (!letters.is_empty() && outside.trim().is_empty()).then_some(letters)
 }
@@ -220,18 +222,17 @@ pub(super) fn split_trailing_file_links(text: &str) -> (&str, Vec<String>) {
     let mut rest = text.trim_end();
     let mut paths = Vec::new();
     while let Some(inner) = rest.strip_suffix(')') {
-        let Some(open) = inner.rfind("](file://") else {
+        let Some((head, path)) = inner.rsplit_once("](file://") else {
             break;
         };
-        let Some(start) = inner[..open].rfind("[@") else {
+        let Some((before, label)) = head.rsplit_once("[@") else {
             break;
         };
-        let path = &inner[open + "](file://".len()..];
-        if path.is_empty() || path.contains([')', '\n']) || inner[start..open].contains('\n') {
+        if path.is_empty() || path.contains([')', '\n']) || label.contains('\n') {
             break;
         }
         paths.push(path.to_owned());
-        rest = inner[..start].trim_end();
+        rest = before.trim_end();
     }
     paths.reverse();
     (rest, paths)
@@ -241,20 +242,22 @@ pub(super) fn split_trailing_file_links(text: &str) -> (&str, Vec<String>) {
 /// with the `[Image #n]` tags that stood for those files taken out of the text.
 fn split_attached(answer: &str) -> (String, Vec<String>) {
     const HEAD: &str = "Attached:\n";
-    let start = match answer.strip_prefix(HEAD) {
-        Some(_) => 0,
-        None => match answer.find(&format!("\n\n{HEAD}")) {
-            Some(at) => at + 2,
-            None => return (answer.to_owned(), Vec::new()),
-        },
+    let split = match answer.strip_prefix(HEAD) {
+        Some(listed) => Some(("", listed)),
+        None => (answer.find(&format!("\n\n{HEAD}")))
+            .and_then(|at| answer.split_at_checked(at + 2))
+            .and_then(|(before, rest)| Some((before, rest.strip_prefix(HEAD)?))),
     };
-    let listed = &answer[start + HEAD.len()..];
+    let Some((before, listed)) = split else {
+        return (answer.to_owned(), Vec::new());
+    };
     let end = listed.find("\n\n").unwrap_or(listed.len());
-    let paths: Vec<String> = (listed[..end].lines())
+    let (list, after) = listed.split_at_checked(end).unwrap_or((listed, ""));
+    let paths: Vec<String> = (list.lines())
         .filter_map(|line| line.strip_prefix("- "))
         .map(str::to_owned)
         .collect();
-    let text = [&answer[..start], &listed[end..]].concat();
+    let text = [before, after].concat();
     (without_image_tags(&text, paths.len()), paths)
 }
 
@@ -275,22 +278,18 @@ pub(super) fn split_sent_context(text: &str) -> (String, Vec<SentContext>) {
     let mut rest = String::new();
     let mut remaining = text;
     const OPEN: &str = "<context ref=\"";
-    while let Some(at) = remaining.find(OPEN) {
-        let uri_start = at + OPEN.len();
-        let parsed = remaining[uri_start..].find("\">\n").and_then(|uri_len| {
-            let uri = &remaining[uri_start..uri_start + uri_len];
-            let body_start = uri_start + uri_len + 3;
-            let body_len = remaining[body_start..].find("\n</context>")?;
-            (!uri.is_empty() && !uri.contains('"')).then_some((uri, body_start, body_len))
+    while let Some((before, after_open)) = remaining.split_once(OPEN) {
+        let parsed = after_open.split_once("\">\n").and_then(|(uri, after_uri)| {
+            let (body, after_body) = after_uri.split_once("\n</context>")?;
+            (!uri.is_empty() && !uri.contains('"')).then_some((uri, body, after_body))
         });
-        let Some((uri, body_start, body_len)) = parsed else {
-            rest.push_str(&remaining[..uri_start]);
-            remaining = &remaining[uri_start..];
+        let Some((uri, body, after_body)) = parsed else {
+            rest.push_str(before);
+            rest.push_str(OPEN);
+            remaining = after_open;
             continue;
         };
-        let before = &remaining[..at];
         rest.push_str(before.strip_suffix('\n').unwrap_or(before));
-        let body = &remaining[body_start..body_start + body_len];
         context.push(
             SentContext::new(
                 uri.to_owned(),
@@ -298,7 +297,7 @@ pub(super) fn split_sent_context(text: &str) -> (String, Vec<SentContext>) {
             )
             .with_text(body),
         );
-        remaining = &remaining[body_start + body_len + "\n</context>".len()..];
+        remaining = after_body;
     }
     rest.push_str(remaining);
     for item in &context {
@@ -315,31 +314,34 @@ pub(super) fn split_sent_context(text: &str) -> (String, Vec<SentContext>) {
 /// more backticks closed by the same fence, at the start or after a blank line.
 fn headed_fences(text: &str, context: &mut Vec<SentContext>) -> String {
     let mut out = String::new();
-    let mut at = 0;
-    while at < text.len() {
-        let starts = if at == 0 && text.starts_with("### ") {
+    let mut rest = text;
+    let mut at_start = true;
+    while !rest.is_empty() {
+        let starts = if at_start && rest.starts_with("### ") {
             Some((0, 0))
         } else {
-            text[at..]
-                .find("\n\n### ")
-                .map(|offset| (at + offset, at + offset + 2))
+            (rest.find("\n\n### ")).map(|cut| (cut, cut + 2))
         };
+        at_start = false;
         let Some((cut, head)) = starts else {
             break;
         };
-        match headed_fence(&text[head..]) {
+        match headed_fence(rest.get(head..).unwrap_or_default()) {
             Some((sent, len)) => {
-                out.push_str(&text[at..cut]);
+                out.push_str(rest.get(..cut).unwrap_or_default());
                 context.push(sent);
-                at = head + len;
+                rest = rest.get(head + len..).unwrap_or_default();
             }
             None => {
-                out.push_str(&text[at..head.max(cut + 1)]);
-                at = head.max(cut + 1);
+                let (kept, after) = rest
+                    .split_at_checked(head.max(cut + 1))
+                    .unwrap_or((rest, ""));
+                out.push_str(kept);
+                rest = after;
             }
         }
     }
-    out.push_str(&text[at.min(text.len())..]);
+    out.push_str(rest);
     out
 }
 
@@ -355,17 +357,17 @@ fn headed_fence(text: &str) -> Option<(SentContext, usize)> {
     if ticks < 3 || rest.as_bytes().get(ticks) != Some(&b'\n') {
         return None;
     }
-    let fence = &rest[..ticks];
-    let body = &rest[ticks + 1..];
+    let (fence, after_fence) = rest.split_at_checked(ticks)?;
+    let body = after_fence.get(1..)?;
     let close = format!("\n{fence}");
     let mut search = 0;
-    while let Some(found) = body[search..].find(&close) {
+    while let Some(found) = body.get(search..)?.find(&close) {
         let end = search + found + close.len();
-        let after = &body[end..];
+        let after = body.get(end..)?;
         if after.is_empty() || after.starts_with("\n\n###") {
             let consumed = text.len() - after.len();
             let sent = SentContext::new(uri.to_owned(), title.to_owned())
-                .with_text(&body[..search + found]);
+                .with_text(body.get(..search + found)?);
             return Some((sent, consumed));
         }
         search = search + found + 1;
@@ -404,9 +406,12 @@ pub fn sent_spans(text: &str, names: SentNames<'_>) -> Vec<SentSpan> {
         let Some((at, written, chip)) = next else {
             break;
         };
-        if at > 0 {
+        let Some((before, from)) = rest.split_at_checked(at) else {
+            break;
+        };
+        if !before.is_empty() {
             spans.push(SentSpan {
-                text: rest[..at].to_owned(),
+                text: before.to_owned(),
                 chip: None,
             });
         }
@@ -414,7 +419,7 @@ pub fn sent_spans(text: &str, names: SentNames<'_>) -> Vec<SentSpan> {
             text: written.clone(),
             chip: Some(chip.clone()),
         });
-        rest = &rest[at + written.len()..];
+        rest = from.get(written.len()..).unwrap_or_default();
     }
     if spans.is_empty() {
         return spans;
@@ -456,7 +461,8 @@ fn sent_chips(text: &str, names: &SentNames<'_>) -> Vec<(String, SentChip)> {
         }
         let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
         let tag = (0..parts.len())
-            .map(|from| format!("+{}", parts[from..].join("/")))
+            .filter_map(|from| parts.get(from..))
+            .map(|tail| format!("+{}", tail.join("/")))
             .find(|tag| text.contains(tag.as_str()));
         if let Some(tag) = tag {
             let kind = match names.folders.contains(path) {

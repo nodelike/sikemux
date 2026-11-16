@@ -47,9 +47,9 @@ pub(super) fn parse(body: &str) -> Option<TriggerFired> {
             request: None,
         });
     };
-    let block = &rest[at + 2..];
-    let tag_end = block.find(">\n")?;
-    let found = attributes(&block[REQUEST_TAG.len() + 1..tag_end]);
+    let (prompt, from_open) = rest.split_at_checked(at)?;
+    let (tag, after_tag) = from_open.get(2..)?.split_once(">\n")?;
+    let found = attributes(tag.get(REQUEST_TAG.len() + 1..)?);
     let attribute = |key: &str| {
         found
             .iter()
@@ -57,7 +57,7 @@ pub(super) fn parse(body: &str) -> Option<TriggerFired> {
             .map(|(_, value)| value.clone())
             .unwrap_or_default()
     };
-    let inner = block[tag_end + 2..].strip_suffix(&format!("\n</{REQUEST_TAG}>"))?;
+    let inner = after_tag.strip_suffix(&format!("\n</{REQUEST_TAG}>"))?;
     let (head, body) = inner.split_once("\n\n").unwrap_or((inner, ""));
     let body = body.replace(&format!("&lt;/{REQUEST_TAG}"), &format!("</{REQUEST_TAG}"));
     let headers = head
@@ -70,7 +70,7 @@ pub(super) fn parse(body: &str) -> Option<TriggerFired> {
         .collect();
     Some(TriggerFired {
         title: title.to_owned(),
-        prompt: rest[..at].to_owned(),
+        prompt: prompt.to_owned(),
         request: Some(FiredRequest {
             method: attribute("method"),
             received: attribute("received"),

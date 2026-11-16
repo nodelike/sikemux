@@ -149,7 +149,9 @@ fn ours(spec: &Spec, args: &Map<String, Value>) -> ToolRow {
     let (target, lines) = match &file {
         Some(file) => {
             let named = basename(without_line(file)).to_owned();
-            let lines = file[without_line(file).len()..].trim_start_matches(':');
+            let lines = (file.get(without_line(file).len()..))
+                .unwrap_or_default()
+                .trim_start_matches(':');
             let said = match lines {
                 "" => None,
                 lines if lines.contains('-') => Some(format!("lines {lines}")),
@@ -474,12 +476,11 @@ fn fill(templates: &[&str], args: &Map<String, Value>) -> Option<String> {
     templates.iter().find_map(|template| {
         let mut filled = String::new();
         let mut rest = *template;
-        while let Some(open) = rest.find('{') {
-            let close = rest[open..].find('}').map(|at| open + at)?;
-            let key = &rest[open + 1..close];
-            filled.push_str(&rest[..open]);
+        while let Some((before, after_open)) = rest.split_once('{') {
+            let (key, after) = after_open.split_once('}')?;
+            filled.push_str(before);
             filled.push_str(&value_text(key, args.get(key)?)?);
-            rest = &rest[close + 1..];
+            rest = after;
         }
         filled.push_str(rest);
         Some(filled)
