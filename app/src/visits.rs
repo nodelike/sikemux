@@ -65,12 +65,12 @@ impl Workbench {
         from.iter().rev().find(|visit| self.leads_to(visit))
     }
 
-    /// What a swipe over the stage goes through: the visit a step back sits on the right, so
-    /// fingers moving left go back, and the visit a step forward sits on the left.
+    /// What a swipe over the stage goes through: the visit a step back sits on the left, so
+    /// fingers moving right go back as in a browser, and the visit a step forward on the right.
     pub(crate) fn around_visit(&self) -> Around<String> {
         let place = self.place();
         let strip = self.strip_ref();
-        let [previous, next] = [1, -1].map(|by| self.next_visit(by));
+        let [previous, next] = [-1, 1].map(|by| self.next_visit(by));
         let here = |visit: Option<&Visit>| {
             visit
                 .filter(|visit| visit.place == place && strip == Some(visit.strip.borrowed()))
