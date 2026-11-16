@@ -11,8 +11,8 @@ const RECHECK_MS = 60 * 60_000;
 const BATCH = 20;
 
 /**
- * What a deleted account still pays for: its own subscriptions and those of the orgs it is still
- * in, which after the deletion are only the ones it was alone in and which go with it.
+ * What a deleted account still pays for: its own subscriptions and those of the orgs it is alone
+ * in, which go with it. An org with anyone else in it is theirs to pay for.
  */
 function openSubscriptionsOf(db: Kysely<Tables>, userId: string) {
   return db
@@ -30,9 +30,19 @@ function openSubscriptionsOf(db: Kysely<Tables>, userId: string) {
           "billing_customers.org_id",
           "in",
           eb
-            .selectFrom("org_users")
-            .select("org_id")
-            .where("user_id", "=", userId),
+            .selectFrom("org_users as mine")
+            .select("mine.org_id")
+            .where("mine.user_id", "=", userId)
+            .where(({ not, exists, selectFrom }) =>
+              not(
+                exists(
+                  selectFrom("org_users as other")
+                    .select("other.user_id")
+                    .whereRef("other.org_id", "=", "mine.org_id")
+                    .where("other.user_id", "<>", userId),
+                ),
+              ),
+            ),
         ),
       ]),
     );

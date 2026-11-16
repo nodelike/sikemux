@@ -16,7 +16,7 @@ import { sql, type Kysely, type Selectable, type Transaction } from "kysely";
 import type { Services } from "../app.ts";
 import { audit } from "../audit.ts";
 import type { Person } from "../account/clerk.ts";
-import { requireIdentity, type AuthEnv } from "../auth.ts";
+import { accountDeleted, requireIdentity, type AuthEnv } from "../auth.ts";
 import { requireBillingAccess } from "../billing/access.ts";
 import { hasOpenSubscriptions, seatLimit } from "../billing/seats.ts";
 import type { Tables } from "../db.ts";
@@ -256,6 +256,18 @@ export function orgRoutes({
       const { userId } = c.get("identity");
       const { token } = await readBody(c, "OrgJoin");
       const joined = await db.transaction().execute(async (trx) => {
+        await trx
+          .insertInto("users")
+          .values({ id: userId })
+          .onConflict((oc) => oc.column("id").doNothing())
+          .execute();
+        const account = await trx
+          .selectFrom("users")
+          .select("deleted_at")
+          .where("id", "=", userId)
+          .forShare()
+          .executeTakeFirstOrThrow();
+        if (account.deleted_at) throw accountDeleted();
         const invite = await trx
           .selectFrom("org_invites")
           .selectAll()
@@ -296,11 +308,6 @@ export function orgRoutes({
           throw conflict(
             "The org has no free seat: its Team plan lapsed or its seats were cut.",
           );
-        await trx
-          .insertInto("users")
-          .values({ id: userId })
-          .onConflict((oc) => oc.column("id").doNothing())
-          .execute();
         await trx
           .insertInto("org_users")
           .values({

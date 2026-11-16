@@ -379,6 +379,72 @@ describe("deleting an account", () => {
   });
 });
 
+describe("an account deleted while it joins an org", () => {
+  async function joinWhileDeleting(orgId: string, id: string) {
+    await database.pool.query(
+      "insert into users (id, staff) values ($1, true)",
+      [id],
+    );
+    const { token } = await invite(orgId, "user");
+    const [joined, deleted] = await Promise.all([
+      as(id, "/v1/orgs/join", { method: "POST", json: { token } }),
+      deleteAccount(id),
+    ]);
+    const { rows } = await database.pool.query(
+      `select 1 from org_users m join users u on u.id = m.user_id
+        where m.user_id = $1 and u.deleted_at is not null`,
+      [id],
+    );
+    return {
+      joined: joined.status,
+      deleted: deleted.status,
+      leftInOrg: rows.length > 0,
+    };
+  }
+
+  it("is never left in the org, and is erased when due", async () => {
+    const orgId = await createOrg(30);
+    const rounds = [];
+    for (let round = 0; round < 10; round += 1)
+      rounds.push(await joinWhileDeleting(orgId, `user_racer${round}`));
+    expect(rounds.filter((round) => round.leftInOrg)).toEqual([]);
+    expect(new Set(rounds.map((round) => round.deleted))).toEqual(
+      new Set([202]),
+    );
+    for (const round of rounds) expect([200, 401]).toContain(round.joined);
+
+    await dueForPurge("user_racer0");
+    await sweepDeletedBilling(database.db, provider, log);
+    await purgeAccounts(database.db, log);
+    expect(
+      await count("select count(*)::int as n from users where id = $1", [
+        "user_racer0",
+      ]),
+    ).toBe(0);
+    expect((await subscriptions()).map((row) => row.status)).toEqual([
+      "active",
+    ]);
+  });
+
+  it("is no reason to end the org's plan, nor keeps the account from being erased", async () => {
+    const orgId = await createOrg(5);
+    await addMember(orgId, MEMBER, "user");
+    await database.pool.query(
+      "insert into users (id, staff, deleted_at, purge_after) values ('user_racer', true, now(), now() + interval '30 days')",
+    );
+    await database.pool.query(
+      "insert into org_users (org_id, user_id, role) values ($1, 'user_racer', 'user')",
+      [orgId],
+    );
+    await dueForPurge("user_racer");
+    await sweepDeletedBilling(database.db, provider, log);
+    expect(await purgeAccounts(database.db, log)).toBe(1);
+    expect(await subscriptions()).toMatchObject([
+      { status: "active", cancel_at_period_end: false },
+    ]);
+  });
+});
+
 describe("restoring a deleted account", () => {
   it("lets the person resume their plan, without their orgs", async () => {
     await buy(MEMBER, "pro");
