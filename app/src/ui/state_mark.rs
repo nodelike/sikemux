@@ -242,7 +242,7 @@ impl Render for Twinkle {
         let ease = motion::Ease::new(0, Curve::Bezier(0.42, 0., 0.58, 1.));
         let (tint, scale) = (self.tint, self.scale);
         div()
-            .w(px(10.5 * scale))
+            .w(px(13.5 * scale))
             .flex()
             .flex_wrap()
             .gap(px(1.5 * scale))
@@ -259,8 +259,8 @@ impl Render for Twinkle {
                     }
                 };
                 div()
-                    .size(px(2.5 * scale))
-                    .rounded(px(0.5 * scale))
+                    .size(px(3.5 * scale))
+                    .rounded(px(0.75 * scale))
                     .bg(tint)
                     .opacity(lit)
             }))

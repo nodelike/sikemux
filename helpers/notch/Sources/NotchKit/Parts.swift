@@ -210,7 +210,7 @@ private struct TwinkleGrid: NSViewRepresentable {
 /// Core Animation runs the twinkle so SwiftUI does no work per frame.
 final class TwinkleGridView: NSView {
     static let side: CGFloat = 16
-    private static let cellSide: CGFloat = 2.5
+    static let cellSide: CGFloat = 3.5
     private static let spacing: CGFloat = 1.5
     private static let cells: [(period: Double, offset: Double)] = [
         (0.9, 0), (1.24, -0.52), (1.58, -1.04), (1.07, -0.39), (1.41, -0.91),
@@ -230,7 +230,7 @@ final class TwinkleGridView: NSView {
         super.init(frame: CGRect(x: 0, y: 0, width: Self.side, height: Self.side))
         wantsLayer = true
         for cell in cellLayers {
-            cell.cornerRadius = 0.5
+            cell.cornerRadius = 0.75
             cell.backgroundColor = colour
             layer?.addSublayer(cell)
         }
@@ -321,9 +321,9 @@ private struct StillTwinkle: View {
             ForEach(0..<3, id: \.self) { row in
                 GridRow {
                     ForEach(0..<3, id: \.self) { column in
-                        RoundedRectangle(cornerRadius: 0.5)
+                        RoundedRectangle(cornerRadius: 0.75)
                             .fill(colour)
-                            .frame(width: 2.5, height: 2.5)
+                            .frame(width: TwinkleGridView.cellSide, height: TwinkleGridView.cellSide)
                             .opacity(TwinkleGridView.stillOpacity(row * 3 + column))
                     }
                 }
