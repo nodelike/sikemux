@@ -128,6 +128,9 @@ pub struct Stored {
     /// with approval off.
     #[serde(default)]
     pub removed_here: BTreeMap<String, DeviceAccess>,
+    /// Devices that see and drive this host but never sign for the person, by id.
+    #[serde(default)]
+    pub hands_only: BTreeSet<String>,
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -252,6 +255,7 @@ fn trusted_in_file(file: &serde_json::Value) -> CoreResult<String> {
     trusted.insert("revoked".into(), field("revoked"));
     trusted.insert("require_approval".into(), field("requireApproval"));
     trusted.insert("removed_here".into(), field("removedHere"));
+    trusted.insert("hands_only".into(), field("handsOnly"));
     let canonical = without_defaults(Value::Object(trusted)).unwrap_or_default();
     Ok(sha256_hex(&serde_json::to_vec(&canonical)?))
 }
@@ -329,6 +333,7 @@ impl Stored {
             revoked: &'a BTreeMap<String, u64>,
             require_approval: bool,
             removed_here: &'a BTreeMap<String, DeviceAccess>,
+            hands_only: &'a BTreeSet<String>,
         }
         let trusted = Trusted {
             owner: &self.owner,
@@ -354,6 +359,7 @@ impl Stored {
             revoked: &self.revoked,
             require_approval: self.require_approval,
             removed_here: &self.removed_here,
+            hands_only: &self.hands_only,
         };
         let canonical = without_defaults(serde_json::to_value(&trusted)?).unwrap_or_default();
         Ok(sha256_hex(&serde_json::to_vec(&canonical)?))
@@ -364,6 +370,7 @@ impl Stored {
     fn distrust(&mut self) {
         self.devices.clear();
         self.joined_through.clear();
+        self.hands_only.clear();
         self.links.clear();
         self.shares.clear();
         self.notifications.clear();
@@ -378,6 +385,7 @@ impl Stored {
         self.links.retain(|link| link.id != id);
         self.notifications.remove(id);
         self.joined_through.remove(id);
+        self.hands_only.remove(id);
         let index = self.devices.iter().position(|device| device.id == id)?;
         Some(self.devices.remove(index))
     }
@@ -540,7 +548,14 @@ impl Remote {
             access: device.access,
             owners: stored.owner.is_some()
                 && stored.joined_through.get(id) == stored.owner.as_ref(),
+            signs: !stored.hands_only.contains(id),
         })
+    }
+
+    /// Whether `peer` may sign for the person.
+    pub fn may_sign(&self, peer: &Peer) -> CoreResult<()> {
+        let standing = peer.device_id().and_then(|id| self.standing_of(&id));
+        super::access::may_sign(peer, standing)
     }
 
     pub fn is_paired(&self, id: &str) -> bool {

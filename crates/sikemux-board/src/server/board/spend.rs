@@ -16,7 +16,7 @@ use crate::server::person_calls::{self, Raise};
 use crate::server::Core;
 
 /// The step the person hears at when they set none for the project, in dollars.
-const STEP_USD: u32 = 50;
+pub(super) const STEP_USD: u32 = 50;
 
 /// Tells of each chat that passed another step since it was last looked at.
 pub fn settle(core: &Core) {

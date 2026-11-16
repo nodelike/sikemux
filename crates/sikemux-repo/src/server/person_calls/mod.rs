@@ -7,6 +7,7 @@
 mod log;
 
 use crate::server::changed::ChangedCore;
+use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -1045,6 +1046,9 @@ pub async fn answer(core: &Arc<Core>, peer: &Peer, params: AnswerCallParams) -> 
         return Err("a secret is typed into the call, never attached".into());
     }
     crate::server::chat::prompt::check_attachments(&params.paths)?;
+    if matches!(call.kind, CallKind::Production | CallKind::Money) {
+        core.remote().may_sign(peer)?;
+    }
     if call.kind == CallKind::Production {
         if !core.person_calls().seen_by(&call.id, &client) {
             return Err(
@@ -1210,6 +1214,9 @@ fn answered_before(
         };
     };
     let call = call_of(core, &id)?;
+    if call.kind == CallKind::Money {
+        core.remote().may_sign(peer)?;
+    }
     let given = answer(&call, client);
     if call.kind == CallKind::Production {
         may_pass(

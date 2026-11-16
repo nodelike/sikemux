@@ -159,6 +159,7 @@ fn the_devices_survive_a_write_and_read() {
         require_approval: false,
         removed_here: BTreeMap::new(),
         declined_links: BTreeSet::new(),
+        hands_only: BTreeSet::new(),
         devices: vec![DeviceInfo {
             id: SecretKey::generate().public().to_string(),
             name: "Phone".into(),

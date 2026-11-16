@@ -12,6 +12,7 @@ pub mod store;
 pub mod work;
 
 use crate::server::changed::ChangedCore;
+use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 pub use sikemux_calls::places::{AddPlaceParams, PlaceLevelParams, PlacesParams, SeenParams};
@@ -254,7 +255,7 @@ pub fn call_answered(core: &Core, call: &PersonCall) {
 /// Whether the person's answer to a production call may open its place: it came from the
 /// app, the notch or a paired phone, an option or options were picked there, and the work is still the
 /// work the call showed.
-pub fn may_pass(_core: &Core, call: &PersonCall, peer: &Peer, picked: bool) -> Result<(), String> {
+pub fn may_pass(core: &Core, call: &PersonCall, peer: &Peer, picked: bool) -> Result<(), String> {
     if call.kind != CallKind::Production {
         return Ok(());
     }
@@ -264,6 +265,7 @@ pub fn may_pass(_core: &Core, call: &PersonCall, peer: &Peer, picked: bool) -> R
                 .into(),
         );
     }
+    core.remote().may_sign(peer).map_err(|error| error.to_string())?;
     match picked {
         true => Ok(()),
         false => Err("a production place passes only on the call's button".into()),
@@ -327,6 +329,7 @@ pub async fn set_level(
 ) -> CoreResult<Places> {
     let core = core.clone();
     let from = tapped_on(peer);
+    let signs = core.remote().may_sign(peer).map_err(|error| error.to_string());
     blocking(move || {
         let project = (core.repo_above().board_project_at)(&core, &params.project)?;
         tapped(&core, &project, |kept| {
@@ -334,6 +337,9 @@ pub async fn set_level(
             let place = (kept.places.iter_mut())
                 .find(|place| place.shown.id == params.place)
                 .ok_or("that place is no longer one of the project's")?;
+            if place.shown.production && params.level < place.shown.level {
+                signs?;
+            }
             if place.shown.production && !confirmed && params.level != Level::Mine {
                 return Err(
                     "Confirm the list of production places first; until then each waits for you"
@@ -405,6 +411,9 @@ pub async fn confirm(core: &Arc<Core>, params: PlacesParams) -> CoreResult<Place
 
 /// The person adds a place the core didn't find, at `mine` when it is production.
 pub async fn add(core: &Arc<Core>, peer: &Peer, params: AddPlaceParams) -> CoreResult<Places> {
+    if !params.production {
+        core.remote().may_sign(peer)?;
+    }
     let core = core.clone();
     let from = tapped_on(peer);
     blocking(move || {

@@ -11,7 +11,7 @@ use crate::server::workspace_state::WorkspaceParts;
 use sikemux_wire::protocol::{AgentState, Event, SessionId};
 
 use super::above::Above;
-use super::access::{Needs, Program};
+use super::access::Rule;
 use super::activity::{Activity, ActivityCore};
 use super::device_view::DeviceViewCore;
 use super::notify::Signal;
@@ -501,9 +501,9 @@ pub(super) fn board_above() -> BoardAbove {
     }
 }
 
-pub(super) fn access_of(method: &str) -> (Needs, Program) {
+pub(super) fn access_of(method: &str) -> Rule {
     let row = calls::row(method);
-    (row.needs, row.program)
+    Rule::new(row.needs, row.program, row.signs)
 }
 
 fn task_ended(core: &Core, id: SessionId, code: Option<u32>, signal: Option<String>) {

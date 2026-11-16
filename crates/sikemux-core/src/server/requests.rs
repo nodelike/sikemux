@@ -42,6 +42,9 @@ pub(super) fn admit(core: &Core, client: &ClientConn, rule: &Rule) -> CoreResult
     if client.peer == Peer::Local && rule.only_the_app(core.remote().setup()) {
         return Err(access::APP_ONLY.into());
     }
+    if rule.signs {
+        core.remote().may_sign(&client.peer)?;
+    }
     Ok(())
 }
 

@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_wire::protocol::DeviceAccess;
 
 use super::access::{Needs, Program};
 use super::activity_log::Counted;
@@ -25,11 +26,13 @@ use super::{
 };
 
 /// What one row of the table says about its method: what a paired device needs, which
-/// programs on this host may call it, and whether its use goes in the usage report.
+/// programs on this host may call it, whether it signs for the person, and whether its use
+/// goes in the usage report.
 #[derive(Clone, Copy)]
 pub(crate) struct Row {
     pub needs: Needs,
     pub program: Program,
+    pub signs: bool,
     pub counted: Counted,
 }
 
@@ -38,7 +41,16 @@ impl Row {
         Self {
             needs,
             program: Program::App,
+            signs: false,
             counted: Counted::No,
+        }
+    }
+
+    /// Only a connection that may sign for the person calls it.
+    pub(super) const fn signs(self) -> Self {
+        Self {
+            signs: true,
+            ..self
         }
     }
 
@@ -313,7 +325,7 @@ calls! { core, client, method, params;
     "account": Watch => answer(core.account().shown()),
     "remoteImage" = RemoteImage: Watch => super::remote_image::fetch(core.remote_images(), params).await?,
     "accountPicture" = AccountPicture: Watch => super::account::picture(&core, &params.hash).await,
-    "accountSignIn" = AccountSignIn: Owner => super::account::sign_in(&core, client.peer.clone()).await?,
+    "accountSignIn" = AccountSignIn: Owner, signs => super::account::sign_in(&core, client.peer.clone()).await?,
     "accountSignInFinish" = AccountSignInFinish: Owner => super::account::sign_in_finished(&core).await?,
     "accountSignInCancel" = AccountSignInCancel: Owner => super::account::cancel_sign_in(&core),
     "accountSignOut" = AccountSignOut: Owner => super::account::sign_out(&core, &client.peer).await?,
@@ -352,21 +364,27 @@ calls! { core, client, method, params;
     "authenticateChat" = AuthenticateChat: NoDevice => {
         super::chat::authenticate(&core, &params.agent_id, params.method_id).await?
     },
-    "shareChat" = ShareChat: Owner, counted => share::share_chat_for(&core, params)?,
+    "shareChat" = ShareChat: Owner, signs, counted => share::share_chat_for(&core, params)?,
     "stopShare" = StopShare: Owner => share::stop(&core, &params.id)?,
     "shares" = Shares: Full, any_program => share::list(&core),
     "pairing" = RemotePairing: Owner, any_program => remote::pairing(&core),
     "deviceChallenge": Owner => answer(super::account::devices::device_challenge(&core).await?),
-    "approveHostSignIn": NoDevice => {
+    "approveHostSignIn": NoDevice, signs => {
         answer(super::account::devices::approve_host_sign_in(&core, parse(params)?).await?)
     },
-    "deviceJoinTicket": Owner => {
+    "deviceJoinTicket": Owner, signs => {
         answer(super::account::devices::device_join_ticket(&core, parse(params)?).await?)
     },
-    "signHostRequest": NoDevice => core.remote().host_request_signature(&parse(params)?),
-    "signShareViewer": NoDevice => core.remote().share_viewer_signature(parse(params)?),
-    "answerPairing" = AnswerPairing: Owner, counted => remote::answer_pairing(&core, params)?,
-    "changeDevice" = ChangeDevice: Owner => remote::change_device(&core, params)?,
+    "signHostRequest": NoDevice, signs => core.remote().host_request_signature(&parse(params)?),
+    "signShareViewer": NoDevice, signs => core.remote().share_viewer_signature(parse(params)?),
+    "answerPairing" = AnswerPairing: Owner, counted => {
+        signs_if(&core, client, params.allow)?;
+        remote::answer_pairing(&core, params)?
+    },
+    "changeDevice" = ChangeDevice: Owner => {
+        signs_if(&core, client, params.access == Some(DeviceAccess::Full))?;
+        remote::change_device(&core, params)?
+    },
     "projectFiles" = ProjectFiles: Full => {
         blocking(move || super::project_files::read(params).map_err(CoreError::from)).await?
     },
@@ -454,8 +472,8 @@ calls! { core, client, method, params;
         super::codehost::tracked(&core, client.id, params).await
     },
     "outsideAccess" = OutsideAccess: NoDevice => core.outside().view(),
-    "answerOutside" = AnswerOutside: NoDevice, counted => super::outside::answer(&core, params)?,
-    "changeOutside" = ChangeOutside: NoDevice, counted => super::outside::change(&core, params)?,
+    "answerOutside" = AnswerOutside: NoDevice, signs, counted => super::outside::answer(&core, params)?,
+    "changeOutside" = ChangeOutside: NoDevice, signs, counted => super::outside::change(&core, params)?,
     "hosts" = Hosts: Watch => super::hosts::rows(&core),
     "hostStats" = HostStats: Watch => super::host_stats::read(&core, params),
     "hostDiagnosis" = HostDiagnosis: Watch => super::diagnosis::diagnose(&core, params),
@@ -464,7 +482,7 @@ calls! { core, client, method, params;
     "installHost" = InstallHost: Owner => super::hosts::install::install_host(&core, params).await?,
     "hostSetup" = HostSetup: Owner => super::hosts::install::host_setup(&core, params).await?,
     "dismissHostSetup" = DismissHostSetup: Owner => super::hosts::install::dismiss_host_setup(&core, params)?,
-    "linkHost": Owner, counted => answer(super::hosts::link_host(&core, parse(params)?).await?),
+    "linkHost": Owner, signs, counted => answer(super::hosts::link_host(&core, parse(params)?).await?),
     "openOnHost" = OpenOnHost: Owner, counted => super::hosts::open::open_on(&core, params).await?,
     "moveChatToHost" = MoveChatToHost: Owner, counted => super::hosts::chat_move::move_chat(&core, params).await?,
     "sendSession" = SendSession: Owner, counted => super::hosts::transfer::send_session(&core, params).await?,
@@ -472,25 +490,26 @@ calls! { core, client, method, params;
         require_approval: core.remote().requires_approval(),
     },
     "setRequireApproval" = SetRequireApproval: Owner => {
+        signs_if(&core, client, !params.require_approval)?;
         remote::set_require_approval(&core, params)?
     },
-    "trustHeldRemote" = TrustHeldRemote: NoDevice => remote::trust_held(&core).await?,
+    "trustHeldRemote" = TrustHeldRemote: NoDevice, signs => remote::trust_held(&core).await?,
     "forgetHeldRemote" = ForgetHeldRemote: NoDevice => remote::discard_held(&core)?,
     "questions" = Questions: Watch, any_program => questions::views(&core),
     "answerQuestion" = AnswerQuestion: Full, counted => {
         person_calls::answer_questions(&core, &client.peer, questions::AnswersParams { answers: vec![params] }).await?
     },
     "answerQuestions" = AnswerQuestions: Full, counted => person_calls::answer_questions(&core, &client.peer, params).await?,
-    "allowShip" = AllowShip: Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALLOW).await?,
+    "allowShip" = AllowShip: Full, signs, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALLOW).await?,
     "refuseShip" = RefuseShip: Full, counted => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_REFUSE).await?,
-    "letShipGo" = LetShipGo: Full => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALWAYS).await?,
+    "letShipGo" = LetShipGo: Full, signs => person_calls::answer_hold(&core, &client.peer, params, person_calls::HOLD_ALWAYS).await?,
     "answerCall" = AnswerCall: Full, counted => person_calls::answer(&core, &client.peer, params).await?,
     "liveActivity" = LiveActivity: Watch => super::notify::live_activity(&core, &client.peer, params)?,
     "callSeen" = CallSeen: Watch => person_calls::seen(&core, &client.peer, params)?,
     "callNotMine" = CallNotMine: Full, counted => person_calls::not_mine(&core, &client.peer, params).await?,
     "places" = PlacesRead: Watch, any_program => super::places::read(&core, params).await?,
     "setPlaceLevel" = SetPlaceLevel: Full, counted => super::places::set_level(&core, &client.peer, params).await?,
-    "confirmPlaces" = ConfirmPlaces: Full, counted => super::places::confirm(&core, params).await?,
+    "confirmPlaces" = ConfirmPlaces: Full, signs, counted => super::places::confirm(&core, params).await?,
     "addPlace" = AddPlace: Full, counted => super::places::add(&core, &client.peer, params).await?,
     "countAsProduction" = CountAsProduction: Full, counted => super::places::count_as_production(&core, &client.peer, params).await?,
     "placePin" = PlacePin: Full, counted => super::pins::place(&core, params).await?,
@@ -519,6 +538,7 @@ calls! { core, client, method, params;
     "landedMeans" = LandedMeans: Watch => super::landing::landed_means(&core, params.project).await?,
     "setLandedMeans" = SetLandedMeans: Full, counted => super::landing::set_landed_means(&core, params).await?,
     "boardSettings" = BoardSettings: Full => {
+        signs_if(&core, client, board::raises_spend_ceiling(&core, &params))?;
         board::person_settings(&core, params).await?
     },
     "boardAnswerProposal" = BoardAnswerProposal: Full => {
@@ -683,6 +703,14 @@ pub(crate) const ROW_ACTIONS: [&str; 7] = [
     "snoozeAgents",
     "settleAgents",
 ];
+
+/// A call that signs for the person only with some values, such as letting a device in.
+fn signs_if(core: &Core, client: &ClientConn, signing: bool) -> CoreResult<()> {
+    if signing {
+        core.remote().may_sign(&client.peer)?;
+    }
+    Ok(())
+}
 
 fn answer(result: impl Serialize) -> CoreResult<Value> {
     Ok(serde_json::to_value(result)?)

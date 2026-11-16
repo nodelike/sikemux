@@ -6,6 +6,9 @@
 //! with full control that joined through this host's own account is the person,
 //! as the app is: it lets devices in, links hosts, adds projects and agent
 //! accounts, shares chats and commits, so a host with no window is run from it.
+//! Signing for the person is apart from all that: releasing held work, lowering a
+//! place's protection, raising a spend ceiling and letting anyone in. The app signs,
+//! and so does each device unless the host that took it in recorded that it does not.
 
 use sikemux_wire::protocol::{ask, DeviceAccess, Request};
 
@@ -44,6 +47,8 @@ pub struct Standing {
     pub access: DeviceAccess,
     /// It joined through the account this host is signed in to.
     pub owners: bool,
+    /// It signs for the person. One that does not sees and drives this host only.
+    pub signs: bool,
 }
 
 pub const LOCAL_ONLY: &str = "only Sikemux on this host can do that";
@@ -52,6 +57,8 @@ pub const WATCH_ONLY: &str =
     "this device can watch and answer permission requests, not drive sessions";
 pub const UNPAIRED: &str = "this device is no longer paired with this host";
 pub const OWNER_ONLY: &str = "only a device on this host's account with full control can do that";
+pub const NOT_SIGNING: &str =
+    "this device drives this host but does not sign for you: answer at the host or on your phone";
 
 /// What this host has set up, which decides what a program other than the app
 /// may still do to set it up.
@@ -69,6 +76,8 @@ pub struct Setup {
 pub struct Rule {
     pub needs: Needs,
     program: Program,
+    /// It signs for the person, so only a connection that may sign sends it.
+    pub signs: bool,
 }
 
 /// Which programs on this host may send a request.
@@ -85,10 +94,10 @@ pub enum Program {
 /// which cannot be told from an agent's shell: `sikemux login` while no account
 /// owns it, `logout`, and `pair` until its first device is in. A host signed in
 /// once stays its account's until the app, root or the account moves it.
-pub fn rule(request: &Request, row: fn(&str) -> (Needs, Program)) -> Rule {
+pub fn rule(request: &Request, row: fn(&str) -> Rule) -> Rule {
     let (needs, program) = match request {
         Request::TerminalInput(_) => return Rule::TERMINAL_INPUT,
-        Request::Call(ask::Call { method, .. }) => row(method),
+        Request::Call(ask::Call { method, .. }) => return row(method),
         Request::SetOwner(ask::SetOwner { owner: None }) => {
             (Needs::NoDevice, Program::AppWhen(|setup| setup.app_signed))
         }
@@ -146,15 +155,34 @@ pub fn rule(request: &Request, row: fn(&str) -> (Needs, Program)) -> Rule {
         | Request::PublishOnScreen(_)
         | Request::FocusAgent(_) => (Needs::NoDevice, Program::App),
     };
-    Rule { needs, program }
+    let signs = match request {
+        Request::SetOwner(ask::SetOwner { owner }) => owner.is_some(),
+        Request::AnswerPairing(ask::AnswerPairing { allow, .. }) => *allow,
+        Request::SetDeviceAccess(ask::SetDeviceAccess { access, .. }) => {
+            *access == DeviceAccess::Full
+        }
+        Request::SetRemoteAccess(ask::SetRemoteAccess { enabled }) => *enabled,
+        Request::SignRegistration(_) | Request::AllowDevices(_) => true,
+        _ => false,
+    };
+    Rule {
+        needs,
+        program,
+        signs,
+    }
 }
 
 impl Rule {
     /// What typing into a terminal takes, by a request or a frame of input.
-    pub const TERMINAL_INPUT: Rule = Rule {
-        needs: Needs::Full,
-        program: Program::App,
-    };
+    pub const TERMINAL_INPUT: Rule = Rule::new(Needs::Full, Program::App, false);
+
+    pub const fn new(needs: Needs, program: Program, signs: bool) -> Self {
+        Self {
+            needs,
+            program,
+            signs,
+        }
+    }
 
     /// Whether only the app may send the request from this host, set up as `setup` says.
     pub fn only_the_app(&self, setup: Setup) -> bool {
@@ -188,7 +216,7 @@ pub fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> CoreResu
     if peer.is_local() {
         return Ok(());
     }
-    let Some(Standing { access, owners }) = standing else {
+    let Some(Standing { access, owners, .. }) = standing else {
         return Err(CoreError::from(UNPAIRED));
     };
     match needs {
@@ -199,9 +227,23 @@ pub fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> CoreResu
     }
 }
 
+/// Whether `peer` may sign for the person. A program on this host is held to its request's
+/// [`Program`] instead; a shared chat's link signs nothing.
+pub fn may_sign(peer: &Peer, standing: Option<Standing>) -> CoreResult<()> {
+    match (peer, standing) {
+        (Peer::App | Peer::Local, _) => Ok(()),
+        (Peer::Share { .. }, _) => Err(CoreError::from(NOT_SIGNING)),
+        (Peer::Device { .. }, None) => Err(CoreError::from(UNPAIRED)),
+        (Peer::Device { .. }, Some(standing)) if !standing.signs => {
+            Err(CoreError::from(NOT_SIGNING))
+        }
+        (Peer::Device { .. }, Some(_)) => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    fn table(method: &str) -> (Needs, Program) {
+    fn table(method: &str) -> Rule {
         unreachable!("no request here is the call {method}")
     }
 
@@ -218,6 +260,7 @@ mod tests {
         Some(Standing {
             access,
             owners: false,
+            signs: true,
         })
     }
 

@@ -2131,6 +2131,16 @@ pub async fn person_update(
     Ok(view)
 }
 
+/// Whether `params` lets a project spend further before the person hears of it.
+pub fn raises_spend_ceiling(core: &Core, params: &BoardSettingsParams) -> bool {
+    let (Some(ceiling), Ok(project)) = (params.spend_ceiling, project_at(core, &params.project))
+    else {
+        return false;
+    };
+    let now = settings_of(core, &project).spend_ceiling;
+    ceiling.unwrap_or(spend::STEP_USD) > now.unwrap_or(spend::STEP_USD)
+}
+
 /// The person sets who lands the project's work, what counts as landed and the spend they hear
 /// of. Answers with the board.
 pub async fn person_settings(
