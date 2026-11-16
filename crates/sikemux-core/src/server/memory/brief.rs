@@ -1,8 +1,8 @@
 //! What a new agent is handed at the end of its task, in the same letter:
-//! the project's rules, and once it holds a card or its lead does, where its
-//! goal stands and the goal's rules and decisions, with only the knowledge its
-//! task and card name. Stale knowledge stays out. A reviewer Auto started blind
-//! gets only what the person said, nothing an agent added.
+//! the project's rules and the decisions its task names, and once it holds a
+//! card or its lead does, where its goal stands and the goal's rules, with only
+//! the knowledge its task and card name. Stale knowledge stays out. A blind
+//! reviewer gets only what the person said, nothing an agent added.
 
 use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
@@ -11,6 +11,7 @@ use std::path::Path;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::memory::Learned;
+use sikemux_view::slice::Decision;
 
 use super::check::{want, FRESH_MS};
 use super::Core;
@@ -103,8 +104,8 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
 }
 
 /// What a chat the person starts in `cwd` is handed as it begins: the
-/// project's rules and the knowledge that names nothing in particular. A
-/// goal's rules and decisions, and knowledge about what its work names, come
+/// project's rules, its newest decisions and the knowledge that names nothing
+/// in particular. A goal's rules, and knowledge about what its work names, come
 /// later through `memory_list`.
 pub(crate) fn for_chat(core: &Core, cwd: &Path) -> Option<String> {
     let reader = Reader {
@@ -123,11 +124,11 @@ struct Reader {
     project: String,
     /// The goal its card sits under.
     goal: Option<GoalRef>,
-    /// Only what the person said counts, for a reviewer Auto started blind.
+    /// Only what the person said counts, for a blind reviewer.
     blind: bool,
     /// The words knowledge is picked by, lowercase.
     read: String,
-    /// The lead's task alone, lowercase, which picks the goal's decisions.
+    /// The lead's task alone, lowercase, which picks the decisions.
     task: String,
     /// Where its goal and its own card stand, which lead the brief.
     on_board: Vec<String>,
@@ -205,9 +206,9 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         sections.push(format!("Knowledge:\n{}", knowledge.join("\n")));
     }
     if let Some(goal) = &goal {
-        let standing = board::goal::standing(core, goal);
-        let (agents_rules, persons_rules): (Vec<_>, Vec<_>) =
-            (standing.rules.iter()).partition(|rule| rule.learned.agent.is_some());
+        let (agents_rules, persons_rules): (Vec<_>, Vec<_>) = (board::goal::rules(core, goal)
+            .into_iter())
+        .partition(|rule| rule.learned.agent.is_some());
         for rule in agents_rules {
             if room_for_note(&notes) {
                 notes.push(agent_note(rule.id, &rule.text, &rule.learned));
@@ -224,50 +225,54 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
                 goal_rules.join("\n")
             ));
         }
-        let mut decisions = standing.decisions;
-        decisions.retain(|decision| !blind || decision.learned.agent.is_none());
-        let standing_count = decisions.len();
-        let named: Vec<_> = (decisions.iter())
-            .filter(|decision| task_names(&task, &decision.text))
-            .cloned()
-            .collect();
-        let (picked, most) = match named.is_empty() {
-            true => (decisions, NEWEST_DECISIONS),
-            false => (named, MAX_DECISIONS),
-        };
-        let picked = &picked[picked.len().saturating_sub(most)..];
-        let left = standing_count - picked.len();
-        let mut decisions: Vec<String> = picked
-            .iter()
-            .map(|decision| match &decision.why {
-                Some(why) => format!(
-                    "- #{} {} ({}){}",
-                    decision.id,
-                    crate::text::one_line(&decision.text),
-                    crate::text::one_line(why),
-                    written_by(&decision.learned)
-                ),
-                None => format!(
-                    "- #{} {}{}",
-                    decision.id,
-                    crate::text::one_line(&decision.text),
-                    written_by(&decision.learned)
-                ),
-            })
-            .collect();
-        if left > 0 {
-            decisions.push(format!("- {left} more in memory_list."));
-        }
-        if !decisions.is_empty() {
-            sections.push(format!(
-                "Decided for goal card #{}:\n{}",
-                goal.card,
-                decisions.join("\n")
-            ));
-        }
+    }
+    let goal = goal.as_ref().map(|goal| goal.card);
+    let decisions = decided(core, &project, goal, &task, blind);
+    if !decisions.is_empty() {
+        sections.push(format!("Decided:\n{}", decisions.join("\n")));
     }
     if !notes.is_empty() {
         sections.push(format!("{AGENT_NOTES}\n{}", notes.join("\n")));
     }
     (!sections.is_empty()).then(|| sections.join("\n\n"))
+}
+
+/// The project's decisions `task` names, else its newest, those made on `goal` first; a line each.
+fn decided(core: &Core, project: &str, goal: Option<u64>, task: &str, blind: bool) -> Vec<String> {
+    let mut standing = board::goal::standing(core, project);
+    standing.retain(|decision| !blind || decision.learned.agent.is_none());
+    let named: Vec<&Decision> = (standing.iter())
+        .filter(|decision| task_names(task, &decision.text))
+        .collect();
+    let on_goal: Vec<&Decision> = (standing.iter())
+        .filter(|decision| goal.is_some() && decision.goal == goal)
+        .collect();
+    let (picked, most) = match (named.is_empty(), on_goal.is_empty()) {
+        (false, _) => (named, MAX_DECISIONS),
+        (true, false) => (on_goal, NEWEST_DECISIONS),
+        (true, true) => (standing.iter().collect(), NEWEST_DECISIONS),
+    };
+    let picked = &picked[picked.len().saturating_sub(most)..];
+    let left = standing.len() - picked.len();
+    let mut lines: Vec<String> = (picked.iter())
+        .map(|decision| {
+            let on = match decision.goal {
+                Some(other) if decision.goal != goal => format!(" [goal #{other}]"),
+                _ => String::new(),
+            };
+            let why = (decision.why.as_deref())
+                .map(|why| format!(" ({})", crate::text::one_line(why)))
+                .unwrap_or_default();
+            format!(
+                "- #{}{on} {}{why}{}",
+                decision.id,
+                crate::text::one_line(&decision.text),
+                written_by(&decision.learned)
+            )
+        })
+        .collect();
+    if left > 0 {
+        lines.push(format!("- {left} more in memory_list."));
+    }
+    lines
 }

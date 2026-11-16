@@ -117,7 +117,7 @@ pub struct Card {
     /// Browser recordings its owner made while on it, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     recordings: Vec<InboxRecording>,
-    /// What it decided and its own rules, for a goal.
+    /// Its own rules, for a goal.
     #[serde(default, skip_serializing_if = "goal::Goal::is_none")]
     goal: goal::Goal,
     at: u64,
@@ -138,7 +138,7 @@ pub struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 6;
+const VERSION: u32 = 7;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,9 +157,8 @@ pub struct Board {
     /// project's own.
     #[serde(default, rename = "environmentsToPlaces", skip_serializing)]
     carried_over: Option<Vec<crate::server::places::Place>>,
-    /// What its agents decided while working on no goal.
-    #[serde(default, skip_serializing_if = "goal::Goal::is_none")]
-    decided: goal::Goal,
+    #[serde(default, skip_serializing_if = "goal::Decided::is_none")]
+    decided: goal::Decided,
     /// When its drift audits run and those that ran.
     #[serde(default, skip_serializing_if = "audit::Audits::is_none")]
     audits: audit::Audits,
@@ -1135,7 +1134,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         display_title: display_title(core, board, card),
         goal_state: is_goal.then(|| state_of(core, card)),
         goal_stalled: chat_goal::plain_owner_closed(core, card),
-        decisions: card.goal.decisions(),
+        decisions: board.decided.on_goal(card.id),
         rules: card.goal.rules(),
         arrivals: card.arrivals.clone(),
         at: card.at,
@@ -1527,7 +1526,8 @@ fn change_in(
     }
     if let Some(parent) = changes.parent {
         board.check_parent(Some(id), parent)?;
-        if parent.is_some() && !before.goal.is_none() {
+        let keeps = !before.goal.is_none() || !board.decided.on_goal(id).is_empty();
+        if parent.is_some() && keeps {
             return Err(format!(
                 "#{id} is a goal that keeps decisions or rules of its own, so it stays at the top"
             ));
@@ -1913,28 +1913,6 @@ pub fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
         held_card(&mut state, agent_id).map(|(project, card)| (project.clone(), card.id))?;
     let board = state.boards.get(&project)?;
     Some(board.card(id).ok()?.summary(core, board))
-}
-
-/// Every decision kept in `project` that still stands, each with the card whose goal keeps it:
-/// none for one decided while working on no goal.
-pub fn decisions_of(
-    core: &Core,
-    project: &str,
-) -> Vec<(Option<u64>, sikemux_view::slice::Decision)> {
-    let state = core.boards().state.locked();
-    let Some(board) = state.boards.get(project) else {
-        return Vec::new();
-    };
-    let own = (board.decided.decisions().into_iter()).map(|decision| (None, decision));
-    let goals = (board.cards.iter()).flat_map(|card| {
-        let decisions = card.goal.decisions();
-        decisions
-            .into_iter()
-            .map(|decision| (Some(card.id), decision))
-    });
-    (own.chain(goals))
-        .filter(|(_, decision)| decision.retired.is_none())
-        .collect()
 }
 
 /// The cards done since `since`.

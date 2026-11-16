@@ -12,6 +12,8 @@
 //! written before were handled as messages, so they count as ticked.
 //! Version 6: environments became places, and the environments an earlier core kept for
 //! folders each project under that folder now keeps as its own.
+//! Version 7: each goal card kept its own decisions; the project keeps them all in one list
+//! now, each tagged with its goal and keeping its id, and new ids start above every old one.
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
@@ -48,7 +50,42 @@ pub fn carry_over(mut board: Value, folders: Option<&Vec<(String, Vec<Value>)>>)
     if version < 6 {
         environments_to_places(&mut board, folders.map_or(&[][..], Vec::as_slice));
     }
+    if version < 7 {
+        decisions_to_one_list(&mut board);
+    }
     board
+}
+
+fn decisions_to_one_list(board: &mut Value) {
+    let mut last = board
+        .pointer("/decided/last")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let mut decisions: Vec<Value> = (board.pointer_mut("/decided/decisions"))
+        .and_then(Value::as_array_mut)
+        .map(std::mem::take)
+        .unwrap_or_default();
+    let cards = board.get_mut("cards").and_then(Value::as_array_mut);
+    for card in cards.into_iter().flatten() {
+        let id = card.get("id").cloned().unwrap_or(Value::Null);
+        let Some(goal) = card.get_mut("goal").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        last = last.max(goal.get("last").and_then(Value::as_u64).unwrap_or(0));
+        let kept = goal.remove("decisions");
+        for mut decision in kept
+            .and_then(|kept| kept.as_array().cloned())
+            .unwrap_or_default()
+        {
+            decision["goal"] = id.clone();
+            decisions.push(decision);
+        }
+    }
+    let at = |decision: &Value| decision.pointer("/learned/at").and_then(Value::as_u64);
+    decisions.sort_by_key(|decision| at(decision).unwrap_or(0));
+    if last > 0 || !decisions.is_empty() {
+        board["decided"] = json!({ "last": last, "decisions": decisions });
+    }
 }
 
 /// Adds `place` to `places`, or joins it to the one of the same id, which takes the stricter

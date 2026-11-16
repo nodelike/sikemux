@@ -373,7 +373,7 @@ fn keep(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<
                 return Err("A goal's rule shows on its card and belongs to its project; keep sensitive or shared rules without goal".into());
             }
             let rule = goal::Change::of(goal::List::Rules, None, Some(&text), None, false)?;
-            goal::change(core, project, card, goal::List::Rules, rule, learned)
+            goal::change(core, project, Some(card), goal::List::Rules, rule, learned)
         }
         new => add(core, project, new, learned).map(|id| format!("Kept as #{id}.")),
     }
@@ -405,7 +405,7 @@ fn amend(
         None,
         update.retire,
     )?;
-    goal::change(core, project, card, goal::List::Rules, rule, by).map(drop)
+    goal::change(core, project, Some(card), goal::List::Rules, rule, by).map(drop)
 }
 
 fn change(
@@ -1021,12 +1021,13 @@ fn said_by(learned: &Learned) -> &str {
     learned.name.as_deref().unwrap_or("the person")
 }
 
-/// `memory_list`: every rule and piece of knowledge kept for the agent's
-/// project, with the decisions of the goal its live card sits under.
+/// `memory_list`: every rule, piece of knowledge and decision kept for the
+/// agent's project, with the rules of the goal its live card sits under.
 pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = crate::server::caller::agent_of(request, "memory_list")?;
     let project = crate::server::caller::project_of(core, request);
-    let goal = board::goal_of(core, &agent).map(|goal| (goal.card, goal::standing(core, &goal)));
+    let goal = board::goal_of(core, &agent).map(|goal| (goal.card, goal::rules(core, &goal)));
+    let decisions = goal::standing(core, &project);
     let state = core.memory().state.locked();
     let (mut rules, mut knowledge) = (Vec::new(), Vec::new());
     for held in state.applying(&project) {
@@ -1077,11 +1078,8 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
     let mut listed = json!({
         "rules": rules,
         "knowledge": knowledge,
-        "goal": goal.map(|(card, standing)| json!({
-            "card": card,
-            "rules": standing.rules,
-            "decisions": standing.decisions,
-        })),
+        "decisions": decisions,
+        "goal": goal.map(|(card, rules)| json!({ "card": card, "rules": rules })),
     });
     if !set_aside.is_empty() {
         listed["setAside"] = json!(set_aside);

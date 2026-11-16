@@ -473,19 +473,21 @@ pub struct ReportLine {
     pub new: bool,
 }
 
-/// What a goal decided, kept on its card.
+/// What a project decided.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Decision {
-    /// The same for as long as the goal keeps it, never given to a decision
-    /// or rule of the goal again.
+    /// Never given to another of the project's decisions.
     pub id: u64,
+    /// The goal card it was made on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<u64>,
     pub text: String,
     pub why: Option<String>,
     pub learned: Learned,
     /// What it said before it was last corrected.
     pub was: Option<String>,
-    /// Who retired it and when. A full goal drops its oldest retired
+    /// Who retired it and when. A full list drops its oldest retired
     /// decisions first.
     pub retired: Option<Learned>,
     /// What was being decided, when it settled a question an agent asked.

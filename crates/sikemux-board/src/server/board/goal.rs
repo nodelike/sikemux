@@ -1,11 +1,8 @@
-//! What a goal keeps on its card, so it goes when the goal goes: what it
-//! decided and rules only its own agents follow. A goal is a card at the top
-//! of the board, and one that keeps anything stays there. What it keeps
-//! shares ids that are never given twice. Each is corrected, keeping what it
-//! said before, or retired; a goal full of one kind drops its oldest retired
-//! first, then its oldest.
-//! What agents settle among themselves goes in its goal's log, or the project's
-//! when they work on no goal, where the person can overrule it.
+//! What a project decided, in one list, each decision tagged with the goal it was made on, and
+//! the rules a goal keeps on its card for its own agents. A goal is a card at the top of the
+//! board, and one that keeps anything stays there. Each is corrected, keeping what it said
+//! before, or retired; a full list drops its oldest retired first, then its oldest.
+//! What agents settle among themselves goes in the list too, where the person can overrule it.
 
 use crate::server::agent_now::AgentNowCore;
 use crate::server::board_above::Overruled;
@@ -30,7 +27,8 @@ use crate::server::connection::blocking;
 use crate::server::Core;
 use crate::text::{clipped, to_keep};
 
-const MAX_EACH: usize = 64;
+const MAX_RULES: usize = 64;
+const MAX_DECISIONS: usize = 512;
 const MAX_TEXT_CHARS: usize = 1000;
 
 /// Who says something now, and in which chat turn; none for the person.
@@ -46,25 +44,18 @@ pub fn learned(core: &Core, agent: Option<&str>) -> Learned {
     }
 }
 
-/// What a goal card keeps, with the last id it gave.
+/// The rules a goal card keeps, with the last id it gave them.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Goal {
     last: u64,
     #[serde(default)]
-    decisions: Vec<Decision>,
-    #[serde(default)]
     rules: Vec<GoalRule>,
 }
 
 impl Goal {
-    /// The card never kept anything as a goal.
     pub fn is_none(&self) -> bool {
         self.last == 0
-    }
-
-    pub fn decisions(&self) -> Vec<Decision> {
-        self.decisions.clone()
     }
 
     pub fn rules(&self) -> Vec<GoalRule> {
@@ -72,51 +63,86 @@ impl Goal {
     }
 }
 
-/// What a goal keeps that still stands, oldest first.
-#[derive(Default)]
-pub struct Standing {
-    pub decisions: Vec<Decision>,
-    pub rules: Vec<GoalRule>,
+/// Everything a project decided, oldest first, with the last id it gave.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Decided {
+    last: u64,
+    #[serde(default)]
+    decisions: Vec<Decision>,
+}
+
+impl Decided {
+    pub fn is_none(&self) -> bool {
+        self.last == 0
+    }
+
+    pub fn on_goal(&self, goal: u64) -> Vec<Decision> {
+        (self.decisions.iter())
+            .filter(|decision| decision.goal == Some(goal))
+            .cloned()
+            .collect()
+    }
+
+    pub fn standing(&self) -> impl Iterator<Item = &Decision> {
+        (self.decisions.iter()).filter(|decision| decision.retired.is_none())
+    }
+
+    /// Decision `id`, made on `goal`. Decisions kept before the project had one list may share
+    /// an id with another goal's, which the goal tells apart.
+    fn find(&mut self, goal: Option<u64>, id: u64) -> Option<&mut Decision> {
+        let at = (self.decisions.iter())
+            .position(|decision| decision.id == id && decision.goal == goal)
+            .or_else(|| {
+                let mut same =
+                    (self.decisions.iter().enumerate()).filter(|(_, decision)| decision.id == id);
+                match (same.next(), same.next()) {
+                    (Some((at, _)), None) => Some(at),
+                    _ => None,
+                }
+            })?;
+        self.decisions.get_mut(at)
+    }
+
+    fn add(&mut self, mut decision: Decision) -> (Decision, Option<u64>) {
+        let dropped = make_room(&mut self.decisions, MAX_DECISIONS);
+        self.last += 1;
+        decision.id = self.last;
+        self.decisions.push(decision.clone());
+        (decision, dropped)
+    }
 }
 
 /// The project's decisions still standing that were made since `since`, newest first, at
-/// most `most`: every goal's, and those made on no goal.
+/// most `most`.
 pub fn standing_since(core: &Core, project: &str, since: u64, most: usize) -> Vec<Decision> {
-    let state = core.boards().state.locked();
-    let Some(board) = state.boards.get(project) else {
-        return Vec::new();
-    };
-    let mut decisions: Vec<Decision> = (board.cards.iter())
-        .map(|card| &card.goal)
-        .chain([&board.decided])
-        .flat_map(|goal| goal.decisions.iter())
-        .filter(|decision| decision.retired.is_none() && decision.learned.at >= since)
-        .cloned()
-        .collect();
-    decisions.sort_by_key(|decision| std::cmp::Reverse(decision.learned.at));
+    let mut decisions = standing(core, project);
+    decisions.retain(|decision| decision.learned.at >= since);
+    decisions.reverse();
     decisions.truncate(most);
     decisions
 }
 
-pub fn standing(core: &Core, goal: &GoalRef) -> Standing {
+/// The project's decisions that still stand, oldest first.
+pub fn standing(core: &Core, project: &str) -> Vec<Decision> {
     let state = core.boards().state.locked();
-    let Some(card) = state
-        .boards
-        .get(&goal.project)
+    (state.boards.get(project))
+        .map(|board| board.decided.standing().cloned().collect())
+        .unwrap_or_default()
+}
+
+/// The rules goal `goal` keeps that still stand, oldest first.
+pub fn rules(core: &Core, goal: &GoalRef) -> Vec<GoalRule> {
+    let state = core.boards().state.locked();
+    (state.boards.get(&goal.project))
         .and_then(|board| board.card(goal.card).ok())
-    else {
-        return Standing::default();
-    };
-    Standing {
-        decisions: (card.goal.decisions.iter())
-            .filter(|decision| decision.retired.is_none())
-            .cloned()
-            .collect(),
-        rules: (card.goal.rules.iter())
-            .filter(|rule| rule.retired.is_none())
-            .cloned()
-            .collect(),
-    }
+        .map(|card| {
+            (card.goal.rules.iter())
+                .filter(|rule| rule.retired.is_none())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// A decision or a goal's rule, as one list of a goal's changes it.
@@ -199,6 +225,13 @@ pub enum Change {
 }
 
 impl Change {
+    fn id(&self) -> Option<u64> {
+        match self {
+            Change::Correct { id, .. } | Change::Retire { id } => Some(*id),
+            Change::New { .. } => None,
+        }
+    }
+
     /// Reads what is asked of a goal's decisions or rules; only a decision
     /// has a `why`.
     pub fn of(
@@ -229,10 +262,11 @@ impl Change {
     }
 }
 
-/// Applies a change other than a new one to `list`; answers what happened.
+/// Applies a change other than a new one to `kept`, found as `whose` {word} #`id`; answers
+/// what happened.
 fn apply<T: Kept>(
-    list: &mut [T],
-    goal: u64,
+    kept: Option<&mut T>,
+    whose: &str,
     change: Change,
     by: Learned,
 ) -> Result<String, String> {
@@ -241,104 +275,127 @@ fn apply<T: Kept>(
         return Err(format!("A new {word} is added, not changed"));
     };
     let id = *id;
-    let kept = (list.iter_mut())
-        .find(|kept| kept.id() == id)
-        .ok_or_else(|| format!("Goal #{goal} has no {word} #{id}"))?;
+    let kept = kept.ok_or_else(|| format!("{whose} has no {word} #{id}"))?;
     if kept.retired() {
         return Err(format!(
-            "Goal #{goal}'s {word} #{id} was retired; add it again instead"
+            "{whose} {word} #{id} was retired; add it again instead"
         ));
     }
     match change {
         Change::Correct { text, why, .. } => {
             kept.correct(text, why, by);
-            Ok(format!("Goal #{goal}'s {word} #{id} is corrected."))
+            Ok(format!("{whose} {word} #{id} is corrected."))
         }
         _ => {
             kept.retire(by);
-            Ok(format!("Goal #{goal}'s {word} #{id} is retired."))
+            Ok(format!("{whose} {word} #{id} is retired."))
         }
     }
 }
 
-/// Makes room for one more in `list`, dropping its oldest retired, else its oldest; answers
-/// what was dropped, in words.
-fn make_room<T: Kept>(list: &mut Vec<T>, goal: u64) -> String {
-    if list.len() < MAX_EACH {
-        return String::new();
+/// Makes room for one more in `list` of at most `most`, dropping its oldest retired, else its
+/// oldest; answers the id dropped.
+fn make_room<T: Kept>(list: &mut Vec<T>, most: usize) -> Option<u64> {
+    if list.len() < most {
+        return None;
     }
     let oldest = list.iter().position(Kept::retired).unwrap_or(0);
-    let dropped = list.remove(oldest);
-    format!(
-        " Goal #{goal} keeps {MAX_EACH} of each, so {} #{} was dropped.",
-        T::WORD,
-        dropped.id()
-    )
+    Some(list.remove(oldest).id())
 }
 
-/// Changes what goal card `goal` of `project` keeps; answers what happened,
-/// in words.
+fn dropped_note<T: Kept>(dropped: Option<u64>, whose: &str, most: usize) -> String {
+    dropped.map_or_else(String::new, |id| {
+        format!(" {whose} keeps {most}, so {} #{id} was dropped.", T::WORD)
+    })
+}
+
+/// Changes a decision of `project`, made on goal card `goal` when given, or a rule of that goal;
+/// answers what happened, in words.
 pub fn change(
     core: &Core,
     project: &str,
-    goal: u64,
+    goal: Option<u64>,
     list: List,
     change: Change,
     by: Learned,
 ) -> Result<String, String> {
     let mut state = core.boards().state.locked();
-    let board = state
-        .boards
-        .get_mut(project)
-        .ok_or_else(|| format!("There is no card #{goal} on this project's board"))?;
-    let card = board.card_mut(goal)?;
-    if card.parent.is_some() {
-        return Err(format!(
-            "Card #{goal} sits under another card; a goal is a card at the top"
-        ));
+    let board = (state.boards)
+        .entry(project.to_owned())
+        .or_insert_with(|| Board::empty(project));
+    if let Some(goal) = goal {
+        let card = board.card(goal)?;
+        if card.parent.is_some() {
+            return Err(format!(
+                "Card #{goal} sits under another card; a goal is a card at the top"
+            ));
+        }
     }
-    let kept = &mut card.goal;
     let mut decided = None;
-    let said = match (list, change) {
-        (List::Decisions, Change::New { text, why }) => {
-            let dropped = make_room(&mut kept.decisions, goal);
-            kept.last += 1;
-            let id = kept.last;
-            let decision = Decision {
-                id,
-                text,
-                why,
-                holder: by.agent.clone(),
-                learned: by,
-                was: None,
-                retired: None,
-                asked: None,
-            };
-            decided = decision.holder.is_some().then(|| decision.clone());
-            kept.decisions.push(decision);
-            format!("Decision #{id} is kept on goal #{goal}.{dropped}")
+    let said = match (list, goal) {
+        (List::Decisions, _) => {
+            let whose = goal.map_or("The project's".to_owned(), |goal| format!("Goal #{goal}'s"));
+            match change {
+                Change::New { text, why } => {
+                    let (decision, dropped) = board.decided.add(Decision {
+                        id: 0,
+                        goal,
+                        text,
+                        why,
+                        holder: by.agent.clone(),
+                        learned: by,
+                        was: None,
+                        retired: None,
+                        asked: None,
+                    });
+                    let id = decision.id;
+                    decided = decision.holder.is_some().then_some(decision);
+                    let on = goal.map_or("for the project".to_owned(), |goal| {
+                        format!("on goal #{goal}")
+                    });
+                    let dropped = dropped_note::<Decision>(dropped, "The project", MAX_DECISIONS);
+                    format!("Decision #{id} is kept {on}.{dropped}")
+                }
+                change => {
+                    let decision = change.id().and_then(|id| board.decided.find(goal, id));
+                    apply(decision, &whose, change, by)?
+                }
+            }
         }
-        (List::Rules, Change::New { text, .. }) => {
-            let dropped = make_room(&mut kept.rules, goal);
-            kept.last += 1;
-            let id = kept.last;
-            kept.rules.push(GoalRule {
-                id,
-                text,
-                learned: by,
-                was: None,
-                retired: None,
-            });
-            format!("Rule #{id} is kept on goal #{goal}.{dropped}")
+        (List::Rules, None) => return Err("A rule is kept on a goal".into()),
+        (List::Rules, Some(goal)) => {
+            let card = board.card_mut(goal)?;
+            card.updated_at = epoch_ms();
+            let kept = &mut card.goal;
+            let whose = format!("Goal #{goal}'s");
+            match change {
+                Change::New { text, .. } => {
+                    let dropped = make_room(&mut kept.rules, MAX_RULES);
+                    kept.last += 1;
+                    let id = kept.last;
+                    kept.rules.push(GoalRule {
+                        id,
+                        text,
+                        learned: by,
+                        was: None,
+                        retired: None,
+                    });
+                    let dropped =
+                        dropped_note::<GoalRule>(dropped, &format!("Goal #{goal}"), MAX_RULES);
+                    format!("Rule #{id} is kept on goal #{goal}.{dropped}")
+                }
+                change => {
+                    let id = change.id();
+                    let rule = kept.rules.iter_mut().find(|rule| Some(rule.id) == id);
+                    apply(rule, &whose, change, by)?
+                }
+            }
         }
-        (List::Decisions, change) => apply(&mut kept.decisions, goal, change, by)?,
-        (List::Rules, change) => apply(&mut kept.rules, goal, change, by)?,
     };
-    card.updated_at = epoch_ms();
     core.boards().save(&mut state, project);
     drop(state);
     if let Some(decision) = decided {
-        (core.board_above().chief_decided)(core, project, Some(goal), &decision);
+        (core.board_above().chief_decided)(core, project, goal, &decision);
     }
     Ok(said)
 }
@@ -359,8 +416,8 @@ struct ToolDecide {
     environments: Option<Vec<Value>>,
 }
 
-/// `board_decide`: records, corrects or retires a decision of the goal the
-/// agent's live card sits under, or proposes the project's environments.
+/// `board_decide`: records, corrects or retires a decision of the project, tagged with the goal
+/// the agent's live card sits under, or proposes the project's environments.
 pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = crate::server::caller::agent_of(request, "board_decide")?;
     let given: ToolDecide =
@@ -385,9 +442,7 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             given.why.as_deref(),
             given.retire,
         )?;
-        let goal = goal_of(&core, &agent).ok_or(
-            "You work on no card that is not done, so there is no goal to decide for; claim your card first",
-        )?;
+        let goal = goal_of(&core, &agent);
         let answers = (core.chats().get(&agent))
             .and_then(|chat| chat.feed.turn_prompt())
             .map(|prompt| answers_in(&prompt))
@@ -404,8 +459,12 @@ pub async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
             by.agent = None;
             by.name = None;
         }
-        let said = change(&core, &goal.project, goal.card, List::Decisions, deciding, by)?;
-        Ok(json!({ "goal": goal.card, "note": said }))
+        let (project, goal) = match goal {
+            Some(goal) => (goal.project, Some(goal.card)),
+            None => (project, None),
+        };
+        let said = change(&core, &project, goal, List::Decisions, deciding, by)?;
+        Ok(json!({ "goal": goal, "note": said }))
     })
     .await
     .map_err(|error| error.to_string())
@@ -466,7 +525,14 @@ pub async fn person_decide(core: &Arc<Core>, params: DecideParams) -> Result<Pro
             params.retire,
         )?;
         let by = learned(&core, None);
-        change(&core, &project, params.card, List::Decisions, deciding, by)?;
+        change(
+            &core,
+            &project,
+            Some(params.card),
+            List::Decisions,
+            deciding,
+            by,
+        )?;
         Ok(project_view(&core, &project))
     })
     .await
@@ -486,7 +552,7 @@ pub struct Settled {
     pub why: Option<String>,
 }
 
-/// Keeps what agents settled, on the goal its holder works on, or else on its project's board.
+/// Keeps what agents settled, tagged with the goal its holder works on.
 pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)> {
     let goal = goal_of(core, &settled.holder);
     let learned = learned(core, Some(&settled.by));
@@ -498,17 +564,9 @@ pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)>
         .entry(project.clone())
         .or_insert_with(|| Board::empty(&project));
     let goal = goal.and_then(|goal| board.goal_log(goal.card).map(|card| card.id));
-    let kept = match goal.and_then(|goal| board.card_mut(goal).ok()) {
-        Some(card) => {
-            card.updated_at = epoch_ms();
-            &mut card.goal
-        }
-        None => &mut board.decided,
-    };
-    make_room(&mut kept.decisions, 0);
-    kept.last += 1;
-    kept.decisions.push(Decision {
-        id: kept.last,
+    let (decision, _) = board.decided.add(Decision {
+        id: 0,
+        goal,
         text: clipped(&settled.text, MAX_TEXT_CHARS),
         why: settled.why.map(|why| clipped(&why, MAX_TEXT_CHARS)),
         learned,
@@ -517,7 +575,6 @@ pub fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)>
         asked: (settled.asked).map(|asked| clipped(&asked, MAX_TEXT_CHARS)),
         holder: Some(settled.holder),
     });
-    let decision = kept.decisions.last().cloned()?;
     core.boards().save(&mut state, &project);
     drop(state);
     (core.board_above().chief_decided)(core, &project, goal, &decision);
@@ -534,22 +591,15 @@ pub fn decided_since(core: &Core, since: Option<u64>, project: Option<&str>) -> 
         if project.is_some_and(|project| project != board.project) {
             continue;
         }
-        let logs = (board.cards.iter())
-            .map(|card| (Some(card.id), &card.goal))
-            .chain([(None, &board.decided)]);
-        for (goal, kept) in logs {
-            let from = goal.and(since).unwrap_or(0);
-            let recent = (kept.decisions.iter()).filter(|decision| {
-                decision.holder.is_some()
-                    && decision.retired.is_none()
-                    && decision.learned.at >= from
-            });
-            decided.extend(recent.map(|decision| SwarmDecision {
-                project: board.project.clone(),
-                goal,
-                decision: decision.clone(),
-            }));
-        }
+        let recent = board.decided.standing().filter(|decision| {
+            let from = decision.goal.and(since).unwrap_or(0);
+            decision.holder.is_some() && decision.learned.at >= from
+        });
+        decided.extend(recent.map(|decision| SwarmDecision {
+            project: board.project.clone(),
+            goal: decision.goal,
+            decision: decision.clone(),
+        }));
     }
     decided.sort_by_key(|swarm| swarm.decision.learned.at);
     decided
@@ -568,12 +618,7 @@ pub async fn overrule(core: &Arc<Core>, params: OverruleParams) -> Result<Projec
             let mut state = core.boards().state.locked();
             let board = (state.boards.get_mut(&project))
                 .ok_or_else(|| "This project keeps no decisions".to_owned())?;
-            let kept = match params.goal {
-                Some(goal) => &mut board.card_mut(goal)?.goal,
-                None => &mut board.decided,
-            };
-            let decision = (kept.decisions.iter_mut())
-                .find(|decision| decision.id == params.decision)
+            let decision = (board.decided.find(params.goal, params.decision))
                 .ok_or("That decision is not kept here")?;
             let already = (decision.retired.as_ref()).is_some_and(|by| by.agent.is_none());
             if decision.retired.is_some() && !already {
@@ -650,12 +695,7 @@ pub async fn undo_overrule(
             let mut state = core.boards().state.locked();
             let board = (state.boards.get_mut(&project))
                 .ok_or_else(|| "This project keeps no decisions".to_owned())?;
-            let kept = match params.goal {
-                Some(goal) => &mut board.card_mut(goal)?.goal,
-                None => &mut board.decided,
-            };
-            let decision = (kept.decisions.iter_mut())
-                .find(|decision| decision.id == params.decision)
+            let decision = (board.decided.find(params.goal, params.decision))
                 .ok_or("That decision is not kept here")?;
             let stands = decision.retired.is_none();
             if !stands && !(decision.retired.as_ref()).is_some_and(|by| by.agent.is_none()) {
@@ -698,10 +738,7 @@ pub fn counted_since(core: &Core, project: &str, from: u64, to: u64) -> (usize, 
     let Some(board) = state.boards.get(project) else {
         return (0, 0);
     };
-    let decisions = (board.cards.iter())
-        .map(|card| &card.goal)
-        .chain([&board.decided])
-        .flat_map(|goal| goal.decisions.iter());
+    let decisions = board.decided.decisions.iter();
     let (mut decided, mut overruled) = (0, 0);
     for decision in decisions {
         let within = |at: u64| (from..to).contains(&at);

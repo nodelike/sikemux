@@ -388,12 +388,10 @@ fn agent_facts(core: &Core, asked: &Asked, agent: &str, at: u64, facts: &mut Fac
         });
     }
     let decided = (decisions_newest_first(core, &asked.project).into_iter())
-        .filter(|(_, decision)| {
-            decision.holder.as_deref() == Some(agent) && decision.learned.at <= at
-        })
+        .filter(|decision| decision.holder.as_deref() == Some(agent) && decision.learned.at <= at)
         .take(2);
-    for (card, decision) in decided.collect::<Vec<_>>() {
-        facts.extend(decision_fact(card, &decision));
+    for decision in decided.collect::<Vec<_>>() {
+        facts.extend(decision_fact(&decision));
     }
     let answered: Vec<Fact> = (facts.calls(core, &asked.project).iter())
         .filter(|call| {
@@ -424,28 +422,25 @@ fn agent_facts(core: &Core, asked: &Asked, agent: &str, at: u64, facts: &mut Fac
 }
 
 /// Every decision kept in `project` that still stands, newest first.
-fn decisions_newest_first(
-    core: &Core,
-    project: &str,
-) -> Vec<(Option<u64>, sikemux_view::slice::Decision)> {
-    let mut decisions = board::decisions_of(core, project);
-    decisions.sort_by_key(|(_, decision)| Reverse(decision.learned.at));
+fn decisions_newest_first(core: &Core, project: &str) -> Vec<sikemux_view::slice::Decision> {
+    let mut decisions = board::goal::standing(core, project);
+    decisions.sort_by_key(|decision| Reverse(decision.learned.at));
     decisions
 }
 
 /// The project's newest decisions, for words that name nothing in particular.
 fn newest_decisions(core: &Core, asked: &Asked, facts: &mut Facts) {
-    for (card, decision) in decisions_newest_first(core, &asked.project) {
+    for decision in decisions_newest_first(core, &asked.project) {
         if facts.full() {
             break;
         }
-        facts.extend(decision_fact(card, &decision));
+        facts.extend(decision_fact(&decision));
     }
 }
 
 /// What an agent or a lead decided and why, said as theirs, when it holds nothing that may be a
 /// secret.
-fn decision_fact(card: Option<u64>, decision: &sikemux_view::slice::Decision) -> Option<Fact> {
+fn decision_fact(decision: &sikemux_view::slice::Decision) -> Option<Fact> {
     let says = decision.says();
     let said = match decision.why.as_deref().map(str::trim) {
         Some(why) if !why.is_empty() => format!("{}. Why: {why}", says.trim_end_matches('.')),
@@ -463,7 +458,7 @@ fn decision_fact(card: Option<u64>, decision: &sikemux_view::slice::Decision) ->
         at: Some(decision.learned.at),
         who,
         pointer: Pointer::Decision {
-            card,
+            card: decision.goal,
             id: decision.id,
         },
     })
@@ -659,12 +654,11 @@ fn said_words(core: &Core, asked: &Asked, wanted: &[String], facts: &mut Facts) 
             pointer,
         });
     }
-    let decided = ranked(
-        decisions_newest_first(core, &asked.project),
-        |(_, decision)| holds(&decision.says()),
-    );
-    for (card, decision) in decided.into_iter().take(2) {
-        facts.extend(decision_fact(card, &decision));
+    let decided = ranked(decisions_newest_first(core, &asked.project), |decision| {
+        holds(&decision.says())
+    });
+    for decision in decided.into_iter().take(2) {
+        facts.extend(decision_fact(&decision));
     }
     let (rules, _) = memory::for_playbook(core, &asked.project, &Peer::Local);
     for rule in ranked(rules, |rule| holds(&rule.text)).into_iter().take(2) {
@@ -995,9 +989,9 @@ impl Checking<'_> {
                 chip(WhyKind::Rule, Some(rule.learned.at), false, open)
             }
             Pointer::Decision { card, id } => {
-                let found = (board::decisions_of(core, project).into_iter())
-                    .find(|(kept, decision)| *kept == card && decision.id == id);
-                let Some((_, decision)) = found else {
+                let found = (board::goal::standing(core, project).into_iter())
+                    .find(|decision| decision.goal == card && decision.id == id);
+                let Some(decision) = found else {
                     return Checked::Absent;
                 };
                 let Some(agent) = (decision.learned.agent.clone()).or(decision.holder.clone())
