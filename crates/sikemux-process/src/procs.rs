@@ -52,7 +52,8 @@ mod system {
                 buffer.len() as u32,
             )
         };
-        (length > 0).then(|| String::from_utf8_lossy(&buffer[..length as usize]).into_owned())
+        let name = buffer.get(..usize::try_from(length).ok().filter(|length| *length > 0)?)?;
+        Some(String::from_utf8_lossy(name).into_owned())
     }
 
     pub(super) fn program(pid: u32) -> Option<std::path::PathBuf> {
@@ -67,7 +68,7 @@ mod system {
             )
         };
         let length = usize::try_from(length).ok().filter(|length| *length > 0)?;
-        Some(std::ffi::OsStr::from_bytes(&buffer[..length]).into())
+        Some(std::ffi::OsStr::from_bytes(buffer.get(..length)?).into())
     }
 
     fn folder(pid: u32) -> Option<std::path::PathBuf> {
@@ -106,7 +107,7 @@ mod system {
         let mut found = Vec::new();
         for pid in pids {
             let arguments = procargs_into(pid, &mut buffer)
-                .and_then(|size| arguments_from_procargs(&buffer[..size]))
+                .and_then(|size| arguments_from_procargs(buffer.get(..size)?))
                 .unwrap_or_default();
             let paths = [program(pid), folder(pid)]
                 .into_iter()
@@ -134,8 +135,9 @@ mod system {
         // SAFETY: `pids` is a writable buffer of `size` bytes.
         let listed = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) };
         let listed = usize::try_from(listed).unwrap_or(0).min(pids.len());
-        let listed_pids = pids[..listed]
+        let listed_pids = pids
             .iter()
+            .take(listed)
             .filter_map(|pid| u32::try_from(*pid).ok())
             .collect();
         (listed_pids, listed > 0 && listed < pids.len())
@@ -318,8 +320,8 @@ mod system {
     fn arguments_from_procargs(bytes: &[u8]) -> Option<Vec<String>> {
         let argc = usize::try_from(i32::from_ne_bytes(bytes.get(..4)?.try_into().ok()?)).ok()?;
         let rest = bytes.get(4..)?;
-        let rest = &rest[rest.iter().position(|byte| *byte == 0)?..];
-        let rest = &rest[rest.iter().position(|byte| *byte != 0)?..];
+        let rest = rest.get(rest.iter().position(|byte| *byte == 0)?..)?;
+        let rest = rest.get(rest.iter().position(|byte| *byte != 0)?..)?;
         Some(
             rest.split(|byte| *byte == 0)
                 .take(argc)
@@ -333,8 +335,8 @@ mod system {
     pub(super) fn environment_from_procargs(bytes: &[u8], key: &str) -> Option<String> {
         let argc = usize::try_from(i32::from_ne_bytes(bytes.get(..4)?.try_into().ok()?)).ok()?;
         let rest = bytes.get(4..)?;
-        let rest = &rest[rest.iter().position(|byte| *byte == 0)?..];
-        let rest = &rest[rest.iter().position(|byte| *byte != 0)?..];
+        let rest = rest.get(rest.iter().position(|byte| *byte == 0)?..)?;
+        let rest = rest.get(rest.iter().position(|byte| *byte != 0)?..)?;
         let mut entries = rest.split(|byte| *byte == 0);
         for _ in 0..argc {
             entries.next()?;

@@ -277,8 +277,15 @@ mod system {
 
     impl Ticks {
         pub(super) fn busy_share_since(&self, last: &Ticks) -> Option<u16> {
-            let [user, system, idle, nice] =
-                std::array::from_fn(|state| u64::from(self.0[state].wrapping_sub(last.0[state])));
+            let [user, system, idle, nice] = self.0;
+            let [last_user, last_system, last_idle, last_nice] = last.0;
+            let since = |now: u32, then: u32| u64::from(now.wrapping_sub(then));
+            let (user, system, idle, nice) = (
+                since(user, last_user),
+                since(system, last_system),
+                since(idle, last_idle),
+                since(nice, last_nice),
+            );
             let busy = user + system + nice;
             let total = busy + idle;
             (total > 0).then(|| (busy * 1_000 / total) as u16)
@@ -334,7 +341,7 @@ mod system {
         if status != 0 {
             return None;
         }
-        let text = CStr::from_bytes_until_nul(&buffer[..size.min(buffer.len())]).ok()?;
+        let text = CStr::from_bytes_until_nul(buffer.get(..size.min(buffer.len()))?).ok()?;
         non_empty(&text.to_string_lossy())
     }
 

@@ -120,7 +120,7 @@ fn read_bounded(
             exceeded.store(true, Ordering::Release);
             return Err(io::Error::other("subprocess output limit exceeded"));
         }
-        bytes.extend_from_slice(&chunk[..read]);
+        bytes.extend_from_slice(chunk.get(..read).unwrap_or_default());
     }
 }
 
