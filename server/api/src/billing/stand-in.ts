@@ -62,12 +62,15 @@ export class StandInProvider implements BillingProvider {
   private readonly checkouts = new Map<string, CheckoutRequest>();
   private readonly paying = new Set<string>();
   private readonly heldRefunds: string[] = [];
+  private readonly paid = new Map<string, Money>();
   /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
   declineChanges = false;
   /** Fails every cancellation, as a provider that cannot be reached. */
   refuseCancels = false;
   /** Keeps refunds waiting for approval, as a provider that approves each by hand, until `approveRefunds`. */
   holdRefunds = false;
+  /** Turns down every refund, as a provider whose review refuses it. */
+  refuseRefunds = false;
   private readonly checkoutBase: string;
   private deliver: (request: ProviderRequest) => Promise<void> = () =>
     Promise.reject(new Error("The stand-in provider has no webhook yet."));
@@ -86,6 +89,9 @@ export class StandInProvider implements BillingProvider {
   }
 
   private async send(...events: ProviderEvent[]) {
+    for (const event of events)
+      if (event.type === "payment.made")
+        this.paid.set(event.providerPaymentId, event.total);
     const body = JSON.stringify(events);
     const signature = this.sign(body);
     await this.deliver({
@@ -243,14 +249,26 @@ export class StandInProvider implements BillingProvider {
 
   async refund(providerPaymentId: string) {
     if (this.holdRefunds) this.heldRefunds.push(providerPaymentId);
-    else
-      await this.send({ ...this.event("payment.refunded"), providerPaymentId });
+    else await this.settleRefund(providerPaymentId);
   }
 
   async approveRefunds() {
-    const ids = this.heldRefunds.splice(0);
-    for (const providerPaymentId of ids)
-      await this.send({ ...this.event("payment.refunded"), providerPaymentId });
+    for (const providerPaymentId of this.heldRefunds.splice(0))
+      await this.settleRefund(providerPaymentId);
+  }
+
+  private settleRefund(providerPaymentId: string) {
+    if (this.refuseRefunds)
+      return this.send({
+        ...this.event("payment.refund_refused"),
+        providerPaymentId,
+      });
+    return this.send({
+      ...this.event("payment.refunded"),
+      providerPaymentId,
+      returned: this.paid.get(providerPaymentId) ?? cents(0),
+      chargeback: false,
+    });
   }
 
   portal() {

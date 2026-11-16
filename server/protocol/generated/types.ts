@@ -559,7 +559,7 @@ export interface Invoice {
   at: string;
   /** A refund was asked of the provider, which has not made it yet. */
   refundRequestedAt?: string;
-  /** Only on a subscription's first payment, while it may still be refunded in full. */
+  /** Only on a plan's first payment, while the plan may still be refunded. */
   refundableUntil?: string;
 }
 
@@ -1546,6 +1546,12 @@ export interface Subscription {
   endedAt?: string;
   /** A change asked for at renewal, which takes over at currentPeriodEnd. */
   atRenewal?: ScheduledChange;
+  /** While the plan may still be refunded: within the catalog's refundDays of first paying for it, and only once for each kind of plan a payer buys. */
+  refundableUntil?: string;
+  /** A refund was asked for and the provider has not settled it yet. The plan ends when it is paid, and cannot be resumed or changed until then. */
+  refundRequestedAt?: string;
+  /** What the refund returns, or returns once paid: every payment on the plan in its first refundDays. */
+  refundAmount?: Money;
 }
 
 /** A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box. */

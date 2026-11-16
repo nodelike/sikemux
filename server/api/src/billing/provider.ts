@@ -100,8 +100,18 @@ export type ProviderEvent = {
       /** What the provider charged, in the currency it charged in. */
       total: Money;
     }
-  /** The refund asked for went through; it may come long after the request. */
-  | { type: "payment.refunded"; providerPaymentId: string }
+  /**
+   * Money went back on a payment: a refund, asked for or not, which may come long after the
+   * request, or a chargeback the payer's bank made. `returned` may be less than was paid.
+   */
+  | {
+      type: "payment.refunded";
+      providerPaymentId: string;
+      returned: Money;
+      chargeback: boolean;
+    }
+  /** The provider turned down a refund asked for, and the payment stays as it was. */
+  | { type: "payment.refund_refused"; providerPaymentId: string }
 );
 
 export interface CheckoutRequest {

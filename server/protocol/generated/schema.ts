@@ -951,7 +951,7 @@ export const schema = {
         },
         refundableUntil: {
           description:
-            "Only on a subscription's first payment, while it may still be refunded in full.",
+            "Only on a plan's first payment, while the plan may still be refunded.",
           type: "string",
           format: "date-time",
         },
@@ -2705,6 +2705,23 @@ export const schema = {
           description:
             "A change asked for at renewal, which takes over at currentPeriodEnd.",
           $ref: "#/$defs/ScheduledChange",
+        },
+        refundableUntil: {
+          description:
+            "While the plan may still be refunded: within the catalog's refundDays of first paying for it, and only once for each kind of plan a payer buys.",
+          type: "string",
+          format: "date-time",
+        },
+        refundRequestedAt: {
+          description:
+            "A refund was asked for and the provider has not settled it yet. The plan ends when it is paid, and cannot be resumed or changed until then.",
+          type: "string",
+          format: "date-time",
+        },
+        refundAmount: {
+          description:
+            "What the refund returns, or returns once paid: every payment on the plan in its first refundDays.",
+          $ref: "#/$defs/Money",
         },
       },
       required: [

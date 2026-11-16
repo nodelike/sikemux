@@ -322,10 +322,16 @@ export function apiClient(send: Send) {
         "POST",
         `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/resume`,
       ),
+    /** Refund a plan in its first days and end it. */
+    refundSubscription: (subscriptionId: string) =>
+      send<Subscription>(
+        "POST",
+        `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/refund`,
+      ),
     /** Your payments, or an org's. */
     listInvoices: (query: { org?: OrgId } = {}) =>
       send<InvoiceList>("GET", `/v1/billing/invoices${search(query)}`),
-    /** Refund a subscription's first payment in full and end it. */
+    /** Refund the plan an invoice paid for, in its first days, and end it. */
     refundInvoice: (invoiceId: string) =>
       send<Invoice>(
         "POST",

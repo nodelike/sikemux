@@ -1408,7 +1408,7 @@
           "body": "ApiError"
         },
         "409": {
-          "description": "The subscription has ended, or the payment for a change now did not go through and nothing changed.",
+          "description": "The subscription has ended, a refund of it is waiting, or the payment for a change now did not go through and nothing changed.",
           "body": "ApiError"
         },
         "503": {
@@ -1466,7 +1466,36 @@
           "body": "ApiError"
         },
         "409": {
-          "description": "The subscription has ended.",
+          "description": "The subscription has ended, or a refund of it is waiting.",
+          "body": "ApiError"
+        },
+        "503": {
+          "description": "No payment provider is set up.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/billing/subscriptions/{subscriptionId}/refund",
+      "operationId": "refundSubscription",
+      "summary": "Refund a plan in its first days and end it",
+      "auth": "session",
+      "responses": {
+        "200": {
+          "description": "The subscription with the refund asked for. It stops renewing at once; it ends, and its payments turn refunded, when the provider pays the refund, which may be later. Asking again changes nothing.",
+          "body": "Subscription"
+        },
+        "403": {
+          "description": "Only the org's owner changes its billing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No such subscription of yours, or billing is not live and the account is not staff.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The subscription has ended, or its refund is not open: a plan is refunded within the catalog's refundDays of first paying for it, once for each kind of plan.",
           "body": "ApiError"
         },
         "503": {
@@ -1503,11 +1532,11 @@
       "method": "post",
       "path": "/v1/billing/invoices/{invoiceId}/refund",
       "operationId": "refundInvoice",
-      "summary": "Refund a subscription's first payment in full and end it",
+      "summary": "Refund the plan an invoice paid for, in its first days, and end it",
       "auth": "session",
       "responses": {
         "200": {
-          "description": "The invoice with the refund asked for. It turns refunded, and what it bought ends, when the provider says the refund is made, which may be later.",
+          "description": "The invoice with its plan's refund asked for, as refundSubscription does. It turns refunded, and the plan ends, when the provider says the refund is made, which may be later.",
           "body": "Invoice"
         },
         "403": {
@@ -1519,7 +1548,7 @@
           "body": "ApiError"
         },
         "409": {
-          "description": "Only a subscription's first payment is refunded, within the catalog's refundDays of it, once.",
+          "description": "The invoice is not one the plan's refund returns: a plan is refunded within the catalog's refundDays of first paying for it, once for each kind of plan.",
           "body": "ApiError"
         },
         "503": {

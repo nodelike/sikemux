@@ -96,6 +96,8 @@ interface PaddleAdjustment {
   action: string;
   status: string;
   transaction_id: string;
+  currency_code: string;
+  totals: { total: string };
 }
 
 interface PaddleEvent {
@@ -635,6 +637,11 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
           ...base,
           type: "payment.refunded",
           providerPaymentId: adjustment.transaction_id,
+          returned: {
+            amount: Number(adjustment.totals.total),
+            currency: adjustment.currency_code.toLowerCase(),
+          },
+          chargeback: false,
         },
       ];
     }

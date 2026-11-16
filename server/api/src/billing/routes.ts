@@ -28,17 +28,23 @@ import { orgRole } from "../orgs/roles.ts";
 import { requireBillingAccess } from "./access.ts";
 import { allowance } from "./allowance.ts";
 import { applyProviderEvents } from "./apply.ts";
-import { CATALOG, REFUND_DAYS, product, unitPrice } from "./catalog.ts";
+import { makeDueCalls } from "./calls.ts";
+import { CATALOG, product, unitPrice } from "./catalog.ts";
 import {
   heldSubscription,
   type BillingProvider,
   type ProviderRequest,
 } from "./provider.ts";
 import { PaddleProvider } from "./paddle.ts";
+import {
+  askRefund,
+  planRefund,
+  refundPending,
+  type PlanRefund,
+} from "./refunds.ts";
 import { hasOpenSubscriptions, lockSeats } from "./seats.ts";
 import { StandInProvider } from "./stand-in.ts";
 
-const DAY_MS = 24 * 60 * 60_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 type Payer = { userId: string } | { orgId: string };
@@ -83,7 +89,10 @@ export function billingProviderRoutes({
   });
 }
 
-function subscriptionBody(row: SubscriptionRow): Subscription {
+function subscriptionBody(
+  row: SubscriptionRow,
+  refund: PlanRefund,
+): Subscription {
   return {
     id: row.id,
     product: row.product,
@@ -103,28 +112,32 @@ function subscriptionBody(row: SubscriptionRow): Subscription {
           },
         }
       : {}),
+    ...(refund.until ? { refundableUntil: refund.until.toISOString() } : {}),
+    ...(refund.requestedAt
+      ? { refundRequestedAt: refund.requestedAt.toISOString() }
+      : {}),
+    ...(refund.amount && (refund.until || refund.requestedAt)
+      ? { refundAmount: refund.amount }
+      : {}),
   };
+}
+
+/** A subscription as the API shows it, with where its plan's refund stands. */
+async function subscriptionWithRefund(
+  db: Kysely<Tables>,
+  row: SubscriptionRow,
+): Promise<Subscription> {
+  const refund =
+    row.status === "ended"
+      ? { covers: [] }
+      : await planRefund(db, row.customer_id, row.provider_subscription_id);
+  return subscriptionBody(row, refund);
 }
 
 function customersOf(db: Kysely<Tables>, payer: Payer) {
   return "userId" in payer
     ? db.selectFrom("billing_customers").where("user_id", "=", payer.userId)
     : db.selectFrom("billing_customers").where("org_id", "=", payer.orgId);
-}
-
-/** Only a subscription's first payment is refunded, in full and within the refund window. */
-function refundableUntil(
-  row: Selectable<Tables["invoices"]>,
-  now = Date.now(),
-): Date | null {
-  if (
-    row.status !== "paid" ||
-    row.reason !== "first_payment" ||
-    row.refund_requested_at
-  )
-    return null;
-  const until = row.at.getTime() + REFUND_DAYS * DAY_MS;
-  return until > now ? new Date(until) : null;
 }
 
 /**
@@ -225,13 +238,47 @@ export function billingRoutes({
   };
 
   const reread = async (id: string) =>
-    subscriptionBody(
+    subscriptionWithRefund(
+      db,
       await db
         .selectFrom("subscriptions")
         .selectAll()
         .where("id", "=", id)
         .executeTakeFirstOrThrow(),
     );
+
+  const refusePending = async (row: SubscriptionRow) => {
+    if (await refundPending(db, row.customer_id, row.provider_subscription_id))
+      throw new ApiFailure(
+        409,
+        "conflict",
+        "A refund of this plan is waiting; it ends when the refund is paid.",
+      );
+  };
+
+  /** Asks for a plan's refund, and makes the provider calls it leads to before answering. */
+  const refundPlan = async (
+    c: Context<AuthEnv>,
+    ready: BillingProvider,
+    row: { customer_id: string; provider_subscription_id: string },
+    subject: string,
+  ) => {
+    const outcome = await askRefund(
+      db,
+      ready.name,
+      row.customer_id,
+      row.provider_subscription_id,
+    );
+    if (outcome === "already") return;
+    const { userId } = c.get("identity");
+    await audit(db, {
+      userId,
+      actor: `user:${userId}`,
+      action: "billing.refund_requested",
+      subject,
+    });
+    await makeDueCalls(db, ready, c.get("log"));
+  };
 
   /** The payer's plan that has not ended, Pro or Team, as the provider acts on it. */
   const openPlanOf = async (
@@ -297,6 +344,17 @@ export function billingRoutes({
     return row;
   };
 
+  const invoiceWithRefund = async (row: Selectable<Tables["invoices"]>) => {
+    const refundable =
+      row.reason === "first_payment" &&
+      row.status === "paid" &&
+      !row.refund_requested_at;
+    const refund = refundable
+      ? await planRefund(db, row.customer_id, row.provider_subscription_id)
+      : undefined;
+    return invoiceBody(row, refund?.until);
+  };
+
   app.get("/catalog", (c) => c.json(CATALOG));
 
   app.get("/", async (c) => {
@@ -318,7 +376,9 @@ export function billingRoutes({
     const card = await cardOf(payer, c.get("identity").userId);
     const body: BillingOverview = {
       allowance: await allowance(db, payer, { live }),
-      subscriptions: rows.map(subscriptionBody),
+      subscriptions: await Promise.all(
+        rows.map((row) => subscriptionWithRefund(db, row)),
+      ),
       live,
       canBuy: provider !== null,
       ...(card ? { card } : {}),
@@ -447,6 +507,7 @@ export function billingRoutes({
       const row = await subscriptionFor(c);
       requirePayer(c, row);
       const change = await readBody(c, "SubscriptionChange");
+      await refusePending(row);
       const next = {
         product: change.product ?? row.product,
         interval: change.interval ?? row.interval,
@@ -525,7 +586,10 @@ export function billingRoutes({
       async (c) => {
         const ready = needProvider(provider);
         const row = await subscriptionFor(c);
-        if (!cancel) requirePayer(c, row);
+        if (!cancel) {
+          requirePayer(c, row);
+          await refusePending(row);
+        }
         if (row.cancel_at_period_end !== cancel) {
           const subscription = heldSubscription(row, row.provider_customer_id);
           await (cancel
@@ -558,68 +622,52 @@ export function billingRoutes({
       .orderBy("at", "desc")
       .limit(200)
       .execute();
-    const body: InvoiceList = { invoices: rows.map(invoiceBody) };
+    const body: InvoiceList = {
+      invoices: await Promise.all(rows.map((row) => invoiceWithRefund(row))),
+    };
     return c.json(body);
   });
+
+  app.post(
+    "/subscriptions/:subscriptionId/refund",
+    perUser(limiter, "billing-refund", 5),
+    async (c) => {
+      const ready = needProvider(provider);
+      const row = await subscriptionFor(c);
+      await refundPlan(c, ready, row, row.id);
+      return c.json(await reread(row.id));
+    },
+  );
 
   app.post(
     "/invoices/:invoiceId/refund",
     perUser(limiter, "billing-refund", 5),
     async (c) => {
       const ready = needProvider(provider);
-      const { userId } = c.get("identity");
       const row = await invoiceFor(c);
-      if (row.refund_requested_at) return c.json(invoiceBody(row));
-      if (!refundableUntil(row))
-        throw new ApiFailure(
-          409,
-          "conflict",
-          `Only a subscription's first payment is refunded, within ${REFUND_DAYS} days of it.`,
-        );
-      const bought = row.lines.map((line) => line.product);
-      const rows = await db
-        .selectFrom("subscriptions")
-        .innerJoin(
-          "billing_customers",
-          "billing_customers.id",
-          "subscriptions.customer_id",
-        )
-        .selectAll("subscriptions")
-        .select("billing_customers.provider_customer_id")
-        .where("subscriptions.customer_id", "=", row.customer_id)
-        .where(
-          "subscriptions.provider_subscription_id",
-          "=",
+      if (!row.refund_requested_at) {
+        const refund = await planRefund(
+          db,
+          row.customer_id,
           row.provider_subscription_id,
-        )
-        .where("subscriptions.product", "in", bought)
-        .where("subscriptions.status", "<>", "ended")
-        .where("subscriptions.cancel_at_period_end", "=", false)
-        .execute();
-      for (const subscription of rows)
-        await ready.cancel(
-          heldSubscription(subscription, subscription.provider_customer_id),
-          "period_end",
         );
-      await ready.refund(row.provider_payment_id);
-      await db
-        .updateTable("invoices")
-        .set({ refund_requested_at: new Date() })
-        .where("id", "=", row.id)
-        .where("refund_requested_at", "is", null)
-        .execute();
-      await audit(db, {
-        userId,
-        actor: `user:${userId}`,
-        action: "billing.refund_requested",
-        subject: row.id,
-      });
+        if (
+          !refund.requestedAt &&
+          !refund.covers.some((invoice) => invoice.id === row.id)
+        )
+          throw new ApiFailure(
+            409,
+            "conflict",
+            "A plan is refunded once, within its first days, and this payment is not part of that refund.",
+          );
+        await refundPlan(c, ready, row, row.id);
+      }
       const after = await db
         .selectFrom("invoices")
         .selectAll()
         .where("id", "=", row.id)
         .executeTakeFirstOrThrow();
-      return c.json(invoiceBody(after));
+      return c.json(await invoiceWithRefund(after));
     },
   );
 
@@ -645,8 +693,10 @@ export function billingRoutes({
   return app;
 }
 
-function invoiceBody(row: Selectable<Tables["invoices"]>): Invoice {
-  const until = refundableUntil(row);
+function invoiceBody(
+  row: Selectable<Tables["invoices"]>,
+  refundableUntil: Date | undefined,
+): Invoice {
   return {
     id: row.id,
     lines: row.lines,
@@ -657,6 +707,8 @@ function invoiceBody(row: Selectable<Tables["invoices"]>): Invoice {
     ...(row.refund_requested_at && row.status !== "refunded"
       ? { refundRequestedAt: row.refund_requested_at.toISOString() }
       : {}),
-    ...(until ? { refundableUntil: until.toISOString() } : {}),
+    ...(refundableUntil
+      ? { refundableUntil: refundableUntil.toISOString() }
+      : {}),
   };
 }

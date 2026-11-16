@@ -13,7 +13,10 @@ import {
 
 import { applyProviderEvents } from "../src/billing/apply.ts";
 import { StandInProvider } from "../src/billing/stand-in.ts";
-import type { ProviderRequest } from "../src/billing/provider.ts";
+import type {
+  ProviderEvent,
+  ProviderRequest,
+} from "../src/billing/provider.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
 import { caller, emptyTables, migratedDatabase } from "./accounts.ts";
@@ -309,7 +312,7 @@ describe("refunds", () => {
     expect((await overview(ada)).allowance.plan).toBe("free");
   });
 
-  it("refuses a later payment, and a first one after 7 days", async () => {
+  it("refuses a plan's refund 7 days after its first payment", async () => {
     const ada = await person("user_ada");
     await buy(ada, "pro");
     const [subscription] = (await overview(ada)).subscriptions;
@@ -323,15 +326,144 @@ describe("refunds", () => {
     expect((await invoices(ada))[0]?.refundableUntil).toBeUndefined();
     const refund = (id: string) =>
       call(`/v1/billing/invoices/${id}/refund`, ada, { method: "POST" });
-    expect((await refund(later ?? "")).status).toBe(409);
 
     await database.db
       .updateTable("invoices")
       .set({ at: new Date(Date.now() - 8 * 24 * 60 * 60_000) })
       .where("id", "=", first ?? "")
       .execute();
+    expect((await refund(later ?? "")).status).toBe(409);
     expect((await refund(first ?? "")).status).toBe(409);
     expect((await overview(ada)).allowance.plan).toBe("pro");
+  });
+
+  it("ends a plan resumed while its refund waits, once the refund is paid", async () => {
+    provider.holdRefunds = true;
+    const ada = await person("user_ada");
+    await buy(ada, "pro");
+    const [first] = await invoices(ada);
+    const [held] = (await overview(ada)).subscriptions;
+    const refund = await call(`/v1/billing/invoices/${first?.id}/refund`, ada, {
+      method: "POST",
+    });
+    expect(refund.status).toBe(200);
+    const resumed = await call(
+      `/v1/billing/subscriptions/${held?.id}/resume`,
+      ada,
+      { method: "POST" },
+    );
+    await provider.approveRefunds();
+
+    const after = await overview(ada);
+    expect(after.allowance.plan).toBe("free");
+    expect(after.subscriptions[0]?.status).toBe("ended");
+    const lastWord = delivered
+      .flatMap((request) => JSON.parse(request.body) as ProviderEvent[])
+      .findLast(
+        (event) =>
+          event.type === "subscription.changed" ||
+          event.type === "subscription.ended",
+      );
+    const stopsAtProvider =
+      lastWord?.type === "subscription.ended" ||
+      (lastWord?.type === "subscription.changed" &&
+        lastWord.subscription.cancelAtPeriodEnd);
+    const cancel = await call(
+      `/v1/billing/subscriptions/${held?.id}/cancel`,
+      ada,
+      { method: "POST" },
+    );
+    expect({
+      resumed: resumed.status,
+      stopsAtProvider,
+      cancel: cancel.status,
+    }).toEqual({ resumed: 409, stopsAtProvider: true, cancel: 409 });
+  });
+
+  it("ends a box refunded after it was swapped for another size", async () => {
+    const ada = await person("user_ada");
+    await buy(ada, "shed");
+    const [held] = (await overview(ada)).subscriptions;
+    const swapped = await call(`/v1/billing/subscriptions/${held?.id}`, ada, {
+      method: "PATCH",
+      json: { product: "shed_large" },
+    });
+    expect(swapped.status).toBe(200);
+    const first = (await invoices(ada)).find(
+      (invoice) => invoice.reason === "first_payment",
+    );
+    const refunded = await body(
+      await call(`/v1/billing/invoices/${first?.id}/refund`, ada, {
+        method: "POST",
+      }),
+      "Invoice",
+    );
+    const after = (await overview(ada)).subscriptions[0];
+    expect({
+      refund: refunded.status,
+      box: after?.status,
+      endsAtPeriodEnd: after?.cancelAtPeriodEnd,
+    }).toEqual({ refund: "refunded", box: "ended", endsAtPeriodEnd: true });
+  });
+
+  it("refunds a plan once, not again when it is bought again", async () => {
+    const ada = await person("user_ada");
+    const statuses: number[] = [];
+    for (let round = 0; round < 2; round += 1) {
+      await buy(ada, "pro");
+      const first = (await invoices(ada)).find(
+        (invoice) => invoice.status === "paid",
+      );
+      statuses.push(
+        (
+          await call(`/v1/billing/invoices/${first?.id}/refund`, ada, {
+            method: "POST",
+          })
+        ).status,
+      );
+    }
+    const all = await invoices(ada);
+    expect({
+      statuses,
+      refunded: all.filter((invoice) => invoice.status === "refunded").length,
+    }).toEqual({ statuses: [200, 409], refunded: 1 });
+  });
+
+  it("returns what was paid for seats added in a plan's first days", async () => {
+    const owner = await person("user_owner");
+    const orgId = await org("user_owner");
+    await buy(owner, "team", { quantity: 1, orgId });
+    const [held] = (await overview(owner, orgId)).subscriptions;
+    const more = await call(`/v1/billing/subscriptions/${held?.id}`, owner, {
+      method: "PATCH",
+      json: { quantity: 10 },
+    });
+    expect(more.status).toBe(200);
+    const orgInvoices = async () =>
+      (
+        await body(
+          await call(`/v1/billing/invoices?org=${orgId}`, owner),
+          "InvoiceList",
+        )
+      ).invoices;
+    const first = (await orgInvoices()).find(
+      (invoice) => invoice.reason === "first_payment",
+    );
+    const refund = await call(
+      `/v1/billing/invoices/${first?.id}/refund`,
+      owner,
+      {
+        method: "POST",
+      },
+    );
+    expect(refund.status).toBe(200);
+    const after = await orgInvoices();
+    expect({
+      plan: (await overview(owner, orgId)).subscriptions[0]?.status,
+      keptCents: after
+        .filter((invoice) => invoice.status === "paid")
+        .reduce((sum, invoice) => sum + invoice.total.amount, 0),
+    }).toEqual({ plan: "ended", keptCents: 0 });
   });
 
   it("refuses someone else's invoice as if it were not there", async () => {

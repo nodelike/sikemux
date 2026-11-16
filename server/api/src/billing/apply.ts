@@ -1,4 +1,3 @@
-import type { InvoiceLine } from "@sikemux/protocol";
 import { sql, type Kysely, type Transaction } from "kysely";
 
 import type { Tables } from "../db.ts";
@@ -12,11 +11,13 @@ import {
   type ProviderCall,
 } from "./calls.ts";
 import { PLAN_PRODUCTS, product } from "./catalog.ts";
-import type {
-  ProviderEvent,
-  ProviderItem,
-  ProviderSubscription,
+import {
+  heldSubscription,
+  type ProviderEvent,
+  type ProviderItem,
+  type ProviderSubscription,
 } from "./provider.ts";
+import { refundPending } from "./refunds.ts";
 
 /** An event about something erased, which is acknowledged and changes nothing. */
 class Gone extends Error {}
@@ -422,58 +423,99 @@ async function apply(
         ]);
       return { customerId };
     }
-    case "payment.refunded": {
+    case "payment.refunded":
+    case "payment.refund_refused": {
       const invoice = await trx
+        .selectFrom("invoices")
+        .selectAll()
+        .where("provider_payment_id", "=", event.providerPaymentId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!invoice) {
+        if (await isStray(trx, from, event.providerPaymentId)) return STRAY;
+        throw unknown(from, "The payment", at);
+      }
+      const customerId = invoice.customer_id;
+      const subscriptionId = invoice.provider_subscription_id;
+      if (invoice.status !== "paid") return { customerId };
+      if (event.type === "payment.refund_refused") {
+        await trx
+          .updateTable("invoices")
+          .set({ refund_requested_at: null })
+          .where("customer_id", "=", customerId)
+          .where("provider_subscription_id", "=", subscriptionId)
+          .where("status", "=", "paid")
+          .execute();
+        return { customerId };
+      }
+      const full =
+        !event.chargeback && event.returned.amount >= Number(invoice.amount);
+      if (!full) return { customerId };
+      await trx
         .updateTable("invoices")
         .set({ status: "refunded", refunded_at: at })
-        .where("provider_payment_id", "=", event.providerPaymentId)
-        .where("status", "=", "paid")
-        .returning([
-          "customer_id",
-          "reason",
-          "provider_subscription_id",
-          "lines",
-        ])
-        .executeTakeFirst();
-      if (invoice) {
-        if (invoice.reason === "first_payment")
-          await endRefunded(trx, invoice, at);
-        return { customerId: invoice.customer_id };
-      }
-      const known = await trx
-        .selectFrom("invoices")
-        .select("customer_id")
-        .where("provider_payment_id", "=", event.providerPaymentId)
-        .executeTakeFirst();
-      if (known) return { customerId: known.customer_id };
-      if (await isStray(trx, from, event.providerPaymentId)) return STRAY;
-      throw unknown(from, "The payment", at);
+        .where("id", "=", invoice.id)
+        .execute();
+      if (
+        invoice.refund_requested_at &&
+        (await refundGiven(trx, customerId, subscriptionId))
+      )
+        await endRefundedPlan(trx, from, customerId, subscriptionId, at);
+      return { customerId };
     }
   }
 }
 
-/** A refunded first payment takes back what it bought, though the provider ends it later. */
-function endRefunded(
+/** Whether a refund asked for on a plan has been paid in full, its first payment included. */
+async function refundGiven(
   trx: Transaction<Tables>,
-  invoice: {
-    customer_id: string;
-    provider_subscription_id: string;
-    lines: InvoiceLine[];
-  },
+  customerId: string,
+  providerSubscriptionId: string,
+) {
+  const first = await trx
+    .selectFrom("invoices")
+    .select(["status", "refund_requested_at"])
+    .where("customer_id", "=", customerId)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
+    .where("reason", "=", "first_payment")
+    .executeTakeFirst();
+  return (
+    first?.status === "refunded" &&
+    first.refund_requested_at !== null &&
+    !(await refundPending(trx, customerId, providerSubscriptionId))
+  );
+}
+
+/** A plan whose refund was paid ends now, here and with the provider. */
+async function endRefundedPlan(
+  trx: Transaction<Tables>,
+  from: From,
+  customerId: string,
+  providerSubscriptionId: string,
   at: Date,
 ) {
-  return trx
+  const live = await trx
     .updateTable("subscriptions")
     .set({ status: "ended", ended_at: at, provider_updated_at: at })
-    .where("customer_id", "=", invoice.customer_id)
-    .where("provider_subscription_id", "=", invoice.provider_subscription_id)
-    .where(
-      "product",
-      "in",
-      invoice.lines.map((line) => line.product),
-    )
+    .where("customer_id", "=", customerId)
+    .where("provider_subscription_id", "=", providerSubscriptionId)
     .where("status", "<>", "ended")
+    .returningAll()
     .execute();
+  if (!live.length) return;
+  const customer = await trx
+    .selectFrom("billing_customers")
+    .select("provider_customer_id")
+    .where("id", "=", customerId)
+    .executeTakeFirstOrThrow();
+  await callLater(
+    trx,
+    from.name,
+    live.map((row) => ({
+      action: "cancel_now",
+      subscription: heldSubscription(row, customer.provider_customer_id),
+    })),
+  );
 }
 
 /** The people whose plan a customer's subscriptions decide: the person, or the org's members. */
