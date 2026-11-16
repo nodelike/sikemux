@@ -289,7 +289,7 @@ fn backdrop_about(choice: PaneBackdrop, theme: &str, kind: BackdropKind) -> Shar
         PaneBackdrop::Grain => t!("The grain, as every theme draws it unless it names another."),
         PaneBackdrop::Gradient => t!("Soft washes of the theme's accent and command colours."),
         PaneBackdrop::Stars => t!("A field of stars in the theme's ink and accent."),
-        PaneBackdrop::Grid => t!("Fine lines in the theme's border colour."),
+        PaneBackdrop::Grid => t!("Even dots in the theme's border colour."),
         PaneBackdrop::Picture => t!("Your own picture, dithered."),
         PaneBackdrop::None => t!("Nothing behind the panes."),
     }

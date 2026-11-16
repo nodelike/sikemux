@@ -31,8 +31,8 @@ impl BackdropKind {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GridShape {
-    #[default]
     Lines,
+    #[default]
     Dots,
 }
 
@@ -94,7 +94,7 @@ impl Default for ThemeBackdrop {
             twinkle: 0.5,
             depth: 2,
             drift: 0.2,
-            shape: GridShape::Lines,
+            shape: GridShape::Dots,
             cell: 24.,
             weight: 1.,
         }
