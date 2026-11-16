@@ -107,6 +107,8 @@ enum OwnApp {
     AppImage(PathBuf),
     /// The core a Linux host's installer put in place, which root replaces.
     Host,
+    /// The Windows app its installer put in place, which the next release's installer replaces.
+    Installer,
 }
 
 /// The app this core runs inside, when it is a published release that can
@@ -126,6 +128,10 @@ fn own_app() -> Option<OwnApp> {
         let core = std::env::current_exe().ok()?;
         return sikemux_process::paths::app_bundle_of_core(&core)
             .map(|bundle| OwnApp::Bundle(bundle.to_path_buf()));
+    }
+    if cfg!(windows) {
+        let core = std::env::current_exe().ok()?;
+        return (core.with_file_name("unins000.exe").is_file()).then_some(OwnApp::Installer);
     }
     // The AppImage runtime names the file it runs from, and the app's core inherits it.
     std::env::var_os("APPIMAGE")
@@ -340,6 +346,12 @@ pub(crate) async fn serve(core: Arc<Core>) {
                 super::rollback::settle(core.clone(), READY_AFTER).await;
                 refresh_outcome(&core).await;
             }))
+        }
+        #[cfg(windows)]
+        Some(OwnApp::Installer) => {
+            if let Some(setup) = sikemux_process::paths::update_setup() {
+                let _ = std::fs::remove_file(setup);
+            }
         }
         _ => {}
     }
@@ -938,11 +950,20 @@ async fn put_in_place(
     }
     let key = release_feed::release_key()?;
     let archive = match app {
+        #[cfg(windows)]
+        OwnApp::Installer => {
+            let setup = sikemux_process::paths::update_setup().ok_or("there is no cache folder")?;
+            let folder = setup.parent().ok_or("there is no cache folder")?;
+            std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+            setup
+        }
         OwnApp::Bundle(_) => {
             std::env::temp_dir().join(format!("sikemux-update-{}.tar.gz", std::process::id()))
         }
         // Beside the AppImage, so putting it in place is one rename on the same disk.
         OwnApp::AppImage(file) => beside(file, "update")?,
+        #[cfg(not(windows))]
+        OwnApp::Installer => unreachable!("only Windows has an installer"),
         OwnApp::Host => unreachable!("root puts a host's core in place"),
     };
     let mut last = Instant::now();
@@ -967,6 +988,11 @@ async fn put_in_place(
         let _ = std::fs::remove_file(&archive);
         return Err(error);
     }
+    // The app runs the installer when it starts again, and the installer replaces both.
+    if let OwnApp::Installer = app {
+        core.updates().edit(core, |held| held.installed = true);
+        return Ok(());
+    }
     core.updates()
         .edit(core, |held| held.status.state = UpdateState::Installing);
     #[cfg(target_os = "macos")]
@@ -976,6 +1002,7 @@ async fn put_in_place(
         match &app {
             OwnApp::Bundle(bundle) => swap(bundle, &unpack),
             OwnApp::AppImage(file) => replace_appimage(file, &unpack),
+            OwnApp::Installer => unreachable!("the installer replaces the app"),
             OwnApp::Host => unreachable!("root puts a host's core in place"),
         }
         .map_err(CoreError::from)

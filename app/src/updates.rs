@@ -35,6 +35,34 @@ pub(crate) struct LastKey(pub Instant);
 
 impl Global for LastKey {}
 
+/// Starts the app again on the update in place. On Windows the core only fetched the release's
+/// installer, which replaces the app and the core and opens the app again, so this hands over to it.
+fn restart_into_update(cx: &mut App) {
+    #[cfg(windows)]
+    if let Some(setup) = sikemux_process::paths::update_setup().filter(|setup| setup.is_file()) {
+        match run_setup(&setup) {
+            Ok(()) => return cx.quit(),
+            Err(error) => eprintln!("sikemux: the update's installer did not start: {error}"),
+        }
+    }
+    cx.restart();
+}
+
+#[cfg(windows)]
+fn run_setup(setup: &std::path::Path) -> std::io::Result<()> {
+    let mut command = sikemux_process::user_environment::command(setup);
+    command
+        .args([
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/relaunch=1",
+        ])
+        .arg(format!("/LOG={}", setup.with_extension("log").display()));
+    let quiet = std::fs::OpenOptions::new().write(true).open("NUL")?;
+    sikemux_corekit::client::spawn_detached(command, quiet)
+}
+
 /// Restarts into the installed update once the person's keys have rested, so the windows never
 /// close under a word being typed.
 pub(crate) fn restart_when_keys_rest(cx: &mut App) {
@@ -45,7 +73,7 @@ pub(crate) fn restart_when_keys_rest(cx: &mut App) {
                 cx.background_executor().timer(KEYS_REST - rested).await;
             }
             _ => {
-                cx.update(|cx| cx.restart());
+                cx.update(restart_into_update);
                 return;
             }
         }
@@ -70,7 +98,7 @@ pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
                 cx.background_executor().timer(IDLE - rested).await;
             }
             Some(_) => {
-                cx.update(|cx| cx.restart());
+                cx.update(restart_into_update);
                 return;
             }
         }
@@ -82,7 +110,9 @@ pub(crate) fn restart_when_idle(cx: &mut Context<Workbench>) {
 /// to be idle.
 pub(crate) fn install_now(bench: &Workbench, cx: &mut App) {
     match bench.reads.update.as_ref() {
-        Some(update) if update.by_itself && update.state == UpdateState::Ready => cx.restart(),
+        Some(update) if update.by_itself && update.state == UpdateState::Ready => {
+            restart_into_update(cx)
+        }
         _ => install(bench, false),
     }
 }
@@ -246,7 +276,7 @@ pub fn rail_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEl
         .on_click(
             cx.listener(|bench, _, _, cx| match bench.reads.update.as_ref() {
                 Some(update) if update.by_itself && update.state == UpdateState::Ready => {
-                    cx.restart()
+                    restart_into_update(cx)
                 }
                 _ => experience::open_whats_new(bench, cx),
             }),

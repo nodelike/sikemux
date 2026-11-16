@@ -89,6 +89,12 @@ pub fn cache_dir() -> Option<PathBuf> {
     unix_folder("XDG_CACHE_HOME", "Library/Caches", ".cache")
 }
 
+/// Where the core keeps the checked installer of a Windows update until the app hands over to it.
+#[cfg(windows)]
+pub fn update_setup() -> Option<PathBuf> {
+    Some(cache_dir()?.join("Sikemux-update-setup.exe"))
+}
+
 #[cfg(not(windows))]
 fn unix_folder(variable: &str, macos: &str, fallback: &str) -> Option<PathBuf> {
     let home = home()?;
