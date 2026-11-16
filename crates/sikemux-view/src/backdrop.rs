@@ -73,6 +73,9 @@ pub struct ThemeBackdrop / ThemeBackdropChanges {
     pub cell: f64,
     /// Grid: how thick a line is, or how wide a dot, from 0.5 to 3 points.
     pub weight: f64,
+    /// Each pane moves only while its own agent works, and its edge glows in the theme's warn
+    /// colour while its agent waits on the person.
+    pub mood: bool,
 }
 }
 
@@ -97,6 +100,7 @@ impl Default for ThemeBackdrop {
             shape: GridShape::Dots,
             cell: 24.,
             weight: 1.,
+            mood: false,
         }
     }
 }
@@ -116,6 +120,10 @@ pub struct WornBackdrop {
     pub look: ThemeBackdrop,
     pub inks: Vec<String>,
     pub most: f64,
+    /// The warn colour of a pane's edge while its agent waits on the person, as `#rrggbb`, and
+    /// how solid it is at its brightest.
+    pub warn: String,
+    pub glow: f64,
 }
 
 impl Eq for WornBackdrop {}
@@ -126,6 +134,8 @@ impl Default for WornBackdrop {
             look: ThemeBackdrop::default(),
             inks: Vec::new(),
             most: 2.,
+            warn: String::new(),
+            glow: 0.,
         }
     }
 }

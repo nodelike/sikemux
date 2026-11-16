@@ -6,6 +6,7 @@
 //! shell, so it moves by showing the whole last frame again with the clock moved on.
 
 use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
@@ -16,6 +17,7 @@ use gpui::{
     ParentElement, RawShaderProgram, RenderImage, Rgba, Styled, Task, Window,
 };
 use sikemux_view::backdrop::{BackdropKind, GridShape, WornBackdrop};
+use sikemux_wire::protocol::AgentGroup;
 use sikemux_view::prefs::{
     Motion, PaneBackdrop, PaneColours, PaneCoverage, PanePattern, Preferences,
 };
@@ -39,6 +41,7 @@ static SKY: RawShaderProgram = program!("sky");
 static POSTER_MARK: RawShaderProgram = program!("poster_mark");
 static TILE: RawShaderProgram = program!("tile");
 static GLOW: RawShaderProgram = program!("glow");
+static EDGE: RawShaderProgram = program!("edge");
 
 static MARK_PNG: &[u8] = include_bytes!("../../../brand/mark/mark-white-256.png");
 /// How much of the distance between dots each dot fills, and how solid they are.
@@ -80,9 +83,12 @@ const REST_AFTER: Duration = Duration::from_secs(10);
 const EASE: Duration = Duration::from_secs(2);
 const EASE_STEPS: u32 = 8;
 
-/// How fast the panes' backdrop runs: at its own speed while an agent works, held still at
-/// rest, so movement behind the panes always means work and an idle window draws nothing.
-#[derive(Clone, Copy)]
+/// How long a waiting pane's edge breathes before it holds still at its brightest.
+const BREATHING: Duration = Duration::from_secs(20);
+
+/// How fast a backdrop runs: at its own speed while an agent works, held still at rest, so
+/// movement behind the panes always means work and an idle window draws nothing.
+#[derive(Clone, Copy, Default)]
 struct Pace {
     working: bool,
     /// From 0, held still, to 1, the backdrop's own speed.
@@ -93,33 +99,10 @@ struct Pace {
     since: f32,
     /// Counts changes of `working`, so an easing that a newer change overtook stops.
     turn: u64,
-    started: Instant,
 }
-
-impl Default for Pace {
-    fn default() -> Self {
-        Self {
-            working: false,
-            now: 0.,
-            held: 0.,
-            since: 0.,
-            turn: 0,
-            started: Instant::now(),
-        }
-    }
-}
-
-impl Global for Pace {}
 
 impl Pace {
-    /// The window's shader time now: seconds since its renderer started, near enough to when
-    /// the window began animating.
-    fn time(&self) -> f32 {
-        self.started.elapsed().as_secs_f32()
-    }
-
-    fn set(&mut self, now: f32) {
-        let time = self.time();
+    fn set(&mut self, now: f32, time: f32) {
         self.held += (time - self.since) * self.now;
         self.since = time;
         self.now = now;
@@ -134,17 +117,104 @@ impl Pace {
     }
 }
 
-/// Says whether any agent on the host in front is working, easing the panes' backdrop up to
-/// speed at once, or down to still once none has worked for a while.
-pub fn working(working: bool, cx: &mut App) {
-    let mut pace = cx.try_global::<Pace>().copied().unwrap_or_default();
-    if pace.working == working {
+/// The pace of the window's panes together, and of each agent's pane for a theme whose
+/// backdrop follows its own agent, with the agents waiting on the person.
+#[derive(Clone)]
+struct Paces {
+    started: Instant,
+    window: Pace,
+    agents: HashMap<String, Pace>,
+    waiting: HashSet<String>,
+    /// The shader time the waiting panes' edges stop breathing.
+    breathing_until: f32,
+}
+
+impl Default for Paces {
+    fn default() -> Self {
+        Self {
+            started: Instant::now(),
+            window: Pace::default(),
+            agents: HashMap::new(),
+            waiting: HashSet::new(),
+            breathing_until: 0.,
+        }
+    }
+}
+
+impl Global for Paces {}
+
+impl Paces {
+    /// The window's shader time now: seconds since its renderer started, near enough to when
+    /// the window began animating.
+    fn time(&self) -> f32 {
+        self.started.elapsed().as_secs_f32()
+    }
+
+    fn pace(&mut self, agent: Option<&str>) -> &mut Pace {
+        match agent {
+            None => &mut self.window,
+            Some(agent) => self.agents.entry(agent.to_owned()).or_default(),
+        }
+    }
+
+    fn moving(&self) -> bool {
+        self.window.now > 0. || self.agents.values().any(|pace| pace.now > 0.)
+    }
+
+    fn breathing(&self) -> bool {
+        !self.waiting.is_empty() && self.time() < self.breathing_until
+    }
+}
+
+/// Takes whether any agent on the host in front works, and which of its open agents work and
+/// which wait on the person, easing each backdrop up to speed at once when its work starts, or
+/// down to still a while after it stops.
+pub fn working(any: bool, agents: &[(String, AgentGroup)], cx: &mut App) {
+    let mut paces = cx.try_global::<Paces>().cloned().unwrap_or_default();
+    let before = paces.agents.len();
+    paces
+        .agents
+        .retain(|agent, _| agents.iter().any(|(id, _)| id == agent));
+    let mut changed = paces.agents.len() != before;
+    let waiting: HashSet<String> = (agents.iter())
+        .filter(|(_, group)| *group == AgentGroup::Blocked)
+        .map(|(id, _)| id.clone())
+        .collect();
+    let newly_waiting = waiting.iter().any(|id| !paces.waiting.contains(id));
+    if waiting != paces.waiting {
+        paces.waiting = waiting;
+        changed = true;
+    }
+    let mut easing = Vec::new();
+    let all = std::iter::once((None, any)).chain(
+        (agents.iter()).map(|(id, group)| (Some(id.as_str()), *group == AgentGroup::Working)),
+    );
+    for (agent, working) in all {
+        let pace = paces.pace(agent);
+        if pace.working != working {
+            pace.working = working;
+            pace.turn += 1;
+            easing.push((agent.map(str::to_owned), working, pace.turn));
+        }
+    }
+    if !changed && easing.is_empty() {
         return;
     }
-    pace.working = working;
-    pace.turn += 1;
-    let turn = pace.turn;
-    cx.set_global(pace);
+    cx.set_global(paces);
+    if newly_waiting {
+        breathe(cx);
+    }
+    if mood(cx) {
+        cx.refresh_windows();
+    }
+    for (agent, working, turn) in easing {
+        ease(agent, working, turn, cx);
+    }
+}
+
+/// Eases the backdrop of `agent`, or of the window for none, toward its own speed, or toward
+/// still once it has rested for a while, unless a newer change than `turn` overtakes it.
+fn ease(agent: Option<String>, working: bool, turn: u64, cx: &mut App) {
     let (wait, target) = match working {
         true => (Duration::ZERO, 1.),
         false => (REST_AFTER, 0.),
@@ -154,17 +224,27 @@ pub fn working(working: bool, cx: &mut App) {
         let by = 1. / EASE_STEPS as f32;
         loop {
             let more = cx.update(|cx| {
-                let mut pace = *cx.global::<Pace>();
+                let mut paces = cx.global::<Paces>().clone();
+                let time = paces.time();
+                let Some(pace) = (match &agent {
+                    None => Some(&mut paces.window),
+                    Some(agent) => paces.agents.get_mut(agent),
+                }) else {
+                    return false;
+                };
                 if pace.turn != turn || pace.now == target {
                     return false;
                 }
-                pace.set(match target > pace.now {
+                let now = match target > pace.now {
                     true => (pace.now + by).min(target),
                     false => (pace.now - by).max(target),
-                });
-                let more = pace.now != target;
-                cx.set_global(pace);
-                cx.refresh_windows();
+                };
+                pace.set(now, time);
+                let more = now != target;
+                cx.set_global(paces);
+                if agent.is_none() || mood(cx) {
+                    cx.refresh_windows();
+                }
                 more
             });
             if !more {
@@ -176,15 +256,48 @@ pub fn working(working: bool, cx: &mut App) {
     .detach();
 }
 
-/// The panes' backdrop's clock: held where it stands at rest, and still for less motion.
-fn paced(speed: f32, cx: &App) -> (f32, f32) {
-    match cx.reduce_motion() {
-        true => (STILL, 0.),
-        false => cx
-            .try_global::<Pace>()
-            .copied()
-            .unwrap_or_default()
-            .clock(speed),
+/// Starts the waiting panes' edges breathing again, and stops them once that is over.
+fn breathe(cx: &mut App) {
+    let Some(mut paces) = cx.try_global::<Paces>().cloned() else {
+        return;
+    };
+    if paces.waiting.is_empty() || !mood(cx) {
+        return;
+    }
+    paces.breathing_until = paces.time() + BREATHING.as_secs_f32();
+    cx.set_global(paces);
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(BREATHING).await;
+        cx.update(|cx| {
+            if let Some(paces) = cx.try_global::<Paces>().cloned() {
+                cx.set_global(paces);
+                cx.refresh_windows();
+            }
+        });
+    })
+    .detach();
+}
+
+/// Whether the worn backdrop follows each pane's own agent.
+fn mood(cx: &App) -> bool {
+    cx.try_global::<Grain>()
+        .is_some_and(|grain| grain.worn.look.mood)
+}
+
+/// A backdrop's clock: the window's, or for a theme whose backdrop follows its own agent that
+/// agent's, still for a pane with none; held where it stands at rest, and still for less motion.
+fn paced(speed: f32, agent: Option<&str>, cx: &App) -> (f32, f32) {
+    if cx.reduce_motion() {
+        return (STILL, 0.);
+    }
+    let Some(paces) = cx.try_global::<Paces>() else {
+        return (0., 0.);
+    };
+    match (mood(cx), agent) {
+        (false, _) => paces.window.clock(speed),
+        (true, Some(agent)) => (paces.agents.get(agent))
+            .map_or((0., 0.), |pace| pace.clock(speed)),
+        (true, None) => (0., 0.),
     }
 }
 
@@ -463,14 +576,16 @@ fn bake(path: &Path, glow_size: f32) -> Option<Arc<RenderImage>> {
 
 /// What fills a pane's frame behind everything the pane shows.
 pub fn field(cx: &App) -> Option<AnyElement> {
-    field_at(cx).map(|draw| draw(1.))
+    field_at(None, cx).map(|draw| draw(1.))
 }
 
-/// What fills an agent pane's frame: its usual field, crossing over to a new chat's welcome as
-/// `glow` runs from 0 to 1. The welcome is the pane picture over the whole pane, strongly
-/// dithered, when one is set, and the glow when none is.
-pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
-    let field = field_at(cx);
+/// What fills the frame of `agent`'s pane: its usual field, crossing over to a new chat's
+/// welcome as `glow` runs from 0 to 1, with its edge lit while the agent waits on the person.
+/// The welcome is the pane picture over the whole pane, strongly dithered, when one is set,
+/// and the glow when none is.
+pub fn pane_ground(agent: Option<&str>, cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
+    let field = field_at(agent, cx);
+    let edge = agent.and_then(|agent| waiting_edge(agent, cx));
     let welcome_picture = welcome_picture(cx);
     let accent = Tokens::get(cx).accent.to_rgb();
     let (start, speed) = clock(GLOW_SPEED, cx);
@@ -508,8 +623,47 @@ pub fn pane_ground(cx: &App) -> impl Fn(f32) -> AnyElement + 'static {
                 .absolute()
                 .inset_0()
             }))
+            .children(edge.as_ref().map(|draw| draw()))
             .into_any_element()
     }
+}
+
+/// The warn dots along the edge of the pane of `agent` while it waits on the person, for a
+/// theme whose backdrop follows its agents.
+fn waiting_edge(agent: &str, cx: &App) -> Option<impl Fn() -> AnyElement + 'static> {
+    let worn = &cx.try_global::<Grain>()?.worn;
+    let paces = cx.try_global::<Paces>()?;
+    if !worn.look.mood || worn.glow <= 0. || !paces.waiting.contains(agent) {
+        return None;
+    }
+    let warn = theme::color(&worn.warn).to_rgb();
+    let alpha = worn.glow as f32;
+    let until = match cx.reduce_motion() {
+        true => 0.,
+        false => paces.breathing_until,
+    };
+    Some(move || {
+        canvas(
+            |_, _, _| {},
+            move |bounds, (), window, _| {
+                let mut params = [0.; gpui::RAW_SHADER_PARAMS];
+                params[..8].copy_from_slice(&[
+                    until,
+                    window.ground_scale(),
+                    inner_radius(),
+                    0.,
+                    warn.r,
+                    warn.g,
+                    warn.b,
+                    alpha,
+                ]);
+                let _ = window.paint_ground_shader(bounds, &EDGE, params, None);
+            },
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element()
+    })
 }
 
 /// The pane picture as a new chat's welcome shows it: over the whole pane and as solid as
@@ -536,7 +690,7 @@ fn inner_radius() -> f32 {
 }
 
 /// The pane's field drawn as solid as the number it is given, from 0 to 1.
-fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
+fn field_at(agent: Option<&str>, cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
     let grain = cx
         .try_global::<Grain>()
         .filter(|grain| grain.shown && grain.strength() > 0.)?;
@@ -564,8 +718,8 @@ fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
     }
     let worn = (grain.choice != PaneBackdrop::Picture).then_some(&grain.worn);
     match worn.map(|worn| worn.look.kind) {
-        None | Some(BackdropKind::Grain) => Some(grain_field(grain, worn, cx)),
-        Some(_) => worn.map(|worn| kind_field(worn, grain.strength(), cx)),
+        None | Some(BackdropKind::Grain) => Some(grain_field(grain, worn, agent, cx)),
+        Some(_) => worn.map(|worn| kind_field(worn, grain.strength(), agent, cx)),
     }
 }
 
@@ -573,6 +727,7 @@ fn field_at(cx: &App) -> Option<Rc<dyn Fn(f32) -> AnyElement>> {
 fn grain_field(
     grain: &Grain,
     worn: Option<&WornBackdrop>,
+    agent: Option<&str>,
     cx: &App,
 ) -> Rc<dyn Fn(f32) -> AnyElement> {
     let ink = worn
@@ -580,7 +735,7 @@ fn grain_field(
         .map(|ink| theme::color(ink).to_rgb());
     let dot = ink.unwrap_or_else(|| Tokens::get(cx).shader_dot.to_rgb());
     let speed = FIELD_SPEED * worn.map_or(1., |worn| worn.look.speed as f32);
-    let (start, speed) = paced(speed, cx);
+    let (start, speed) = paced(speed, agent, cx);
     let alpha = (dot.a * FIELD_OPACITY * grain.strength()).min(1.);
     Rc::new(move |solid| {
         canvas(
@@ -607,7 +762,12 @@ fn grain_field(
 }
 
 /// The gradient, the stars or the grid, as `kind.wgsl` takes them.
-fn kind_field(worn: &WornBackdrop, strength: f32, cx: &App) -> Rc<dyn Fn(f32) -> AnyElement> {
+fn kind_field(
+    worn: &WornBackdrop,
+    strength: f32,
+    agent: Option<&str>,
+    cx: &App,
+) -> Rc<dyn Fn(f32) -> AnyElement> {
     let look = &worn.look;
     let ink = |at: usize| {
         worn.inks.get(at).map_or(-1., |ink| {
@@ -615,7 +775,7 @@ fn kind_field(worn: &WornBackdrop, strength: f32, cx: &App) -> Rc<dyn Fn(f32) ->
             packed(ink.r * 255., ink.g * 255., ink.b * 255.)
         })
     };
-    let (start, speed) = paced(look.speed as f32, cx);
+    let (start, speed) = paced(look.speed as f32, agent, cx);
     let alpha = (look.kind.solid() as f32 * strength).min(1.);
     let (kind, own) = match look.kind {
         BackdropKind::Gradient => (1., [look.softness as f32, look.dither as f32, 0., 0.]),
@@ -881,7 +1041,7 @@ fn clock(speed: f32, cx: &App) -> (f32, f32) {
 /// Moves what the shaders show on while the window is in front and can be seen, at the rate
 /// the power allows, which `on_battery` answers from the view.
 pub fn animate<V: 'static>(window: &mut Window, cx: &mut Context<V>, on_battery: fn(&V) -> bool) {
-    cx.default_global::<Pace>();
+    cx.default_global::<Paces>();
     follow_reduced_motion(cx);
     #[cfg(target_os = "linux")]
     cx.spawn(async move |bench, cx| {
@@ -902,8 +1062,14 @@ pub fn animate<V: 'static>(window: &mut Window, cx: &mut Context<V>, on_battery:
             *ticking.borrow_mut() = tick(window, cx, on_battery);
         }
     };
-    cx.observe_window_activation(window, restart(ticking.clone()))
-        .detach();
+    let on_activation = restart(ticking.clone());
+    cx.observe_window_activation(window, move |bench, window, cx| {
+        if window.is_window_active() {
+            breathe(cx);
+        }
+        on_activation(bench, window, cx)
+    })
+    .detach();
     let on_visibility = restart(ticking.clone());
     cx.observe_window_visibility(window, move |bench, _, window, cx| {
         on_visibility(bench, window, cx)
@@ -911,7 +1077,7 @@ pub fn animate<V: 'static>(window: &mut Window, cx: &mut Context<V>, on_battery:
     .detach();
     cx.observe_global_in::<Grain>(window, restart(ticking.clone()))
         .detach();
-    cx.observe_global_in::<Pace>(window, restart(ticking))
+    cx.observe_global_in::<Paces>(window, restart(ticking))
         .detach();
 }
 
@@ -924,7 +1090,9 @@ fn tick<V: 'static>(
         && window.is_visible()
         && !cx.reduce_motion()
         && cx.try_global::<Grain>().is_some_and(|grain| {
-            grain.moving(cx.try_global::<Pace>().is_some_and(|pace| pace.now > 0.))
+            let paces = cx.try_global::<Paces>();
+            grain.moving(paces.is_some_and(Paces::moving))
+                || (grain.worn.look.mood && paces.is_some_and(Paces::breathing))
         });
     moving.then(|| {
         cx.spawn_in(window, async move |bench, cx| loop {

@@ -94,7 +94,7 @@ pub fn agent_view(
         .map(|agent| pane_header(bench, agent, tab, view, cx));
     let glow = welcoming(bench, agent.as_ref(), cx);
     let shown = agent_shown(bench, agent.as_ref(), cx);
-    under_header(header, shown, glow, cx)
+    under_header(agent.as_ref().map(|agent| agent.id.as_str()), header, shown, glow, cx)
 }
 
 /// How strong a new chat's glow is in an agent's view: whole while nothing is said in it, and
@@ -151,6 +151,7 @@ fn agent_shown(
 /// An agent pane: its header across the top, and what it shows below it, over a new chat's
 /// glow as strong as `glow`, from 0 to 1, crossing over to the pane field as it falls.
 fn under_header(
+    agent: Option<&str>,
     header: Option<impl IntoElement>,
     shown: impl IntoElement,
     glow: f32,
@@ -162,7 +163,7 @@ fn under_header(
     ui::pane_frame(cx)
         .flex()
         .flex_col()
-        .child(crate::ui::grain::pane_ground(cx)(glow))
+        .child(crate::ui::grain::pane_ground(agent, cx)(glow))
         .children(header)
         .child(div().flex_1().min_h_0().p(px(ui::AGENT_INSET)).child(shown))
         .into_any_element()

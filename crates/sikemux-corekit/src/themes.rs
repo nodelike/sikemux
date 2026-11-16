@@ -66,6 +66,7 @@ pub fn palette(shelf: &Shelf, preferences: &Preferences) -> Palette {
     if let Some(kind) = picked {
         let own = ThemeBackdrop {
             kind,
+            mood: palette.backdrop.look.mood,
             ..ThemeBackdrop::default()
         };
         palette.backdrop = backdrop::worn(&own, &palette.tokens);

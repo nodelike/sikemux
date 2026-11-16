@@ -192,8 +192,12 @@ impl Workbench {
                 self.feeds.host_mut(host).view = Some(view);
             }
         }
-        let working = self.shown().is_some_and(|view| view.inbox.working > 0);
-        crate::ui::grain::working(working, cx);
+        let agents: Vec<_> = (self.shown().into_iter())
+            .flat_map(|view| &view.inbox.agents)
+            .map(|agent| (agent.agent_id.clone(), agent.group))
+            .collect();
+        let any = self.shown().is_some_and(|view| view.inbox.working > 0);
+        crate::ui::grain::working(any, &agents, cx);
         self.keep_cards(cx);
         // The chat's call cards draw inside the cached stage, which a new view alone leaves as it was.
         if calls_moved {

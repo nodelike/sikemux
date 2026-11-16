@@ -10,6 +10,8 @@ use super::{contrast, css, hex, mix, rgba, written};
 pub const MOST_STRENGTH: f64 = 2.;
 /// The side of the patch, in points, that stands for one lowercase letter.
 const LETTER: f64 = 8.;
+/// How solid a waiting pane's edge is at its brightest, where text beside it allows.
+const GLOW_MOST: f64 = 0.8;
 
 /// `backdrop` with every number in range and every ink a colour or a token's name, with what
 /// was changed to fit; or why it cannot be a backdrop.
@@ -121,11 +123,28 @@ pub fn readable(mut backdrop: ThemeBackdrop, tokens: &UiTokens) -> (ThemeBackdro
 /// The backdrop as clients draw it under the theme's `tokens`.
 pub fn worn(backdrop: &ThemeBackdrop, tokens: &UiTokens) -> WornBackdrop {
     let inks = inks(backdrop, tokens);
+    let warn = hex(&tokens.warn).map(css).unwrap_or_default();
     WornBackdrop {
         most: most(backdrop, &inks, tokens),
+        glow: glow(&warn, tokens),
         look: backdrop.clone(),
         inks,
+        warn,
     }
+}
+
+/// How solid a waiting pane's warn edge may be with the dim ink beside it still at 1.5:1, or
+/// nine tenths of what the plain ground gives where that is less.
+fn glow(warn: &str, tokens: &UiTokens) -> f64 {
+    let (Some(warn), Some(ground), Some(dim)) =
+        (hex(warn), hex(&tokens.sunken), hex(&tokens.ink_dim))
+    else {
+        return 0.;
+    };
+    let needs = 1.5_f64.min(0.9 * contrast(dim, ground));
+    highest(GLOW_MOST, |alpha| {
+        contrast(dim, mix(ground, warn, alpha)) >= needs
+    })
 }
 
 /// The backdrop's inks as `#rrggbb`, its kind's own when it names none. The grain with none
@@ -192,10 +211,15 @@ fn most(backdrop: &ThemeBackdrop, inks: &[String], tokens: &UiTokens) -> f64 {
                 && contrast(dim, point) >= point_needs
         })
     };
-    if holds(MOST_STRENGTH) {
-        return MOST_STRENGTH;
+    highest(MOST_STRENGTH, holds)
+}
+
+/// The highest value up to `most`, in hundredths, at which `holds` still does.
+fn highest(most: f64, holds: impl Fn(f64) -> bool) -> f64 {
+    if holds(most) {
+        return most;
     }
-    let (mut low, mut high) = (0., MOST_STRENGTH);
+    let (mut low, mut high) = (0., most);
     for _ in 0..24 {
         let middle = 0.5 * (low + high);
         match holds(middle) {

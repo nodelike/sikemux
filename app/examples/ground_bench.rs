@@ -68,7 +68,7 @@ impl Render for Bench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
         window.set_ground(Some(t.surface_sunken));
-        let ground = grain::pane_ground(cx);
+        let ground = grain::pane_ground(None, cx);
         let rows = self.panes.chunks(COLUMNS).map(|row| {
             div()
                 .flex()

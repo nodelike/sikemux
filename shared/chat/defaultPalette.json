@@ -145,9 +145,12 @@
       "drift": 0.2,
       "shape": "dots",
       "cell": 24.0,
-      "weight": 1.0
+      "weight": 1.0,
+      "mood": false
     },
     "inks": [],
-    "most": 2.0
+    "most": 2.0,
+    "warn": "#e9ba6c",
+    "glow": 0.54
   }
 }
