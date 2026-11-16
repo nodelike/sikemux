@@ -1990,25 +1990,7 @@ pub fn pane(
         .items_center()
         .pl(px(SWITCH_W + GAP - 1.))
         .pr(SPACE_1H);
-    let scroll = bench
-        .desks
-        .read(cx)
-        .tab_scrolls
-        .borrow_mut()
-        .entry(agent.to_owned())
-        .or_default()
-        .0
-        .clone();
-    let mut pills = div()
-        .id("desk-tabs")
-        .flex_initial()
-        .min_w_0()
-        .h_full()
-        .flex()
-        .items_center()
-        .gap(SPACE_1)
-        .overflow_x_scroll()
-        .track_scroll(&scroll);
+    let mut pills = tab_row(bench, agent, cx);
     let root = bench.agent_by_id(agent).and_then(|row| {
         bench
             .projects()
@@ -2159,35 +2141,8 @@ pub fn pane(
         );
     }
     let new_agent = agent.to_owned();
-    if let Some((_, shown)) = bench.desks.read(cx).tab_scrolls.borrow_mut().get_mut(agent) {
-        if *shown != front_pill {
-            *shown = front_pill;
-            if let Some(front) = front_pill {
-                scroll.scroll_to_item(front);
-            }
-        }
-    }
     head = head
-        .child(
-            div()
-                .relative()
-                .flex_initial()
-                .min_w_0()
-                .h_full()
-                .flex()
-                .pl(SPACE_1H)
-                .child(pills)
-                .child(crate::track::sideways_scroller())
-                .children(ui::spot(|| format!("desk-tabs-{agent}")).map(|spot| {
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left(px(6.))
-                        .right_0()
-                        .child(spot)
-                })),
-        )
+        .child(tab_strip(bench, agent, pills, front_pill, cx))
         .when(kind == DeskKind::Pages, |head| {
             head.child(
                 div().flex_none().pl(SPACE_1).child(
@@ -2466,6 +2421,61 @@ fn stepped_edge(
     arc(&mut path, radius, true, left, bottom - radius);
     path.close();
     path
+}
+
+/// The row a desk's tabs sit in, scrolling sideways on the desk's own handle.
+fn tab_row(bench: &Workbench, agent: &str, cx: &App) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let scroll = (bench.desks.read(cx).tab_scrolls.borrow_mut())
+        .entry(agent.to_owned())
+        .or_default()
+        .0
+        .clone();
+    div()
+        .id("desk-tabs")
+        .flex_initial()
+        .min_w_0()
+        .h_full()
+        .flex()
+        .items_center()
+        .gap(SPACE_1)
+        .overflow_x_scroll()
+        .track_scroll(&scroll)
+}
+
+/// A desk's strip of tabs from `tab_row`, scrolled to show the tab at `front` when it changes.
+fn tab_strip(
+    bench: &Workbench,
+    agent: &str,
+    tabs: gpui_kit::Stateful<gpui_kit::Div>,
+    front: Option<usize>,
+    cx: &App,
+) -> gpui_kit::Div {
+    if let Some((scroll, shown)) = bench.desks.read(cx).tab_scrolls.borrow_mut().get_mut(agent) {
+        if *shown != front {
+            *shown = front;
+            if let Some(front) = front {
+                scroll.scroll_to_item(front);
+            }
+        }
+    }
+    div()
+        .relative()
+        .flex_initial()
+        .min_w_0()
+        .h_full()
+        .flex()
+        .pl(SPACE_1H)
+        .child(tabs)
+        .child(crate::track::sideways_scroller())
+        .children(ui::spot(|| format!("desk-tabs-{agent}")).map(|spot| {
+            div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(6.))
+                .right_0()
+                .child(spot)
+        }))
 }
 
 /// A tab of a desk's strip, as the Mac draws one: its mark and name on a faint fill, lifted
@@ -2781,16 +2791,37 @@ fn calls_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> An
             page
         }
     };
-    let waiting = crate::calls::waiting_on_desk(bench, agent);
+    let mut tabs = tab_row(bench, agent, cx);
+    let calls = crate::calls::on_desk(bench, agent);
+    let opened = page.read(cx).shown(&calls, cx).map(|call| call.id.clone());
+    let front = calls
+        .iter()
+        .position(|call| Some(&call.id) == opened.as_ref());
+    for call in &calls {
+        let id = call.id.clone();
+        let cards = bench.calls.clone();
+        tabs = tabs.child(
+            pill_face(
+                SharedString::from(format!("desk-call-{}", call.id)),
+                crate::calls::kind_mark(call.kind, cx),
+                crate::calls::tab_title(call),
+                Some(&call.id) == opened.as_ref(),
+                None,
+                cx,
+            )
+            .clicks(move |_, _, cx| cards.update(cx, |cards, cx| cards.open(&id, cx))),
+        );
+    }
     let head = div()
+        .w_full()
+        .min_w_0()
         .h(px(HEAD))
         .flex_none()
         .flex()
         .items_center()
-        .pl(px(SWITCH_W + GAP - 1. + 10.))
-        .when(waiting > 0, |head| {
-            head.child(ui::meta(t!("{count} waiting on you", count = waiting), cx))
-        });
+        .pl(px(SWITCH_W + GAP - 1.))
+        .pr(SPACE_1H)
+        .child(tab_strip(bench, agent, tabs, front, cx));
     frame(
         bench,
         agent,

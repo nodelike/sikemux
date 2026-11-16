@@ -1,7 +1,7 @@
 //! The desk's Calls page: the open call of a project from the top of the pane, the page it links
 //! under its question, its choices as tiles with Go under them, then why it came up and what its
-//! asker opened, the other calls waiting under it, and the composer it is answered with pinned at
-//! the bottom.
+//! asker opened, and the composer it is answered with pinned at the bottom. The desk's tabs
+//! name the other calls waiting.
 
 use super::*;
 use crate::chat::composer::{self, Act};
@@ -37,11 +37,26 @@ pub(crate) fn waiting_on_desk(bench: &Workbench, agent: &str) -> usize {
     })
 }
 
+/// The calls waiting on the person in the project of agent `agent`'s desk, oldest first.
+pub(crate) fn on_desk(bench: &Workbench, agent: &str) -> Vec<PersonCall> {
+    let mut calls: Vec<PersonCall> = project_of(bench, agent)
+        .map(|project| {
+            (bench.open_calls(&bench.place(), &project).into_iter())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    calls.sort_by_key(|call| call.raised_at);
+    calls
+}
+
 /// The Calls page of one agent's desk, over the calls of its project.
 pub struct Page {
     bench: WeakEntity<Workbench>,
     cards: Entity<Cards>,
     agent: String,
+    /// The call shown last, so the one after it opens once it is answered.
+    last: Option<(String, u64)>,
     _cards: Subscription,
 }
 
@@ -56,9 +71,29 @@ impl Page {
                 bench: weak,
                 cards,
                 agent,
+                last: None,
                 _cards: observed,
             }
         })
+    }
+}
+
+impl Page {
+    /// Of `calls`, oldest first, the one open on the page: the one picked, else the one shown
+    /// last, else the next one after it, else the oldest.
+    pub(crate) fn shown<'a>(&self, calls: &'a [PersonCall], cx: &App) -> Option<&'a PersonCall> {
+        let by_id = |id: &str| calls.iter().find(|call| call.id == id);
+        let opened = self.cards.read(cx).opened.clone();
+        if let Some(call) = opened.as_deref().and_then(by_id) {
+            return Some(call);
+        }
+        match &self.last {
+            Some((id, _)) if by_id(id).is_some() => by_id(id),
+            Some((_, raised_at)) => (calls.iter())
+                .find(|call| call.raised_at >= *raised_at)
+                .or(calls.last()),
+            None => calls.first(),
+        }
     }
 }
 
@@ -70,21 +105,11 @@ impl Render for Page {
         };
         let (calls, target) = {
             let read = bench.read(cx);
-            let calls: Vec<PersonCall> = project_of(read, &self.agent)
-                .map(|project| {
-                    (read.open_calls(&read.place(), &project).into_iter())
-                        .cloned()
-                        .collect()
-                })
-                .unwrap_or_default();
-            (calls, read.target())
+            (on_desk(read, &self.agent), read.target())
         };
-        let opened = self.cards.read(cx).opened.clone();
-        let Some(open) = (opened.as_ref())
-            .and_then(|id| calls.iter().find(|call| &call.id == id))
-            .or(calls.first())
-            .cloned()
-        else {
+        let shown = self.shown(&calls, cx).cloned();
+        self.last = shown.as_ref().map(|call| (call.id.clone(), call.raised_at));
+        let Some(open) = shown else {
             return div()
                 .size_full()
                 .flex()
@@ -101,10 +126,6 @@ impl Render for Page {
             cards: &self.cards,
             bench: &self.bench,
         };
-        let waiting: Vec<AnyElement> = (calls.iter())
-            .filter(|call| call.id != open.id)
-            .map(|call| folded(&self.cards, call, None, &target, &self.bench, cx))
-            .collect();
         let next = (calls.iter())
             .cycle()
             .skip_while(|call| call.id != open.id)
@@ -127,20 +148,6 @@ impl Render for Page {
             }
         };
         let body = body(&open, next, &field, through, cx);
-        let waiting = (!waiting.is_empty()).then(|| {
-            div()
-                .mt(px(28.))
-                .child(section(t!("Waiting"), Some(waiting.len()), &t, cx))
-                .child(
-                    div()
-                        .mt(px(6.))
-                        .mx(px(-6.))
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.))
-                        .children(waiting),
-                )
-        });
         let answered_with = match &reply {
             Some(view) => view.clone().into_element().isolated().into_any_element(),
             None if formed => div().into_any_element(),
@@ -166,8 +173,7 @@ impl Render for Page {
                         .px(px(SIDE))
                         .pt(px(SIDE))
                         .pb(px(28.))
-                        .child(body)
-                        .children(waiting),
+                        .child(body),
                 ),
         )
         .child(

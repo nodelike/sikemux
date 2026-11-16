@@ -34,7 +34,32 @@ mod away;
 mod page;
 pub(crate) mod reply;
 pub(crate) use away::Away;
-pub(crate) use page::{waiting_on_desk, Page};
+pub(crate) use page::{on_desk, waiting_on_desk, Page};
+
+/// The mark of a call of `kind`, as its tab shows it.
+pub(crate) fn kind_mark(kind: CallKind, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let (icon, color) = match kind {
+        CallKind::Production => (Icon::Rocket, t.warn),
+        CallKind::Taste => (Icon::Eye, t.text_tertiary),
+        CallKind::Access => (Icon::Lock, t.text_tertiary),
+        CallKind::Do => (Icon::Hand, t.text_tertiary),
+        CallKind::Look => (Icon::Window, t.text_tertiary),
+        CallKind::Money | CallKind::Unknown => (Icon::Bell, t.text_tertiary),
+    };
+    ui::icon(icon, 13.)
+        .text_color(color)
+        .flex_none()
+        .into_any_element()
+}
+
+/// What a call's tab reads: its short title, else its question's first line.
+pub(crate) fn tab_title(call: &PersonCall) -> String {
+    match &call.title {
+        Some(title) if !title.trim().is_empty() => title.clone(),
+        _ => call.question.lines().next().unwrap_or_default().to_owned(),
+    }
+}
 use sikemux_view::chat::ChiefAway;
 
 const CARD_WIDTH: f32 = 452.;
@@ -235,6 +260,12 @@ impl Cards {
                 ..AnswerCallParams::default()
             }),
         }
+    }
+
+    /// Opens call `id` on the Calls page and in the popover.
+    pub(crate) fn open(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.opened = Some(id.to_owned());
+        cx.notify();
     }
 
     /// Lets go of what was held for calls no longer open anywhere.

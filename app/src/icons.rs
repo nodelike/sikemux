@@ -94,6 +94,7 @@ icons!(
     Gitlab => "gitlab",
     Globe => "globe",
     Googleplay => "googleplay",
+    Hand => "hand",
     HandOff => "hand-off",
     Heart => "heart",
     Highlighter => "highlighter",
