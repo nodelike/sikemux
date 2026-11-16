@@ -184,7 +184,8 @@ pub(crate) fn tab_row(
                 .child(
                     ui::text(page.title.clone(), 14., FontWeight::MEDIUM)
                         .whitespace_normal()
-                        .line_clamp(2),
+                        .line_clamp(2)
+                        .text_ellipsis(),
                 )
                 .child(place),
         )
