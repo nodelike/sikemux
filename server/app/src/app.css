@@ -1685,8 +1685,12 @@ a.button {
   min-width: 112px;
 }
 
+.row.priced > .name:not(:has(+ .detail)) {
+  grid-row: 1 / span 2;
+}
+
 .row.priced.foot {
-  min-height: 56px;
+  min-height: 62px;
   background: color-mix(in oklab, var(--ink) 3%, transparent);
 }
 
@@ -1717,7 +1721,17 @@ a.button {
     padding: 11px 14px;
   }
 
+  .row.priced > .name {
+    align-self: end;
+    white-space: normal;
+  }
+
+  .row.priced > .name:not(:has(+ .detail)) {
+    align-self: center;
+  }
+
   .row.priced > .detail {
+    align-self: start;
     white-space: normal;
   }
 
