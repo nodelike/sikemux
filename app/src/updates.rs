@@ -79,7 +79,8 @@ fn restart_into_update(asks: &UnboundedSender<Ask>, cx: &mut App) {
     }
     #[cfg(not(windows))]
     let _ = asks;
-    cx.restart();
+    // Clicks call this while the workbench is being updated, and restarting updates it again.
+    cx.defer(|cx| cx.restart());
 }
 
 /// Restarts into the installed update once the person's keys have rested, so the windows never
