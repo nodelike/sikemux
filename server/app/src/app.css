@@ -821,6 +821,18 @@ button:focus-visible,
     font-size: 11px;
   }
 
+  .row.setting .end {
+    grid-column: 2;
+  }
+
+  .row.setting:has(> .end > :nth-child(2)) > .end {
+    grid-column: 1 / -1;
+  }
+
+  .row .name {
+    white-space: normal;
+  }
+
   .row .key {
     display: none;
   }
