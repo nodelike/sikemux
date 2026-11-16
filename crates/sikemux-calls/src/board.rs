@@ -1,6 +1,7 @@
 use crate::params::given;
 use crate::places::Place;
 use serde::{Deserialize, Serialize};
+pub use sikemux_plugin_api::codehost::PullState;
 use sikemux_view::chat::TriggerWhen;
 use sikemux_view::inbox::InboxRecording;
 use sikemux_view::slice::Collect;
@@ -173,14 +174,6 @@ pub struct CardPull {
     pub checks: Option<PullChecks>,
     /// When it merged or closed, else when the code host was last asked.
     pub at: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum PullState {
-    Open,
-    Merged,
-    Closed,
 }
 
 /// Where a board shows a card: `needs` holds the cards waiting on the person.

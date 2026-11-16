@@ -40,11 +40,13 @@ async fn card_pull(repo: &Repo, found: &Value) -> Option<CardPull> {
         _ => PullState::Open,
     };
     let checks = match state {
-        PullState::Open => tokio::time::timeout(LOOKUP_TIME, repo::pull_checks(repo, found))
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .flatten(),
+        PullState::Open | PullState::Draft => {
+            tokio::time::timeout(LOOKUP_TIME, repo::pull_checks(repo, found))
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten()
+        }
         PullState::Merged | PullState::Closed => None,
     };
     Some(CardPull {
@@ -127,7 +129,7 @@ pub(super) async fn add(core: &Arc<Core>, project: &str, gathered: &mut Gathered
         let verb = match pull.state {
             PullState::Merged => "was merged",
             PullState::Closed => "was closed without merging",
-            PullState::Open => continue,
+            PullState::Open | PullState::Draft => continue,
         };
         let words = format!("Pull request #{} ({}) {verb}.", pull.number, pull.title);
         let link = match pull.url.is_empty() {
