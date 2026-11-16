@@ -1331,6 +1331,7 @@ pub struct InChat {
     target: Target,
     calls: CallsOf,
     away: Option<Away>,
+    unfolded: bool,
     _cards: Subscription,
 }
 
@@ -1350,6 +1351,7 @@ impl InChat {
             target,
             calls: CallsOf::default(),
             away: None,
+            unfolded: false,
             _cards: observed,
         }
     }
@@ -1414,9 +1416,21 @@ impl Render for InChat {
             cards: &self.cards,
             bench: &self.bench,
         };
-        let rows: Vec<AnyElement> = (self.calls.open.iter())
-            .map(|call| page::chat_row(call, &self.agent, through, cx))
-            .collect();
+        let this = cx.entity().downgrade();
+        let toggle = move |cx: &mut App| {
+            this.update(cx, |chat, cx| {
+                chat.unfolded = !chat.unfolded;
+                cx.notify();
+            })
+            .ok();
+        };
+        let rows: Vec<AnyElement> = match self.calls.open.as_slice() {
+            [call] => vec![page::chat_row(call, &self.agent, through, false, cx)],
+            open => (!open.is_empty())
+                .then(|| page::chat_fold(open, self.unfolded, toggle, &self.agent, through, cx))
+                .into_iter()
+                .collect(),
+        };
         let away = self.away.as_ref().map(|away| {
             let through = Through {
                 target: &self.target,

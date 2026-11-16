@@ -804,22 +804,132 @@ fn section(name: &str, count: Option<usize>, t: &Tokens, cx: &App) -> gpui_kit::
         .child(div().flex_1().h(px(1.)).bg(t.line))
 }
 
-/// A call in its asker's chat, folded to one row: who asks, the question and its age, which
-/// offers Open in Calls while hovered and opens it on the agent's desk.
-pub(super) fn chat_row(call: &PersonCall, agent: &str, through: Through, cx: &App) -> AnyElement {
-    let Through {
-        target,
-        cards,
-        bench,
-    } = through;
-    let t = Tokens::get(cx);
+/// The pill naming who asks `call`, which opens that agent.
+fn asker_pill(call: &PersonCall, through: Through, cx: &App) -> AnyElement {
+    let Through { target, bench, .. } = through;
     let asker = (bench.upgrade())
         .map(|strong| asker_mark(strong.read(cx), call, 12., cx))
         .unwrap_or_else(|| ui::mark(&call.asker.cli, 12.));
+    crate::chat::agent_pill_of(
+        &call.asker.agent_id,
+        &call.asker.name,
+        asker,
+        11.5,
+        target.clone(),
+        bench,
+        cx,
+    )
+    .into_any_element()
+}
+
+/// A chat's open calls when more than one waits: one row with their count and the newest
+/// question, which opens into a block of their rows.
+pub(super) fn chat_fold(
+    calls: &[PersonCall],
+    open: bool,
+    toggle: impl Fn(&mut App) + 'static,
+    agent: &str,
+    through: Through,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let Some(newest) = calls.iter().max_by_key(|call| call.raised_at) else {
+        return div().into_any_element();
+    };
+    let one_asker = (calls.iter()).all(|call| call.asker.agent_id == newest.asker.agent_id);
+    let dot = || div().text_color(t.text_disabled).child("·");
+    let chevron = ui::icon(Icon::Chevron, 10.)
+        .text_color(t.text_tertiary)
+        .with_transformation(gpui_kit::Transformation::rotate(gpui_kit::Radians(
+            match open {
+                true => -std::f32::consts::FRAC_PI_2,
+                false => std::f32::consts::FRAC_PI_2,
+            },
+        )));
+    let folded = (!open).then(|| {
+        [
+            dot().into_any_element(),
+            asker_pill(newest, through, cx),
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_color(t.text_secondary)
+                .child(t!(
+                    "Newest: {question}",
+                    question = headline(&newest.question)
+                ))
+                .into_any_element(),
+            div()
+                .text_size(theme::ui_text(11.5))
+                .font_features(theme::tabular())
+                .text_color(t.text_tertiary)
+                .child(ui::time::age(newest.raised_at))
+                .into_any_element(),
+        ]
+    });
+    let unfolded = open.then(|| {
+        let asker = one_asker.then(|| [dot().into_any_element(), asker_pill(newest, through, cx)]);
+        (asker.into_iter().flatten()).chain([div().flex_1().into_any_element()])
+    });
+    let hover = t.surface_hover;
+    let head = BaseButton::new("call-chat-fold")
+        .w_full()
+        .h(px(36.))
+        .pl(SPACE_2)
+        .pr(px(10.))
+        .flex()
+        .items_center()
+        .gap(px(9.))
+        .text_size(theme::ui_text(13.))
+        .text_color(t.text_primary)
+        .hover(move |style| style.bg(hover))
+        .on_click(move |_, _, cx| toggle(cx))
+        .child(ui::icon(Icon::Bell, 12.).text_color(t.warn))
+        .child(
+            div()
+                .flex_none()
+                .font_weight(FontWeight::MEDIUM)
+                .child(t!("{count} calls", count = calls.len())),
+        )
+        .children(folded.into_iter().flatten())
+        .children(unfolded.into_iter().flatten())
+        .child(chevron);
+    let rows = (open.then_some(calls).into_iter().flatten()).map(|call| {
+        div()
+            .border_t(crate::theme::border())
+            .border_color(t.line)
+            .child(chat_row(call, agent, through, true, cx))
+    });
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .rounded(radius_4())
+        .border(crate::theme::border())
+        .border_color(t.line)
+        .bg(t.surface_raised)
+        .overflow_hidden()
+        .child(head)
+        .children(rows)
+        .into_any_element()
+}
+
+/// A call in its asker's chat, folded to one row: who asks, the question and its age, which
+/// offers Open in Calls while hovered and opens it on the agent's desk. Inside the open calls'
+/// block it drops its own frame and leaves its bell to the block's first row.
+pub(super) fn chat_row(
+    call: &PersonCall,
+    agent: &str,
+    through: Through,
+    in_block: bool,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
     let (cards, id, bench_to, agent) = (
-        cards.clone(),
+        through.cards.clone(),
         call.id.clone(),
-        bench.clone(),
+        through.bench.clone(),
         agent.to_owned(),
     );
     let hover = t.surface_hover;
@@ -844,6 +954,12 @@ pub(super) fn chat_row(call: &PersonCall, agent: &str, through: Through, cx: &Ap
         .text_color(t.text_tertiary)
         .group_hover(CHAT_ROW, |style| style.opacity(0.))
         .child(ui::time::age(call.raised_at));
+    let bell = match in_block {
+        true => div().w(px(12.)).flex_none().into_any_element(),
+        false => ui::icon(Icon::Bell, 12.)
+            .text_color(t.warn)
+            .into_any_element(),
+    };
     BaseButton::new(SharedString::from(format!("call-chat-row-{}", call.id)))
         .group(CHAT_ROW)
         .w_full()
@@ -853,10 +969,12 @@ pub(super) fn chat_row(call: &PersonCall, agent: &str, through: Through, cx: &Ap
         .flex()
         .items_center()
         .gap(px(9.))
-        .rounded(radius_4())
-        .border(crate::theme::border())
-        .border_color(t.line)
-        .bg(t.surface_raised)
+        .when(!in_block, |row| {
+            row.rounded(radius_4())
+                .border(crate::theme::border())
+                .border_color(t.line)
+                .bg(t.surface_raised)
+        })
         .text_size(theme::ui_text(13.))
         .text_color(t.text_primary)
         .hover(move |style| style.bg(hover))
@@ -869,16 +987,8 @@ pub(super) fn chat_row(call: &PersonCall, agent: &str, through: Through, cx: &Ap
                 .update(cx, |bench, cx| bench.show_calls(&agent, cx))
                 .ok();
         })
-        .child(ui::icon(Icon::Bell, 12.).text_color(t.warn))
-        .child(crate::chat::agent_pill_of(
-            &call.asker.agent_id,
-            &call.asker.name,
-            asker,
-            11.5,
-            target.clone(),
-            bench,
-            cx,
-        ))
+        .child(bell)
+        .child(asker_pill(call, through, cx))
         .child(
             div()
                 .flex_1()
