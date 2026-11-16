@@ -106,16 +106,16 @@ looks_like_server() {
 }
 
 choose_linux_mode() {
+  [ "$MODE" != host ] || return 0
+  unavailable=$(app_unavailable)
+  if [ -n "$unavailable" ]; then
+    [ "$MODE" = ask ] || fail "the desktop app cannot go on this machine: $unavailable; add --host for the core"
+    note "No desktop app here: $unavailable, so this installs the core."
+    say ""
+    MODE=host
+    return 0
+  fi
   [ "$MODE" = ask ] || return 0
-  case "$(uname -m)" in
-    x86_64 | amd64 | aarch64 | arm64) ;;
-    *)
-      note "The desktop app runs on x86_64 and arm64 only, so this installs the core."
-      say ""
-      MODE=host
-      return 0
-      ;;
-  esac
   if looks_like_server; then guess=host; else guess=app; fi
   if ! interactive; then
     MODE=$guess
@@ -155,27 +155,6 @@ latest_version() {
     *) fail "SIKEMUX_CHANNEL must be stable or nightly, not $CHANNEL" ;;
   esac
 }
-
-TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
-VERSION=$(latest_version)
-[ -n "$VERSION" ] || fail "could not find the latest $CHANNEL version"
-
-if [ "$CHANNEL" = nightly ] && [ "${SIKEMUX_INSTALLER:-}" != "$VERSION" ]; then
-  curl -fsSL -o "$TMP/install.sh" "$REPO/releases/download/v$VERSION/install.sh" ||
-    fail "v$VERSION has no installer"
-  SIKEMUX_INSTALLER=$VERSION sh "$TMP/install.sh" "$@" </dev/null
-  exit $?
-fi
-
-case "$(uname -s)" in
-  Darwin) platform="macOS" ;;
-  Linux) platform="Linux" ;;
-  *) fail "Sikemux runs on macOS and Linux" ;;
-esac
-say ""
-say "  ${ACCENT}${BOLD}sikemux${RESET}  ${DIM}$VERSION · $platform $(uname -m)${RESET}"
-say ""
 
 size_of() {
   awk -v bytes="$(wc -c <"$1" | tr -d ' ')" 'BEGIN { printf "%.1f MB", bytes / 1048576 }'
@@ -233,7 +212,7 @@ install_mac() {
 # An AppImage runs from a mount any program can make, so the core could not tell its
 # window from an agent's program. Unpacked where only root writes, beside the core, it can.
 install_appimage() {
-  file="Sikemux_${VERSION}_${DEB_ARCH}.AppImage"
+  file=$1
   download "$file" "the app"
   chmod +x "$TMP/$file"
   # shellcheck disable=SC2016
@@ -271,41 +250,32 @@ add_to_launcher() {
 }
 
 install_linux() {
-  case "$(uname -m)" in
-    x86_64 | amd64) ARCH=x86_64 DEB_ARCH=amd64 ;;
-    aarch64 | arm64) ARCH=aarch64 DEB_ARCH=arm64 ;;
-    *) fail "the desktop app needs an x86_64 or arm64 machine; add --host for the core" ;;
-  esac
-  need_app_glibc
+  file=$(app_file)
   # sudo asks for a password here, if it needs one, before a spinner holds the line.
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then sudo -n true 2>/dev/null || sudo -v; fi
-  if command -v apt-get >/dev/null 2>&1; then
-    download "Sikemux_${VERSION}_${DEB_ARCH}.deb" "the app"
-    step "Installing with apt" as_root apt-get install -y "$TMP/Sikemux_${VERSION}_${DEB_ARCH}.deb"
-    done_step "Installed Sikemux" "with apt"
-  # Releases carry an AppImage and a pacman package for x86_64 only, so arm64 needs apt.
-  elif [ "$ARCH" != x86_64 ]; then
-    fail "the desktop app on arm64 comes as a .deb, for apt; add --host for the core"
-  elif command -v pacman >/dev/null 2>&1; then
-    # packaging/arch/PKGBUILD names it: pacman sorts 0.6.1nightly.6 below 0.6.1.
-    case "$VERSION" in
-      *-*) name=sikemux-nightly-bin ;;
-      *) name=sikemux-bin ;;
-    esac
-    package="$name-$(printf '%s' "$VERSION" | tr -d -)-1-x86_64.pkg.tar.zst"
-    download "$package" "the app"
-    # The other channel's package, or the Omarchy repo's, holds the same files.
-    owner=$(pacman -Qqo /usr/lib/sikemux/sikemux-host 2>/dev/null || true)
-    if [ -n "$owner" ] && [ "$owner" != "$name" ]; then
-      step "Removing $owner" as_root pacman -Rdd --noconfirm "$owner"
-    fi
-    step "Installing with pacman" as_root pacman -U --noconfirm "$TMP/$package"
-    done_step "Installed Sikemux" "with pacman"
-  else
-    install_guarded_core "$ARCH"
-    install_appimage
-    link_cli
-  fi
+  case "$file" in
+    *.deb)
+      download "$file" "the app"
+      step "Installing with apt" as_root apt-get install -y "$TMP/$file"
+      done_step "Installed Sikemux" "with apt"
+      ;;
+    *.pkg.tar.zst)
+      download "$file" "the app"
+      # The other channel's package, or the Omarchy repo's, holds the same files.
+      owner=$(pacman -Qqo /usr/lib/sikemux/sikemux-host 2>/dev/null || true)
+      if [ -n "$owner" ] && [ "$owner" != "${file%%-[0-9]*}" ]; then
+        step "Removing $owner" as_root pacman -Rdd --noconfirm "$owner"
+      fi
+      step "Installing with pacman" as_root pacman -U --noconfirm "$TMP/$file"
+      done_step "Installed Sikemux" "with pacman"
+      ;;
+    *)
+      # Without apt, and on arm64 Arch, which has no pacman package, the app is the AppImage.
+      install_guarded_core "$ARCH"
+      install_appimage "$file"
+      link_cli
+      ;;
+  esac
   say ""
 }
 
@@ -415,26 +385,50 @@ need_glibc() {
   esac
 }
 
-need_app_glibc() {
+# The package the desktop app comes in on this machine.
+app_file() {
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "Sikemux_${VERSION}_${DEB_ARCH}.deb"
+  elif [ "$ARCH" = x86_64 ] && command -v pacman >/dev/null 2>&1; then
+    # packaging/arch/PKGBUILD names it: pacman sorts 0.6.1nightly.6 below 0.6.1.
+    case "$VERSION" in
+      *-*) name=sikemux-nightly-bin ;;
+      *) name=sikemux-bin ;;
+    esac
+    echo "$name-$(printf '%s' "$VERSION" | tr -d -)-1-x86_64.pkg.tar.zst"
+  else
+    echo "Sikemux_${VERSION}_${DEB_ARCH}.AppImage"
+  fi
+}
+
+# Why this machine cannot take the desktop app from this release; nothing when it can.
+app_unavailable() {
+  if [ -z "$ARCH" ]; then
+    echo "it runs on x86_64 and arm64 only"
+    return 0
+  fi
   have=$(glibc_short_of "$OLDEST_APP_GLIBC")
   case "$have" in
     "") ;;
-    musl) fail "the desktop app needs glibc $OLDEST_APP_GLIBC or later, and this system uses musl; add --host for the core" ;;
-    *) fail "the desktop app needs glibc $OLDEST_APP_GLIBC or later (Ubuntu 24.04, Debian 13 or newer), and this system has $have; add --host for the core, which runs on glibc $OLDEST_GLIBC" ;;
+    musl) echo "it needs glibc $OLDEST_APP_GLIBC or later, and this system uses musl"; return 0 ;;
+    *) echo "it needs glibc $OLDEST_APP_GLIBC or later (Ubuntu 24.04, Debian 13 or newer), and this system has $have"; return 0 ;;
+  esac
+  file=$(app_file)
+  found=0
+  curl -fsLI -o /dev/null "$REPO/releases/download/v$VERSION/$file" || found=$?
+  # 22 is an HTTP error such as 404, 37 a missing file:// path; anything else is left to the download.
+  case $found in
+    22 | 37) echo "$VERSION has no $file" ;;
   esac
 }
 
 install_host() {
-  case "$(uname -m)" in
-    x86_64 | amd64) arch=x86_64 ;;
-    aarch64 | arm64) arch=aarch64 ;;
-    *) fail "a Sikemux host needs an x86_64 or arm64 machine" ;;
-  esac
+  [ -n "$ARCH" ] || fail "a Sikemux host needs an x86_64 or arm64 machine"
   need_glibc
   if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
   previous=""
   [ -x "$bin/sikemux" ] && previous=$("$bin/sikemux" --version 2>/dev/null | sed 's/^sikemux //')
-  install_guarded_core "$arch"
+  install_guarded_core "$ARCH"
   link_cli
   user=$(id -un)
   if [ "$(id -u)" -eq 0 ]; then
@@ -501,6 +495,39 @@ install_host() {
   fi
   "$bin/sikemux" login </dev/tty >/dev/tty 2>&1 || true
 }
+
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+VERSION=$(latest_version)
+[ -n "$VERSION" ] || fail "could not find the latest $CHANNEL version"
+
+case "$(uname -s)" in
+  Darwin) platform="macOS" ;;
+  Linux) platform="Linux" ;;
+  *) fail "Sikemux runs on macOS and Linux" ;;
+esac
+case "$(uname -m)" in
+  x86_64 | amd64) ARCH=x86_64 DEB_ARCH=amd64 ;;
+  aarch64 | arm64) ARCH=aarch64 DEB_ARCH=arm64 ;;
+  *) ARCH="" DEB_ARCH="" ;;
+esac
+handed_over=false
+[ "${SIKEMUX_INSTALLER:-}" = "$VERSION" ] && handed_over=true
+if ! $handed_over; then
+  say ""
+  say "  ${ACCENT}${BOLD}sikemux${RESET}  ${DIM}$VERSION · $platform $(uname -m)${RESET}"
+  say ""
+fi
+[ "$platform" = Linux ] && choose_linux_mode
+
+# The nightly's own installer takes over, told what was chosen here.
+if [ "$CHANNEL" = nightly ] && ! $handed_over; then
+  curl -fsSL -o "$TMP/install.sh" "$REPO/releases/download/v$VERSION/install.sh" ||
+    fail "v$VERSION has no installer"
+  [ "$platform" = Linux ] && set -- "$@" "--$MODE"
+  SIKEMUX_INSTALLER=$VERSION sh "$TMP/install.sh" "$@" </dev/null
+  exit $?
+fi
 
 case "$(uname -s)" in
   Darwin)
