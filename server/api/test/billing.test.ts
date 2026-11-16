@@ -617,6 +617,7 @@ describe("the provider's events", () => {
           at,
           type: "subscription.started",
           providerCheckoutId: "chk_boxes",
+          openedByBuyer: false,
           providerCustomerId: "cus_boxes",
           subscription: {
             ...subscription,
@@ -694,6 +695,7 @@ describe("the provider's events", () => {
       at,
       type: "subscription.started" as const,
       providerCheckoutId: "chk_second",
+      openedByBuyer: false,
       providerCustomerId: held.provider_customer_id ?? "",
       subscription: {
         providerSubscriptionId: "sub_second",
@@ -774,6 +776,7 @@ describe("the provider's events", () => {
           at,
           type: "subscription.started",
           providerCheckoutId: "chk_late",
+          openedByBuyer: false,
           providerCustomerId: held.provider_customer_id ?? "",
           subscription: {
             providerSubscriptionId: "sub_late",
@@ -811,6 +814,7 @@ describe("the provider's events", () => {
         at,
         type: "subscription.started" as const,
         providerCheckoutId,
+        openedByBuyer: true,
         providerCustomerId: "cus_stray",
         providerPaymentId: `pay_stray_${index}`,
         subscription: {

@@ -28,6 +28,13 @@ class Gone extends Error {}
 /** No payer, as for an event about a subscription that did not come from the app's checkout. */
 const STRAY = { customerId: null };
 
+/** A checkout the API opened with its own key and was paid, which it has no record of. */
+class UnknownSale extends ApiFailure {
+  constructor() {
+    super(503, "unavailable", "This checkout is not known yet.");
+  }
+}
+
 /** The provider an event came from, as applying it needs. */
 interface From {
   name: string;
@@ -305,7 +312,7 @@ async function endingForDeletedPayer(trx: Kysely<Tables>, customerId: string) {
  */
 async function paidCheckout(
   trx: Transaction<Tables>,
-  provider: string,
+  from: From,
   event: Extract<ProviderEvent, { type: "subscription.started" }>,
 ) {
   const checkout = await trx
@@ -323,13 +330,19 @@ async function paidCheckout(
       "billing_checkouts.interval",
       "billing_customers.org_id",
     ])
-    .where("billing_checkouts.provider", "=", provider)
+    .where("billing_checkouts.provider", "=", from.name)
     .where(
       "billing_checkouts.provider_checkout_id",
       "=",
       event.providerCheckoutId,
     )
     .executeTakeFirst();
+  if (
+    !checkout &&
+    !event.openedByBuyer &&
+    !(await isStray(trx, from, event.providerCheckoutId))
+  )
+    throw new UnknownSale();
   const sub = event.subscription;
   const [item, ...more] = sub.items;
   if (
@@ -374,13 +387,13 @@ async function apply(
   trx: Transaction<Tables>,
   from: From,
   event: ProviderEvent,
-): Promise<{ customerId: string | null }> {
+): Promise<{ customerId: string | null; cancelled?: string }> {
   const provider = from.name;
   const { at } = event;
   switch (event.type) {
     case "subscription.started": {
       const sub = event.subscription;
-      const customer = await paidCheckout(trx, provider, event);
+      const customer = await paidCheckout(trx, from, event);
       if (!customer) {
         const payment = event.providerPaymentId;
         await keepStrays(trx, from, [
@@ -393,7 +406,7 @@ async function apply(
             ? [{ action: "refund" as const, providerPaymentId: payment }]
             : []),
         ]);
-        return STRAY;
+        return { ...STRAY, cancelled: sub.providerSubscriptionId };
       }
       await endingForDeletedPayer(trx, customer.id);
       const surplus = await isSurplus(trx, customer.id, sub);
@@ -681,12 +694,26 @@ async function applyOnce(
         trx,
         people.map((userId) => ({ userId, type: "plan.changed" as const })),
       );
+      if (result.cancelled)
+        log.warn(
+          { provider: name, subscription: result.cancelled },
+          "cancelling and refunding a subscription paid outside the app's checkout",
+        );
       log.info(
         { provider: name, type: event.type, customerId: result.customerId },
         "billing event",
       );
     });
   } catch (error) {
+    if (error instanceof UnknownSale && event.type === "subscription.started")
+      log.error(
+        {
+          provider: name,
+          checkout: event.providerCheckoutId,
+          subscription: event.subscription.providerSubscriptionId,
+        },
+        "a checkout the API opened was paid but has no record here: its subscription and payment are left alone, and its events refused until someone looks",
+      );
     if (!(error instanceof Gone)) throw error;
     log.info(
       { provider: name, type: event.type, gone: error.message },

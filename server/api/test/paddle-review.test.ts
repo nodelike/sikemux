@@ -1548,3 +1548,20 @@ describe("2. the cut the route records is never set right by what Paddle reports
     }).toEqual({ cut: 500, atRenewal: 1, seats: 1, invitesMade: 0 });
   });
 });
+
+describe("a sale made with our own key that we have no record of", () => {
+  it("D: leaves the subscription and the money alone, and refuses its event for Paddle to send again", async () => {
+    const sub = paddleSub(ctmOf(OWNER), "pro", 1);
+    paddle.subscriptions.set(sub.id, sub);
+    const txn = paddleTxn(sub);
+
+    const answered = await deliver("transaction.completed", txn);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect({
+      answered,
+      cancelled: askedOfPaddle("/cancel"),
+      refunded: askedOfPaddle("/adjustments"),
+    }).toEqual({ answered: 503, cancelled: 0, refunded: 0 });
+  });
+});

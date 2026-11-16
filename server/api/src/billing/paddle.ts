@@ -916,6 +916,7 @@ export function eventsOf(event: PaddleEvent): ProviderEvent[] {
           at,
           type: "subscription.started",
           providerCheckoutId: txn.id,
+          openedByBuyer: txn.origin === "web",
           providerCustomerId: txn.customer_id,
           providerPaymentId: txn.id,
           subscription: {

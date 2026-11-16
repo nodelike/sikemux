@@ -158,6 +158,7 @@ export class StandInProvider implements BillingProvider {
       {
         ...this.event("subscription.started", at),
         providerCheckoutId: token,
+        openedByBuyer: false,
         providerCustomerId,
         subscription: {
           providerSubscriptionId,

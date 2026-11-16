@@ -24,7 +24,9 @@ The root `AGENTS.md` applies here too.
   run `server/deploy` scripts against citadel, and set up its config without asking,
   after `agentctl guard` passes. Never print secrets, and ask first before anything
   destructive or irreversible, such as dropping data or deleting accounts.
-- A Paddle account answers to one API. The API cancels and refunds any subscription it did
-  not sell, so a second API receiving the same account's events undoes the first one's sales.
-  Production holds the sandbox account whose key is in citadel's `api.env`: never start
-  another API on that key or run `paddle-setup` against that account with another origin.
+- A Paddle account answers to one API. A subscription a buyer checked out on their own, with
+  no checkout the API opened, is cancelled and refunded. One paid on a checkout opened with the
+  account's key that the API has no record of is left alone: its events are refused, for Paddle
+  to send again, with an error in the log. A second API on the account would put every sale of
+  its own there. Production holds the sandbox account whose key is in citadel's `api.env`: never
+  start another API on that key or run `paddle-setup` against that account with another origin.

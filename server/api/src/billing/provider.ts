@@ -78,6 +78,8 @@ export type ProviderEvent = {
       type: "subscription.started";
       /** The provider's id for the checkout that was paid, as `checkout` answered it. */
       providerCheckoutId: string;
+      /** Whether the buyer made the checkout themselves, rather than the API with its own key. */
+      openedByBuyer: boolean;
       providerCustomerId: string;
       subscription: ProviderSubscription;
       /** The subscription's first payment, when the provider names it here. */
