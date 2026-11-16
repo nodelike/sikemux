@@ -11,14 +11,16 @@ import type {
 } from "@sikemux/protocol";
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { sql, type Kysely, type Selectable } from "kysely";
+import { sql, type Kysely, type Selectable, type Transaction } from "kysely";
 
 import type { Services } from "../app.ts";
+import { audit } from "../audit.ts";
 import type { Person } from "../account/clerk.ts";
 import { requireIdentity, type AuthEnv } from "../auth.ts";
 import { requireBillingAccess } from "../billing/access.ts";
 import { hasOpenSubscriptions, seatLimit } from "../billing/seats.ts";
 import type { Tables } from "../db.ts";
+import { appendEvents } from "../events/log.ts";
 import {
   badRequest,
   conflict,
@@ -160,6 +162,14 @@ async function keepAnOwner(
     throw conflict(message);
 }
 
+/** A seat that starts or ends changes its holder's plan, so their apps are told. */
+async function seatsChanged(trx: Transaction<Tables>, userIds: string[]) {
+  await appendEvents(
+    trx,
+    userIds.map((userId) => ({ userId, type: "plan.changed" as const })),
+  );
+}
+
 export function orgRoutes({
   database: { db },
   verifier,
@@ -213,6 +223,12 @@ export function orgRoutes({
           .insertInto("org_users")
           .values({ org_id: created.id, user_id: userId, role: "owner" })
           .execute();
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: "org.created",
+          subject: created.id,
+        });
         return created;
       });
       c.get("log").info({ orgId: org.id }, "created an org");
@@ -294,6 +310,14 @@ export function orgRoutes({
             invited_by: invite.invited_by,
           })
           .execute();
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: "org.joined",
+          subject: org.id,
+          detail: { role: invite.role, inviteId: invite.id },
+        });
+        await seatsChanged(trx, [userId]);
         return { org, role: invite.role };
       });
       c.get("log").info({ orgId: joined.org.id }, "joined an org");
@@ -323,7 +347,22 @@ export function orgRoutes({
           throw conflict(
             "The org still has a subscription that has not ended; cancel it first.",
           );
+        const members = await trx
+          .selectFrom("org_users")
+          .select("user_id")
+          .where("org_id", "=", orgId)
+          .execute();
         await trx.deleteFrom("orgs").where("id", "=", orgId).execute();
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: "org.deleted",
+          subject: orgId,
+        });
+        await seatsChanged(
+          trx,
+          members.map((member) => member.user_id),
+        );
       });
       c.get("log").info({ orgId }, "deleted an org");
       return c.body(null, 204);
@@ -380,6 +419,13 @@ export function orgRoutes({
               current,
               "That would leave the org with no owner.",
             );
+          await audit(trx, {
+            userId: target,
+            actor: `user:${userId}`,
+            action: "org.role_changed",
+            subject: orgId,
+            detail: { from: current, to: next },
+          });
           return trx
             .updateTable("org_users")
             .set({ role: next })
@@ -430,6 +476,14 @@ export function orgRoutes({
             .where("org_id", "=", orgId)
             .where("user_id", "=", target)
             .execute();
+          await audit(trx, {
+            userId: target,
+            actor: `user:${userId}`,
+            action: target === userId ? "org.left" : "org.member_removed",
+            subject: orgId,
+            detail: { role: current },
+          });
+          await seatsChanged(trx, [target]);
         });
         c.get("log").info({ orgId }, "removed an org member");
         return c.body(null, 204);
@@ -451,6 +505,14 @@ export function orgRoutes({
           .where("org_id", "=", orgId)
           .where("user_id", "=", userId)
           .execute();
+        await audit(trx, {
+          userId,
+          actor: `user:${userId}`,
+          action: "org.left",
+          subject: orgId,
+          detail: { role },
+        });
+        await seatsChanged(trx, [userId]);
       });
       c.get("log").info({ orgId }, "left an org");
       return c.body(null, 204);
@@ -474,7 +536,7 @@ export function orgRoutes({
             throw conflict(
               "Every seat is held by a member or a pending invite; add seats to the Team plan first.",
             );
-          return trx
+          const created = await trx
             .insertInto("org_invites")
             .values({
               org_id: orgId,
@@ -485,6 +547,14 @@ export function orgRoutes({
             })
             .returningAll()
             .executeTakeFirstOrThrow();
+          await audit(trx, {
+            userId,
+            actor: `user:${userId}`,
+            action: "org.invite_created",
+            subject: orgId,
+            detail: { inviteId: created.id, role: invited },
+          });
+          return created;
         });
         c.get("log").info({ orgId, inviteId: invite.id }, "invited to an org");
         const body: OrgInviteCreated = {
@@ -539,6 +609,13 @@ export function orgRoutes({
             .set({ revoked_at: sql<Date>`now()` })
             .where("id", "=", inviteId)
             .execute();
+          await audit(trx, {
+            userId,
+            actor: `user:${userId}`,
+            action: "org.invite_revoked",
+            subject: orgId,
+            detail: { inviteId, role: invite.role },
+          });
         });
         return c.body(null, 204);
       },

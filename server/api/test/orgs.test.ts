@@ -2,7 +2,7 @@ import type { OrgRole } from "@sikemux/protocol";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { Database } from "../src/db.ts";
-import { caller, emptyTables, migratedDatabase } from "./accounts.ts";
+import { caller, emptyTables, events, migratedDatabase } from "./accounts.ts";
 import { teamPlan } from "./billing.ts";
 import { FakeClerk } from "./clerk.ts";
 import { body, testApp } from "./support.ts";
@@ -160,6 +160,27 @@ describe("orgs", () => {
       (await as(OWNER, `/v1/orgs/${orgId}/leave`, { method: "POST" })).status,
     ).toBe(204);
     expect((await setRole(ADMIN, orgId, ADMIN, "user")).status).toBe(409);
+  });
+
+  it("tell a person's apps their plan changed when their seat starts or ends", async () => {
+    const orgId = await createOrg(10);
+    const planChanges = async () =>
+      (await events(database))
+        .filter((event) => event.type === "plan.changed")
+        .map((event) => event.user_id);
+
+    await addMember(orgId, ADMIN, "admin");
+    await addMember(orgId, MEMBER, "user");
+    expect(await planChanges()).toEqual([ADMIN, MEMBER]);
+
+    expect((await setRole(OWNER, orgId, MEMBER, "admin")).status).toBe(200);
+    expect(await planChanges()).toEqual([ADMIN, MEMBER]);
+
+    expect((await remove(OWNER, orgId, MEMBER)).status).toBe(204);
+    expect(
+      (await as(ADMIN, `/v1/orgs/${orgId}/leave`, { method: "POST" })).status,
+    ).toBe(204);
+    expect(await planChanges()).toEqual([ADMIN, MEMBER, MEMBER, ADMIN]);
   });
 
   it("refuse deleting the account of an org's only owner", async () => {
