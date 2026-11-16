@@ -635,7 +635,7 @@ impl RenderOnce for Tab {
             .id(wrap_id)
             .relative()
             .flex_none()
-            .h(px(crate::theme::dense(26.)))
+            .h(px(tab_height()))
             .min_w(px(self.width.map_or(120., |width| width.min(120.))))
             .when_some(self.width.filter(|_| titled), |tab, width| {
                 tab.max_w(px(width))
@@ -704,6 +704,11 @@ impl RenderOnce for Tab {
                     ))
             }))
     }
+}
+
+/// How tall a tab draws in the worn theme's density.
+pub fn tab_height() -> f32 {
+    crate::theme::dense(26.)
 }
 
 /// The least of a tab's label worth drawing; under it the tab shows only its marks.

@@ -5,8 +5,14 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{div, px, AnyElement, Div, IntoElement, ParentElement, StyleRefinement, Styled};
 
 use crate::rail::{Edge, Rail};
-use crate::theme::{gap, inset, under_bar};
+use crate::theme::{gap, inset};
 use crate::workbench::Workbench;
+
+/// The room between a bar and the panes beside it: the panes' own gap, so the bar reads as one
+/// more pane.
+pub fn room_beside_bar() -> f32 {
+    gap()
+}
 
 /// The least room the stage keeps, however wide the rails beside it are.
 pub const STAGE_MIN: (f32, f32) = (260., 240.);
@@ -323,10 +329,10 @@ impl Workbench {
             if !row {
                 let above = at.checked_sub(1).and_then(|above| nodes.get(above));
                 if above.is_some_and(|above| above.bar_at(Side::Bottom)) {
-                    passing.top = under_bar();
+                    passing.top = room_beside_bar();
                 }
                 if (nodes.get(at + 1)).is_some_and(|below| below.bar_at(Side::Top)) {
-                    passing.bottom = under_bar();
+                    passing.bottom = room_beside_bar();
                 }
             }
             passing
@@ -366,7 +372,7 @@ impl Workbench {
                 parts.bar.clone().cached(
                     StyleRefinement::default()
                         .w_full()
-                        .h(px(crate::tabs::BAR_HEIGHT)),
+                        .h(px(crate::tabs::bar_height())),
                 ),
             ),
             Part::Stage => div().flex().child(

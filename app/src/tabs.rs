@@ -38,8 +38,19 @@ use crate::toast;
 use crate::ui::{self, IconButton, Tab};
 use crate::workbench::{Strip, StripRef, Workbench};
 
-/// The bar across the window's top: the window buttons, the tabs and the chips on one row.
-pub const BAR_HEIGHT: f32 = 36.;
+/// How far down the window the middle of its macOS window buttons sits; the tabs share it.
+const BUTTONS_MIDDLE: f32 = 18.;
+
+/// Where the bar's tabs start, level with the window buttons.
+fn tabs_top() -> f32 {
+    BUTTONS_MIDDLE - crate::ui::tab_height() / 2.
+}
+
+/// The bar across the window's top: the window buttons, the tabs and the chips on one row. It
+/// ends where the tabs do, so the gap under it is the panes' own gap.
+pub fn bar_height() -> f32 {
+    tabs_top() + crate::ui::tab_height()
+}
 
 /// How wide the window is, in points, before the overload chip keeps its words.
 const ROOMY_BAR: f32 = 1360.;
@@ -124,7 +135,8 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
         .flex()
         .flex_none()
         .items_center()
-        .h(px(BAR_HEIGHT))
+        .h(px(bar_height()))
+        .pt(px(tabs_top()))
         .when(!crate::see_through::clear(cx), |bar| bar.bg(t.surface))
         .window_control_area(WindowControlArea::Drag)
         .when(cfg!(target_os = "macos"), |bar| {
@@ -1159,4 +1171,18 @@ pub fn shows(tab: &LayoutTab, kind: PaneKind) -> Option<&String> {
     crate::panes::views(&tab.pane)
         .find(|view| view.kind == kind)
         .map(|view| view.target)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panes_sit_one_pane_gap_under_the_tabs() {
+        let under_tabs = bar_height() - (tabs_top() + crate::ui::tab_height());
+        assert_eq!(
+            under_tabs + crate::skeleton::room_beside_bar(),
+            crate::theme::gap()
+        );
+    }
 }

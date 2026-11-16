@@ -2179,7 +2179,7 @@ impl Workbench {
                 Rail::Agents => "peek-agents",
             })
             .absolute()
-            .top(px(tabs::BAR_HEIGHT + crate::theme::under_bar()))
+            .top(px(tabs::bar_height() + crate::skeleton::room_beside_bar()))
             .bottom(px(crate::theme::inset()))
             .w(px(if shown > 0. { width + 20. } else { PEEK_REACH }))
             .px(SPACE_2H)

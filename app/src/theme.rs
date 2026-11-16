@@ -178,12 +178,6 @@ pub fn inset() -> f32 {
     SPACING.with(Cell::get).1
 }
 
-/// The room between a bar and what is beside it, less than [`inset`] so the bar's border reads
-/// as the edge.
-pub fn under_bar() -> f32 {
-    (inset() * 0.4).round()
-}
-
 /// A row `points` tall at the default density, as tall as the worn theme's density makes it.
 pub fn dense(points: f32) -> f32 {
     (points * DENSITY.with(Cell::get)).round()
