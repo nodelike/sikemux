@@ -1,9 +1,9 @@
 //! The host the person is on (ADR 0018): this one, another host on the account, or an SSH host
 //! without Sikemux. The rail, the top bar and the tab list follow the one chosen.
 
+pub(crate) mod bar;
 pub mod install_pane;
 pub mod page;
-pub(crate) mod top_place;
 
 use std::collections::HashMap;
 

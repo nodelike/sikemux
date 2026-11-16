@@ -10,8 +10,10 @@ use sikemux_view::layout::At;
 use sikemux_view::layout::Layout;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::ProjectLayout;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::Path;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
@@ -19,9 +21,9 @@ use gpui_kit::component::WindowExt;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, ClickEvent, ClipboardItem, Context, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity,
-    Window, WindowControlArea, WindowId,
+    canvas, div, px, AnyElement, App, ClickEvent, ClipboardItem, Context, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
+    Styled, WeakEntity, Window, WindowControlArea,
 };
 use sikemux_view::layout::{Pane, PaneKind, Tab as LayoutTab};
 use sikemux_wire::pty::shell_protocol::SshLink;
@@ -30,46 +32,68 @@ use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
-    Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XS,
+    Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XS,
 };
 use crate::toast;
 use crate::ui::{self, IconButton, Tab};
 use crate::workbench::{Strip, StripRef, Workbench};
 
-/// The bar across the window's top, under the window buttons.
-pub(crate) const BAR_HEIGHT: f32 = 36.;
-/// The tabs' row under the bar, with the gutter above it and a little less below.
-pub(crate) const TAB_ROW_HEIGHT: f32 = 42.;
+/// The bar across the window's top: the window buttons, the tabs and the chips on one row.
+pub const BAR_HEIGHT: f32 = 40.;
 
-/// How wide the window is, in points, before the bar's chips keep their words; narrower,
-/// they keep only their marks so they stay clear of the place in the middle.
+/// How wide the window is, in points, before the overload chip keeps its words.
 const ROOMY_BAR: f32 = 1360.;
 
-thread_local! {
-    /// How wide the chips at each window's bar's right end were last drawn, which the place in
-    /// the middle keeps clear of.
-    static CHIPS_WIDTH: std::cell::RefCell<HashMap<WindowId, f32>> =
-        std::cell::RefCell::new(HashMap::new());
+/// How the strip's tabs share its width: each keeps its own width while all fit, its title
+/// ending at `TITLE_WIDTH`; past that the widest narrow towards one width they all share, and
+/// past `FLOOR` the strip scrolls.
+const TITLE_WIDTH: f32 = 96.;
+const TAB_GAP: f32 = 4.;
+const FLOOR: f32 = 76.;
+/// Under this shared width the tabs drop their agents' @names.
+const NAMED_FROM: f32 = 170.;
+const FADE: f32 = 32.;
+/// The new-tab button after the tabs.
+const NEW_TAB: f32 = 26.;
+
+/// How wide each tab of the strip draws, and whether agents' tabs keep their @names.
+#[derive(Clone, Copy)]
+struct Fit {
+    width: Option<f32>,
+    named: bool,
 }
 
-fn chips_width(window: &Window) -> f32 {
-    let id = window.window_handle().window_id();
-    CHIPS_WIDTH.with_borrow(|widths| widths.get(&id).copied().unwrap_or(0.))
+/// What the strip measured of its tabs when last drawn: the room it has for them, and the
+/// width each takes when nothing narrows it.
+#[derive(Default)]
+pub(crate) struct StripFit {
+    room: Cell<f32>,
+    natural: RefCell<HashMap<String, f32>>,
 }
 
-/// How tall the bar and, when a place has tabs, the row of them under it stand.
-pub fn top_height(bench: &Workbench) -> f32 {
-    BAR_HEIGHT
-        + if has_tab_row(bench) {
-            TAB_ROW_HEIGHT
-        } else {
-            0.
+impl StripFit {
+    /// The width every tab of `tabs` is held to, none while they all fit as they are.
+    fn shared(&self, tabs: &[String]) -> Option<f32> {
+        let room = self.room.get();
+        if tabs.is_empty() || room <= 0. {
+            return None;
         }
-}
-
-/// Whether the place in front has tabs, which a row under the bar shows.
-pub(crate) fn has_tab_row(bench: &Workbench) -> bool {
-    strip_with_tabs(bench).is_some()
+        let mut left = room - TAB_GAP * (tabs.len() - 1) as f32;
+        let natural = self.natural.borrow();
+        let mut known: Vec<f32> = (tabs.iter())
+            .filter_map(|tab| natural.get(tab).copied())
+            .collect();
+        known.sort_by(f32::total_cmp);
+        let mut wanting = tabs.len();
+        for width in known {
+            if width * wanting as f32 > left {
+                break;
+            }
+            left -= width;
+            wanting -= 1;
+        }
+        (wanting > 0).then(|| (left / wanting as f32).max(FLOOR))
+    }
 }
 
 /// The strip in front while it holds a tab: a place with none shows no row at all.
@@ -86,21 +110,13 @@ pub(crate) fn strip_layout<'a>(layout: &'a Layout, strip: &Strip) -> Option<&'a 
     }
 }
 
-/// The bar, holding the window buttons, where the window is and the chips.
+/// The bar: the window buttons, the way back and forward, the tabs of the place in front, then
+/// the chips.
 pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> impl IntoElement {
     let roomy = window.viewport_size().width >= px(ROOMY_BAR);
     let t = Tokens::get(cx).clone();
+    let tabs = strip_with_tabs(bench).map(|strip| strip_area(bench, &strip, cx));
     div()
-        .on_children_prepainted(|bounds, window, cx| {
-            let chips = bounds
-                .last()
-                .map_or(0., |chips| f32::from(chips.size.width));
-            if (chips_width(window) - chips).abs() > 0.5 {
-                let id = window.window_handle().window_id();
-                CHIPS_WIDTH.with_borrow_mut(|widths| widths.insert(id, chips));
-                ui::redraw_after_paint(window, cx);
-            }
-        })
         .id("top-bar")
         .relative()
         .flex()
@@ -108,146 +124,170 @@ pub fn bar(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> i
         .items_center()
         .h(px(BAR_HEIGHT))
         .when(!crate::see_through::clear(cx), |bar| bar.bg(t.surface))
-        .border_b(crate::theme::border())
-        .border_color(t.border)
         .window_control_area(WindowControlArea::Drag)
         .when(cfg!(target_os = "macos"), |bar| {
             bar.child(div().w(px(80.)).flex_none())
         })
         .child(crate::visits::arrows(bench, cx))
-        .child(div().flex_1())
-        .child(crate::hosts::top_place::view(
-            bench,
-            px(chips_width(window)) + SPACE_2,
-            cx,
-        ))
+        .child(div().flex_1().min_w_0().h_full().ml(SPACE_2).children(tabs))
         .child(
             div()
                 .relative()
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(SPACE_2)
-                .pr(SPACE_4)
+                .gap(SPACE_3)
+                .ml(SPACE_4)
+                .pr(SPACE_2H)
                 .children(crate::tasks::cards(bench, cx))
+                .children(crate::hosts::bar::set_up_offer(bench, cx))
+                .children(crate::calls::chip(bench, cx))
+                .children(crate::overload::chip(bench, roomy, cx))
                 .children(
-                    crate::overload::chip(bench, roomy, cx)
-                        .map(|chip| [chip, separator(cx)])
-                        .into_iter()
-                        .flatten(),
+                    git_chip(bench, cx).map(|chip| {
+                        crate::settings::leaves(div().child(chip), cx).into_any_element()
+                    }),
                 )
-                .children(
-                    git_chip(bench, cx)
-                        .map(|chip| {
-                            crate::settings::leaves(div().child(chip), cx).into_any_element()
-                        })
-                        .map(|chip| [chip, separator(cx)])
-                        .into_iter()
-                        .flatten(),
-                )
-                .children(
-                    crate::agents::limits::chip(bench, cx)
-                        .map(|chip| [chip.into_any_element(), separator(cx)])
-                        .into_iter()
-                        .flatten(),
-                )
+                .children(crate::agents::limits::chip(bench, cx))
                 .children(battery_chip(bench, cx))
                 .child(clock(cx))
+                .child(crate::hosts::bar::devices(cx))
                 .child(
-                    div()
-                        .flex()
-                        .gap(SPACE_0)
-                        .child(
-                            IconButton::new(
-                                "devices",
-                                Icon::Gauge,
-                                match crate::keymap::hint(actions::FocusHosts::ID, cx) {
-                                    Some(keys) => t!("Devices — {keys}", keys = keys),
-                                    None => t!("Devices").to_owned(),
-                                },
-                            )
-                            .width(30.)
-                            .pressed(bench.hosts_page_in_front())
-                            .on_click(|_, window, cx| {
-                                crate::keymap::dispatch(actions::FocusHosts::ID, window, cx)
-                            }),
-                        )
-                        .child(
-                            IconButton::new(
-                                "focus",
-                                Icon::Focus,
-                                match crate::keymap::hint(actions::FocusMode::ID, cx) {
-                                    Some(keys) => {
-                                        t!("Focus mode — hide rails — {keys}", keys = keys)
-                                    }
-                                    None => t!("Focus mode — hide rails").to_owned(),
-                                },
-                            )
-                            .width(30.)
-                            .pressed(!bench.rails.side_open && !bench.rails.tab_open)
-                            .on_click(|_, window, cx| {
-                                crate::keymap::dispatch(actions::FocusMode::ID, window, cx)
-                            }),
-                        ),
+                    IconButton::new(
+                        "focus",
+                        Icon::Focus,
+                        match crate::keymap::hint(actions::FocusMode::ID, cx) {
+                            Some(keys) => t!("Focus mode — hide rails — {keys}", keys = keys),
+                            None => t!("Focus mode — hide rails").to_owned(),
+                        },
+                    )
+                    .width(30.)
+                    .pressed(!bench.rails.side_open && !bench.rails.tab_open)
+                    .on_click(|_, window, cx| {
+                        crate::keymap::dispatch(actions::FocusMode::ID, window, cx)
+                    }),
                 ),
         )
 }
 
-/// The place's tabs on a row of their own, while it has any.
-pub fn tab_row(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let strip = strip_with_tabs(bench)?;
-    let (copy, tabs) = strip_tabs(bench, &strip, cx);
-    let glide = bench.strip.glide.borrow();
-    Some(
+/// The strip's tabs, sharing its width as `StripFit` works out, the new-tab button after them,
+/// and a fade on an edge the strip scrolls past.
+fn strip_area(bench: &Workbench, strip: &Strip, cx: &mut Context<Workbench>) -> AnyElement {
+    let fit = bench.strip.fit.clone();
+    let ids: Vec<String> = bench.tabs(strip).iter().map(|tab| tab.id.clone()).collect();
+    let width = fit.shared(&ids);
+    let named = width.is_none_or(|width| width >= NAMED_FROM);
+    let (copy, tabs, drawn) = strip_tabs(bench, strip, width, named, cx);
+    let scroll = bench.strip.scroll.clone();
+    let scrolled = -f32::from(scroll.offset().x);
+    let beyond = f32::from(scroll.max_offset().x);
+    let edges = (scrolled > 0.5, beyond - scrolled > 0.5);
+    let bar = bench.parts.bar.entity_id();
+    let redraw = move |window: &mut Window, cx: &mut App| {
+        window.defer(cx, move |window, cx| {
+            cx.notify(bar);
+            window.refresh();
+        })
+    };
+    let measured = {
+        let (fit, keep_items) = (fit.clone(), bench.strip.glide.borrow().keep_items(0));
+        move |bounds: Vec<gpui_kit::Bounds<gpui_kit::Pixels>>, window: &mut Window, cx: &mut App| {
+            if named {
+                let mut natural = fit.natural.borrow_mut();
+                for (id, bounds) in drawn.iter().zip(&bounds) {
+                    let Some(id) = id else { continue };
+                    let wide = f32::from(bounds.size.width);
+                    match width {
+                        Some(width) if wide >= width - 0.5 => natural.remove(id),
+                        _ => natural.insert(id.clone(), wide),
+                    };
+                }
+            }
+            let now = (
+                -f32::from(scroll.offset().x) > 0.5,
+                f32::from(scroll.max_offset().x + scroll.offset().x) > 0.5,
+            );
+            let shared = fit.shared(&ids);
+            let moved = match (shared, width) {
+                (Some(shared), Some(width)) => (shared - width).abs() > 0.5,
+                (shared, width) => shared.is_some() != width.is_some(),
+            };
+            if moved || now != edges {
+                redraw(window, cx);
+            }
+            keep_items(bounds, window, cx);
+        }
+    };
+    let roomed = {
+        let fit = fit.clone();
+        move |bounds: gpui_kit::Bounds<gpui_kit::Pixels>, window: &mut Window, cx: &mut App| {
+            let room = f32::from(bounds.size.width) - NEW_TAB - TAB_GAP;
+            if (fit.room.get() - room).abs() > 0.5 {
+                fit.room.set(room);
+                redraw(window, cx);
+            }
+        }
+    };
+    let faded = !crate::see_through::clear(cx);
+    let surface = Tokens::get(cx).surface;
+    let fade = |angle: f32| {
         div()
-            .on_children_prepainted(glide.keep_origin())
-            .id("tab-row")
-            .h(px(TAB_ROW_HEIGHT))
-            .flex()
-            .flex_none()
-            .items_center()
-            .pt(SPACE_2H)
-            .pb(SPACE_1H)
-            .px(SPACE_2H)
-            .window_control_area(WindowControlArea::Drag)
-            .child(
-                div()
-                    .h_full()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .relative()
-                    .flex()
-                    .children(copy)
-                    .child(
-                        crate::settings::leaves(div(), cx)
-                            .on_children_prepainted(glide.keep_items(0))
-                            .id("tab-strip")
-                            .h_full()
-                            .min_w_0()
-                            .flex()
-                            .items_center()
-                            .gap(SPACE_1)
-                            .overflow_x_scroll()
-                            .track_scroll(&bench.strip.scroll)
-                            .children(tabs),
-                    ),
-            )
-            .child(
-                IconButton::new("new-tab", Icon::Plus, t!("New tab"))
-                    .glyph(13.)
-                    .on_click(|_, window, cx| {
-                        crate::keymap::dispatch(actions::NewTab::ID, window, cx)
-                    }),
-            )
-            .into_any_element(),
-    )
-}
-
-fn separator(cx: &App) -> AnyElement {
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .w(px(FADE))
+            .bg(gpui_kit::linear_gradient(
+                angle,
+                gpui_kit::linear_color_stop(surface, 0.),
+                gpui_kit::linear_color_stop(Hsla { a: 0., ..surface }, 1.),
+            ))
+    };
+    let glide = bench.strip.glide.borrow();
     div()
-        .w(px(1.))
-        .h(px(16.))
-        .bg(Tokens::get(cx).line)
+        .on_children_prepainted(glide.keep_origin())
+        .id("tab-row")
+        .relative()
+        .size_full()
+        .flex()
+        .items_center()
+        .gap(px(TAB_GAP))
+        .child(
+            div()
+                .h_full()
+                .min_w_0()
+                .overflow_hidden()
+                .relative()
+                .flex()
+                .children(copy)
+                .child(
+                    crate::settings::leaves(div(), cx)
+                        .on_children_prepainted(measured)
+                        .id("tab-strip")
+                        .h_full()
+                        .min_w_0()
+                        .flex()
+                        .items_center()
+                        .gap(px(TAB_GAP))
+                        .overflow_x_scroll()
+                        .track_scroll(&bench.strip.scroll)
+                        .children(tabs),
+                )
+                .when(faded && edges.0, |strip| strip.child(fade(90.).left_0()))
+                .when(faded && edges.1, |strip| strip.child(fade(270.).right_0())),
+        )
+        .child(
+            IconButton::new("new-tab", Icon::Plus, t!("New tab"))
+                .glyph(13.)
+                .on_click(|_, window, cx| crate::keymap::dispatch(actions::NewTab::ID, window, cx)),
+        )
+        .child(
+            canvas(
+                move |bounds, window, cx| roomed(bounds, window, cx),
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
         .into_any_element()
 }
 
@@ -320,13 +360,15 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
 
 /// What the strip remembers between draws to move its tabs: those drawn last, for telling
 /// those that have just opened and closed, where they were, for the chosen surface to glide
-/// between them, and how far they are scrolled, with the tab last scrolled into view.
+/// between them, how far they are scrolled, with the tab last scrolled into view, and how
+/// they share its width.
 #[derive(Default)]
 pub struct StripMotion {
     pub(crate) seen: std::cell::RefCell<motion::ListMemory<LayoutTab>>,
     pub(crate) glide: std::cell::RefCell<motion::GlideTrack>,
     pub(crate) scroll: gpui_kit::ScrollHandle,
     pub(crate) scrolled_to: std::cell::RefCell<Option<String>>,
+    pub(crate) fit: Rc<StripFit>,
 }
 
 /// The strip's tabs: one just opened widens into its place, and one just closed narrows away,
@@ -335,8 +377,10 @@ pub struct StripMotion {
 fn strip_tabs(
     bench: &Workbench,
     strip: &Strip,
+    width: Option<f32>,
+    named: bool,
     cx: &mut Context<Workbench>,
-) -> (Option<AnyElement>, Vec<AnyElement>) {
+) -> (Option<AnyElement>, Vec<AnyElement>, Vec<Option<String>>) {
     let front = bench.tab().map(|tab| tab.id.clone());
     let listed = bench.tabs(strip);
     let shown = listed
@@ -368,11 +412,15 @@ fn strip_tabs(
     glide.set_order(order);
     let chosen = Tokens::get(cx).surface_chosen;
     let copy = glide.copy(move |copy| copy.rounded(crate::theme::radius_2()).bg(chosen));
+    let fit = Fit { width, named };
+    let mut measured: Vec<Option<String>> = (listed.iter())
+        .map(|tab| (!arriving.contains(&tab.id)).then(|| tab.id.clone()))
+        .collect();
     let mut drawn: Vec<AnyElement> = listed
         .iter()
         .map(|tab| {
             let active = front.as_deref() == Some(tab.id.as_str());
-            let drawn = strip_tab(bench, strip, tab, active, glided && active, true, cx);
+            let drawn = strip_tab(bench, strip, tab, active, glided && active, true, fit, cx);
             match arriving.contains(&tab.id) {
                 true => {
                     let key = SharedString::from(format!("tab-arrive:{}", tab.id));
@@ -383,15 +431,18 @@ fn strip_tabs(
         })
         .collect();
     for gone in left {
-        let tab = strip_tab(bench, strip, &gone.item, false, false, false, cx);
+        let tab = strip_tab(bench, strip, &gone.item, false, false, false, fit, cx);
         let key = SharedString::from(format!("tab-depart:{}", gone.id));
         let tab = motion::departing(key, gone.since, motion::TAB_DEPARTURE, tab);
-        drawn.insert(gone.at.min(drawn.len()), tab.into_any_element());
+        let at = gone.at.min(drawn.len());
+        drawn.insert(at, tab.into_any_element());
+        measured.insert(at, None);
     }
-    (copy, drawn)
+    (copy, drawn, measured)
 }
 
 /// A tab of the strip; one that is `live` takes clicks, one drawn only while it closes does not.
+#[allow(clippy::too_many_arguments)]
 fn strip_tab(
     bench: &Workbench,
     strip: &Strip,
@@ -399,6 +450,7 @@ fn strip_tab(
     active: bool,
     glided: bool,
     live: bool,
+    fit: Fit,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
@@ -407,6 +459,8 @@ fn strip_tab(
         SharedString::from(format!("tab-{}", tab.id)),
         label(bench, tab),
     )
+    .label_width(TITLE_WIDTH)
+    .width(fit.width)
     .active(active)
     .glided(glided)
     .italic(tab.preview);
@@ -434,7 +488,7 @@ fn strip_tab(
         } {
             Some(agent) => base
                 .mark(agent.mark(19., cx))
-                .note(agent.beside().map(SharedString::from))
+                .note(agent.beside().filter(|_| fit.named).map(SharedString::from))
                 .counts(crate::agents::counts(&agent, cx))
                 .tail(ui::turn_mark(&agent.id, agent.turn.as_ref())),
             None => base,

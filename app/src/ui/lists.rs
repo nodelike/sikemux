@@ -481,6 +481,8 @@ pub struct Tab {
     glided: bool,
     /// A preview tab, which the next file opened replaces, draws its label slanted.
     italic: bool,
+    label_width: f32,
+    width: Option<f32>,
     on_click: Option<OnClick>,
     on_close: Option<OnClick>,
 }
@@ -497,9 +499,23 @@ impl Tab {
             active: false,
             glided: false,
             italic: false,
+            label_width: 160.,
+            width: None,
             on_click: None,
             on_close: None,
         }
+    }
+
+    /// The widest the label draws before it ends in an ellipsis.
+    pub fn label_width(mut self, width: f32) -> Self {
+        self.label_width = width;
+        self
+    }
+
+    /// The widest the whole tab draws; its label goes when too little of it would show.
+    pub fn width(mut self, width: Option<f32>) -> Self {
+        self.width = width;
+        self
     }
 
     pub fn mark(mut self, mark: impl IntoElement) -> Self {
@@ -599,12 +615,25 @@ impl RenderOnce for Tab {
             && self.counts.is_none()
             && self.tail.is_none()
             && self.on_close.is_some();
+        let end = match (self.tail.is_some(), room) {
+            (true, _) => 3.,
+            (false, true) => 26.,
+            (false, false) => 8.,
+        };
+        let beside = |shown: bool, wide: f32| if shown { wide + 8. } else { 0. };
+        let around = 8.
+            + end
+            + beside(self.mark.is_some(), 22.)
+            + beside(self.tail.is_some(), 20.)
+            + beside(self.counts.is_some(), 22.);
+        let titled = self.width.is_none_or(|width| width - around >= LEAST_LABEL);
         div()
             .id(wrap_id)
             .relative()
             .flex_none()
             .h(px(crate::theme::dense(26.)))
-            .min_w(px(120.))
+            .min_w(px(self.width.map_or(120., |width| width.min(120.))))
+            .when_some(self.width, |tab, width| tab.max_w(px(width)))
             .flex()
             .items_center()
             .gap(SPACE_1)
@@ -620,13 +649,11 @@ impl RenderOnce for Tab {
                     .selected(self.active)
                     .accessibility_label(self.label.clone())
                     .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
                     .h_full()
                     .pl(SPACE_2)
-                    .pr(px(match (self.tail.is_some(), room) {
-                        (true, _) => 3.,
-                        (false, true) => 26.,
-                        (false, false) => 8.,
-                    }))
+                    .pr(px(end))
                     .flex()
                     .items_center()
                     .justify_start()
@@ -635,13 +662,16 @@ impl RenderOnce for Tab {
                         tab.on_click(move |event, window, cx| handler(event, window, cx))
                     })
                     .children(self.mark.map(|mark| mark_box(22., mark)))
-                    .child(
-                        text(self.label, TEXT_XS, FontWeight::MEDIUM)
-                            .max_w(px(160.))
-                            .overflow_hidden()
-                            .text_ellipsis()
-                            .when(self.italic, |label| label.italic()),
-                    )
+                    .when(titled, |tab| {
+                        tab.child(
+                            text(self.label, TEXT_XS, FontWeight::MEDIUM)
+                                .min_w_0()
+                                .max_w(px(self.label_width))
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .when(self.italic, |label| label.italic()),
+                        )
+                    })
                     .children(
                         self.note
                             .map(|note| makes_way(meta(note, cx).pr(SPACE_1).into_any_element())),
@@ -669,6 +699,9 @@ impl RenderOnce for Tab {
             }))
     }
 }
+
+/// The least of a tab's label worth drawing; under it the tab shows only its marks.
+const LEAST_LABEL: f32 = 24.;
 
 /// The hover group a close button puts its glyph in, so the glyph reddens with it.
 const CLOSE: &str = "tab-close";

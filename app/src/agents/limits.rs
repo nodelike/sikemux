@@ -1421,7 +1421,7 @@ impl Reveal {
 /// Draws what shows the plan limits again: the rail's panel and the top bar's popover.
 pub(crate) fn redraw(bench: &Workbench, cx: &mut App) {
     bench.parts.redraw(&bench.parts.agents, cx);
-    bench.parts.redraw_top(cx);
+    bench.parts.redraw(&bench.parts.bar, cx);
 }
 
 /// Reads the limits again when the window comes to the front with them on screen and the last
@@ -1439,8 +1439,8 @@ pub(crate) fn usage_read(bench: &mut Workbench, cx: &mut App) {
     }
 }
 
-/// The top bar's chip: how much of its week each agent has used, opening the accounts card in a
-/// popover. It only draws what was read already.
+/// The top bar's chip: every agent's mark, then how much of their weeks they have used together,
+/// opening the accounts card in a popover. It only draws what was read already.
 pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<impl IntoElement> {
     let agents = agents(bench, true);
     if agents.is_empty() {
@@ -1460,47 +1460,58 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
             .anchor(Anchor::TopRight)
             .offset(SPACE_1H)
             .trigger_with(move |open, _, _| {
-                let pairs = pairs.into_iter().map(|(provider, week)| {
-                    let (text, ink) = match &week {
-                        Some(week) => {
-                            let used = week.used();
-                            let text = format!(
-                                "{}% / {}%",
-                                (used * week.accounts as f64).round(),
-                                week.accounts * 100
-                            );
-                            let ink = if used < 70. {
-                                t.text_secondary
-                            } else {
-                                signal(used, &t)
-                            };
-                            (text, ink)
-                        }
-                        None => ("–".to_owned(), t.text_tertiary),
-                    };
+                let read: Vec<(f64, f64)> = (pairs.iter())
+                    .filter_map(|(_, week)| week.as_ref())
+                    .map(|week| (week.used(), week.accounts as f64))
+                    .collect();
+                let worst = read
+                    .iter()
+                    .map(|(used, _)| *used)
+                    .fold(None, |worst, used| {
+                        Some(worst.map_or(used, |worst: f64| worst.max(used)))
+                    });
+                let (text, ink) = match worst {
+                    Some(worst) => {
+                        let used: f64 = read.iter().map(|(used, accounts)| used * accounts).sum();
+                        let caps: f64 = read.iter().map(|(_, accounts)| accounts * 100.).sum();
+                        let ink = if worst < 70. {
+                            t.text_secondary
+                        } else {
+                            signal(worst, &t)
+                        };
+                        (format!("{}% / {}%", used.round(), caps), ink)
+                    }
+                    None => ("–".to_owned(), t.text_tertiary),
+                };
+                let marks = pairs.iter().enumerate().rev().map(|(at, (provider, _))| {
                     div()
+                        .size(px(18.))
+                        .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(3.))
-                        .child(ui::mark(&provider, 12.))
-                        .child(
-                            ui::text(text, TEXT_2XS, FontWeight::NORMAL)
-                                .font_features(theme::tabular())
-                                .text_color(ink),
-                        )
+                        .justify_center()
+                        .rounded_full()
+                        .bg(t.surface)
+                        .when(at > 0, |disc| disc.ml(px(-5.)))
+                        .child(ui::mark(provider, 12.))
                 });
                 div()
                     .id("limits-chip-button")
                     .h(px(26.))
-                    .px(px(7.))
+                    .px(px(5.))
                     .flex()
                     .items_center()
-                    .gap(SPACE_2)
+                    .gap(SPACE_1H)
                     .rounded(radius_2())
                     .cursor_pointer()
                     .when(open, |chip| chip.bg(t.surface_chosen))
                     .when(!open, |chip| chip.hover(|chip| chip.bg(t.surface_hover)))
-                    .children(pairs)
+                    .child(div().flex().flex_row_reverse().children(marks))
+                    .child(
+                        ui::text(text, TEXT_2XS, FontWeight::NORMAL)
+                            .font_features(theme::tabular())
+                            .text_color(ink),
+                    )
                     .into_any_element()
             })
             .on_open_change(move |open: &bool, _: &mut Window, cx: &mut App| {

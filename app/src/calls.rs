@@ -1309,7 +1309,7 @@ impl Render for InChat {
     }
 }
 
-/// The title bar's count of the calls of the project in front, beside its name, which opens
+/// The top bar's bell over the calls of the project in front, with their count, which opens
 /// them; none while nothing waits.
 pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let Some(Strip::Project(_)) = bench.strip() else {
@@ -1330,26 +1330,34 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
     };
     let hover = t.surface_hover;
     let chip = Popover::new("calls-chip")
-        .anchor(Anchor::TopLeft)
+        .anchor(Anchor::TopRight)
         .offset(SPACE_1H)
         .trigger_with(move |open, _, _| {
             div()
                 .id("calls-chip-button")
                 .h(px(22.))
-                .px(px(8.))
+                .px(SPACE_1H)
                 .flex()
                 .items_center()
-                .gap(SPACE_1H)
+                .gap(SPACE_1)
                 .rounded(radius_2())
                 .cursor_pointer()
-                .text_size(theme::ui_text(12.))
-                .text_color(t.text_primary)
+                .map(|chip| {
+                    gpui_kit::StatefulInteractiveElement::tooltip(
+                        chip,
+                        crate::ui::tooltip(words.clone()),
+                    )
+                })
                 .map(|chip| match open {
                     true => chip.bg(t.surface_chosen),
                     false => chip.hover(move |style| style.bg(hover)),
                 })
-                .child(div().size(px(7.)).rounded_full().bg(t.warn))
-                .child(words)
+                .child(crate::ui::icon(Icon::Bell, 14.).text_color(t.text_primary))
+                .child(
+                    crate::ui::text(count.to_string(), 12., FontWeight::MEDIUM)
+                        .font_features(theme::tabular())
+                        .text_color(t.warn),
+                )
                 .into_any_element()
         })
         .content(move |_, window, cx| {
@@ -1359,19 +1367,7 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
             let dismiss = crate::ui::list_picker::dismiss(cx.entity());
             popover(&bench, &cards, &project, dismiss, window, cx)
         });
-    let dot = div()
-        .px(SPACE_1)
-        .text_size(theme::ui_text(12.))
-        .text_color(Tokens::get(cx).text_disabled)
-        .child("·");
-    Some(
-        div()
-            .flex()
-            .items_center()
-            .child(dot)
-            .child(chip)
-            .into_any_element(),
-    )
+    Some(chip.into_any_element())
 }
 
 /// The calls of the project in front: the open one as its card, the rest a line each under it.

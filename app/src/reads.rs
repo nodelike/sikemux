@@ -428,7 +428,7 @@ impl Workbench {
                 if let Some(overview) = overview {
                     self.git.overview(overview, in_front, cx);
                 }
-                self.parts.redraw_top(cx);
+                self.parts.redraw(&self.parts.bar, cx);
                 return self.parts.redraw(&self.parts.agents, cx);
             }
             Read::ProjectFiles => {

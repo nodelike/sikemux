@@ -1307,7 +1307,7 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                 gutter::changed(&bench.editors, &key, cx);
             }
             if flipped {
-                bench.parts.redraw_top(cx);
+                bench.parts.redraw(&bench.parts.bar, cx);
             }
         });
     })
@@ -1385,7 +1385,7 @@ fn save(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Cont
                 blame::read(bench, &key, cx);
             }
             if flipped {
-                bench.parts.redraw_top(cx);
+                bench.parts.redraw(&bench.parts.bar, cx);
             }
         });
     })

@@ -1,5 +1,4 @@
-//! Where the window's parts sit: rows and columns over the bar, the row of tabs, the two rails
-//! and the stage. The shell draws whatever skeleton it is given; the default is the window as
+//! Where the window's parts sit: rows and columns over the bar, the two rails and the stage. The shell draws whatever skeleton it is given; the default is the window as
 //! it has always been.
 
 use gpui_kit::prelude::FluentBuilder;
@@ -19,10 +18,8 @@ pub const STAGE_MIN: (f32, f32) = (260., 240.);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Part {
-    /// The row of chips across the window.
+    /// The row of tabs and chips across the window.
     Bar,
-    /// The row of the place's tabs, drawn only while it has some.
-    Tabs,
     Side,
     Agents,
     /// The views of the tab in front.
@@ -32,7 +29,7 @@ pub enum Part {
 impl Part {
     /// Whether the part is a row of fixed height, which reaches every window edge it touches.
     pub fn is_bar(self) -> bool {
-        matches!(self, Part::Bar | Part::Tabs)
+        self == Part::Bar
     }
 
     pub fn rail(self) -> Option<Rail> {
@@ -164,7 +161,6 @@ impl Default for Skeleton {
     fn default() -> Self {
         Self::new(Node::Column(vec![
             Node::Part(Part::Bar),
-            Node::Part(Part::Tabs),
             Node::Row(vec![
                 Node::Part(Part::Side),
                 Node::Part(Part::Stage),
@@ -265,9 +261,7 @@ impl Workbench {
         tucks: [f32; 2],
         cx: &mut gpui_kit::Context<Self>,
     ) -> AnyElement {
-        let tabs = crate::tabs::has_tab_row(self);
         let drawn = |part: Part| match part {
-            Part::Tabs => tabs,
             Part::Side | Part::Agents => part.rail().is_some_and(|rail| tucks[rail as usize] < 1.),
             Part::Bar | Part::Stage => true,
         };
@@ -376,13 +370,6 @@ impl Workbench {
                     StyleRefinement::default()
                         .w_full()
                         .h(px(crate::tabs::BAR_HEIGHT)),
-                ),
-            ),
-            Part::Tabs => div().child(
-                parts.tabs.clone().cached(
-                    StyleRefinement::default()
-                        .w_full()
-                        .h(px(crate::tabs::TAB_ROW_HEIGHT)),
                 ),
             ),
             Part::Stage => div().flex().child(

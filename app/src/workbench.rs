@@ -760,8 +760,6 @@ impl Render for Part {
 #[derive(Clone)]
 pub struct Parts {
     pub bar: Entity<Part>,
-    /// The row of the place's tabs under the bar.
-    pub tabs: Entity<Part>,
     pub side: Entity<Part>,
     /// The tab rail, of agents and chats.
     pub agents: Entity<Part>,
@@ -787,10 +785,6 @@ impl Parts {
         Self {
             bar: part(
                 |bench, window, cx| tabs::bar(bench, window, cx).into_any_element(),
-                true,
-            ),
-            tabs: part(
-                |bench, _, cx| tabs::tab_row(bench, cx).unwrap_or_else(|| div().into_any_element()),
                 true,
             ),
             side: part(
@@ -856,12 +850,6 @@ impl Parts {
     /// again, and GPUI aborts on an update of an entity it is already updating.
     pub fn redraw(&self, part: &Entity<Part>, cx: &mut App) {
         cx.notify(part.entity_id());
-    }
-
-    /// Draws the bar again, and the row of tabs under it.
-    pub fn redraw_top(&self, cx: &mut App) {
-        self.redraw(&self.bar, cx);
-        self.redraw(&self.tabs, cx);
     }
 
     /// Draws the stage again whenever `store` says it changed.

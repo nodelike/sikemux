@@ -76,7 +76,7 @@ fn parent(path: &str) -> &str {
 impl ProjectSwitcher {
     fn new(
         bench: &Entity<Workbench>,
-        place: Option<Place>,
+        place: Place,
         on_pick: OnPick,
         cwd: String,
         close: Dismiss,
@@ -91,7 +91,6 @@ impl ProjectSwitcher {
                 cx.notify();
             }
         });
-        let place = place.unwrap_or_else(|| bench.read(cx).place());
         if place == Place::This {
             bench.read(cx).read_project_folders();
         }
@@ -274,14 +273,6 @@ impl Render for ProjectSwitcher {
     }
 }
 
-/// What picking a project does when it only brings that project to the front.
-pub fn activates(this: WeakEntity<Workbench>) -> OnPick {
-    std::rc::Rc::new(move |project, cx| {
-        this.update(cx, |bench, _| bench.activate_project(&project))
-            .ok();
-    })
-}
-
 /// Wraps `trigger`, the project's name over a new chat, in the switcher it opens, which moves
 /// the chat `agent`, now in `cwd` on the host at `place`, to another project of that host.
 pub fn around(
@@ -308,43 +299,9 @@ pub fn around(
         .detach();
     });
     let key = SharedString::from(format!("project-switcher-{agent}"));
-    picker_on(
-        key,
-        trigger,
-        cwd,
-        Anchor::BottomLeft,
-        Some(place),
-        on_pick,
-        this,
-    )
-}
-
-/// Wraps `trigger` in the project picker of the host in front, keyed `key`, with `cwd` the
-/// project shown now.
-pub fn picker(
-    key: SharedString,
-    trigger: impl Selectable + IntoElement + 'static,
-    cwd: &str,
-    anchor: Anchor,
-    on_pick: OnPick,
-    this: &Entity<Workbench>,
-) -> Popover {
-    picker_on(key, trigger, cwd, anchor, None, on_pick, this)
-}
-
-/// [`picker`] for the projects of the host at `place`, else of the host in front.
-fn picker_on(
-    key: SharedString,
-    trigger: impl Selectable + IntoElement + 'static,
-    cwd: &str,
-    anchor: Anchor,
-    place: Option<Place>,
-    on_pick: OnPick,
-    this: &Entity<Workbench>,
-) -> Popover {
     let (folder, this) = (cwd.to_owned(), this.clone());
     Popover::new(key.clone())
-        .anchor(anchor)
+        .anchor(Anchor::BottomLeft)
         .offset(px(6.))
         .trigger(trigger)
         .content(move |_, window, cx| {

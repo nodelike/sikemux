@@ -1,11 +1,11 @@
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement,
+    div, px, AnyElement, App, Hsla, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
 
 use crate::icons::Icon;
-use crate::theme::{Tokens, TEXT_2XS};
+use crate::theme::Tokens;
 use crate::workbench::Workbench;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -355,18 +355,8 @@ pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
             .id("battery")
             .flex()
             .items_center()
-            .gap(px(5.))
             .tooltip(ui::tooltip(about))
             .child(icon)
-            .child(
-                ui::text(
-                    t!("{percent}%", percent = percent),
-                    TEXT_2XS,
-                    FontWeight::SEMIBOLD,
-                )
-                .font_features(crate::theme::tabular())
-                .text_color(tint),
-            )
             .into_any_element(),
     )
 }
