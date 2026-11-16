@@ -25,6 +25,12 @@ pub struct GoFirstParams {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AskParams {
+    pub id: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentParams {
     pub agent_id: String,
 }

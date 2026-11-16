@@ -1,5 +1,6 @@
 # The Agent Board, a tab of its own: each thing the person asked, with the screenshots they sent,
-# in lanes by how far it has gone. Two asks lost their agents, so nobody is on them.
+# in lanes by how far it has gone. Two asks lost their agents, so nobody is on them. A card opens
+# on a sheet over the board.
 stage 1760 1000
 window 1760 1000
 prefer themeId aura-noir
@@ -32,3 +33,6 @@ snap now-pill
 key cmd-alt-7
 settle 4
 snap asks-board
+click 1250,554
+settle 2
+snap asks-sheet

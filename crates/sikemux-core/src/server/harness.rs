@@ -695,7 +695,8 @@ fn handing(
         .filter_map(|reached| reached["agentId"].as_str().map(str::to_owned))
         .collect();
     let named: Vec<u64> = request.params["ask"].as_u64().into_iter().collect();
-    super::now::asks::handed(core, from, &reached, &named);
+    let task = request.params["title"].as_str();
+    super::now::asks::handed(core, from, &reached, &named, task);
     answer
 }
 

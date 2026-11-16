@@ -35,14 +35,14 @@ use sikemux_markdown::Doc;
 use sikemux_wire::protocol::PermissionMode;
 
 use sikemux_view::chat::{
-    AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
-    ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
-    ChiefAway, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks, FailureKind,
-    GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity, NoticeState,
-    OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
-    RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason, SubagentCard,
-    SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail, ToolStatus, TurnStart,
-    Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
+    AccountMove, AgentLetter, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo,
+    ChatConnection, ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole,
+    ChatTrigger, ChiefAway, ClosedCard, Compactions, ContentBlock, ContextUsage, EndedTasks,
+    FailureKind, GifRef, GuestMessage, KeptRule, LetterKind, MoveReason, NoticeSeverity,
+    NoticeState, OverruledDecision, PermissionAsk, PermissionKind, PermissionOption, PlanEntry,
+    QueuedMessage, RestoredPart, Retrying, RuleChange, SentContext, SessionEnded, StopReason,
+    SubagentCard, SubagentState, TaskNotice, TaskState, TaskUsage, ToolCall, ToolDetail,
+    ToolStatus, TurnStart, Unsourced, UsageCost, WhyChip, WorkerPage, WorkflowAgent, WHY_URI,
 };
 use sikemux_view::shown::{ResultRow, TurnShown};
 use sikemux_view::turn::TurnState;
@@ -2982,6 +2982,24 @@ impl Fold {
 /// the transcript reads it: the answer for an answer to an agent's question, else the words
 /// without the context sent with them.
 pub fn person_wrote(text: &str, paths: &[String]) -> String {
+    let row = sent_row(text, paths);
+    if let Some(answer) = answer_in(&row) {
+        return answer.text.clone();
+    }
+    (row.msg.parts.iter())
+        .filter_map(|part| match part {
+            ChatPart::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The answer to an agent's question a prompt of `text` carries, with who asked and what.
+pub fn call_answered(text: &str, paths: &[String]) -> Option<AgentLetter> {
+    answer_in(&sent_row(text, paths)).cloned()
+}
+
+fn sent_row(text: &str, paths: &[String]) -> Row {
     let mut row = Row::new(String::new(), ChatRole::User, 0);
     row.msg.attachments = paths.to_vec();
     row.raw.push(ChatPart::Text {
@@ -2991,16 +3009,11 @@ pub fn person_wrote(text: &str, paths: &[String]) -> String {
         cut_bytes: None,
     });
     read_sent(&mut row, &[]);
-    if let Some(answer) = (row.msg.letters.iter()).find(|letter| letter.kind == LetterKind::Answer)
-    {
-        return answer.text.clone();
-    }
-    (row.msg.parts.iter())
-        .filter_map(|part| match part {
-            ChatPart::Text { text, .. } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect()
+    row
+}
+
+fn answer_in(row: &Row) -> Option<&AgentLetter> {
+    (row.msg.letters.iter()).find(|letter| letter.kind == LetterKind::Answer)
 }
 
 /// What a person sent with a message is shown by name: their own text stays

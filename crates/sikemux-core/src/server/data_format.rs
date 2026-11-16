@@ -13,12 +13,13 @@ const FILE: &str = "data-format.json";
 type Step = fn(&Path, &ServerConfig) -> std::io::Result<()>;
 
 /// Each step takes the folder from the format of its index to the next.
-const STEPS: [Step; 5] = [
+const STEPS: [Step; 6] = [
     prompts_say_whether_shown,
     host_key_named_by_socket_path,
     activity_database_in_the_data_folder,
     typed_answers_scrubbed,
     asks_titled_as_the_chat_reads_them,
+    asks_keep_what_was_said,
 ];
 
 pub(crate) fn upgrade(config: &ServerConfig) {
@@ -212,6 +213,24 @@ fn asks_titled_as_the_chat_reads_them(data_dir: &Path, _: &ServerConfig) -> std:
             }
         }
         changed
+    })
+}
+
+/// Format 5 cores kept only an ask's title. Each ask now keeps what the person sent under it, and
+/// one saved before starts from its title.
+fn asks_keep_what_was_said(data_dir: &Path, _: &ServerConfig) -> std::io::Result<()> {
+    rewrite(&data_dir.join(super::now::FILE), |saved| {
+        let Some(asks) = saved.get_mut("asks").and_then(Value::as_array_mut) else {
+            return false;
+        };
+        for ask in asks.iter_mut() {
+            let mut said = json!({ "at": ask["at"], "text": ask["title"] });
+            if let Some(images) = ask.get("images") {
+                said["images"] = images.clone();
+            }
+            ask["said"] = json!([said]);
+        }
+        !asks.is_empty()
     })
 }
 

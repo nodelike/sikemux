@@ -9,8 +9,10 @@ use gpui_kit::{
 };
 use std::path::PathBuf;
 
+use sikemux_calls::call;
+use sikemux_calls::params::AskParams;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
-use sikemux_view::now::{AskStand, NowAsk, NowGroup, ProjectNow};
+use sikemux_view::now::{AskSaid, AskStand, NowAsk, NowGroup, ProjectNow};
 
 use crate::icons::Icon;
 use crate::picture::Picture;
@@ -18,11 +20,13 @@ use crate::theme::{
     self, radius_2, radius_3, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_3H, SPACE_6,
     TEXT_2XS, TEXT_XS,
 };
-use crate::ui::{self, Clicks};
+use crate::ui::{self, Clicks, IconButton};
 use crate::workbench::Workbench;
 
 const THUMB_H: f32 = 132.;
 const FOOT_H: f32 = 36.;
+const SHEET_W: f32 = 340.;
+const SAID_THUMB_W: f32 = 120.;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Lane {
@@ -57,6 +61,16 @@ impl Lane {
     }
 }
 
+/// The project's asks in their lanes, in the order the board draws them.
+fn lanes(now: &ProjectNow) -> [(Lane, Vec<&NowAsk>); 4] {
+    Lane::ALL.map(|lane| {
+        let asks: Vec<&NowAsk> = (now.asks.iter())
+            .filter(|ask| Lane::of(ask, now) == Some(lane))
+            .collect();
+        (lane, asks)
+    })
+}
+
 fn waits(now: &ProjectNow, agent: &str) -> bool {
     (now.rows.iter()).any(|row| row.agent == agent && row.group == NowGroup::WaitingOnYou)
 }
@@ -72,6 +86,95 @@ impl Workbench {
     pub(crate) fn open_board_of(&self, project: &str) {
         self.open_in_front(board_tab(project));
     }
+
+    fn board_now(&self, project: &str) -> Option<&ProjectNow> {
+        (self.view_at(&self.place())?.now.iter()).find(|now| now.project == project)
+    }
+
+    fn open_sheet(&mut self, project: &str, id: u64, cx: &mut Context<Self>) {
+        self.ask_sheet = Some(Sheet {
+            project: project.to_owned(),
+            id,
+            said: Vec::new(),
+            read_at: None,
+        });
+        self.keep_ask_sheet(cx);
+        self.parts.redraw_stage(cx);
+        cx.notify();
+    }
+
+    fn close_sheet(&mut self, cx: &mut Context<Self>) {
+        if self.ask_sheet.take().is_some() {
+            self.parts.redraw_stage(cx);
+            cx.notify();
+        }
+    }
+
+    /// Moves the sheet `by` cards along the board, in the order it draws them.
+    fn step_sheet(&mut self, by: isize, cx: &mut Context<Self>) {
+        let Some(sheet) = self.ask_sheet.as_ref() else {
+            return;
+        };
+        let project = sheet.project.clone();
+        let Some(now) = self.board_now(&project) else {
+            return;
+        };
+        let order: Vec<u64> = (lanes(now).into_iter())
+            .flat_map(|(_, asks)| asks.into_iter().map(|ask| ask.id))
+            .collect();
+        let Some(at) = order.iter().position(|id| *id == sheet.id) else {
+            return;
+        };
+        let Some(&next) = at.checked_add_signed(by).and_then(|at| order.get(at)) else {
+            return;
+        };
+        self.open_sheet(&project, next, cx);
+    }
+
+    /// The view moved: the sheet closes once its ask is gone, and reads what was said under it
+    /// again once more was.
+    pub(crate) fn keep_ask_sheet(&mut self, cx: &mut Context<Self>) {
+        let Some(sheet) = self.ask_sheet.as_ref() else {
+            return;
+        };
+        let shown = (self.board_now(&sheet.project))
+            .and_then(|now| now.asks.iter().find(|ask| ask.id == sheet.id));
+        let Some(more) = shown.map(|ask| ask.more) else {
+            return self.close_sheet(cx);
+        };
+        if sheet.read_at == Some(more) {
+            return;
+        }
+        let id = sheet.id;
+        if let Some(sheet) = self.ask_sheet.as_mut() {
+            sheet.read_at = Some(more);
+        }
+        let said = self
+            .target()
+            .request_typed::<call::AskSaid>(AskParams { id });
+        cx.spawn(async move |bench, cx| {
+            let Ok(said) = said.await else {
+                return;
+            };
+            let _ = bench.update(cx, |bench, cx| {
+                if let Some(sheet) = bench.ask_sheet.as_mut().filter(|sheet| sheet.id == id) {
+                    sheet.said = said;
+                    bench.parts.redraw_stage(cx);
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+}
+
+/// The ask a board shows on its sheet, and what the person sent under it as the core last said.
+pub(crate) struct Sheet {
+    project: String,
+    id: u64,
+    said: Vec<AskSaid>,
+    /// How many more messages the ask had when `said` was read.
+    read_at: Option<u32>,
 }
 
 pub(crate) fn board_tab(project: &str) -> OpenTab {
@@ -90,13 +193,11 @@ pub(crate) fn pane(bench: &Workbench, project: &str, cx: &mut Context<Workbench>
             closed: Vec::new(),
             asks: Vec::new(),
         });
-    let lanes = Lane::ALL.map(|lane| {
-        let asks: Vec<&NowAsk> = (now.asks.iter())
-            .filter(|ask| Lane::of(ask, &now) == Some(lane))
-            .collect();
-        (lane, asks)
-    });
+    let lanes = lanes(&now);
     let handle = cx.weak_entity();
+    let open = (bench.ask_sheet.as_ref())
+        .filter(|sheet| sheet.project == project)
+        .and_then(|sheet| Some((sheet, now.asks.iter().find(|ask| ask.id == sheet.id)?)));
     let body = match now.asks.is_empty() {
         true => div()
             .flex_1()
@@ -121,7 +222,10 @@ pub(crate) fn pane(bench: &Workbench, project: &str, cx: &mut Context<Workbench>
                     .flex_col()
                     .gap(SPACE_2)
                     .child(lane_label(lane.words(), asks.len(), cx))
-                    .children(asks.iter().map(|ask| card(bench, ask, *lane, &handle, cx)))
+                    .children(asks.iter().map(|ask| {
+                        let lit = open.is_some_and(|(sheet, _)| sheet.id == ask.id);
+                        card(bench, project, ask, *lane, lit, &handle, cx)
+                    }))
             }))
             .into_any_element(),
     };
@@ -133,7 +237,15 @@ pub(crate) fn pane(bench: &Workbench, project: &str, cx: &mut Context<Workbench>
         .overflow_y_scroll()
         .child(head(&lanes, &t))
         .child(body);
-    ui::pane(cx).child(board).into_any_element()
+    let sheet = open.map(|(sheet, ask)| {
+        let lane = lanes
+            .iter()
+            .find(|(_, asks)| asks.iter().any(|it| it.id == ask.id));
+        sheet_of(bench, sheet, ask, lane.map(|(lane, _)| *lane), &handle, cx)
+    });
+    ui::pane(cx)
+        .child(div().relative().size_full().child(board).children(sheet))
+        .into_any_element()
 }
 
 /// The page's name, then how many stand in each lane.
@@ -190,41 +302,26 @@ fn lane_label(words: &str, count: usize, cx: &App) -> Div {
         .child(div().flex_1().h(px(1.)).bg(t.line_soft))
 }
 
-/// One ask: what the person wrote, the first picture they sent with it and how many more, then
-/// the agents on it, how far it has gone and since when. A click opens it.
+/// One ask: the agent's name for the work over what the person wrote, the first picture they
+/// sent with it and how many more, then the agents on it, how far it has gone and since when. A
+/// click opens it on the sheet.
 fn card(
     bench: &Workbench,
+    project: &str,
     ask: &NowAsk,
     lane: Lane,
+    lit: bool,
     handle: &WeakEntity<Workbench>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let link = format!("sikemux://ask/{}", ask.id);
     let open = {
-        let handle = handle.clone();
+        let (handle, project, id) = (handle.clone(), project.to_owned(), ask.id);
         move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
-            let _ = handle.update(cx, |bench, cx| crate::links::follow(bench, &link, cx));
+            let _ = handle.update(cx, |bench, cx| bench.open_sheet(&project, id, cx));
         }
     };
-    let agents: Vec<AnyElement> = match &ask.stand {
-        AskStand::Working { agents } => (agents.iter())
-            .filter_map(|id| bench.agent_by_id(id))
-            .map(|agent| {
-                let reachable = agent.reachable;
-                let turn = agent.turn.as_ref().filter(|_| reachable);
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_1H)
-                    .child(crate::chat::agent_pill(&agent, 12., handle, cx))
-                    .children(ui::turn_time(&agent.id, turn))
-                    .children(ui::turn_mark(&agent.id, turn))
-                    .into_any_element()
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
+    let agents = agents_on(bench, ask, handle, cx);
     div()
         .id(SharedString::from(format!("ask-card-{}", ask.id)))
         .flex()
@@ -232,19 +329,15 @@ fn card(
         .rounded(radius_3())
         .bg(t.surface_raised)
         .border_1()
-        .border_color(t.border)
+        .border_color(match lit {
+            true => t.border_strong,
+            false => t.border,
+        })
         .overflow_hidden()
         .cursor_pointer()
         .hover(move |card| card.border_color(t.border_strong))
         .clicks(open)
-        .child(
-            div()
-                .px(SPACE_3)
-                .pt(px(11.))
-                .pb(SPACE_2)
-                .font_weight(FontWeight::MEDIUM)
-                .child(title(ask, bench, &t, cx)),
-        )
+        .child(heading(bench, ask, &t, cx))
         .children(thumbnail(ask, &t))
         .children(links(bench, ask, handle, cx))
         .child(
@@ -424,12 +517,304 @@ fn stand(ask: &NowAsk, lane: Lane, t: &Tokens) -> Option<Div> {
     )
 }
 
-/// What the person wrote, with the files and agents it names as the chat's chips.
-fn title(ask: &NowAsk, bench: &Workbench, t: &Tokens, cx: &App) -> AnyElement {
-    let agents = crate::chat::named_agents(bench, &ask.to);
-    let named = crate::chat::named(&ask.title, &ask.images, &[], &agents);
-    let pieces = crate::stash::pieces(&ask.title, &named, &[]);
-    crate::stash::sentence(Some(&format!("ask-{}", ask.id)), &pieces, bench, t, cx)
+/// The agent's name for the work over the person's first line, muted, with how many more they
+/// sent under it; their first line alone while no agent has named it.
+fn heading(bench: &Workbench, ask: &NowAsk, t: &Tokens, cx: &App) -> Div {
+    let key = format!("ask-{}", ask.id);
+    let wrote = written(bench, &ask.to, &key, &ask.title, &ask.images, t, cx);
+    let more = (ask.more > 0).then(|| {
+        ui::text(format!("· +{}", ask.more), TEXT_XS, FontWeight::NORMAL)
+            .font_features(theme::tabular())
+            .text_color(t.text_disabled)
+    });
+    let column = div().px(SPACE_3).pt(px(11.)).pb(SPACE_2).flex().flex_col();
+    match &ask.name {
+        Some(name) => column
+            .gap(px(2.))
+            .child(ui::text(name.clone(), 13.5, FontWeight::MEDIUM).text_color(t.text_primary))
+            .child(
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(SPACE_1)
+                    .text_size(theme::ui_text(TEXT_XS))
+                    .text_color(t.text_tertiary)
+                    .child(div().min_w_0().child(wrote))
+                    .children(more),
+            ),
+        None => column.child(
+            div()
+                .flex()
+                .items_baseline()
+                .gap(SPACE_1)
+                .font_weight(FontWeight::MEDIUM)
+                .child(div().min_w_0().child(wrote))
+                .children(more),
+        ),
+    }
+}
+
+/// What the person wrote to `to`, with the files and agents it names as the chat's chips.
+fn written(
+    bench: &Workbench,
+    to: &str,
+    key: &str,
+    text: &str,
+    images: &[String],
+    t: &Tokens,
+    cx: &App,
+) -> AnyElement {
+    let agents = crate::chat::named_agents(bench, to);
+    let named = crate::chat::named(text, images, &[], &agents);
+    let pieces = crate::stash::pieces(text, &named, &[]);
+    crate::stash::sentence(Some(key), &pieces, bench, t, cx)
+}
+
+/// The open ask over the board's right side: its name, where it stands and who has it, what the
+/// person sent under it, what opened on its agent's desk, and the way to its chat.
+fn sheet_of(
+    bench: &Workbench,
+    sheet: &Sheet,
+    ask: &NowAsk,
+    lane: Option<Lane>,
+    handle: &WeakEntity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let on = |act: fn(&mut Workbench, &mut Context<Workbench>)| {
+        let handle = handle.clone();
+        move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
+            cx.stop_propagation();
+            let _ = handle.update(cx, act);
+        }
+    };
+    let step = |by: isize| {
+        let handle = handle.clone();
+        move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
+            let _ = handle.update(cx, |bench, cx| bench.step_sheet(by, cx));
+        }
+    };
+    let chat = {
+        let (handle, id) = (handle.clone(), ask.id);
+        move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
+            let _ = handle.update(cx, |bench, cx| {
+                bench.close_sheet(cx);
+                bench.open_ask(id, cx);
+            });
+        }
+    };
+    let caps = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_1)
+        .child(ui::caps(&t!("Ask {id}", id = ask.id), cx).flex_1())
+        .child(
+            IconButton::new("ask-sheet-back", Icon::Chevron, t!("Previous ask"))
+                .small()
+                .turned(std::f32::consts::PI)
+                .on_click(step(-1)),
+        )
+        .child(
+            IconButton::new("ask-sheet-on", Icon::Chevron, t!("Next ask"))
+                .small()
+                .on_click(step(1)),
+        )
+        .child(
+            IconButton::new("ask-sheet-close", Icon::Close, t!("Close"))
+                .small()
+                .on_click(on(Workbench::close_sheet)),
+        );
+    let named = ask.name.clone().unwrap_or_else(|| ask.title.clone());
+    let standing = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .children(lane.and_then(|lane| stand(ask, lane, &t)))
+        .children(agents_on(bench, ask, handle, cx));
+    let head = div()
+        .px(SPACE_3H)
+        .pt(SPACE_3)
+        .pb(SPACE_2)
+        .flex()
+        .flex_col()
+        .gap(SPACE_1H)
+        .child(caps)
+        .child(ui::text(named, 16., FontWeight::SEMIBOLD).text_color(t.text_primary))
+        .child(standing);
+    let said = sheet.said.iter().enumerate().map(|(at, said)| {
+        let key = format!("ask-{}-said-{at}", ask.id);
+        said_line(bench, ask, said, at == 0, &key, handle, &t, cx)
+    });
+    let body = div()
+        .id(SharedString::from(format!("ask-sheet-{}", ask.id)))
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .child(lab(t!("You wrote"), cx))
+        .children(said)
+        .when(!ask.pages.is_empty() || !ask.files.is_empty(), |body| {
+            body.child(lab(t!("Opened on its desk"), cx))
+                .children(links(bench, ask, handle, cx))
+        });
+    let foot = div().p(SPACE_3H).child(
+        ui::Button::new("ask-sheet-chat", t!("Open chat"), ui::Variant::Outline)
+            .wide()
+            .on_click(chat),
+    );
+    let scrim = div()
+        .id("ask-sheet-scrim")
+        .absolute()
+        .inset_0()
+        .bg(t.surface_sunken.opacity(0.55))
+        .clicks(on(Workbench::close_sheet));
+    let panel = div()
+        .id("ask-sheet")
+        .absolute()
+        .top(SPACE_3)
+        .right(SPACE_3)
+        .bottom(SPACE_3)
+        .w(px(SHEET_W))
+        .flex()
+        .flex_col()
+        .rounded(radius_3())
+        .bg(t.surface_overlay)
+        .border_1()
+        .border_color(t.border)
+        .shadow(t.shadow_float())
+        .overflow_hidden()
+        .occlude()
+        .child(head)
+        .child(body)
+        .child(foot);
+    div()
+        .absolute()
+        .inset_0()
+        .child(scrim)
+        .child(panel)
+        .into_any_element()
+}
+
+fn lab(words: &str, cx: &App) -> Div {
+    div()
+        .px(SPACE_3H)
+        .pt(SPACE_3)
+        .pb(SPACE_2)
+        .child(ui::caps(words, cx))
+}
+
+/// The agents an ask moves with, each with its turn's time and mark.
+fn agents_on(
+    bench: &Workbench,
+    ask: &NowAsk,
+    handle: &WeakEntity<Workbench>,
+    cx: &App,
+) -> Vec<AnyElement> {
+    let AskStand::Working { agents } = &ask.stand else {
+        return Vec::new();
+    };
+    (agents.iter())
+        .filter_map(|id| bench.agent_by_id(id))
+        .map(|agent| {
+            let turn = agent.turn.as_ref().filter(|_| agent.reachable);
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .child(crate::chat::agent_pill(&agent, 12., handle, cx))
+                .children(ui::turn_time(&agent.id, turn))
+                .children(ui::turn_mark(&agent.id, turn))
+                .into_any_element()
+        })
+        .collect()
+}
+
+/// One message the person sent under the ask: when, and whether it asked, followed up or
+/// answered an agent's call, then what they wrote with the pictures they sent.
+#[allow(clippy::too_many_arguments)]
+fn said_line(
+    bench: &Workbench,
+    ask: &NowAsk,
+    said: &AskSaid,
+    first: bool,
+    key: &str,
+    handle: &WeakEntity<Workbench>,
+    t: &Tokens,
+    cx: &App,
+) -> Div {
+    let kind: AnyElement = match (&said.call, first) {
+        (Some(call), _) => {
+            let asker = (bench.agent_by_id(&call.asker))
+                .map(|agent| crate::chat::agent_pill(&agent, 11., handle, cx).into_any_element());
+            div()
+                .flex()
+                .items_center()
+                .gap(SPACE_1)
+                .child(t!("Answered"))
+                .children(asker)
+                .into_any_element()
+        }
+        (None, true) => div().child(t!("Asked")).into_any_element(),
+        (None, false) => div().child(t!("Follow-up")).into_any_element(),
+    };
+    let when = div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .text_size(theme::ui_text(11.))
+        .text_color(t.text_tertiary)
+        .child(kind)
+        .child(
+            div()
+                .font_features(theme::tabular())
+                .child(ui::time::clock(said.at)),
+        );
+    let question = said.call.as_ref().map(|call| {
+        ui::text(call.question.clone(), TEXT_XS, FontWeight::NORMAL).text_color(t.text_tertiary)
+    });
+    let pictures = (!said.images.is_empty()).then(|| {
+        div()
+            .flex()
+            .flex_wrap()
+            .gap(SPACE_1H)
+            .children(said.images.iter().map(|path| {
+                let picture = Picture::File(path.into()).source_at(px(SAID_THUMB_W * 2.));
+                div()
+                    .w(px(SAID_THUMB_W))
+                    .rounded(radius_2())
+                    .overflow_hidden()
+                    .bg(t.surface_sunken)
+                    .child(img(picture).w_full().object_fit(ObjectFit::Contain))
+            }))
+    });
+    let card = div()
+        .mx(SPACE_3)
+        .mb(SPACE_2)
+        .px(SPACE_3)
+        .py(px(9.))
+        .rounded(radius_3())
+        .flex()
+        .flex_col()
+        .gap(SPACE_1)
+        .text_size(theme::ui_text(13.))
+        .text_color(t.text_primary)
+        .child(when)
+        .children(question)
+        .child(written(
+            bench,
+            &ask.to,
+            key,
+            &said.text,
+            &said.images,
+            t,
+            cx,
+        ))
+        .children(pictures);
+    match said.call.is_some() {
+        true => card.border_1().border_color(t.border),
+        false => card.bg(t.surface_raised),
+    }
 }
 
 #[cfg(test)]

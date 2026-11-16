@@ -109,6 +109,7 @@ crate::calls! {
     "agentCatalog" AgentCatalog (crate::params::NoParams) -> Vec<sikemux_view::catalog::CatalogAgent>;
     "stopBuild" StopBuild (crate::params::StopBuildParams) -> ();
     "goFirst" GoFirst (crate::params::GoFirstParams) -> ();
+    "askSaid" AskSaid (crate::params::AskParams) -> Vec<sikemux_view::now::AskSaid>;
     "switchAgentView" SwitchAgentView (crate::agent_view::AgentViewParams) -> serde_json::Value;
     "sleepAgent" SleepAgent (crate::params::AgentParams) -> ();
     "sleepIdleChats" SleepIdleChats (crate::params::NoParams) -> serde_json::Value;

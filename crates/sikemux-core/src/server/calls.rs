@@ -181,6 +181,7 @@ calls! { core, client, method, params;
     "hostLoad": Watch, any_program => answer(super::host_stats::load(&core)),
     "stopBuild" = StopBuild: Owner => core.line().stop(&core, params.id).map_err(CoreError::from)?,
     "goFirst" = GoFirst: Owner => core.line().go_first(&core, params.id).map_err(CoreError::from)?,
+    "askSaid" = AskSaid: Watch => super::now::asks::said(&core, params.id),
     "stopChatIfIdle": NoDevice => answer(json!({ "stopped": super::lifecycle::sleep(&core, &parse::<AgentParams>(params)?.agent_id) })),
     "switchAgentView" = SwitchAgentView: Owner => super::agent_view::switch(&core, params).await?,
     "sleepAgent" = SleepAgent: Owner, counted => super::lifecycle::sleep_agent(&core, &params.agent_id)?,

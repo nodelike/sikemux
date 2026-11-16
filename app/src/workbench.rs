@@ -110,6 +110,8 @@ pub struct Workbench {
     pub(crate) visits: crate::visits::Visits,
     /// The person's ask opened from its card, while it is open.
     pub(crate) opened_ask: Option<crate::opened_ask::OpenedAsk>,
+    /// The ask an Agent Board shows on its sheet, while it does.
+    pub(crate) ask_sheet: Option<crate::agent_board::Sheet>,
     pub rails: crate::rail::Rails,
     pub(crate) strip: crate::tabs::StripMotion,
     /// Tabs asked to close that the layout still lists, and when, so a second click or ⌘W
@@ -371,6 +373,7 @@ impl Workbench {
             last_place: None,
             visits: Default::default(),
             opened_ask: None,
+            ask_sheet: None,
             rails,
             strip: Default::default(),
             closing_tabs: Default::default(),

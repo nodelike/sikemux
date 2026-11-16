@@ -37,6 +37,12 @@ pub struct NowAsk {
     pub id: u64,
     /// The first line of what they wrote.
     pub title: String,
+    /// What an agent that took the work on called it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// How many more messages the person sent under it: follow-ups and answers to its calls.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub more: u32,
     pub stand: AskStand,
     /// When it came to stand so, in Unix milliseconds.
     pub since: u64,
@@ -54,6 +60,33 @@ pub struct NowAsk {
     /// The files opened on that desk the same way, by path.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
+}
+
+/// One message the person sent under an ask, the first being the ask itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskSaid {
+    /// In Unix milliseconds.
+    pub at: u64,
+    /// As the transcript reads it, without the context sent with it.
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
+    /// The agent's call it answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call: Option<AskCall>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskCall {
+    /// The agent that asked, by id.
+    pub asker: String,
+    pub question: String,
 }
 
 /// How far an ask has gone, in the order the card lists them.

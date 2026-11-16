@@ -256,6 +256,7 @@ impl Workbench {
             self.look_for_older(false, crate::pickers::recent::PAGE, cx);
             self.front_moved(cx);
             self.keep_opened_ask(cx);
+            self.keep_ask_sheet(cx);
             self.files.reveal(self.front_file(), &self.target());
             crate::settings::front_moved(self, cx);
         }

@@ -9,10 +9,11 @@ use super::*;
 use crate::cli::protocol::HarnessRequest;
 use crate::server::chat_state::ChatParts;
 use crate::server::chief;
-use crate::text::clipped_line;
+use crate::text::{clipped, clipped_line};
 use serde_json::{json, Value};
 use sikemux_markdown::paths::is_image_path;
 use sikemux_view::goals::{AgentDesk, DeskPage};
+use sikemux_view::now::{AskCall, AskSaid};
 use std::collections::BTreeMap;
 
 /// Kept per core; the oldest go first.
@@ -24,6 +25,9 @@ const SHOWN_IN_BUILD_MS: u64 = 24 * 60 * 60 * 1000;
 const SAME_ASK_MS: u64 = 10 * 60 * 1000;
 /// The most pages, and the most files, an ask keeps of what was opened while it was answered.
 const MOST_OPENED: usize = 24;
+/// The most the person sent under one ask that it keeps, the ask itself and the latest.
+const MOST_SAID: usize = 24;
+const SAID_CHARS: usize = 4000;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,9 +36,15 @@ pub(super) struct Ask {
     /// The workspace project, by id.
     project: String,
     title: String,
+    /// What the first agent it went to with a task called it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     images: Vec<String>,
     at: u64,
+    /// What the person sent under it, the ask itself first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    said: Vec<AskSaid>,
     /// The agent the person sent it to.
     to: String,
     /// Where that agent's work stood as the person sent it.
@@ -120,13 +130,21 @@ fn change(core: &Core, change: impl FnOnce(&mut Vec<Ask>, &mut u64) -> bool) {
     }
 }
 
-/// The person sent `text` to `agent`, with the files at `paths`, as a reply on the ask `filed`
-/// when it names one. The ask it is, by number.
 /// The title of an ask the person sent as `text` with the files at `paths`.
 pub(crate) fn title(text: &str, paths: &[String]) -> String {
     clipped_line(&sikemux_fold::person_wrote(text, paths), TITLE_CHARS)
 }
 
+fn images(paths: &[String]) -> Vec<String> {
+    (paths.iter())
+        .filter(|path| is_image_path(path))
+        .cloned()
+        .collect()
+}
+
+/// The person sent `text` to `agent`, with the files at `paths`, as a reply on the ask `filed`
+/// when it names one. A reply, and an answer to a call of an agent on an ask, go under that ask.
+/// The ask it is, by number.
 pub(crate) fn asked(
     core: &Core,
     agent: &str,
@@ -134,19 +152,43 @@ pub(crate) fn asked(
     paths: &[String],
     filed: Option<u64>,
 ) -> Option<u64> {
+    let at = epoch_ms();
+    if let Some(answer) = sikemux_fold::call_answered(text, paths) {
+        let asker = Some(answer.agent_id.as_str())
+            .filter(|asker| !asker.is_empty())
+            .unwrap_or(agent);
+        let said = AskSaid {
+            at,
+            images: images(&answer.attachments),
+            text: clipped(&answer.text, SAID_CHARS),
+            call: Some(AskCall {
+                asker: asker.to_owned(),
+                question: clipped(&answer.question, SAID_CHARS),
+            }),
+        };
+        return said_under(core, filed, asker, said);
+    }
     if filed.is_some() {
-        return filed;
+        let said = AskSaid {
+            at,
+            images: images(paths),
+            text: clipped(&sikemux_fold::person_wrote(text, paths), SAID_CHARS),
+            call: None,
+        };
+        return said_under(core, filed, agent, said);
     }
     let title = title(text, paths);
-    let images: Vec<String> = (paths.iter())
-        .filter(|path| is_image_path(path))
-        .cloned()
-        .collect();
+    let images = images(paths);
     let project = (!title.is_empty() || !images.is_empty())
         .then(|| core.workspaces().agent(agent))
         .flatten()
         .map(|agent| agent.project)?;
-    let at = epoch_ms();
+    let said = AskSaid {
+        at,
+        text: clipped(&sikemux_fold::person_wrote(text, paths), SAID_CHARS),
+        images: images.clone(),
+        call: None,
+    };
     let before = stood(core, agent);
     let mut id = None;
     change(core, |asks, next| {
@@ -166,8 +208,10 @@ pub(crate) fn asked(
             id: *next,
             project,
             title,
+            name: None,
             images,
             at,
+            said: vec![said],
             to: agent.to_owned(),
             to_before: before,
             in_turn: true,
@@ -183,6 +227,39 @@ pub(crate) fn asked(
         true
     });
     id
+}
+
+/// Puts `said` under the ask `filed`, else the newest one `agent` is on that is not yet in the
+/// person's build. The ask it went under.
+fn said_under(core: &Core, filed: Option<u64>, agent: &str, said: AskSaid) -> Option<u64> {
+    let mut id = None;
+    change(core, |asks, _| {
+        let on = |ask: &&mut Ask| match filed {
+            Some(filed) => ask.id == filed,
+            None => {
+                ask.in_build_at.is_none()
+                    && (ask.to == agent || ask.owners.iter().any(|owner| owner.agent == agent))
+            }
+        };
+        let Some(ask) = asks.iter_mut().rev().find(on) else {
+            return false;
+        };
+        id = Some(ask.id);
+        ask.said.push(said);
+        if ask.said.len() > MOST_SAID {
+            ask.said.remove(1);
+        }
+        true
+    });
+    id.or(filed)
+}
+
+/// What the person sent under the ask `id`, the ask first.
+pub(crate) fn said(core: &Core, id: u64) -> Vec<AskSaid> {
+    (core.now().state.locked().asks.iter())
+        .find(|ask| ask.id == id)
+        .map(|ask| ask.said.clone())
+        .unwrap_or_default()
 }
 
 /// The asks still kept, and the address of every page opened under them.
@@ -265,7 +342,8 @@ pub(crate) fn desks_moved(
 }
 
 /// `from` started or messaged `to`: the asks of its turn go with it, and so do the asks named.
-pub(crate) fn handed(core: &Core, from: &str, to: &[String], named: &[u64]) {
+/// A start's `task` names those that have no name yet.
+pub(crate) fn handed(core: &Core, from: &str, to: &[String], named: &[u64], task: Option<&str>) {
     if to.is_empty() {
         return;
     }
@@ -284,6 +362,10 @@ pub(crate) fn handed(core: &Core, from: &str, to: &[String], named: &[u64]) {
                 }
             }
             changed |= ask.nobody_since.take().is_some();
+            if let Some(task) = task.filter(|_| ask.name.is_none()) {
+                ask.name = Some(clipped_line(task, TITLE_CHARS));
+                changed = true;
+            }
         }
         changed
     });
@@ -464,6 +546,8 @@ pub(super) fn of_project(asks: &[Ask], project: &str, at: u64) -> Vec<NowAsk> {
             NowAsk {
                 id: ask.id,
                 title: ask.title.clone(),
+                name: ask.name.clone(),
+                more: ask.said.len().saturating_sub(1) as u32,
                 stand,
                 since,
                 images: ask.images.clone(),
