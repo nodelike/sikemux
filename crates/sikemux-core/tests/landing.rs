@@ -422,7 +422,10 @@ async fn a_worker_that_ends_waiting_on_nothing_is_sent_back_and_its_lead_not_tol
     let mut lead = Agent::open(&socket, &lead).await;
     let waits = "I'll run the build test once the person signs in on sanctum.";
     let spawned = lead
-        .tool("agent.spawn", json!({ "cli": "omp", "title": "Say hello", "prompt": "hello" }))
+        .tool(
+            "agent.spawn",
+            json!({ "cli": "omp", "title": "Say hello", "prompt": "hello" }),
+        )
         .await
         .expect("a worker");
     let worker_id = spawned["agentId"].as_str().expect("its id");
