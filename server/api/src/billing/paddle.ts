@@ -202,11 +202,11 @@ function owedOf(sub: PaddleSubscription, at: Date): string | null {
 
 function billedOnOwedDate(sub: PaddleSubscription, at: Date) {
   const owed = owedOf(sub, at);
+  const ends = sub.next_billed_at ?? sub.current_billing_period?.ends_at;
   return (
     !owed ||
     sub.status !== "active" ||
-    (!!sub.next_billed_at &&
-      new Date(sub.next_billed_at).getTime() === new Date(owed).getTime())
+    (!!ends && new Date(ends).getTime() === new Date(owed).getTime())
   );
 }
 
