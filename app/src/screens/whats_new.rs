@@ -78,7 +78,9 @@ fn news_of(bench: &mut Workbench) -> Option<&mut WhatsNew> {
     }
 }
 
-/// Asks the core which release runs here, then for its notes and its contributors' faces.
+/// Asks the core which release runs here, then for the notes of the update it offers, or else
+/// of the release running, and its contributors' faces. A nightly update's notes cover every
+/// change since the build running, not only since the nightly before it.
 pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
@@ -88,33 +90,41 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             return;
         };
         let version = running.version;
-        let Ok((version, since, complete)) = bench.update(cx, |bench, cx| {
-            // An app that updates by itself shows a release's notes once it runs it, not before.
-            let available = pending(bench)
-                .filter(|update| update.automatic != Some(true))
-                .and_then(|update| update.available.as_ref());
+        let Ok((shown, since, bundled)) = bench.update(cx, |bench, cx| {
+            let available = pending(bench).and_then(|update| update.available.as_ref());
             let shown =
                 available.map_or_else(|| version.clone(), |release| release.version.clone());
-            let bundled = available.and_then(Bundled::of);
-            let since = running.since.filter(|_| available.is_none());
+            // A stable release's written notes already cover everything since the last stable.
+            let since = match available {
+                Some(release) if release.version.contains('-') => Some(version.clone()),
+                Some(_) => None,
+                None => running.since,
+            };
+            let bundled = available.and_then(|release| Bundled::of(release, &version));
             if let Some(news) = news_of(bench) {
                 news.running = Some(version);
                 news.version = Some(shown.clone());
             }
-            let complete = bundled.as_ref().is_some_and(|bundled| bundled.complete);
-            if let Some(bundled) = bundled {
-                show_notes(bench, Ok(bundled.notes), bundled.avatars);
-            }
+            let bundled = match bundled {
+                Some(bundled) if bundled.complete => {
+                    show_notes(bench, Ok(bundled.notes), bundled.avatars);
+                    None
+                }
+                partial => Some(partial),
+            };
             bench.parts.redraw(&bench.parts.over, cx);
-            (shown, since, complete)
+            (shown, since, bundled)
         }) else {
             return;
         };
-        if complete {
+        let Some(partial) = bundled else {
             return;
-        }
+        };
         let notes = here
-            .request_typed::<call::ReleaseNotes>(NotesParams { version, since })
+            .request_typed::<call::ReleaseNotes>(NotesParams {
+                version: shown.clone(),
+                since,
+            })
             .await;
         let urls: Vec<String> = notes
             .as_ref()
@@ -127,11 +137,12 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             })
             .unwrap_or_default();
         let _ = bench.update(cx, |bench, cx| {
-            let shown = news_of(bench).and_then(|news| news.notes.as_ref());
-            let has_notes =
-                shown.is_some_and(|shown| shown.as_ref().is_ok_and(|shown| shown.notes.is_some()));
-            if notes.is_ok() || !has_notes {
-                show_notes(bench, notes, HashMap::new());
+            if !showing(bench, &shown) {
+                return;
+            }
+            match (notes, partial) {
+                (Err(_), Some(bundled)) => show_notes(bench, Ok(bundled.notes), bundled.avatars),
+                (notes, _) => show_notes(bench, notes, HashMap::new()),
             }
             bench.parts.redraw(&bench.parts.over, cx);
         });
@@ -143,6 +154,9 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             .await
             .unwrap_or_default();
         let _ = bench.update(cx, |bench, cx| {
+            if !showing(bench, &shown) {
+                return;
+            }
             if let Some(news) = news_of(bench) {
                 news.avatars = faces
                     .into_iter()
@@ -155,11 +169,37 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     .detach();
 }
 
+/// Whether the screen is still up on `version`, so an answer for a release it moved past is dropped.
+fn showing(bench: &mut Workbench, version: &str) -> bool {
+    news_of(bench).is_some_and(|news| news.version.as_deref() == Some(version))
+}
+
+/// The core found a newer update while the screen is up, so it shows that one's notes, as
+/// its Install button already offers it.
+pub fn follow_update(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let Some(offered) = pending(bench)
+        .and_then(|update| update.available.as_ref())
+        .map(|release| release.version.clone())
+    else {
+        return;
+    };
+    let Some(news) = news_of(bench) else {
+        return;
+    };
+    if news.version.as_ref().is_none_or(|shown| *shown == offered) {
+        return;
+    }
+    news.version = None;
+    news.notes = None;
+    news.markdown = None;
+    opened(bench, cx);
+}
+
 /// What the update's own manifest says about it, so its notes show without asking GitHub.
 struct Bundled {
     notes: Notes,
     avatars: HashMap<String, Arc<Image>>,
-    /// The manifest carried the credits too, so GitHub has nothing to add.
+    /// The manifest's credits start at the build running, so GitHub has nothing to add.
     complete: bool,
 }
 
@@ -172,7 +212,7 @@ struct BundledCredits {
 }
 
 impl Bundled {
-    fn of(release: &UpdateRelease) -> Option<Self> {
+    fn of(release: &UpdateRelease, running: &str) -> Option<Self> {
         let credits = release
             .credits
             .as_ref()
@@ -181,7 +221,9 @@ impl Bundled {
         if release.notes.is_none() && credits.is_none() {
             return None;
         }
-        let complete = credits.is_some();
+        let complete = credits
+            .as_ref()
+            .is_some_and(|credits| credits.compare.contains(&format!("/compare/v{running}...")));
         let (commits, compare, contributors, avatars) = match credits {
             Some(credits) => (
                 Some(credits.commits),

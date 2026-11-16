@@ -331,6 +331,7 @@ impl Workbench {
                     return;
                 }
                 let now = self.reads.update.as_ref().is_some_and(ready);
+                crate::screens::whats_new::follow_update(self, cx);
                 if self.over_shown() {
                     self.parts.redraw(&self.parts.over, cx);
                 }
