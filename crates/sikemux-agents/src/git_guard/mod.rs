@@ -104,6 +104,9 @@ fn refused(
     others: &Others,
 ) -> Option<String> {
     let subcommand = git_args(args);
+    if let Some(why) = pushes_shared_branch(subcommand, args, git) {
+        return Some(why);
+    }
     let touched = touches(subcommand, private_index)?;
     if matches!(&touched, Touch::Paths { paths, .. } | Touch::Stages(paths) if paths.is_empty()) {
         return None;
@@ -167,6 +170,63 @@ fn refused(
             ))
         }
     }
+}
+
+/// Why an agent's `git push` of a branch from a repository's own checkout may
+/// not run: git_commit's push runs the land check first, and a raw push would
+/// skip it. Pushing tags stays allowed, as does git run by a build or a person.
+fn pushes_shared_branch(
+    subcommand: &[String],
+    args: &[String],
+    git: &dyn Fn() -> Command,
+) -> Option<String> {
+    use sikemux_process::vars;
+    let (sub, rest) = subcommand.split_first()?;
+    if sub != "push" || rest.iter().any(|arg| arg == "--tags") {
+        return None;
+    }
+    if std::env::var_os(vars::AGENT_ID).is_none() || std::env::var_os(vars::BUILD_TURN).is_some() {
+        return None;
+    }
+    let options = args
+        .get(..args.len() - subcommand.len())
+        .unwrap_or_default();
+    if checkout(git(), options)?.linked {
+        return None;
+    }
+    let refspecs: Vec<&str> = (rest.iter())
+        .filter(|arg| !arg.starts_with('-'))
+        .skip(1)
+        .map(|spec| {
+            spec.trim_start_matches('+')
+                .split(':')
+                .next()
+                .unwrap_or_default()
+        })
+        .collect();
+    let is_tag = |name: &str| {
+        name.starts_with("refs/tags/") || {
+            let mut git = git();
+            git.args(options)
+                .args([
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/tags/{name}"),
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            git.status().is_ok_and(|status| status.success())
+        }
+    };
+    if !refspecs.is_empty() && refspecs.into_iter().all(is_tag) {
+        return None;
+    }
+    Some(format!(
+        "Sikemux refused `git {}`: from the project's own checkout a branch is pushed with the git_commit tool and `push: true`, which runs the land check on what it sends first.",
+        subcommand.join(" ")
+    ))
 }
 
 /// Whether git, given the global `options`, finds nothing uncommitted anywhere

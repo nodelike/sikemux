@@ -633,13 +633,16 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         send_back(core, key, &laid.waiting, &why);
         return;
     }
-    let (from, to) = (tip.clone(), stacked.top().to_owned());
+    let to = stacked.top().to_owned();
     let command = match crate::server::worktree::agent::merge_queue(core, &key.0, &to).await {
         Ok(checkout) => {
-            let repo = key.0.clone();
-            blocking(move || rust_check(&repo, &checkout, &from, &to).map_err(Into::into))
-                .await
-                .map_err(|error| error.to_string())
+            let (repo, base, tip) = (key.0.clone(), key.1.clone(), tip.clone());
+            blocking(move || {
+                let from = checked_below(&repo, &base, &tip);
+                rust_check(&repo, &checkout, &from, &to).map_err(Into::into)
+            })
+            .await
+            .map_err(|error| error.to_string())
         }
         Err(why) => Err(why),
     };
@@ -654,6 +657,7 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
         }
     };
     let Some((label, command)) = command else {
+        mark_checked(key, stacked.top());
         return put_on(core, key, stacked).await;
     };
     if repairing && stacked.laid[0].waiting.failed_over.as_deref() == Some(tip.as_str()) {
@@ -663,7 +667,10 @@ async fn check_and_land(core: &Arc<Core>, key: &Key, batch: Vec<Waiting>) {
     let front = stacked.laid[0].waiting.agent.clone();
     let ran = checks::run_in_queue(core, &key.0, stacked.top(), &command, &front).await;
     let ran = match ran {
-        Ok(ran) if ran.passed => return put_on(core, key, stacked).await,
+        Ok(ran) if ran.passed => {
+            mark_checked(key, stacked.top());
+            return put_on(core, key, stacked).await;
+        }
         Ok(ran) => ran,
         Err(why) => {
             for laid in &stacked.laid {
@@ -914,6 +921,101 @@ fn landed(core: &Core, repo: &Path, stacked: &Stack) -> Landed {
         landed.push((waiting.clone(), laid.commits.clone(), stays));
     }
     landed
+}
+
+/// Runs the land check on the commits of `base` up to `head` that no passing
+/// check covered and the remote does not have, as the queue runs it on a land,
+/// so commits made in the project's own checkout pass it before they push.
+pub async fn check_before_push(
+    core: &Arc<Core>,
+    repo: &Path,
+    base: &str,
+    head: &str,
+    agent: &str,
+) -> Result<(), String> {
+    let key: Key = (repo.to_owned(), base.to_owned());
+    let from = {
+        let (repo, base, head) = (repo.to_owned(), base.to_owned(), head.to_owned());
+        blocking(move || Ok(checked_below(&repo, &base, &head)))
+            .await
+            .map_err(|error| error.to_string())?
+    };
+    if from == head {
+        return Ok(());
+    }
+    let _turn = merge_queue::checkout_turn().await;
+    let due = {
+        let (repo, from, head) = (repo.to_owned(), from.clone(), head.to_owned());
+        blocking(move || Ok(land_checks_due(&repo, &from, &head)))
+            .await
+            .unwrap_or_default()
+    };
+    if let Some((check, files, why)) = land_checks_at(core, &key, head, due).await {
+        if land_checks_at(core, &key, &from, vec![(check, files)])
+            .await
+            .is_none()
+        {
+            return Err(why);
+        }
+    }
+    let checkout = crate::server::worktree::agent::merge_queue(core, repo, head).await?;
+    let command = {
+        let (repo, head) = (repo.to_owned(), head.to_owned());
+        blocking(move || rust_check(&repo, &checkout, &from, &head).map_err(Into::into))
+            .await
+            .map_err(|error| error.to_string())?
+    };
+    if let Some((label, command)) = command {
+        let ran = checks::run_in_queue(core, repo, head, &command, agent).await?;
+        if !ran.passed {
+            return Err(format!(
+                "{label} failed on the commits it would push, so they stay unpushed until a fix passes it:\n\n{}{}",
+                crate::git::tail(&ran.output),
+                keep_log(core, agent, &ran.output)
+            ));
+        }
+    }
+    mark_checked(&key, head);
+    Ok(())
+}
+
+fn checked_ref(base: &str) -> String {
+    format!("refs/sikemux/checked/{base}")
+}
+
+/// Records that `commit` passed the land check for the branch.
+fn mark_checked((repo, base): &Key, commit: &str) {
+    let _ = git(repo, &["update-ref", &checked_ref(base), commit]);
+}
+
+/// The newest commit at or below `at` that passed the land check or is on the
+/// remote, so a check from there covers commits put on the branch without one;
+/// `at` itself when neither is known.
+fn checked_below(repo: &Path, base: &str, at: &str) -> String {
+    let is_below =
+        |commit: &str, of: &str| git(repo, &["merge-base", "--is-ancestor", commit, of]).is_ok();
+    [checked_ref(base), format!("refs/remotes/origin/{base}")]
+        .iter()
+        .filter_map(|name| {
+            let commit = line(
+                git(
+                    repo,
+                    &[
+                        "rev-parse",
+                        "--verify",
+                        "--quiet",
+                        &format!("{name}^{{commit}}"),
+                    ],
+                )
+                .ok()?,
+            );
+            is_below(&commit, at).then_some(commit)
+        })
+        .reduce(|older, newer| match is_below(&older, &newer) {
+            true => newer,
+            false => older,
+        })
+        .unwrap_or_else(|| at.to_owned())
 }
 
 /// The first land of `stacked` that fails one of the `landChecks` its `sikemux.json` names for

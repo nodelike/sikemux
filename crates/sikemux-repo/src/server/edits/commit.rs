@@ -260,7 +260,9 @@ fn push_or_tell(
     let (owner, agent) = (core.clone(), agent.to_owned());
     std::thread::spawn(move || {
         let _entered = runtime.as_ref().map(tokio::runtime::Handle::enter);
-        let pushed = super::push::push(&owner, &from, std::slice::from_ref(&agent), "origin");
+        let pushed = checked_before_push(&owner, runtime.as_ref(), &from, &agent).and_then(|()| {
+            super::push::push(&owner, &from, std::slice::from_ref(&agent), "origin")
+        });
         let Err(std::sync::mpsc::SendError(pushed)) = answer.send(pushed) else {
             return;
         };
@@ -284,6 +286,34 @@ fn push_or_tell(
         Ok(pushed) => pushed.map(Some),
         Err(_) => Ok(None),
     }
+}
+
+/// From the project's own checkout a push sends its whole branch, so what it
+/// sends passes the land queue's check first, as a land would.
+fn checked_before_push(
+    core: &Arc<Core>,
+    runtime: Option<&tokio::runtime::Handle>,
+    from: &Path,
+    agent: &str,
+) -> Result<(), String> {
+    let Some(runtime) = runtime.filter(|_| super::push::is_main_checkout(from)) else {
+        return Ok(());
+    };
+    let top = PathBuf::from(super::push::line(super::owners::git(
+        from,
+        &["rev-parse", "--show-toplevel"],
+    )?));
+    let Ok(branch) = super::owners::git(&top, &["symbolic-ref", "--short", "-q", "HEAD"]) else {
+        return Ok(());
+    };
+    let head = super::push::line(super::owners::git(&top, &["rev-parse", "HEAD"])?);
+    runtime.block_on(super::queue::check_before_push(
+        core,
+        &top,
+        &super::push::line(branch),
+        &head,
+        agent,
+    ))
 }
 
 /// The checkout to commit in, the one holding the `named` paths, which may lie

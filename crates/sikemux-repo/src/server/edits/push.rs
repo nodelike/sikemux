@@ -104,7 +104,7 @@ impl Signing {
 
 /// Pushes the unpushed commits on `dir`'s branch made by any of `agents`, or
 /// by agents they lead. From the project's own checkout, rather than an
-/// agent's, it pushes every one: what is there already passed the land queue.
+/// agent's, it pushes every one: the land queue or git_commit checked them.
 /// Where the remote knows agents by an identity of their own, the caller's
 /// changes to CI workflows that can reach secrets wait for the person, who is
 /// asked.
@@ -824,7 +824,7 @@ pub fn note_again<Holds: DeserializeOwned>(
 }
 
 /// Whether `dir` is in the repository's own checkout rather than a worktree of it.
-fn is_main_checkout(dir: &Path) -> bool {
+pub(super) fn is_main_checkout(dir: &Path) -> bool {
     let path = |what| git(dir, &["rev-parse", "--path-format=absolute", what]).map(line);
     matches!((path("--git-dir"), path("--git-common-dir")), (Ok(own), Ok(common)) if own == common)
 }
