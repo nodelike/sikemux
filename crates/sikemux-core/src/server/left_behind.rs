@@ -88,20 +88,13 @@ pub(crate) struct Unowned {
 
 /// The person's asks that have had nobody on them for the grace, grouped by the chief of their
 /// project, told once per stretch with nobody; and when the next one falls due.
-pub(crate) fn asks(
-    core: &Core,
-    told: &mut HashMap<u64, u64>,
-    now: u64,
-) -> (Vec<Unowned>, Option<u64>) {
-    let nobody = super::now::asks::with_nobody(core);
-    told.retain(|id, since| nobody.iter().any(|ask| ask.0 == *id && ask.3 == *since));
+pub(crate) fn asks(core: &Core, now: u64) -> (Vec<Unowned>, Option<u64>) {
+    let nobody = super::now::asks::with_nobody_untold(core);
+    let mut told = Vec::new();
     let chiefs = super::chief::seated(core);
     let mut lines: HashMap<String, Vec<String>> = HashMap::new();
     let mut next: Option<u64> = None;
     for (id, project, title, since) in nobody {
-        if told.contains_key(&id) {
-            continue;
-        }
         let Some(chief) = chiefs.get(&project) else {
             continue;
         };
@@ -110,9 +103,9 @@ pub(crate) fn asks(
             next = Some(next.map_or(due, |next| next.min(due)));
             continue;
         }
-        told.insert(id, since);
+        told.push(id);
         (lines.entry(chief.clone()).or_default()).push(format!(
-            "- {title} ({} min)",
+            "- #{id} {title} ({} min)",
             now.saturating_sub(since) / 60_000
         ));
     }
@@ -120,7 +113,7 @@ pub(crate) fn asks(
         .map(|(chief, lines)| Unowned {
             chief,
             text: format!(
-                "{} of the person's asks {} had nobody on them for over {} minutes:\n{}\n\nRoute each to a worker, or say why it waits. You hear of each once until someone takes it.",
+                "{} of the person's asks {} had nobody on them for over {} minutes:\n{}\n\nRoute each to a worker with its number as agent_spawn's or agent_send's ask, close one already handled with ask_done, or say why it waits. You hear of each once until someone takes it.",
                 lines.len(),
                 if lines.len() == 1 { "has" } else { "have" },
                 GRACE_MS / 60_000,
@@ -128,6 +121,7 @@ pub(crate) fn asks(
             ),
         })
         .collect();
+    super::now::asks::told(core, &told);
     (notes, next)
 }
 

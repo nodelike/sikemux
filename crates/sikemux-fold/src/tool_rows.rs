@@ -636,6 +636,17 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "ask_done",
+        Spec {
+            verb: "close",
+            kind: "edit",
+            icon: "message",
+            target: &["ask #{ask}"],
+            detail: &["{commit}"],
+            plugin: None,
+        },
+    ),
+    (
         "agent_spawn",
         Spec {
             verb: "start",

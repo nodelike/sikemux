@@ -2,12 +2,15 @@
 //! in the app they run. The agents the receiving agent starts or messages in that turn take it
 //! over. A chief's turn that hands it to nobody answered it, as did another agent's turn that left
 //! its work where it was. An ask outlives the agents on it: once every one has closed before its
-//! work reached the project's branch, nobody has it.
+//! work reached the project's branch, nobody has it. An agent closes one handled without a hand-off
+//! with `ask_done`.
 
 use super::*;
+use crate::cli::protocol::HarnessRequest;
 use crate::server::chat_state::ChatParts;
 use crate::server::chief;
 use crate::text::clipped_line;
+use serde_json::{json, Value};
 use sikemux_view::goals::{AgentDesk, DeskPage};
 use std::collections::BTreeMap;
 
@@ -41,6 +44,9 @@ pub(super) struct Ask {
     owners: Vec<Owner>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     nobody_since: Option<u64>,
+    /// The `nobody_since` its project's chief was last told of.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    told_since: Option<u64>,
     /// The newest commit of its owners' work on the project's branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     commit: Option<String>,
@@ -145,6 +151,7 @@ pub(crate) fn asked(core: &Core, agent: &str, text: &str, filed: Option<u64>) ->
             in_turn: true,
             owners: Vec::new(),
             nobody_since: None,
+            told_since: None,
             commit: None,
             landed_at: None,
             in_build_at: None,
@@ -458,13 +465,82 @@ fn rank(stand: &AskStand) -> u8 {
     }
 }
 
-/// The asks nobody has, each with its id, project, title and since when nobody has it.
-pub(crate) fn with_nobody(core: &Core) -> Vec<(u64, String, String, u64)> {
+/// The asks nobody has whose chief was not told of it yet, each with its id, project, title and
+/// since when nobody has it.
+pub(crate) fn with_nobody_untold(core: &Core) -> Vec<(u64, String, String, u64)> {
     (core.now().state.locked().asks.iter())
         .filter(|ask| ask.commit.is_none() && ask.in_build_at.is_none())
         .filter_map(|ask| {
             let since = ask.nobody_since?;
-            Some((ask.id, ask.project.clone(), ask.title.clone(), since))
+            (ask.told_since != Some(since))
+                .then(|| (ask.id, ask.project.clone(), ask.title.clone(), since))
         })
         .collect()
+}
+
+/// The chiefs were told the asks `ids` have nobody.
+pub(crate) fn told(core: &Core, ids: &[u64]) {
+    change(core, |asks, _| {
+        let mut changed = false;
+        for ask in asks.iter_mut().filter(|ask| ids.contains(&ask.id)) {
+            changed |= ask.told_since != ask.nobody_since;
+            ask.told_since = ask.nobody_since;
+        }
+        changed
+    });
+}
+
+/// `ask_done`: the caller closes one of its project's asks that was handled: in the commit it
+/// names, which then stands for the ask's work, or with nothing to change, which answered it.
+pub(crate) fn done(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
+    let agent = (request.agent_id.as_deref()).ok_or("ask_done needs the calling agent's id")?;
+    let id = request.params["ask"]
+        .as_u64()
+        .ok_or("ask_done needs the ask's number")?;
+    let project = (core.workspaces().agent(agent))
+        .ok_or("ask_done answers only an agent Sikemux started")?
+        .project;
+    let ours =
+        (core.now().state.locked().asks.iter()).any(|ask| ask.id == id && ask.project == project);
+    if !ours {
+        return Err(format!("ask #{id} is not an open ask of this project"));
+    }
+    let named = (request.params["commit"].as_str())
+        .map(str::trim)
+        .filter(|it| !it.is_empty());
+    let Some(named) = named else {
+        change(core, |asks, _| {
+            asks.retain(|ask| ask.id != id);
+            true
+        });
+        return Ok(json!({ "closed": id, "answered": "no change" }));
+    };
+    let repo = (core.workspaces().projects().into_iter())
+        .find(|it| it.id == project)
+        .ok_or("this project has no folder")?
+        .path;
+    let commit = Git::quick(&repo)
+        .trimmed(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            "--end-of-options",
+            &format!("{named}^{{commit}}"),
+        ])
+        .ok()
+        .filter(|commit| !commit.is_empty())
+        .ok_or_else(|| format!("{named} is not a commit of this project"))?;
+    let at = epoch_ms();
+    change(core, |asks, _| {
+        for ask in asks.iter_mut().filter(|ask| ask.id == id) {
+            ask.commit = Some(commit.clone());
+            ask.landed_at.get_or_insert(at);
+            ask.nobody_since = None;
+            ask.in_turn = false;
+            ask.owners.clear();
+        }
+        true
+    });
+    build_moved(core, &project, &repo);
+    Ok(json!({ "closed": id, "commit": commit }))
 }

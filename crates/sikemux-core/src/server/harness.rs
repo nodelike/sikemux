@@ -605,6 +605,7 @@ async fn dispatch(
         "agent.hire" => super::hire::tool(core, &request).await,
         "agent.wrote" => super::who_wrote::tool(core, &request).await,
         "agent.why" => super::why::tool(core, &request).await,
+        "ask.done" => super::now::asks::done(core, &request),
         "board.add" => board::add(core, &request).await,
         "board.list" => board::list(core, &request).await,
         "board.claim" => board::claim(core, &request).await,

@@ -782,6 +782,15 @@ something set to wake it, such as a trigger, a run or a land in line, sends you
 nothing; `agent_list` says what it waits on. `report: false` turns reports off.
 Carry on rather than waiting for it.
 
+### The person's asks
+
+Each message the person sends an agent is an ask, by number, kept until its
+change is in the app they run. Pass its number as `ask` to `agent_spawn` or
+`agent_send` when you hand it on. An ask handled some other way, by earlier
+work or by a hand-off without its number, still counts as having nobody on it:
+close it with `ask_done`, naming the `commit` that did it, or none when it
+needed no change.
+
 ### Starting an agent on another host
 
 `agent_spawn` with `host`, a linked host's name, starts it there on that host's

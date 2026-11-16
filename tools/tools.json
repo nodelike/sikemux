@@ -1721,6 +1721,27 @@
       ]
     },
     {
+      "name": "ask_done",
+      "row": {"verb": "close", "kind": "edit", "icon": "message", "target": ["ask #{ask}"], "detail": ["{commit}"]},
+      "method": "ask.done",
+      "description": "Close an ask.",
+      "properties": {
+        "ask": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "commit": {
+          "description": "The commit that did it; omit if it needed no change",
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "ask"
+      ]
+    },
+    {
       "name": "agent_spawn",
       "row": {"verb": "start", "kind": "execute", "icon": "square-plus", "target": ["session {resume}", "{cli} agent", "a helper"], "detail": ["{title}"]},
       "method": "agent.spawn",

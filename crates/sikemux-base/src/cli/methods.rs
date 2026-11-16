@@ -60,6 +60,7 @@ pub const HARNESS_METHODS: &[&str] = &[
     "events.wait",
     "agent.list",
     "agent.send",
+    "ask.done",
     "agent.spawn",
     "agent.wrote",
     "agent.why",
