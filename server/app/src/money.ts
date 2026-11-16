@@ -10,7 +10,7 @@ import type {
 
 export const FEATURE_WORDS: Record<PlanFeature, string> = {
   sync: "Sync across your hosts: vault, settings, skills and memory",
-  move_work: "Move work between hosts, live agents included",
+  move_work: "Move a chat between your own hosts, its agent still running",
   history_search: "History search across hosts",
   own_triggers: "Schedules and webhooks you set up yourself",
   org_hosts:
@@ -23,7 +23,7 @@ export const FEATURE_WORDS: Record<PlanFeature, string> = {
     "Connect GitHub once; git works on every host and agents never see a token",
   org_bot_triggers:
     "Triggers run as the org bot and ask the people or teams they name",
-  chat_handover: "Hand a chat to a teammate; chats stay private otherwise",
+  chat_handover: "Hand a task to a teammate, with its decisions and context",
   org_roles: "Owner, admin, user; teams; email domains",
   org_policy: "Policy, audit log, one bill",
 };
