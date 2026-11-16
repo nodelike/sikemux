@@ -401,7 +401,6 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
             say(&output);
             "end_turn"
         }
-        // Writes the file at the path given, as an edit tool of a real agent does.
         "edit" => {
             let path = line.trim_start().trim_start_matches("edit").trim();
             let id = format!("edit-{path}");

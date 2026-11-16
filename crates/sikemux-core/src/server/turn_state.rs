@@ -678,16 +678,12 @@ fn work_of(core: &Arc<Core>, agent_id: &str) -> Option<Work> {
 }
 
 /// Where the work stands for an agent whose folder is not a git checkout: in the checkouts
-/// under it that hold the files it changed. Each lands by the rule the person chose for the
-/// project, else by its own history. Nothing when no such checkout with a commit is left.
+/// under it that hold the files it changed. Nothing when no such checkout with a commit is left.
 fn work_in_checkouts(core: &Core, project: &str, agent_id: &str, cwd: &Path) -> WorkAt {
-    let chosen = super::landing::means_now(core, project).chosen;
     let landed: Vec<bool> = (inbox::edited_checkouts(core, project, agent_id, cwd).iter())
         .filter_map(|checkout| {
-            let head = Git::quick(checkout).trimmed(&["rev-parse", "HEAD"]).ok()?;
-            let own = checkout.to_string_lossy();
-            let rule = if chosen { project } else { &*own };
-            Some(landed_in(core, rule, checkout, &head))
+            let head = crate::git::head(checkout)?;
+            Some(landed_in(core, project, checkout, &head))
         })
         .collect();
     match landed.as_slice() {
