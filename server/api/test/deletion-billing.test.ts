@@ -239,6 +239,24 @@ describe("deleting an account", () => {
     expect((await subscriptions())[0]?.cancel_at_period_end).toBe(true);
   });
 
+  it("ends a box paid for late when the account's plan was already set to end", async () => {
+    await buy(MEMBER, "pro");
+    const pay = await checkout(MEMBER, "shed");
+    expect((await deleteAccount(MEMBER)).status).toBe(202);
+    expect((await pay()).status).toBe(303);
+
+    await sweepDeletedBilling(database.db, provider, log);
+    expect(
+      (await subscriptions()).map((row) => [
+        row.product,
+        row.cancel_at_period_end,
+      ]),
+    ).toEqual([
+      ["pro", true],
+      ["shed", true],
+    ]);
+  });
+
   it("leaves an org someone else owns at once, freeing the seat", async () => {
     const orgId = await createOrg(2);
     await addMember(orgId, MEMBER, "user");

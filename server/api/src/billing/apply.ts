@@ -204,7 +204,6 @@ async function endingForDeletedPayer(trx: Kysely<Tables>, customerId: string) {
     .updateTable("users")
     .set({ billing_retry_at: sql<Date>`now()` })
     .where("deleted_at", "is not", null)
-    .where("billing_retry_at", "is", null)
     .where((eb) =>
       eb.or([
         eb("id", "=", payer.select("user_id")),
