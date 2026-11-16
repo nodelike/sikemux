@@ -1583,7 +1583,7 @@
       "name": "page_show",
       "row": {"verb": "show", "kind": "read", "icon": "image", "target": ["{title}"]},
       "method": "page.show",
-      "description": "Open a page in a tab on your desk, with a card for it in your reply.",
+      "description": "Open a page in a desk tab.",
       "properties": {
         "path": {
           "description": "Absolute path of your HTML",
