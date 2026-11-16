@@ -346,8 +346,9 @@ function Bill({
               </Row>
               <Row label="Refunds">
                 <span className="quiet">
-                  No free trial: a first payment is refunded in full if you ask
-                  within {catalog.refundDays} days.
+                  Everything you pay for a plan in its first{" "}
+                  {catalog.refundDays} days comes back in full if you ask within
+                  them, once for each plan.
                 </span>
               </Row>
             </Rows>
