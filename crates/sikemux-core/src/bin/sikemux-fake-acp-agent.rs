@@ -401,6 +401,22 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
             say(&output);
             "end_turn"
         }
+        // Writes the file at the path given, as an edit tool of a real agent does.
+        "edit" => {
+            let path = line.trim_start().trim_start_matches("edit").trim();
+            let id = format!("edit-{path}");
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call", "toolCallId": id, "title": format!("Edit {path}"), "kind": "edit", "status": "in_progress" }),
+            );
+            let written = std::fs::write(path, "edited\n");
+            agent.update(
+                session_id,
+                json!({ "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "completed", "content": [{ "type": "diff", "path": path, "oldText": "", "newText": "edited\n" }] }),
+            );
+            say(&format!("edited: {written:?}"));
+            "end_turn"
+        }
         "show" => {
             let params = line.trim_start().trim_start_matches("show").trim();
             agent.update(
