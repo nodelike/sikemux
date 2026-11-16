@@ -661,13 +661,13 @@ fn add_next_match_in(document: &mut Document, cx: &mut App) {
     if selected.is_empty() {
         document.next_match = None;
         let word = |letter: char| letter.is_alphanumeric() || letter == '_';
-        let start = text[..selected.start]
+        let start = (text.get(..selected.start).unwrap_or_default())
             .char_indices()
             .rev()
             .take_while(|(_, letter)| word(*letter))
             .last()
             .map_or(selected.start, |(at, _)| at);
-        let end = text[selected.start..]
+        let end = (text.get(selected.start..).unwrap_or_default())
             .char_indices()
             .find(|(_, letter)| !word(*letter))
             .map_or(text.len(), |(at, _)| selected.start + at);
@@ -680,7 +680,9 @@ fn add_next_match_in(document: &mut Document, cx: &mut App) {
         Some((origin, after)) if *origin == selected => *after,
         _ => selected.end,
     };
-    let needle = &text[selected.clone()];
+    let Some(needle) = text.get(selected.clone()) else {
+        return;
+    };
     let found = text
         .get(after..)
         .and_then(|rest| rest.find(needle))

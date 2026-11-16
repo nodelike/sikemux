@@ -147,7 +147,7 @@ impl ProjectSwitcher {
             .collect();
         crate::fuzzy::rank_paths(&query, &paths, all.len())
             .into_iter()
-            .map(|at| all[at].clone())
+            .filter_map(|at| all.get(at).cloned())
             .collect()
     }
 
@@ -196,7 +196,8 @@ impl Render for ProjectSwitcher {
         let this = cx.entity();
         let rows = choices.iter().enumerate().map(|(at, choice)| {
             let heading = (grouped
-                && (at == 0 || choices[at - 1].project.is_some() != choice.project.is_some()))
+                && (at.checked_sub(1).and_then(|before| choices.get(before)))
+                    .is_none_or(|before| before.project.is_some() != choice.project.is_some()))
             .then(|| {
                 list_picker::heading(
                     if choice.project.is_some() {

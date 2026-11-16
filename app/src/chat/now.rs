@@ -305,7 +305,7 @@ fn body(
             let under = workers(now, &agent.id);
             Some(fact_row(&agent, row, under, handle, cx).into_any_element())
         });
-        let more = rest(&rows[SHOWN.min(rows.len())..], &agent, cx);
+        let more = rest(rows.get(SHOWN..).unwrap_or_default(), &agent, cx);
         out.push(
             div()
                 .flex()
@@ -440,29 +440,24 @@ fn rest(
     agent: &impl Fn(&str) -> Option<AgentRow>,
     cx: &App,
 ) -> Option<impl IntoElement> {
-    if rows.is_empty() {
-        return None;
-    }
+    let first = rows.first()?;
     let t = Tokens::get(cx);
     let agents: Vec<AgentRow> = rows.iter().filter_map(|row| agent(&row.agent)).collect();
     let names: Vec<String> = agents.iter().map(name_of).collect();
     Some(
-        line(
-            SharedString::from(format!("now-rest:{}", rows[0].agent)),
-            cx,
-        )
-        .child(marks(&agents, cx))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .overflow_hidden()
-                .text_ellipsis()
-                .whitespace_nowrap()
-                .text_size(theme::ui_text(TEXT_XS_H))
-                .text_color(t.text_secondary)
-                .child(names.join(", ")),
-        ),
+        line(SharedString::from(format!("now-rest:{}", first.agent)), cx)
+            .child(marks(&agents, cx))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .whitespace_nowrap()
+                    .text_size(theme::ui_text(TEXT_XS_H))
+                    .text_color(t.text_secondary)
+                    .child(names.join(", ")),
+            ),
     )
 }
 

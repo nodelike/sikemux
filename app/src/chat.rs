@@ -1132,8 +1132,7 @@ impl Chat {
         let Some(at) = parts.iter().position(|part| part.id() == active) else {
             return false;
         };
-        let head = parts[..=at]
-            .iter()
+        let head = (parts.iter().take(at + 1))
             .rev()
             .take_while(|part| {
                 matches!(
@@ -1421,19 +1420,20 @@ impl Chat {
         let mut kept = 0..rows.len();
         if transcript.away() {
             let top = transcript.list().logical_scroll_top().item_ix;
-            if top > HELD_AROUND + SLACK_ROWS {
-                let from = &rows[top - HELD_AROUND];
+            let from = (top > HELD_AROUND + SLACK_ROWS)
+                .then(|| rows.get(top - HELD_AROUND))
+                .flatten();
+            if let Some(from) = from {
                 if let Some(event) = from.first_event() {
                     self.older_before = Some(event);
                     drops.push(Change::DropBefore(from.id().to_owned().into()));
                     kept.start = top - HELD_AROUND;
                 }
             }
-            if rows.len() > top + 2 * HELD_AROUND + SLACK_ROWS {
-                let (last, cut) = (
-                    &rows[top + 2 * HELD_AROUND - 1],
-                    &rows[top + 2 * HELD_AROUND],
-                );
+            let edge = (rows.len() > top + 2 * HELD_AROUND + SLACK_ROWS)
+                .then(|| rows.get(top + 2 * HELD_AROUND - 1..=top + 2 * HELD_AROUND))
+                .flatten();
+            if let Some([last, cut]) = edge {
                 if let Some(event) = last.first_event() {
                     (self.newer_after, self.detached) = (Some(event), true);
                     drops.push(Change::DropFrom(cut.id().to_owned().into()));
@@ -1441,16 +1441,21 @@ impl Chat {
                 }
             }
         } else {
-            let turns: Vec<usize> = (0..rows.len())
-                .filter(|&ix| rows[ix].opens_turn())
+            let turns: Vec<usize> = (rows.iter().enumerate())
+                .filter(|(_, row)| row.opens_turn())
+                .map(|(ix, _)| ix)
                 .collect();
-            let by_turns =
-                (turns.len() > HELD_TURNS + SLACK_TURNS).then(|| turns[turns.len() - HELD_TURNS]);
+            let by_turns = (turns.len() > HELD_TURNS + SLACK_TURNS)
+                .then(|| turns.get(turns.len() - HELD_TURNS).copied())
+                .flatten();
             let by_rows = (rows.len() > HELD_ROWS + SLACK_ROWS).then(|| rows.len() - HELD_ROWS);
-            if let Some(at) = by_turns.max(by_rows) {
-                if let Some(event) = rows[at].first_event() {
+            let cut = by_turns
+                .max(by_rows)
+                .and_then(|at| Some((at, rows.get(at)?)));
+            if let Some((at, row)) = cut {
+                if let Some(event) = row.first_event() {
                     self.older_before = Some(event);
-                    drops.push(Change::DropBefore(rows[at].id().to_owned().into()));
+                    drops.push(Change::DropBefore(row.id().to_owned().into()));
                     kept.start = at;
                 }
             }
@@ -1460,7 +1465,9 @@ impl Chat {
         }
         #[cfg(feature = "counts")]
         gpui_transcript::counts::add(&gpui_transcript::counts::TRIMS, 1);
-        let held: HashSet<&str> = rows[kept].iter().map(|row| row.id()).collect();
+        let held: HashSet<&str> = (rows.get(kept).unwrap_or_default().iter())
+            .map(|row| row.id())
+            .collect();
         let streamed: Vec<String> = (self.reader.read(cx).streamed.iter())
             .filter(|row| held.contains(row.as_str()))
             .cloned()

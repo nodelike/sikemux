@@ -761,7 +761,9 @@ fn resources(
         picked,
     )
     .on_select(cx.listener(move |bench, at: &usize, _, cx| {
-        bench.hosts_page.span = spans[*at];
+        if let Some(span) = spans.get(*at) {
+            bench.hosts_page.span = *span;
+        }
         bench.watch_hosts_page();
         bench.parts.redraw_stage(cx);
     }));

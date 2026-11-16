@@ -526,6 +526,10 @@ impl Desks {
 }
 
 /// The browser's and the simulator's work, off the window's thread.
+#[expect(
+    clippy::expect_used,
+    reason = "the app cannot drive the browser without its runtime"
+)]
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RUNTIME.get_or_init(|| {
@@ -1498,7 +1502,12 @@ impl Workbench {
             .iter()
             .position(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
             .unwrap_or(0) as i32;
-        let next = &strip.tabs[(at + by).rem_euclid(strip.tabs.len() as i32) as usize].id;
+        let Some(next) = (strip
+            .tabs
+            .get((at + by).rem_euclid(strip.tabs.len() as i32) as usize))
+        .map(|tab| &tab.id) else {
+            return false;
+        };
         self.with_engine(cx, |engine| engine.switch_tab(&agent, next));
         true
     }

@@ -43,16 +43,20 @@ pub(super) fn row(
     let user = message.role == ChatRole::User;
     let team = message.team.as_ref();
     let team_open = team.is_some_and(|team| looks.reading.team_open(&team.id));
+    let before = ix.checked_sub(1).and_then(|at| rows.get(at));
+    let from_here = rows.get(ix..).unwrap_or_default();
     let opens_run = team.filter(|team| {
-        ix == 0 || (rows[ix - 1].message.team.as_ref()).is_none_or(|before| before.id != team.id)
+        before.is_none_or(|before| {
+            (before.message.team.as_ref()).is_none_or(|before| before.id != team.id)
+        })
     });
     let team_head = opens_run.and_then(|team| {
-        let line = team::line_of(&rows[ix..], &team.id)?;
+        let line = team::line_of(from_here, &team.id)?;
         Some(team::head(&team.id, line, team_open, looks, cx))
     });
     let behind = team
         .filter(|_| team_open)
-        .is_some_and(|team| team::behind(&rows[ix..], &team.id, looks.reading));
+        .is_some_and(|team| team::behind(from_here, &team.id, looks.reading));
     if team.is_some_and(|team| behind || (!team_open && team.shown.is_empty())) {
         return div()
             .w_full()
@@ -66,12 +70,9 @@ pub(super) fn row(
     let fold = message.fold.as_ref().filter(|_| team.is_none());
     let folded = fold.is_some_and(|fold| !looks.reading.opened.contains(&fold.id));
     let opens = fold.filter(|fold| {
-        ix == 0
-            || rows[ix - 1]
-                .message
-                .fold
-                .as_ref()
-                .is_none_or(|before| before.id != fold.id)
+        before.is_none_or(|before| {
+            (before.message.fold.as_ref()).is_none_or(|before| before.id != fold.id)
+        })
     });
     let work_shown = if user || team_open {
         1.
@@ -105,7 +106,7 @@ pub(super) fn row(
         }
     }
     let live = ix + 1 == rows.len() && looks.reading.running.get();
-    let follows_own = user && ix > 0 && plainly_sent(&rows[ix - 1]);
+    let follows_own = user && before.is_some_and(plainly_sent);
     let followed_by_own = user && rows.get(ix + 1).is_some_and(plainly_sent);
     let summed = if user {
         0.
@@ -593,21 +594,20 @@ pub(super) fn letters(
     let letters = &row.message.letters;
     let mut drawn = Vec::with_capacity(letters.len());
     let mut ix = 0;
-    while ix < letters.len() {
-        let letter = &letters[ix];
-        if letter.kind == LetterKind::Answer {
-            let run = letters[ix..]
-                .iter()
-                .take_while(|next| {
-                    next.kind == LetterKind::Answer && next.agent_id == letter.agent_id
-                })
-                .count();
-            drawn.push(answer_thread(row, &letters[ix..ix + run], ix, looks, cx));
-            ix += run;
-            continue;
-        }
-        drawn.push(match letter.kind {
-            LetterKind::Answer => unreachable!(),
+    while let Some(letter) = letters.get(ix) {
+        let letter_row = match letter.kind {
+            LetterKind::Answer => {
+                let rest = letters.get(ix..).unwrap_or_default();
+                let run = (rest.iter())
+                    .take_while(|next| {
+                        next.kind == LetterKind::Answer && next.agent_id == letter.agent_id
+                    })
+                    .count();
+                let answers = rest.get(..run).unwrap_or_default();
+                drawn.push(answer_thread(row, answers, ix, looks, cx));
+                ix += run;
+                continue;
+            }
             LetterKind::Message | LetterKind::Trigger => {
                 let id = SharedString::from(format!("{}:{}", row.message.id, letter_doc(ix)));
                 let text = row.doc(&letter_doc(ix)).map(|doc| {
@@ -631,7 +631,8 @@ pub(super) fn letters(
                 };
                 from(who, row, text, looks).into_any_element()
             }
-        });
+        };
+        drawn.push(letter_row);
         ix += 1;
     }
     div()
@@ -652,7 +653,9 @@ fn answer_thread(
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx);
-    let asker = &answers[0];
+    let Some(asker) = answers.first() else {
+        return div().into_any_element();
+    };
     let answered = answers.iter().enumerate().map(|(at, letter)| {
         let files = letter.attachments.iter().enumerate().map(|(index, path)| {
             let id = format!("{}:{}:{index}", row.message.id, letter_doc(first + at));

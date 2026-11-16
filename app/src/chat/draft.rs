@@ -220,7 +220,7 @@ impl Workbench {
             return;
         };
         let quote = match quote.char_indices().nth(QUOTE_MAX) {
-            Some((cut, _)) => format!("{}…", quote[..cut].trim_end()),
+            Some((cut, _)) => format!("{}…", quote.get(..cut).unwrap_or(quote).trim_end()),
             None => quote.to_owned(),
         };
         composing

@@ -843,7 +843,7 @@ impl Chat {
                 } else {
                     1
                 };
-                self.shown = Some(open[(at + step) % open.len()].id.clone());
+                self.shown = (open.get((at + step) % open.len())).map(|next| next.id.clone());
                 self.cursor = None;
                 (true, None)
             }

@@ -242,13 +242,17 @@ impl Workbench {
         shown.insert(index.min(shown.len()), moved);
         let mut pins = view.workspace.pinned.clone();
         let id = |pin: &PinnedChat| format!("{}:{}", pin.provider, pin.session_id);
-        let slots: Vec<usize> = (0..pins.len())
-            .filter(|&at| shown.contains(&id(&pins[at])))
+        let slots: Vec<usize> = (pins.iter().enumerate())
+            .filter(|(_, pin)| shown.contains(&id(pin)))
+            .map(|(at, _)| at)
             .collect();
         let kept = pins.clone();
         for (slot, chat) in slots.iter().zip(&shown) {
-            if let Some(pin) = kept.iter().find(|pin| id(pin) == *chat) {
-                pins[*slot] = pin.clone();
+            if let (Some(pin), Some(place)) = (
+                kept.iter().find(|pin| id(pin) == *chat),
+                pins.get_mut(*slot),
+            ) {
+                *place = pin.clone();
             }
         }
         if pins != view.workspace.pinned {
@@ -306,13 +310,18 @@ fn merged(lists: Vec<Vec<AgentRow>>) -> Vec<AgentRow> {
     let mut rows = Vec::new();
     loop {
         let next = (teams.iter().enumerate())
-            .filter_map(|(at, list)| Some((at, &list.front()?[0])))
+            .filter_map(|(at, list)| Some((at, list.front()?.first()?)))
             .min_by_key(|(at, head)| (head.started_at.unwrap_or(u64::MAX), *at))
             .map(|(at, _)| at);
         let Some(at) = next else {
             return rows;
         };
-        rows.extend(teams[at].pop_front().unwrap_or_default());
+        rows.extend(
+            teams
+                .get_mut(at)
+                .and_then(|team| team.pop_front())
+                .unwrap_or_default(),
+        );
     }
 }
 

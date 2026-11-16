@@ -150,8 +150,7 @@ fn finished_texts(rows: &[ChatRow]) -> impl Iterator<Item = (&str, &str)> {
         .iter()
         .rposition(|row| row.message.role == ChatRole::User || row.message.opens_turn.is_some())
         .map_or(0, |at| at + 1);
-    let parts: Vec<&ChatPart> = rows[start..]
-        .iter()
+    let parts: Vec<&ChatPart> = (rows.iter().skip(start))
         .filter(|row| row.message.role != ChatRole::User)
         .flat_map(|row| row.message.parts.iter())
         .collect();

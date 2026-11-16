@@ -925,7 +925,7 @@ pub fn step_prompts(
     if older {
         let at = at.checked_sub(1)?;
         *recalled = Some((at, typed));
-        return Some(prompts[at].clone());
+        return prompts.get(at).cloned();
     }
     match prompts.get(at + 1) {
         Some(prompt) => {
@@ -1053,7 +1053,7 @@ impl Chat {
     pub fn unknown_command<'a>(&self, text: &'a str) -> Option<&'a str> {
         let commands = &self.state.as_ref()?.commands;
         let word = text.strip_prefix('/')?;
-        let name = &word[..word.find(char::is_whitespace).unwrap_or(word.len())];
+        let name = word.split(char::is_whitespace).next().unwrap_or(word);
         let named = !name.is_empty()
             && name
                 .chars()

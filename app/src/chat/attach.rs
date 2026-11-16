@@ -207,11 +207,10 @@ impl Composing {
                 break;
             }
             self.fresh = Some((path.clone(), std::time::Instant::now()));
-            self.attachments.push(path);
-            let path = &self.attachments[self.attachments.len() - 1];
-            if is_image(path) {
-                tags.push(image_tag(self.attachments.len(), path));
+            if is_image(&path) {
+                tags.push(image_tag(self.attachments.len() + 1, &path));
             }
+            self.attachments.push(path);
         }
         if tags.is_empty() {
             return;
@@ -219,11 +218,11 @@ impl Composing {
         self.draft.update(cx, |draft, cx| {
             let range = draft.selected_range();
             let value = draft.value();
-            let spaced_before = value[..range.start]
+            let spaced_before = (value.get(..range.start).unwrap_or_default())
                 .chars()
                 .next_back()
                 .is_none_or(char::is_whitespace);
-            let spaced_after = value[range.end..]
+            let spaced_after = (value.get(range.end..).unwrap_or_default())
                 .chars()
                 .next()
                 .is_some_and(char::is_whitespace);
@@ -281,21 +280,21 @@ impl Composing {
                 };
                 if id == gone {
                     let range = span.range();
-                    let start = if draft.value()[..range.start].ends_with(' ') {
+                    let value = draft.value();
+                    let start = if value.get(..range.start).unwrap_or_default().ends_with(' ') {
                         range.start - 1
                     } else {
                         range.start
                     };
                     draft.set_selected_range(start..range.end, cx);
                     draft.replace("", window, cx);
-                } else if let Some(at) = attachments
-                    .iter()
-                    .position(|path| path.to_string_lossy() == id)
-                    .filter(|at| *at >= index)
+                } else if let Some((at, path)) = (attachments.iter().enumerate())
+                    .find(|(_, path)| path.to_string_lossy() == id)
+                    .filter(|(at, _)| *at >= index)
                 {
                     if let Err(error) = draft.replace_range_with_token(
                         span.range(),
-                        image_tag(at + 1, &attachments[at]),
+                        image_tag(at + 1, path),
                         window,
                         cx,
                     ) {
@@ -1259,8 +1258,14 @@ fn mention_of(written: &str, chip: &SentChip) -> Option<Mention> {
         SentChipKind::File => format!("{FILE}{carried}"),
         SentChipKind::Folder => format!("{FOLDER}{carried}"),
         SentChipKind::Image => format!("{IMAGE}{carried}"),
-        SentChipKind::Issue => format!("{TRACKED}issue:{}:{carried}", &written[1..]),
-        SentChipKind::Pull => format!("{TRACKED}pull:{}:{carried}", &written[1..]),
+        SentChipKind::Issue => format!(
+            "{TRACKED}issue:{}:{carried}",
+            written.get(1..).unwrap_or_default()
+        ),
+        SentChipKind::Pull => format!(
+            "{TRACKED}pull:{}:{carried}",
+            written.get(1..).unwrap_or_default()
+        ),
         SentChipKind::Other => return None,
     };
     let label = match chip.kind {

@@ -632,7 +632,8 @@ fn bytes(bytes: Vec<u8>, t: &Tokens) -> AnyElement {
         range
             .map(|row| {
                 let start = row * BYTES_PER_ROW;
-                let chunk = &bytes[start..(start + BYTES_PER_ROW).min(bytes.len())];
+                let chunk = (bytes.get(start..(start + BYTES_PER_ROW).min(bytes.len())))
+                    .unwrap_or_default();
                 let hex: Vec<String> = chunk.iter().map(|byte| format!("{byte:02x}")).collect();
                 let printed: String = chunk
                     .iter()

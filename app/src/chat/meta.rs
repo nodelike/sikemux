@@ -41,8 +41,7 @@ fn copied(rows: &[ChatRow], ix: usize) -> Option<String> {
             .position(|row| &row.message.id == start)
             .unwrap_or(ix)
     };
-    let text = rows[from..=ix]
-        .iter()
+    let text = (rows.get(from..=ix)?.iter())
         .flat_map(|row| prose(&row.message))
         .collect::<Vec<_>>()
         .join("\n\n");

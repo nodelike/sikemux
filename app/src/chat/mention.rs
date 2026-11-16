@@ -88,11 +88,12 @@ fn typed(text: &str, caret: usize) -> Option<Typed> {
         .char_indices()
         .rfind(|(_, ch)| ch.is_whitespace())
         .map_or(0, |(at, ch)| at + ch.len_utf8());
-    let mut word = before[start..].chars();
+    let (head, word) = before.split_at_checked(start)?;
+    let mut word = word.chars();
     let trigger = word
         .next()
         .filter(|first| matches!(first, '@' | '+' | '/' | '#' | '!' | '&'))
-        .filter(|&first| first != '/' || before[..start].trim().is_empty())?;
+        .filter(|&first| first != '/' || head.trim().is_empty())?;
     Some(Typed {
         trigger,
         start,
@@ -994,7 +995,7 @@ fn tracked_id(item: &TrackedItem) -> String {
 fn clipped(title: &str) -> String {
     const ROOM: usize = 56;
     match title.char_indices().nth(ROOM) {
-        Some((at, _)) => format!("{}…", title[..at].trim_end()),
+        Some((at, _)) => format!("{}…", title.get(..at).unwrap_or(title).trim_end()),
         None => title.to_owned(),
     }
 }

@@ -802,8 +802,12 @@ impl TabMenu {
         let strip = self.strip.clone();
         let at = self.files.iter().position(|(id, _)| *id == self.tab);
         let ids = |files: &[(String, bool)]| files.iter().map(|(id, _)| id.clone()).collect();
-        let left: Vec<String> = at.map_or(Vec::new(), |at| ids(&self.files[..at]));
-        let right: Vec<String> = at.map_or(Vec::new(), |at| ids(&self.files[at + 1..]));
+        let left: Vec<String> = at.map_or(Vec::new(), |at| {
+            ids(self.files.get(..at).unwrap_or_default())
+        });
+        let right: Vec<String> = at.map_or(Vec::new(), |at| {
+            ids(self.files.get(at + 1..).unwrap_or_default())
+        });
         let others: Vec<String> = ids(&self.files)
             .into_iter()
             .filter(|id: &String| *id != self.tab)
@@ -978,7 +982,9 @@ impl Workbench {
             return;
         };
         let to = (at as isize + by).rem_euclid(tabs.len() as isize) as usize;
-        self.activate_tab(&strip, &tabs[to].id);
+        if let Some(tab) = tabs.get(to) {
+            self.activate_tab(&strip, &tab.id);
+        }
     }
 
     /// Brings forward the tab at `place` in the strip, counting from one, or the last tab.
@@ -1082,13 +1088,12 @@ impl Workbench {
                 .iter()
                 .find_map(|id| tabs.iter().find(|tab| &tab.id == id).filter(open))
         };
-        match active {
-            Some(at) if open(&&tabs[at]) => Some(&tabs[at]),
-            Some(at) => latest().or_else(|| {
-                tabs[at..]
-                    .iter()
+        match active.and_then(|at| Some((at, tabs.get(at)?))) {
+            Some((_, tab)) if open(&tab) => Some(tab),
+            Some((at, _)) => latest().or_else(|| {
+                (tabs.iter().skip(at))
                     .find(open)
-                    .or_else(|| tabs[..at].iter().rev().find(open))
+                    .or_else(|| tabs.iter().take(at).rev().find(open))
             }),
             None => tabs.iter().find(open),
         }

@@ -363,7 +363,7 @@ impl Workbench {
         cx.spawn(async move |bench, cx| {
             let opened = opening.await;
             let _ = bench.update(cx, |bench, cx| {
-                let opened = opened.and_then(|opened| match opened["project"].as_str() {
+                let opened = opened.and_then(|opened| match opened.get("project").and_then(|project| project.as_str()) {
                     Some(_) => Ok(opened),
                     None => Err(t!("{label} did not add the project", label = label)),
                 });
@@ -382,7 +382,7 @@ impl Workbench {
                         return;
                     }
                 };
-                let said = match opened["uncommitted"].as_str() {
+                let said = match (opened.get("uncommitted")).and_then(|changes| changes.as_str()) {
                     Some("applied") => t!(
                         "Copied {name} to {label}, with the uncommitted changes as a commit on top.",
                         name = name,
@@ -406,9 +406,13 @@ impl Workbench {
                 bench.notify(toast::success(said), cx);
                 let copy = crate::copies::HostCopy {
                     place,
-                    project: opened["project"].as_str().unwrap_or_default().to_owned(),
+                    project: (opened.get("project").and_then(|project| project.as_str()))
+                        .unwrap_or_default()
+                        .to_owned(),
                     host: label.clone(),
-                    path: opened["path"].as_str().unwrap_or_default().into(),
+                    path: (opened.get("path").and_then(|path| path.as_str()))
+                        .unwrap_or_default()
+                        .into(),
                     git: None,
                     away: false,
                 };

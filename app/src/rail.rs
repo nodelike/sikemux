@@ -55,6 +55,23 @@ impl Rail {
             Rail::Agents => crate::agents::TAB_RAIL,
         }
     }
+
+    /// What `pair`, the side rail's first, keeps for this rail.
+    pub(crate) fn of<T>(self, pair: &[T; 2]) -> &T {
+        let [side, agents] = pair;
+        match self {
+            Rail::Side => side,
+            Rail::Agents => agents,
+        }
+    }
+
+    pub(crate) fn of_mut<T>(self, pair: &mut [T; 2]) -> &mut T {
+        let [side, agents] = pair;
+        match self {
+            Rail::Side => side,
+            Rail::Agents => agents,
+        }
+    }
 }
 
 /// The window's edge a closed rail comes out from.
@@ -120,7 +137,7 @@ impl Rails {
     }
 
     pub(crate) fn keyed(&self, rail: Rail) -> &KeyedRows {
-        &self.keyed[rail as usize]
+        rail.of(&self.keyed)
     }
 
     /// Opens, sizes and pages the rails as the person's preferences keep them.
@@ -1851,7 +1868,7 @@ pub(crate) fn keyed_rail(
         let this = cx.weak_entity();
         move |key: &A, window: &mut Window, cx: &mut App| {
             this.update(cx, |bench, cx| {
-                if bench.rails.keyed[which as usize].key(key, window, cx) {
+                if which.of_mut(&mut bench.rails.keyed).key(key, window, cx) {
                     bench.redraw_rail(which, cx);
                 }
             })
@@ -1901,10 +1918,10 @@ impl Workbench {
             .into_iter()
             .find(|rail| self.rails.keyed(*rail).focus.contains_focused(window, cx));
         let at = areas.iter().position(|area| *area == now).unwrap_or(0);
-        let to = areas[(at as isize + by).rem_euclid(areas.len() as isize) as usize];
-        match to {
+        let to = areas.get((at as isize + by).rem_euclid(areas.len() as isize) as usize);
+        match to.copied().flatten() {
             Some(rail) => {
-                self.rails.keyed[rail as usize].take_keys(window, cx);
+                rail.of_mut(&mut self.rails.keyed).take_keys(window, cx);
                 self.redraw_rail(rail, cx);
             }
             None => self.keys_to_stage(window, cx),
@@ -1925,7 +1942,7 @@ impl Workbench {
 
     /// How wide `rail` is drawn, which a narrow window can make less than the width kept.
     pub fn rail_width(&self, rail: Rail) -> f32 {
-        self.rails.drawn[rail as usize]
+        *rail.of(&self.rails.drawn)
     }
 
     fn kept_width(&self, rail: Rail) -> f32 {
@@ -1980,9 +1997,9 @@ impl Workbench {
         };
         crate::panes::handle(id, DraggedRail(rail), true)
             .key_context("RailResizer")
-            .track_focus(&self.rails.resizers[rail as usize])
+            .track_focus(rail.of(&self.rails.resizers))
             .clicks_keep_cursor(cx.listener(move |bench, _, window, cx| {
-                bench.rails.resizers[rail as usize].focus(window, cx)
+                rail.of(&bench.rails.resizers).focus(window, cx)
             }))
             .on_action(cx.listener(move |bench, _: &EdgeLeft, window, cx| {
                 bench.nudge_rail(rail, -16., window, cx)

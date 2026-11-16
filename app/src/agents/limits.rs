@@ -430,7 +430,9 @@ fn small_button(id: impl Into<gpui_kit::ElementId>, icon: Icon, label: String) -
 
 fn header(view: &View, agents: &[Agent], cx: &App) -> Div {
     let t = Tokens::get(cx);
-    let add = (view.solo).then(|| add_button(view, &agents[0]));
+    let add = (agents.first())
+        .filter(|_| view.solo)
+        .map(|agent| add_button(view, agent));
     div()
         .h(px(20.))
         .mb(SPACE_1)
@@ -452,7 +454,7 @@ fn header(view: &View, agents: &[Agent], cx: &App) -> Div {
 /// How many limit resets the accounts shown hold between them, when any.
 fn resets_badge(view: &View, agents: &[Agent], cx: &App) -> Option<Stateful<Div>> {
     let left: u32 = (rest_accounts(agents, view.solo).into_iter())
-        .flat_map(|(agent, place)| agent.accounts[place].resets())
+        .flat_map(|(_, shown)| shown.resets())
         .map(|kind| kind.left)
         .sum();
     if left == 0 {
@@ -586,11 +588,18 @@ impl Total {
     }
 }
 
-/// The accounts the rail lists, each by its agent and its place among that agent's accounts.
-fn rest_accounts<'b, 'a>(agents: &'b [Agent<'a>], solo: bool) -> Vec<(&'b Agent<'a>, usize)> {
-    let shown = if solo { &agents[..1] } else { agents };
+/// The accounts the rail lists, each beside its agent.
+fn rest_accounts<'b, 'a>(
+    agents: &'b [Agent<'a>],
+    solo: bool,
+) -> Vec<(&'b Agent<'a>, &'b Shown<'a>)> {
+    let shown = if solo {
+        agents.get(..1).unwrap_or(agents)
+    } else {
+        agents
+    };
     (shown.iter())
-        .flat_map(|agent| (0..agent.accounts.len()).map(move |place| (agent, place)))
+        .flat_map(|agent| (agent.accounts.iter()).map(move |shown| (agent, shown)))
         .collect()
 }
 
@@ -605,11 +614,10 @@ fn rail_limits<'s>(shown: &'s Shown) -> Vec<(&'static str, &'s UsageWindow)> {
 
 fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
     let accounts = rest_accounts(agents, view.solo);
-    let two =
-        (accounts.iter()).any(|(agent, place)| rail_limits(&agent.accounts[*place]).len() > 1);
+    let two = (accounts.iter()).any(|(_, shown)| rail_limits(shown).len() > 1);
     let numbers = if two { 66. } else { 36. };
     (accounts.into_iter())
-        .map(|(agent, place)| rest_row(view, agent, place, numbers, cx))
+        .map(|(agent, shown)| rest_row(view, agent, shown, numbers, cx))
         .collect()
 }
 
@@ -623,9 +631,8 @@ fn left_ink(used: f64, t: &Tokens, quiet: Hsla) -> Hsla {
 
 /// A resting row: an account's face and name, its session over its week, and how much of
 /// each is used, every ruler as long as the others so the accounts compare at a glance.
-fn rest_row(view: &View, agent: &Agent, place: usize, numbers: f32, cx: &App) -> AnyElement {
+fn rest_row(view: &View, agent: &Agent, shown: &Shown, numbers: f32, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
-    let shown = &agent.accounts[place];
     let limits = rail_limits(shown);
     let id = SharedString::from(format!(
         "limit-{}-{}",

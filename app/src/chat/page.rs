@@ -50,7 +50,11 @@ fn shown<'a>(page: &PageRef, looks: &Looks, window: &mut Window, cx: &'a mut App
             .insert(page.id.clone(), Shown::default());
         fetch(page, looks, window, cx);
     }
-    &cx.global::<Pages>().shown[&page.id]
+    const NOT_YET: &Shown = &Shown {
+        picture: None,
+        failed: None,
+    };
+    cx.global::<Pages>().shown.get(&page.id).unwrap_or(NOT_YET)
 }
 
 /// Pages shown in tabs on the desk, one row each in a shared frame: the top of the page, its

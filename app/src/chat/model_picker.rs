@@ -477,7 +477,10 @@ impl Menu {
                 "{} {} {}",
                 option.label,
                 option.meta.as_deref().unwrap_or_default(),
-                groups[option.group]
+                groups
+                    .get(option.group)
+                    .map(String::as_str)
+                    .unwrap_or_default()
             )
             .to_lowercase()
             .contains(&query)

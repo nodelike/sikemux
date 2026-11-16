@@ -26,7 +26,8 @@ pub(crate) fn avatar(name: &str, place: usize) -> Arc<Image> {
         drawn
             .entry(key)
             .or_insert_with_key(|(name, palette)| {
-                let svg = svg(name, &PALETTES[*palette]);
+                let colors = PALETTES.get(*palette).unwrap_or(&PALETTES[0]);
+                let svg = svg(name, colors);
                 Arc::new(Image::from_bytes(ImageFormat::Svg, svg.into_bytes()))
             })
             .clone()
@@ -43,18 +44,19 @@ struct Element {
 
 fn svg(name: &str, colors: &[&'static str; 5]) -> String {
     let number = hash(name);
-    let parts: Vec<Element> = (0..3)
-        .map(|at| {
-            let seed = number * (at + 1);
-            Element {
-                color: colors[((number + at) % colors.len() as i64) as usize],
-                x: unit(seed, 8, 1),
-                y: unit(seed, 8, 2),
-                scale: 1.2 + unit(seed, 4, 0) as f64 / 10.,
-                rotate: unit(seed, 360, 1),
-            }
-        })
-        .collect();
+    let [first, second, third]: [Element; 3] = std::array::from_fn(|at| {
+        let at = at as i64;
+        let seed = number * (at + 1);
+        Element {
+            color: (colors.get(((number + at) % colors.len() as i64) as usize))
+                .copied()
+                .unwrap_or_default(),
+            x: unit(seed, 8, 1),
+            y: unit(seed, 8, 2),
+            scale: 1.2 + unit(seed, 4, 0) as f64 / 10.,
+            rotate: unit(seed, 360, 1),
+        }
+    });
     let place = |part: &Element, scale: f64| {
         format!(
             "translate({} {}) rotate({} 40 40) scale({scale})",
@@ -70,11 +72,11 @@ fn svg(name: &str, colors: &[&'static str; 5]) -> String {
             r##"<path filter="url(#f)" style="mix-blend-mode:overlay" d="M22.216 24L0 46.75l14.108 38.129L78 86l-3.081-59.276-22.378 4.005 12.972 20.186-23.35 27.395L22.215 24z" fill="{}" transform="{}"/></g>"##,
             r##"<defs><filter id="f" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="BackgroundImageFix"/><feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur stdDeviation="7" result="effect1_foregroundBlur"/></filter></defs></svg>"##
         ),
-        parts[0].color,
-        parts[1].color,
-        place(&parts[1], parts[2].scale),
-        parts[2].color,
-        place(&parts[2], parts[2].scale),
+        first.color,
+        second.color,
+        place(&second, third.scale),
+        third.color,
+        place(&third, third.scale),
     )
 }
 

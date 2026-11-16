@@ -51,8 +51,8 @@ pub(crate) fn tree(rows: &[AgentRow], root: usize, folded: &HashSet<String>) -> 
         .collect();
     let mut children = vec![Vec::new(); rows.len()];
     for (ix, lead) in parent.iter().enumerate() {
-        if let Some(lead) = lead {
-            children[*lead].push(ix);
+        if let Some(kids) = lead.and_then(|lead| children.get_mut(lead)) {
+            kids.push(ix);
         }
     }
     let mut below = vec![0; rows.len()];
@@ -66,22 +66,26 @@ pub(crate) fn tree(rows: &[AgentRow], root: usize, folded: &HashSet<String>) -> 
         below: &mut [usize],
         order: &mut Vec<(usize, usize)>,
     ) -> usize {
-        placed[ix] = true;
+        if let Some(seen) = placed.get_mut(ix) {
+            *seen = true;
+        }
         order.push((ix, depth));
         let mut count = 0;
-        for &child in &children[ix] {
-            if !placed[child] {
+        for &child in children.get(ix).into_iter().flatten() {
+            if placed.get(child) == Some(&false) {
                 count += 1 + walk(child, depth + 1, children, placed, below, order);
             }
         }
-        below[ix] = count;
+        if let Some(under) = below.get_mut(ix) {
+            *under = count;
+        }
         count
     }
     for (ix, _) in parent.iter().enumerate().filter(|(_, lead)| lead.is_none()) {
         walk(ix, 0, &children, &mut placed, &mut below, &mut order);
     }
     for ix in 0..rows.len() {
-        if !placed[ix] {
+        if placed.get(ix) == Some(&false) {
             walk(ix, 0, &children, &mut placed, &mut below, &mut order);
         }
     }
@@ -92,7 +96,9 @@ pub(crate) fn tree(rows: &[AgentRow], root: usize, folded: &HashSet<String>) -> 
             Some(fold) if depth > fold => continue,
             _ => hidden_below = None,
         }
-        if below[ix] > 0 && folded.contains(&rows[ix].id) {
+        if below.get(ix).is_some_and(|count| *count > 0)
+            && rows.get(ix).is_some_and(|row| folded.contains(&row.id))
+        {
             hidden_below = Some(depth);
         }
         shown.push((ix, depth));
@@ -106,14 +112,14 @@ pub(crate) fn tree(rows: &[AgentRow], root: usize, folded: &HashSet<String>) -> 
         .zip(depths.iter().copied())
         .zip(lines)
         .enumerate())
-    .map(|(at, (((ix, depth), drawn), lines))| {
-        let row = &rows[ix];
+    .filter_map(|(at, (((ix, depth), drawn), lines))| {
+        let row = rows.get(ix)?;
         let deeper = root + depth > drawn;
-        let lead_apart = match parent[ix] {
+        let lead_apart = match parent.get(ix).copied().flatten() {
             Some(_) if !deeper => None,
             _ => row.lead.clone(),
         };
-        Placed {
+        Some(Placed {
             row: row.clone(),
             hang: Hang {
                 depth: drawn,
@@ -121,8 +127,8 @@ pub(crate) fn tree(rows: &[AgentRow], root: usize, folded: &HashSet<String>) -> 
                 lead_apart,
                 open: depths.get(at + 1).is_some_and(|next| *next > drawn),
             },
-            below: below[ix],
-        }
+            below: below.get(ix).copied().unwrap_or(0),
+        })
     })
     .collect()
 }
@@ -132,23 +138,27 @@ pub(crate) fn lines_of(depths: &[usize]) -> Vec<Vec<Line>> {
     let deepest = depths.iter().copied().max().unwrap_or(0);
     // Whether a later row hangs at each level before the tree closes back past it.
     let mut later = vec![false; deepest];
-    let mut lines = vec![Vec::new(); depths.len()];
-    for (ix, &depth) in depths.iter().enumerate().rev() {
-        lines[ix] = (0..depth)
-            .map(|level| match (level + 1 == depth, later[level]) {
-                (true, true) => Line::Tick,
-                (true, false) => Line::Corner,
-                (false, true) => Line::Through,
-                (false, false) => Line::Blank,
-            })
+    let mut lines = Vec::with_capacity(depths.len());
+    for &depth in depths.iter().rev() {
+        let drawn = (0..depth)
+            .map(
+                |level| match (level + 1 == depth, later.get(level) == Some(&true)) {
+                    (true, true) => Line::Tick,
+                    (true, false) => Line::Corner,
+                    (false, true) => Line::Through,
+                    (false, false) => Line::Blank,
+                },
+            )
             .collect();
+        lines.push(drawn);
         for open in later.iter_mut().skip(depth) {
             *open = false;
         }
-        if depth > 0 {
-            later[depth - 1] = true;
+        if let Some(open) = depth.checked_sub(1).and_then(|level| later.get_mut(level)) {
+            *open = true;
         }
     }
+    lines.reverse();
     lines
 }
 
