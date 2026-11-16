@@ -136,6 +136,10 @@ impl Trigger {
         self.ci.as_ref().is_some_and(ci::CiWatch::after_push)
     }
 
+    fn ends_with_chat(&self) -> bool {
+        self.board.is_none() && self.paused.is_none() && !self.after_push()
+    }
+
     fn shown(&self) -> ChatTrigger {
         ChatTrigger {
             id: self.id,
@@ -461,7 +465,7 @@ impl Triggers {
             .locked()
             .triggers
             .iter()
-            .filter(|trigger| trigger.board.is_none() && trigger.paused.is_none())
+            .filter(|trigger| trigger.ends_with_chat())
             .map(|trigger| trigger.agent_id.clone())
             .collect();
         agents.sort();
@@ -623,14 +627,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
         .collect();
     if !gone.is_empty() {
         let closed = core.triggers().change(|state| {
-            let (closed, kept) =
-                std::mem::take(&mut state.triggers)
-                    .into_iter()
-                    .partition(|trigger| {
-                        trigger.board.is_none()
-                            && !trigger.after_push()
-                            && gone.contains(&trigger.agent_id)
-                    });
+            let (closed, kept) = std::mem::take(&mut state.triggers)
+                .into_iter()
+                .partition(|trigger| trigger.ends_with_chat() && gone.contains(&trigger.agent_id));
             state.triggers = kept;
             closed
         });
