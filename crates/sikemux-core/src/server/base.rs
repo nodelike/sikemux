@@ -503,7 +503,7 @@ pub(super) fn board_above() -> BoardAbove {
 
 pub(super) fn access_of(method: &str) -> Rule {
     let row = calls::row(method);
-    Rule::new(row.needs, row.program, row.signs)
+    Rule::new(row.needs, row.program, row.signs.is_some())
 }
 
 fn task_ended(core: &Core, id: SessionId, code: Option<u32>, signal: Option<String>) {

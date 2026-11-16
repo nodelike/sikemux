@@ -984,6 +984,25 @@ fn may_pass(core: &Core, call: &PersonCall, peer: &Peer, picked: bool) -> Result
     super::places::may_pass(core, call, peer, picked)
 }
 
+/// A yes to a production call as the person reads it before it counts: who asks, for what,
+/// and what they picked. None for a no.
+fn yes_in_words(call: &PersonCall, answer: &CallAnswer) -> Option<String> {
+    let picked: Vec<&str> = (answer.option.iter().chain(&answer.options))
+        .filter(|id| *id != HOLD_REFUSE)
+        .filter_map(|id| call.options.iter().find(|option| option.id == *id))
+        .map(|option| option.label.as_str())
+        .collect();
+    if picked.is_empty() {
+        return None;
+    }
+    let mut words = format!("@{} asks: {}", call.asker.name, call.question);
+    if let Some(action) = &call.action {
+        words.push_str(&format!("\n\n{action}"));
+    }
+    words.push_str(&format!("\n\nYour answer: {}", picked.join(", ")));
+    Some(words)
+}
+
 /// What the person's answer is, as the call keeps it, and what they typed with it. A secret is
 /// never kept.
 fn answer_of(
@@ -1062,6 +1081,9 @@ pub async fn answer(core: &Arc<Core>, peer: &Peer, params: AnswerCallParams) -> 
             peer,
             answer.option.is_some() || !answer.options.is_empty(),
         )?;
+        if let Some(words) = yes_in_words(&call, &answer) {
+            core.remote().sign(peer, &words).await?;
+        }
     }
     let (call, source) = core.person_calls().take_answer(&call.id, answer)?;
     if let Err(error) = core.person_calls().starting_on_yes(&call.id) {

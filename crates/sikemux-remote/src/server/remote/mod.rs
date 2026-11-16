@@ -39,6 +39,7 @@ use super::changed::Topic;
 use super::connection::{blocking, serve_client};
 use super::host_key::{secret_from_hex, HostKey, Keeper};
 use super::{Core, CoreError, CoreResult};
+use window::confirmed;
 
 pub mod account;
 pub mod held;
@@ -47,6 +48,7 @@ pub mod listening;
 pub mod pairing;
 pub use pairing::{ApprovalSetting, RemotePairing};
 pub mod push;
+mod window;
 
 pub use account::*;
 pub use held::*;
@@ -556,6 +558,17 @@ impl Remote {
     pub fn may_sign(&self, peer: &Peer) -> CoreResult<()> {
         let standing = peer.device_id().and_then(|id| self.standing_of(&id));
         super::access::may_sign(peer, standing)
+    }
+
+    /// `peer` signs for the person in `what`, the core's own words for the request. A core
+    /// at High, as the Windows service starts it, takes this computer's word only from a window
+    /// of its own, which the person's other programs cannot press.
+    pub async fn sign(&self, peer: &Peer, what: &str) -> CoreResult<()> {
+        self.may_sign(peer)?;
+        match peer {
+            Peer::App | Peer::Local => confirmed(what).await,
+            Peer::Device { .. } | Peer::Share { .. } => Ok(()),
+        }
     }
 
     /// Keeps `id` from ever signing for the person here, as its join ticket asks.

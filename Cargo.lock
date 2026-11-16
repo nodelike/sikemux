@@ -10674,6 +10674,7 @@ dependencies = [
  "sikemux-process",
  "sikemux-pty",
  "sikemux-serve",
+ "sikemux-trust",
  "sikemux-view",
  "sikemux-wire",
  "sikemux-workspace",

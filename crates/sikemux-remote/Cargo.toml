@@ -48,6 +48,9 @@ tempfile = "3"
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
 
+[target.'cfg(windows)'.dependencies]
+sikemux-trust = { path = "../sikemux-trust" }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 block2 = "0.6"

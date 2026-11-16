@@ -331,10 +331,15 @@ pub async fn set_level(
 ) -> CoreResult<Places> {
     let core = core.clone();
     let from = tapped_on(peer);
-    let signs = core
-        .remote()
-        .may_sign(peer)
-        .map_err(|error| error.to_string());
+    let signs = match lowered(&core, &params).await? {
+        Some(name) => {
+            let words = format!(
+                "Lower the protection on {name}: agents will change it without waiting for your yes."
+            );
+            (core.remote().sign(peer, &words).await).map_err(|error| error.to_string())
+        }
+        None => Err("that place changed while you were answering; try again".to_owned()),
+    };
     blocking(move || {
         let project = (core.repo_above().board_project_at)(&core, &params.project)?;
         tapped(&core, &project, |kept| {
@@ -360,6 +365,25 @@ pub async fn set_level(
             Ok(())
         })?;
         Ok(of(&core, &project))
+    })
+    .await
+}
+
+/// The name of the production place `params` would lower, if it would.
+async fn lowered(core: &Arc<Core>, params: &PlaceLevelParams) -> CoreResult<Option<String>> {
+    let (core, project, place, level) = (
+        core.clone(),
+        params.project.clone(),
+        params.place.clone(),
+        params.level,
+    );
+    blocking(move || {
+        let project = (core.repo_above().board_project_at)(&core, &project)?;
+        let (places, _) = current(&core, &project);
+        Ok((places.into_iter())
+            .find(|kept| kept.shown.id == place)
+            .filter(|kept| kept.shown.production && level < kept.shown.level)
+            .map(|kept| kept.shown.name))
     })
     .await
 }
@@ -417,7 +441,11 @@ pub async fn confirm(core: &Arc<Core>, params: PlacesParams) -> CoreResult<Place
 /// The person adds a place the core didn't find, at `mine` when it is production.
 pub async fn add(core: &Arc<Core>, peer: &Peer, params: AddPlaceParams) -> CoreResult<Places> {
     if !params.production {
-        core.remote().may_sign(peer)?;
+        let words = format!(
+            "Add {} as a place that is not production, so agents change it freely.",
+            params.name
+        );
+        core.remote().sign(peer, &words).await?;
     }
     let core = core.clone();
     let from = tapped_on(peer);

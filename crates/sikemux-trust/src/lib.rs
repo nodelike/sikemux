@@ -17,6 +17,8 @@ pub mod service;
 mod spawn;
 #[cfg(windows)]
 mod token;
+#[cfg(windows)]
+mod window;
 
 #[cfg(windows)]
 pub use child::{child, Child};
@@ -28,3 +30,5 @@ pub use library::{loaded_libraries, pin_library_search};
 pub use spawn::{person_environment, spawn, Spawned, Start};
 #[cfg(windows)]
 pub use token::{Integrity, Token};
+#[cfg(windows)]
+pub use window::confirm;
