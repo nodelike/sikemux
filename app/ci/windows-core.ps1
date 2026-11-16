@@ -1,5 +1,6 @@
 # Opens the app on a Windows runner with the core it starts itself, opens a project through the
-# CLI, then a terminal by its key, and keeps a picture of each stage.
+# CLI, a terminal by its key, then a chat with the film's stand-in Claude that answers, reads a
+# file and opens a browser tab, and keeps a picture of each stage.
 param(
     [Parameter(Mandatory)] [string] $App,
     [Parameter(Mandatory)] [string] $Out,
@@ -17,6 +18,24 @@ Set-Content -Path (Join-Path $data 'preferences.json') -Value '{"onboardingCompl
 $cli = Join-Path (Split-Path $App) 'sikemux-host.exe'
 if (-not (Test-Path $cli)) { throw "$cli is not built beside the app" }
 $cli = (Resolve-Path $cli).Path
+$claude = (Resolve-Path (Join-Path (Split-Path $App) 'sikemux-fake-claude.exe')).Path
+# A debug core lets a program act as the person only from where it knows it, examples\remote.
+$examples = Join-Path (Split-Path $App) 'examples'
+Copy-Item (Join-Path $examples 'fake_chat.exe') (Join-Path $examples 'remote.exe') -Force
+$chat = (Resolve-Path (Join-Path $examples 'remote.exe')).Path
+$replies = Join-Path $Out 'replies.json'
+Set-Content -Path $replies -Value (ConvertTo-Json -Depth 8 -InputObject @(
+    @{
+        when = 'look'
+        steps = @(
+            @{ say = 'Reading the README first.' },
+            @{ tool = 'Read'; input = @{ file_path = (Join-Path $project 'README.md') }; result = '# A project opened by the window run'; ms = 800 },
+            @{ tool = 'mcp__sikemux-tools__browser_navigate'; call = 'browser.navigate'; input = @{ url = 'https://example.com' }; ms = 1200 },
+            @{ say = 'It is a project opened by the window run, and example.com is open beside this chat.' }
+        )
+    }
+))
+$env:FAKE_CLAUDE_SCRIPT = $replies
 
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
 using System; using System.Drawing; using System.Runtime.InteropServices;
@@ -96,12 +115,24 @@ Picture 'connected'
 Ask-Core -Step 'open the project' -Words 'open', $project | Out-Null
 Start-Sleep -Seconds 10
 Drive 'open a terminal' "activate`nkey ctrl+t`nwait 3"
+Start-Sleep -Seconds 5
+Picture 'terminal'
+
+$env:FAKE_PROVIDER = 'claude'
+$env:FAKE_PROJECT = $project
+$env:FAKE_PAUSE_MS = '30000'
+$socket = Join-Path $env:LOCALAPPDATA 'Sikemux\core.dev.sock'
+$ErrorActionPreference = 'Continue'
+$answer = (& $chat $socket $claude 'look at this project' 2>&1 | Out-String)
+$ErrorActionPreference = 'Stop'
+"start a chat on the stand-in (exit $LASTEXITCODE)`n$answer" | Out-File -Append (Join-Path $Out 'steps.txt')
+Write-Host "start a chat on the stand-in (exit $LASTEXITCODE): $answer"
+if ($LASTEXITCODE -ne 0) { $failed += 'start a chat on the stand-in' }
 Drive 'what the window holds' 'state'
-Start-Sleep -Seconds 15
 Picture 'window'
 "window: $($proc.MainWindowTitle)" | Out-File (Join-Path $Out 'state.txt')
 
 Stop-Process -Id $proc.Id
-Get-Process sikemux-host -ErrorAction SilentlyContinue | Stop-Process
+Get-Process sikemux-host, sikemux-fake-claude -ErrorAction SilentlyContinue | Stop-Process
 Get-Content (Join-Path $Out 'stdout.txt'), (Join-Path $Out 'stderr.txt')
 if ($failed.Count -gt 0) { throw "these steps failed: $($failed -join ', ')" }
