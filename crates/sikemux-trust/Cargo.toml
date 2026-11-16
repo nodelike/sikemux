@@ -1,0 +1,19 @@
+[package]
+name = "sikemux-trust"
+version.workspace = true
+edition = "2021"
+publish = false
+description = "Windows tokens and process starts that keep the person's other programs out of a High core"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Environment",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
