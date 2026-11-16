@@ -100,25 +100,17 @@ pub fn sync(core: &Core, agent_id: &str) -> Result<Synced, String> {
     sync_from(&worktree, &Signing::of(core))
 }
 
-/// Why `worktree` holds commits its base branch lacks, which a push from the
-/// base branch would leave out, when it does.
-pub fn unlanded(worktree: &AgentWorktree) -> Result<Option<String>, String> {
+/// Whether `worktree` holds commits its base branch lacks.
+pub fn unlanded(worktree: &AgentWorktree) -> Result<bool, String> {
     let Some(base) = worktree.base.as_deref() else {
-        return Ok(None);
+        return Ok(false);
     };
     let tip = line(git(
         &worktree.repo,
         &["rev-parse", &format!("refs/heads/{base}")],
     )?);
     let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
-    let commits = own_commits(&worktree.path, &tip, &head)?;
-    Ok((!commits.is_empty()).then(|| {
-        format!(
-            "{} of your commits are only on {}, your checkout's own branch; pass land: true to put them on {base} and push from there",
-            commits.len(),
-            worktree.branch
-        )
-    }))
+    Ok(!own_commits(&worktree.path, &tip, &head)?.is_empty())
 }
 
 /// The commits of `head` that `tip` lacks, by their changes, oldest first.

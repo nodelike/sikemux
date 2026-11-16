@@ -225,7 +225,7 @@ pub(crate) fn held_work(core: &Core, agent_id: &str) -> Option<&'static str> {
     agent
         .worktree
         .as_ref()
-        .is_some_and(|worktree| !matches!(super::edits::unlanded(worktree), Ok(None)))
+        .is_some_and(|worktree| !matches!(super::edits::unlanded(worktree), Ok(false)))
         .then_some("has unlanded commits")
 }
 

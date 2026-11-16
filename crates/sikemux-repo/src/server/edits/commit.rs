@@ -216,12 +216,12 @@ pub async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, S
         };
         let pushed = match push && !land {
             true => {
-                let (from, unlanded) = match own {
-                    Some(tree) => (tree.repo.clone(), super::land::unlanded(&tree)?),
-                    None => (dir, None),
+                let from = match own {
+                    Some(tree) if super::land::unlanded(&tree)? => tree.path,
+                    Some(tree) => tree.repo,
+                    None => dir,
                 };
-                not_pushed = unlanded
-                    .or_else(|| super::super::ship::check(&core, &agent_id, ship(), &from).err());
+                not_pushed = super::super::ship::check(&core, &agent_id, ship(), &from).err();
                 match not_pushed {
                     None => push_or_tell(&core, from, &agent_id)?,
                     Some(_) => None,

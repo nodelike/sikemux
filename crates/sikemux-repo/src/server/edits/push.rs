@@ -202,12 +202,29 @@ fn push_holding(
         ) {
             Err(Attempt::Raced) => continue,
             Err(Attempt::Failed(why)) => return Err(why),
-            Ok(pushed) => return Ok(pushed),
+            Ok(pushed) => {
+                follow(&top, remote, &branch)?;
+                return Ok(pushed);
+            }
         }
     }
     Err(format!(
         "{remote}/{branch} kept moving while pushing; call this again"
     ))
+}
+
+/// Makes `branch` track its namesake on `remote`, unless it already tracks something.
+fn follow(top: &Path, remote: &str, branch: &str) -> Result<(), String> {
+    let merge = format!("branch.{branch}.merge");
+    let tracking = format!("refs/remotes/{remote}/{branch}");
+    if git(top, &["config", "--get", &merge]).is_ok()
+        || git(top, &["rev-parse", "--verify", "-q", &tracking]).is_err()
+    {
+        return Ok(());
+    }
+    git(top, &["config", &format!("branch.{branch}.remote"), remote])?;
+    git(top, &["config", &merge, &format!("refs/heads/{branch}")])?;
+    Ok(())
 }
 
 enum Attempt {
@@ -843,11 +860,18 @@ fn remote_git(top: &Path, args: &[&str]) -> Result<(), String> {
 }
 
 fn git_remote_output(top: &Path, args: &[&str]) -> Result<String, String> {
-    crate::git::Git::at(top)
+    let output = crate::git::Git::at(top)
         .timeout(PUSH_WAIT)
         .limit(PUSH_OUTPUT_LIMIT)
-        .stdout(args)
-        .map(|out| String::from_utf8_lossy(&out).into_owned())
+        .output(args)?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} failed: {}",
+            args.first().copied().unwrap_or_default(),
+            crate::git::said(&output)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 #[cfg(test)]
@@ -892,12 +916,59 @@ mod tests {
             git_in(&remote, &["log", "--format=%s", "fresh"]),
             "mine: a\nbase"
         );
+        assert_eq!(
+            git_in(&work, &["rev-parse", "--abbrev-ref", "fresh@{upstream}"]).trim(),
+            "origin/fresh"
+        );
 
         git_in(
             &work,
             &["remote", "set-url", "origin", "/nowhere/remote.git"],
         );
         assert!(push_as(&work, "origin", whose, &signing).is_err());
+    }
+
+    /// A push Bitbucket's branch rules refused said only "failed to push some refs".
+    #[test]
+    fn a_refused_push_says_what_the_remote_said() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let root = sikemux_process::files::real_path(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        let work = root.join("work");
+        git_in(&root, &["init", "-q", "--bare", "-b", "main", "remote.git"]);
+        git_in(&root, &["clone", "-q", &remote.to_string_lossy(), "work"]);
+        git_in(&work, &["checkout", "-q", "-b", "main"]);
+        commit(&work, "base.txt", "base\n", "mine: base");
+        let hook = |at: PathBuf, said: &str| {
+            std::fs::write(&at, format!("#!/bin/sh\necho '{said}'\nexit 1\n")).unwrap();
+            std::fs::set_permissions(&at, std::fs::Permissions::from_mode(0o755)).unwrap();
+        };
+        hook(
+            work.join(".git/hooks/pre-push"),
+            "typecheck failed in app/page.tsx",
+        );
+        let whose = |_: &str| Ok((true, "someone".to_owned()));
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        let Err(why) = push_as(&work, "origin", whose, &signing) else {
+            panic!("the remote refuses every push");
+        };
+        assert!(why.contains("typecheck failed in app/page.tsx"), "{why}");
+        std::fs::remove_file(work.join(".git/hooks/pre-push")).unwrap();
+        hook(
+            remote.join("hooks/pre-receive"),
+            "Branch main only takes pull requests.",
+        );
+        let Err(why) = push_as(&work, "origin", whose, &signing) else {
+            panic!("the remote refuses every push");
+        };
+        assert!(
+            why.contains("Branch main only takes pull requests."),
+            "{why}"
+        );
     }
 
     #[test]
