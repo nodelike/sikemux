@@ -26,7 +26,7 @@ pub(super) fn page(
 ) -> Vec<AnyElement> {
     let Some(playbook) = playbook else {
         return vec![rows::section(
-            t!("Your rules"),
+            t!("Yours"),
             None,
             None,
             false,
@@ -34,29 +34,49 @@ pub(super) fn page(
             cx,
         )];
     };
-    let yours = match playbook.rules.is_empty() {
-        true => vec![rows::note(
-            t!("None yet. Tell any agent how you want things done here, and it keeps it as your rule."),
-            cx,
-        )],
-        false => (playbook.rules.iter())
-            .map(|rule| row(rule, n!("Undo"), folder, this, cx))
-            .collect(),
-    };
+    let count = |n: usize| (n > 0).then(|| SharedString::from(n.to_string()));
+    let group =
+        |rules: Vec<&Entry>, empty: &str, cx: &mut Context<Workbench>| match rules.is_empty() {
+            true => vec![rows::note(empty, cx)],
+            false => (rules.into_iter())
+                .map(|rule| row(rule, n!("Undo"), folder, this, cx))
+                .collect::<Vec<_>>(),
+        };
+    let (project, yours): (Vec<&Entry>, Vec<&Entry>) =
+        (playbook.rules.iter()).partition(|rule| rule.store.is_project());
+    let (yours_count, project_count) = (count(yours.len()), count(project.len()));
+    let yours = group(
+        yours,
+        t!("None yet. Tell any agent how you like to work everywhere, and it keeps it as yours."),
+        cx,
+    );
+    let project = group(
+        project,
+        t!("None yet. Tell any agent how you want things done here, and it keeps it for this project."),
+        cx,
+    );
     let noted = match playbook.notes.is_empty() {
         true => vec![rows::note(t!("Nothing yet."), cx)],
         false => (playbook.notes.iter())
             .map(|note| row(note, n!("Remove"), folder, this, cx))
             .collect(),
     };
-    let count = |n: usize| (n > 0).then(|| SharedString::from(n.to_string()));
+    let name = crate::ui::path::file_name(std::path::Path::new(folder));
     vec![
         rows::section(
-            t!("Your rules"),
-            count(playbook.rules.len()),
-            Some(t!("Kept from your own words when you said them. Only you change these.").into()),
+            t!("Yours"),
+            yours_count,
+            Some(t!("Kept from your own words. They follow you to every project.").into()),
             false,
             gpui_kit::div().children(yours),
+            cx,
+        ),
+        rows::section(
+            name.clone(),
+            project_count,
+            Some(t!("Every agent on {project} follows these. Kept by Sikemux, never in the repository.", project = name).into()),
+            false,
+            gpui_kit::div().children(project),
             cx,
         ),
         rows::section(
