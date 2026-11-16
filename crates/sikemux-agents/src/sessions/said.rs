@@ -260,11 +260,8 @@ impl Hear for Messages {
         if text.is_empty() {
             return;
         }
-        let mut end = text.len().min(MAX_MESSAGE);
-        while !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        self.0.push(text[..end].to_owned());
+        let end = text.floor_char_boundary(MAX_MESSAGE);
+        self.0.push(text.get(..end).unwrap_or(text).to_owned());
     }
 }
 
@@ -542,5 +539,6 @@ fn lead_in(runs: &mut [FoundRun]) {
     if words.len() <= LEAD_WORDS + 1 {
         return;
     }
-    first.text = format!("…{}", words[words.len() - LEAD_WORDS - 1..].join(" "));
+    let shown = words.get(words.len() - LEAD_WORDS - 1..).unwrap_or(&words);
+    first.text = format!("…{}", shown.join(" "));
 }

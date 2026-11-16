@@ -56,7 +56,7 @@ pub fn claude_project_dir(root: &Path, cwd: &str) -> PathBuf {
     if name.len() <= MAX_PROJECT_DIR_NAME {
         return projects.join(name);
     }
-    let prefix = format!("{}-", &name[..MAX_PROJECT_DIR_NAME]);
+    let prefix = format!("{}-", name.get(..MAX_PROJECT_DIR_NAME).unwrap_or(&name));
     fs::read_dir(&projects)
         .into_iter()
         .flatten()
@@ -602,7 +602,10 @@ pub fn said(record: &Value, items: &mut Vec<(bool, Said)>) {
     if flag("isSidechain") || flag("isMeta") {
         return;
     }
-    let content = &record["message"]["content"];
+    let content = record
+        .get("message")
+        .and_then(|message| message.get("content"))
+        .unwrap_or(&Value::Null);
     match record.get("type").and_then(Value::as_str) {
         Some("user") => {
             for block in content.as_array().into_iter().flatten() {

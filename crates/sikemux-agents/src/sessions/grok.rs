@@ -58,23 +58,20 @@ fn collect_grok_session_dirs(root: &Path) -> Vec<PathBuf> {
 }
 
 fn percent_decode(input: &str) -> Option<String> {
-    let bytes = input.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] != b'%' {
-            out.push(bytes[index]);
-            index += 1;
+    let hex = |byte: u8| match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    };
+    let mut bytes = input.bytes();
+    let mut out = Vec::with_capacity(input.len());
+    while let Some(byte) = bytes.next() {
+        if byte != b'%' {
+            out.push(byte);
             continue;
         }
-        let hex = |byte: u8| match byte {
-            b'0'..=b'9' => Some(byte - b'0'),
-            b'a'..=b'f' => Some(byte - b'a' + 10),
-            b'A'..=b'F' => Some(byte - b'A' + 10),
-            _ => None,
-        };
-        out.push(hex(*bytes.get(index + 1)?)? * 16 + hex(*bytes.get(index + 2)?)?);
-        index += 3;
+        out.push(hex(bytes.next()?)? * 16 + hex(bytes.next()?)?);
     }
     String::from_utf8(out).ok()
 }
@@ -273,18 +270,17 @@ pub(super) fn rename_grok_session(
     lock_exclusive(&lock)?;
     let mut summary = fs::read_to_string(&summary_path)
         .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .filter(Value::is_object)
+        .and_then(|text| serde_json::from_str::<serde_json::Map<String, Value>>(&text).ok())
         .ok_or("session not found")?;
-    summary["generated_title"] = Value::from(name);
-    summary["title_is_manual"] = Value::Bool(true);
-    summary["updated_at"] = Value::from(now_iso8601());
+    summary.insert("generated_title".to_owned(), Value::from(name));
+    summary.insert("title_is_manual".to_owned(), Value::Bool(true));
+    summary.insert("updated_at".to_owned(), Value::from(now_iso8601()));
     if summary
         .get("session_summary")
         .and_then(Value::as_str)
         .is_none_or(str::is_empty)
     {
-        summary["session_summary"] = Value::from(name);
+        summary.insert("session_summary".to_owned(), Value::from(name));
     }
     let text = serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?;
     sikemux_process::files::write_atomic(&summary_path, text.as_bytes(), false)

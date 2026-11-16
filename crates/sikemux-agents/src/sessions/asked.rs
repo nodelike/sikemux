@@ -132,7 +132,10 @@ fn gives_secret(text: &str) -> bool {
     let lower = text.to_lowercase();
     let gives_value = |name: &str| {
         lower.match_indices(name).any(|(at, _)| {
-            let after = lower[at + name.len()..].trim_start_matches([' ', '"', '\'']);
+            let after = lower
+                .get(at + name.len()..)
+                .unwrap_or_default()
+                .trim_start_matches([' ', '"', '\'']);
             after.starts_with(['=', ':'])
         })
     };

@@ -42,13 +42,14 @@ pub(super) fn run(args: Vec<OsString>) -> i32 {
     let Some(answer) = ask(endpoint, &format!("https://{host}/{path}")) else {
         return 0;
     };
-    let (Some(username), Some(password)) =
-        (answer["username"].as_str(), answer["password"].as_str())
-    else {
+    let (Some(username), Some(password)) = (
+        answer.get("username").and_then(Value::as_str),
+        answer.get("password").and_then(Value::as_str),
+    ) else {
         return 0;
     };
     let mut reply = format!("username={username}\npassword={password}\n");
-    if let Some(expires) = answer["expiresAt"].as_u64() {
+    if let Some(expires) = answer.get("expiresAt").and_then(Value::as_u64) {
         reply.push_str(&format!("password_expiry_utc={}\n", expires / 1000));
     }
     let _ = std::io::stdout().write_all(reply.as_bytes());
@@ -60,7 +61,7 @@ pub(super) fn ask(endpoint: &Path, remote: &str) -> Option<Value> {
     let cwd = std::env::current_dir().ok()?;
     let mut params = json!({ "remote": remote });
     if let Some(grant) = std::env::var_os(vars::PUSH_GRANT) {
-        params["grant"] = json!(grant.to_string_lossy());
+        set(&mut params, "grant", json!(grant.to_string_lossy()));
     }
     crate::cli::client::attempt(
         endpoint,
@@ -88,7 +89,7 @@ fn outbox(endpoint: &Path, service: Option<OsString>, remote: Option<OsString>) 
         &json!({ "step": "open", "remote": remote.to_string_lossy() }),
         FORWARD_WAIT,
     );
-    let Some(outbox) = opened["outbox"].as_str() else {
+    let Some(outbox) = opened.get("outbox").and_then(Value::as_str) else {
         eprintln!("{}", said(&opened));
         return 1;
     };
@@ -134,16 +135,26 @@ fn forward(endpoint: &Path) -> i32 {
         "updates": updates,
     });
     if let Some(quarantine) = std::env::var_os("GIT_QUARANTINE_PATH") {
-        params["quarantine"] = json!(quarantine.to_string_lossy());
+        set(
+            &mut params,
+            "quarantine",
+            json!(quarantine.to_string_lossy()),
+        );
     }
     let answer = call(endpoint, &params, FORWARD_WAIT);
     let said = said(&answer);
     if !said.is_empty() {
         eprintln!("{said}");
     }
-    match answer["forwarded"].as_bool() {
+    match answer.get("forwarded").and_then(Value::as_bool) {
         Some(true) => 0,
         _ => 1,
+    }
+}
+
+fn set(params: &mut Value, key: &str, value: Value) {
+    if let Some(params) = params.as_object_mut() {
+        params.insert(key.to_owned(), value);
     }
 }
 

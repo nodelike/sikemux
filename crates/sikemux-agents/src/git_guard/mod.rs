@@ -155,7 +155,10 @@ fn refused(
         Touch::Paths { mut paths, named } => {
             let checkout = checkout?;
             if !named {
-                if is_commit(git(), options, &paths[0]) {
+                if paths
+                    .first()
+                    .is_some_and(|first| is_commit(git(), options, first))
+                {
                     paths.remove(0);
                 }
                 paths.retain(|path| checkout.dir.join(path).symlink_metadata().is_ok());
@@ -355,9 +358,13 @@ fn touches(args: &[String], private_index: bool) -> Option<Touch> {
         }
         _ => return None,
     };
-    let (before, after) = match rest.iter().position(|arg| arg == "--") {
-        Some(at) => (&rest[..at], Some(&rest[at + 1..])),
-        None => (rest, None),
+    let (before, after) = match rest
+        .iter()
+        .position(|arg| arg == "--")
+        .map(|at| rest.split_at(at))
+    {
+        Some((before, [_, after @ ..])) => (before, Some(after)),
+        _ => (rest, None),
     };
     let named = after.is_some() || sub == "restore";
     let mut paths: Vec<String> = after.into_iter().flatten().cloned().collect();
@@ -556,7 +563,7 @@ pub(crate) fn command_words(words: &[String]) -> Option<&[String]> {
                 in_env = word == "env";
                 at += 1;
             }
-            _ => return Some(&words[at..]),
+            _ => return words.get(at..),
         }
     }
     None
@@ -565,9 +572,9 @@ pub(crate) fn command_words(words: &[String]) -> Option<&[String]> {
 /// The folder an `env -C` among the words that start `words`' command moves it to.
 pub(crate) fn env_folder(words: &[String]) -> Option<&str> {
     let command = command_words(words).map_or(words.len(), |command| words.len() - command.len());
-    let starting = &words[..command];
+    let starting = words.get(..command)?;
     let env = starting.iter().position(|word| word == "env")?;
-    let mut options = starting[env + 1..].iter();
+    let mut options = starting.get(env + 1..)?.iter();
     let mut folder = None;
     while let Some(option) = options.next() {
         match option.as_str() {

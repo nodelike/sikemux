@@ -304,7 +304,9 @@ pub(crate) fn decoded_window(
             Some(from) => {
                 let first = from.saturating_sub(decoded).min(read) as usize;
                 let room = (max as usize).saturating_sub(window.len());
-                &chunk[first..chunk.len().min(first + room)]
+                chunk
+                    .get(first..chunk.len().min(first + room))
+                    .unwrap_or_default()
             }
             None => chunk,
         };

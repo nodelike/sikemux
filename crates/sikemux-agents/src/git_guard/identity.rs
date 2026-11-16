@@ -264,9 +264,10 @@ fn actor_file(folder: &Path, actor: &Actor) -> PathBuf {
         .chain_update([0])
         .chain_update(&actor.email)
         .finalize();
-    folder
-        .join(ACTORS)
-        .join(format!("{}.gitconfig", hex::encode(&name[..8])))
+    folder.join(ACTORS).join(format!(
+        "{}.gitconfig",
+        hex::encode(name.get(..8).unwrap_or(name.as_slice()))
+    ))
 }
 
 fn config_quoted(value: &str) -> String {

@@ -361,12 +361,22 @@ mod platform {
                 return false;
             }
             let word = |at: usize| {
-                i32::from_ne_bytes([info.0[at], info.0[at + 1], info.0[at + 2], info.0[at + 3]])
+                info.0
+                    .get(at..)?
+                    .first_chunk()
+                    .copied()
+                    .map(i32::from_ne_bytes)
             };
-            let port = |at: usize| u16::from_be_bytes([info.0[at], info.0[at + 1]]);
-            word(SOI_KIND) == SOCKINFO_TCP
-                && port(INSI_LPORT) == self.local
-                && port(INSI_FPORT) == self.remote
+            let port = |at: usize| {
+                info.0
+                    .get(at..)?
+                    .first_chunk()
+                    .copied()
+                    .map(u16::from_be_bytes)
+            };
+            word(SOI_KIND) == Some(SOCKINFO_TCP)
+                && port(INSI_LPORT) == Some(self.local)
+                && port(INSI_FPORT) == Some(self.remote)
         }
     }
 

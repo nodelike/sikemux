@@ -41,8 +41,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Network
 sikemux-git = { path = "../sikemux-git", features = ["testing"] }
 tempfile = "3"
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
+[lints]
+workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

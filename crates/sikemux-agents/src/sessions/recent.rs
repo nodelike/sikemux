@@ -204,7 +204,7 @@ impl<'a> PageScan<'a> {
         });
         let start = listed.partition_point(|entry| !self.after_cursor(entry.at_ms, &entry.key));
         let mut hits = Vec::new();
-        for batch in listed[start..].chunks(self.limit) {
+        for batch in listed.get(start..).unwrap_or_default().chunks(self.limit) {
             let resolved: Vec<Option<Found>> =
                 batch.par_iter().map(|entry| resolve(&entry.item)).collect();
             for (entry, found) in batch.iter().zip(resolved) {
@@ -478,7 +478,8 @@ mod tests {
         }
         let mut expected: Vec<String> = (0..30).map(|index| format!("s{index:02}")).collect();
         expected.sort_by(|a, b| {
-            let at = |id: &str| 1_000 * (id[1..].parse::<u64>().unwrap() / 2 + 1);
+            let at =
+                |id: &str| 1_000 * (id.strip_prefix('s').unwrap().parse::<u64>().unwrap() / 2 + 1);
             at(b).cmp(&at(a)).then_with(|| a.cmp(b))
         });
         assert_eq!(seen, expected);

@@ -100,13 +100,21 @@ pub(crate) fn hermes_config(config_yaml: &str, command: &str) -> Result<String, 
     let mut lines: Vec<String> = config_yaml.lines().map(str::to_owned).collect();
     let empty_value = |value: &str| matches!(value, "" | "{}" | "[]" | "null" | "~");
     let value = |line: &str, key: &str| {
-        let value = line.trim_start()[key.len()..].trim();
+        let value = line
+            .trim_start()
+            .strip_prefix(key)
+            .unwrap_or_default()
+            .trim();
         value
             .split_once('#')
             .map_or(value, |(value, _)| value.trim())
             .to_owned()
     };
-    let Some(hooks) = lines.iter().position(|line| line.starts_with("hooks:")) else {
+    let Some((hooks, hooks_line)) = lines
+        .iter()
+        .enumerate()
+        .find(|(_, line)| line.starts_with("hooks:"))
+    else {
         lines.extend([
             "hooks:".into(),
             "  pre_tool_call:".into(),
@@ -114,23 +122,33 @@ pub(crate) fn hermes_config(config_yaml: &str, command: &str) -> Result<String, 
         ]);
         return Ok(lines.join("\n") + "\n");
     };
-    if !empty_value(&value(&lines[hooks], "hooks:")) {
+    if !empty_value(&value(hooks_line, "hooks:")) {
         return Err("its hooks in config.yaml are not written as a block".into());
     }
-    lines[hooks] = "hooks:".into();
-    let body_end = lines[hooks + 1..]
+    if let Some(line) = lines.get_mut(hooks) {
+        *line = "hooks:".into();
+    }
+    let body_len = lines
         .iter()
-        .position(|line| !(line.trim().is_empty() || line.starts_with([' ', '#'])))
-        .map_or(lines.len(), |end| hooks + 1 + end);
+        .skip(hooks + 1)
+        .take_while(|line| line.trim().is_empty() || line.starts_with([' ', '#']))
+        .count();
+    let body_end = hooks + 1 + body_len;
     let indent = |line: &str| line.len() - line.trim_start().len();
-    let child_indent = lines[hooks + 1..body_end]
+    let child_indent = lines
         .iter()
+        .take(body_end)
+        .skip(hooks + 1)
         .find(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
         .map_or(2, |line| indent(line));
     let pad = " ".repeat(child_indent);
     let key = "pre_tool_call:";
-    let Some(at) = (hooks + 1..body_end)
-        .find(|&at| indent(&lines[at]) == child_indent && lines[at].trim_start().starts_with(key))
+    let Some((at, at_line)) = lines
+        .iter()
+        .enumerate()
+        .take(body_end)
+        .skip(hooks + 1)
+        .find(|(_, line)| indent(line) == child_indent && line.trim_start().starts_with(key))
     else {
         lines.splice(
             hooks + 1..hooks + 1,
@@ -138,12 +156,16 @@ pub(crate) fn hermes_config(config_yaml: &str, command: &str) -> Result<String, 
         );
         return Ok(lines.join("\n") + "\n");
     };
-    if !empty_value(&value(&lines[at], key)) {
+    if !empty_value(&value(at_line, key)) {
         return Err("its pre_tool_call hooks in config.yaml are not written as a block".into());
     }
-    lines[at] = format!("{pad}{key}");
-    let item_indent = lines[at + 1..body_end]
+    if let Some(line) = lines.get_mut(at) {
+        *line = format!("{pad}{key}");
+    }
+    let item_indent = lines
         .iter()
+        .take(body_end)
+        .skip(at + 1)
         .find(|line| !line.trim().is_empty())
         .filter(|line| line.trim_start().starts_with('-') && indent(line) >= child_indent)
         .map_or(child_indent, |line| indent(line));

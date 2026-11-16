@@ -32,14 +32,15 @@ pub fn without_for_agent(text: &str, taken: &mut Vec<ChatContext>) -> String {
     let mut left = String::new();
     let mut rest = text;
     while let Some(at) = rest.find(&opening) {
-        let inner = &rest[at + CONTEXT_OPEN.len()..];
+        let (before, from) = rest.split_at(at);
+        let inner = from.strip_prefix(CONTEXT_OPEN).unwrap_or(from);
         let Some((uri, body, after)) = inner.split_once(CONTEXT_BODY).and_then(|(uri, body)| {
             let (body, after) = body.split_once(CONTEXT_CLOSE)?;
             Some((uri, body, after))
         }) else {
             break;
         };
-        left.push_str(&rest[..at]);
+        left.push_str(before);
         taken.push(ChatContext {
             uri: uri.to_owned(),
             title: uri.to_owned(),
@@ -51,9 +52,9 @@ pub fn without_for_agent(text: &str, taken: &mut Vec<ChatContext>) -> String {
     let mut kept = String::new();
     let mut rest = left.as_str();
     while let Some(at) = rest.find(FOR_AGENT_URI) {
-        kept.push_str(&rest[..at]);
-        let link = &rest[at..];
-        rest = &link[link.find(char::is_whitespace).unwrap_or(link.len())..];
+        let (before, link) = rest.split_at(at);
+        kept.push_str(before);
+        rest = link.trim_start_matches(|c: char| !c.is_whitespace());
     }
     kept.push_str(rest);
     kept.trim_end().to_owned()

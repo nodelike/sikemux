@@ -79,7 +79,11 @@ pub fn with_model_config(mut setup: Value) -> Value {
     };
     match setup.get_mut("configOptions").and_then(Value::as_array_mut) {
         Some(options) => options.insert(0, model),
-        None => setup["configOptions"] = json!([model]),
+        None => {
+            if let Some(setup) = setup.as_object_mut() {
+                setup.insert("configOptions".to_owned(), json!([model]));
+            }
+        }
     }
     setup
 }

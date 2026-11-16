@@ -32,8 +32,11 @@ fn method_of(method: &Value, command: &str) -> Option<SignInMethod> {
             env: pairs(&method["env"]),
         });
     }
-    let zed = &method["_meta"]["terminal-auth"];
-    if zed.is_object() {
+    let zed = method
+        .get("_meta")
+        .and_then(|meta| meta.get("terminal-auth"))
+        .filter(|zed| zed.is_object());
+    if let Some(zed) = zed {
         let own = zed["command"]
             .as_str()
             .and_then(|named| Path::new(named).file_name())

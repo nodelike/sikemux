@@ -141,8 +141,8 @@ impl ListedProvider<'_> {
                     "contextWindow": model.limit.context,
                     "maxTokens": LISTED_MAX_OUTPUT_TOKENS,
                 });
-                if let Some(compat) = chat_compat(id) {
-                    entry["compat"] = compat;
+                if let (Some(compat), Some(fields)) = (chat_compat(id), entry.as_object_mut()) {
+                    fields.insert("compat".to_owned(), compat);
                 }
                 entry
             })
@@ -300,6 +300,10 @@ pub enum AnthropicAuth {
     XApiKey,
 }
 
+#[expect(
+    clippy::expect_used,
+    reason = "the catalogue is compiled in, and its tests parse it"
+)]
 static CATALOGUE: LazyLock<Vec<Arc<Provider>>> = LazyLock::new(|| {
     serde_json::from_str::<Vec<Provider>>(include_str!("../../model-providers.json"))
         .expect("model-providers.json is a valid catalogue")
@@ -718,7 +722,11 @@ impl Providers {
                 "Sikemux holds no provider called {id} that you added"
             ));
         };
-        if state.custom[at].key.is_some() {
+        if state
+            .custom
+            .get(at)
+            .is_some_and(|provider| provider.key.is_some())
+        {
             sikemux_keychain::delete(KEY_SERVICE, id).map_err(|error| error.to_string())?;
         }
         state.custom.remove(at);

@@ -162,14 +162,10 @@ pub(crate) fn yaml_agent_reasoning_effort(text: &str) -> Option<String> {
 
 fn yaml_scalar(raw: &str) -> Option<String> {
     let raw = raw.split(" #").next()?.trim();
-    let raw = if raw.len() >= 2
-        && ((raw.starts_with('"') && raw.ends_with('"'))
-            || (raw.starts_with('\'') && raw.ends_with('\'')))
-    {
-        &raw[1..raw.len() - 1]
-    } else {
-        raw
-    };
+    let raw = ['"', '\'']
+        .into_iter()
+        .find_map(|quote| raw.strip_prefix(quote)?.strip_suffix(quote))
+        .unwrap_or(raw);
     clean_model(raw)
 }
 

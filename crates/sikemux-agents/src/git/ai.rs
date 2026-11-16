@@ -17,8 +17,8 @@ const OMITTED_GENERATED_MARKER: &str =
 fn clean_commit_message(raw: &str) -> Result<String, String> {
     let mut t = raw.trim().to_string();
     if t.starts_with("```") {
-        if let Some(nl) = t.find('\n') {
-            t = t[nl + 1..].to_string();
+        if let Some((_, rest)) = t.split_once('\n') {
+            t = rest.to_string();
         }
     }
     let te = t.trim_end();
@@ -171,13 +171,17 @@ fn fair_allocations(sizes: &[usize], budget: usize) -> Vec<usize> {
     while remaining > 0 && !active.is_empty() {
         let share = (remaining / active.len()).max(1);
         let mut granted = 0;
-        active.retain(|index| {
-            let need = sizes[*index] - allocations[*index];
+        active.retain(|&index| {
+            let (Some(&size), Some(allocated)) = (sizes.get(index), allocations.get_mut(index))
+            else {
+                return false;
+            };
+            let need = size - *allocated;
             let available = remaining.saturating_sub(granted);
             let give = need.min(share).min(available);
-            allocations[*index] += give;
+            *allocated += give;
             granted += give;
-            allocations[*index] < sizes[*index] && granted < remaining
+            *allocated < size && granted < remaining
         });
         if granted == 0 {
             break;
@@ -188,25 +192,14 @@ fn fair_allocations(sizes: &[usize], budget: usize) -> Vec<usize> {
 }
 
 fn utf8_prefix(value: &str, max_bytes: usize) -> &str {
-    if value.len() <= max_bytes {
-        return value;
-    }
-    let mut end = max_bytes;
-    while end > 0 && !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    &value[..end]
+    value
+        .get(..value.floor_char_boundary(max_bytes))
+        .unwrap_or(value)
 }
 
 fn utf8_suffix(value: &str, max_bytes: usize) -> &str {
-    if value.len() <= max_bytes {
-        return value;
-    }
-    let mut start = value.len() - max_bytes;
-    while start < value.len() && !value.is_char_boundary(start) {
-        start += 1;
-    }
-    &value[start..]
+    let start = value.ceil_char_boundary(value.len().saturating_sub(max_bytes));
+    value.get(start..).unwrap_or(value)
 }
 
 fn sample_hunk_body(body: &str, budget: usize) -> String {

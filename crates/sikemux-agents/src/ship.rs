@@ -388,14 +388,17 @@ pub(crate) fn target_of(
         "cargo" if args.iter().any(|arg| arg == "publish") => Some(package("crates.io")),
         "docker" => {
             let images: Vec<&String> = match args.first().map(String::as_str) {
-                Some("push") => args[1..]
+                Some("push") => args
                     .iter()
+                    .skip(1)
                     .filter(|arg| !arg.starts_with('-'))
                     .take(1)
                     .collect(),
                 _ => (args.windows(2))
-                    .filter(|pair| matches!(pair[0].as_str(), "-t" | "--tag"))
-                    .map(|pair| &pair[1])
+                    .filter_map(|pair| match pair {
+                        [flag, image] if matches!(flag.as_str(), "-t" | "--tag") => Some(image),
+                        _ => None,
+                    })
                     .collect(),
             };
             let local = |image: &&String| {
@@ -460,8 +463,9 @@ pub(crate) fn target_of(
                 .iter()
                 .position(|arg| arg == "deploy" || arg == "destroy")
             {
-                Some(at) => args[at + 1..]
+                Some(at) => args
                     .iter()
+                    .skip(at + 1)
                     .filter(|arg| !arg.starts_with('-'))
                     .collect(),
                 None => Vec::new(),
@@ -579,9 +583,9 @@ pub fn wrapped<'a>(program: &str, args: &'a [String]) -> Option<(&'a str, &'a [S
         }
         _ => return None,
     };
-    let rest = &args[skip..];
+    let rest = args.get(skip..)?;
     let at = rest.iter().position(|arg| !arg.starts_with('-'))?;
-    let (program, args) = rest[at..].split_first()?;
+    let (program, args) = rest.get(at..)?.split_first()?;
     let program = program.rsplit('/').next().unwrap_or(program);
     let program = program
         .split('@')
@@ -622,7 +626,11 @@ fn file_app(tool: &str, file: &Path) -> Option<String> {
 pub fn app_named(tool: &str, text: &str) -> Option<String> {
     if tool == "Firebase" {
         let value: serde_json::Value = serde_json::from_str(text).ok()?;
-        return value["projects"]["default"].as_str().map(str::to_owned);
+        return value
+            .get("projects")?
+            .get("default")?
+            .as_str()
+            .map(str::to_owned);
     }
     let key = match tool {
         "Fly" => "app",
@@ -1348,7 +1356,7 @@ fn s3_destination(args: &[String]) -> Option<&String> {
         .iter()
         .position(|arg| matches!(arg.as_str(), "cp" | "sync" | "mv"))?;
     let mut paths = Vec::new();
-    let mut words = args[at + 1..].iter();
+    let mut words = args.iter().skip(at + 1);
     while let Some(word) = words.next() {
         if word.starts_with("--") && !word.contains('=') && !switches.contains(&word.as_str()) {
             words.next();
@@ -1427,12 +1435,18 @@ fn api_writes(args: &[String], cwd: &Path) -> bool {
         .iter()
         .position(|arg| arg == "api")
         .map_or(0, |at| at + 1);
-    let endpoint = args[at..].iter().find(|arg| !arg.starts_with('-'));
+    let endpoint = args.iter().skip(at).find(|arg| !arg.starts_with('-'));
     let method = flag_value(args, &["-X", "--method"]);
     if endpoint.is_some_and(|endpoint| endpoint == "graphql") {
         let fields = (args.windows(2))
-            .filter(|pair| matches!(pair[0].as_str(), "-f" | "-F" | "--field" | "--raw-field"))
-            .map(|pair| pair[1].as_str())
+            .filter_map(|pair| match pair {
+                [flag, field]
+                    if matches!(flag.as_str(), "-f" | "-F" | "--field" | "--raw-field") =>
+                {
+                    Some(field.as_str())
+                }
+                _ => None,
+            })
             .chain(args.iter().filter_map(|arg| {
                 ["-f", "-F", "--field=", "--raw-field="]
                     .iter()
@@ -1449,10 +1463,12 @@ fn api_writes(args: &[String], cwd: &Path) -> bool {
                 .any(|word| word == "mutation")
         };
         return match query {
-            Some(file) if file.starts_with('@') => {
-                std::fs::read_to_string(cwd.join(&file[1..])).map_or(true, |text| mutates(&text))
-            }
-            Some(text) => mutates(text),
+            Some(text) => match text.strip_prefix('@') {
+                Some(file) => {
+                    std::fs::read_to_string(cwd.join(file)).map_or(true, |text| mutates(&text))
+                }
+                None => mutates(text),
+            },
             None => has_flag(args, &["--input"]),
         };
     }
@@ -1531,8 +1547,14 @@ fn dry_run(args: &[String]) -> bool {
 /// psql's listing commands.
 fn only_queries(args: &[String]) -> bool {
     let given: Vec<&String> = (args.windows(2))
-        .filter(|pair| matches!(pair[0].as_str(), "-c" | "--command" | "-e" | "--execute"))
-        .map(|pair| &pair[1])
+        .filter_map(|pair| match pair {
+            [flag, statement]
+                if matches!(flag.as_str(), "-c" | "--command" | "-e" | "--execute") =>
+            {
+                Some(statement)
+            }
+            _ => None,
+        })
         .collect();
     let reads = |statement: &str| {
         let first = statement.split_whitespace().next().unwrap_or_default();
@@ -1715,7 +1737,7 @@ pub fn of_command(
         }) else {
             continue;
         };
-        let set_before = &all[..all.len() - words.len()];
+        let set_before = all.get(..all.len() - words.len()).unwrap_or_default();
         let set = |name: &str| {
             let said = (set_before.iter())
                 .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
@@ -1835,18 +1857,14 @@ fn expanded(text: &str, set: &dyn Fn(&str) -> Option<String>) -> Option<String> 
     }
     let mut out = String::new();
     let mut rest = text;
-    while let Some(at) = rest.find('$') {
-        out.push_str(&rest[..at]);
-        let after = &rest[at + 1..];
+    while let Some((before, after)) = rest.split_once('$') {
+        out.push_str(before);
         let (name, next) = match after.strip_prefix('{') {
-            Some(braced) => {
-                let end = braced.find('}')?;
-                (&braced[..end], &braced[end + 1..])
-            }
+            Some(braced) => braced.split_once('}')?,
             None => {
                 let end = (after.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')))
                     .unwrap_or(after.len());
-                (&after[..end], &after[end..])
+                after.split_at(end)
             }
         };
         if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
