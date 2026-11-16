@@ -172,7 +172,9 @@ impl ActivityGlance {
                     units.len() - 1
                 }
             };
-            units[at].push(agent);
+            if let Some(unit) = units.get_mut(at) {
+                unit.push(agent);
+            }
             unit_of.insert(&agent.agent_id, at);
         }
         let shown: Vec<_> = (shown.into_iter())

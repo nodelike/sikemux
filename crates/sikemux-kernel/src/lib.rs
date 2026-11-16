@@ -164,6 +164,10 @@ impl Core {
     }
 
     /// The parts of this core that are a `T`.
+    #[expect(
+        clippy::expect_used,
+        reason = "every part a core is read as is one it was built with"
+    )]
     pub fn kept<T: 'static>(&self) -> &T {
         self.parts
             .iter()

@@ -26,8 +26,8 @@ sikemux-core = { path = "../sikemux-core" }
 sikemux-view = { path = "../sikemux-view" }
 tempfile = "3"
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
+[lints]
+workspace = true
 
 # iroh's DNS resolver, network watcher and relay certificate check reach the
 # Android runtime through these; android.rs hands them the app's context.

@@ -1068,8 +1068,7 @@ pub fn tracked_at(uri: &str) -> Option<(TrackedKind, &str)> {
         .chain(PULL_PATHS.iter().map(|path| (*path, TrackedKind::Pull)));
     kinds.into_iter().find_map(|(path, kind)| {
         let (_, after) = uri.split_once(path)?;
-        let end = after.find(['/', '?', '#']).unwrap_or(after.len());
-        let number = &after[..end];
+        let number = after.split(['/', '?', '#']).next()?;
         (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
             .then_some((kind, number))
     })

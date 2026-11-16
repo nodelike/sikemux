@@ -106,8 +106,9 @@ impl Linked {
     pub async fn follow(self: &Arc<Self>, own: Arc<CoreClient>) -> Result<(), ClientError> {
         *lock(&self.own) = Some(own.clone());
         let pairing = own.call("pairing", json!({})).await?;
-        let links: Vec<(String, String)> = pairing["links"]
-            .as_array()
+        let links: Vec<(String, String)> = pairing
+            .get("links")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|link| {
@@ -167,7 +168,13 @@ impl Linked {
             .clone()
             .ok_or_else(|| ClientError::Core("this host's core is not connected".into()))?;
         let challenge = own.call("deviceChallenge", json!({})).await?;
-        let text = |key: &str| challenge[key].as_str().unwrap_or_default().to_owned();
+        let text = |key: &str| {
+            challenge
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned()
+        };
         let signature = self
             .device
             .sign_registration(&text("nonce"), &text("userId"))

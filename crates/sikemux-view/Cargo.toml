@@ -13,5 +13,5 @@ sikemux-wire = { path = "../sikemux-wire" }
 [target.'cfg(target_os = "macos")'.dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
-[lints.clippy]
-undocumented_unsafe_blocks = "deny"
+[lints]
+workspace = true

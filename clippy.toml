@@ -10,3 +10,7 @@ disallowed-methods = [
     { path = "std::fs::canonicalize", reason = "use sikemux_process::files::real_path, which leaves off Windows' \\\\?\\ prefix" },
     { path = "std::path::Path::canonicalize", reason = "use sikemux_process::files::real_path, which leaves off Windows' \\\\?\\ prefix" },
 ]
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
