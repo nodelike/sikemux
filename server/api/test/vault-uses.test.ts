@@ -100,3 +100,28 @@ it("keeps one row for a sign-in a host reports every minute", async () => {
     ]),
   ).toEqual([[3, at(1), at(3)]]);
 });
+
+it("adds a report to one row when a day already holds several", async () => {
+  await reported("Sikemux", 1, 3);
+  await reported("Sikemux", 1, 2);
+  await addUses(
+    database.db,
+    { userId: USER, hostKey: HOST },
+    {
+      uses: [
+        {
+          entryId: ENTRY,
+          plugin: "sikemux.vercel",
+          actor: "Sikemux",
+          count: 1,
+          firstAt: minutesAgo(2),
+          lastAt: minutesAgo(1),
+        },
+      ],
+    },
+  );
+
+  const { uses } = await vaultUses(database.db, USER);
+
+  expect(uses.map((use) => use.count)).toEqual([3]);
+});

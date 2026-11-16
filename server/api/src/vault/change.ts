@@ -358,14 +358,21 @@ export async function addUses(
           first_at: sql`least(first_at, ${use.firstAt}::timestamptz)`,
           last_at: sql`greatest(last_at, ${use.lastAt}::timestamptz)`,
         })
-        .where("user_id", "=", userId)
-        .where("entry_id", "=", use.entryId)
-        .where("host_key", "=", hostKey)
-        .where("actor", "=", use.actor)
-        .where(
-          sql`(first_at at time zone 'UTC')::date`,
-          "=",
-          sql`(${use.firstAt}::timestamptz at time zone 'UTC')::date`,
+        .where("id", "=", (eb) =>
+          eb
+            .selectFrom("vault_uses")
+            .select("id")
+            .where("user_id", "=", userId)
+            .where("entry_id", "=", use.entryId)
+            .where("host_key", "=", hostKey)
+            .where("actor", "=", use.actor)
+            .where(
+              sql`(first_at at time zone 'UTC')::date`,
+              "=",
+              sql`(${use.firstAt}::timestamptz at time zone 'UTC')::date`,
+            )
+            .orderBy("id", "desc")
+            .limit(1),
         )
         .executeTakeFirst();
       if (added.numUpdatedRows > 0n) continue;
