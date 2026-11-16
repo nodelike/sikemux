@@ -637,6 +637,54 @@ pub(super) async fn use_reset(core: &Arc<Core>, using: UsingReset) -> CoreResult
     Ok(UsedReset { outcome, left })
 }
 
+/// Spends a reset of the account `launch` runs on that refills its used-up window of the
+/// launch's model, such as Fable's week, reading the account afresh first. Answers whether one
+/// was spent, so the chat can carry on where it is rather than move to an account without them.
+pub(crate) async fn spend_model_reset(
+    core: &Arc<Core>,
+    provider: &str,
+    launch: &sikemux_wire::protocol::ChatLaunch,
+) -> bool {
+    let Some(account) = launch.account.as_ref() else {
+        return false;
+    };
+    let config_path = crate::launch::named_account(provider, &launch.env).map(str::to_owned);
+    let model = launch.model.as_deref();
+    let holds = |reading: &usage::Usage| {
+        allocate::reset_for(reading, model, sikemux_process::clock::epoch_ms())
+    };
+    let known = usage::last_reading(provider, config_path.as_deref());
+    if known.is_none_or(|known| known.usage.resets.is_none()) {
+        return false;
+    }
+    let Ok(program) = program(
+        core,
+        &Account {
+            provider: provider.to_owned(),
+            config_path: config_path.clone(),
+        },
+    )
+    .await
+    else {
+        return false;
+    };
+    usage::forget_lookup(provider, config_path.as_deref());
+    let Ok(fresh) = usage::usage(provider, &program, config_path.as_deref()).await else {
+        return false;
+    };
+    let Some(kind) = holds(&fresh) else {
+        return false;
+    };
+    let launcher = super::workspace::LauncherId::on(provider, &account.id).to_string();
+    match use_reset(core, UsingReset { launcher, kind }).await {
+        Ok(used) => used.outcome == usage::ResetOutcome::Reset,
+        Err(error) => {
+            eprintln!("sikemux core: a reset at the limit was not spent: {error}");
+            false
+        }
+    }
+}
+
 pub(super) fn forget(core: &Arc<Core>, forget: Forget) {
     let (provider, config_path) = (forget.provider.as_deref(), forget.config_path.as_deref());
     status::forget(provider, config_path);

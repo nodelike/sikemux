@@ -3,8 +3,10 @@
 //! limit goes where the most is left, so it can keep going. Only accounts with room in every
 //! window that limits the chat's model take one. What is left counts in plans of the smallest
 //! tier, so a week half left on a bigger plan holds more than one half left on a small one.
+//! An account holding resets for the chat's model's own window goes first, so they get used,
+//! and that window counts as having room while a reset can refill it.
 
-use super::usage::{Usage, UsageWindow};
+use super::usage::{ResetKind, Usage, UsageWindow};
 
 /// An account a chat could go to, with its last reading of its plan, if any.
 pub struct Candidate<'a> {
@@ -64,6 +66,8 @@ struct Standing<'a> {
     typical: f64,
     /// When that week resets, in Unix milliseconds.
     deadline: Option<u64>,
+    /// The resets it holds for the chat's model's own window.
+    resets: u32,
 }
 
 /// Whether `window` limits a chat on `model`: every window for the whole plan, and a model's
@@ -85,6 +89,33 @@ pub fn spent(usage: &Usage, model: Option<&str>, now_ms: u64) -> bool {
     (usage.windows.iter()).any(|window| governs(window, model) && window.used_at(now_ms) >= 100.0)
 }
 
+/// The account's resets that have not run out and refill a window of `model`'s own, such as
+/// Fable's week, each with that window.
+fn model_resets<'a>(
+    usage: &'a Usage,
+    model: Option<&'a str>,
+    now_ms: u64,
+) -> impl Iterator<Item = (&'a ResetKind, &'a UsageWindow)> {
+    (usage.resets.iter().flat_map(|resets| &resets.kinds))
+        .filter(move |kind| kind.left > 0 && kind.use_by.is_none_or(|by| by > now_ms))
+        .filter_map(move |kind| {
+            let window = (usage.windows.iter()).find(|window| {
+                window.scope.is_some()
+                    && Some(&window.label) == kind.window.as_ref()
+                    && governs(window, model)
+            })?;
+            Some((kind, window))
+        })
+}
+
+/// The reset to spend now on a used-up window of `model`'s own, by its kind's id, if the
+/// account holds one it can spend.
+pub fn reset_for(usage: &Usage, model: Option<&str>, now_ms: u64) -> Option<Option<String>> {
+    model_resets(usage, model, now_ms)
+        .find(|(kind, window)| kind.usable && window.used_at(now_ms) >= 100.0)
+        .map(|(kind, _)| kind.id.clone())
+}
+
 /// Where the account stands for a chat on `model`, or none when a window over that model is
 /// too full to start one. A chat whose model is not known counts every model's own week as
 /// over it while `wary`.
@@ -99,6 +130,12 @@ fn standing<'a>(
         .filter(|window| governs(window, model))
         .collect();
     let weekly = |window: &UsageWindow| window.window_minutes.unwrap_or(0) >= WEEK_MINUTES;
+    let held: Vec<_> = model_resets(usage, model, now_ms).collect();
+    let resets = held.iter().map(|(kind, _)| kind.left).sum();
+    let refillable = |window: &UsageWindow| {
+        held.iter()
+            .any(|(_, refilled)| refilled.label == window.label)
+    };
     let unknown_models =
         (usage.windows.iter()).filter(|window| wary && model.is_none() && window.scope.is_some());
     let room = governing
@@ -106,6 +143,9 @@ fn standing<'a>(
         .copied()
         .chain(unknown_models)
         .all(|window| {
+            if refillable(window) {
+                return true;
+            }
             if weekly(window) {
                 return window.used_at(now_ms) < WEEK_CAP;
             }
@@ -118,7 +158,10 @@ fn standing<'a>(
     let weeks: Vec<&UsageWindow> = governing.iter().copied().filter(|w| weekly(w)).collect();
     let limiting = if weeks.is_empty() { governing } else { weeks };
     let left = (limiting.iter())
-        .map(|window| 100.0 - window.used_at(now_ms))
+        .map(|window| match refillable(window) {
+            true => 100.0,
+            false => 100.0 - window.used_at(now_ms),
+        })
         .fold(100.0, f64::min);
     let deadline = (limiting.iter())
         .filter(|window| !window.is_past_reset(now_ms))
@@ -130,6 +173,7 @@ fn standing<'a>(
         headroom: left * weight(&usage.provider, usage.plan.as_deref()),
         typical: candidate.typical.unwrap_or(ENOUGH_FOR_A_CHAT),
         deadline,
+        resets,
     })
 }
 
@@ -162,6 +206,19 @@ pub fn place(
         true => standings_for(false),
         false => wary,
     };
+    let holding: Vec<&Standing> = (standings.iter())
+        .filter(|standing| standing.resets > 0)
+        .collect();
+    if let Some(best) = (holding.iter()).max_by(|a, b| a.headroom.total_cmp(&b.headroom)) {
+        let resets = match best.resets {
+            1 => "a reset".to_owned(),
+            many => format!("{many} resets"),
+        };
+        return Some(Placement {
+            id: best.id.to_owned(),
+            why: format!("It holds {resets} for this model, which go to waste unused"),
+        });
+    }
     let most_left = |among: &[&Standing]| -> Option<Placement> {
         let best = among
             .iter()

@@ -240,6 +240,9 @@ pub(super) fn chat_above() -> ChatAbove {
         new_token: tools::new_token,
         new_edits: || Box::<edits::Open>::default(),
         account_with_room,
+        spend_model_reset: |core, provider, launch| {
+            Box::pin(agent_accounts::spend_model_reset(core, provider, launch))
+        },
         other_agent_with_room: agent_accounts::other_agent_with_room,
         turn_told: turn_state::told,
         permit_elsewhere: |core, agent_id, request_id, option_id| {

@@ -138,6 +138,9 @@ pub struct ChatAbove {
     /// The account of this provider with the most room for this launch, among those `among`
     /// lets through by their id.
     pub account_with_room: AccountWithRoom,
+    /// Spends a reset of the account's that refills its used-up window of the launch's model,
+    /// answering whether one was spent.
+    pub spend_model_reset: for<'a> fn(&'a Arc<Core>, &'a str, &'a ChatLaunch) -> Doing<'a, bool>,
     /// Another agent that has room to take a chat of this provider over, in this folder.
     pub other_agent_with_room: fn(&Book, &str, &Path) -> Option<&'static str>,
     /// How a turn stands, as its agent is told.

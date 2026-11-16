@@ -628,7 +628,7 @@ pub async fn run<B: Backend>(
             Woke::Command(None) => ControlFlow::Break(Outcome::Ended(SessionEnd::Requested)),
             Woke::Closed(reason) => ControlFlow::Break(running.stopped(false, reason).await),
             Woke::Broken(reason) => ControlFlow::Break(running.stopped(true, reason).await),
-            Woke::Failed(failed) => running.failed(failed),
+            Woke::Failed(failed) => running.failed(failed).await,
             Woke::Settled(settled) => running.settled(settled),
             Woke::Stalled(stalled) => running.stalled(stalled).await,
         };
@@ -906,7 +906,7 @@ impl<B: Backend> Running<'_, B> {
 
     /// A turn failed: the agent is started again signed in anew or on another account when
     /// that may fix it, else the chat says why.
-    fn failed(&mut self, failed: Failed) -> ControlFlow<Outcome> {
+    async fn failed(&mut self, failed: Failed) -> ControlFlow<Outcome> {
         let chat = &self.chat;
         let state = &mut self.state;
         if failed.turn != state.turn {
@@ -926,7 +926,23 @@ impl<B: Backend> Running<'_, B> {
             .account
             .as_ref()
             .map(|account| account.id.clone());
+        let refilled = failed.failure.kind == FailureKind::Limit
+            && state.reloadable
+            && switches_at_limit(chat)
+            && match chat.core.upgrade() {
+                Some(core) => {
+                    (core.chat_above().spend_model_reset)(&core, self.provider, self.launch).await
+                }
+                None => false,
+            };
         let retry = match failed.failure.kind {
+            FailureKind::Limit if refilled => chat.relaunch(self.launch).map(|launch| Rebind {
+                launch,
+                replay: state.last_prompt.clone(),
+                exhausted: state.exhausted.clone(),
+                signed_in_again: state.signed_in_again,
+                notice: None,
+            }),
             FailureKind::SignIn if state.reloadable && !state.signed_in_again => {
                 chat.relaunch(self.launch).map(|launch| Rebind {
                     launch,
