@@ -35,6 +35,7 @@ pub enum Refusal {
     WrongHost,
     WrongPhone,
     Revoked,
+    LookOnly,
 }
 
 impl Refusal {
@@ -52,6 +53,7 @@ impl Refusal {
             Self::WrongHost => "wrong_host",
             Self::WrongPhone => "wrong_phone",
             Self::Revoked => "revoked",
+            Self::LookOnly => "look_only",
         }
     }
 }
@@ -74,9 +76,13 @@ pub fn ticket_message(ticket: &JoinTicket) -> String {
         ),
         None => base,
     };
-    match ticket.hands_only {
+    let hands = match ticket.hands_only {
         Some(true) => format!("{via}|hands-only"),
         _ => via,
+    };
+    match ticket.look_only {
+        Some(true) => format!("{hands}|look-only"),
+        _ => hands,
     }
 }
 

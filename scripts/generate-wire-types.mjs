@@ -81,6 +81,7 @@ const TS_ROOTS = [
   "ShareReply",
   "MdChange",
   "MarkdownOptions",
+  "LookReply",
 ];
 
 /**

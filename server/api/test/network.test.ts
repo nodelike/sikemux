@@ -85,8 +85,11 @@ describe("GET /v1/network", () => {
 });
 
 describe("readNetwork", () => {
-  it("covers every platform devices register with", () => {
-    const platforms = schema.$defs.Platform.enum;
+  it("covers every platform an installed app registers with", () => {
+    // The web app ships with the server, so it is never older than it.
+    const platforms = schema.$defs.Platform.enum.filter(
+      (platform) => platform !== "web",
+    );
     expect(Object.keys(readNetwork({}, []).minimumVersions).sort()).toEqual(
       [...platforms].sort(),
     );

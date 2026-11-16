@@ -1035,7 +1035,7 @@ export const schema = {
     },
     JoinTicket: {
       description:
-        "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them, then `|hands-only` when it has handsOnly.",
+        "The server's word that a phone and a host are on the same account. The phone hands it to the host over ALPN sikemux/join/1, and the host checks it without calling the server, then still asks its owner. The signature is the server's Ed25519 signature over the UTF-8 text `sikemux-join|v1|<keyId>|<account>|<host>|<phone>|<issuedAt>|<expiresAt>`, with the times in decimal, followed by `|<via>|<viaName>` when the ticket has them, then `|hands-only` when it has handsOnly, then `|look-only` when it has lookOnly.",
       type: "object",
       properties: {
         v: {
@@ -1084,6 +1084,11 @@ export const schema = {
         handsOnly: {
           description:
             "The joining app drives the host but never signs for the person there. A host too old to know it finds the signature wrong and turns the app away.",
+          type: "boolean",
+        },
+        lookOnly: {
+          description:
+            "The joining device is a browser that may only read the host's look, over ALPN sikemux/look/1; the host never pairs it. A host too old to know it finds the signature wrong and turns the browser away.",
           type: "boolean",
         },
         signature: { type: "string", pattern: "^[0-9a-f]{128}$" },
@@ -1936,7 +1941,12 @@ export const schema = {
       type: "string",
       enum: ["you", "another_owner", "departed"],
     },
-    Platform: { type: "string", enum: ["macos", "linux", "ios", "android"] },
+    Platform: {
+      description:
+        "A web client is the web app in a browser, which may only read its hosts' look.",
+      type: "string",
+      enum: ["macos", "linux", "ios", "android", "web"],
+    },
     PluginId: {
       description: "The connector a sign-in is for, such as sikemux.github.",
       type: "string",

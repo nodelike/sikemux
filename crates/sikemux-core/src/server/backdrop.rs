@@ -2,11 +2,12 @@
 //! from the person's preferences so that no app has to send it.
 
 use crate::server::changed::ChangedCore;
+use crate::server::parts::Parts;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;
 use sikemux_view::prefs::{PaneBackdrop, PaneColours, Preferences};
 use sikemux_view::theme::Palette;
-use sikemux_view::workspace::BackdropLook;
+use sikemux_view::workspace::{BackdropLook, LookReply};
 
 use super::workspace::BackdropImage;
 use super::Core;
@@ -66,6 +67,15 @@ pub(crate) fn look(preferences: &Preferences, palette: &Palette) -> BackdropLook
         glow: preferences.pane_glow,
         glow_size: preferences.pane_glow_size,
         coverage: preferences.pane_coverage,
+    }
+}
+
+pub(crate) fn host_look(core: &Core) -> LookReply {
+    let preferences = core.preferences().get();
+    LookReply::Look {
+        texture: preferences.pane_backdrop != PaneBackdrop::None,
+        look: look(&preferences, &core.look().palette()),
+        picture: core.workspaces().backdrop_image(),
     }
 }
 

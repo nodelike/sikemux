@@ -1075,6 +1075,7 @@ pub enum PlanPayer {
     Unknown,
 }
 
+/// A web client is the web app in a browser, which may only read its hosts' look.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Platform {
     #[serde(rename = "macos")]
@@ -1085,6 +1086,8 @@ pub enum Platform {
     Ios,
     #[serde(rename = "android")]
     Android,
+    #[serde(rename = "web")]
+    Web,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,

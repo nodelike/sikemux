@@ -918,6 +918,31 @@ impl Remote {
         ticket: &JoinTicket,
         phone: &str,
     ) -> Result<Option<DeviceAccess>, Refusal> {
+        self.check_ticket(ticket, phone)?;
+        if ticket.look_only == Some(true) {
+            return Err(Refusal::LookOnly);
+        }
+        Ok(self
+            .inner
+            .locked()
+            .stored
+            .devices
+            .iter()
+            .find(|device| device.id == phone)
+            .map(|device| device.access))
+    }
+
+    /// Checks a ticket from the browser `browser` proved it is, which lets it
+    /// read this host's look and nothing else.
+    pub fn check_look(&self, ticket: &JoinTicket, browser: &str) -> Result<(), Refusal> {
+        self.check_ticket(ticket, browser)?;
+        match ticket.look_only {
+            Some(true) => Ok(()),
+            _ => Err(Refusal::WrongPhone),
+        }
+    }
+
+    fn check_ticket(&self, ticket: &JoinTicket, phone: &str) -> Result<(), Refusal> {
         let keys = self.join_keys();
         let inner = self.inner.locked();
         let host = inner
@@ -935,13 +960,7 @@ impl Remote {
                 now: epoch_secs() as i64,
                 revoked_at_ms: inner.stored.revoked.get(phone).copied(),
             },
-        )?;
-        Ok(inner
-            .stored
-            .devices
-            .iter()
-            .find(|device| device.id == phone)
-            .map(|device| device.access))
+        )
     }
 
     /// Has the core's own window answer `yes` to everything it asks, without opening.

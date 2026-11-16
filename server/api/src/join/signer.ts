@@ -36,7 +36,8 @@ export function joinMessage(ticket: Omit<JoinTicket, "signature">): string {
     ticket.via === undefined
       ? base
       : `${base}|${ticket.via}|${ticket.viaName ?? ""}`;
-  return ticket.handsOnly ? `${via}|hands-only` : via;
+  const hands = ticket.handsOnly ? `${via}|hands-only` : via;
+  return ticket.lookOnly ? `${hands}|look-only` : hands;
 }
 
 export function signTicket(
@@ -47,9 +48,11 @@ export function signTicket(
     phone,
     via,
     handsOnly,
+    lookOnly,
   }: Pick<JoinTicket, "account" | "host" | "phone"> & {
     via?: { key: string; name: string };
     handsOnly?: boolean;
+    lookOnly?: boolean;
   },
   now = Date.now(),
 ): JoinTicket {
@@ -68,6 +71,7 @@ export function signTicket(
     fields.viaName = via.name;
   }
   if (handsOnly) fields.handsOnly = true;
+  if (lookOnly) fields.lookOnly = true;
   const signature = sign(
     null,
     Buffer.from(joinMessage(fields), "utf8"),

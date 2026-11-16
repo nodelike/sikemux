@@ -401,6 +401,22 @@ pub struct Backdrop {
     pub look: Option<BackdropLook>,
 }
 
+/// A host's answer to a browser on the account asking for its look over `sikemux/look/1`: what
+/// the browser draws behind its pages.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "camelCase")]
+pub enum LookReply {
+    Look {
+        texture: bool,
+        look: BackdropLook,
+        /// The picture shown in place of the grain, as a JPEG data URL.
+        picture: Option<String>,
+    },
+    Refused {
+        reason: String,
+    },
+}
+
 /// How the host's panes draw the grain and dither the picture, from its preferences.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

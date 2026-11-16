@@ -12,6 +12,7 @@ use sikemux_fold::AgentNeed;
 use sikemux_plugin_api::vault::Book;
 use sikemux_view::inbox::InboxItem;
 use sikemux_view::push::ActivityGlance;
+use sikemux_view::workspace::LookReply;
 
 use sikemux_view::calls::PersonCall;
 
@@ -53,6 +54,8 @@ pub struct RemoteAbove {
     pub hosts_relink: fn(&Core),
     /// A linked host connected: its link is served until it ends.
     pub serve_link: fn(Arc<Core>, Connection) -> Serving,
+    /// What this host draws behind its panes, for a browser on the account.
+    pub host_look: fn(&Core) -> LookReply,
     /// The account no longer has these hosts, so their links go.
     pub forget_hosts_off_account: fn(&Core, &DeviceList) -> CoreResult<()>,
     /// The hosts this one lists, linked or found over SSH.

@@ -5,6 +5,7 @@
 //! Mac's requests and events decode typed here too, since moving those would not earn its cost.
 
 pub mod accounts;
+pub mod look;
 pub mod protocol;
 pub mod pty;
 pub mod terminal;
