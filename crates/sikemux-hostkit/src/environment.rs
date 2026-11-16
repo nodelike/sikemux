@@ -119,9 +119,11 @@ fn user_path() -> Option<String> {
                 .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))
         })
         .map_or(own, |(_, path)| path.clone());
-    let directory = crate::cli_paths::cli_link_directory()?;
-    let paths = std::iter::once(directory.to_path_buf())
-        .chain(std::env::split_paths(&existing).filter(|path| path != directory));
+    let directory = crate::cli_paths::cli_link_directory();
+    let paths = directory
+        .map(std::path::Path::to_path_buf)
+        .into_iter()
+        .chain(std::env::split_paths(&existing).filter(|path| Some(path.as_path()) != directory));
     std::env::join_paths(paths).ok()?.into_string().ok()
 }
 
