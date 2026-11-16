@@ -162,7 +162,12 @@ pub(crate) async fn listed(core: &Core) -> Vec<Listed> {
             if !listed.enabled {
                 return listed;
             }
-            match call(core, &listed.id, "status", Value::Null).await {
+            let checking = sikemux_plugin_api::vault::Caller {
+                checking: true,
+                ..Default::default()
+            };
+            let status = call(core, &listed.id, "status", Value::Null);
+            match sikemux_plugin_api::vault::as_caller(checking, status).await {
                 Ok(status) => {
                     listed.browser_sign_in = browser && status["browserSignIn"] != false;
                     let status = serde_json::from_value::<SignInStatus<IgnoredAny>>(status).ok();
@@ -310,6 +315,7 @@ pub(crate) fn caller_of(
                 .as_ref()
                 .map_or_else(|| "an agent".to_owned(), |named| format!("@{}", named.name)),
         ),
+        ..Default::default()
     }
 }
 

@@ -113,7 +113,10 @@ async fn answer(
         remote: remote.to_owned(),
         reach,
     };
-    let caller = Caller { agent };
+    let caller = Caller {
+        agent,
+        ..Caller::default()
+    };
     as_caller(caller, crate::server::plugged::credential(core, ask)).await
 }
 
@@ -149,6 +152,7 @@ pub async fn merge(
     };
     let caller = Caller {
         agent: agent.clone(),
+        ..Caller::default()
     };
     let merged = as_caller(
         caller,

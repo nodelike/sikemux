@@ -21,6 +21,9 @@ use crate::PluginFuture;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Caller {
     pub agent: Option<String>,
+    /// The host only checks that the sign-in still works, which is not logged as a use.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub checking: bool,
 }
 
 tokio::task_local! {

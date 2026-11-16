@@ -615,7 +615,8 @@ fn apply(
     entries: &BTreeMap<String, Entry>,
     local: &mut Local,
     marks: &Marks,
-) {
+) -> bool {
+    let mut moved = false;
     let book = |plugin: &str| {
         books
             .iter()
@@ -645,6 +646,7 @@ fn apply(
                     .find(|held| held.identity == sign_in.identity)
                     .map(local::digest)
                     .unwrap_or_default();
+                moved = true;
                 local.applied.insert(
                     id.clone(),
                     Applied {
@@ -676,6 +678,7 @@ fn apply(
         };
         match kept.let_go(dir, &applied.identity) {
             Ok(()) => {
+                moved = true;
                 local.applied.remove(&id);
             }
             Err(error) => eprintln!(
@@ -683,6 +686,7 @@ fn apply(
             ),
         }
     }
+    moved
 }
 
 async fn reconcile(
@@ -692,6 +696,7 @@ async fn reconcile(
     opened: (Key, Remote),
 ) -> CoreResult<()> {
     let (key, vault) = opened;
+    let shown_before = super::shown::vault(core);
     let mut entries = BTreeMap::new();
     for entry in &vault.entries {
         if entry.generation != vault.generation {
@@ -865,17 +870,20 @@ async fn reconcile(
     let data_dir = core.data_dir().clone();
     let me = me.to_owned();
     let mut local = plan.local;
-    blocking(move || {
-        apply(&books, &entries, &mut local, &marks);
+    let took_in_or_let_go = blocking(move || {
+        let moved = apply(&books, &entries, &mut local, &marks);
         local.rules = rules_of(&entries, &local);
         local.host = me;
-        local::save(data_dir.as_deref(), &local).map_err(CoreError::from)
+        local::save(data_dir.as_deref(), &local).map_err(CoreError::from)?;
+        Ok(moved)
     })
     .await?;
     if wrote {
         super::inbox_changed(core);
     }
-    announce(core);
+    if wrote || took_in_or_let_go || super::shown::vault(core) != shown_before {
+        announce(core);
+    }
     Ok(())
 }
 

@@ -208,6 +208,9 @@ impl HostKeeper {
 
 impl Keeper for HostKeeper {
     fn using(&self, service: &str, account: &str, caller: Option<&Caller>) {
+        if caller.is_some_and(|caller| caller.checking) {
+            return;
+        }
         self.with((), |core, state| {
             if state.me.is_none() {
                 return;
