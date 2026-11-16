@@ -1,22 +1,31 @@
 use std::collections::BTreeMap;
 use std::ffi::{c_void, OsStr, OsString};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::{self, Read as _};
 use std::ops::{Deref, DerefMut};
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStderr, ChildStdin, ChildStdout, ExitStatus, Output};
 use std::ptr::{null, null_mut};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::io::AsyncReadExt as _;
 use windows_sys::Win32::Foundation::{
     DuplicateHandle, GetLastError, DUPLICATE_SAME_ACCESS, ERROR_INSUFFICIENT_BUFFER, HANDLE,
     INVALID_HANDLE_VALUE, TRUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+    FILE_READ_ATTRIBUTES, FILE_WRITE_ATTRIBUTES, PIPE_ACCESS_INBOUND, PIPE_ACCESS_OUTBOUND,
+};
 use windows_sys::Win32::System::Console::{
     GetStdHandle, HPCON, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+};
+use windows_sys::Win32::System::Pipes::{
+    CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
 };
 use windows_sys::Win32::System::SystemInformation::{GetSystemDirectoryW, GetWindowsDirectoryW};
 use windows_sys::Win32::System::Threading::{
@@ -225,7 +234,7 @@ impl Command {
     }
 
     pub(super) fn creation_flags(&mut self, flags: u32) {
-        self.flags |= flags;
+        self.flags = flags;
     }
 
     pub(super) fn pseudoconsole(&mut self, console: HPCON) {
@@ -308,18 +317,8 @@ impl Command {
                         (Some(null_device(input)?), None)
                     }
                     (Some(Stdio::Piped), _) | (None, Default::Piped) => {
-                        let (reader, writer) = io::pipe()?;
-                        if input {
-                            (
-                                Some(inheritable(reader.as_raw_handle())?),
-                                Some(writer.into()),
-                            )
-                        } else {
-                            (
-                                Some(inheritable(writer.as_raw_handle())?),
-                                Some(reader.into()),
-                            )
-                        }
+                        let (ours, theirs) = pipe(!input)?;
+                        (Some(inheritable(theirs.as_raw_handle())?), Some(ours))
                     }
                     (Some(Stdio::Handle(handle)), _) => {
                         (Some(inheritable(handle.as_raw_handle())?), None)
@@ -558,6 +557,53 @@ fn inherited(id: STD_HANDLE) -> io::Result<Option<OwnedHandle>> {
         return Ok(None);
     }
     inheritable(handle).map(Some)
+}
+
+/// std's `ChildStdout`, `ChildStderr` and `ChildStdin` wait forever on a read or write whose
+/// handle is not overlapped, so this process's end is overlapped and the child's is plain.
+fn pipe(ours_reads: bool) -> io::Result<(OwnedHandle, File)> {
+    const PIPE_BUFFER: u32 = 64 * 1024;
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = format!(
+        r"\\.\pipe\sikemux-child-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
+    let (direction, their_access) = if ours_reads {
+        (
+            PIPE_ACCESS_INBOUND,
+            FILE_GENERIC_WRITE | FILE_READ_ATTRIBUTES,
+        )
+    } else {
+        (
+            PIPE_ACCESS_OUTBOUND,
+            FILE_GENERIC_READ | FILE_WRITE_ATTRIBUTES,
+        )
+    };
+    let wide_name = nul_terminated(OsStr::new(&name))?;
+    // SAFETY: the name is NUL-terminated and outlives the call.
+    let ours = unsafe {
+        CreateNamedPipeW(
+            wide_name.as_ptr(),
+            direction | FILE_FLAG_FIRST_PIPE_INSTANCE | FILE_FLAG_OVERLAPPED,
+            PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+            1,
+            PIPE_BUFFER,
+            PIPE_BUFFER,
+            0,
+            null(),
+        )
+    };
+    if ours == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: CreateNamedPipeW made this handle for us alone.
+    let ours = unsafe { OwnedHandle::from_raw_handle(ours) };
+    let theirs = OpenOptions::new()
+        .access_mode(their_access)
+        .share_mode(0)
+        .open(&name)?;
+    Ok((ours, theirs))
 }
 
 fn null_device(input: bool) -> io::Result<OwnedHandle> {
