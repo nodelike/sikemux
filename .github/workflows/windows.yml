@@ -170,8 +170,10 @@ jobs:
         run: |
           cargo build --locked -p sikemux-host --bin sikemux-host
           cargo build --locked -p sikemux-app --bin sikemux --features drive
+          cargo build --locked -p sikemux-core --bin sikemux-fake-claude
+          cargo build --locked -p sikemux-app --example fake_chat
 
-      - name: Open the app on its own core with a terminal
+      - name: Open the app on its own core with a terminal and a stand-in agent
         shell: powershell
         run: app\ci\windows-core.ps1 -App target\debug\sikemux.exe -Out "$env:RUNNER_TEMP\window\core"
 
@@ -180,7 +182,10 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app-window-${{ matrix.arch }}
-          path: ${{ runner.temp }}/window
+          path: |
+            ${{ runner.temp }}/window/**/*.png
+            ${{ runner.temp }}/window/**/*.txt
+            ${{ runner.temp }}/window/**/*.log
 
   service:
     name: The Sikemux service on Windows ${{ matrix.arch }}

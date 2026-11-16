@@ -1,5 +1,6 @@
 # Opens the app on a Windows runner with the core it starts itself, opens a project through the
-# CLI, then a terminal by its key, and keeps a picture of each stage.
+# CLI, a terminal by its key, then a chat with the film's stand-in Claude that answers, reads a
+# file and opens a browser tab, and keeps a picture of each stage.
 param(
     [Parameter(Mandatory)] [string] $App,
     [Parameter(Mandatory)] [string] $Out,
@@ -17,6 +18,24 @@ Set-Content -Path (Join-Path $data 'preferences.json') -Value '{"onboardingCompl
 $cli = Join-Path (Split-Path $App) 'sikemux-host.exe'
 if (-not (Test-Path $cli)) { throw "$cli is not built beside the app" }
 $cli = (Resolve-Path $cli).Path
+$claude = (Resolve-Path (Join-Path (Split-Path $App) 'sikemux-fake-claude.exe')).Path
+# A debug core lets a program act as the person only from where it knows it, examples\remote.
+$examples = Join-Path (Split-Path $App) 'examples'
+Copy-Item (Join-Path $examples 'fake_chat.exe') (Join-Path $examples 'remote.exe') -Force
+$chat = (Resolve-Path (Join-Path $examples 'remote.exe')).Path
+$replies = Join-Path $Out 'replies.json'
+Set-Content -Path $replies -Value (ConvertTo-Json -Depth 8 -InputObject @(
+    @{
+        when = 'look'
+        steps = @(
+            @{ say = 'Reading the README first.' },
+            @{ tool = 'Read'; input = @{ file_path = (Join-Path $project 'README.md') }; result = '# A project opened by the window run'; ms = 5000 },
+            @{ tool = 'mcp__sikemux-tools__browser_navigate'; call = 'browser.navigate'; input = @{ url = 'https://example.com' }; ms = 1200 },
+            @{ say = 'It is a project opened by the window run, and example.com is open beside this chat.' }
+        )
+    }
+))
+$env:FAKE_CLAUDE_SCRIPT = $replies
 
 Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
 using System; using System.Drawing; using System.Runtime.InteropServices;
@@ -30,6 +49,13 @@ public static class Grab {
       bool ok;
       using (var g = Graphics.FromImage(bmp)) { var dc = g.GetHdc(); ok = PrintWindow(h, dc, 2); g.ReleaseHdc(dc); }
       bmp.Save(path); return ok;
+    }
+  }
+  public static void Screen(IntPtr h, string path) {
+    RECT r; GetWindowRect(h, out r);
+    using (var bmp = new Bitmap(r.R - r.L, r.B - r.T)) {
+      using (var g = Graphics.FromImage(bmp)) { g.CopyFromScreen(r.L, r.T, 0, 0, bmp.Size); }
+      bmp.Save(path);
     }
   }
 }
@@ -88,6 +114,7 @@ function Drive([string] $Step, [string] $Steps) {
     $pipe.Dispose()
     "$Step`n$answer" | Out-File -Append (Join-Path $Out 'steps.txt')
     Write-Host "${Step}: $answer"
+    $answer
 }
 
 Start-Sleep -Seconds $Settle
@@ -95,13 +122,44 @@ Picture 'connected'
 
 Ask-Core -Step 'open the project' -Words 'open', $project | Out-Null
 Start-Sleep -Seconds 10
-Drive 'open a terminal' "activate`nkey ctrl+t`nwait 3"
-Drive 'what the window holds' 'state'
-Start-Sleep -Seconds 15
+Drive 'open a terminal' "activate`nkey ctrl+t`nwait 3" | Out-Null
+Start-Sleep -Seconds 5
+Picture 'terminal'
+$folder = Join-Path $Out 'terminal-folder.txt'
+Drive 'the terminal says its folder' "text `$pwd.Path | Set-Content $folder`nkey enter`nwait 3" | Out-Null
+
+$env:FAKE_PROVIDER = 'claude'
+$env:FAKE_PROJECT = $project
+# It leaves at once: while connected it stands in front of the app and would be handed the
+# browser call, which the Read's five seconds hold back until it has gone.
+$env:FAKE_PAUSE_MS = '0'
+$socket = Join-Path $env:LOCALAPPDATA 'Sikemux\core.dev.sock'
+$ErrorActionPreference = 'Continue'
+$answer = (& $chat $socket $claude 'look at this project' 2>&1 | Out-String)
+$ErrorActionPreference = 'Stop'
+"start a chat on the stand-in (exit $LASTEXITCODE)`n$answer" | Out-File -Append (Join-Path $Out 'steps.txt')
+Write-Host "start a chat on the stand-in (exit $LASTEXITCODE): $answer"
+if ($LASTEXITCODE -ne 0) { $failed += 'start a chat on the stand-in' }
+Start-Sleep -Seconds 2
+Picture 'reading'
+Start-Sleep -Seconds 28
+$state = Drive 'what the window holds' 'state'
+if (-not $state.Contains('example.com')) { $failed += "the stand-in's browser tab" }
 Picture 'window'
+# PrintWindow can miss a page the window composes from another process; the screen shows it.
+[Grab]::Screen($proc.MainWindowHandle, (Join-Path $Out 'window-screen.png'))
 "window: $($proc.MainWindowTitle)" | Out-File (Join-Path $Out 'state.txt')
 
 Stop-Process -Id $proc.Id
-Get-Process sikemux-host -ErrorAction SilentlyContinue | Stop-Process
+Get-Process sikemux-host, sikemux-fake-claude -ErrorAction SilentlyContinue | Stop-Process
 Get-Content (Join-Path $Out 'stdout.txt'), (Join-Path $Out 'stderr.txt')
+
+# The prompt shows the shell's folder, and Windows' \\?\ prefix must reach neither it nor the
+# project's path the core stores.
+$verbatim = '\\?\'
+if (-not (Test-Path $folder)) { $failed += 'the terminal says its folder' }
+elseif ((Get-Content $folder -Raw).Contains($verbatim)) { $failed += "the terminal's folder is $(Get-Content $folder -Raw)" }
+$stored = Get-ChildItem -Recurse -File (Join-Path $env:LOCALAPPDATA 'Sikemux'), $data.FullName -ErrorAction SilentlyContinue |
+    Where-Object { $_.Extension -notin '.log', '.exe', '.dll' -and "$(Get-Content -Raw $_.FullName -ErrorAction SilentlyContinue)".Contains($verbatim) }
+if ($stored) { $failed += "the core stored \\?\ paths in $($stored.Name -join ', ')" }
 if ($failed.Count -gt 0) { throw "these steps failed: $($failed -join ', ')" }
