@@ -13,6 +13,13 @@ const stillPays = () =>
     "This email still pays for another account's plan. Buy once that plan has ended.",
   );
 
+/** People who traded emails: each one's customer waits for the email another's holds. */
+class Traded extends ApiFailure {
+  constructor() {
+    super(409, "conflict", stillPays().message);
+  }
+}
+
 /**
  * People's customers at the provider, each kept at the email its person signs in with. An email
  * that passed from one person to another moves on with them: the customer holding it moves to its
@@ -46,7 +53,8 @@ function customersOf(
 
   const handOn = async (customerId: string, seen: string[]) => {
     const holder = await holderOf(customerId);
-    if (!holder || seen.includes(holder)) throw stillPays();
+    if (holder && seen.includes(holder)) throw new Traded();
+    if (!holder) throw stillPays();
     const theirs = await emailOf(holder);
     if (!theirs) throw stillPays();
     await moveTo(customerId, theirs, [...seen, holder]);
@@ -143,7 +151,9 @@ async function follow(
     if (!(error instanceof ApiFailure)) throw error;
     log.info(
       { userId, customerId },
-      "the customer keeps its email: another account still pays with the new one",
+      error instanceof Traded
+        ? "the customer keeps its email: people traded emails, and each customer at the provider still holds another's"
+        : "the customer keeps its email: another account still pays with the new one",
     );
   }
 }
