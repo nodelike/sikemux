@@ -566,11 +566,7 @@ impl Backend for Opencode {
         }
         let opened = Opened {
             session_id,
-            capabilities: json!({
-                "loadSession": true,
-                "steering": true,
-                "promptCapabilities": { "image": true, "embeddedContext": true },
-            }),
+            capabilities: Opened::native_capabilities(),
             setup: json!({ "configOptions": opencode.options() }),
         };
         Ok((opencode, opened))
