@@ -216,7 +216,7 @@ impl Terminal {
             } else {
                 span.text
                     .char_indices()
-                    .map(|(at, character)| &span.text[at..at + character.len_utf8()])
+                    .filter_map(|(at, character)| span.text.get(at..at + character.len_utf8()))
                     .collect()
             };
             let step = if span.wide { 2 } else { 1 };
@@ -242,13 +242,14 @@ impl Terminal {
                 .get(col)
                 .is_some_and(|cell| !cell.is_empty() && !WORD_SEPARATORS.contains(*cell))
         };
+        let empty = |col: usize| cells.get(col).is_some_and(|cell| cell.is_empty());
         let mut from = usize::from(point.col);
         let mut to = from;
         if word(from) {
-            while from > 0 && (word(from - 1) || cells[from - 1].is_empty()) {
+            while from > 0 && (word(from - 1) || empty(from - 1)) {
                 from -= 1;
             }
-            while to + 1 < cells.len() && (word(to + 1) || cells[to + 1].is_empty()) {
+            while to + 1 < cells.len() && (word(to + 1) || empty(to + 1)) {
                 to += 1;
             }
         }
@@ -323,17 +324,20 @@ impl Terminal {
         let mut from = 0;
         while let Some(found) = ["https://", "http://"]
             .iter()
-            .filter_map(|scheme| text[from..].find(scheme))
+            .filter_map(|scheme| text.get(from..)?.find(scheme))
             .min()
         {
             let start = from + found;
-            let length = text[start..]
+            let tail = text.get(start..).unwrap_or_default();
+            let length = tail
                 .find(|c: char| c.is_whitespace() || "\"'<>`".contains(c))
-                .unwrap_or(text.len() - start);
-            let uri =
-                text[start..start + length].trim_end_matches(|c: char| ".,;:!?)]}".contains(c));
-            let columns = columns_at[start]..columns_at[start + uri.len() - 1] + 1;
-            if columns.contains(&point.col) {
+                .unwrap_or(tail.len());
+            let uri = (tail.get(..length).unwrap_or_default())
+                .trim_end_matches(|c: char| ".,;:!?)]}".contains(c));
+            let columns = (columns_at.get(start))
+                .zip(columns_at.get(start + uri.len() - 1))
+                .map(|(first, last)| *first..*last + 1);
+            if let Some(columns) = columns.filter(|columns| columns.contains(&point.col)) {
                 return Some(Link {
                     line: point.line,
                     columns,
@@ -1261,8 +1265,9 @@ fn named_key(key: &str) -> Option<String> {
         "insert" => "Insert".into(),
         "delete" => "Delete".into(),
         _ if key.len() > 1
-            && key.starts_with('f')
-            && key[1..].parse::<u8>().is_ok_and(|n| (1..=12).contains(&n)) =>
+            && (key.strip_prefix('f'))
+                .and_then(|number| number.parse::<u8>().ok())
+                .is_some_and(|n| (1..=12).contains(&n)) =>
         {
             key.to_uppercase()
         }
@@ -1371,7 +1376,7 @@ impl InputHandler for Typing {
         let units: Vec<u16> = self.marked(cx)?.encode_utf16().collect();
         let range = range.start.min(units.len())..range.end.min(units.len());
         *adjusted = Some(range.clone());
-        String::from_utf16(&units[range]).ok()
+        String::from_utf16(units.get(range)?).ok()
     }
 
     fn replace_text_in_range(

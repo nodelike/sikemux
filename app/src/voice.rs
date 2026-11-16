@@ -441,7 +441,7 @@ impl crate::workbench::Workbench {
                 };
                 draft.update(cx, |draft, cx| {
                     let caret = draft.selected_range().start;
-                    let spaced = draft.value()[..caret]
+                    let spaced = (draft.value().get(..caret).unwrap_or_default())
                         .chars()
                         .next_back()
                         .is_none_or(char::is_whitespace);

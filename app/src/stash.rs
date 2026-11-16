@@ -728,11 +728,11 @@ pub(crate) fn pieces(text: &str, named: &[crate::chat::Mention], pages: &[Page])
         if at < from || pieces.len() >= WORDS_LAID {
             continue;
         }
-        pieces.extend(words(&text[from..at]));
+        pieces.extend(words(text.get(from..at).unwrap_or_default()));
         pieces.extend(pill);
         from = end;
     }
-    pieces.extend(words(&text[from..]));
+    pieces.extend(words(text.get(from..).unwrap_or_default()));
     pieces.truncate(WORDS_LAID);
     pieces
 }
@@ -892,7 +892,7 @@ pub(crate) fn sentence(
     cx: &App,
 ) -> AnyElement {
     let cut = key.and_then(|key| cx.try_global::<Cuts>()?.0.get(key).copied());
-    let shown = &pieces[..cut.map_or(pieces.len(), |cut| cut.kept.min(pieces.len()))];
+    let shown = cut.and_then(|cut| pieces.get(..cut.kept)).unwrap_or(pieces);
     let space = px(3.5);
     let pill_line = |pill: Div| {
         pill.h(theme::ui_text(LINE - 3.))
@@ -978,11 +978,13 @@ fn cut_of(
 ) -> Option<Cut> {
     let mut lines = Vec::with_capacity(laid.len());
     let mut line = 0;
-    for (at, bounds) in laid.iter().enumerate() {
-        if at > 0 && bounds.origin.x < laid[at - 1].origin.x {
+    let mut before: Option<&Bounds<Pixels>> = None;
+    for bounds in laid {
+        if before.is_some_and(|before| bounds.origin.x < before.origin.x) {
             line += 1;
         }
         lines.push(line);
+        before = Some(bounds);
     }
     let mut kept = lines.iter().take_while(|line| **line < 2).count();
     let hidden = |kept: usize| (pills.iter().skip(kept)).filter(|pill| **pill).count();
@@ -990,8 +992,9 @@ fn cut_of(
         return None;
     }
     let right = frame.origin.x + frame.size.width;
-    while kept > 0 && laid[kept - 1].origin.x + laid[kept - 1].size.width + space + px(MORE) > right
-    {
+    let overflows =
+        |last: &Bounds<Pixels>| last.origin.x + last.size.width + space + px(MORE) > right;
+    while (kept.checked_sub(1).and_then(|last| laid.get(last))).is_some_and(overflows) {
         kept -= 1;
     }
     Some(Cut {

@@ -132,7 +132,10 @@ impl Cards {
             Press::Down => chosen.map_or(0, |at| (at + 1) % count),
             _ => return false,
         };
-        self.set_chosen(call, vec![call.options[at].id.clone()], cx);
+        let Some(option) = call.options.get(at) else {
+            return false;
+        };
+        self.set_chosen(call, vec![option.id.clone()], cx);
         true
     }
 
@@ -1247,8 +1250,7 @@ fn strip(
         .or(call.pick.as_ref())
         .and_then(|id| call.options.iter().position(|option| &option.id == id))
         .unwrap_or(0);
-    let shown = |ix: usize| {
-        let option = &call.options[ix];
+    let shown = |ix: usize, option: &sikemux_view::calls::CallOption| {
         let id = SharedString::from(format!("call-picture-{}-{ix}", call.id));
         let fill = if ix == lead {
             Fill::Contain
@@ -1260,28 +1262,30 @@ fn strip(
             None => div().id(id).rounded(px(8.)).bg(t.surface_sunken),
         }
     };
-    let rest = (0..call.options.len()).filter(|ix| *ix != lead).map(|ix| {
-        let (cards, call, option) = (cards.clone(), call.clone(), call.options[ix].id.clone());
-        shown(ix)
-            .flex_1()
-            .w_full()
-            .opacity(0.72)
-            .clicks(move |_, _, cx| {
-                cx.stop_propagation();
-                cards.update(cx, |cards, cx| cards.choose(&call, &option, cx));
-            })
-    });
+    let rest = (call.options.iter().enumerate())
+        .filter(|(ix, _)| *ix != lead)
+        .map(|(ix, option)| {
+            let (cards, call, id) = (cards.clone(), call.clone(), option.id.clone());
+            shown(ix, option)
+                .flex_1()
+                .w_full()
+                .opacity(0.72)
+                .clicks(move |_, _, cx| {
+                    cx.stop_propagation();
+                    cards.update(cx, |cards, cx| cards.choose(&call, &id, cx));
+                })
+        });
     div()
         .h(px(STRIP_HEIGHT))
         .flex()
         .gap(SPACE_1H)
-        .child(
-            shown(lead)
+        .children(call.options.get(lead).map(|option| {
+            shown(lead, option)
                 .w(px(STRIP_LEAD))
                 .flex_none()
                 .h_full()
-                .border_color(t.border_strong),
-        )
+                .border_color(t.border_strong)
+        }))
         .child(
             div()
                 .flex_1()

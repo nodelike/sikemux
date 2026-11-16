@@ -217,7 +217,11 @@ impl ModPane {
         }
         let mut any = false;
         for watch in self.watches.values_mut() {
-            let collection = watch.params["collection"].as_str().unwrap_or_default();
+            let collection = watch
+                .params
+                .get("collection")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
             if watch.name == "data" && collections.is_none_or(|moved| moved.contains(&collection)) {
                 watch.dirty = true;
                 any = true;
@@ -361,9 +365,16 @@ impl ModPane {
     }
 
     fn asked(&mut self, message: Value, cx: &mut Context<Self>) {
-        let id = message["id"].as_u64().unwrap_or_default();
-        let name = message["name"].as_str().unwrap_or_default().to_owned();
-        let params = message["params"].clone();
+        let id = message
+            .get("id")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        let name = message
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let params = message.get("params").cloned().unwrap_or_default();
         let most = match name.starts_with("data.") {
             true => MAX_DATA_PARAMS_BYTES,
             false => MAX_PARAMS_BYTES,
@@ -371,7 +382,7 @@ impl ModPane {
         if params.to_string().len() > most {
             return self.answer_to(self.generation, id, Err("those params are too long".into()));
         }
-        match message["op"].as_str() {
+        match message.get("op").and_then(Value::as_str) {
             Some("read") => {
                 let (read, generation) = (
                     self.core
@@ -409,17 +420,22 @@ impl ModPane {
                 self.watches.remove(&id);
             }
             Some("view") => {
-                let view = message["text"].as_str();
+                let view = message.get("text").and_then(Value::as_str);
                 if view.is_none_or(|view| view.len() <= MAX_VIEW_BYTES) {
                     self.kept.view = view.map(str::to_owned);
                 }
             }
             Some("scroll") => {
-                let at = |axis: &str| message[axis].as_f64().unwrap_or_default();
+                let at = |axis: &str| {
+                    message
+                        .get(axis)
+                        .and_then(Value::as_f64)
+                        .unwrap_or_default()
+                };
                 self.kept.scroll = Some([at("x"), at("y")]);
             }
             Some("badge") => {
-                let badge = message["text"].as_str();
+                let badge = message.get("text").and_then(Value::as_str);
                 self.core.call_typed::<call::SetModBadge>(BadgeParams {
                     id: self.id.clone(),
                     badge: badge.map(str::to_owned),

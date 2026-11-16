@@ -553,7 +553,7 @@ fn contributors(
     let shown = if news.everyone {
         rest
     } else {
-        &rest[..rest.len().min(WALL)]
+        rest.get(..WALL).unwrap_or(rest)
     };
     div()
         .mt_auto()

@@ -778,8 +778,10 @@ pub fn burst_in(agent: Option<&str>, cx: &App) -> Option<AnyElement> {
         .collect();
     let mut params = [0.; gpui::RAW_SHADER_PARAMS];
     params[..4].copy_from_slice(&[burst.started, 0., burst.seed, worn.spark as f32]);
-    for (at, ink) in inks.iter().cycle().take(3).enumerate() {
-        params[4 + 4 * at..7 + 4 * at].copy_from_slice(&[ink.r, ink.g, ink.b]);
+    for (slot, ink) in params[4..].chunks_mut(4).zip(inks.iter().cycle().take(3)) {
+        if let [r, g, b, ..] = slot {
+            (*r, *g, *b) = (ink.r, ink.g, ink.b);
+        }
     }
     let show = burst.show;
     Some(

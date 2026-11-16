@@ -178,14 +178,13 @@ impl Workbench {
             agent = said("agent"),
             theme = said("theme")
         );
-        let undo = &params["undo"];
+        let undone = |path: &str| params.pointer(path).cloned().unwrap_or_default();
         let before: Vec<PreferenceChange> = [
-            serde_json::from_value(undo["theme"].clone()).map(PreferenceChange::ThemeId),
-            serde_json::from_value(undo["adjust"]["scrollbars"].clone())
+            serde_json::from_value(undone("/undo/theme")).map(PreferenceChange::ThemeId),
+            serde_json::from_value(undone("/undo/adjust/scrollbars"))
                 .map(PreferenceChange::Scrollbars),
-            serde_json::from_value(undo["adjust"]["contrast"].clone())
-                .map(PreferenceChange::Contrast),
-            serde_json::from_value(undo["adjust"]["motion"].clone()).map(PreferenceChange::Motion),
+            serde_json::from_value(undone("/undo/adjust/contrast")).map(PreferenceChange::Contrast),
+            serde_json::from_value(undone("/undo/adjust/motion")).map(PreferenceChange::Motion),
         ]
         .into_iter()
         .flatten()
@@ -520,13 +519,15 @@ impl Workbench {
         let Some(agent) = request.agent_id else {
             return answer(Ok(json!({})));
         };
-        let id = request.params["id"].as_str().unwrap_or_default().to_owned();
+        let id = (request.params.get("id").and_then(Value::as_str))
+            .unwrap_or_default()
+            .to_owned();
         if !sikemux_base::pages::is_page_id(&id) {
             return answer(Err("that is not a page the core keeps".into()));
         }
         let page =
             Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() });
-        let picture = request.params["picture"] == true;
+        let picture = request.params.get("picture") == Some(&Value::Bool(true));
         let files = self.desks.read(cx).page_files.clone();
         crate::desk::spawn(async move {
             let shown = async {

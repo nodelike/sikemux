@@ -32,7 +32,8 @@ impl Bundle {
         let extension = name
             .rfind('.')
             .filter(|dot| *dot > 0)
-            .map_or("", |dot| &name[dot + 1..]);
+            .and_then(|dot| name.get(dot + 1..))
+            .unwrap_or_default();
         self.language_names
             .get(name)
             .map(String::as_str)
@@ -55,7 +56,10 @@ impl Bundle {
             return icon;
         }
         for (dot, _) in lower.match_indices('.').filter(|(dot, _)| *dot > 0) {
-            if let Some(icon) = self.extensions.get(&lower[dot + 1..]) {
+            if let Some(icon) = lower
+                .get(dot + 1..)
+                .and_then(|tail| self.extensions.get(tail))
+            {
                 return icon;
             }
         }

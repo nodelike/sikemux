@@ -337,17 +337,16 @@ fn framed(window: &mut gpui_kit::Window, _: &mut App) {
 /// hundredth, the longest, how many passed 25 and 50 ms, and when each past 50 ms ended, in ms
 /// from the start.
 fn frame_times(frames: &[std::time::Instant]) -> Value {
-    let long: Vec<[f64; 2]> = frames
-        .windows(2)
-        .filter_map(|pair| {
-            let gap = (pair[1] - pair[0]).as_secs_f64() * 1000.;
-            let at = (pair[1] - frames[0]).as_secs_f64() * 1000.;
+    let pairs = || frames.iter().zip(frames.iter().skip(1));
+    let long: Vec<[f64; 2]> = pairs()
+        .filter_map(|(before, after)| {
+            let gap = (*after - *before).as_secs_f64() * 1000.;
+            let at = (*after - *frames.first()?).as_secs_f64() * 1000.;
             (gap > 50.).then_some([at.round(), gap.round()])
         })
         .collect();
-    let mut gaps: Vec<f64> = frames
-        .windows(2)
-        .map(|pair| (pair[1] - pair[0]).as_secs_f64() * 1000.)
+    let mut gaps: Vec<f64> = pairs()
+        .map(|(before, after)| (*after - *before).as_secs_f64() * 1000.)
         .collect();
     gaps.sort_by(f64::total_cmp);
     let at = |share: f64| {

@@ -61,6 +61,7 @@ impl Element for Selectable {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, TextSelectionHandle) {
+        #[expect(clippy::expect_used, reason = "the element always names its own id")]
         let handle = window.with_element_state(
             global_id.expect("selectable text has an id"),
             |kept: Option<TextSelectionHandle>, _| {

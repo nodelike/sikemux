@@ -25,13 +25,11 @@ pub fn tr(english: &str) -> &str {
     let Some(language) = LANGUAGES.get(SPOKEN.load(Ordering::Relaxed)) else {
         return english;
     };
-    match language
-        .words
+    (language.words)
         .binary_search_by(|(key, _)| (*key).cmp(english))
-    {
-        Ok(at) => language.words[at].1,
-        Err(_) => english,
-    }
+        .ok()
+        .and_then(|at| language.words.get(at))
+        .map_or(english, |(_, word)| word)
 }
 
 /// The BCP 47 tag of the language spoken.

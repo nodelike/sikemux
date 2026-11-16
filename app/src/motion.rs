@@ -315,6 +315,10 @@ impl<T: Interpolate + PartialEq + 'static> Element for Animated<T> {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, AnyElement) {
+        #[expect(
+            clippy::unreachable,
+            reason = "an animated element is laid out once a frame"
+        )]
         let (Some(target), Some(build)) = (self.target.take(), self.build.take()) else {
             unreachable!("an animated element is laid out once");
         };
@@ -399,6 +403,10 @@ impl<K: PartialEq + Clone + 'static> Element for Replay<K> {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, AnyElement) {
+        #[expect(
+            clippy::unreachable,
+            reason = "a replaying element is laid out once a frame"
+        )]
         let (Some(key), Some(build)) = (self.key.take(), self.build.take()) else {
             unreachable!("a replaying element is laid out once");
         };
@@ -869,6 +877,7 @@ impl Element for WithWindow {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, AnyElement) {
+        #[expect(clippy::expect_used, reason = "the element is laid out once a frame")]
         let build = self.build.take().expect("drawn once a frame");
         let mut element = build(window, cx);
         (element.request_layout(window, cx), element)

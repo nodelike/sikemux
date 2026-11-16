@@ -369,8 +369,8 @@ impl Palette {
     /// The number `line` goes by in a numbered palette while nothing is typed.
     fn number_of(&self, line: usize, cx: &App) -> Option<usize> {
         let numbering = self.numbering(cx);
-        let rows = self.lines[..=line.min(self.lines.len().saturating_sub(1))]
-            .iter()
+        let rows = (self.lines.iter())
+            .take(line.saturating_add(1))
             .filter(|line| matches!(line, Line::Row(_)))
             .count();
         let numbered = numbering && matches!(self.lines.get(line), Some(Line::Row(_)));
@@ -431,7 +431,7 @@ impl Palette {
         let rows = &self.spec.rows;
         self.lines
             .iter()
-            .position(|line| matches!(line, Line::Row(place) if rows[*place].key == *key))
+            .position(|line| matches!(line, Line::Row(place) if rows.get(*place).is_some_and(|row| row.key == *key)))
     }
 
     /// What is typed in its field.
@@ -460,7 +460,7 @@ impl Palette {
     }
 
     fn choosable(&self, line: usize) -> bool {
-        matches!(self.lines.get(line), Some(Line::Row(place)) if !self.spec.rows[*place].disabled)
+        matches!(self.lines.get(line), Some(Line::Row(place)) if self.spec.rows.get(*place).is_some_and(|row| !row.disabled))
     }
 
     /// The next row that can be picked `by` lines on from `from`, wrapping.
@@ -500,18 +500,17 @@ impl Palette {
 fn ruled(rows: &[Row], query: &str) -> Vec<Line> {
     let mut lines = Vec::with_capacity(rows.len() + 2);
     let mut start = 0;
-    while start < rows.len() {
-        let group = &rows[start].group;
-        let end = rows[start..]
-            .iter()
-            .position(|row| row.group != *group)
-            .map_or(rows.len(), |length| start + length);
+    while let Some(tail @ [first, ..]) = rows.get(start..) {
+        let length = (tail.iter())
+            .position(|row| row.group != first.group)
+            .unwrap_or(tail.len());
+        let end = start + length;
         let found: Vec<usize> = if query.is_empty() {
             (start..end).collect()
         } else {
             let mut found: Vec<usize> = crate::fuzzy::rank(
                 query,
-                rows[start..end].iter().map(|row| row.search.as_str()),
+                tail.iter().take(length).map(|row| row.search.as_str()),
                 SHOWN,
             )
             .into_iter()
@@ -853,7 +852,9 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
     };
     let row = match palette.lines.get(line) {
         Some(Line::Heading(place)) => {
-            let group = palette.spec.rows[*place].group.clone().unwrap_or_default();
+            let group = (palette.spec.rows.get(*place))
+                .and_then(|row| row.group.clone())
+                .unwrap_or_default();
             return div()
                 .h(px(crate::theme::dense(ROW_HEIGHT)))
                 .px(SPACE_2)
@@ -863,7 +864,10 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                 .child(ui::caps(&group, cx))
                 .into_any_element();
         }
-        Some(Line::Row(place)) => &palette.spec.rows[*place],
+        Some(Line::Row(place)) => match palette.spec.rows.get(*place) {
+            Some(row) => row,
+            None => return div().into_any_element(),
+        },
         Some(Line::Rule) => {
             return div()
                 .w_full()

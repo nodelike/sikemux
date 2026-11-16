@@ -160,6 +160,7 @@ impl<V: Render> Element for Slot<V> {
         cx: &mut App,
     ) -> (LayoutId, ()) {
         let mut fresh = self.view.take();
+        #[expect(clippy::expect_used, reason = "a slot is laid out once a frame")]
         let view: Entity<V> = window.use_keyed_state(self.key.clone(), cx, |_, _| {
             fresh.take().expect("a slot is laid out once a frame")
         });

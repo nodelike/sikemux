@@ -165,7 +165,7 @@ impl Workbench {
         let own_index = (self.this_view().into_iter())
             .flat_map(|view| &view.workspace.projects)
             .position(|project| project.id == target);
-        let both_own = listed[from].own.is_some();
+        let both_own = listed.get(from).is_some_and(|row| row.own.is_some());
         if let (Some(index), true) = (own_index, both_own) {
             Target::here(&self.asks).call_typed::<call::MoveProject>(MoveProjectParams {
                 id: dragged.to_owned(),

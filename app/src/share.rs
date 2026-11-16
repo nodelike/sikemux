@@ -85,10 +85,13 @@ impl Workbench {
         let Some(sharing) = self.overlays.sharing.as_mut() else {
             return;
         };
+        let Some(&(_, lifetime_ms)) = LIFETIMES.get(sharing.lifetime) else {
+            return;
+        };
         let started = crate::core::Target::here(&self.asks).request_typed::<call::ShareChat>(
             ShareChatParams {
                 agent_id: sharing.agent.clone(),
-                lifetime_ms: LIFETIMES[sharing.lifetime].1,
+                lifetime_ms,
                 title: Some(title),
             },
         );

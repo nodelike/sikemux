@@ -1062,9 +1062,9 @@ fn git(
                     t!("Ask each time")
                 }
                 .to_owned(),
-                match only {
-                    true => repos[0].name.clone(),
-                    false => t!("the Git pane lists them").to_owned(),
+                match repos.as_slice() {
+                    [repo] => repo.name.clone(),
+                    _ => t!("the Git pane lists them").to_owned(),
                 },
                 0,
                 None,
