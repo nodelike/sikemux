@@ -176,8 +176,8 @@ async fn dispatch(
         "deliver" => route::deliver_here(core, host, params).await,
         Read::METHOD => route::read_here(core, host, read::<Read>(params)?).await,
         Close::METHOD => answered(route::close_here(core, host, read::<Close>(params)?)),
-        Permit::METHOD => answered(route::permit_here(core, host, read::<Permit>(params)?)),
-        Act::METHOD => answered(route::act_here(core, host, read::<Act>(params)?).await),
+        Permit::METHOD => answered(route::permit_here(core, read::<Permit>(params)?)),
+        Act::METHOD => answered(route::act_here(core, read::<Act>(params)?).await),
         Workers::METHOD => route::workers_here(core, host, read::<Workers>(params)?),
         Machine::METHOD => {
             read::<Machine>(params)?;

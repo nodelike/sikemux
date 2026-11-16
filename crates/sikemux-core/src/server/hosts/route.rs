@@ -30,7 +30,7 @@ use super::super::follow::{self, Happened};
 use super::super::messages::{self, Carried, MessageKind};
 use super::super::names::Worker;
 use super::super::roster::{self, Reach};
-use super::super::{inbox, Core, CoreResult};
+use super::super::{inbox, Core, CoreError, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::team::{Foreign, Role, Said};
 use super::{ask, call, call_id, goes_now, name_of, post, Failed, Sending};
@@ -277,18 +277,18 @@ fn local_gone(core: &Core, agent_id: &str) {
     else {
         return;
     };
-    let open = core.open_agents();
-    let others = open.iter().any(|other| {
-        other != agent_id
-            && core
-                .names()
-                .get(other)
-                .is_some_and(|named| named.parent.as_deref() == Some(&foreign.agent_id))
-    });
-    if !others {
+    if !leads_here(core, &foreign.agent_id, Some(agent_id)) {
         core.hosts().team.remove(&foreign.agent_id);
         pin(core);
     }
+}
+
+/// Whether `lead`, an agent on another host, still leads an open agent here besides `except`.
+fn leads_here(core: &Core, lead: &str, except: Option<&str>) -> bool {
+    core.open_agents().iter().any(|other| {
+        Some(other.as_str()) != except
+            && (core.names().get(other)).is_some_and(|named| named.parent.as_deref() == Some(lead))
+    })
 }
 
 #[derive(Serialize, Deserialize)]
@@ -361,7 +361,8 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
         {
             core.note_linked_turn_ended(&foreign.agent_id);
         }
-        if closed {
+        let leads = foreign.role == Role::Lead && leads_here(core, &foreign.agent_id, None);
+        if closed && !leads {
             core.hosts().team.close(&foreign.agent_id);
             pin(core);
         }
@@ -1126,26 +1127,38 @@ pub(crate) async fn act(
     method: &str,
     params: Value,
 ) -> CoreResult<Value> {
+    let workers = (method == "closeAgents").then(|| named(&params));
     let asked = params_of::<asks::Act>(&ActParams {
         method: method.to_owned(),
         params,
     });
-    ask(core, host, asks::Act::METHOD, asked, None, ASK_WAIT)
+    let answered = ask(core, host, asks::Act::METHOD, asked, None, ASK_WAIT)
         .await
         .map_err(|error| match error {
             Failed::Unreachable(why) | Failed::Unknown(why) | Failed::Retry(why) => {
                 format!("{} is out of reach: {why}", name_of(core, host)).into()
             }
-            Failed::Refused(why) | Failed::NotLinked(why) => why.into(),
-        })
+            Failed::Refused(why) | Failed::NotLinked(why) => CoreError::from(why),
+        })?;
+    if let Some(workers) = workers {
+        for agent_id in workers {
+            if let Some(worker) = core.hosts().team.close(&agent_id) {
+                core.harness()
+                    .note_agent(&worker.project, Happened::Gone.kind(), &agent_id);
+            }
+        }
+        pin(core);
+        core.changed(What::Agents);
+        super::changed(core);
+    }
+    Ok(answered)
 }
 
-/// The host that leads agents here asks for what a row there does to them.
-pub(super) async fn act_here(core: &Core, host: &str, asked: ActParams) -> CoreResult<Value> {
-    let agents = named(&asked.params);
-    let led = |agent: &String| lead_host(core, agent).as_deref() == Some(host);
-    if agents.is_empty() || !agents.iter().all(led) {
-        return Err("only the host an agent's lead runs on may do that to it".into());
+/// A linked host asks for what a row there does to agents here. Every linked host is the
+/// person's own, so any of them may, whether or not the agents' lead still runs there.
+pub(super) async fn act_here(core: &Core, asked: ActParams) -> CoreResult<Value> {
+    if named(&asked.params).is_empty() {
+        return Err("the row named no agent".into());
     }
     let core = core.arc().ok_or("the core is stopping")?;
     crate::server::calls::row_action(&core, &asked.method, asked.params).await
@@ -1184,11 +1197,8 @@ pub(crate) fn permit(core: &Core, worker: &Foreign, request_id: &str, option_id:
     core.changed(What::Agents);
 }
 
-/// The host that leads an agent here passes on its person's answer to a permission request.
-pub(super) fn permit_here(core: &Core, host: &str, params: PermitParams) -> CoreResult<Value> {
-    if lead_host(core, &params.agent_id).as_deref() != Some(host) {
-        return Err("only the host an agent's lead runs on may answer for it".into());
-    }
+/// A linked host passes on its person's answer to a permission request of an agent here.
+pub(super) fn permit_here(core: &Core, params: PermitParams) -> CoreResult<Value> {
     super::super::chat::reply_permission(
         core,
         &params.agent_id,
