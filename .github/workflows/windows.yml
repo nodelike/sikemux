@@ -21,6 +21,10 @@ on:
         description: Open the app in a real window on both runners and keep a picture, instead of the crates' checks
         type: boolean
         default: false
+      service:
+        description: Install the Sikemux service on both runners and check the core it starts, instead of the crates' checks
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,7 +43,7 @@ env:
 jobs:
   rust:
     name: Windows ${{ matrix.arch }}
-    if: ${{ !inputs.window }}
+    if: ${{ !inputs.window && !inputs.service }}
     strategy:
       fail-fast: false
       matrix:
@@ -177,3 +181,46 @@ jobs:
         with:
           name: app-window-${{ matrix.arch }}
           path: ${{ runner.temp }}/window
+
+  service:
+    name: The Sikemux service on Windows ${{ matrix.arch }}
+    if: inputs.service || github.event_name == 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x86_64
+          - runner: windows-11-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - name: Configure git
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
+
+      - name: Build the host
+        run: cargo build --locked -p sikemux-host --bin sikemux-host
+
+      - name: Install the service and check the core it starts
+        shell: powershell
+        run: app\ci\windows-service.ps1 -Built target\debug\sikemux-host.exe -Out "$env:RUNNER_TEMP\service"
+
+      - name: Upload what it reported
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: service-${{ matrix.arch }}
+          path: ${{ runner.temp }}/service
