@@ -21,7 +21,11 @@ pub(super) async fn confirmed(what: &str) -> CoreResult<()> {
     if !asks_in_window() {
         return Ok(());
     }
-    match answered(format!("{what}\n\nDo you want to allow this?")).await? {
+    said(answered(format!("{what}\n\nDo you want to allow this?")).await?)
+}
+
+pub(super) fn said(yes: bool) -> CoreResult<()> {
+    match yes {
         true => Ok(()),
         false => Err(super::CoreError::from("you said no in Sikemux's window")),
     }

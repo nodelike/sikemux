@@ -14,6 +14,7 @@ use sikemux_view::calls::CallKind;
 use sikemux_view::memory::Learned;
 use sikemux_view::places::{Places, Seen};
 
+use crate::server::remote_state::RemoteParts;
 use crate::server::repo_state::RepoParts;
 use crate::server::workspace_state::WorkspaceParts;
 use crate::server::ServerCore;
@@ -685,6 +686,12 @@ fn closed_after_restart(data: &Path, id: &str) -> Option<CallResult> {
 }
 
 async fn answer_on_the_card(core: &Arc<Core>, id: &str) {
+    allow_on_the_card(core, id, true).await.unwrap();
+}
+
+/// Taps allow on the call's card, with the core's own window answering `window_says`.
+async fn allow_on_the_card(core: &Arc<Core>, id: &str, window_says: bool) -> CoreResult<()> {
+    core.remote().answer_window_with(window_says);
     let seen = sikemux_view::calls::CallParams { id: id.to_owned() };
     crate::server::person_calls::seen(core, &Peer::App, seen).unwrap();
     let params = sikemux_view::calls::AnswerCallParams {
@@ -697,9 +704,21 @@ async fn answer_on_the_card(core: &Arc<Core>, id: &str) {
         paths: Vec::new(),
         none: false,
     };
-    crate::server::person_calls::answer(core, &Peer::App, params)
-        .await
-        .unwrap();
+    crate::server::person_calls::answer(core, &Peer::App, params).await
+}
+
+/// A no in the core's own window refuses the yes tapped on the card.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_no_in_the_window_refuses_the_card() {
+    let dir = repo();
+    let data = tempfile::tempdir().unwrap();
+    let (cwd, project) = work_of(&dir);
+    let core = core_at(Some(data.path()), &project, vec![vercel_place()]);
+    assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
+    let id = open_calls(&core).remove(0).id;
+    assert!(allow_on_the_card(&core, &id, false).await.is_err());
+    assert_eq!(open_calls(&core).remove(0).id, id);
+    assert!(run(&core, deploy("vercel --prod"), &cwd).is_err());
 }
 
 /// A tap in the app marked the gate's call started before the agent ran anything, so a restart

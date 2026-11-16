@@ -484,6 +484,9 @@ pub struct Inner {
     pub relink_failures: HashMap<String, (u32, u64)>,
     #[cfg(any(test, feature = "testing"))]
     pub join_keys: Option<TrustedKeys>,
+    /// What a test's stand-in for the core's own window answers, so none opens.
+    #[cfg(any(test, feature = "testing"))]
+    pub window_answer: Option<bool>,
 }
 
 #[derive(Default)]
@@ -567,9 +570,17 @@ impl Remote {
     pub async fn sign(&self, peer: &Peer, what: &str) -> CoreResult<()> {
         self.may_sign(peer)?;
         match peer {
-            Peer::App | Peer::Local => confirmed(what).await,
+            Peer::App | Peer::Local => self.window_says_yes(what).await,
             Peer::Device { .. } | Peer::Share { .. } => Ok(()),
         }
+    }
+
+    async fn window_says_yes(&self, what: &str) -> CoreResult<()> {
+        #[cfg(any(test, feature = "testing"))]
+        if let Some(yes) = self.inner.locked().window_answer {
+            return window::said(yes);
+        }
+        confirmed(what).await
     }
 
     /// Keeps `id` from ever signing for the person here, as its join ticket asks.
@@ -931,6 +942,12 @@ impl Remote {
             .iter()
             .find(|device| device.id == phone)
             .map(|device| device.access))
+    }
+
+    /// Has the core's own window answer `yes` to everything it asks, without opening.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn answer_window_with(&self, yes: bool) {
+        self.inner.locked().window_answer = Some(yes);
     }
 
     #[cfg(any(test, feature = "testing"))]
