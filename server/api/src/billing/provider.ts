@@ -1,6 +1,8 @@
 import type {
   BillingInterval,
   BillingProductId,
+  ChangeWhen,
+  InvoiceLine,
   InvoiceReason,
   Money,
   PaymentCard,
@@ -17,12 +19,25 @@ export interface HeldSubscription {
   cancelAtPeriodEnd: boolean;
 }
 
-/** What a subscription is now, as the provider reports it. */
+/** One product under a provider's subscription, with a change waiting for renewal if one is. */
+export interface ProviderItem {
+  product: BillingProductId;
+  quantity: number;
+  atRenewal?: {
+    product: BillingProductId;
+    quantity: number;
+    interval: BillingInterval;
+  };
+}
+
+/**
+ * What a subscription is now, as the provider reports it: every product it holds, one for a
+ * provider that gives each product its own subscription. A product left out has ended.
+ */
 export interface ProviderSubscription {
   providerSubscriptionId: string;
-  product: BillingProductId;
+  items: ProviderItem[];
   interval: BillingInterval;
-  quantity: number;
   currentPeriodEnd: Date;
   cancelAtPeriodEnd: boolean;
 }
@@ -51,13 +66,13 @@ export type ProviderEvent = {
       type: "payment.made" | "payment.failed";
       providerPaymentId: string;
       providerSubscriptionId: string;
-      /** What the payment was for: the subscription's product and quantity once it is taken. */
-      product: BillingProductId;
-      quantity: number;
+      /** What the payment was for: each product and its quantity once it is taken. */
+      lines: InvoiceLine[];
       reason: InvoiceReason;
       /** What the provider charged, in the currency it charged in. */
       total: Money;
     }
+  /** The refund asked for went through; it may come long after the request. */
   | { type: "payment.refunded"; providerPaymentId: string }
 );
 
@@ -82,6 +97,10 @@ export interface SubscriptionUpdate {
   unit: Money;
 }
 
+/** Whether a change was taken. One asked for now is refused when its payment does not go through. */
+export type ChangeOutcome =
+  { taken: true } | { taken: false; why: "payment_failed" | "needs_renewal" };
+
 /** A request the provider sent to the API's webhook, as it arrived. */
 export interface ProviderRequest {
   body: string;
@@ -98,19 +117,24 @@ export interface BillingProvider {
   readonly name: string;
   /** The provider's hosted page to buy a product. */
   checkout(request: CheckoutRequest): Promise<{ url: string }>;
-  /** A new quantity, product or interval, prorated for the rest of the period. */
+  /**
+   * A new quantity, product or interval for one product of a subscription. `now` charges the
+   * prorated difference and changes nothing unless that payment goes through; `renewal` takes
+   * over when the period ends.
+   */
   change(
     subscription: HeldSubscription,
     update: SubscriptionUpdate,
-  ): Promise<void>;
-  /** Ends the subscription at the end of its period, or with `now`, at once with no credit. */
+    when: ChangeWhen,
+  ): Promise<ChangeOutcome>;
+  /** Ends this product of the subscription at the end of its period, or with `now`, at once with no credit. */
   cancel(
     subscription: HeldSubscription,
     when: "period_end" | "now",
   ): Promise<void>;
   /** Takes back a cancellation at the end of the period. */
   resume(subscription: HeldSubscription): Promise<void>;
-  /** Refunds a payment in full. */
+  /** Asks for a payment to be refunded in full; payment.refunded says when it is. */
   refund(providerPaymentId: string): Promise<void>;
   /** The provider's own page for a customer's payment methods and receipts, where it has one. */
   portal(providerCustomerId: string): Promise<{ url: string } | null>;

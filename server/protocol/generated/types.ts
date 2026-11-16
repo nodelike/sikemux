@@ -229,6 +229,10 @@ export interface Challenge {
   expiresAt: string;
 }
 
+/** now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period. */
+export type ChangeWhen = "now" | "renewal";
+export const changeWhenValues: readonly ChangeWhen[] = ["now", "renewal"];
+
 /** Which build a host runs. Dev, nightly and stable cores are separate hosts. */
 export type Channel = "dev" | "nightly" | "stable";
 export const channelValues: readonly Channel[] = ["dev", "nightly", "stable"];
@@ -547,19 +551,25 @@ export type HostSignInUserCode = string;
 /** A payment the provider took or tried to take. */
 export interface Invoice {
   id: InvoiceId;
-  subscriptionId?: SubscriptionId;
-  product: BillingProductId;
-  /** How many accounts, seats or boxes the subscription held after this payment. */
-  quantity: number;
+  /** What it paid for, one line for each product the subscription holds. */
+  lines: InvoiceLine[];
   reason: InvoiceReason;
   total: Money;
   status: InvoiceStatus;
   at: string;
+  /** A refund was asked of the provider, which has not made it yet. */
+  refundRequestedAt?: string;
   /** Only on a subscription's first payment, while it may still be refunded in full. */
   refundableUntil?: string;
 }
 
 export type InvoiceId = string;
+
+/** One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it. */
+export interface InvoiceLine {
+  product: BillingProductId;
+  quantity: number;
+}
 
 export interface InvoiceList {
   /** Newest first. */
@@ -1031,6 +1041,12 @@ export const revokeReasonValues: readonly RevokeReason[] = [
   "account_deleted",
 ];
 
+export interface ScheduledChange {
+  product: BillingProductId;
+  interval: BillingInterval;
+  quantity: number;
+}
+
 /** What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it. */
 export type Sealed = string;
 
@@ -1424,13 +1440,17 @@ export interface Subscription {
   cancelAtPeriodEnd: boolean;
   startedAt: string;
   endedAt?: string;
+  /** A change asked for at renewal, which takes over at currentPeriodEnd. */
+  atRenewal?: ScheduledChange;
 }
 
-/** A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box. */
+/** A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box. */
 export interface SubscriptionChange {
   product?: BillingProductId;
   interval?: BillingInterval;
   quantity?: number;
+  /** Now when left out. */
+  when?: ChangeWhen;
 }
 
 export type SubscriptionId = string;
@@ -1602,6 +1622,7 @@ export interface Definitions {
   BillingProductKind: BillingProductKind;
   BillingUnit: BillingUnit;
   Challenge: Challenge;
+  ChangeWhen: ChangeWhen;
   Channel: Channel;
   ChannelVersions: ChannelVersions;
   Checkout: Checkout;
@@ -1651,6 +1672,7 @@ export interface Definitions {
   HostSignInUserCode: HostSignInUserCode;
   Invoice: Invoice;
   InvoiceId: InvoiceId;
+  InvoiceLine: InvoiceLine;
   InvoiceList: InvoiceList;
   InvoiceReason: InvoiceReason;
   InvoiceStatus: InvoiceStatus;
@@ -1712,6 +1734,7 @@ export interface Definitions {
   RecoveryKey: RecoveryKey;
   Relay: Relay;
   RevokeReason: RevokeReason;
+  ScheduledChange: ScheduledChange;
   Sealed: Sealed;
   ShareAnswer: ShareAnswer;
   ShareAnswered: ShareAnswered;

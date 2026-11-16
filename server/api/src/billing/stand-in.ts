@@ -4,11 +4,17 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import type { BillingInterval, Money, PaymentCard } from "@sikemux/protocol";
+import type {
+  BillingInterval,
+  ChangeWhen,
+  Money,
+  PaymentCard,
+} from "@sikemux/protocol";
 
 import { unitPrice } from "./catalog.ts";
 import type {
   BillingProvider,
+  ChangeOutcome,
   CheckoutRequest,
   HeldSubscription,
   ProviderEvent,
@@ -46,13 +52,19 @@ function revive(_key: string, value: unknown) {
 /**
  * A payment provider for development and tests, with no account anywhere. Its checkout page
  * pays at once, and every call answers with the events a real provider would send, signed and
- * delivered to the API's own webhook before the call returns.
+ * delivered to the API's own webhook before the call returns. Like some real providers, it gives
+ * each product its own subscription.
  */
 export class StandInProvider implements BillingProvider {
   readonly name = "stand-in";
   private readonly secret = randomBytes(32);
   private readonly checkouts = new Map<string, CheckoutRequest>();
   private readonly paying = new Set<string>();
+  private readonly heldRefunds: string[] = [];
+  /** Refuses every charge taken mid-period, as a payment method that cannot be charged then. */
+  declineChanges = false;
+  /** Keeps refunds waiting for approval, as a provider that approves each by hand, until `approveRefunds`. */
+  holdRefunds = false;
   private readonly checkoutBase: string;
   private deliver: (request: ProviderRequest) => Promise<void> = () =>
     Promise.reject(new Error("The stand-in provider has no webhook yet."));
@@ -107,9 +119,8 @@ export class StandInProvider implements BillingProvider {
         providerCustomerId,
         subscription: {
           providerSubscriptionId,
-          product: request.product,
+          items: [{ product: request.product, quantity: request.quantity }],
           interval: request.interval,
-          quantity: request.quantity,
           currentPeriodEnd: periodEnd(at, request.interval),
           cancelAtPeriodEnd: false,
         },
@@ -118,8 +129,7 @@ export class StandInProvider implements BillingProvider {
         ...this.event("payment.made", at),
         providerPaymentId: `pay_${randomUUID()}`,
         providerSubscriptionId,
-        product: request.product,
-        quantity: request.quantity,
+        lines: [{ product: request.product, quantity: request.quantity }],
         reason: "first_payment",
         total: cents(request.unit.amount * request.quantity),
       },
@@ -127,8 +137,32 @@ export class StandInProvider implements BillingProvider {
     return request.returnUrl;
   }
 
-  async change(held: HeldSubscription, update: SubscriptionUpdate) {
+  async change(
+    held: HeldSubscription,
+    update: SubscriptionUpdate,
+    when: ChangeWhen,
+  ): Promise<ChangeOutcome> {
     const now = new Date();
+    if (when === "renewal") {
+      await this.send({
+        ...this.event("subscription.changed", now),
+        subscription: {
+          ...this.subscriptionOf(held),
+          items: [
+            {
+              product: held.product,
+              quantity: held.quantity,
+              atRenewal: {
+                product: update.product,
+                quantity: update.quantity,
+                interval: update.interval,
+              },
+            },
+          ],
+        },
+      });
+      return { taken: true };
+    }
     const oldUnit = unitPrice(held.product, held.interval)?.amount ?? 0;
     const oldTotal = oldUnit * held.quantity;
     const newTotal = update.unit.amount * update.quantity;
@@ -142,14 +176,24 @@ export class StandInProvider implements BillingProvider {
     const due = restarts
       ? newTotal - oldTotal * left
       : (newTotal - oldTotal) * left;
+    const payment = {
+      providerPaymentId: `pay_${randomUUID()}`,
+      providerSubscriptionId: held.providerSubscriptionId,
+      lines: [{ product: update.product, quantity: update.quantity }],
+      reason: "change" as const,
+      total: cents(due),
+    };
+    if (due >= 1 && this.declineChanges) {
+      await this.send({ ...this.event("payment.failed", now), ...payment });
+      return { taken: false, why: "payment_failed" };
+    }
     const events: ProviderEvent[] = [
       {
         ...this.event("subscription.changed", now),
         subscription: {
           providerSubscriptionId: held.providerSubscriptionId,
-          product: update.product,
+          items: [{ product: update.product, quantity: update.quantity }],
           interval: update.interval,
-          quantity: update.quantity,
           currentPeriodEnd: restarts
             ? periodEnd(now, update.interval)
             : held.currentPeriodEnd,
@@ -158,29 +202,25 @@ export class StandInProvider implements BillingProvider {
       },
     ];
     if (due >= 1)
-      events.push({
-        ...this.event("payment.made", now),
-        providerPaymentId: `pay_${randomUUID()}`,
-        providerSubscriptionId: held.providerSubscriptionId,
-        product: update.product,
-        quantity: update.quantity,
-        reason: "change",
-        total: cents(due),
-      });
+      events.push({ ...this.event("payment.made", now), ...payment });
     await this.send(...events);
+    return { taken: true };
+  }
+
+  private subscriptionOf(held: HeldSubscription) {
+    return {
+      providerSubscriptionId: held.providerSubscriptionId,
+      items: [{ product: held.product, quantity: held.quantity }],
+      interval: held.interval,
+      currentPeriodEnd: held.currentPeriodEnd,
+      cancelAtPeriodEnd: held.cancelAtPeriodEnd,
+    };
   }
 
   private async setCancel(held: HeldSubscription, cancelAtPeriodEnd: boolean) {
     await this.send({
       ...this.event("subscription.changed"),
-      subscription: {
-        providerSubscriptionId: held.providerSubscriptionId,
-        product: held.product,
-        interval: held.interval,
-        quantity: held.quantity,
-        currentPeriodEnd: held.currentPeriodEnd,
-        cancelAtPeriodEnd,
-      },
+      subscription: { ...this.subscriptionOf(held), cancelAtPeriodEnd },
     });
   }
 
@@ -197,10 +237,15 @@ export class StandInProvider implements BillingProvider {
   }
 
   async refund(providerPaymentId: string) {
-    await this.send({
-      ...this.event("payment.refunded"),
-      providerPaymentId,
-    });
+    if (this.holdRefunds) this.heldRefunds.push(providerPaymentId);
+    else
+      await this.send({ ...this.event("payment.refunded"), providerPaymentId });
+  }
+
+  async approveRefunds() {
+    const ids = this.heldRefunds.splice(0);
+    for (const providerPaymentId of ids)
+      await this.send({ ...this.event("payment.refunded"), providerPaymentId });
   }
 
   portal() {

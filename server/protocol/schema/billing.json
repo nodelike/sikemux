@@ -216,6 +216,10 @@
         "endedAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "atRenewal": {
+          "description": "A change asked for at renewal, which takes over at currentPeriodEnd.",
+          "$ref": "#/$defs/ScheduledChange"
         }
       },
       "required": [
@@ -228,6 +232,23 @@
         "cancelAtPeriodEnd",
         "startedAt"
       ],
+      "additionalProperties": false
+    },
+    "ScheduledChange": {
+      "type": "object",
+      "properties": {
+        "product": {
+          "$ref": "#/$defs/BillingProductId"
+        },
+        "interval": {
+          "$ref": "#/$defs/BillingInterval"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": ["product", "interval", "quantity"],
       "additionalProperties": false
     },
     "ShedBoxes": {
@@ -339,7 +360,7 @@
       "additionalProperties": false
     },
     "SubscriptionChange": {
-      "description": "A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box.",
+      "description": "A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box.",
       "type": "object",
       "properties": {
         "product": {
@@ -351,9 +372,18 @@
         "quantity": {
           "type": "integer",
           "minimum": 1
+        },
+        "when": {
+          "description": "Now when left out.",
+          "$ref": "#/$defs/ChangeWhen"
         }
       },
       "additionalProperties": false
+    },
+    "ChangeWhen": {
+      "description": "now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period.",
+      "type": "string",
+      "enum": ["now", "renewal"]
     },
     "InvoiceId": {
       "type": "string",
@@ -363,6 +393,21 @@
       "type": "string",
       "enum": ["paid", "failed", "refunded"]
     },
+    "InvoiceLine": {
+      "description": "One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it.",
+      "type": "object",
+      "properties": {
+        "product": {
+          "$ref": "#/$defs/BillingProductId"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": ["product", "quantity"],
+      "additionalProperties": false
+    },
     "Invoice": {
       "description": "A payment the provider took or tried to take.",
       "type": "object",
@@ -370,16 +415,13 @@
         "id": {
           "$ref": "#/$defs/InvoiceId"
         },
-        "subscriptionId": {
-          "$ref": "#/$defs/SubscriptionId"
-        },
-        "product": {
-          "$ref": "#/$defs/BillingProductId"
-        },
-        "quantity": {
-          "description": "How many accounts, seats or boxes the subscription held after this payment.",
-          "type": "integer",
-          "minimum": 1
+        "lines": {
+          "description": "What it paid for, one line for each product the subscription holds.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/InvoiceLine"
+          }
         },
         "reason": {
           "$ref": "#/$defs/InvoiceReason"
@@ -394,21 +436,18 @@
           "type": "string",
           "format": "date-time"
         },
+        "refundRequestedAt": {
+          "description": "A refund was asked of the provider, which has not made it yet.",
+          "type": "string",
+          "format": "date-time"
+        },
         "refundableUntil": {
           "description": "Only on a subscription's first payment, while it may still be refunded in full.",
           "type": "string",
           "format": "date-time"
         }
       },
-      "required": [
-        "id",
-        "product",
-        "quantity",
-        "reason",
-        "total",
-        "status",
-        "at"
-      ],
+      "required": ["id", "lines", "reason", "total", "status", "at"],
       "additionalProperties": false
     },
     "InvoiceList": {

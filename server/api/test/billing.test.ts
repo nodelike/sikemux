@@ -1,12 +1,13 @@
 import type { BillingProductId, PlanFeature } from "@sikemux/protocol";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { applyProviderEvents } from "../src/billing/apply.ts";
 import { StandInProvider } from "../src/billing/stand-in.ts";
 import type { ProviderRequest } from "../src/billing/provider.ts";
 import type { Database } from "../src/db.ts";
 import { RateLimiter } from "../src/limits.ts";
 import { caller, emptyTables, migratedDatabase } from "./accounts.ts";
-import { body, testApp } from "./support.ts";
+import { body, log, testApp } from "./support.ts";
 import { sessionToken } from "./tokens.ts";
 
 const PRO: PlanFeature[] = [
@@ -32,6 +33,7 @@ let drop: () => Promise<void>;
 let app: ReturnType<typeof testApp>;
 let call: ReturnType<typeof caller>;
 let delivered: ProviderRequest[];
+let provider: StandInProvider;
 
 beforeAll(async () => {
   ({ database, drop } = await migratedDatabase());
@@ -40,7 +42,7 @@ beforeAll(async () => {
 afterAll(() => drop());
 
 function start(live: boolean) {
-  const provider = new StandInProvider("https://api.sikemux.com");
+  provider = new StandInProvider("https://api.sikemux.com");
   app = testApp(database, new RateLimiter(), { billing: { provider, live } });
   call = caller(app);
   delivered = [];
@@ -128,6 +130,34 @@ async function overview(token: string, orgId?: string) {
   );
   expect(response.status).toBe(200);
   return body(response, "BillingOverview");
+}
+
+const DAY_MS = 24 * 60 * 60_000;
+
+/** A Team plan of 3 seats, halfway through its month. */
+async function halfwayTeam() {
+  const owner = await person("user_owner");
+  const orgId = await org("user_owner");
+  await buy(owner, "team", { quantity: 3, orgId });
+  await database.db
+    .updateTable("subscriptions")
+    .set({ current_period_end: new Date(Date.now() + 15 * DAY_MS) })
+    .execute();
+  const [subscription] = (await overview(owner, orgId)).subscriptions;
+  const change = (json: object) =>
+    call(`/v1/billing/subscriptions/${subscription?.id}`, owner, {
+      method: "PATCH",
+      json,
+    });
+  const paid = async () =>
+    (
+      await body(
+        await call(`/v1/billing/invoices?org=${orgId}`, owner),
+        "InvoiceList",
+      )
+    ).invoices;
+  const held = async () => (await overview(owner, orgId)).subscriptions[0];
+  return { change, paid, held };
 }
 
 async function invoices(token: string) {
@@ -244,6 +274,29 @@ describe("refunds", () => {
     expect(subscriptions[0]?.status).toBe("ended");
   });
 
+  it("waits for a provider that approves refunds later", async () => {
+    provider.holdRefunds = true;
+    const ada = await person("user_ada");
+    await buy(ada, "pro");
+    const [first] = await invoices(ada);
+    const refund = () =>
+      call(`/v1/billing/invoices/${first?.id}/refund`, ada, {
+        method: "POST",
+      });
+    const asked = await body(await refund(), "Invoice");
+    expect(asked.status).toBe("paid");
+    expect(asked.refundRequestedAt).toBeDefined();
+    expect(asked.refundableUntil).toBeUndefined();
+    expect((await refund()).status).toBe(200);
+    expect((await overview(ada)).allowance.plan).toBe("pro");
+
+    await provider.approveRefunds();
+    const [after] = await invoices(ada);
+    expect(after).toMatchObject({ status: "refunded", total: { amount: 800 } });
+    expect(after?.refundRequestedAt).toBeUndefined();
+    expect((await overview(ada)).allowance.plan).toBe("free");
+  });
+
   it("refuses a later payment, and a first one after 7 days", async () => {
     const ada = await person("user_ada");
     await buy(ada, "pro");
@@ -313,6 +366,69 @@ describe("the provider's events", () => {
     expect(before.rows[0].quantity).toBe(5);
   });
 
+  it("keeps a row for each product a provider holds under one subscription", async () => {
+    await person("user_ada");
+    const { id: customerRef } = await database.db
+      .insertInto("billing_customers")
+      .values({ user_id: "user_ada", provider: "boxes" })
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    const at = new Date();
+    const subscription = {
+      providerSubscriptionId: "sub_boxes",
+      interval: "month" as const,
+      currentPeriodEnd: new Date(at.getTime() + 30 * DAY_MS),
+      cancelAtPeriodEnd: false,
+    };
+    const later = (minutes: number) =>
+      new Date(at.getTime() + minutes * 60_000);
+    await applyProviderEvents(
+      database.db,
+      "boxes",
+      [
+        {
+          eventId: "evt_1",
+          at,
+          type: "subscription.started",
+          customerRef,
+          providerCustomerId: "cus_boxes",
+          subscription: {
+            ...subscription,
+            items: [
+              { product: "shed", quantity: 1 },
+              { product: "shed_large", quantity: 2 },
+            ],
+          },
+        },
+        {
+          eventId: "evt_2",
+          at: later(1),
+          type: "subscription.changed",
+          subscription: {
+            ...subscription,
+            items: [{ product: "shed_large", quantity: 3 }],
+          },
+        },
+        {
+          eventId: "evt_3",
+          at: later(2),
+          type: "subscription.lapsed",
+          providerSubscriptionId: "sub_boxes",
+        },
+      ],
+      log,
+    );
+    const rows = await database.db
+      .selectFrom("subscriptions")
+      .select(["product", "quantity", "status"])
+      .orderBy("product")
+      .execute();
+    expect(rows).toEqual([
+      { product: "shed", quantity: 1, status: "ended" },
+      { product: "shed_large", quantity: 3, status: "lapsed" },
+    ]);
+  });
+
   it("refuses an event that is not signed", async () => {
     const response = await app.request("/v1/billing/provider", {
       method: "POST",
@@ -341,8 +457,7 @@ describe("prices", () => {
     const { invoices: paid } = await body(response, "InvoiceList");
     expect(paid).toMatchObject([
       {
-        product: "team",
-        quantity: 3,
+        lines: [{ product: "team", quantity: 3 }],
         reason: "first_payment",
         total: { amount: 6000, currency: "usd" },
       },
@@ -350,35 +465,41 @@ describe("prices", () => {
   });
 
   it("charges for added seats only for the rest of the period", async () => {
-    const owner = await person("user_owner");
-    const orgId = await org("user_owner");
-    await buy(owner, "team", { quantity: 3, orgId });
-    const [subscription] = (await overview(owner, orgId)).subscriptions;
-    await database.db
-      .updateTable("subscriptions")
-      .set({ current_period_end: new Date(Date.now() + 15 * 24 * 60 * 60_000) })
-      .execute();
-    const response = await call(
-      `/v1/billing/subscriptions/${subscription?.id}`,
-      owner,
-      {
-        method: "PATCH",
-        json: { quantity: 5 },
-      },
-    );
-    expect(await body(response, "Subscription")).toMatchObject({ quantity: 5 });
-    const { invoices: paid } = await body(
-      await call(`/v1/billing/invoices?org=${orgId}`, owner),
-      "InvoiceList",
-    );
-    expect(paid[0]).toMatchObject({
-      product: "team",
+    const { change, paid } = await halfwayTeam();
+    expect(
+      await body(await change({ quantity: 5 }), "Subscription"),
+    ).toMatchObject({
       quantity: 5,
+    });
+    const [added] = await paid();
+    expect(added).toMatchObject({
+      lines: [{ product: "team", quantity: 5 }],
       reason: "change",
     });
-    const added = paid[0]?.total.amount;
-    expect(added).toBeGreaterThan(1800);
-    expect(added).toBeLessThan(2200);
+    expect(added?.total.amount).toBeGreaterThan(1800);
+    expect(added?.total.amount).toBeLessThan(2200);
+  });
+
+  it("changes nothing when the payment for a change fails", async () => {
+    const { change, paid, held } = await halfwayTeam();
+    provider.declineChanges = true;
+    const response = await change({ quantity: 5 });
+    expect(response.status).toBe(409);
+    const [failed] = await paid();
+    expect(failed).toMatchObject({ status: "failed", reason: "change" });
+    expect((await held())?.quantity).toBe(3);
+  });
+
+  it("charges nothing for a change at renewal until the period ends", async () => {
+    const { change, paid, held } = await halfwayTeam();
+    provider.declineChanges = true;
+    const response = await change({ quantity: 5, when: "renewal" });
+    expect(await body(response, "Subscription")).toMatchObject({
+      quantity: 3,
+      atRenewal: { product: "team", interval: "month", quantity: 5 },
+    });
+    expect(await paid()).toHaveLength(1);
+    expect((await held())?.quantity).toBe(3);
   });
 
   it("lets only the org's owner buy for it", async () => {

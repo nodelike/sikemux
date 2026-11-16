@@ -37,7 +37,7 @@ type AuditAction =
   | "billing.subscription_changed"
   | "billing.subscription_canceled"
   | "billing.subscription_resumed"
-  | "billing.refunded";
+  | "billing.refund_requested";
 
 interface AuditEntry {
   /** The account it happened to, or null for what belongs to none. */

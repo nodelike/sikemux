@@ -238,7 +238,7 @@ export function apiClient(send: Send) {
     /** Open the provider's page to buy a product. */
     startCheckout: (body: CheckoutRequest) =>
       send<Checkout>("POST", `/v1/billing/checkout`, body),
-    /** Change a subscription's quantity, product or interval, prorated. */
+    /** Change a subscription's quantity, product or interval, now and prorated or at renewal. */
     changeSubscription: (subscriptionId: string, body: SubscriptionChange) =>
       send<Subscription>(
         "PATCH",

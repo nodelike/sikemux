@@ -2,9 +2,12 @@
   "invoices": [
     {
       "id": "7c2e1d3f-9a4b-4c8d-8e2f-3b4c5d6e7f80",
-      "subscriptionId": "5b1d6c2e-8f3a-4b7e-9c1d-2a3b4c5d6e7f",
-      "product": "pro",
-      "quantity": 1,
+      "lines": [
+        {
+          "product": "pro",
+          "quantity": 1
+        }
+      ],
       "reason": "first_payment",
       "total": {
         "amount": 800,
@@ -16,9 +19,12 @@
     },
     {
       "id": "8d3f2e4a-0b5c-4d9e-9f30-4c5d6e7f8091",
-      "subscriptionId": "5b1d6c2e-8f3a-4b7e-9c1d-2a3b4c5d6e7f",
-      "product": "team",
-      "quantity": 1,
+      "lines": [
+        {
+          "product": "team",
+          "quantity": 1
+        }
+      ],
       "reason": "renewal",
       "total": {
         "amount": 2000,
@@ -26,6 +32,23 @@
       },
       "status": "failed",
       "at": "2026-11-16T09:30:00.000Z"
+    },
+    {
+      "id": "9e4a3f5b-1c6d-4e0f-a041-5d6e7f809102",
+      "lines": [
+        {
+          "product": "pro",
+          "quantity": 1
+        }
+      ],
+      "reason": "first_payment",
+      "total": {
+        "amount": 800,
+        "currency": "usd"
+      },
+      "status": "paid",
+      "at": "2026-11-16T09:30:00.000Z",
+      "refundRequestedAt": "2026-11-17T10:00:00.000Z"
     }
   ]
 }

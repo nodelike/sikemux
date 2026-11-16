@@ -2467,7 +2467,7 @@
     "/v1/billing/subscriptions/{subscriptionId}": {
       "patch": {
         "operationId": "changeSubscription",
-        "summary": "Change a subscription's quantity, product or interval, prorated",
+        "summary": "Change a subscription's quantity, product or interval, now and prorated or at renewal",
         "security": [{ "session": [] }],
         "description": "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
         "parameters": [
@@ -2488,7 +2488,7 @@
         },
         "responses": {
           "200": {
-            "description": "The subscription as it stands once the provider has taken the change.",
+            "description": "The subscription as it stands once the provider has taken the change; one at renewal shows in atRenewal.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Subscription" }
@@ -2520,7 +2520,7 @@
             }
           },
           "409": {
-            "description": "The subscription has ended.",
+            "description": "The subscription has ended, or the payment for a change now did not go through and nothing changed.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -2744,7 +2744,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The invoice, refunded; its subscription has ended.",
+            "description": "The invoice with the refund asked for. It turns refunded, and what it bought ends, when the provider says the refund is made, which may be later.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/Invoice" }
@@ -3278,6 +3278,11 @@
         },
         "required": ["nonce", "expiresAt"],
         "additionalProperties": false
+      },
+      "ChangeWhen": {
+        "description": "now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period.",
+        "type": "string",
+        "enum": ["now", "renewal"]
       },
       "Channel": {
         "description": "Which build a host runs. Dev, nightly and stable cores are separate hosts.",
@@ -3822,37 +3827,43 @@
         "type": "object",
         "properties": {
           "id": { "$ref": "#/components/schemas/InvoiceId" },
-          "subscriptionId": { "$ref": "#/components/schemas/SubscriptionId" },
-          "product": { "$ref": "#/components/schemas/BillingProductId" },
-          "quantity": {
-            "description": "How many accounts, seats or boxes the subscription held after this payment.",
-            "type": "integer",
-            "minimum": 1
+          "lines": {
+            "description": "What it paid for, one line for each product the subscription holds.",
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/components/schemas/InvoiceLine" }
           },
           "reason": { "$ref": "#/components/schemas/InvoiceReason" },
           "total": { "$ref": "#/components/schemas/Money" },
           "status": { "$ref": "#/components/schemas/InvoiceStatus" },
           "at": { "type": "string", "format": "date-time" },
+          "refundRequestedAt": {
+            "description": "A refund was asked of the provider, which has not made it yet.",
+            "type": "string",
+            "format": "date-time"
+          },
           "refundableUntil": {
             "description": "Only on a subscription's first payment, while it may still be refunded in full.",
             "type": "string",
             "format": "date-time"
           }
         },
-        "required": [
-          "id",
-          "product",
-          "quantity",
-          "reason",
-          "total",
-          "status",
-          "at"
-        ],
+        "required": ["id", "lines", "reason", "total", "status", "at"],
         "additionalProperties": false
       },
       "InvoiceId": {
         "type": "string",
         "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      },
+      "InvoiceLine": {
+        "description": "One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it.",
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["product", "quantity"],
+        "additionalProperties": false
       },
       "InvoiceList": {
         "type": "object",
@@ -4666,6 +4677,16 @@
         "type": "string",
         "enum": ["removed", "signed_out", "account_deleted"]
       },
+      "ScheduledChange": {
+        "type": "object",
+        "properties": {
+          "product": { "$ref": "#/components/schemas/BillingProductId" },
+          "interval": { "$ref": "#/components/schemas/BillingInterval" },
+          "quantity": { "type": "integer", "minimum": 1 }
+        },
+        "required": ["product", "interval", "quantity"],
+        "additionalProperties": false
+      },
       "Sealed": {
         "description": "What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it.",
         "type": "string",
@@ -5337,7 +5358,11 @@
             "type": "boolean"
           },
           "startedAt": { "type": "string", "format": "date-time" },
-          "endedAt": { "type": "string", "format": "date-time" }
+          "endedAt": { "type": "string", "format": "date-time" },
+          "atRenewal": {
+            "description": "A change asked for at renewal, which takes over at currentPeriodEnd.",
+            "$ref": "#/components/schemas/ScheduledChange"
+          }
         },
         "required": [
           "id",
@@ -5352,12 +5377,16 @@
         "additionalProperties": false
       },
       "SubscriptionChange": {
-        "description": "A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box.",
+        "description": "A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box.",
         "type": "object",
         "properties": {
           "product": { "$ref": "#/components/schemas/BillingProductId" },
           "interval": { "$ref": "#/components/schemas/BillingInterval" },
-          "quantity": { "type": "integer", "minimum": 1 }
+          "quantity": { "type": "integer", "minimum": 1 },
+          "when": {
+            "description": "Now when left out.",
+            "$ref": "#/components/schemas/ChangeWhen"
+          }
         },
         "additionalProperties": false
       },

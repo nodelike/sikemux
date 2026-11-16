@@ -433,35 +433,37 @@ Table subscriptions {
   cancel_at_period_end boolean [not null, default: `false`]
   started_at timestamptz [not null]
   ended_at timestamptz
+  next_product text [note: 'next_product = ANY (ARRAY[\'pro\', \'team\', \'shed\', \'shed_always_on\', \'shed_large\'])']
+  next_interval text [note: 'next_interval = ANY (ARRAY[\'month\', \'year\'])']
+  next_quantity integer [note: 'next_quantity > 0']
   provider_updated_at timestamptz [not null]
 
   indexes {
     customer_id [name: 'subscriptions_by_customer', note: 'where (status <> \'ended\')']
-    provider_subscription_id [name: 'subscriptions_by_provider', unique]
+    (provider_subscription_id, product) [name: 'subscriptions_by_provider', unique]
     customer_id [name: 'subscriptions_one_plan', unique, note: 'where ((status <> \'ended\') AND (product = ANY (ARRAY[\'pro\', \'team\'])))']
   }
 
-  Note: '(status = \'ended\') = (ended_at IS NOT NULL)'
+  Note: '(status = \'ended\') = (ended_at IS NOT NULL); num_nulls(next_product, next_interval, next_quantity) = ANY (ARRAY[0, 3])'
 }
 
 Table invoices {
   id uuid [pk, default: `gen_random_uuid()`]
   customer_id uuid [not null]
-  subscription_id uuid
+  provider_subscription_id text [not null]
   provider_payment_id text [not null]
-  product text [not null, note: 'product = ANY (ARRAY[\'pro\', \'team\', \'shed\', \'shed_always_on\', \'shed_large\'])']
-  quantity integer [not null, note: 'quantity > 0']
+  lines jsonb [not null, note: '(jsonb_typeof(lines) = \'array\') AND (jsonb_array_length(lines) > 0)']
   reason text [not null, note: 'reason = ANY (ARRAY[\'first_payment\', \'renewal\', \'change\'])']
   amount bigint [not null, note: 'amount >= 0']
   currency text [not null, note: 'currency ~ \'^[a-z]{3}$\'']
   status text [not null, note: 'status = ANY (ARRAY[\'paid\', \'failed\', \'refunded\'])']
   at timestamptz [not null]
+  refund_requested_at timestamptz
   refunded_at timestamptz
 
   indexes {
     (customer_id, at) [name: 'invoices_by_customer', note: 'at desc']
     provider_payment_id [name: 'invoices_by_provider', unique]
-    (subscription_id, at) [name: 'invoices_by_subscription']
   }
 
   Note: '(status = \'refunded\') = (refunded_at IS NOT NULL)'
@@ -506,4 +508,3 @@ Ref: billing_customers.org_id > orgs.id [delete: cascade]
 Ref: billing_customers.user_id > users.id [delete: cascade]
 Ref: subscriptions.customer_id > billing_customers.id [delete: cascade]
 Ref: invoices.customer_id > billing_customers.id [delete: cascade]
-Ref: invoices.subscription_id > subscriptions.id [delete: set null]

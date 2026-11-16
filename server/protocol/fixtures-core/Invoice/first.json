@@ -1,8 +1,11 @@
 {
   "id": "7c2e1d3f-9a4b-4c8d-8e2f-3b4c5d6e7f80",
-  "subscriptionId": "5b1d6c2e-8f3a-4b7e-9c1d-2a3b4c5d6e7f",
-  "product": "pro",
-  "quantity": 1,
+  "lines": [
+    {
+      "product": "pro",
+      "quantity": 1
+    }
+  ],
   "reason": "first_payment",
   "total": {
     "amount": 800,

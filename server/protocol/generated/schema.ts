@@ -352,6 +352,12 @@ export const schema = {
       required: ["nonce", "expiresAt"],
       additionalProperties: false,
     },
+    ChangeWhen: {
+      description:
+        "now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period.",
+      type: "string",
+      enum: ["now", "renewal"],
+    },
     Channel: {
       description:
         "Which build a host runs. Dev, nightly and stable cores are separate hosts.",
@@ -926,18 +932,23 @@ export const schema = {
       type: "object",
       properties: {
         id: { $ref: "#/$defs/InvoiceId" },
-        subscriptionId: { $ref: "#/$defs/SubscriptionId" },
-        product: { $ref: "#/$defs/BillingProductId" },
-        quantity: {
+        lines: {
           description:
-            "How many accounts, seats or boxes the subscription held after this payment.",
-          type: "integer",
-          minimum: 1,
+            "What it paid for, one line for each product the subscription holds.",
+          type: "array",
+          minItems: 1,
+          items: { $ref: "#/$defs/InvoiceLine" },
         },
         reason: { $ref: "#/$defs/InvoiceReason" },
         total: { $ref: "#/$defs/Money" },
         status: { $ref: "#/$defs/InvoiceStatus" },
         at: { type: "string", format: "date-time" },
+        refundRequestedAt: {
+          description:
+            "A refund was asked of the provider, which has not made it yet.",
+          type: "string",
+          format: "date-time",
+        },
         refundableUntil: {
           description:
             "Only on a subscription's first payment, while it may still be refunded in full.",
@@ -945,20 +956,23 @@ export const schema = {
           format: "date-time",
         },
       },
-      required: [
-        "id",
-        "product",
-        "quantity",
-        "reason",
-        "total",
-        "status",
-        "at",
-      ],
+      required: ["id", "lines", "reason", "total", "status", "at"],
       additionalProperties: false,
     },
     InvoiceId: {
       type: "string",
       pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    },
+    InvoiceLine: {
+      description:
+        "One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it.",
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        quantity: { type: "integer", minimum: 1 },
+      },
+      required: ["product", "quantity"],
+      additionalProperties: false,
     },
     InvoiceList: {
       type: "object",
@@ -1813,6 +1827,16 @@ export const schema = {
       type: "string",
       enum: ["removed", "signed_out", "account_deleted"],
     },
+    ScheduledChange: {
+      type: "object",
+      properties: {
+        product: { $ref: "#/$defs/BillingProductId" },
+        interval: { $ref: "#/$defs/BillingInterval" },
+        quantity: { type: "integer", minimum: 1 },
+      },
+      required: ["product", "interval", "quantity"],
+      additionalProperties: false,
+    },
     Sealed: {
       description:
         "What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it.",
@@ -2513,6 +2537,11 @@ export const schema = {
         },
         startedAt: { type: "string", format: "date-time" },
         endedAt: { type: "string", format: "date-time" },
+        atRenewal: {
+          description:
+            "A change asked for at renewal, which takes over at currentPeriodEnd.",
+          $ref: "#/$defs/ScheduledChange",
+        },
       },
       required: [
         "id",
@@ -2528,12 +2557,13 @@ export const schema = {
     },
     SubscriptionChange: {
       description:
-        "A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box.",
+        "A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box.",
       type: "object",
       properties: {
         product: { $ref: "#/$defs/BillingProductId" },
         interval: { $ref: "#/$defs/BillingInterval" },
         quantity: { type: "integer", minimum: 1 },
+        when: { description: "Now when left out.", $ref: "#/$defs/ChangeWhen" },
       },
       additionalProperties: false,
     },

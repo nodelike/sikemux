@@ -309,6 +309,18 @@ pub struct Challenge {
     pub expires_at: String,
 }
 
+/// now charges the prorated difference at once and changes nothing if that payment fails; renewal waits for the end of the period, for payment methods that cannot be charged mid-period.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ChangeWhen {
+    #[serde(rename = "now")]
+    Now,
+    #[serde(rename = "renewal")]
+    Renewal,
+    /// A value added after this build, which it cannot act on.
+    #[serde(other)]
+    Unknown,
+}
+
 /// Which build a host runs. Dev, nightly and stable cores are separate hosts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Channel {
@@ -484,21 +496,29 @@ pub enum HealthStatus {
 #[serde(rename_all = "camelCase")]
 pub struct Invoice {
     pub id: InvoiceId,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subscription_id: Option<SubscriptionId>,
-    pub product: BillingProductId,
-    /// How many accounts, seats or boxes the subscription held after this payment.
-    pub quantity: i64,
+    /// What it paid for, one line for each product the subscription holds.
+    pub lines: Vec<InvoiceLine>,
     pub reason: InvoiceReason,
     pub total: Money,
     pub status: InvoiceStatus,
     pub at: String,
+    /// A refund was asked of the provider, which has not made it yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refund_requested_at: Option<String>,
     /// Only on a subscription's first payment, while it may still be refunded in full.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refundable_until: Option<String>,
 }
 
 pub type InvoiceId = String;
+
+/// One product a payment was for, and how many accounts, seats or boxes of it the subscription held after it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceLine {
+    pub product: BillingProductId,
+    pub quantity: i64,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -985,6 +1005,14 @@ pub struct PushTokenState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ScheduledChange {
+    pub product: BillingProductId,
+    pub interval: BillingInterval,
+    pub quantity: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ShedBoxes {
     pub product: BillingProductId,
     pub quantity: i64,
@@ -1208,9 +1236,12 @@ pub struct Subscription {
     pub started_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<String>,
+    /// A change asked for at renewal, which takes over at currentPeriodEnd.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at_renewal: Option<ScheduledChange>,
 }
 
-/// A new quantity, product or interval, charged or credited for the rest of the period. Plans change only to another of the same kind: a Shed box to another Shed box.
+/// A new quantity, product or interval, now with the rest of the period charged or credited, or from the next renewal. Plans change only to another of the same kind: a Shed box to another Shed box.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubscriptionChange {
@@ -1220,6 +1251,9 @@ pub struct SubscriptionChange {
     pub interval: Option<BillingInterval>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quantity: Option<i64>,
+    /// Now when left out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<ChangeWhen>,
 }
 
 pub type SubscriptionId = String;
@@ -1267,6 +1301,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "BillingProductKind" => through::<BillingProductKind>(json),
         "BillingUnit" => through::<BillingUnit>(json),
         "Challenge" => through::<Challenge>(json),
+        "ChangeWhen" => through::<ChangeWhen>(json),
         "Channel" => through::<Channel>(json),
         "Checkout" => through::<Checkout>(json),
         "CheckoutRequest" => through::<CheckoutRequest>(json),
@@ -1285,6 +1320,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "HealthStatus" => through::<HealthStatus>(json),
         "Invoice" => through::<Invoice>(json),
         "InvoiceId" => through::<InvoiceId>(json),
+        "InvoiceLine" => through::<InvoiceLine>(json),
         "InvoiceList" => through::<InvoiceList>(json),
         "InvoiceReason" => through::<InvoiceReason>(json),
         "InvoiceStatus" => through::<InvoiceStatus>(json),
@@ -1322,6 +1358,7 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "PushResult" => through::<PushResult>(json),
         "PushTokenRegistration" => through::<PushTokenRegistration>(json),
         "PushTokenState" => through::<PushTokenState>(json),
+        "ScheduledChange" => through::<ScheduledChange>(json),
         "ShedBoxes" => through::<ShedBoxes>(json),
         "Staff" => through::<Staff>(json),
         "StashAdd" => through::<StashAdd>(json),

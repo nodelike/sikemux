@@ -91,6 +91,15 @@ function subscriptionBody(row: SubscriptionRow): Subscription {
     cancelAtPeriodEnd: row.cancel_at_period_end,
     startedAt: row.started_at.toISOString(),
     ...(row.ended_at ? { endedAt: row.ended_at.toISOString() } : {}),
+    ...(row.next_product && row.next_interval && row.next_quantity
+      ? {
+          atRenewal: {
+            product: row.next_product,
+            interval: row.next_interval,
+            quantity: row.next_quantity,
+          },
+        }
+      : {}),
   };
 }
 
@@ -120,7 +129,12 @@ function refundableUntil(
   row: Selectable<Tables["invoices"]>,
   now = Date.now(),
 ): Date | null {
-  if (row.status !== "paid" || row.reason !== "first_payment") return null;
+  if (
+    row.status !== "paid" ||
+    row.reason !== "first_payment" ||
+    row.refund_requested_at
+  )
+    return null;
   const until = row.at.getTime() + REFUND_DAYS * DAY_MS;
   return until > now ? new Date(until) : null;
 }
@@ -402,18 +416,28 @@ export function billingRoutes({
         next.product === row.product &&
         next.interval === row.interval &&
         next.quantity === row.quantity;
+      const when = change.when ?? "now";
       if (!same) {
-        await ready.change(held(row, row.provider_customer_id), {
-          ...next,
-          unit,
-        });
+        const outcome = await ready.change(
+          held(row, row.provider_customer_id),
+          { ...next, unit },
+          when,
+        );
+        if (!outcome.taken)
+          throw new ApiFailure(
+            409,
+            "conflict",
+            outcome.why === "payment_failed"
+              ? "The payment for the change did not go through, so nothing changed. Ask for it at renewal instead."
+              : "This payment method cannot be charged mid-period. Ask for the change at renewal.",
+          );
         const { userId } = c.get("identity");
         await audit(db, {
           userId,
           actor: `user:${userId}`,
           action: "billing.subscription_changed",
           subject: row.id,
-          detail: next,
+          detail: { ...next, when },
         });
       }
       return c.json(await reread(row.id));
@@ -473,14 +497,15 @@ export function billingRoutes({
       const ready = needProvider(provider);
       const { userId } = c.get("identity");
       const row = await invoiceFor(c);
-      const subscriptionId = row.subscription_id;
-      if (!subscriptionId || !refundableUntil(row))
+      if (row.refund_requested_at) return c.json(invoiceBody(row));
+      if (!refundableUntil(row))
         throw new ApiFailure(
           409,
           "conflict",
           `Only a subscription's first payment is refunded, within ${REFUND_DAYS} days of it.`,
         );
-      const subscription = await db
+      const bought = row.lines.map((line) => line.product);
+      const rows = await db
         .selectFrom("subscriptions")
         .innerJoin(
           "billing_customers",
@@ -489,18 +514,32 @@ export function billingRoutes({
         )
         .selectAll("subscriptions")
         .select("billing_customers.provider_customer_id")
-        .where("subscriptions.id", "=", subscriptionId)
-        .executeTakeFirstOrThrow();
-      if (subscription.status !== "ended")
+        .where("subscriptions.customer_id", "=", row.customer_id)
+        .where(
+          "subscriptions.provider_subscription_id",
+          "=",
+          row.provider_subscription_id,
+        )
+        .where("subscriptions.product", "in", bought)
+        .where("subscriptions.status", "<>", "ended")
+        .where("subscriptions.cancel_at_period_end", "=", false)
+        .execute();
+      for (const subscription of rows)
         await ready.cancel(
           held(subscription, subscription.provider_customer_id),
-          "now",
+          "period_end",
         );
       await ready.refund(row.provider_payment_id);
+      await db
+        .updateTable("invoices")
+        .set({ refund_requested_at: new Date() })
+        .where("id", "=", row.id)
+        .where("refund_requested_at", "is", null)
+        .execute();
       await audit(db, {
         userId,
         actor: `user:${userId}`,
-        action: "billing.refunded",
+        action: "billing.refund_requested",
         subject: row.id,
       });
       const after = await db
@@ -543,13 +582,14 @@ function invoiceBody(row: Selectable<Tables["invoices"]>): Invoice {
   const until = refundableUntil(row);
   return {
     id: row.id,
-    ...(row.subscription_id ? { subscriptionId: row.subscription_id } : {}),
-    product: row.product,
-    quantity: row.quantity,
+    lines: row.lines,
     reason: row.reason,
     total: { amount: Number(row.amount), currency: row.currency },
     status: row.status,
     at: row.at.toISOString(),
+    ...(row.refund_requested_at && row.status !== "refunded"
+      ? { refundRequestedAt: row.refund_requested_at.toISOString() }
+      : {}),
     ...(until ? { refundableUntil: until.toISOString() } : {}),
   };
 }

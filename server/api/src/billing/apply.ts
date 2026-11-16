@@ -1,28 +1,147 @@
+import type { InvoiceLine } from "@sikemux/protocol";
 import type { Kysely, Transaction } from "kysely";
 
 import type { Tables } from "../db.ts";
 import { appendEvents } from "../events/log.ts";
 import { ApiFailure } from "../http.ts";
 import type { Logger } from "../log.ts";
-import type { ProviderEvent } from "./provider.ts";
+import type {
+  ProviderEvent,
+  ProviderItem,
+  ProviderSubscription,
+} from "./provider.ts";
 
 /** The provider told of something the API has not heard of yet; it sends the event again later. */
 function notYet(what: string): ApiFailure {
   return new ApiFailure(503, "unavailable", `${what} is not known yet.`);
 }
 
-async function subscriptionOf(
+/** The rows of one provider subscription, one per product, locked for the event. */
+async function rowsOf(
   trx: Transaction<Tables>,
+  provider: string,
   providerSubscriptionId: string,
 ) {
-  const row = await trx
+  const rows = await trx
     .selectFrom("subscriptions")
-    .select(["id", "customer_id", "status", "provider_updated_at"])
-    .where("provider_subscription_id", "=", providerSubscriptionId)
-    .forUpdate()
-    .executeTakeFirst();
-  if (!row) throw notYet("The subscription");
-  return row;
+    .innerJoin(
+      "billing_customers",
+      "billing_customers.id",
+      "subscriptions.customer_id",
+    )
+    .select([
+      "subscriptions.id",
+      "subscriptions.customer_id",
+      "subscriptions.product",
+      "subscriptions.status",
+      "subscriptions.provider_updated_at",
+    ])
+    .where("billing_customers.provider", "=", provider)
+    .where(
+      "subscriptions.provider_subscription_id",
+      "=",
+      providerSubscriptionId,
+    )
+    .orderBy("subscriptions.started_at")
+    .forUpdate("subscriptions")
+    .execute();
+  const [first] = rows;
+  if (!first) throw notYet("The subscription");
+  return { rows, customerId: first.customer_id };
+}
+
+type Row = Awaited<ReturnType<typeof rowsOf>>["rows"][number];
+
+function isNewer(rows: readonly Row[], at: Date) {
+  return rows.every((row) => row.provider_updated_at <= at);
+}
+
+function itemColumns(sub: ProviderSubscription, item: ProviderItem, at: Date) {
+  return {
+    product: item.product,
+    interval: sub.interval,
+    quantity: item.quantity,
+    current_period_end: sub.currentPeriodEnd,
+    cancel_at_period_end: sub.cancelAtPeriodEnd,
+    next_product: item.atRenewal?.product ?? null,
+    next_interval: item.atRenewal?.interval ?? null,
+    next_quantity: item.atRenewal?.quantity ?? null,
+    provider_updated_at: at,
+  };
+}
+
+function insertItems(
+  trx: Transaction<Tables>,
+  customerId: string,
+  sub: ProviderSubscription,
+  items: readonly ProviderItem[],
+  at: Date,
+) {
+  if (!items.length) return;
+  return trx
+    .insertInto("subscriptions")
+    .values(
+      items.map((item) => ({
+        customer_id: customerId,
+        provider_subscription_id: sub.providerSubscriptionId,
+        status: "active" as const,
+        started_at: at,
+        ended_at: null,
+        ...itemColumns(sub, item, at),
+      })),
+    )
+    .onConflict((oc) =>
+      oc.columns(["provider_subscription_id", "product"]).doNothing(),
+    )
+    .execute();
+}
+
+/**
+ * Brings a subscription's rows to what the provider says it holds. A product that took another's
+ * place, the only one gone and the only one new, keeps its row; any other product gone ends.
+ */
+async function changeItems(
+  trx: Transaction<Tables>,
+  rows: readonly Row[],
+  customerId: string,
+  sub: ProviderSubscription,
+  at: Date,
+) {
+  const live = rows.filter((row) => row.status !== "ended");
+  const gone = live.filter(
+    (row) => !sub.items.some((item) => item.product === row.product),
+  );
+  const added = sub.items.filter(
+    (item) => !rows.some((row) => row.product === item.product),
+  );
+  const [swappedRow] = gone.length === 1 && added.length === 1 ? gone : [];
+  const pairs = sub.items.map((item) => ({
+    item,
+    row:
+      rows.find((row) => row.product === item.product) ??
+      (item === added[0] ? swappedRow : undefined),
+  }));
+  for (const { item, row } of pairs)
+    if (row && row.status !== "ended")
+      await trx
+        .updateTable("subscriptions")
+        .set(itemColumns(sub, item, at))
+        .where("id", "=", row.id)
+        .execute();
+  await insertItems(
+    trx,
+    customerId,
+    sub,
+    pairs.filter(({ row }) => !row).map(({ item }) => item),
+    at,
+  );
+  const ended = gone.filter((row) => row !== swappedRow).map((row) => row.id);
+  if (ended.length)
+    await trx
+      .updateTable("subscriptions")
+      .set({ status: "ended", ended_at: at, provider_updated_at: at })
+      .where("id", "in", ended)
+      .execute();
 }
 
 /** Applies one event and answers which customer it changed. */
@@ -42,49 +161,37 @@ async function apply(
         .returning("id")
         .executeTakeFirst();
       if (!customer) throw notYet("The customer");
-      const sub = event.subscription;
-      await trx
-        .insertInto("subscriptions")
-        .values({
-          customer_id: customer.id,
-          provider_subscription_id: sub.providerSubscriptionId,
-          product: sub.product,
-          interval: sub.interval,
-          quantity: sub.quantity,
-          status: "active",
-          current_period_end: sub.currentPeriodEnd,
-          cancel_at_period_end: sub.cancelAtPeriodEnd,
-          started_at: at,
-          ended_at: null,
-          provider_updated_at: at,
-        })
-        .onConflict((oc) => oc.column("provider_subscription_id").doNothing())
-        .execute();
+      await insertItems(
+        trx,
+        customer.id,
+        event.subscription,
+        event.subscription.items,
+        at,
+      );
       return customer.id;
     }
     case "subscription.changed": {
       const sub = event.subscription;
-      const held = await subscriptionOf(trx, sub.providerSubscriptionId);
-      if (held.status !== "ended" && held.provider_updated_at <= at)
-        await trx
-          .updateTable("subscriptions")
-          .set({
-            product: sub.product,
-            interval: sub.interval,
-            quantity: sub.quantity,
-            current_period_end: sub.currentPeriodEnd,
-            cancel_at_period_end: sub.cancelAtPeriodEnd,
-            provider_updated_at: at,
-          })
-          .where("id", "=", held.id)
-          .execute();
-      return held.customer_id;
+      const { rows, customerId } = await rowsOf(
+        trx,
+        provider,
+        sub.providerSubscriptionId,
+      );
+      if (isNewer(rows, at)) await changeItems(trx, rows, customerId, sub, at);
+      return customerId;
     }
     case "subscription.lapsed":
     case "subscription.ended": {
-      const held = await subscriptionOf(trx, event.providerSubscriptionId);
+      const { rows, customerId } = await rowsOf(
+        trx,
+        provider,
+        event.providerSubscriptionId,
+      );
       const ended = event.type === "subscription.ended";
-      if (held.status !== "ended" && (ended || held.provider_updated_at <= at))
+      const ids = rows
+        .filter((row) => row.status !== "ended")
+        .map((row) => row.id);
+      if (ids.length && (ended || isNewer(rows, at)))
         await trx
           .updateTable("subscriptions")
           .set(
@@ -92,38 +199,45 @@ async function apply(
               ? { status: "ended", ended_at: at, provider_updated_at: at }
               : { status: "lapsed", provider_updated_at: at },
           )
-          .where("id", "=", held.id)
+          .where("id", "in", ids)
           .execute();
-      return held.customer_id;
+      return customerId;
     }
     case "payment.made":
     case "payment.failed": {
-      const held = await subscriptionOf(trx, event.providerSubscriptionId);
+      const { rows, customerId } = await rowsOf(
+        trx,
+        provider,
+        event.providerSubscriptionId,
+      );
       const paid = event.type === "payment.made";
       await trx
         .insertInto("invoices")
         .values({
-          customer_id: held.customer_id,
-          subscription_id: held.id,
+          customer_id: customerId,
+          provider_subscription_id: event.providerSubscriptionId,
           provider_payment_id: event.providerPaymentId,
-          product: event.product,
-          quantity: event.quantity,
+          lines: JSON.stringify(event.lines),
           reason: event.reason,
           amount: event.total.amount,
           currency: event.total.currency,
           status: paid ? "paid" : "failed",
           at,
+          refund_requested_at: null,
           refunded_at: null,
         })
         .onConflict((oc) => oc.column("provider_payment_id").doNothing())
         .execute();
-      if (paid && held.status === "lapsed" && held.provider_updated_at <= at)
+      const lapsed = rows
+        .filter((row) => row.status === "lapsed")
+        .map((row) => row.id);
+      if (paid && lapsed.length && isNewer(rows, at))
         await trx
           .updateTable("subscriptions")
           .set({ status: "active", provider_updated_at: at })
-          .where("id", "=", held.id)
+          .where("id", "in", lapsed)
           .execute();
-      return held.customer_id;
+      return customerId;
     }
     case "payment.refunded": {
       const invoice = await trx
@@ -131,9 +245,18 @@ async function apply(
         .set({ status: "refunded", refunded_at: at })
         .where("provider_payment_id", "=", event.providerPaymentId)
         .where("status", "=", "paid")
-        .returning("customer_id")
+        .returning([
+          "customer_id",
+          "reason",
+          "provider_subscription_id",
+          "lines",
+        ])
         .executeTakeFirst();
-      if (invoice) return invoice.customer_id;
+      if (invoice) {
+        if (invoice.reason === "first_payment")
+          await endRefunded(trx, invoice, at);
+        return invoice.customer_id;
+      }
       const known = await trx
         .selectFrom("invoices")
         .select("customer_id")
@@ -143,6 +266,30 @@ async function apply(
       return known.customer_id;
     }
   }
+}
+
+/** A refunded first payment takes back what it bought, though the provider ends it later. */
+function endRefunded(
+  trx: Transaction<Tables>,
+  invoice: {
+    customer_id: string;
+    provider_subscription_id: string;
+    lines: InvoiceLine[];
+  },
+  at: Date,
+) {
+  return trx
+    .updateTable("subscriptions")
+    .set({ status: "ended", ended_at: at, provider_updated_at: at })
+    .where("customer_id", "=", invoice.customer_id)
+    .where("provider_subscription_id", "=", invoice.provider_subscription_id)
+    .where(
+      "product",
+      "in",
+      invoice.lines.map((line) => line.product),
+    )
+    .where("status", "<>", "ended")
+    .execute();
 }
 
 /** The people whose plan a customer's subscriptions decide: the person, or the org's members. */

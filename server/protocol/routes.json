@@ -1106,12 +1106,12 @@
       "method": "patch",
       "path": "/v1/billing/subscriptions/{subscriptionId}",
       "operationId": "changeSubscription",
-      "summary": "Change a subscription's quantity, product or interval, prorated",
+      "summary": "Change a subscription's quantity, product or interval, now and prorated or at renewal",
       "auth": "session",
       "request": "SubscriptionChange",
       "responses": {
         "200": {
-          "description": "The subscription as it stands once the provider has taken the change.",
+          "description": "The subscription as it stands once the provider has taken the change; one at renewal shows in atRenewal.",
           "body": "Subscription"
         },
         "400": {
@@ -1127,7 +1127,7 @@
           "body": "ApiError"
         },
         "409": {
-          "description": "The subscription has ended.",
+          "description": "The subscription has ended, or the payment for a change now did not go through and nothing changed.",
           "body": "ApiError"
         },
         "503": {
@@ -1226,7 +1226,7 @@
       "auth": "session",
       "responses": {
         "200": {
-          "description": "The invoice, refunded; its subscription has ended.",
+          "description": "The invoice with the refund asked for. It turns refunded, and what it bought ends, when the provider says the refund is made, which may be later.",
           "body": "Invoice"
         },
         "403": {

@@ -9,6 +9,7 @@ import type {
   AccountEventType,
   BillingInterval,
   BillingProductId,
+  InvoiceLine,
   InvoiceReason,
   InvoiceStatus,
   SubscriptionStatus,
@@ -330,20 +331,23 @@ export interface Tables {
     cancel_at_period_end: boolean;
     started_at: Date;
     ended_at: Date | null;
+    next_product: BillingProductId | null;
+    next_interval: BillingInterval | null;
+    next_quantity: number | null;
     provider_updated_at: Date;
   };
   invoices: {
     id: Generated<string>;
     customer_id: string;
-    subscription_id: string | null;
+    provider_subscription_id: string;
     provider_payment_id: string;
-    product: BillingProductId;
-    quantity: number;
+    lines: ColumnType<InvoiceLine[], string, never>;
     reason: InvoiceReason;
     amount: ColumnType<string, number, number>;
     currency: string;
     status: InvoiceStatus;
     at: Date;
+    refund_requested_at: Date | null;
     refunded_at: Date | null;
   };
   billing_events: {
