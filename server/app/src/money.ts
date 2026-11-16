@@ -9,8 +9,8 @@ import type {
 } from "@sikemux/protocol";
 
 export const FEATURE_WORDS: Record<PlanFeature, string> = {
-  sync: "Sync across your hosts: vault, settings, skills and memory",
-  move_work: "Move a chat between your own hosts, its agent still running",
+  sync: "Your hosts work as one: settings, skills and memory stay in sync",
+  move_work: "Move a chat between your own hosts",
   history_search: "History search across hosts",
   own_triggers: "Schedules and webhooks you set up yourself",
   org_hosts:

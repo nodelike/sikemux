@@ -56,11 +56,10 @@ const FREE: [string, Built][] = [
   ["Auto, line attribution", ""],
   ["Git, browser, plugins, notch, dictation", ""],
   [
-    "Every host you own, linked on one account: your laptop, a headless box, one click into your own Hetzner or DigitalOcean",
+    "Every computer you own, linked on one account and reachable from desktop and phone: your laptop, a headless box, one click into your own Hetzner or DigitalOcean",
     "partly",
   ],
-  ["Your vault on each host", ""],
-  ["Desktop and phone apps switch between your hosts", ""],
+  ["Your vault, on every host", ""],
 ];
 
 const TEAM_LATER = ["Review check on PRs", "Pin-to-agent widget"];
