@@ -765,6 +765,12 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
         );
         app.call(
             "setPreference",
+            json!({ "key": "paneBackdrop", "value": "picture" }),
+        )
+        .await
+        .expect("choose a picture for the backdrop");
+        app.call(
+            "setPreference",
             json!({ "key": "paneImage", "value": picture }),
         )
         .await
