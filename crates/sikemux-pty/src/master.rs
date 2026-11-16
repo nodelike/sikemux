@@ -8,7 +8,7 @@ mod platform;
 #[path = "master/windows.rs"]
 mod platform;
 
-pub use platform::Master;
+pub use platform::{open_pty, Master};
 
 pub enum Read {
     Bytes(usize),
