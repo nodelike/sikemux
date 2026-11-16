@@ -7,8 +7,6 @@ use std::fs::OpenOptions;
 use std::io::{self, Write};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
-#[cfg(all(unix, not(target_os = "macos")))]
-use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
