@@ -3,17 +3,9 @@ name: Windows
 # Kept apart from CI on purpose: Release starts from CI's verdict, and Windows is still coming up,
 # so a red run here must never hold a nightly back.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "crates/**"
-      - "app/**"
-      - "plugins/**"
-      - Cargo.toml
-      - Cargo.lock
-      - rust-toolchain.toml
-      - .github/workflows/windows.yml
-      - .github/windows-crates.txt
+  # Daily rather than per push until Windows builds ship.
+  schedule:
+    - cron: "30 3 * * *"
   workflow_dispatch:
     inputs:
       packages:
