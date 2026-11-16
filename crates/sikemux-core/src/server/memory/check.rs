@@ -3,7 +3,7 @@
 //! and nothing waits for one: a brief carries what the last test found.
 
 use crate::server::parts::Parts;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,7 +22,8 @@ const MAX_AT_ONCE: usize = 4;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct Due {
-    folder: String,
+    key: String,
+    place: PathBuf,
     id: u64,
     check: MemoryCheck,
 }
@@ -37,6 +38,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
         let mut state = core.memory().state.locked();
         let mut room = MAX_AT_ONCE.saturating_sub(state.checking.len());
         for held in state.held.values() {
+            let Some(place) = state.folder_of_store(held) else {
+                continue;
+            };
             for known in &held.knowledge {
                 let Some(check) = &known.check else {
                     continue;
@@ -58,7 +62,8 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 } else if room > 0 {
                     room -= 1;
                     due.push(Due {
-                        folder: held.folder.clone(),
+                        key: held.key.clone(),
+                        place: place.clone(),
                         id: known.id,
                         check: check.clone(),
                     });
@@ -73,7 +78,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     for due in due {
         let core = core.clone();
         tokio::spawn(async move {
-            let result = run(Path::new(&due.folder), &due.check).await;
+            let result = run(&due.place, &due.check).await;
             record(&core, &due, result);
         });
     }
@@ -132,7 +137,7 @@ fn record(core: &Core, due: &Due, result: LastCheck) {
     state.checking.remove(&due.id);
     let Some(known) = state
         .held
-        .get_mut(&due.folder)
+        .get_mut(&due.key)
         .and_then(|held| held.knowledge.iter_mut().find(|known| known.id == due.id))
     else {
         core.memory().wake.now();
@@ -155,7 +160,7 @@ fn record(core: &Core, due: &Due, result: LastCheck) {
     }
     let stale_moved = was_stale != known.stale.is_some();
     known.checked = Some(result);
-    core.memory().save(&mut state, &due.folder);
+    core.memory().save(&mut state, &due.key);
     drop(state);
     tell_clients(core, stale_moved);
 }

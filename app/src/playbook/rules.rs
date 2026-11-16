@@ -9,6 +9,7 @@ use sikemux_calls::memory::MemoryAddParams;
 use sikemux_calls::memory::MemoryUpdateParams;
 use sikemux_calls::memory::NewMemory;
 use sikemux_view::chat::RuleChange;
+use sikemux_view::memory::Store;
 use sikemux_view::playbook::{Entry, Playbook};
 
 use super::said::{self, Action, Moment};
@@ -84,13 +85,6 @@ fn row(
         said::who(&entry.learned),
         said::day(entry.learned.at)
     );
-    if let Some(above) = &entry.folder {
-        words.push_str(" · ");
-        words.push_str(&t!(
-            "for every project in {folder}",
-            folder = crate::ui::path::tilde(above, None)
-        ));
-    }
     if entry.stale {
         words.push_str(" · ");
         words.push_str(t!("may no longer hold"));
@@ -177,7 +171,7 @@ pub(crate) fn restore(
                     text: line.text.clone(),
                     goal: None,
                     sensitive: false,
-                    folder: None,
+                    store: Store::Project,
                 },
             });
             bench.report(asked, failed, back, cx);

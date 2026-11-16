@@ -514,6 +514,7 @@ fn set_identities(core: &Core, identities: Vec<(PathBuf, Option<String>)>) {
         .collect();
     core.workspaces().set_identities(identities);
     super::board::rekey(core);
+    super::memory::rekey(core, &renamed);
     if renamed.is_empty() {
         return;
     }

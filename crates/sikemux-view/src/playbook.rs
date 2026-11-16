@@ -9,7 +9,7 @@ use crate::memory::Learned;
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Playbook {
-    /// The rules kept from the person's own words, the project's first, then each folder's above it.
+    /// The rules kept from the person's own words, the project's and the person's own.
     pub rules: Vec<Entry>,
     /// The rules agents noted while working, which never widen what agents may do, and the
     /// knowledge kept of how things are.
@@ -36,10 +36,8 @@ pub struct Entry {
     pub stale: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub sensitive: bool,
-    /// The folder above the project that keeps it for every project under it; none for the
-    /// project's own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub folder: Option<String>,
+    #[serde(default, skip_serializing_if = "crate::memory::Store::is_project")]
+    pub store: crate::memory::Store,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

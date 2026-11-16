@@ -60,17 +60,17 @@ pub(crate) fn chat_ready(core: &Core, chat: &Chat) {
 pub(crate) fn feed_moved(core: &Core, agent: &str, from: &str, to: &str) {
     let mut state = core.memory().state.locked();
     let mut changed = Vec::new();
-    for (folder, held) in state.held.iter_mut() {
+    for (key, held) in state.held.iter_mut() {
         for removed in (held.removed.iter_mut())
             .filter(|removed| removed.agent == agent && removed.feed.as_deref() == Some(from))
         {
             removed.feed = Some(to.to_owned());
-            changed.push(folder.clone());
+            changed.push(key.clone());
         }
     }
     changed.dedup();
-    for folder in changed {
-        core.memory().save(&mut state, &folder);
+    for key in changed {
+        core.memory().save(&mut state, &key);
     }
 }
 
@@ -81,7 +81,7 @@ pub(crate) fn show_on(core: &Core, agent: &str, feed: &Arc<Feed>) {
         let mut state = core.memory().state.locked();
         let mut lines = Vec::new();
         let mut changed = Vec::new();
-        for (folder, held) in state.held.iter_mut() {
+        for (key, held) in state.held.iter_mut() {
             for removed in (held.removed.iter_mut())
                 .filter(|removed| removed.agent == agent && removed.feed.as_ref() != Some(&id))
             {
@@ -91,12 +91,12 @@ pub(crate) fn show_on(core: &Core, agent: &str, feed: &Arc<Feed>) {
                     project: removed.project.clone(),
                     undone: true,
                 });
-                changed.push(folder.clone());
+                changed.push(key.clone());
             }
         }
         changed.dedup();
-        for folder in changed {
-            core.memory().save(&mut state, &folder);
+        for key in changed {
+            core.memory().save(&mut state, &key);
         }
         lines
     };
@@ -116,7 +116,7 @@ pub(crate) fn take_note(core: &Core, agent: &str) -> Option<ChatContext> {
         let mut state = core.memory().state.locked();
         let mut gone = Vec::new();
         let mut changed = Vec::new();
-        for (folder, held) in state.held.iter_mut() {
+        for (key, held) in state.held.iter_mut() {
             let before = gone.len();
             held.removed.retain(|removed| match removed.agent == agent {
                 true => {
@@ -126,11 +126,11 @@ pub(crate) fn take_note(core: &Core, agent: &str) -> Option<ChatContext> {
                 false => true,
             });
             if gone.len() > before {
-                changed.push(folder.clone());
+                changed.push(key.clone());
             }
         }
-        for folder in changed {
-            core.memory().save(&mut state, &folder);
+        for key in changed {
+            core.memory().save(&mut state, &key);
         }
         gone
     };

@@ -1,7 +1,7 @@
-//! What the core remembers for a project, or a folder above it when one
-//! product spans several repositories: the rules agents follow there and
-//! knowledge of how things are. Kept in `memory/` in the data folder, one file
-//! per folder. Every entry says where it was learned. The core tests the
+//! What the core remembers: the rules agents follow and knowledge of how things are, in two
+//! stores. A project's is kept by its repository's identity, so it is the same wherever the
+//! repository is open; the person's own follows them to every project. Kept in `memory/` in the
+//! data folder, one file per store. Every entry says where it was learned. The core tests the
 //! knowledge it can; knowledge that no longer holds is marked stale, stays
 //! out of briefs and waits in the inbox until someone corrects or retires it.
 
@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_view::memory::{
-    FolderMemory, Knowledge, Learned, ListedRule, MemoryCheck, MemoryRule, MemoryView, Seeding,
-    Stale,
+    Knowledge, Learned, ListedRule, MemoryCheck, MemoryRule, MemoryView, Seeding, Stale, Store,
+    StoreMemory,
 };
 use sikemux_view::playbook::Entry;
 
@@ -55,23 +55,26 @@ pub(crate) use removed::{
 pub(crate) use seed::{again as seed_again, keep as keep_seeded};
 
 const FOLDER: &str = "memory";
-const MAX_FOLDERS: usize = 256;
+const MAX_STORES: usize = 256;
+const PERSONAL: &str = "personal";
 const MAX_ENTRIES: usize = 200;
 const MAX_TEXT_CHARS: usize = 1000;
 const MAX_ABOUT: usize = 12;
 const MAX_ABOUT_CHARS: usize = 200;
 const MAX_CHECK_CHARS: usize = 1000;
 
-/// What one folder keeps. Kept even once empty, so `next` never goes back.
+/// What one store keeps. Kept even once empty, so `next` never goes back.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Held {
-    folder: String,
+    /// The project's identity, or its folder when it is outside git; `personal` for the person's.
+    key: String,
+    store: Store,
     next: u64,
     rules: Vec<MemoryRule>,
     knowledge: Vec<Knowledge>,
     /// The search of a project's past sessions for rules, kept on the
-    /// project's own folder.
+    /// project's store.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     seeding: Option<Seeding>,
     /// Rules of the person's that left the list as a check or by an agent, kept to bring back.
@@ -91,11 +94,22 @@ impl Held {
         self.rules.iter().any(|rule| rule.id == id)
             || self.knowledge.iter().any(|known| known.id == id)
     }
+
+    fn take_in(&mut self, from: Held) {
+        self.next = self.next.max(from.next);
+        self.rules.extend(from.rules);
+        self.knowledge.extend(from.knowledge);
+        self.seeding = self.seeding.take().or(from.seeding);
+        self.set_aside.extend(from.set_aside);
+        self.removed.extend(from.removed);
+    }
 }
 
 #[derive(Default)]
 struct State {
     held: BTreeMap<String, Held>,
+    /// Each project folder's store key, as [`rekey`] last found them.
+    keys: HashMap<String, String>,
     files: HashMap<String, Arc<Kept>>,
     /// Knowledge being tested now.
     checking: HashSet<u64>,
@@ -109,29 +123,61 @@ struct State {
 }
 
 impl State {
-    /// The folders whose entries apply to `project`, nearest first.
-    fn applying<'a>(&'a self, project: &'a str) -> impl Iterator<Item = &'a Held> + 'a {
-        let mut held: Vec<&Held> = self
-            .held
-            .values()
-            .filter(|held| Path::new(project).starts_with(&held.folder))
-            .collect();
-        held.sort_by_key(|held| std::cmp::Reverse(held.folder.len()));
-        held.into_iter()
+    /// The key of the store of the project in folder `project`.
+    fn key_of(&self, project: &str) -> String {
+        (self.keys.get(project).cloned()).unwrap_or_else(|| project.to_owned())
     }
 
-    /// The folder applying to `project` that keeps entry `id`.
-    fn folder_of(&self, project: &str, id: u64) -> Result<String, String> {
+    fn key_for(&self, project: &str, store: Store) -> String {
+        match store {
+            Store::Project => self.key_of(project),
+            Store::Personal => PERSONAL.to_owned(),
+        }
+    }
+
+    /// The stores whose entries apply to `project`: its own, then the person's.
+    fn applying<'a>(&'a self, project: &str) -> impl Iterator<Item = &'a Held> + 'a {
+        [
+            self.held.get(&self.key_of(project)),
+            self.held.get(PERSONAL),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    /// The project's own store.
+    fn own(&self, project: &str) -> Option<&Held> {
+        self.held.get(&self.key_of(project))
+    }
+
+    /// The key of the store applying to `project` that keeps entry `id`.
+    fn key_holding(&self, project: &str, id: u64) -> Result<String, String> {
         self.applying(project)
             .find(|held| held.holds(id))
-            .map(|held| held.folder.clone())
+            .map(|held| held.key.clone())
             .ok_or_else(|| format!("Nothing Sikemux keeps for this project is #{id}"))
     }
 
+    /// A folder on this host to test a store's knowledge in: the person's home for their own
+    /// store, else a folder of the project's.
+    fn folder_of_store(&self, held: &Held) -> Option<PathBuf> {
+        match held.store {
+            Store::Personal => std::env::var_os("HOME").map(PathBuf::from),
+            Store::Project => (self.keys.iter())
+                .find(|(_, key)| **key == held.key)
+                .map(|(folder, _)| PathBuf::from(folder))
+                .or_else(|| {
+                    Path::new(&held.key)
+                        .is_absolute()
+                        .then(|| PathBuf::from(&held.key))
+                }),
+        }
+    }
+
     /// An id no entry has ever had.
-    fn next_id(&mut self, folder: &str) -> u64 {
+    fn next_id(&mut self, key: &str) -> u64 {
         let id = self.held.values().map(|held| held.next).max().unwrap_or(1);
-        if let Some(held) = self.held.get_mut(folder) {
+        if let Some(held) = self.held.get_mut(key) {
             held.next = id + 1;
         }
         id
@@ -156,11 +202,11 @@ impl Memory {
                 eprintln!("sikemux core: what Sikemux keeps cannot be saved: {error}");
             }
         }
-        let held = kept::load_all::<Held>(folder.as_deref())
+        let held = kept::load_all_upgraded::<Held>(folder.as_deref(), keyed_by_store)
             .into_iter()
             .map(|mut held| {
                 held.seeding = seed::settled(held.seeding.take());
-                (held.folder.clone(), held)
+                (held.key.clone(), held)
             })
             .collect();
         Self {
@@ -174,9 +220,9 @@ impl Memory {
         }
     }
 
-    /// Hands the folder's file to be written on a thread of its own, and
+    /// Hands the store's file to be written on a thread of its own, and
     /// answers it, to wait for with [`Kept::flush`].
-    fn save(&self, state: &mut State, folder: &str) -> Option<Arc<Kept>> {
+    fn save(&self, state: &mut State, key: &str) -> Option<Arc<Kept>> {
         self.wake.now();
         let State {
             held,
@@ -184,10 +230,10 @@ impl Memory {
             promoting,
             ..
         } = state;
-        let held = held.get(folder)?;
-        let file = files.entry(folder.to_owned()).or_insert_with(|| {
-            Arc::new(Kept::new(self.folder.as_deref(), &kept::file_for(folder)))
-        });
+        let held = held.get(key)?;
+        let file = files
+            .entry(key.to_owned())
+            .or_insert_with(|| Arc::new(Kept::new(self.folder.as_deref(), &kept::file_for(key))));
         match promoting.filter(|id| held.holds(*id)) {
             Some(id) => {
                 let mut saved = held.clone();
@@ -200,6 +246,71 @@ impl Memory {
         }
         Some(file.clone())
     }
+
+    /// Deletes the file of a store that moved to another key.
+    fn forget(&self, state: &mut State, key: &str) {
+        if let Some(file) = state.files.remove(key) {
+            file.flush();
+        }
+        let Some(folder) = &self.folder else {
+            return;
+        };
+        let path = folder.join(kept::file_for(key));
+        if let Err(error) = std::fs::remove_file(&path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("sikemux core: {} was not removed: {error}", path.display());
+            }
+        }
+    }
+}
+
+/// A store an earlier core kept by a folder's path, read as that project's.
+fn keyed_by_store(mut value: Value) -> Value {
+    if let Some(folder) = (value.as_object_mut()).and_then(|held| held.remove("folder")) {
+        value["key"] = folder;
+        value["store"] = json!("project");
+    }
+    value
+}
+
+/// Keys each project's store by what the project is known by now, moving a store kept by its
+/// folder, or by what it was known by before, to that key.
+pub(crate) fn rekey(core: &Core, renamed: &[(String, String)]) {
+    let keys: HashMap<String, String> = (core.workspaces().projects().into_iter())
+        .map(|project| {
+            let folder = project.path.to_string_lossy().into_owned();
+            let key = project.identity.unwrap_or_else(|| folder.clone());
+            (folder, key)
+        })
+        .collect();
+    let memory = core.memory();
+    let mut state = memory.state.locked();
+    let moves: Vec<(String, String)> = (keys.iter())
+        .filter(|(folder, key)| folder != key)
+        .map(|(folder, key)| (folder.clone(), key.clone()))
+        .chain(renamed.iter().cloned())
+        .filter(|(old, new)| old != new && state.held.contains_key(old))
+        .collect();
+    state.keys = keys;
+    if moves.is_empty() {
+        return;
+    }
+    for (old, new) in moves {
+        let Some(mut moving) = state.held.remove(&old) else {
+            continue;
+        };
+        match state.held.get_mut(&new) {
+            Some(held) => held.take_in(moving),
+            None => {
+                moving.key = new.clone();
+                state.held.insert(new.clone(), moving);
+            }
+        }
+        memory.save(&mut state, &new);
+        memory.forget(&mut state, &old);
+    }
+    drop(state);
+    tell_clients(core, true);
 }
 
 impl crate::server::part::Part for Memory {
@@ -263,30 +374,16 @@ fn checked_check(check: MemoryCheck) -> Result<MemoryCheck, String> {
     }
 }
 
-/// The folder an entry is kept for: the project's own, or one above it.
-fn folder_for(project: &str, folder: Option<&str>) -> Result<String, String> {
-    let Some(folder) = folder else {
-        return Ok(project.to_owned());
-    };
-    let canonical = sikemux_process::files::real_path(folder)
-        .map_err(|error| format!("folder {folder} cannot be read: {error}"))?;
-    if canonical.parent().is_none() || !Path::new(project).starts_with(&canonical) {
+/// What the store under `key` keeps, kept from now on when it kept nothing yet.
+fn holding<'a>(state: &'a mut State, key: &str, store: Store) -> Result<&'a mut Held, String> {
+    if !state.held.contains_key(key) && state.held.len() >= MAX_STORES {
         return Err(format!(
-            "folder must be this project, {project}, or a folder above it other than /"
+            "Sikemux already keeps rules and knowledge for {MAX_STORES} projects, as many as it can"
         ));
     }
-    Ok(canonical.to_string_lossy().into_owned())
-}
-
-/// What `folder` keeps, kept from now on when it kept nothing yet.
-fn holding<'a>(state: &'a mut State, folder: &str) -> Result<&'a mut Held, String> {
-    if !state.held.contains_key(folder) && state.held.len() >= MAX_FOLDERS {
-        return Err(format!(
-            "Sikemux already keeps rules and knowledge for {MAX_FOLDERS} folders, as many as it can"
-        ));
-    }
-    Ok(state.held.entry(folder.to_owned()).or_insert_with(|| Held {
-        folder: folder.to_owned(),
+    Ok(state.held.entry(key.to_owned()).or_insert_with(|| Held {
+        key: key.to_owned(),
+        store,
         next: 1,
         rules: Vec::new(),
         knowledge: Vec::new(),
@@ -297,17 +394,17 @@ fn holding<'a>(state: &'a mut State, folder: &str) -> Result<&'a mut Held, Strin
 }
 
 fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u64, String> {
-    let (text, folder) = match &new {
-        NewMemory::Rule { text, folder, .. } | NewMemory::Knowledge { text, folder, .. } => (
-            to_keep(text, "text", MAX_TEXT_CHARS)?,
-            folder_for(project, folder.as_deref())?,
-        ),
+    let (text, store) = match &new {
+        NewMemory::Rule { text, store, .. } | NewMemory::Knowledge { text, store, .. } => {
+            (to_keep(text, "text", MAX_TEXT_CHARS)?, *store)
+        }
     };
     let mut state = core.memory().state.locked();
-    let held = holding(&mut state, &folder)?;
+    let folder = state.key_for(project, store);
+    let held = holding(&mut state, &folder, store)?;
     if held.len() >= MAX_ENTRIES {
         return Err(format!(
-            "{folder} already keeps {MAX_ENTRIES} rules and knowledge; retire some first"
+            "That store already keeps {MAX_ENTRIES} rules and knowledge; retire some first"
         ));
     }
     let known = match &new {
@@ -325,7 +422,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
     let held = state
         .held
         .get_mut(&folder)
-        .ok_or("the folder went while it was being written to")?;
+        .ok_or("the store went while it was being written to")?;
     match new {
         NewMemory::Rule { sensitive, .. } => {
             held.rules.push(MemoryRule {
@@ -367,10 +464,10 @@ fn keep(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<
             text,
             goal: Some(card),
             sensitive,
-            folder,
+            store,
         } => {
-            if sensitive || folder.is_some() {
-                return Err("A goal's rule shows on its card and belongs to its project; keep sensitive or shared rules without goal".into());
+            if sensitive || store == Store::Personal {
+                return Err("A goal's rule shows on its card and belongs to its project; keep sensitive or personal rules without goal".into());
             }
             let rule = goal::Change::of(goal::List::Rules, None, Some(&text), None, false)?;
             goal::change(core, project, Some(card), goal::List::Rules, rule, learned)
@@ -473,7 +570,7 @@ fn change(
     if state.promoting == Some(id) {
         return Err(format!("#{id} is being written into AGENTS.md"));
     }
-    let folder = state.folder_of(project, id)?;
+    let folder = state.key_holding(project, id)?;
     let persons_rule = (state.held.get(&folder))
         .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
         .filter(|rule| rule.learned.agent.is_none());
@@ -486,7 +583,7 @@ fn change(
     let held = state
         .held
         .get_mut(&folder)
-        .ok_or("the folder went while it was being changed")?;
+        .ok_or("the store went while it was being changed")?;
     let mut stale_moved = false;
     let (mut line, mut back, mut undone_already, mut removed_from) = (None, None, None, None);
     if let Some(rule) = held.rules.iter_mut().find(|rule| rule.id == id) {
@@ -635,23 +732,11 @@ fn change(
 /// own window reads it.
 fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
     let shows_sensitive = matches!(peer, Peer::App);
-    let folders: Vec<String> = (core.memory().state.locked().applying(project))
-        .map(|held| held.folder.clone())
-        .collect();
-    let files: HashMap<String, _> = folders
-        .into_iter()
-        .map(|folder| {
-            let file = promote::agents_file(&folder);
-            (folder, file)
-        })
-        .collect();
+    let file = promote::agents_file(project);
     let state = core.memory().state.locked();
-    let folders = state
+    let stores = state
         .applying(project)
         .map(|held| {
-            // A folder that came since its file was read is not offered to move yet.
-            let file = (files.get(&held.folder).cloned())
-                .unwrap_or(Err(sikemux_view::memory::Stays::NoCheckout));
             let rules: Vec<ListedRule> = (held.rules.iter())
                 .filter(|rule| shows_sensitive || !rule.sensitive)
                 .map(|rule| ListedRule {
@@ -663,29 +748,25 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
                 .filter(|known| shows_sensitive || !known.sensitive)
                 .cloned()
                 .collect();
-            FolderMemory {
-                folder: held.folder.clone(),
+            StoreMemory {
+                store: held.store,
                 hidden: held.len() - rules.len() - knowledge.len(),
                 rules,
                 knowledge,
             }
         })
         .collect();
-    let seeding = state
-        .held
-        .get(project)
-        .and_then(|held| held.seeding.clone());
-    MemoryView { folders, seeding }
+    let seeding = state.own(project).and_then(|held| held.seeding.clone());
+    MemoryView { stores, seeding }
 }
 
 /// What the Playbook lists for `project`: the person's rules, then what agents noted and the
-/// knowledge kept, nearest folder first. Sensitive entries show only in Sikemux's own window.
+/// knowledge kept, the project's store first. Sensitive entries show only in Sikemux's own window.
 pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entry>, Vec<Entry>) {
     let shows_sensitive = matches!(peer, Peer::App);
     let state = core.memory().state.locked();
     let (mut rules, mut notes) = (Vec::new(), Vec::new());
     for held in state.applying(project) {
-        let folder = (held.folder != project).then(|| held.folder.clone());
         for rule in held
             .rules
             .iter()
@@ -698,7 +779,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 knowledge: false,
                 stale: false,
                 sensitive: rule.sensitive,
-                folder: folder.clone(),
+                store: held.store,
             };
             match rule.learned.agent {
                 None => rules.push(kept),
@@ -717,7 +798,7 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
                 knowledge: true,
                 stale: known.stale.is_some(),
                 sensitive: known.sensitive,
-                folder: folder.clone(),
+                store: held.store,
             });
         }
     }
@@ -729,7 +810,8 @@ pub(crate) fn for_playbook(core: &Core, project: &str, peer: &Peer) -> (Vec<Entr
 
 /// Stale knowledge, for the inbox.
 pub(crate) struct StaleKnowledge {
-    pub folder: String,
+    /// A folder of a project the store applies to.
+    pub project: Option<PathBuf>,
     pub id: u64,
     /// What it says and why it no longer holds; none for sensitive
     /// knowledge, whose words the inbox never shows.
@@ -761,8 +843,12 @@ pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
                 Some(Stale::Failed { since, why }) => (why.clone(), *since, None),
                 Some(Stale::Disputed { why, by }) => (why.clone(), by.at, by.agent.clone()),
             };
+            let project = match held.store {
+                Store::Project => state.folder_of_store(held),
+                Store::Personal => state.keys.keys().next().map(PathBuf::from),
+            };
             listed.push(StaleKnowledge {
-                folder: held.folder.clone(),
+                project,
                 id: known.id,
                 said: (!known.sensitive).then(|| (known.text.clone(), why)),
                 at,
@@ -791,7 +877,8 @@ enum ToolAdd {
         goal: bool,
         #[serde(default)]
         sensitive: bool,
-        folder: Option<String>,
+        #[serde(default)]
+        yours: bool,
         #[serde(default)]
         person: bool,
     },
@@ -802,7 +889,8 @@ enum ToolAdd {
         #[serde(default)]
         sensitive: bool,
         check: Option<MemoryCheck>,
-        folder: Option<String>,
+        #[serde(default)]
+        yours: bool,
     },
 }
 
@@ -831,6 +919,13 @@ fn goal_card(core: &Core, agent: &str) -> Result<u64, String> {
         })
 }
 
+fn store_of(yours: bool) -> Store {
+    match yours {
+        true => Store::Personal,
+        false => Store::Project,
+    }
+}
+
 /// `memory_add`: a rule or knowledge for the agent's project, or a rule for
 /// the goal its live card sits under. A rule the person said in the message that started the
 /// turn is kept as theirs, and the chat says so with one line they can undo.
@@ -847,7 +942,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 person: true,
                 goal: false,
                 sensitive,
-                folder,
+                yours,
             } if said_by_person(&core, &agent, &text) => {
                 by.with = (by.agent.take()).map(|agent| sikemux_view::memory::SaidTo {
                     agent,
@@ -861,7 +956,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                         text,
                         goal: None,
                         sensitive,
-                        folder,
+                        store: store_of(yours),
                     },
                     by,
                 )?;
@@ -873,7 +968,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 text,
                 goal,
                 sensitive,
-                folder,
+                yours,
                 ..
             } => {
                 let goal = goal.then(|| goal_card(&core, &agent)).transpose()?;
@@ -882,7 +977,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                     text,
                     goal,
                     sensitive,
-                    folder,
+                    store: store_of(yours),
                 };
                 (rule, said, Vec::new())
             }
@@ -891,7 +986,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                 about,
                 sensitive,
                 check,
-                folder,
+                yours,
             } => {
                 let (said, paths) = (text.clone(), about.clone());
                 let knowledge = NewMemory::Knowledge {
@@ -899,7 +994,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
                     about,
                     sensitive,
                     check,
-                    folder,
+                    store: store_of(yours),
                 };
                 (knowledge, said, paths)
             }
@@ -1031,7 +1126,7 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
     let state = core.memory().state.locked();
     let (mut rules, mut knowledge) = (Vec::new(), Vec::new());
     for held in state.applying(&project) {
-        let folder = (held.folder != project).then_some(held.folder.as_str());
+        let yours = held.store == Store::Personal;
         for rule in &held.rules {
             rules.push(json!({
                 "id": rule.id,
@@ -1039,7 +1134,7 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
                 "from": said_by(&rule.learned),
                 "fromId": rule.learned.agent,
                 "at": rule.learned.at,
-                "folder": folder,
+                "yours": yours,
                 "sensitive": rule.sensitive,
             }));
         }
@@ -1057,7 +1152,7 @@ pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Res
                 "at": known.learned.at,
                 "check": known.check,
                 "stale": stale,
-                "folder": folder,
+                "yours": yours,
                 "sensitive": known.sensitive,
             }));
         }
@@ -1115,7 +1210,7 @@ pub(crate) fn keep_persons_rule(core: &Core, project: &str, text: String) -> Res
         text,
         goal: None,
         sensitive: false,
-        folder: None,
+        store: Store::Project,
     };
     add(core, project, rule, learned(core, None))
 }
@@ -1148,7 +1243,7 @@ pub(crate) async fn person_add(
             NewMemory::Rule {
                 text,
                 goal: None,
-                folder: None,
+                store: Store::Project,
                 sensitive,
             } => now_check::bring_back_words(&core, &project, text, *sensitive),
             _ => None,

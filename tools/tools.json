@@ -2296,10 +2296,9 @@
             "kind"
           ]
         },
-        "folder": {
-          "description": "A folder above the project, to share with every project in it",
-          "type": "string",
-          "maxLength": 4096
+        "yours": {
+          "description": "Kept for the person on every project",
+          "type": "boolean"
         }
       },
       "required": [

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::RuleChange;
-use sikemux_view::memory::{Learned, MemoryRule};
+use sikemux_view::memory::{Learned, MemoryRule, Store};
 
 use super::{tell_clients, Core, State};
 use crate::git::Git;
@@ -102,7 +102,7 @@ fn retire(core: &Core, project: &str, id: u64, rest: &str, by: &Learned) -> Resu
         if state.promoting == Some(id) {
             return Err(format!("#{id} is being written into AGENTS.md"));
         }
-        (state.held.get(project))
+        (state.own(project))
             .and_then(|held| held.rules.iter().find(|rule| rule.id == id).cloned())
             .ok_or_else(|| {
                 format!(
@@ -164,7 +164,8 @@ fn retire(core: &Core, project: &str, id: u64, rest: &str, by: &Learned) -> Resu
     }
     {
         let mut state = core.memory().state.locked();
-        let held = (state.held.get_mut(project)).ok_or("the folder went while it was changed")?;
+        let key = state.key_of(project);
+        let held = (state.held.get_mut(&key)).ok_or("the store went while it was changed")?;
         let at = (held.rules.iter())
             .position(|kept| kept.id == id)
             .ok_or_else(|| format!("#{id} is no longer kept"))?;
@@ -175,7 +176,7 @@ fn retire(core: &Core, project: &str, id: u64, rest: &str, by: &Learned) -> Resu
             at: epoch_ms(),
             by: chief.clone(),
         });
-        core.memory().save(&mut state, project);
+        core.memory().save(&mut state, &key);
     }
     tell_clients(core, false);
     core.activity_log().core_used("rule.nowCheck");
@@ -309,7 +310,7 @@ pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> 
     let super::NewMemory::Rule {
         text,
         goal: None,
-        folder: None,
+        store: Store::Project,
         ..
     } = new
     else {
@@ -329,7 +330,7 @@ pub(super) fn kept_again(core: &Core, project: &str, new: &super::NewMemory) -> 
 
 /// Brings rule `id` of the person's back to the list, unless the same words are kept again
 /// already, and the line for it says it is back: brought back by `agent`, or by the person.
-/// Answers the folder it is kept for.
+/// Answers the key of the store it is kept in.
 fn bring_back(core: &Core, project: &str, id: u64, agent: Option<&str>) -> Result<String, String> {
     let (folder, apart) = {
         let mut state = core.memory().state.locked();
@@ -340,7 +341,7 @@ fn bring_back(core: &Core, project: &str, id: u64, agent: Option<&str>) -> Resul
                 .iter()
                 .any(|rule| rule.text.to_lowercase() == words)
         });
-        let held = (state.held.get_mut(&folder)).ok_or("the folder went while it was changed")?;
+        let held = (state.held.get_mut(&folder)).ok_or("the store went while it was changed")?;
         if !kept_again {
             held.rules.push(apart.rule.clone());
         }
@@ -366,14 +367,14 @@ fn bring_back(core: &Core, project: &str, id: u64, agent: Option<&str>) -> Resul
     Ok(folder)
 }
 
-/// Takes rule `id` out of what is set aside for `project`; answers the folder it is kept for, and
+/// Takes rule `id` out of what is set aside for `project`; answers the key of its store, and
 /// what was set aside.
 fn take(state: &mut State, project: &str, id: u64) -> Result<(String, SetAside), String> {
     let folder = (state.applying(project))
         .find(|held| held.set_aside.iter().any(|apart| apart.rule.id == id))
-        .map(|held| held.folder.clone())
+        .map(|held| held.key.clone())
         .ok_or_else(|| format!("#{id} is not a rule set aside for this project"))?;
-    let held = (state.held.get_mut(&folder)).ok_or("the folder went while it was changed")?;
+    let held = (state.held.get_mut(&folder)).ok_or("the store went while it was changed")?;
     let at = (held.set_aside.iter())
         .position(|apart| apart.rule.id == id)
         .ok_or("the rule went while it was changed")?;

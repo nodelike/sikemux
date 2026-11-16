@@ -76,19 +76,19 @@ pub(crate) async fn promote(
     let core = core.clone();
     run(move || {
         let _one_at_a_time = core.memory().promotes.locked();
-        let folder = core.memory().state.locked().folder_of(&project, id)?;
-        let path = agents_file(&folder);
+        let key = core.memory().state.locked().key_holding(&project, id)?;
+        let path = agents_file(&project);
         let (text, file) = {
             let mut state = core.memory().state.locked();
-            let rule = (state.held.get(&folder))
+            let rule = (state.held.get(&key))
                 .and_then(|held| held.rules.iter().find(|rule| rule.id == id))
                 .ok_or_else(|| format!("#{id} is not a rule, and only rules go into {FILE}"))?;
             if let Some(stays) = stays(rule, &path) {
-                return Err(refusal(id, &folder, stays));
+                return Err(refusal(id, &project, stays));
             }
             let text = rule.text.clone();
             state.promoting = Some(id);
-            (text, core.memory().save(&mut state, &folder))
+            (text, core.memory().save(&mut state, &key))
         };
         let gone_on_disk = match file {
             Some(file) => {
@@ -100,16 +100,16 @@ pub(crate) async fn promote(
         };
         let written = gone_on_disk.and_then(|()| match &path {
             Ok(path) => write(path, &text),
-            Err(stays) => Err(refusal(id, &folder, *stays)),
+            Err(stays) => Err(refusal(id, &project, *stays)),
         });
         let mut state = core.memory().state.locked();
         state.promoting = None;
         if written.is_ok() {
-            if let Some(held) = state.held.get_mut(&folder) {
+            if let Some(held) = state.held.get_mut(&key) {
                 held.rules.retain(|rule| rule.id != id);
             }
         }
-        core.memory().save(&mut state, &folder);
+        core.memory().save(&mut state, &key);
         drop(state);
         written?;
         tell_clients(&core, false);
@@ -138,7 +138,7 @@ pub(super) fn agents_file(folder: &str) -> Result<PathBuf, Stays> {
         .ok_or(Stays::LinkedAway)
 }
 
-/// Why `rule`, kept for a folder whose AGENTS.md is `file`, cannot move there.
+/// Why `rule`, kept for a project whose AGENTS.md is `file`, cannot move there.
 pub(super) fn stays(rule: &MemoryRule, file: &Result<PathBuf, Stays>) -> Option<Stays> {
     if rule.sensitive {
         return Some(Stays::Sensitive);

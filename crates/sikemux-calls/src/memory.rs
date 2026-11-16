@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sikemux_view::memory::MemoryCheck;
+use sikemux_view::memory::{MemoryCheck, Store};
 
 /// What changes about an entry. A rule is only corrected or retired;
 /// knowledge may also be said not to hold, and have what it is about and how
@@ -60,16 +60,16 @@ pub enum NewMemory {
         /// agents follow.
         goal: Option<u64>,
         sensitive: bool,
-        /// A folder above the project, to keep it for every project under it.
-        folder: Option<String>,
+        #[serde(default)]
+        store: Store,
     },
     Knowledge {
         text: String,
         about: Vec<String>,
         sensitive: bool,
         check: Option<MemoryCheck>,
-        /// A folder above the project, to keep it for every project under it.
-        folder: Option<String>,
+        #[serde(default)]
+        store: Store,
     },
 }
 

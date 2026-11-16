@@ -146,12 +146,27 @@ pub enum Stays {
     LinkedAway,
 }
 
-/// What one folder keeps: a project, or a folder above it whose entries every
-/// project under it shares.
+/// Whose rules and knowledge these are: the project's, which every agent on its repository reads
+/// wherever it is open, or the person's own, which follow them to every project.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Store {
+    #[default]
+    Project,
+    Personal,
+}
+
+impl Store {
+    pub fn is_project(&self) -> bool {
+        *self == Store::Project
+    }
+}
+
+/// What one store keeps.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FolderMemory {
-    pub folder: String,
+pub struct StoreMemory {
+    pub store: Store,
     pub rules: Vec<ListedRule>,
     pub knowledge: Vec<Knowledge>,
     /// Sensitive entries left out, for a reader other than Sikemux's own window.
@@ -196,12 +211,11 @@ pub enum Seeding {
     },
 }
 
-/// What applies to a project: its own folder first, then each folder above
-/// it, nearest first.
+/// What applies to a project: its own store, then the person's.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryView {
-    pub folders: Vec<FolderMemory>,
+    pub stores: Vec<StoreMemory>,
     /// The project's search of its past sessions for rules; none until it runs.
     #[serde(default)]
     pub seeding: Option<Seeding>,

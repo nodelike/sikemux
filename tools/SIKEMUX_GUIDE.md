@@ -1009,8 +1009,8 @@ said each and when.
 
 `sensitive: true` marks hosts, addresses and the like: agents still read it,
 but it never goes into the repository and only Sikemux's own window shows it.
-`folder`, a folder above the project, keeps a rule or knowledge for every
-project under it, for a product that spans several repositories.
+`yours: true` keeps it in the person's own store, which every project reads,
+for how they work rather than how this project does.
 
 Keep what the person told you to keep, or found out and would want kept,
 never what the code or AGENTS.md already says. When something kept turns out

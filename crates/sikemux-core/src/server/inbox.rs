@@ -1201,7 +1201,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         if let Some(agent) = &stale.agent {
             item = item.by(agent, find(agent));
         }
-        item.project = Some(stale.folder);
+        item.project = (stale.project).map(|folder| folder.to_string_lossy().into_owned());
         item.detail = Some(format!("{why}Correct #{} or retire it.", stale.id));
         items.push(item);
     }
