@@ -60,7 +60,7 @@ pub(super) fn block(
             .collect();
         let rest: Vec<AnyElement> = (waiting.iter())
             .filter(|call| call.id != open.id)
-            .map(|call| folded(&cards, call, &target, &bench.downgrade(), cx))
+            .map(|call| folded(&cards, call, None, &target, &bench.downgrade(), cx))
             .collect();
         div()
             .flex()

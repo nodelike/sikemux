@@ -28,7 +28,7 @@ use crate::icons::Icon;
 use crate::picture::Picture;
 use crate::theme::{self, radius_2, radius_4, Tokens, SPACE_1, SPACE_1H, SPACE_2};
 use crate::ui::{self, Button, Variant};
-use crate::workbench::{Strip, Workbench};
+use crate::workbench::Workbench;
 
 mod away;
 mod page;
@@ -261,6 +261,51 @@ impl Workbench {
             let call = view.calls.iter().find(|call| call.id == id)?;
             Some((place, call))
         })
+    }
+
+    /// The calls waiting on the person on every core this window reaches, each with where it
+    /// waits, newest first.
+    pub(crate) fn calls_everywhere(&self) -> Vec<(Place, &PersonCall)> {
+        let mut open: Vec<(Place, &PersonCall)> = (self.reached_views())
+            .flat_map(|(place, view)| {
+                (view.calls.iter())
+                    .filter(|call| call.state == CallState::Open)
+                    .map(move |call| (place.clone(), call))
+            })
+            .collect();
+        open.sort_by_key(|(_, call)| std::cmp::Reverse(call.raised_at));
+        open
+    }
+
+    /// How many calls wait on the person on every core this window reaches.
+    fn count_everywhere(&self) -> usize {
+        (self.reached_views())
+            .flat_map(|(_, view)| &view.calls)
+            .filter(|call| call.state == CallState::Open)
+            .count()
+    }
+
+    fn reached_views(&self) -> impl Iterator<Item = (Place, &DeviceView)> {
+        self.views().filter(|(place, _)| self.feeds.reaches(place))
+    }
+
+    /// Where `call` waits, as a card names it: its project, and its host when that is not this one.
+    fn call_place_words(&self, place: &Place, call: &PersonCall) -> String {
+        let project = (self.view_at(place).into_iter())
+            .flat_map(|view| &view.workspace.projects)
+            .find(|project| project.path.to_string_lossy() == call.project)
+            .map(|project| project.name.clone())
+            .unwrap_or_else(|| {
+                let path = std::path::Path::new(&call.project);
+                (path.file_name()).map_or_else(
+                    || call.project.clone(),
+                    |name| name.to_string_lossy().into_owned(),
+                )
+            });
+        match place {
+            Place::This => project,
+            Place::Account(host) => format!("{project} · {}", self.host_name(host)),
+        }
     }
 
     /// The calls of `project` on the host at `place` that wait on the person, newest first.
@@ -618,6 +663,7 @@ fn card(
         Seat::Queue { .. } => Some((None, bench.clone(), call.asker.agent_id.clone())),
         Seat::Popover(dismiss) => Some((Some(dismiss), bench.clone(), call.asker.agent_id.clone())),
     };
+    let owner = target.clone();
     let open_chat = open_chat.map(|(dismiss, bench, agent)| {
         Button::new(
             SharedString::from(format!("call-chat-{}", call.id)),
@@ -632,7 +678,9 @@ fn card(
                 dismiss(window, cx);
             }
             bench
-                .update(cx, |bench, cx| bench.open_agent(&agent, cx))
+                .update(cx, |bench, cx| {
+                    bench.open_agent_from(&agent, owner.clone(), cx)
+                })
                 .ok();
         })
     });
@@ -1398,15 +1446,10 @@ impl Render for InChat {
     }
 }
 
-/// The top bar's bell over the calls of the project in front, with their count, which opens
-/// them; none while nothing waits.
+/// The top bar's bell over the calls waiting on the person in every project on every host this
+/// window reaches, with their count, which opens them; none while nothing waits.
 pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let Some(Strip::Project(_)) = bench.strip() else {
-        return None;
-    };
-    let project = bench.project()?;
-    let count = project.calls as usize;
-    let project = project.path.to_string_lossy().into_owned();
+    let count = bench.count_everywhere();
     if count == 0 {
         return None;
     }
@@ -1454,41 +1497,39 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Any
                 return div().into_any_element();
             };
             let dismiss = crate::ui::list_picker::dismiss(cx.entity());
-            popover(&bench, &cards, &project, dismiss, window, cx)
+            popover(&bench, &cards, dismiss, window, cx)
         });
     Some(chip.into_any_element())
 }
 
-/// The calls of the project in front: the open one as its card, the rest a line each under it.
+/// The calls waiting everywhere: the open one as its card, the rest a line each under it, each
+/// answered through the core it waits on.
 fn popover(
     bench: &Entity<Workbench>,
     cards: &Entity<Cards>,
-    project: &str,
     dismiss: crate::ui::list_picker::Dismiss,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (calls, place, name) = {
+    let asks = bench.read(cx).asks.clone();
+    let calls: Vec<(Target, String, PersonCall)> = {
         let read = bench.read(cx);
-        let calls: Vec<PersonCall> = (read.open_calls(&read.place(), project).into_iter())
-            .cloned()
-            .collect();
-        let name = read
-            .project()
-            .map(|project| project.name.clone())
-            .unwrap_or_default();
-        (calls, read.place(), name)
+        (read.calls_everywhere().into_iter())
+            .map(|(place, call)| {
+                let words = read.call_place_words(&place, call);
+                (Target::new(&asks, place), words, call.clone())
+            })
+            .collect()
     };
     let opened = cards.read(cx).opened.clone();
-    let Some(open) = (opened.as_ref())
-        .and_then(|id| calls.iter().find(|call| &call.id == id))
+    let Some((target, name, open)) = (opened.as_ref())
+        .and_then(|id| calls.iter().find(|(_, _, call)| &call.id == id))
         .or(calls.first())
         .cloned()
     else {
         return div().into_any_element();
     };
-    let target = Target::new(&bench.read(cx).asks, place);
     let weak = bench.downgrade();
     let through = Through {
         target: &target,
@@ -1497,8 +1538,11 @@ fn popover(
     };
     let shown = card(&open, Seat::Popover(dismiss), through, window, cx);
     let rest: Vec<AnyElement> = (calls.iter())
-        .filter(|call| call.id != open.id)
-        .map(|call| folded(cards, call, &target, &weak, cx))
+        .filter(|(_, _, call)| call.id != open.id)
+        .map(|(target, words, call)| {
+            let elsewhere = (words != &name).then_some(words.as_str());
+            folded(cards, call, elsewhere, target, &weak, cx)
+        })
         .collect();
     let head = div()
         .px(px(10.))
@@ -1536,11 +1580,12 @@ fn popover(
     .into_any_element()
 }
 
-/// A call waiting behind the one open: who asks, the question and how long it has waited. A
-/// click opens it in its place.
+/// A call waiting behind the one open: who asks, the question, where it waits when that is not
+/// where the open one does, and how long it has waited. A click opens it in its place.
 fn folded(
     cards: &Entity<Cards>,
     call: &PersonCall,
+    elsewhere: Option<&str>,
     target: &Target,
     bench: &WeakEntity<Workbench>,
     cx: &App,
@@ -1585,6 +1630,15 @@ fn folded(
                 .truncate()
                 .child(headline(&call.question).to_owned()),
         )
+        .children(elsewhere.map(|words| {
+            div()
+                .flex_none()
+                .max_w(px(120.))
+                .truncate()
+                .text_size(theme::ui_text(11.5))
+                .text_color(t.text_tertiary)
+                .child(words.to_owned())
+        }))
         .child(
             div()
                 .flex_none()

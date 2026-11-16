@@ -101,7 +101,7 @@ impl Render for Page {
         };
         let waiting: Vec<AnyElement> = (calls.iter())
             .filter(|call| call.id != open.id)
-            .map(|call| folded(&self.cards, call, &target, &self.bench, cx))
+            .map(|call| folded(&self.cards, call, None, &target, &self.bench, cx))
             .collect();
         let next = (calls.iter())
             .cycle()
