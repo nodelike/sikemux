@@ -165,6 +165,7 @@
     "Agent time": {},
     "Agents": {},
     "Agents act as the App installed on the repository they work in. Create another for an organization's repositories.": {},
+    "Agents and projects need Git for Windows. Run winget install Git.Git.": {},
     "Agents at work keep running through an update, but these are still starting or in the middle of a request. The update installs on its own once they are ready.": {},
     "Agents at work keep running through an update, but this one is still starting or in the middle of a request. The update installs on its own once it is ready.": {},
     "Agents get a character in place of their harness logo.": {},

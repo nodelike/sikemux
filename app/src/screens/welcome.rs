@@ -1332,6 +1332,8 @@ fn poster(
     if welcome.git_missing {
         let warning = if cfg!(target_os = "macos") {
             t!("Git isn't set up. Run xcode-select --install.")
+        } else if cfg!(windows) {
+            t!("Agents and projects need Git for Windows. Run winget install Git.Git.")
         } else {
             t!("Git isn't installed. The Git view needs it.")
         };
