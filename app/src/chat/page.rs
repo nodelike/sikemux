@@ -172,6 +172,7 @@ pub(crate) fn tab_row(
         })
         .hover(|row| row.bg(t.surface_hover))
         .clicks(opens_tab(page, agent, bench))
+        .children(ui::spot(|| format!("page-card-{}", page.id)))
         .child(thumb)
         .child(
             div()

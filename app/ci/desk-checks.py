@@ -378,8 +378,8 @@ def dp5(run):
 
 def dp3(run):
     said = run.prompt(json_tool("page.show", {"path": str(run.root / "site/shown.html"), "title": "Kit shown"}))
-    on_desk = any(page.get("title") == "Kit shown page" for page in pages(run.desk()))
-    run.report("DP3", said.startswith("tool answered") and not on_desk, f"answer {said[:160]!r}; on the desk too: {on_desk}")
+    on_desk = bool(until(lambda: any(page.get("title") == "Kit shown page" for page in pages(run.desk())), 15))
+    run.report("DP3", said.startswith("tool answered") and on_desk, f"answer {said[:160]!r}; on the desk: {on_desk}")
 
 
 def d5(run):

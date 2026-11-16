@@ -206,7 +206,8 @@ async fn run(
                 .active_view(agent_id)
                 .ok()
                 .and_then(|(tab_id, _)| manager.page(agent_id, &tab_id))
-                .map(|page| page.url);
+                .map(|page| page.url)
+                .filter(|url| !manager.shows_page(url));
             let mut new_tab = params.get("newTab").and_then(Value::as_bool) == Some(true);
             let started = Instant::now();
             let mut note = None;
